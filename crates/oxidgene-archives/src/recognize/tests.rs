@@ -1040,6 +1040,68 @@ fn refuses_what_names_no_catalogued_register() {
 }
 
 #[test]
+fn a_kind_of_document_nobody_holds_is_no_link() {
+    let registry = registry();
+    for text in [
+        "AD99 - Exampleville - Registres d’écrou des condamnés 27 octobre 1853-14 juin 1855 - 2Y2 26 - vue 165g/226",
+        "AD99, Exampleville, Registre d'entrées de l'hôpital, 1880, vue 12",
+        "AD99, Exampleville, Minutes notariales 1750-1760, vue 3",
+        "AD99, Exampleville, Matrice cadastrale, vue 8",
+        "AD99, Hypothèques, Exampleville, 1820",
+        "AD99, Exampleville, Répertoire des actes, 1810",
+        "AD99, Exampleville, registres d'écrou, vue 4",
+    ] {
+        // The event's kind never stands in for the unknown one.
+        let evidence = CitationEvidence {
+            event: Some(birth(1853, "Exampleville")),
+            ..title(text)
+        };
+        assert_eq!(
+            registry.recognize(&evidence, None, None),
+            Err(Unrecognized::NoAdapter),
+            "{text}"
+        );
+    }
+    // The reader's own kind overrides the words.
+    let supplied = SuppliedParts {
+        act: Some(Act::from_code("N").unwrap()),
+        ..SuppliedParts::default()
+    };
+    assert!(
+        registry
+            .recognize(
+                &title("AD99, Exampleville, Matrice cadastrale"),
+                Some(&supplied),
+                None
+            )
+            .is_ok()
+    );
+}
+
+#[test]
+fn free_fields_and_known_kinds_are_not_refused() {
+    let registry = registry();
+    for text in [
+        "AD99, Canton est, collection communale, vue 4",
+        "AD99, Exampleville, registre, 1872, vue 4",
+        "AD99, Exampleville, registre des naissances 1872, vue 4",
+        "AD99, registre de l'état civil de Exampleville, 1872",
+        "AD99, registres de Exampleville, 1872",
+        "AD99, 4E 1234, v. 45, n° 312",
+    ] {
+        assert!(
+            registry.recognize(&title(text), None, None).is_ok(),
+            "{text}"
+        );
+    }
+    // Archive known, act missing: still the dialog's case.
+    let recognition = registry
+        .recognize(&title("AD99, Exampleville, Canton est, vue 4"), None, None)
+        .unwrap();
+    assert_eq!(recognition.missing(), [Part::Act]);
+}
+
+#[test]
 fn an_incomplete_citation_says_what_is_missing() {
     let registry = registry();
     let recognition = registry

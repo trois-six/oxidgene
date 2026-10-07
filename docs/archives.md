@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T10:06:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:12:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1858,6 +1858,7 @@ phrases, written naturally and folded when loaded:
 | `numbers`, `other_numbers`, `folios`, `pages`, `recto`, `verso`, `call_numbers`, `parishes`, `bureaus` | The keywords above |
 | `places`, `particles` | Prepositions introducing a locality, and particles within place names |
 | `months`, `ranges`, `republican_years` | Month names, the words joining a period, the word before a Republican year (French conventions only) |
+| `unsupported` | Phrases naming a kind of document no collection holds (`minutes notariales`, `matrice cadastrale`, `hypothèques`, `écrou`): a citation naming one is no link (below) |
 | `ignored` | Words that are no locality (`s.d.`, `France`) |
 
 The first phrase of an act, table or series and the first view word are
@@ -1882,9 +1883,20 @@ number, a folio or a call number in the words, or an event of a kind the
 archive's registers record. A document kind
 the words or the normalized form name that no collection holds is
 `no_adapter`, as is an uncatalogued archive; one only the event gives is
-dropped instead. Nothing naming an archive is `not_an_archive_citation`.
-The result may still miss the act or the locality (`Recognition::missing`):
-the link is offered all the same, and opens the "Find in the archives"
+dropped instead. So is a document kind the words name that OxidGene does not
+know at all: a phrase of the vocabulary's `unsupported` list, or a generic
+register word followed by a preposition and a lowercase word that is no
+keyword (`registres d'écrou des condamnés`, `registre d'entrées de
+l'hôpital`) — a locality (capitalized), a known act, table or series
+(`registre des naissances`), a period, a call number or a view qualifies
+nothing unknown, and neither do free fields without a register word
+(`Canton est`, `collection communale`). Such a citation is `no_adapter`
+whatever else the words or the cited event say (the event's kind never
+stands in for it); only the reader's kind or the normalized form's overrides
+it. Nothing naming an archive is `not_an_archive_citation`.
+The result may still miss the act or the locality (`Recognition::missing`),
+provided it names no document kind at all: the link is offered all the same,
+and opens the "Find in the archives"
 dialog (§6.5); asked without the reader's parts, the backend answers the
 archive's filtered search page, built without a request
 (`ArchiveTarget::Results` with no match count), or its website without a
@@ -2325,7 +2337,10 @@ other.
 ### 6.5 Find in the archives
 
 A citation whose archive is recognized but whose act or locality is not
-(§5.1) is a link all the same. Its click opens a small dialog, the shared
+(§5.1) is a link all the same, provided it names no document kind: one the
+catalogue's collections do not hold, or one OxidGene does not know (a prison
+register, notarial minutes), is no link at all rather than a dialog that
+could never find it. Its click opens a small dialog, the shared
 modal of [UI Common](ui-common.md), titled **Find in the archives**
 (`archive_viewer.find_title`) and prefilled with what was recognized: the
 archive, shown and fixed; the locality; the kind of register, chosen among

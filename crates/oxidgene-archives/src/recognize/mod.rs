@@ -803,6 +803,15 @@ impl Weighing<'_> {
             self.reading.register_texts().find_map(Facts::act),
             Signal::Words,
         );
+        // A kind of document no collection holds, named in the words, is
+        // no link — whatever else the words or the event say; only the
+        // reader or the normalized form, which choose their kind, may
+        // override it.
+        if self.reading.register_texts().any(|facts| facts.unsupported)
+            && !matches!(act.0, Some((_, Signal::Reader | Signal::Normalized)))
+        {
+            return Err(Unrecognized::NoAdapter);
+        }
         if let Some((written, signal)) = &act.0
             && *signal != Signal::Reader
             && !self.archive.holds(written)

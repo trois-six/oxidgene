@@ -46,6 +46,10 @@ pub(super) struct Facts {
     pub folio: Option<String>,
     pub localities: Vec<(String, Placing)>,
     pub parish: Option<String>,
+    /// The text names a kind of document no archive collection holds: a
+    /// phrase of the vocabulary's `unsupported` list, or a register word
+    /// qualified by a word that is no known document (`registres d'écrou`).
+    pub unsupported: bool,
 }
 
 impl Facts {
@@ -237,6 +241,14 @@ impl Scanner<'_> {
             Some(Meaning::Family(family)) => {
                 facts.families.push(*family);
                 reading.context = Context::Document;
+                if *family == Family::Either && self.qualified_by_unknown(segment, next) {
+                    facts.unsupported = true;
+                }
+                next
+            }
+            Some(Meaning::Unsupported) => {
+                facts.unsupported = true;
+                reading.context = Context::Document;
                 next
             }
             Some(Meaning::Document(act)) => {
@@ -322,6 +334,22 @@ impl Scanner<'_> {
             }
             _ => next,
         }
+    }
+
+    /// Whether a generic register word, ending before token `at`, is
+    /// qualified by a word the vocabulary does not know: a preposition then
+    /// a lowercase word that is no keyword, as `d'écrou` in `registres
+    /// d'écrou`. A proper name (a locality), a number or a keyword
+    /// (`registre des naissances`) qualifies nothing unknown.
+    fn qualified_by_unknown(&self, segment: &Segment, at: usize) -> bool {
+        let start = self.skip_prepositions(segment, at);
+        start > at
+            && segment.tokens.get(start).is_some_and(|token| {
+                token.raw.starts_with(char::is_lowercase)
+                    && token.raw.chars().all(char::is_alphabetic)
+                    && !self.lexicon.is_particle(token)
+                    && self.lexicon.at(segment, start).is_none()
+            })
     }
 
     /// The archive a kind of archive names with what follows it — its area,

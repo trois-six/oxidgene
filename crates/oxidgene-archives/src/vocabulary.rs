@@ -54,6 +54,8 @@ pub(crate) enum Meaning {
     /// A preposition introducing a locality: `de`, `à`.
     Place,
     Bureau,
+    /// A kind of document known not to be supported: `minutes notariales`.
+    Unsupported,
     Range,
     RepublicanYear,
     /// A month, zero-based.
@@ -132,6 +134,10 @@ struct Document {
     particles: Vec<String>,
     #[serde(default)]
     bureaus: Vec<String>,
+    /// Phrases naming a kind of document no collection holds, so that a
+    /// citation of it is no link.
+    #[serde(default)]
+    unsupported: Vec<String>,
     /// Twelve lists, January first, or none.
     #[serde(default)]
     months: Vec<Vec<String>>,
@@ -209,6 +215,7 @@ impl Document {
             (&self.parishes, Meaning::Parish, None),
             (&self.places, Meaning::Place, None),
             (&self.bureaus, Meaning::Bureau, None),
+            (&self.unsupported, Meaning::Unsupported, None),
             (&self.ranges, Meaning::Range, None),
             (&self.republican_years, Meaning::RepublicanYear, None),
             (&self.ignored, Meaning::Ignored, None),

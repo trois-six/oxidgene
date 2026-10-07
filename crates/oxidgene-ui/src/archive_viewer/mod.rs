@@ -529,6 +529,19 @@ mod tests {
         assert_eq!(find.missing, [Part::Act, Part::Locality]);
         assert_eq!(find.found.views[0].view, 45);
 
+        // A kind of document nobody holds is no link, not even the dialog.
+        assert_eq!(
+            offer(
+                "AD72 - Exampleville - Registres d’écrou des condamnés 27 octobre 1853-14 juin 1855 - 2Y2 26 - vue 165g/226",
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            offer("AD72, Exampleville, Minutes notariales 1750", None),
+            None
+        );
+
         assert_eq!(offer("Fictitious register", None), None);
         assert_eq!(offer("AD98, état civil de Exampleville", None), None);
     }
