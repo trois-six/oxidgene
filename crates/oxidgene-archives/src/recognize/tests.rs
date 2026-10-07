@@ -1570,3 +1570,81 @@ fn a_second_language_is_data() {
     assert_eq!(recognition.found.act, None);
     assert!(recognition.found.views.is_empty());
 }
+
+#[test]
+fn reads_an_approximate_period_s_years() {
+    let cases = [
+        (
+            "AD99 - Exampleville - TD - env 1792-1952 - 9NUM/8E99 - vue 5d/353",
+            at(AD99)
+                .act("TD")
+                .locality("Exampleville")
+                .year(1792)
+                .call("9NUM/8E99")
+                .views("5d")
+                .of(353),
+        ),
+        (
+            "AD99, Exampleville, BMS env. 1702, v. 5",
+            at(AD99)
+                .act("BMS")
+                .locality("Exampleville")
+                .year(1702)
+                .views("5"),
+        ),
+        (
+            "AD99, Exampleville, BMS Vers 1702",
+            at(AD99).act("BMS").locality("Exampleville").year(1702),
+        ),
+        (
+            "AD99, Exampleville, N ca 1880",
+            at(AD99).act("N").locality("Exampleville").year(1880),
+        ),
+        (
+            "AD99, Exampleville, N ~1880",
+            at(AD99).act("N").locality("Exampleville").year(1880),
+        ),
+        // The word without a period is a name: a commune called so.
+        (
+            "AD99, Vers, BMS 1702",
+            at(AD99).act("BMS").locality("Vers").year(1702),
+        ),
+    ];
+    assert_eq!(corpus(&registry(), &cases), 6);
+}
+
+#[test]
+fn reads_a_section_of_a_city_s_registers_as_its_parish() {
+    let cases = [
+        (
+            "AD99 - Exampleville - D - 1893 - 3e section - 4 E 99993 - acte 520 - vue 72d/293",
+            at(AD99)
+                .act("D")
+                .locality("Exampleville")
+                .parish("3e section")
+                .year(1893)
+                .call("4 E 99993")
+                .number(520)
+                .views("72d")
+                .of(293),
+        ),
+        (
+            "AD99, Exampleville, D 1893, section 2, v. 7",
+            at(AD99)
+                .act("D")
+                .locality("Exampleville")
+                .parish("section 2")
+                .year(1893)
+                .views("7"),
+        ),
+        (
+            "AD99, Exampleville, N 1893, 1re section",
+            at(AD99)
+                .act("N")
+                .locality("Exampleville")
+                .parish("1re section")
+                .year(1893),
+        ),
+    ];
+    assert_eq!(corpus(&registry(), &cases), 3);
+}

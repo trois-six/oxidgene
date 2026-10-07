@@ -6,7 +6,7 @@ Ardèche and Haute-Garonne portals, of the other Ligeo shapes recorded on
 departmental portals since (notice lists, qualified and composite locality
 cells, indexes of persons, a search within a finding aid), and a
 military-register table built in the same markup, with fictitious
-localities, parishes, call numbers, internal references, ARK names and
+localities, parishes, sections, call numbers, internal references, ARK names and
 image paths; no recorded value is copied. Only what the adapter reads is
 kept, plus the neighbouring markup it must skip (action cells, notice
 links, scripts). The manifest keeps neither the portal's server paths nor
@@ -323,6 +323,29 @@ write("fonds.html", '<!DOCTYPE html><html><head><title>Archives d\'Exemple</titl
       + fonds_notice(103, "AUTREVILLE", "9 NUM /2EC1", "Naissances, mariages, décès. avant 1890 voir EXAMPLEVILLE",
                      "1872-1876", 61)
       + '</ul></div></body></html>\n')
+
+# A city whose registers of one year and act are split by section: the
+# locality cell lists the city, then the city and its section, one after
+# another (`<br/>`); the call-number search answers one row, and a call
+# number written otherwise none.
+SECTION_HEADERS = ["Lieux", "Registre", "Actes", "Dates", "Cote", "Accès", "Action(s)"]
+
+
+def section_row(n, section, cote, count):
+    city = '<span class="arc_surlignage">Exampleville</span> (Exampledept, France)'
+    place = f'<div class="items">{city}<br/>{city} -- Section {section}</div>'
+    return [place, "Registre d'état civil", "Sépulture ou décès", "1893", esc(cote),
+            viewer_link(n, count, cote), actions(n, 629)]
+
+
+sections = [section_row(81 + k, k + 1, f"4 E 9999{k + 1}", count)
+            for k, count in enumerate([310, 287, 293, 301])]
+write("sections.html", page(
+    '<p class="nb_reponses"><span>4</span> réponses dans 1 inventaire</p>',
+    table(SECTION_HEADERS, sections)))
+write("section-one.html", page(
+    '<p class="nb_reponses"><span>1</span> réponse dans 1 inventaire</p>',
+    table(SECTION_HEADERS, sections[2:3])))
 
 # Titles whose locality ends at `.-`, and a heading that starts with the
 # register's call number.

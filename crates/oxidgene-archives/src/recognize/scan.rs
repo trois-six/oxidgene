@@ -4,7 +4,9 @@
 //! tokens after it are.
 
 use crate::catalog::{Archive, Level};
-use crate::citation::{Act, ActKind, CallNumber, CitedView, republican_numeral, republican_start};
+use crate::citation::{
+    Act, ActKind, CallNumber, CitedView, ordinal, republican_numeral, republican_start,
+};
 use crate::vocabulary::{Family, Meaning, fold};
 
 use super::lex::{Lexicon, Segment, Token, matches_at, year};
@@ -175,17 +177,14 @@ impl Scanner<'_> {
             facts.date_years.push(year);
             return at + taken;
         }
-        if let Some((text, year, taken, range)) = self.period_at(segment, at) {
-            if reading.context == Context::Document || range {
-                facts.period.get_or_insert((text, year));
-            } else {
-                facts.years.push((text, year));
-            }
+        if let Some((text, year, taken, range)) = self.approximate_period_at(segment, at) {
+            Self::period(text, year, range, reading, facts);
             return at + taken;
         }
         if let Some(act) = act_code(&token.raw) {
             let alone = tokens.len() == 1;
-            let dated = at + 1 < tokens.len() && self.period_at(segment, at + 1).is_some();
+            let dated =
+                at + 1 < tokens.len() && self.approximate_period_at(segment, at + 1).is_some();
             if token.raw.len() >= 2 || alone || dated {
                 facts.documents.push(act);
                 reading.context = Context::Document;
@@ -196,7 +195,13 @@ impl Scanner<'_> {
             facts.archives.push(archive);
             return at + tokens_of_alias(segment, at, &self.archives[archive]);
         }
-        if let Some((taken, meanings)) = self.lexicon.at(segment, at) {
+        // A word marking a period as approximate with no period after it
+        // may be a place's name (`Vers`).
+        if let Some((taken, meanings)) = self.lexicon.at(segment, at)
+            && !meanings
+                .iter()
+                .all(|meaning| matches!(meaning, Meaning::Approximate))
+        {
             return self.keyword(segment, at, taken, &meanings, reading, facts);
         }
         if let Some((text, end)) = self.place_run(segment, at) {
@@ -204,6 +209,16 @@ impl Scanner<'_> {
             return end;
         }
         at + 1
+    }
+
+    /// A period read: the register's when written with a document or as
+    /// a range, a year alone otherwise.
+    fn period(text: String, year: u16, range: bool, reading: &Reading, facts: &mut Facts) {
+        if reading.context == Context::Document || range {
+            facts.period.get_or_insert((text, year));
+        } else {
+            facts.years.push((text, year));
+        }
     }
 
     /// Reads a keyword of `taken` tokens at `at`.
@@ -307,6 +322,24 @@ impl Scanner<'_> {
                     Some((text, end)) => {
                         facts.parish.get_or_insert(text);
                         end
+                    }
+                    None => next,
+                }
+            }
+            Some(Meaning::Section) => {
+                // `3e section`, `1re section`, or `section 3`.
+                let before = at
+                    .checked_sub(1)
+                    .and_then(|before| segment.tokens.get(before))
+                    .filter(|token| ordinal(&token.raw).is_some());
+                if before.is_some() {
+                    facts.parish.get_or_insert(segment.text(at - 1, next));
+                    return next;
+                }
+                match segment.tokens.get(next).and_then(Token::number) {
+                    Some(_) => {
+                        facts.parish.get_or_insert(segment.text(at, next + 1));
+                        next + 1
                     }
                     None => next,
                 }
@@ -441,6 +474,7 @@ impl Scanner<'_> {
                     meaning,
                     Meaning::Place
                         | Meaning::Range
+                        | Meaning::Approximate
                         | Meaning::Month(_)
                         | Meaning::Recto
                         | Meaning::Verso
@@ -612,6 +646,25 @@ impl Scanner<'_> {
             ))),
             None => self.republican_at(segment, at),
         }
+    }
+
+    /// A period from token `at` ([`Self::period_at`]), or after a word
+    /// marking it as approximate (`env. 1792-1952`, `vers 1750`): its years
+    /// as written without the word, which it takes too.
+    fn approximate_period_at(&self, segment: &Segment, at: usize) -> Option<Period> {
+        if let Some(period) = self.period_at(segment, at) {
+            return Some(period);
+        }
+        let (taken, meanings) = self.lexicon.at(segment, at)?;
+        if !meanings
+            .iter()
+            .any(|meaning| matches!(meaning, Meaning::Approximate))
+            || at + taken >= segment.tokens.len()
+        {
+            return None;
+        }
+        let (text, year, period, range) = self.period_at(segment, at + taken)?;
+        Some((text, year, taken + period, range))
     }
 
     /// The range a year at `at` starts: `1745 - 1760`, `1745 à 1760`.

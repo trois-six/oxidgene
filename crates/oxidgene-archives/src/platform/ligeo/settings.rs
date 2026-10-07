@@ -80,6 +80,11 @@ pub(super) struct Fields {
     /// number, which finds the person's row.
     #[serde(default)]
     pub(super) number: Option<String>,
+    /// The input taking the cited call number (`RECH_cote`), which singles
+    /// out the register on a portal whose search by locality alone answers
+    /// too slowly for its largest communes (a city's registers by section).
+    #[serde(default)]
+    pub(super) call_number: Option<String>,
     /// Years searched on either side of the cited one in `year_from` and
     /// `year_to`, for a portal whose index dates a register by other years
     /// than its title shows (`mars - décembre 1672` not found for 1672).
@@ -97,6 +102,7 @@ impl Fields {
             &self.year_to,
             &self.year,
             &self.number,
+            &self.call_number,
         ]
         .into_iter()
         .flatten()
@@ -365,10 +371,11 @@ impl Settings {
     }
 
     /// The filters of a search, shared by the request and the results page:
-    /// the locality, the act, the collection's own inputs, the year, and an
-    /// index's matricule number. Nothing else of the citation leaves the
-    /// application. The locality is the portal's text match, and the year is
-    /// the portal's test: both are re-checked on the rows.
+    /// the locality, the act, the collection's own inputs, the year, an
+    /// index's matricule number, and the cited call number where the form
+    /// takes one. Nothing else of the citation leaves the application. The
+    /// locality is the portal's text match, and the year is the portal's
+    /// test: both are re-checked on the rows.
     pub(super) fn filters(&self, citation: &CitationParts) -> Query {
         let mut query = Query::new();
         if let Some(locality) = &self.fields.locality {
@@ -397,6 +404,9 @@ impl Settings {
         }
         if let (Some(name), Some(number)) = (&self.fields.number, citation.number) {
             query.push(name, number.to_string());
+        }
+        if let (Some(name), Some(call_number)) = (&self.fields.call_number, &citation.call_number) {
+            query.push(name, call_number.as_str());
         }
         query.push("type", self.search.as_str());
         query

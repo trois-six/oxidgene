@@ -172,14 +172,15 @@ fn merge_split_periods(segments: Vec<Segment>) -> Vec<Segment> {
 }
 
 /// The tokens of a segment: its words split on whitespace, the quotes and
-/// colons around them dropped, an elided article split from its word
+/// colons around them and a tilde before them (`~1850`, an approximate year)
+/// dropped, an elided article split from its word
 /// (`d'Exampleville`), and an abbreviation glued to its number split from
 /// it (`n°312`, `v.45`).
 fn tokens(segment: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     for piece in segment.split_whitespace() {
         let piece = piece
-            .trim_start_matches(['"', '\'', '«', '»', '“', '”', '‘', '’', ':', '{', '}'])
+            .trim_start_matches(['"', '\'', '«', '»', '“', '”', '‘', '’', ':', '{', '}', '~'])
             .trim_end_matches(['"', '«', '»', '“', '”', '’', ':', '{', '}', '!', '?']);
         let piece = piece.trim_end_matches('\'');
         // A full stop after a number ends a sentence; after letters it may

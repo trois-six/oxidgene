@@ -19,6 +19,8 @@ const AIN_TABLES: &str = include_str!("../../../fixtures/ligeo/ain-tables.html")
 const ARDECHE_CIVIL: &str = include_str!("../../../fixtures/ligeo/ardeche-civil.html");
 const ARDECHE_PARISH: &str = include_str!("../../../fixtures/ligeo/ardeche-parish.html");
 const HG_SEVERAL: &str = include_str!("../../../fixtures/ligeo/hg-several.html");
+const SECTIONS: &str = include_str!("../../../fixtures/ligeo/sections.html");
+const SECTION_ONE: &str = include_str!("../../../fixtures/ligeo/section-one.html");
 const MANIFEST: &str = include_str!("../../../fixtures/ligeo/manifest.json");
 const INFO_WIDE: &str = include_str!("../../../fixtures/ligeo/info-wide.json");
 const INFO_TALL: &str = include_str!("../../../fixtures/ligeo/info-tall.json");
@@ -42,6 +44,8 @@ fn block_on<F: Future>(future: F) -> F::Output {
 /// their fixtures, and records the requests.
 struct Fixtures {
     search: &'static str,
+    /// The answer to a search by call number, where it differs.
+    by_call_number: Option<&'static str>,
     manifest: &'static str,
     info: &'static str,
     requests: Mutex<Vec<String>>,
@@ -51,6 +55,7 @@ impl Fixtures {
     fn new(search: &'static str) -> Self {
         Self {
             search,
+            by_call_number: None,
             manifest: MANIFEST,
             info: INFO_TALL,
             requests: Mutex::new(Vec::new()),
@@ -70,7 +75,11 @@ impl PortalFetch for Fixtures {
         Box::pin(async move {
             self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
-            let body = if url.contains("/resultats/") || url.contains("/fonds/") {
+            let body = if url.contains("RECH_cote=")
+                && let Some(answer) = self.by_call_number
+            {
+                answer
+            } else if url.contains("/resultats/") || url.contains("/fonds/") {
                 self.search
             } else if url.starts_with("/ark:/") && url.ends_with("/manifest") {
                 self.manifest
@@ -1394,4 +1403,82 @@ fn validates_the_settings_of_the_new_shapes() {
         p["columns"].as_object_mut().unwrap().remove("locality");
     });
     assert_eq!(Ligeo.validate(&by_year), Ok(()));
+}
+
+/// The Gironde's search of a city whose registers are split by section.
+const GIRONDE_SEARCH: &str = "/archive/resultats/etatcivil/n:629?REch_commune=Exampleville\
+    &RECH_acte_NMD%5B%5D=S%C3%A9pulture%20ou%20d%C3%A9c%C3%A8s&RECH_images=1\
+    &RECH_unitdate_debut=1893&RECH_unitdate_fin=1893";
+
+#[test]
+fn a_cited_call_number_narrows_the_search_to_its_register() {
+    let fetch = Fixtures {
+        by_call_number: Some(SECTION_ONE),
+        ..Fixtures::new(SECTIONS)
+    };
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD33 - Exampleville - 3e section - D - 1893 - 4 E 99993 - acte 520 - vue 72d/293",
+        &fetch,
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0083");
+    // One search, the call number's: the city's whole search may outlast
+    // the portal's own gateway.
+    let searches: Vec<String> = fetch
+        .requests()
+        .into_iter()
+        .filter(|url| url.contains("/resultats/"))
+        .collect();
+    assert_eq!(
+        searches,
+        [format!(
+            "{GIRONDE_SEARCH}&RECH_cote=4%20E%2099993&type=etatcivil"
+        )]
+    );
+}
+
+#[test]
+fn a_call_number_the_portal_writes_otherwise_falls_back_to_the_plain_search() {
+    let fetch = Fixtures {
+        by_call_number: Some(AIN_NONE),
+        ..Fixtures::new(SECTIONS)
+    };
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD33 - Exampleville - 3e section - D - 1893 - 4E99993 - vue 72",
+        &fetch,
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0083");
+    let searches: Vec<String> = fetch
+        .requests()
+        .into_iter()
+        .filter(|url| url.contains("/resultats/"))
+        .collect();
+    assert_eq!(
+        searches,
+        [
+            format!("{GIRONDE_SEARCH}&RECH_cote=4E99993&type=etatcivil"),
+            format!("{GIRONDE_SEARCH}&type=etatcivil"),
+        ]
+    );
+}
+
+#[test]
+fn a_section_selects_its_register_whichever_way_it_is_written() {
+    for parish in ["3e section", "3ème section", "section 3"] {
+        let title = format!("AD33 - Exampleville - {parish} - D - 1893 - vue 72");
+        assert_eq!(
+            chosen(ArchiveRegistry::embedded(), &title, SECTIONS).as_deref(),
+            Ok("vtaexample0083"),
+            "{parish}"
+        );
+    }
+    // Without its section, the city's registers of the year are several.
+    let (target, _) = embedded(
+        "AD33 - Exampleville - (aucun) - D - 1893 - vue 72",
+        SECTIONS,
+    );
+    assert_eq!(matches(&target), Some(4));
 }

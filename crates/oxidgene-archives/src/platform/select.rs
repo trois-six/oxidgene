@@ -24,7 +24,8 @@
 //! act codes, notes and Republican years included.
 
 use crate::citation::{
-    Act, CitationGrammar, CitationParts, MONTHS, day_before, republican_numeral, republican_start,
+    Act, CitationGrammar, CitationParts, MONTHS, day_before, ordinal, republican_numeral,
+    republican_start,
 };
 
 use super::markup::fold;
@@ -321,12 +322,12 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8]
                 as Criterion<'c, T>,
         ),
         citation.parish.as_deref().map(|parish| {
-            let parish = fold(parish);
+            let parish = parish_key(parish);
             Box::new(move |candidate: &Candidate<T>| {
                 candidate
                     .parish
                     .as_deref()
-                    .is_some_and(|written| fold(written) == parish)
+                    .is_some_and(|written| parish_key(written) == parish)
             }) as Criterion<'c, T>
         }),
         citation.year.map(|year| {
@@ -352,6 +353,20 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8]
                 as Criterion<'c, T>
         }),
     ]
+}
+
+/// A parish as compared: folded, and a section of a large commune's
+/// registers read as its number whichever way it is written (`3e section`,
+/// `Section 3`, `3ème section` are `section 3`).
+pub(crate) fn parish_key(text: &str) -> String {
+    let folded = fold(text);
+    let words: Vec<&str> = folded.split(' ').collect();
+    let section = match words.as_slice() {
+        [number, "section"] => ordinal(number),
+        ["section", number] => number.parse::<u32>().ok(),
+        _ => None,
+    };
+    section.map_or(folded, |number| format!("section {number}"))
 }
 
 /// Whether a displayed act admits the cited act. Acts written as codes

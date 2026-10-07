@@ -392,7 +392,10 @@ impl CallNumber {
     /// several years) also matches one it contains (`5 Mi 9_375`), and one
     /// that contains it. A portal's text may hold several call numbers —
     /// `4E 1927 / 5Mi 825 BIS [1134369/2]`, the original's, the microfilm's
-    /// and an internal reference —, each of which is compared.
+    /// and an internal reference —, each of which is compared. A cited call
+    /// number joining a digitization's to the original's (`9NUM/8E46`, a
+    /// copy `9 NUM` of the register `8 E 46`) also matches a portal's text
+    /// that is either alone: portals show one or the other.
     pub fn matched(&self, other: &str) -> usize {
         let written = Self::parts(other);
         self.alternatives()
@@ -401,6 +404,9 @@ impl CallNumber {
                 written
                     .iter()
                     .any(|theirs| Self::same_register(mine, theirs))
+                    || Self::slashed(mine)
+                        .iter()
+                        .any(|piece| Self::same_register(piece, other.trim()))
             })
             .count()
     }
@@ -420,15 +426,25 @@ impl CallNumber {
             outside = before.trim();
             parts.push(outside);
         }
-        let pieces: Vec<&str> = outside.split('/').map(str::trim).collect();
+        parts.extend(Self::slashed(outside));
+        parts
+    }
+
+    /// The call numbers a text joins with slashes, when every piece has
+    /// letters and digits (`4E 1927 / 5Mi 825 BIS`, `9NUM/8E46`); none
+    /// otherwise (`9 E 250 / 1`, `3E73/14`: a slash before a bare number
+    /// belongs to the call number).
+    fn slashed(text: &str) -> Vec<&str> {
+        let pieces: Vec<&str> = text.split('/').map(str::trim).collect();
         let call_like = |piece: &&str| {
             piece.chars().any(|c| c.is_ascii_alphabetic())
                 && piece.chars().any(|c| c.is_ascii_digit())
         };
         if pieces.len() > 1 && pieces.iter().all(call_like) {
-            parts.extend(pieces);
+            pieces
+        } else {
+            Vec::new()
         }
-        parts
     }
 
     /// Whether two single call numbers name the same register.
@@ -732,7 +748,7 @@ impl CitationParts {
             .first()
             .and_then(|field| Some((*field, period_start(field)?)))
         {
-            period = Some(field.to_owned());
+            period = Some(exact_period(field).to_owned());
             year = Some(first_year);
             rest = &rest[1..];
         }
@@ -768,12 +784,12 @@ impl CitationParts {
         if let Some((first, after)) = rest.split_first()
             && let Some(year) = period_start(first)
         {
-            period = Some((*first, year));
+            period = Some((exact_period(first), year));
             rest = after;
         } else if let Some((last, head)) = before.split_last()
             && let Some(year) = period_start(last)
         {
-            period = Some((*last, year));
+            period = Some((exact_period(last), year));
             before = head;
         }
         if let Some((last, head)) = before.split_last()
@@ -860,6 +876,7 @@ fn find_act(fields: &[&str]) -> Option<usize> {
 /// `an XI-an XII`, `an XI-XII`, a note in parentheses after it left aside
 /// (`1931 (A-H, collection communale)`).
 fn period_start(field: &str) -> Option<u16> {
+    let field = exact_period(field);
     let field = field
         .trim_end()
         .strip_suffix(')')
@@ -879,6 +896,42 @@ fn period_start(field: &str) -> Option<u16> {
         }
     }
     Some(start)
+}
+
+/// The number of an ordinal written with its French suffix, in any case
+/// and with or without accents: `3e`, `1re`, `1er`, `2ème`, `2nde`.
+pub(crate) fn ordinal(word: &str) -> Option<u32> {
+    let folded = fold_words(word);
+    let digits = folded.find(|c: char| !c.is_ascii_digit())?;
+    let number = folded[..digits].parse().ok().filter(|number| *number > 0)?;
+    ["e", "er", "re", "ere", "eme", "nd", "nde"]
+        .contains(&&folded[digits..])
+        .then_some(number)
+}
+
+/// The words marking a period as approximate before it, as the French
+/// vocabulary's `approximate` list writes them (`env. 1792-1952`, `vers
+/// 1750`), with the tilde (`~1850`).
+const APPROXIMATE: [&str; 8] = [
+    "environ ", "env. ", "env ", "vers ", "circa ", "ca. ", "ca ", "c. ",
+];
+
+/// A period field without the word marking it as approximate: its years are
+/// the register's all the same.
+fn exact_period(field: &str) -> &str {
+    let field = field.trim();
+    if let Some(rest) = field.strip_prefix('~') {
+        return rest.trim_start();
+    }
+    APPROXIMATE
+        .iter()
+        .find_map(|word| {
+            field
+                .get(..word.len())
+                .filter(|head| head.eq_ignore_ascii_case(word))
+                .map(|_| field[word.len()..].trim_start())
+        })
+        .unwrap_or(field)
 }
 
 /// A Gregorian year of four digits, alone or ending a date (`05/03/1871`,
@@ -1164,6 +1217,20 @@ mod tests {
             assert_eq!(citation.year, Some(year), "{period}");
             assert_eq!(citation.period.as_deref(), Some(period));
         }
+        // An approximate period: its years, without the word marking it.
+        for (written, period, year) in [
+            ("env 1792-1952", "1792-1952", 1792),
+            ("env. 1792-1952", "1792-1952", 1792),
+            ("Vers 1750", "1750", 1750),
+            ("ca 1750", "1750", 1750),
+            ("circa an XII", "an XII", 1803),
+            ("~1850", "1850", 1850),
+        ] {
+            let citation = parse(&format!("AD44 - Exampleville - (aucun) - TD - {written}"))
+                .expect("a normalized citation");
+            assert_eq!(citation.year, Some(year), "{written}");
+            assert_eq!(citation.period.as_deref(), Some(period), "{written}");
+        }
         for period in ["circa", "an XV", "an 0", "1703-1702", "187"] {
             let citation = parse(&format!("AD44 - Exampleville - (aucun) - D - {period}"))
                 .expect("a citation without a period");
@@ -1214,6 +1281,24 @@ mod tests {
         // A number is not a range of the numbers it starts with.
         assert!(!CallNumber::new("3 E 73 / 14").matches("3 E 73 / 1"));
         assert!(!CallNumber::new("1 R 1213").matches("1 R 1213-1215"));
+    }
+
+    #[test]
+    fn a_digitization_s_call_number_matches_either_part() {
+        let joined = CallNumber::new("9NUM/8E99");
+        for (written, matches) in [
+            ("9 NUM /8E99", true),
+            ("8 E 99", true),
+            ("9 NUM", true),
+            ("8 E 98", false),
+            ("9 NUM /8E98", false),
+        ] {
+            assert_eq!(joined.matches(written), matches, "{written}");
+        }
+        assert!(CallNumber::new("8 E 99").matches("9 NUM /8E99"));
+        // A volume after a slash is no second call number.
+        assert!(!CallNumber::new("3E73/14").matches("14"));
+        assert!(!CallNumber::new("4 E 8050/10").matches("4 E 8050"));
     }
 
     #[test]

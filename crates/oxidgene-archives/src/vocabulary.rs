@@ -51,6 +51,11 @@ pub(crate) enum Meaning {
     Verso,
     CallNumber,
     Parish,
+    /// A division of a large commune's registers, with its number before
+    /// or after it: `3e section`, `section 3`.
+    Section,
+    /// A word marking a period as approximate: `env.`, `vers`, `ca`.
+    Approximate,
     /// A preposition introducing a locality: `de`, `à`.
     Place,
     Bureau,
@@ -128,6 +133,10 @@ struct Document {
     call_numbers: Vec<String>,
     #[serde(default)]
     parishes: Vec<String>,
+    #[serde(default)]
+    sections: Vec<String>,
+    #[serde(default)]
+    approximate: Vec<String>,
     #[serde(default)]
     places: Vec<String>,
     #[serde(default)]
@@ -213,6 +222,8 @@ impl Document {
             (&self.verso, Meaning::Verso, None),
             (&self.call_numbers, Meaning::CallNumber, None),
             (&self.parishes, Meaning::Parish, None),
+            (&self.sections, Meaning::Section, None),
+            (&self.approximate, Meaning::Approximate, None),
             (&self.places, Meaning::Place, None),
             (&self.bureaus, Meaning::Bureau, None),
             (&self.unsupported, Meaning::Unsupported, None),

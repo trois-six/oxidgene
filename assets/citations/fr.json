@@ -84,6 +84,8 @@
   "verso": ["verso", "v°", "v"],
   "call_numbers": ["cote", "cotes"],
   "parishes": ["paroisse", "par."],
+  "sections": ["section"],
+  "approximate": ["environ", "env.", "vers", "circa", "ca", "c."],
   "places": ["de", "d'", "du", "des", "à", "au", "aux", "commune de", "ville de"],
   "particles": ["sur", "sous", "en", "le", "la", "les", "de", "du", "des", "d'", "l'", "lès", "lez", "aux", "au", "et"],
   "bureaus": ["bureau", "bureau de recrutement"],

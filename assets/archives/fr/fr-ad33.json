@@ -22,7 +22,8 @@
           "locality": "REch_commune",
           "act": "RECH_acte_NMD[]",
           "year_from": "RECH_unitdate_debut",
-          "year_to": "RECH_unitdate_fin"
+          "year_to": "RECH_unitdate_fin",
+          "call_number": "RECH_cote"
         },
         "params": {
           "RECH_images": "1"

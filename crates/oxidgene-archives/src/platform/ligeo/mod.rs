@@ -22,7 +22,7 @@ mod tests;
 
 use super::iiif::{PICTURE_BOUND, THUMBNAIL_MIN_WIDTH, image_info};
 use super::markup::fold;
-use super::select::{Candidate, Selection, select};
+use super::select::{Candidate, Selection, parish_key, select};
 use super::view::{cited_views, view_target};
 use super::{BoxFuture, Platform, PortalEndpoint};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
@@ -81,13 +81,12 @@ async fn resolve(
     fetch: &dyn PortalFetch,
 ) -> Result<ArchiveTarget, ResolveError> {
     let settings = Settings::read(collection).map_err(|_| ResolveError::NoAdapter)?;
-    let path = settings.results_path(&settings.filters(citation));
+    let (path, found) = search(&settings, citation, fetch).await?;
     let results = |matches| ArchiveTarget::Results {
         url: format!("{}{path}", settings.origin),
         matches: Some(matches),
     };
 
-    let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
     // More answers than rows: the portal paginates, and the cited register
     // may be on a page not read.
     if found.total.is_some_and(|total| total > found.rows.len()) {
@@ -138,6 +137,28 @@ async fn resolve(
     ))
 }
 
+/// The search's path and answer. A cited call number the portal writes
+/// otherwise finds nothing: the search by the other parts then runs, once.
+async fn search(
+    settings: &Settings,
+    citation: &CitationParts,
+    fetch: &dyn PortalFetch,
+) -> Result<(String, page::Found), ResolveError> {
+    let path = settings.results_path(&settings.filters(citation));
+    let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
+    if !found.rows.is_empty()
+        || settings.fields.call_number.is_none()
+        || citation.call_number.is_none()
+    {
+        return Ok((path, found));
+    }
+    let mut plain = citation.clone();
+    plain.call_number = None;
+    let path = settings.results_path(&settings.filters(&plain));
+    let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
+    Ok((path, found))
+}
+
 /// A row as the citation reads it: when one of its places is the cited
 /// locality, or lies within it, the row's locality is the cited one, with
 /// the place within it as its parish; when one of the parishes it names is
@@ -165,7 +186,7 @@ fn as_cited(row: &Candidate<Row>, wanted: &str, parish: Option<&str>) -> Candida
             .iter()
             .chain(places.iter().filter_map(|place| place.parish.as_ref()))
             .chain(places.iter().map(|place| &place.name))
-            .any(|name| fold(name) == parish);
+            .any(|name| parish_key(name) == parish);
         if named {
             read.parish = Some(parish.to_owned());
         }
@@ -191,7 +212,7 @@ fn choose<'r>(
     } else {
         String::new()
     };
-    let parish = citation.parish.as_deref().map(fold);
+    let parish = citation.parish.as_deref().map(parish_key);
     let viewable: Vec<&Candidate<Row>> = rows
         .iter()
         .filter(|row| row.payload.register.is_some())
