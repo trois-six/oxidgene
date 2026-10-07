@@ -415,6 +415,12 @@ pub struct ArchiveViewerMessages {
     pub challenge: String,
     /// Says that the portal's certificate could not be verified.
     pub certificate: String,
+    /// Says that the page on screen is a server's error page in place of
+    /// the portal's: its gateway timed out (`504`), or another server
+    /// error; and the label of the button loading the page again.
+    pub page_timeout: String,
+    pub page_error: String,
+    pub reload: String,
     /// The label of the button opening the page in the system browser.
     pub open_in_browser: String,
     /// What the window says over a view the reader may attach, and the
@@ -446,6 +452,9 @@ impl ArchiveViewerMessages {
             close: i18n.t("common.close"),
             challenge: i18n.t("archive_viewer.challenge"),
             certificate: i18n.t("archive_viewer.certificate"),
+            page_timeout: i18n.t("archive_viewer.page_timeout"),
+            page_error: i18n.t("archive_viewer.page_error"),
+            reload: i18n.t("archive_viewer.reload"),
             open_in_browser: i18n.t("archive_viewer.open_in_browser"),
             attach_hint: i18n.t("archive_viewer.attach_hint"),
             attach: i18n.t("archive_viewer.attach"),

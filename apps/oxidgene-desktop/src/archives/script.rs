@@ -281,6 +281,9 @@ mod tests {
             palette: "    --bg-deep: #000001;\n".to_owned(),
             close: "Close".to_owned(),
             challenge: "Answer the check.".to_owned(),
+            page_timeout: "The portal timed out.".to_owned(),
+            page_error: "The portal failed.".to_owned(),
+            reload: "Reload".to_owned(),
             #[cfg(any(
                 target_os = "linux",
                 target_os = "dragonfly",

@@ -75,6 +75,11 @@ pub(super) struct Texts {
     pub(super) close: String,
     /// Asks the reader to answer an anti-bot check in the window.
     pub(super) challenge: String,
+    /// Over a server's error page: the gateway timed out, another server
+    /// error; and the label of the button loading the page again.
+    pub(super) page_timeout: String,
+    pub(super) page_error: String,
+    pub(super) reload: String,
     /// Says that the portal's certificate could not be verified.
     #[cfg(any(
         target_os = "linux",
@@ -200,6 +205,9 @@ pub(super) enum PageState {
     Challenge,
     /// An anti-bot refusal, which nobody passes from here.
     Blocked,
+    /// A server's error page in place of the portal's: a gateway that
+    /// timed out (`504`), a server unavailable.
+    Error,
 }
 
 /// One page of the window, classified.
@@ -215,6 +223,9 @@ pub(super) struct Page {
     /// The page's address, as the window's IPC channel gives it.
     #[serde(skip)]
     pub(super) url: String,
+    /// The HTTP status of an error page.
+    #[serde(default)]
+    pub(super) status: Option<u16>,
 }
 
 /// What a waiting connection hears of its window.
@@ -251,7 +262,8 @@ pub(super) enum Step {
 /// The decisions of a connection waiting for the portal's page, apart
 /// from the clock and the window so that they can be tested.
 ///
-/// - The portal's page passes; a block fails at once as a challenge.
+/// - The portal's page passes; a block fails at once as a challenge, and a
+///   server's error page with its status (a gateway's `504` a timeout).
 /// - A check gives the page [`AUTOMATIC_CHECK`] to clear itself, as
 ///   Anubis's proof of work, F5's script or a bot-mitigation redirect do;
 ///   one still on screen after that, or showing a widget, is the reader's
@@ -285,6 +297,7 @@ impl Gate {
         match page.state {
             PageState::Portal => Step::Pass,
             PageState::Blocked => Step::Fail(FetchError::Challenged),
+            PageState::Error => Step::Fail(FetchError::Status(page.status.unwrap_or(500))),
             PageState::Challenge if self.wait == Wait::Interactive => Step::Wait,
             PageState::Challenge if page.interactive => self.ask(now),
             PageState::Challenge => {
@@ -806,6 +819,7 @@ mod tests {
             vendor: None,
             interactive,
             url: String::new(),
+            status: None,
         })
     }
 
@@ -821,6 +835,9 @@ mod tests {
             palette: "    --bg-deep: #000001;\n".to_owned(),
             close: "Close".to_owned(),
             challenge: "Answer the check.".to_owned(),
+            page_timeout: "The portal timed out.".to_owned(),
+            page_error: "The portal failed.".to_owned(),
+            reload: "Reload".to_owned(),
             #[cfg(any(
                 target_os = "linux",
                 target_os = "dragonfly",
@@ -1046,6 +1063,23 @@ mod tests {
         assert_eq!(
             Gate::new(start).seen(&Seen::Untrusted, start),
             Step::Fail(FetchError::Network)
+        );
+        // A server's error page in place of the start page: a gateway's
+        // timeout fails the lookup as one, at once.
+        let error = Seen::Page(Page {
+            state: PageState::Error,
+            vendor: None,
+            interactive: false,
+            url: String::new(),
+            status: Some(504),
+        });
+        assert_eq!(
+            Gate::new(start).seen(&error, start),
+            Step::Fail(FetchError::Status(504))
+        );
+        assert_eq!(
+            oxidgene_archives::ResolveError::from(FetchError::Status(504)).code(),
+            "timeout"
         );
     }
 

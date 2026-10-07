@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T06:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T06:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -2172,8 +2172,9 @@ catalogued, or no collection holds the act), a portal that did not answer as
 expected (`unexpected_response`, with a description of what differed and no
 response content), an anti-bot challenge answering in place of the page
 (`challenged`, which an adapter reports apart from a changed shape because the
-portal did not change), a timeout (`timeout`), and a portal that could not be
-reached or answered with a server error (`unreachable`). Each code is stable
+portal did not change), a timeout (`timeout`, also a gateway's `504`: the
+portal behind it did not answer in time), and a portal that could not be
+reached or answered with another server error (`unreachable`). Each code is stable
 and the interface translates it as `archive_viewer.<code>`.
 
 The `Resolver` tries the candidate collections in order (§3.1) and returns
@@ -2303,7 +2304,14 @@ cited view); or, over a register counting another number of images than the
 citation (§7), that the numbering changed, with both counts and the view
 opened (`archive_viewer.renumbered`). A load's banner shows over every page that follows it — a
 check's redirect, a portal page navigating on — until the reader closes it
-or the window loads another page. When the resolution fails, the window
+or the window loads another page. A server's error page in place of the
+portal's — a gateway's `504 Gateway Time-out` where the portal took too
+long, a `503` — shows, once no progress overlay covers it, why the portal
+failed in place of the load's banner: that it did not answer in time
+(`archive_viewer.page_timeout`, for a `504`) or answered with a server error
+(`archive_viewer.page_error`), with a button loading the page again
+(`archive_viewer.reload`). The landing of a lookup that timed out is the
+same search the portal could not answer, which may well time out again. When the resolution fails, the window
 lands with the banner of the failure's code (`archive_viewer.<code>`): on
 the collection's filtered search page (`results_url`, the offline `Results`
 of §5.2) for an anti-bot check or block (`challenged`), where the reader may
@@ -2340,7 +2348,12 @@ once its markup is parsed (`DOMContentLoaded`) — not once its images and
 scripts have loaded, which a portal's own heavy requests may delay —, with
 the signatures of §4.2: a **challenge** or a
 **block** when its markup bears one, **interactive** when a challenge also
-shows a widget, and otherwise the **portal** once it renders something —
+shows a widget, a server's **error** page when the navigation's timing gives
+a `5xx` status (on the WebViews that give it) or else when its title or
+first heading starts with a `5xx` status and its reason phrase (`504 Gateway
+Time-out`, `503 Service Unavailable`, `Error 503 Backend fetch failed`; a
+portal's heading `500 ans d'archives` is none), and otherwise the **portal**
+once it renders something —
 text, or a frameset with a frame, whose body has no text of its own (THOT).
 A page that shows nothing yet, or a challenge, is looked at again every half
 second, since a widget or a portal's content may come later. Waiting for
@@ -2355,6 +2368,8 @@ the start page:
   portal's page shows, and the reader has 3 minutes, after which the
   resolution fails `challenged`;
 - a block fails `challenged` at once;
+- a server's error page fails at once with its status: `timeout` for a
+  gateway's `504`, `unreachable` for another;
 - a page that shows nothing for 30 seconds fails `timeout`.
 
 When an anti-bot check answers one of the adapter's requests — an answer
@@ -2574,6 +2589,7 @@ reloads. The source, shared by other citations, is never changed.
 | Anti-bot block, a check left unanswered, or a challenge answering the backend | `challenged`: its message, as a banner (desktop) or a notice (web); the window or the tab opens the collection's filtered search page (`results_url`), the archive's `website` when there is none. |
 | Portal certificate served without its issuer (Linux desktop) | Completed from its `caIssuers` address and verified against the system's roots; otherwise `archive_viewer.certificate` with a button opening the page in the system browser (§6.1). |
 | Portal timed out or could not be reached; a desktop lookup running past 8 minutes | `timeout` or `unreachable`: its message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the collection's filtered search page (`results_url`), the archive's `website` when there is none. |
+| A server's error page in the window (desktop): the start page or the landing answered by a gateway's `504` or another `5xx` | On the start page, `timeout` (`504`) or `unreachable` at once; on the landing, a banner saying the portal did not answer in time or failed, with a button loading the page again (§6.1). |
 | Portal changed shape | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette

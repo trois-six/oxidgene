@@ -426,6 +426,11 @@ fn errors_have_stable_codes() {
         ResolveError::from(FetchError::Status(503)),
         ResolveError::Unreachable
     );
+    // A gateway's timeout is the portal's.
+    assert_eq!(
+        ResolveError::from(FetchError::Status(504)),
+        ResolveError::Timeout
+    );
     assert_eq!(
         ResolveError::from(FetchError::Status(404)).code(),
         "unexpected_response"

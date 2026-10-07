@@ -76,6 +76,9 @@ enum Message {
     Attach,
     /// The reader closed the banner.
     Dismiss,
+    /// The reader asks to load the page on screen again: a server's error
+    /// page.
+    Reload,
     Consent(Consent),
     /// The reader cancels the lookup from the progress overlay.
     Cancel,
@@ -241,6 +244,9 @@ fn texts(messages: &ArchiveViewerMessages) -> Texts {
         palette: messages.palette.clone(),
         close: messages.close.clone(),
         challenge: messages.challenge.clone(),
+        page_timeout: messages.page_timeout.clone(),
+        page_error: messages.page_error.clone(),
+        reload: messages.reload.clone(),
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -484,7 +490,9 @@ type Shown = (String, Option<(String, &'static str)>);
 /// closes it or the window loads another page: a portal page that navigates
 /// on, a check's redirect, keeps it. A check the reader was asked to answer
 /// shows the request to answer it instead, until the portal's page shows.
-/// Over views the reader may attach, the banner offers to attach them.
+/// A server's error page shows why the portal failed, with a button loading
+/// it again, in place of the load's banner. Over views the reader may
+/// attach, the banner offers to attach them.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Status {
     banner: Option<String>,
@@ -502,12 +510,14 @@ impl Status {
         }
     }
 
-    /// What to show over a page of `state`.
+    /// What to show over a page of `state`; `failed`, what to show over a
+    /// server's error page.
     fn page(
         &mut self,
         state: PageState,
         attach: Option<&Attachable>,
         challenge: &str,
+        failed: Option<Shown>,
     ) -> Option<Shown> {
         if state == PageState::Challenge && self.asking {
             return Some((challenge.to_owned(), None));
@@ -517,6 +527,9 @@ impl Status {
         }
         if self.dismissed {
             return None;
+        }
+        if state == PageState::Error && failed.is_some() {
+            return failed;
         }
         match (state, attach) {
             (PageState::Portal, Some(attach)) => Some((
@@ -675,7 +688,9 @@ impl ArchiveWindow {
     /// A page was classified: shows what [`Status::page`] says over it, and
     /// the overlay as it now stands; the landing's page ends the overlay. A
     /// page behind the reuse licence the reader was asked to accept goes on
-    /// to the target.
+    /// to the target. A server's error page says why once no overlay
+    /// covers it: one the resolution meets fails it, and its landing then
+    /// shows.
     fn on_page(&mut self, page: &Page) {
         if self
             .pending
@@ -692,11 +707,18 @@ impl ArchiveWindow {
             self.load(&onward.url, origins, onward.banner, None, texts, None);
             return;
         }
-        let state = page.state;
         self.cover.page();
-        let shown = self
-            .status
-            .page(state, self.attach.as_deref(), &self.texts.challenge);
+        let covered = self
+            .cover
+            .shown(Instant::now(), self.status.asking)
+            .is_some();
+        let failed = (!covered).then(|| failure_banner(page.status, &self.texts));
+        let shown = self.status.page(
+            page.state,
+            self.attach.as_deref(),
+            &self.texts.challenge,
+            failed,
+        );
         if let Some((text, action)) = shown {
             self.eval(&script::banner(
                 &text,
@@ -705,6 +727,14 @@ impl ArchiveWindow {
             ));
         }
         self.render();
+    }
+
+    /// Loads the page on screen again, for a reader facing a server's error
+    /// page.
+    fn reload(&self) {
+        if self.webview.reload().is_err() {
+            debug!("the archive window could not reload its page");
+        }
     }
 
     /// Asks the reader to answer the check on screen: the overlay gives way.
@@ -937,6 +967,11 @@ fn receive_posted(
                 window.status.dismiss();
             }
         }
+        Message::Reload => {
+            if let Some(window) = window {
+                window.reload();
+            }
+        }
         Message::Consent(consent) => match window {
             Some(window) => window.on_consent(&consent),
             None => consent.log(),
@@ -962,12 +997,25 @@ fn receive_posted(
     }
 }
 
+/// The banner over a server's error page of `status`: the portal did not
+/// answer in time behind its gateway (`504`), or failed otherwise; with the
+/// button loading the page again.
+fn failure_banner(status: Option<u16>, texts: &Texts) -> Shown {
+    let text = if status == Some(oxidgene_archives::GATEWAY_TIMEOUT) {
+        &texts.page_timeout
+    } else {
+        &texts.page_error
+    };
+    (text.clone(), Some((texts.reload.clone(), "reload")))
+}
+
 fn log_page(page: &Page) {
     if page.state != PageState::Portal {
         debug!(
             vendor = page.vendor.as_deref().unwrap_or_default(),
             state = ?page.state,
-            "an anti-bot page in an archive window"
+            status = page.status,
+            "an anti-bot or server error page in an archive window"
         );
     }
 }
@@ -1429,6 +1477,23 @@ mod tests {
         );
     }
 
+    /// A server's error page, and the button of its banner.
+    #[test]
+    fn a_server_error_page_and_its_reload_are_read() {
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "page", "state": "error", "status": 504}"#),
+            Ok(Message::Page(Page {
+                state: PageState::Error,
+                status: Some(504),
+                ..
+            }))
+        ));
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "reload"}"#),
+            Ok(Message::Reload)
+        ));
+    }
+
     #[test]
     fn the_consent_script_s_messages_are_read() {
         let read = |body: &str| match serde_json::from_str::<Message>(body) {
@@ -1513,6 +1578,7 @@ mod tests {
                 vendor: None,
                 interactive: false,
                 url: String::new(),
+                status: None,
             })),
         );
         tokio::time::timeout(Duration::from_secs(1), woken)
@@ -1563,51 +1629,87 @@ mod tests {
         // A check the reader was not asked to answer, its redirect, then
         // the portal's page and a page it navigates on to.
         assert_eq!(
-            status.page(PageState::Challenge, None, "Answer"),
+            status.page(PageState::Challenge, None, "Answer", None),
             banner("Searching…")
         );
         assert_eq!(
-            status.page(PageState::Portal, None, "Answer"),
+            status.page(PageState::Portal, None, "Answer", None),
             banner("Searching…")
         );
         assert_eq!(
-            status.page(PageState::Portal, None, "Answer"),
+            status.page(PageState::Portal, None, "Answer", None),
             banner("Searching…")
         );
         // A check the reader is asked to answer shows the request, on every
         // page of the check, until the portal's page shows.
         status.ask();
         assert_eq!(
-            status.page(PageState::Challenge, None, "Answer"),
+            status.page(PageState::Challenge, None, "Answer", None),
             banner("Answer")
         );
         assert_eq!(
-            status.page(PageState::Challenge, None, "Answer"),
+            status.page(PageState::Challenge, None, "Answer", None),
             banner("Answer")
         );
         assert_eq!(
-            status.page(PageState::Portal, None, "Answer"),
+            status.page(PageState::Portal, None, "Answer", None),
             banner("Searching…")
         );
         assert_eq!(
-            status.page(PageState::Challenge, None, "Answer"),
+            status.page(PageState::Challenge, None, "Answer", None),
             banner("Searching…")
         );
         // A block shows it too.
         assert_eq!(
-            status.page(PageState::Blocked, None, "Answer"),
+            status.page(PageState::Blocked, None, "Answer", None),
             banner("Searching…")
         );
         // Closed, it is not shown again.
         status.dismiss();
-        assert_eq!(status.page(PageState::Portal, None, "Answer"), None);
+        assert_eq!(status.page(PageState::Portal, None, "Answer", None), None);
         // A load without a banner shows none, but a request to answer a check.
         let mut status = Status::new(None);
-        assert_eq!(status.page(PageState::Portal, None, "Answer"), None);
+        assert_eq!(status.page(PageState::Portal, None, "Answer", None), None);
         status.ask();
         assert_eq!(
-            status.page(PageState::Challenge, None, "Answer"),
+            status.page(PageState::Challenge, None, "Answer", None),
             banner("Answer")
+        );
+    }
+
+    /// A regression: a lookup timed out on a city's search, its landing on
+    /// the same search met the portal's gateway timing out, and the window
+    /// showed the gateway's bare `504` page.
+    #[test]
+    fn a_server_error_page_says_why_the_portal_failed() {
+        let texts = texts(&messages());
+        let timed_out = failure_banner(Some(504), &texts);
+        let reload = Some((texts.reload.clone(), "reload"));
+        assert_eq!(timed_out, (texts.page_timeout.clone(), reload.clone()));
+        assert_ne!(texts.page_timeout, texts.page_error);
+        for status in [Some(500), Some(503), None] {
+            assert_eq!(
+                failure_banner(status, &texts),
+                (texts.page_error.clone(), reload.clone())
+            );
+        }
+        // Over the landing of a failed lookup, and over a page whose load
+        // had nothing to say.
+        for banner in [Some("Timed out.".to_owned()), None] {
+            let mut status = Status::new(banner);
+            assert_eq!(
+                status.page(PageState::Error, None, "Answer", Some(timed_out.clone())),
+                Some(timed_out.clone())
+            );
+        }
+        // Under the overlay of a lookup, the load's own banner, if any.
+        let mut status = Status::new(None);
+        assert_eq!(status.page(PageState::Error, None, "Answer", None), None);
+        // Closed, it is not shown again.
+        status.dismiss();
+        assert_eq!(
+            status.page(PageState::Error, None, "Answer", Some(timed_out)),
+            None
         );
     }
 
@@ -1617,17 +1719,17 @@ mod tests {
         let offer = Some(("Attach".to_owned(), "attach"));
         let mut status = Status::new(None);
         assert_eq!(
-            status.page(PageState::Portal, Some(&attach), "Answer"),
+            status.page(PageState::Portal, Some(&attach), "Answer", None),
             Some(("Keep the view.".to_owned(), offer.clone()))
         );
         let mut status = Status::new(Some("Go to view 3.".to_owned()));
         assert_eq!(
-            status.page(PageState::Portal, Some(&attach), "Answer"),
+            status.page(PageState::Portal, Some(&attach), "Answer", None),
             Some(("Go to view 3.".to_owned(), offer))
         );
         status.dismiss();
         assert_eq!(
-            status.page(PageState::Portal, Some(&attach), "Answer"),
+            status.page(PageState::Portal, Some(&attach), "Answer", None),
             None
         );
     }

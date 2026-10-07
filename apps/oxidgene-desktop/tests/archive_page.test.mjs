@@ -8,10 +8,13 @@ const antiBot = JSON.parse(
 );
 const run = new Function("antiBot", "window", "document", "addEventListener", "setTimeout", source);
 
-// A loaded document of `html`, whose body shows `text` or is a frameset.
-function page({ html, text = "", frames = 0 }) {
+// A loaded document of `html`, whose body shows `text` or is a frameset,
+// with its `title` and first heading `h1`.
+function page({ html, text = "", frames = 0, title = "", h1 = null }) {
     return {
         readyState: "complete",
+        title,
+        querySelector: selector => (selector === "h1" && h1 !== null ? { textContent: h1 } : null),
         documentElement: { outerHTML: html },
         body: frames
             ? { localName: "frameset", innerText: "", querySelector: () => ({}) }
@@ -125,4 +128,29 @@ test("a page still being parsed is classified once its markup is", () => {
     assert.deepEqual(listeners.map(([type]) => type), ["DOMContentLoaded"]);
     listeners[0][1]();
     assert.deepEqual(posted, [{ kind: "document" }, { kind: "page", state: "portal" }]);
+});
+
+test("a gateway's error page is a server error with its status", () => {
+    const html = "<html><body><h1>504 Gateway Time-out</h1>\nThe server didn't respond in time.\n</body></html>";
+    const run = classify(page({ html, text: "504 Gateway Time-out\nThe server didn't respond in time.", h1: "504 Gateway Time-out" }));
+    assert.deepEqual(run.posted, [{ kind: "page", state: "error", status: 504 }]);
+    assert.equal(run.waiting, false);
+    const titled = classify(page({
+        html: "<html><head><title>503 Service Unavailable</title></head><body>No server is available.</body></html>",
+        text: "No server is available.",
+        title: "503 Service Unavailable",
+    }));
+    assert.deepEqual(titled.posted, [{ kind: "page", state: "error", status: 503 }]);
+    const varnish = classify(page({ html: "<html><body>x</body></html>", text: "x", title: "Error 503 Backend fetch failed" }));
+    assert.deepEqual(varnish.posted, [{ kind: "page", state: "error", status: 503 }]);
+});
+
+test("a portal heading starting with a number is the portal", () => {
+    const run = classify(page({
+        html: "<html><body><h1>500 ans d'archives</h1></body></html>",
+        text: "500 ans d'archives",
+        title: "502 actes numérisés",
+        h1: "500 ans d'archives",
+    }));
+    assert.deepEqual(run.posted, [{ kind: "page", state: "portal" }]);
 });

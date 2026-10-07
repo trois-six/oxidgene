@@ -127,7 +127,7 @@ pub enum ResolveError {
     /// An anti-bot challenge answered in place of the portal: not a change
     /// of the portal's shape, and nothing the adapter can pass.
     Challenged,
-    /// The portal did not answer in time.
+    /// The portal did not answer in time, or its gateway said so (`504`).
     Timeout,
     /// The portal could not be reached, or answered with a server error.
     Unreachable,
@@ -156,10 +156,15 @@ impl fmt::Display for ResolveError {
 
 impl std::error::Error for ResolveError {}
 
+/// The status a gateway answers when the server behind it did not answer
+/// in time.
+pub const GATEWAY_TIMEOUT: u16 = 504;
+
 impl From<FetchError> for ResolveError {
     fn from(error: FetchError) -> Self {
         match error {
-            FetchError::Timeout => Self::Timeout,
+            // A gateway's own timeout: the portal behind it did not answer.
+            FetchError::Timeout | FetchError::Status(GATEWAY_TIMEOUT) => Self::Timeout,
             FetchError::Network => Self::Unreachable,
             FetchError::Challenged => Self::Challenged,
             FetchError::Status(status) if status >= 500 => Self::Unreachable,
