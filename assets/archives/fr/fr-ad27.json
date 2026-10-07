@@ -19,7 +19,11 @@
           "locality": "0-controlledAccessGeographicName[]",
           "year": "1-date"
         },
-        "locality_label": ["{locality} (Eure, France)"],
+        "locality_label": [
+          "{locality} (Eure, France)",
+          "{locality} (ancienne commune) (Eure, France)",
+          "{locality} (ancienne paroisse) (Eure, France)"
+        ],
         "acts": {
           "TD": ["Tables"]
         },
@@ -40,6 +44,7 @@
         },
         "locality_label": ["{locality} (Eure, France)"],
         "locality_style": "article_suffix",
+        "locality_lookup": true,
         "image_source": "visualizer"
       }
     },

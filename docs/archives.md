@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:13:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -726,7 +726,7 @@ server sends its certificate without the intermediate: its collections are
 | `transport` | `any` (default), or `browser` for a portal a plain client cannot reach. |
 | `form` | The search form's UUID. |
 | `fields` | The form's input names, in full, each where the form has it: `locality`, `act`, `year`, and the pair `period_begin` and `period_end`. Each portal prefixes them differently (`0-controlledAccessGeographicName[]`, `4-date`). A select is named with its `[]`, without which the portal answers an error, and a plain input without. A form may lack any of them: a military register form of a single bureau has no locality, most census and series forms no act, some civil-status forms neither act nor year. |
-| `locality_label` | The patterns of a locality's value, each with one `{locality}` (`{locality} (Marne, France)`, `Bureau de {locality}`, `{locality}, commune`); required with a locality input. The portal needs the exact label, and a bare name returns no row. All patterns are sent in one request, since the filter ORs its values and ignores those it does not know. |
+| `locality_label` | The patterns of a locality's value, each with one `{locality}` (`{locality} (Marne, France)`, `Bureau de {locality}`, `{locality}, commune`); required with a locality input. The portal needs the exact label, and a bare name returns no row. All patterns are sent in one request, since the filter ORs its values and ignores those it does not know: a list that labels its former communes or parishes by a fixed qualifier gets one pattern each (`{locality} (ancienne commune) (Eure, France)`), at no request more. |
 | `locality_style` | `plain` (default) or `article_suffix`, which moves a leading `Le`, `La`, `Les` or `L'` behind the name (`Bourg (Le)`), as for Arkothèque (§4.3). |
 | `locality_lookup` | `true` for a list whose labels the citation cannot spell: capitals without accents (`SAINT-EXEMPLE`), dated former communes (`Exampleville (ancienne commune av. 1790, Somme, France)`), underscores, a period in the label. The labels sent are then those of the form's own list that a pattern makes name the cited locality, case, accents and punctuation ignored; a `*` after `{locality}` stands for any text (`{locality} (ancienne commune*, Somme, France)`). Default `false`. |
 | `year_label` | The year input's value, with `{year}`, where the form lists classes by label (`Classe {year}.`); the bare year otherwise. |
@@ -783,7 +783,11 @@ Resolution:
    register spans come from its title or context after a range word
    (`matricules 500 à 1000`, `n°1-499`). A row is at the cited locality when
    a context entry or the title is the locality, as written or as one of the
-   patterns label it; when the labels sent came from the form's list; or,
+   patterns label it, the label possibly shortened as a former commune's is
+   — followed by its current commune
+   (`Exampleville (ancienne commune) (Exemple, France)/Sampleton...`) or cut
+   short past the locality's name (`Exampleville (ancienne commune)
+   (Exemple,...`) —; when the labels sent came from the form's list; or,
    for a series, when the collection, a context entry or the title names it
    among other words (`Bureau de l'Enregistrement d'Exampleville`). On a form
    without a locality input, the rows naming the cited bureau are kept, and

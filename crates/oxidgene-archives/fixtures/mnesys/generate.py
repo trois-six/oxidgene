@@ -16,6 +16,7 @@ PORTALS = {
     'ad51': dict(host='archives.example-51.test', naan='99951'),
     'ad19': dict(host='archives.example-19.test', naan='99919'),
     'ad25': dict(host='archives.example-25.test', naan='99925'),
+    'ad27': dict(host='archives.example-27.test', naan='99927'),
     'ad58': dict(host='archives.example-58.test', naan='99958'),
     'ad59': dict(host='archives.example-59.test', naan='99959'),
     'ad68': dict(host='archives.example-68.test', naan='99968'),
@@ -441,6 +442,19 @@ def series():
         row(PORTALS['ad14'], 1, 'kkkkkkkkkk14', 1400, '1876', '1876', False, 'Recensements de population',
             ['Exampleville'])]))
     write('ad14-viewer-state.json', viewer_state(PORTALS['ad14'], 'kkkkkkkkkk14', 1400, 40))
+
+    # AD27: former communes, whose context entry is their label followed by
+    # the current commune, or their label cut short.
+    p27 = PORTALS['ad27']
+    collection = 'Registres paroissiaux (1529-1792 environ)'
+    write('ad27-former.html', page(2, [
+        row(p27, 1, 'aaaaaaaaaa27', 2700, 'BMS (1646-1792)', '1646-1792', 585, collection,
+            ['Exampleville (ancienne commune) (Eure, France)/Sampleton...', 'Registres paroissiaux',
+             'BMS (1646-1792)'], '9 Mi 9999 (Cote/Cotes extrêmes)'),
+        row(p27, 2, 'bbbbbbbbbb27', 3300, 'BMS (1600-1700)', '1600-1700', 300, collection,
+            ['Saint-Exemple-la-Longue (ancienne commune) (Eure,...', 'Registres paroissiaux',
+             'BMS (1600-1700)'], '9 Mi 9998 (Cote/Cotes extrêmes)')]))
+    write('ad27-visualizer.json', window(p27, 'aaaaaaaaaa27', [(219, 2919)], False))
 
 
 main()

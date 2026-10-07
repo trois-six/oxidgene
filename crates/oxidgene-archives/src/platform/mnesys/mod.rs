@@ -429,6 +429,33 @@ impl Settings {
             .collect()
     }
 
+    /// Whether a context entry shows a label the patterns spell, as a
+    /// portal shortens a former commune's: followed by its current commune
+    /// (`Exampleville (ancienne commune) (Exemple, France)/Sampleton...`),
+    /// or cut short past the locality's name (`Exampleville (ancienne
+    /// commune) (Exemple,...`). Case, accents and punctuation are ignored.
+    fn shows_label(&self, entry: &str, citation: &CitationParts) -> bool {
+        let entry = entry.trim_end();
+        let parent = entry.split_once('/').map(|(label, _)| fold(label));
+        let cut = entry
+            .strip_suffix("...")
+            .or_else(|| entry.strip_suffix('\u{2026}'))
+            .map(fold);
+        let locality = self.locality(citation);
+        self.locality_label
+            .iter()
+            .filter(|pattern| !pattern.contains('*'))
+            .filter_map(|pattern| pattern.split_once("{locality}"))
+            .any(|(before, after)| {
+                let label = fold(&format!("{before}{locality}{after}"));
+                let name = fold(&format!("{before}{locality}"));
+                parent.as_ref() == Some(&label)
+                    || cut.as_ref().is_some_and(|shown| {
+                        label.starts_with(shown.as_str()) && shown.len() > name.len()
+                    })
+            })
+    }
+
     /// Whether the search sends the labels of the form's own list.
     fn looks_up(&self, citation: &CitationParts) -> bool {
         self.locality_lookup && !citation.locality.is_empty()
@@ -625,6 +652,7 @@ impl Settings {
                         .into_iter()
                         .any(|name| forms.contains(&fold(name)))
                 })
+                || self.shows_label(entry, citation)
         };
         let names = |entry: &String| {
             let entry = format!(" {} ", fold(entry));

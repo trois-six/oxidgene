@@ -766,6 +766,8 @@ const AD19_MILITARY: &str = include_str!("../../../fixtures/mnesys/ad19-military
 const AD19_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad19-visualizer.json");
 const AD25_REGISTERS: &str = include_str!("../../../fixtures/mnesys/ad25-registers.html");
 const AD25_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad25-visualizer.json");
+const AD27_FORMER: &str = include_str!("../../../fixtures/mnesys/ad27-former.html");
+const AD27_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad27-visualizer.json");
 const AD58_MILITARY: &str = include_str!("../../../fixtures/mnesys/ad58-military.html");
 const AD58_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad58-visualizer.json");
 const AD59_FORM: &str = include_str!("../../../fixtures/mnesys/ad59-form.html");
@@ -839,6 +841,94 @@ fn a_military_register_is_chosen_by_bureau_class_and_matricule() {
     let (target, requests) = resolved("AD19 - Elsewhere - Registres matricules - 1890", &fetch);
     assert_eq!(results_matches(&target), 0);
     assert_eq!(requests.len(), 1);
+}
+
+#[test]
+fn a_former_commune_is_searched_and_read_under_its_own_label() {
+    let fetch = Fixtures::new(AD27_FORMER, AD27_WINDOW);
+    let (target, requests) = resolved(
+        "AD27 - Exampleville - Saint-Exemple - BMS - 1646-1792 - 9 Mi 9999 - vue 220g/585",
+        &fetch,
+    );
+    let target = target.unwrap();
+    assert_eq!(register_of(&target), "aaaaaaaaaa27");
+    let ArchiveTarget::View { views, .. } = &target else {
+        panic!("expected a view");
+    };
+    assert_eq!(views[0].view, 220);
+    // The label of a commune and of a former one, in one search.
+    for label in [
+        "Exampleville%20%28Eure%2C%20France%29&",
+        "Exampleville%20%28ancienne%20commune%29%20%28Eure%2C%20France%29&",
+    ] {
+        assert!(requests[0].contains(label), "{label} in {}", requests[0]);
+    }
+    assert!(requests[0].contains("&1-date=1646&"));
+
+    // A label cut short past the name still shows the locality.
+    let fetch = Fixtures::new(AD27_FORMER, AD27_WINDOW);
+    let (target, _) = resolved(
+        "AD27 - Saint-Exemple-la-Longue - (aucun) - BMS - 1650 - 9 Mi 9998",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "bbbbbbbbbb27");
+
+    // Neither the commune a former one joined nor a name the cut label
+    // only starts is the locality.
+    for title in [
+        "AD27 - Sampleton - (aucun) - BMS - 1650",
+        "AD27 - Saint-Exemple - (aucun) - BMS - 1650",
+    ] {
+        let fetch = Fixtures::new(AD27_FORMER, AD27_WINDOW);
+        let (target, _) = resolved(title, &fetch);
+        assert_eq!(results_matches(&target), 0, "{title}");
+    }
+}
+
+#[test]
+fn a_shortened_label_shows_the_locality_only_past_its_name() {
+    let registry = ArchiveRegistry::embedded();
+    let shows = |code: &str, locality: &str, entry: &str| {
+        let settings = Settings::read(&registry.archive(code).unwrap().collections[0]).unwrap();
+        let citation = registry
+            .parse(&format!("{code} - {locality} - (aucun) - B - 1700"))
+            .unwrap();
+        settings.shows_label(entry, &citation)
+    };
+    for (locality, entry, expected) in [
+        (
+            "Exampleville",
+            "Exampleville (ancienne commune) (Eure, France)/Sampleton...",
+            true,
+        ),
+        (
+            "Exampleville",
+            "Exampleville (ancienne commune) (Eure,...",
+            true,
+        ),
+        ("Exampleville", "Exampleville (Eure,\u{2026}", true),
+        ("Exampleville", "Exampleville...", false),
+        (
+            "Exampleville",
+            "Exampleville-la-Haute (ancienne commune) (Eure,...",
+            false,
+        ),
+        (
+            "Sampleton",
+            "Exampleville (ancienne commune) (Eure, France)/Sampleton...",
+            false,
+        ),
+    ] {
+        assert_eq!(shows("AD27", locality, entry), expected, "{entry}");
+    }
+    // A bare pattern: the name alone, before the current commune.
+    assert!(shows("AD25", "Exampleville", "Exampleville/Sampleton"));
+    assert!(!shows(
+        "AD25",
+        "Exampleville",
+        "Exampleville la Haute/Sampleton"
+    ));
+    assert!(!shows("AD25", "Exampleville", "Exampleville la..."));
 }
 
 #[test]
