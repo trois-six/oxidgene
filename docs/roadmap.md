@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T09:10:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -65,7 +65,7 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 
 - [x] Drive the Loire-Atlantique archives (Arkothèque) for births and
   baptisms.
-- [ ] Move the catalogue and the citation parser into `oxidgene-archives`,
+- [x] Move the catalogue and the citation parser into `oxidgene-archives`,
   resolve Arkothèque citations through the portal's request interface, and
   have the archive window load the resolved view instead of driving the
   portal's form ([Archive Portals §10](archives.md#10-delivery-phases)).
@@ -104,9 +104,17 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   check or a block, name the view to go to on a portal without an address
   per view, and complete on Linux a portal certificate served without its
   issuer ([Archive Portals §6.1](archives.md#61-desktop)).
-- [ ] Catalogue every French departmental archive, adding a driver for each
-  portal platform they use.
-- [ ] Extend the catalogue to Swiss cantonal archives.
+- [x] Catalogue the French departmental archives with an adapter per portal
+  platform — every department but the Bouches-du-Rhône — and the overseas
+  civil status of the Archives nationales d'outre-mer, the one portal
+  reached over plain `http`; open a register behind a portal's reuse
+  licence once the reader has accepted it
+  ([Archive Portals §4, §11](archives.md#11-french-departmental-portals)).
+- [ ] Catalogue the Bouches-du-Rhône archives once their portal passes its
+  live check ([Archive Portals §11.5](archives.md#115-survey-by-department)).
+- [ ] Catalogue the municipal archives that publish their own civil status
+  (Lyon, Bordeaux, Marseille), then the Swiss cantonal archives and other
+  countries.
 - [x] Add a live end-to-end check per catalogued archive against its real
   portal, run weekly by a dedicated workflow rather than on commits, so
   vendor software upgrades are caught before users meet them
