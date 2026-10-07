@@ -379,6 +379,22 @@ pub struct CitedView {
 #[serde(transparent)]
 pub struct CallNumber(String);
 
+/// A series' deposit as a call number: capitals of one to three letters, one
+/// lowercase word of four letters or more, then digits (`E depot 12`).
+fn is_deposit(field: &str) -> bool {
+    let mut words = field.split(' ');
+    let series = words.next().unwrap_or_default();
+    let word = words.next().unwrap_or_default();
+    let number = words.next().unwrap_or_default();
+    words.next().is_none()
+        && (1..=3).contains(&series.len())
+        && series.chars().all(|c| c.is_ascii_uppercase())
+        && word.chars().count() >= 4
+        && word.chars().all(char::is_lowercase)
+        && (1..=6).contains(&number.len())
+        && number.chars().all(|c| c.is_ascii_digit())
+}
+
 impl CallNumber {
     pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
@@ -507,6 +523,33 @@ impl CallNumber {
             .flat_map(char::to_uppercase)
     }
 
+    /// Whether a free field is shaped like a call number: letters and digits
+    /// with a few separators, at least one digit and one capital, and no
+    /// lowercase word (`acte 26`, `Registre 1877`), while `1 Mi 456` is one,
+    /// and so is a series' deposit (`E depot 12`).
+    pub(crate) fn is_shaped(field: &str) -> bool {
+        if is_deposit(field) {
+            return true;
+        }
+        let allowed = |c: char| c.is_ascii_alphanumeric() || " /._-".contains(c);
+        let mut lowercase_run = 0;
+        let mut longest_lowercase_run = 0;
+        for c in field.chars() {
+            lowercase_run = if c.is_ascii_lowercase() {
+                lowercase_run + 1
+            } else {
+                0
+            };
+            longest_lowercase_run = longest_lowercase_run.max(lowercase_run);
+        }
+        (1..=40).contains(&field.len())
+            && field.chars().all(allowed)
+            && field.chars().any(|c| c.is_ascii_digit())
+            && field.chars().any(|c| c.is_ascii_uppercase())
+            && !field.starts_with(|c: char| c.is_ascii_lowercase())
+            && longest_lowercase_run < 3
+    }
+
     /// The runs of letters and of digits of a call number, read apart
     /// wherever a space, a separator or a change between letters and digits
     /// falls, numbers without their leading zeros: `4E212/45` is `4 E 212
@@ -554,29 +597,6 @@ impl CallNumber {
             tokens.push(&folded[from..]);
         }
         tokens
-    }
-
-    /// Whether a free field is shaped like a call number: letters and digits
-    /// with a few separators, at least one digit and one capital, and no
-    /// lowercase word (`acte 26`, `Registre 1877`), while `1 Mi 456` is one.
-    pub(crate) fn is_shaped(field: &str) -> bool {
-        let allowed = |c: char| c.is_ascii_alphanumeric() || " /._-".contains(c);
-        let mut lowercase_run = 0;
-        let mut longest_lowercase_run = 0;
-        for c in field.chars() {
-            lowercase_run = if c.is_ascii_lowercase() {
-                lowercase_run + 1
-            } else {
-                0
-            };
-            longest_lowercase_run = longest_lowercase_run.max(lowercase_run);
-        }
-        (1..=40).contains(&field.len())
-            && field.chars().all(allowed)
-            && field.chars().any(|c| c.is_ascii_digit())
-            && field.chars().any(|c| c.is_ascii_uppercase())
-            && !field.starts_with(|c: char| c.is_ascii_lowercase())
-            && longest_lowercase_run < 3
     }
 }
 

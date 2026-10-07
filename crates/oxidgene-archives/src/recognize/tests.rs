@@ -1877,3 +1877,90 @@ fn the_paris_cemeteries_and_arrondissements_are_links() {
         );
     }
 }
+
+#[test]
+fn a_call_number_shaped_like_an_archive_code_is_no_second_archive() {
+    // The first field names the archive by its citation code; a later field
+    // made of letters and digits is a call number, even when its letters are
+    // an archive abbreviation (`AC` communal, `AM` municipal) of the
+    // vocabulary.
+    let registry = registry();
+    let cases = [
+        (
+            "AD99 - Exampleville - B - 1643-1648 - AC262 - vue 41d/51",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1643)
+                .call("AC262")
+                .views("41d")
+                .of(51),
+        ),
+        (
+            "AD99 - Exampleville - B - 1643-1648 - AM12 - vue 41d/51",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1643)
+                .call("AM12")
+                .views("41d")
+                .of(51),
+        ),
+        (
+            "AD99 - Exampleville - B - 1643-1648 - E dépôt 12 - vue 41d/51",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1643)
+                .call("E dépôt 12")
+                .views("41d")
+                .of(51),
+        ),
+        (
+            "AD99 - Exampleville - B - 1643-1648 - GG 3 - vue 41d/51",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1643)
+                .call("GG 3")
+                .views("41d")
+                .of(51),
+        ),
+    ];
+    assert_eq!(corpus(&registry, &cases), 4);
+}
+
+#[test]
+fn rp_in_the_act_position_is_the_census_series() {
+    // `RP` is both a word for the parish registers and the census series
+    // code. As the act of the normalized form the series code wins; the
+    // registers written out stay the parish registers.
+    let registry = registry();
+    let cases = [
+        (
+            "AD99 - Exampleville - RP - 1872",
+            at(AD99).act("RP").locality("Exampleville").year(1872),
+        ),
+        (
+            "AD99, Exampleville, RP 1872",
+            at(AD99).act("RP").locality("Exampleville").year(1872),
+        ),
+    ];
+    assert_eq!(corpus(&registry, &cases), 2);
+    let parish = recognized(
+        &registry,
+        &title("AD99, registres paroissiaux de Exampleville, 1702"),
+    );
+    assert_eq!(parish.archive, AD99);
+    assert_ne!(parish.act.as_deref(), Some("RP"));
+}
+
+#[test]
+fn a_later_code_of_the_same_kind_still_designates_another_archive() {
+    let registry = registry();
+    let evidence = title("AD99 - Exampleville - B - 1643-1648 - AD98 - vue 41d/51");
+    assert_eq!(
+        registry.recognize(&evidence, None, None),
+        Err(Unrecognized::NoAdapter)
+    );
+}

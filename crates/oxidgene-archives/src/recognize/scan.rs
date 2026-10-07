@@ -177,7 +177,7 @@ impl Scanner<'_> {
             facts.views.get_or_insert(views);
             return;
         }
-        if self.is_call_number(segment) {
+        if self.is_call_number(segment, facts) {
             facts.shaped_call_number.get_or_insert(segment.whole());
             return;
         }
@@ -194,15 +194,70 @@ impl Scanner<'_> {
 
     /// A segment shaped like a call number (`4E 1234`, `GG 45`, `6 M 123`)
     /// that starts with nothing else the vocabulary or the catalogue knows.
-    fn is_call_number(&self, segment: &Segment) -> bool {
+    ///
+    /// Once a catalogued code has named the archive, a later segment whose
+    /// first token is an abbreviation of another kind of archive, alone or
+    /// glued to digits (`AC262`, `AM 12`), is a call number too: it designates
+    /// no second archive.
+    fn is_call_number(&self, segment: &Segment, facts: &Facts) -> bool {
         let text = segment.whole();
         let first = &segment.tokens[0];
         CallNumber::is_shaped(&text)
             && first.year().is_none()
             && self.code_at(segment, 0).is_none()
-            && !self.is_uncatalogued_code(first)
             && act_code(&first.raw).is_none()
-            && self.lexicon.at(segment, 0).is_none()
+            && (self.is_foreign_abbreviation(first, facts)
+                || (!self.is_uncatalogued_code(first) && self.lexicon.at(segment, 0).is_none()))
+    }
+
+    /// Whether `token` is the abbreviation of a kind of archive other than
+    /// the one that named the archive of the text by its catalogued code:
+    /// after `AD99`, `AC262` and `AM` are call numbers' letters, while
+    /// `AD98` still designates another archive.
+    fn is_foreign_abbreviation(&self, token: &Token, facts: &Facts) -> bool {
+        let letters = Self::capitals(&token.raw);
+        !letters.is_empty()
+            && facts.archives.iter().any(|&index| {
+                self.archives[index]
+                    .citation_codes
+                    .iter()
+                    .any(|code| Self::capitals(code) != letters)
+            })
+            && !facts.archives.iter().any(|&index| {
+                self.archives[index]
+                    .citation_codes
+                    .iter()
+                    .any(|code| Self::capitals(code) == letters)
+            })
+            && self.is_archive_abbreviation(letters)
+    }
+
+    /// The leading capitals of a code.
+    fn capitals(code: &str) -> &str {
+        let end = code
+            .find(|c: char| !c.is_ascii_uppercase())
+            .unwrap_or(code.len());
+        &code[..end]
+    }
+
+    /// Whether the vocabulary reads `letters` as a kind of archive.
+    fn is_archive_abbreviation(&self, letters: &str) -> bool {
+        self.lexicon.vocabularies.iter().any(|vocabulary| {
+            vocabulary.phrases().iter().any(|(phrase, meaning)| {
+                matches!(meaning, Meaning::Archive(Some(_)))
+                    && phrase.len() == 1
+                    && phrase[0] == letters.to_lowercase()
+            })
+        })
+    }
+
+    /// An archive code the catalogue does not list marks an uncatalogued
+    /// archive — unless a catalogued code named the archive before and these
+    /// are another kind of archive's letters, a call number's.
+    fn uncatalogued_code(&self, token: &Token, facts: &mut Facts) {
+        if !self.is_foreign_abbreviation(token, facts) {
+            facts.uncatalogued = true;
+        }
     }
 
     /// Reads from token `at`, returning where the next reading starts.
@@ -220,7 +275,7 @@ impl Scanner<'_> {
             return at + taken;
         }
         if self.is_uncatalogued_code(token) {
-            facts.uncatalogued = true;
+            self.uncatalogued_code(token, facts);
             return at + 1;
         }
         if let Some((year, taken)) = self.date_at(segment, at) {
@@ -603,23 +658,13 @@ impl Scanner<'_> {
     /// A code shaped like a catalogued kind of archive followed by digits,
     /// such as `AD33`, that the catalogue does not list.
     fn is_uncatalogued_code(&self, token: &Token) -> bool {
-        let letters: String = token
-            .raw
-            .chars()
-            .take_while(char::is_ascii_uppercase)
-            .collect();
+        let letters = Self::capitals(&token.raw);
         let rest = &token.raw[letters.len()..];
         let digits = rest.trim_end_matches(['A', 'B']);
         !letters.is_empty()
             && (1..=3).contains(&digits.len())
             && digits.bytes().all(|byte| byte.is_ascii_digit())
-            && self.lexicon.vocabularies.iter().any(|vocabulary| {
-                vocabulary.phrases().iter().any(|(phrase, meaning)| {
-                    matches!(meaning, Meaning::Archive(Some(_)))
-                        && phrase.len() == 1
-                        && phrase[0] == letters.to_lowercase()
-                })
-            })
+            && self.is_archive_abbreviation(letters)
     }
 
     /// The archive whose alias or citation-free name starts at `at`.

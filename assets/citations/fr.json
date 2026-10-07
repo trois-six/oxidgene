@@ -40,8 +40,7 @@
       "registres paroissiaux",
       "registre paroissial",
       "registres de catholicité",
-      "registre de catholicité",
-      "RP"
+      "registre de catholicité"
     ],
     "civil": ["état civil", "registres d'état civil", "registre d'état civil", "EC"]
   },
@@ -53,7 +52,7 @@
     "TN": ["table des naissances"]
   },
   "series": {
-    "RP": ["recensement", "recensement de population", "liste nominative", "dénombrement"],
+    "RP": ["RP", "recensement", "recensement de population", "liste nominative", "dénombrement"],
     "RM": [
       "registre matricule",
       "matricule militaire",
