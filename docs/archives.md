@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:11:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:12:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -345,6 +345,9 @@ pub trait Platform: Send + Sync {
     fn endpoint(&self, collection: &Collection) -> Option<PortalEndpoint>;
     /// The collection's filtered search page, built without any request.
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String>;
+    /// The reuse licence the portal shows before every page of the
+    /// collection, which OxidGene never accepts (§6.1); none by default.
+    fn licence(&self, collection: &Collection) -> Option<Licence>;
     /// Resolves parsed citation parts to a target in this collection.
     fn resolve<'a>(
         &'a self,
@@ -1547,11 +1550,14 @@ it (`btnAccepter`) leads to the site's search page (`commune.aspx`). The
 portal does not enforce the licence — every page answers a session that
 never accepted it, and the viewer (`consult.aspx?image=<id>`) answers
 without a session — but the reader must pass it: OxidGene never accepts it
-on the reader's behalf and never opens a page beyond it. The adapter
-therefore searches as a visitor whose licence is pending, only to tell
-whether the cited register is there, and every target is the site's entry,
-where the reader passes the licence and goes on to the register. The images
-are plain JPEG files, with no IIIF service and no call number on the
+on the reader's behalf. The adapter therefore searches as a visitor whose
+licence is pending, finds the cited register and, on the register's sheets
+of thumbnails, the address of the cited view; its target — the view, or the
+locality's list of lots — stands behind the licence, which the adapter
+declares (`Platform::licence`: the site's entry, `licence.aspx`, the site's
+root). A client opens the entry first, and the desktop window goes on to
+the target once the reader has accepted the licence themselves (§6.1). The
+images are plain JPEG files, with no IIIF service and no call number on the
 registers' lots: the archive is `display: "portal"`. The `portal` settings
 are:
 
@@ -1590,10 +1596,19 @@ Resolution, `localities`:
    close it. Each lot gives its first and last years, its acts as codes
    (`BMS`, `N`, `TD`) and its image count.
 4. One lot is selected as for Arkothèque (§4.3, step 3), the row's parish
-   as its parish. The target is `View` with no views, the lot's image count
-   and no call number, at the site's entry: the window names the view to go
-   to (§6.1), over the licence page and the pages the reader passes on to
-   the lot. Several lots or none give `Results` at the same entry.
+   as its parish. Several lots, or none, give `Results` on the row's list of
+   lots (`plage.aspx?id=<row>`) when one row was read, at the site's entry
+   otherwise.
+5. For each cited view within the lot, `GET <base>/planche.aspx?id=<lot>&page=<sheet>&width=1400&height=900`,
+   the lot's sheet of thumbnails holding it — 24 a sheet at that size, sheet
+   `⌈n / 24⌉` —: the thumbnail numbered with the view (`td.MiniNum`, `36.`)
+   opens its image (`javascript:ouvrir('<image>')`), whose viewer is
+   `consult.aspx?image=<image>`. One request per sheet; a sheet that does not
+   number the view leaves every view unaddressed, and a page without
+   numbered thumbnails is drift. The target is `View` with the cited views,
+   the lot's image count and no call number, on the first view; without a
+   view, or one beyond the lot, `View` with no views on the row's list of
+   lots, where the reader opens the lot and goes to the view (§6.1).
 
 Resolution, `search`:
 
@@ -1611,15 +1626,19 @@ Resolution, `search`:
    lot, without image counts.
 4. One volume is selected as in §4.3 step 3, the office as its locality —
    any office's when the cited locality names none —, the call number
-   telling a class's volumes apart. The target is `View` with no views and
-   the volume's call number, at the site's entry.
+   telling a class's volumes apart. Its cited views are found on its sheets
+   as in step 5 above, the volume's size unknown; the target is `View` with
+   them and the volume's call number, or with no views on the volume's
+   sheets (`planche.aspx?id=<lot>`). Several volumes, or none, give `Results`
+   at the site's entry.
 
-`results_url` and every target are the site's entry; the window's start
-page is the sites' shared stylesheet (`/<family>/slv.css`), which opens no
-session. Requests: the registers 3 to 6 (entry, list, lots, up to two
-toggles, each followed by its page), the military registers 3. A citation
-names no image on this portal, and the view to go to is the reader's: the
-target lands before the licence whatever the portal's own addresses.
+`results_url` is the site's entry; the window's start page is the sites'
+shared stylesheet (`/<family>/slv.css`), which opens no session. Requests:
+the registers 3 to 6 (entry, list, lots, up to two toggles, each followed by
+its page), the military registers 3, and one per sheet holding a cited
+view. The lots the adapter's toggles opened stay open in the session, which
+the window shares with its requests: the list of lots the window goes on to
+shows them.
 
 **Collections.** The registers (`/EC/ecx`: parish registers, civil status
 to 1922 and decennial tables, one alphabetical list) and the military
@@ -2130,7 +2149,10 @@ catalogue template filled with the call number and views. `renumbering` is
 left out of the serialized target when absent.
 
 The target carries no `terms` and no `display`: both clients embed the
-catalogue and read them from the entry of the citation's archive.
+catalogue and read them from the entry of the citation's archive. So it is with a portal's reuse licence: a target may stand behind one,
+which the adapter declares (§4.12), and both clients ask the embedded
+catalogue (`ArchiveRegistry::licence`) whether one stands before the
+target's address, to open its entry first (§6.1, §6.2).
 
 `Results` built by `results_url` without any request has no match count; it
 is what a client gets when no transport can reach the portal.
@@ -2283,6 +2305,20 @@ for a reader answering a check twice — lands as a `timeout`. The failure is
 logged with its code and the archive's identifier only. A reader who closes
 the window during the resolution stops it.
 
+**Reuse licences.** A target behind a portal's reuse licence (the
+Côtes-d'Armor "salle virtuelle", §4.12) is never opened directly: OxidGene
+never accepts a licence for the reader. The window lands on the licence's
+entry, with a banner asking the reader to accept the licence on that page
+(`archive_viewer.licence`), and watches the pages that follow — each
+page's address, as its IPC message carries it: once a page behind the
+licence shows after the licence page did — the reader accepted it, and the
+portal moved on to its search page —, the window loads the target itself,
+the cited view or the list of lots, with the target's own banner (the view
+to go to where the view has no address). A page shown before the licence
+page, the page being left included, never counts; nothing on the licence
+page is clicked or filled. The live check's step 4 passes the licence the
+same way before opening the target (§9.1).
+
 What a window's page posts — what the page is, the answer of a request, the
 reader's click on a banner button — wakes the application's event loop at
 once, so that the banner and the resolution never wait for the reader to
@@ -2407,7 +2443,11 @@ the tab opens the same landing as the window (§6.1): the collection's
 filtered search page for `challenged`, where the reader passes the check in
 their own browser, `timeout` and `unreachable`, and the archive's `website`
 otherwise. The view to go to on a portal without an address per
-view is said the same way.
+view is said the same way. A target behind a reuse licence opens the
+licence's entry in the tab, which cannot go on past it for the reader: the
+notice beside the source says that the licence comes first and the register
+is to be looked up on the portal (`archive_viewer.licence_tab`), or gives
+the target's own notice, the view to go to.
 
 ### 6.3 IIIF behind the scenes
 
@@ -2507,6 +2547,7 @@ reloads. The source, shared by other citations, is never changed.
 | View beyond the register's image count | `Results` with no match, the collection's filtered search page with the banner of no register: the register chosen is taken for another one than the cited (a citation of an older digitisation, its call number and view count those of a microfilm since replaced by the originals, split otherwise), which opening it on its first image would hide. A register carrying the cited call number — a person's row of an index of matricules, one view of the register the citation counts — is the cited one: `View` with no views, its first image. |
 | Register counting another number of images than the citation (digitised or bound again since: a register cited for 1832–1851 with 184 images, now bound with the years from 1818 in 301) | Its views, with `renumbering` and the banner `archive_viewer.renumbered` (desktop) or the same notice beside the source (web): the numbering changed, from the cited count to the register's, and the view opened, which may not be the cited page. Where the register's period ends with the cited one but starts earlier and it counts more images, the earlier years come first: each cited view is moved by the difference of the counts (view 38 of 184 opens 155 of 301). Otherwise — the cited period the register's start, the whole of it, or unknown, or the register counting fewer images — the cited numbers are kept. A register opened on its first image (no address per view, a view beyond it) has no `renumbering`. |
 | `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other; the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source (§6.3). |
+| Target behind a portal's reuse licence | The licence's entry, with `archive_viewer.licence` (desktop): once the reader has accepted it, the window opens the target; the tab opens the entry with `archive_viewer.licence_tab` (§6.1, §6.2). |
 | View cited within a register whose portal has no address per view | `View` with no views: the register's first image, with `archive_viewer.go_to_view` naming the cited view, as a banner (desktop) or a notice (web). |
 | Anti-bot check on the start page (desktop) | Waited out for 5 seconds, then the reader's to answer in the window within 3 minutes (§6.1). |
 | Anti-bot check answering a request (desktop) | The start page again for the reader, then the same request once more (§6.1, §8). |
@@ -2592,7 +2633,7 @@ Archive portals are public services whose terms OxidGene follows:
   second page of a populated locality, a keyed value read from the engine's
   lists, the IIIF images of a `display: "iiif"` archive, and a portal read
   by its pages (rendered rows, the no-match notice, an anti-bot page, the
-  settings it refuses); for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer. For CAOMEC2, the commune as the form lists it (an apostrophe, an article), the kinds of a year told apart by their labels with their accents lost to the decoding, a baptism filed as a birth, a combined register none of a year's holds, a territory's code leaving the other territories unsearched, and the endpoint reached over plain `http` as the catalogue's exception.
+  settings it refuses); for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer. For Visualys, the cited view found on the lot's sheet of thumbnails, a birth cited by its register's period, act number and view without a parish field, the licence standing before the views and lists of lots but not the entry, a military volume's view, a sheet not numbering the view and a page that is no sheet. For CAOMEC2, the commune as the form lists it (an apostrophe, an article), the kinds of a year told apart by their labels with their accents lost to the decoding, a baptism filed as a birth, a combined register none of a year's holds, a territory's code leaving the other territories unsearched, and the endpoint reached over plain `http` as the catalogue's exception.
 - Transport tests check the declared origins, the header allow-list, plain
   `http` refused but for an endpoint marked `insecure_http` (native, bridge
   and desktop window alike), the
@@ -2621,7 +2662,10 @@ Archive portals are public services whose terms OxidGene follows:
   the test alone, refusing another name, an untrusted root, a wrong issuer
   and an expired certificate.
 - Interface tests check each landing: the filtered search page on
-  `challenged`, the view to go to on a portal without an address per view.
+  `challenged`, the view to go to on a portal without an address per view,
+  and a target behind a reuse licence landing on its entry and going on to
+  it; the desktop's, that the window goes on only once a page behind the
+  licence shows after the licence page.
 - Catalogue tests check unique ids and citation codes, that each archive
   sits in its country's directory, that an `iiif` archive has its
   attribution and terms, that every collection's `platform` has an adapter,
@@ -2716,9 +2760,10 @@ renumbering its registers. For each collection of each archive, in order:
 4. **Opening.** The target loads in a browser and the portal's viewer shows
    the cited view: the view number it displays equals the cited one, once
    its reuse licence, if any, is accepted, and its view count, where it
-   shows one, equals the register's. A target that is the portal's entry
-   rather than its viewer (Visualys, §4.12) must show its reuse licence,
-   which the check accepts, and then the page behind it.
+   shows one, equals the register's. A target behind a reuse licence
+   (Visualys, §4.12; the report's `licence`) is opened as the desktop window
+   opens it: the licence's entry first, whose licence the check accepts as a
+   reader does, a page behind it showing next, then the target.
 5. **Images**, for a `display: "iiif"` archive: the picture and the
    thumbnail load as images no larger than the resolved size, the picture
    with the resolved proportions; a thumbnail may be the portal's own,
@@ -2736,7 +2781,7 @@ What each platform's probe reads, and where its viewer shows the view:
 | THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted. |
 | Bach | The classification scheme's entries of the collection, or the finding aid's nodes at its level, an office cited by its place (`Exampleville` for `Bureau de recrutement d'Exampleville`); a series of one office has none. The discovery reads the locality's aid; since aids list registers without images too, it opens the first registers a citation would name, call numbers first, at most three, until one links to its images, which the viewer's list or the link's range counts. | `#currentpage input[type="number"]`, count `#currentpage` (`/ 71`); the viewer's image requests are aborted. |
 | GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
-| Visualys | The visitor's entry, then `localities`: the list of the initial `A`, its first locality listed without a parish; `search`: the form, offering the settings' kind, its first office. The search lists lots, counted for the registers; the target, the site's entry, has no view. | The licence (`#btnAccepter`), accepted, then the search page behind it (`div.Abecedaire`, `form#frmRecherche`); its images aborted. |
+| Visualys | The visitor's entry, then `localities`: the list of the initial `A`, its first locality listed without a parish; `search`: the form, offering the settings' kind, its first office. The search lists lots, counted for the registers; a military volume is not counted, and cited at its second view. | The licence (`#btnAccepter`) at the site's entry, accepted, then the viewer: `span#LabelImage` (`30 / 248`); its images aborted. |
 | CAOMEC2 | The territory's form: its commune list, act type and year fields; its first commune that is no hospital. The search counts no images: the chosen register's viewer does (one `div#thn<i>` each). | `input#iddoc`, count the last thumbnail's number (`#imgstrip .thn:last-child .thn_id`), on view 1 since the viewer has no address per view; the images aborted. |
 | Gers portal | The module's form: the locality list's and former communes' fields, the settings' checkboxes; its first locality. The results count the images. | `select#fichier option[selected]` (`k / total`), the image aborted. |
 | Older Mnesys | The guided search's form: the settings' fields, kinds and title-matching companions; the place index is behind a script `robots.txt` disallows, so the locality is the first place a hit names in a search of the collection's first kind at the last year of its period, without a locality (none for the military registers). Registers are not counted (above). | `#inputvue_actuelle`, count `#total`, on the viewer host; the images aborted. |
@@ -2865,9 +2910,8 @@ check, in three places; archives are then picked up from the catalogue:
    platform id; the `every_adapter_has_a_probe` test fails until it does.
 3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by
    platform id: the element showing the view number, and the licence button
-   and the view-count element where the viewer has them; for a target that
-   is the portal's entry, the licence button and the element of the page
-   behind it (`landing`) instead of the view.
+   and the view-count element where the viewer has them — for a target
+   behind a reuse licence, the licence page's button.
 
 The probe's own tests replay the platform's anonymized fixtures, as the
 Arkothèque probe's replay `ad44-search-page.html` and `ad44-engine.json`.
@@ -3025,8 +3069,10 @@ Cases the catalogue model must express:
   notice on a viewer host of its own. The Mnesys Expo adapter (§4.4) does not
   apply: it has its own (§4.14).
 - **Côtes-d'Armor.** The portal shows a reuse licence it does not enforce
-  server-side. OxidGene does not skip it: every target is the site's entry,
-  where the reader passes the licence (§4.12).
+  server-side. OxidGene does not skip it: every target stands behind it, a
+  client opens the site's entry first, and the desktop window goes on to the
+  cited view or the list of lots once the reader has accepted it (§4.12,
+  §6.1).
 
 - **Corsica.** One service, the Archives de la Collectivité de Corse, serves
   both 2A and 2B: one catalogue entry carrying both citation codes, its
@@ -3144,7 +3190,7 @@ only, and *unconfirmed* means no evidence was found.
 | 19 | Corrèze | `www.archives.correze.fr` | [`www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f`](https://www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f) | Mnesys Expo | Mnesys Expo logo; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
 | 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | THOT | Single site since December 2020; observed (§4.9); catalogued 2026-10-06, behind Cloudflare (browser only), registers opened at their first view: registers of acts and tables, censuses; the military registers are a name index, not catalogued |
 | 21 | Côte-d'Or | `archives.cotedor.fr` | [`archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`](https://archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564); formerly [`archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie`](https://archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie) | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern; catalogued, browsed 2026-10-05; its commune index kept for the session (§4.6) |
-| 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Visualys (ASP.NET "salle virtuelle") | Observed (§4.12); catalogued, searched and live-checked 2026-10-06: registers, military registers; the target is the site's entry, before the reuse licence |
+| 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Visualys (ASP.NET "salle virtuelle") | Observed (§4.12); catalogued, searched and live-checked 2026-10-06: registers, military registers; the target, the cited view or the list of lots, stands behind the reuse licence the reader accepts (§6.1) |
 | 23 | Creuse | `archives.creuse.fr` | [`archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil`](https://archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 24 | Dordogne | `archives.dordogne.fr` | [`archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil`](https://archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers, TD, RP, RM |
 | 25 | Doubs | `portail-archives.doubs.fr` | [`portail-archives.doubs.fr/search/form/4d44dde5-4523-4384-a2da-c1169870f1b2`](https://portail-archives.doubs.fr/search/form/4d44dde5-4523-4384-a2da-c1169870f1b2) | Mnesys Expo | Logo, Naoned case study; URL pattern; catalogued (§4.4): registers, decennial tables, censuses, military registers, succession tables; live-checked 2026-10-05 |

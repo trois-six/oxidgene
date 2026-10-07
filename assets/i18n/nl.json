@@ -6754,6 +6754,8 @@
     "archive_viewer.kind.tsa": "Tafels van nalatenschappen en afwezigen",
     "archive_viewer.go_to_view": "De viewer van het archief opent op de eerste opname: ga naar opname {view}.",
     "archive_viewer.renumbered": "De nummering van de opnamen is gewijzigd sinds de bronvermelding ({cited} → {count} opnamen): geschatte opname {view}, de pagina kan afwijken.",
+    "archive_viewer.licence": "Het archief vraagt u op deze pagina zijn hergebruiklicentie te aanvaarden. Daarna opent OxidGene het register.",
+    "archive_viewer.licence_tab": "Het archief toont eerst zijn hergebruiklicentie: aanvaard die op het portaal en zoek daar vervolgens het register op.",
     "archive_viewer.no_adapter": "OxidGene kan dit archief niet doorzoeken naar de geciteerde akte. Zet de zoekopdracht voort op de website van het archief.",
     "archive_viewer.no_image": "Het archief levert geen afbeelding van de geciteerde scans om toe te voegen.",
     "archive_viewer.not_an_archive_citation": "Deze bron is geen archiefcitatie die OxidGene kan opzoeken. Zet de zoekopdracht voort op de website van het archief.",

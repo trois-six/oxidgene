@@ -530,6 +530,7 @@ fn a_viewer_without_an_address_per_view_is_checked_on_its_first_view() {
             view: 1,
             view_count: Some(40),
             image: None,
+            licence: None,
         })
     );
     // A platform with an address per view must address the cited one.

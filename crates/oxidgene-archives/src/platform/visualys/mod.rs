@@ -9,11 +9,14 @@
 //! archive's reuse licence (`licence.aspx`); accepting it leads to the
 //! site's search page. The portal does not enforce the licence — its pages
 //! answer a session that never accepted it — but the reader must pass it:
-//! OxidGene never accepts it on the reader's behalf, nor opens a page
-//! beyond it. The adapter searches as a visitor whose licence is pending,
-//! to tell whether the cited register is there, and its target is the
-//! site's entry, where the reader passes the licence and goes on to the
-//! register. A site finds its registers in one of two ways, its `mode`:
+//! OxidGene never accepts it on the reader's behalf. The adapter searches
+//! as a visitor whose licence is pending, to find the cited register and,
+//! through the register's sheets of thumbnails, the address of the cited
+//! view. Its target — that view, or the locality's list of lots — stands
+//! behind the licence ([`Platform::licence`]): a client opens the site's
+//! entry first, where the reader passes the licence, and the desktop window
+//! then goes on to the target (Archive Portals §6.1). A site finds its
+//! registers in one of two ways, its `mode`:
 //!
 //! - `localities`: the alphabetical list of localities, then a locality's
 //!   lots of images, in two blocks the session opens and closes;
@@ -34,12 +37,14 @@ use serde::Deserialize;
 use super::locality::{LocalityStyle, forms};
 use super::markup::{self, fold};
 use super::select::{Candidate, narrow};
-use super::view::view_target;
-use super::{Access, BoxFuture, Platform, PortalEndpoint, Query, is_https_origin, refuse_series};
+use super::view::{cited_views, view_target};
+use super::{
+    Access, BoxFuture, Licence, Platform, PortalEndpoint, Query, is_https_origin, refuse_series,
+};
 use crate::catalog::{Archive, CatalogError, Collection};
 use crate::citation::{Act, ActKind, CitationParts};
 use crate::transport::{PortalFetch, PortalRequest};
-use crate::{ArchiveTarget, ResolveError};
+use crate::{ArchiveTarget, ArchiveView, ResolveError};
 use page::{Blocks, Locality};
 
 /// The Visualys adapter.
@@ -52,6 +57,13 @@ const MAX_LOCALITIES: usize = 3;
 /// The first year of the civil status: earlier marriages are in the parish
 /// registers' block.
 const FIRST_CIVIL_YEAR: u16 = 1793;
+
+/// The window size the sheets of thumbnails are asked for, at which a sheet
+/// lays out [`THUMBNAILS_PER_SHEET`] thumbnails.
+const SHEET_SIZE: &str = "width=1400&height=900";
+
+/// The thumbnails of a sheet at [`SHEET_SIZE`].
+const THUMBNAILS_PER_SHEET: u16 = 24;
 
 fn invalid(message: &str) -> CatalogError {
     CatalogError::new(format!("visualys settings: {message}"))
@@ -168,6 +180,41 @@ impl Settings {
         format!("{}{}", self.origin, self.entry_path())
     }
 
+    /// An address of the site: `<origin><base>/<page>`.
+    fn site(&self, page: &str) -> String {
+        format!("{}{}/{page}", self.origin, self.base)
+    }
+
+    /// The reuse licence every page of the site stands behind.
+    fn licence(&self) -> Licence {
+        Licence {
+            entry: self.entry(),
+            page: self.site("licence.aspx"),
+            scope: self.site(""),
+        }
+    }
+
+    /// A locality's list of lots (`plage.aspx`), its blocks as the session
+    /// left them.
+    fn lots(&self, locality: &str) -> String {
+        self.site(&format!("plage.aspx?id={locality}"))
+    }
+
+    /// A lot's sheets of thumbnails (`planche.aspx`), as the portal's own
+    /// link opens them.
+    fn sheets(&self, lot: &str) -> String {
+        self.site(&format!("planche.aspx?id={lot}"))
+    }
+
+    /// The sheet of a lot's thumbnails holding view `view`.
+    fn sheet_path(&self, lot: &str, view: u16) -> String {
+        let sheet = (view.max(1) - 1) / THUMBNAILS_PER_SHEET + 1;
+        format!(
+            "{}/planche.aspx?id={lot}&page={sheet}&{SHEET_SIZE}",
+            self.base
+        )
+    }
+
     fn entry_path(&self) -> String {
         format!("{}/connexion.aspx?ref=demo&res=1920x1080", self.base)
     }
@@ -270,13 +317,23 @@ fn chosen_localities<'l>(
     if own.is_empty() { named } else { own }
 }
 
+/// What opens a register found: its lot, and the alphabetical list's row it
+/// is listed under, whose list of lots shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Lot {
+    id: String,
+    locality: Option<String>,
+}
+
 /// What a search found: the registers read, with their lots, how many rows of the list
-/// named the locality when none was read, and whether the registers are
-/// those of the cited locality or, for a locality naming no office of a
-/// search by criteria, of every office.
+/// named the locality when none was read, the one row whose lots were read,
+/// if one was, and whether the registers are those of the cited locality
+/// or, for a locality naming no office of a search by criteria, of every
+/// office.
 struct Found {
-    candidates: Vec<Candidate<String>>,
+    candidates: Vec<Candidate<Lot>>,
     total: usize,
+    locality: Option<String>,
     anywhere: bool,
 }
 
@@ -297,9 +354,14 @@ async fn find_in_localities(
         return Ok(Found {
             candidates: Vec::new(),
             total: rows.len(),
+            locality: None,
             anywhere: false,
         });
     }
+    let locality = match rows.as_slice() {
+        [row] => Some(row.id.clone()),
+        _ => None,
+    };
     let mut candidates = Vec::new();
     for row in rows {
         let page = lots_page(settings, row, citation, fetch).await?;
@@ -311,12 +373,16 @@ async fn find_in_localities(
             period: Some(lot.period),
             images: lot.images,
             numbers: None,
-            payload: lot.id,
+            payload: Lot {
+                id: lot.id,
+                locality: Some(row.id.clone()),
+            },
         }));
     }
     Ok(Found {
         candidates,
         total: 0,
+        locality,
         anywhere: false,
     })
 }
@@ -384,12 +450,16 @@ async fn find_by_criteria(
             period: Some(volume.year),
             images: None,
             numbers: None,
-            payload: volume.lot,
+            payload: Lot {
+                id: volume.lot,
+                locality: None,
+            },
         })
         .collect();
     Ok(Some(Found {
         candidates,
         total: 0,
+        locality: None,
         anywhere: office.is_none(),
     }))
 }
@@ -418,9 +488,13 @@ impl Platform for Visualys {
     }
 
     fn results_url(&self, collection: &Collection, _citation: &CitationParts) -> Option<String> {
-        // Every page lies beyond the reuse licence, which the reader passes
-        // from the site's entry.
+        // The search pages are reached from the site's entry, past the
+        // reuse licence; a locality's list has no address of its own.
         Some(Settings::read(collection).ok()?.entry())
+    }
+
+    fn licence(&self, collection: &Collection) -> Option<Licence> {
+        Some(Settings::read(collection).ok()?.licence())
     }
 
     fn resolve<'a>(
@@ -462,23 +536,73 @@ async fn resolve(
         localities = vec![""];
     }
     let matches = match narrow(&found.candidates, citation, &localities).as_slice() {
-        // The register is there: the reader opens it from the site's entry,
-        // past the licence, the image count and the view to go to known.
+        // The register: its cited views where its sheets of thumbnails
+        // number them, otherwise its locality's lots or its own sheets,
+        // behind the licence the reader passes first.
         [only] => {
+            let images = only.images.map_or(usize::MAX, usize::from);
+            let views = cited(&settings, citation, only, images, fetch).await?;
+            let register = match &only.payload.locality {
+                Some(locality) => settings.lots(locality),
+                None => settings.sheets(&only.payload.id),
+            };
             return Ok(view_target(
                 archive,
                 citation,
                 only.call_number.as_deref(),
-                only.images.map_or(usize::MAX, usize::from),
-                settings.entry(),
-                Vec::new(),
+                images,
+                register,
+                views,
             ));
         }
         [] if found.candidates.is_empty() => found.total,
         many => many.len(),
     };
+    // Several lots, or none, of one locality: its list of lots; otherwise
+    // the site's entry, where the reader searches.
+    let url = found
+        .locality
+        .as_deref()
+        .map_or_else(|| settings.entry(), |locality| settings.lots(locality));
     Ok(ArchiveTarget::Results {
-        url: settings.entry(),
+        url,
         matches: Some(matches),
     })
+}
+
+/// The cited views of a lot of `images` images — shifted where the lot
+/// holds earlier years than the citation counted (§7) —, each the viewer's address
+/// of its image (`consult.aspx?image=<id>`) as the lot's sheets of
+/// thumbnails give it: one request per sheet holding a cited view. None
+/// when a view lies beyond the lot, or a sheet does not number it.
+async fn cited(
+    settings: &Settings,
+    citation: &CitationParts,
+    lot: &Candidate<Lot>,
+    images: usize,
+    fetch: &dyn PortalFetch,
+) -> Result<Vec<ArchiveView>, ResolveError> {
+    let mut sheets: Vec<(String, String)> = Vec::new();
+    let mut views = Vec::new();
+    for cited in cited_views(citation, images, lot.period.as_deref()) {
+        let path = settings.sheet_path(&lot.payload.id, cited.view);
+        let sheet = match sheets.iter().find(|(known, _)| *known == path) {
+            Some((_, sheet)) => sheet.clone(),
+            None => {
+                let sheet = get(fetch, &path).await?;
+                sheets.push((path, sheet.clone()));
+                sheet
+            }
+        };
+        let Some(image) = page::thumbnail(&sheet, cited.view)? else {
+            return Ok(Vec::new());
+        };
+        views.push(ArchiveView {
+            view: cited.view,
+            url: settings.site(&format!("consult.aspx?image={image}")),
+            ark: None,
+            image: None,
+        });
+    }
+    Ok(views)
 }

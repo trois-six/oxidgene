@@ -3,7 +3,7 @@
 They have the markup of pages recorded from the Côtes-d'Armor "salle
 virtuelle" (the licence page, the alphabetical list of localities, a
 locality's lots in their blocks, the military registers' search form and
-its answers), with fictitious localities, parishes, offices, call numbers
+its answers, a lot's sheets of numbered thumbnails), with fictitious localities, parishes, offices, call numbers
 and identifiers; no recorded value is copied, and the pages' state fields
 hold placeholders."""
 import pathlib
@@ -158,6 +158,33 @@ def military(name, volumes):
     write(name, text)
 
 
+def sheet(name, lot, page, pages, first, last):
+    """A sheet of a lot's thumbnails (`planche.aspx`), views `first` to `last`."""
+    text = HEAD + (
+        '<SCRIPT LANGUAGE="javascript">\nfunction ouvrir(nom)\n'
+        '{window.location.href="consult.aspx?image="+nom;}\n</SCRIPT>\n'
+        '<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="PageNavigation">\n<TR>\n'
+        '\t<TD CLASS="Page">Pages :</TD>\n\t<TD CLASS="Select"><SELECT NAME="ListePage" ID="ListePage">'
+        + ''.join(f'<OPTION VALUE="{n}"{" SELECTED" if n == page else ""}>{n}</OPTION>'
+                  for n in range(1, pages + 1)) +
+        f'</SELECT></TD>\n\t<TD CLASS="Label"><span id="LabelPage">&nbsp;/&nbsp;{pages}</span></TD>\n'
+        '</TR>\n</TABLE>\n<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0">\n<TR>\n')
+    for view in range(first, last + 1):
+        image = f'9100{lot[-3:]}{view:08}'
+        text += ('\t\t<td valign="top">\n\t\t<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" HEIGHT="148" '
+                 'WIDTH="180"><TR><TD VALIGN="top">\n\t\t\t<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="2">\n'
+                 '\t\t\t<TR>\n\t\t\t\t<TD COLSPAN="2" WIDTH="140" HEIGHT="90" ALIGN="center" VALIGN="center" '
+                 f'CLASS="FondGris"><A CLASS="ImgC" HREF="javascript:ouvrir(\'{image}\')"><IMG BORDER="0" '
+                 f'SRC="rg_ec//disk00/EXEMPLE/tn/tnEXEMPLE_{view:04}.jpg" '
+                 f'ONMOUSEMOVE="zoomOn(event,this,\'{image}\')" ONMOUSEOUT="zoomOff()" HEIGHT="90"></A></TD>\n'
+                 '\t\t\t</TR>\n\t\t\t<TR>\n'
+                 f'\t\t\t\t<TD VALIGN="top" CLASS="MiniNum" WIDTH="10">{view}.</TD>\n'
+                 '\t\t\t\t<TD VALIGN="top" CLASS="MiniDate" ALIGN="right">&nbsp;</TD>\n'
+                 '\t\t\t</TR>\n\t\t\t</TABLE>\n\t\t</TD></TR></TABLE>\n\t\t</td>\n')
+    text += '</TR>\n</TABLE>\n' + TAIL
+    write(name, text)
+
+
 licence()
 locality_list('list-b.html', 'B', [
     ('900000000000011', 'Bourg (Le)', '', '1641 - 1922'),
@@ -185,3 +212,7 @@ military('military-results.html', [
     ('900000000000303', 'Sampleton', 1900, '01R9010'),
 ])
 military('military-none.html', [])
+# The second sheet of the births lot 900000000000201 (248 views), and the
+# first of a military volume.
+sheet('sheet-births-2.html', '900000000000201', 2, 11, 25, 48)
+sheet('sheet-military-1.html', '900000000000302', 1, 3, 1, 24)

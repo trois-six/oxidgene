@@ -12,7 +12,7 @@ use super::find::FindInArchives;
 use super::{
     ArchiveAddress, ArchiveLink, ArchiveOffer, ArchivePageRequest, ArchiveRegister,
     ArchiveViewerBridge, ArchiveViewerMessages, ArchiveViewerRequest, AttachSender, Landing,
-    ViewPage,
+    LandingBanner, ViewPage,
 };
 use crate::api::{ApiClient, ApiError, UpdateCitationBody};
 use crate::i18n::{I18n, use_i18n};
@@ -224,15 +224,16 @@ fn open_in_tab(
         // The page may be gone by now; then so is the notice.
         let mut notice = notice;
         if let Ok(mut current) = notice.try_write() {
-            *current = landing.banner.map(|banner| banner.text(&i18n));
+            *current = landing.notice().map(|banner| banner.text(&i18n));
         }
     });
 }
 
 /// Why no views can be attached, said beside the source.
 enum Unattachable {
-    /// The lookup ended elsewhere than on views with images: its landing.
-    Landing(Landing),
+    /// The lookup ended elsewhere than on views with images: its landing's
+    /// notice, if it has one.
+    Landing(Option<LandingBanner>),
     /// It failed, with this code.
     Failed(Option<String>),
 }
@@ -240,7 +241,7 @@ enum Unattachable {
 impl Unattachable {
     fn text(&self, i18n: &I18n) -> String {
         match self {
-            Self::Landing(landing) => landing.banner.map_or_else(
+            Self::Landing(notice) => notice.map_or_else(
                 || i18n.t("archive_viewer.no_image"),
                 |banner| banner.text(i18n),
             ),
@@ -267,7 +268,7 @@ async fn attachable_views(
         .await
         .map_err(|error| Unattachable::Failed(error.code()))?;
     ArchiveRegister::of(tree_id, link, &target)
-        .ok_or_else(|| Unattachable::Landing(Landing::of(link, Ok(target))))
+        .ok_or_else(|| Unattachable::Landing(Landing::of(link, Ok(target)).notice()))
 }
 
 /// Opens a portal address as it is: in an archive window on the desktop, in

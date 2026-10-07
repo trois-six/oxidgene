@@ -3,16 +3,13 @@
 // platform id. An adapter added to `oxidgene-archives` adds its entry here.
 
 export interface Viewer {
-    // The button accepting the reuse licence the viewer shows first, if any.
+    // The button accepting the reuse licence the viewer shows first, if any,
+    // or the one of the licence page a target stands behind (its report's
+    // `licence`), which the check passes before opening the target.
     licence?: string;
     // The element showing the one-based view number: an input's value or an
     // element's text, whose first number is read.
     view?: string;
-    // For a portal whose target is the page a reader starts from rather than
-    // its viewer — its entry, behind a reuse licence the reader accepts —
-    // the element the page behind the licence shows; `view` is then not
-    // read, and the licence must have shown.
-    landing?: string;
     // The element showing the register's view count, if the viewer shows it:
     // its last number is read (`/ 46`, `5/267`).
     viewCount?: string;
@@ -105,12 +102,14 @@ export const viewers: Record<string, Viewer> = {
         viewCount: "h3#imageNumMax",
         blockImages: true,
     },
-    // Visualys (the Côtes-d'Armor "salle virtuelle"): the target is a site's
-    // entry, whose reuse licence the reader accepts before the search page —
-    // the alphabetical list of localities, or the search form.
+    // Visualys (the Côtes-d'Armor "salle virtuelle"): the target stands
+    // behind the site's reuse licence, which the check accepts from the
+    // site's entry before opening the viewer, whose `30 / 248` gives the view
+    // and the count.
     visualys: {
         licence: "#btnAccepter",
-        landing: "div.Abecedaire, form#frmRecherche",
+        view: "span#LabelImage",
+        viewCount: "span#LabelImage",
         blockImages: true,
     },
 };

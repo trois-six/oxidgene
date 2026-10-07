@@ -35,7 +35,7 @@ pub use catalog::{Archive, CatalogError, Collection, Display, Level, Period};
 pub use citation::{
     Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Series, Side,
 };
-pub use platform::{Access, Platform, PortalEndpoint};
+pub use platform::{Access, Licence, Platform, PortalEndpoint};
 pub use recognize::{
     CitationEvidence, CitedEvent, Found, HeldAt, Part, PlaceLookup, Recognition, Signal,
     SuppliedParts, Unrecognized,
@@ -282,6 +282,19 @@ impl ArchiveRegistry {
                 .collect();
         }
         (!collections.is_empty()).then_some((archive, collections))
+    }
+
+    /// The reuse licence a reader passes before `url`, an address of the
+    /// archive citations of `code` name: that of the collection whose pages
+    /// it guards (Archive Portals §6.1). `None` when no licence stands
+    /// before it, `url` being the licence's entry or page included.
+    pub fn licence(&self, code: &str, url: &str) -> Option<Licence> {
+        let archive = self.archive(code)?;
+        archive.collections.iter().find_map(|collection| {
+            self.platform(&collection.platform)?
+                .licence(collection)
+                .filter(|licence| licence.guards(url))
+        })
     }
 
     /// The target built without any request: the first candidate

@@ -6754,6 +6754,8 @@
     "archive_viewer.kind.tsa": "Verzeichnisse der Nachlässe und Verschollenen",
     "archive_viewer.go_to_view": "Der Viewer des Archivs öffnet die erste Ansicht: Gehen Sie zu Ansicht {view}.",
     "archive_viewer.renumbered": "Die Nummerierung der Ansichten hat sich seit dem Zitat geändert ({cited} → {count} Ansichten): geschätzte Ansicht {view}, die Seite kann abweichen.",
+    "archive_viewer.licence": "Das Archiv bittet Sie, auf dieser Seite seine Nachnutzungslizenz anzunehmen. Danach öffnet OxidGene das Register.",
+    "archive_viewer.licence_tab": "Das Archiv zeigt zuerst seine Nachnutzungslizenz: Nehmen Sie sie im Portal an und suchen Sie dort dann das Register.",
     "archive_viewer.no_adapter": "OxidGene kann dieses Archiv nicht nach der zitierten Urkunde durchsuchen. Setzen Sie die Suche auf der Website des Archivs fort.",
     "archive_viewer.no_image": "Das Archiv stellt kein Bild der zitierten Ansichten zum Anhängen bereit.",
     "archive_viewer.not_an_archive_citation": "Diese Quelle ist kein Archivzitat, das OxidGene nachschlagen kann. Setzen Sie die Suche auf der Website des Archivs fort.",

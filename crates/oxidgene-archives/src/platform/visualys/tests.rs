@@ -10,8 +10,9 @@ use super::{Visualys, initial, page, wanted_blocks};
 use crate::catalog::Collection;
 use crate::citation::Act;
 use crate::platform::{BoxFuture, Platform};
+use crate::recognize::CitationEvidence;
 use crate::transport::{FetchError, Method, PortalFetch, PortalRequest};
-use crate::{ArchiveRegistry, ArchiveTarget, ResolveError};
+use crate::{ArchiveRegistry, ArchiveTarget, ArchiveView, ResolveError};
 
 macro_rules! fixture {
     ($name:literal) => {
@@ -31,12 +32,17 @@ const LOTS_CIVIL_ONLY: &str = fixture!("lots-civil-only.html");
 const MILITARY_FORM: &str = fixture!("military-form.html");
 const MILITARY_RESULTS: &str = fixture!("military-results.html");
 const MILITARY_NONE: &str = fixture!("military-none.html");
+const SHEET_BIRTHS_2: &str = fixture!("sheet-births-2.html");
+const SHEET_MILITARY_1: &str = fixture!("sheet-military-1.html");
 
 const ENTRY: &str =
     "https://sallevirtuelle.cotesdarmor.fr/EC/ecx/connexion.aspx?ref=demo&res=1920x1080";
 const MILITARY_ENTRY: &str =
     "https://sallevirtuelle.cotesdarmor.fr/RM/rmx/connexion.aspx?ref=demo&res=1920x1080";
 const BOURG: &str = "/EC/ecx/plage.aspx?id=900000000000011";
+const SITE: &str = "https://sallevirtuelle.cotesdarmor.fr";
+/// The second sheet of thumbnails of the births lot, views 25 to 48.
+const BIRTHS_SHEET_2: &str = "/EC/ecx/planche.aspx?id=900000000000201&page=2&width=1400&height=900";
 
 /// Drives a future whose every step completes at once.
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -130,9 +136,10 @@ fn registers(list: &'static str, lots: &[(&str, &'static str)]) -> Portal {
     Portal::new(&routes)
 }
 
-fn register_target(view_count: Option<u16>) -> ArchiveTarget {
+/// A register opened at its locality's list of lots (`path` on the site).
+fn register_target(path: &str, view_count: Option<u16>) -> ArchiveTarget {
     ArchiveTarget::View {
-        url: ENTRY.to_owned(),
+        url: format!("{SITE}{path}"),
         views: Vec::new(),
         view_count,
         call_number: None,
@@ -141,27 +148,89 @@ fn register_target(view_count: Option<u16>) -> ArchiveTarget {
     }
 }
 
+/// The viewer's address of the births lot's view `view`.
+fn births_view(view: u16) -> ArchiveView {
+    ArchiveView {
+        view,
+        url: format!("{SITE}/EC/ecx/consult.aspx?image=9100201{view:08}"),
+        ark: None,
+        image: None,
+    }
+}
+
 #[test]
-fn finds_a_register_and_lands_on_the_site_entry_before_the_licence() {
+fn finds_the_cited_view_through_the_lot_s_sheets() {
     let toggled = format!("{BOURG}&r=1");
     let portal = registers(
         LIST_B,
-        &[(BOURG, LOTS_CLOSED), (toggled.as_str(), LOTS_CIVIL)],
+        &[
+            (BOURG, LOTS_CLOSED),
+            (toggled.as_str(), LOTS_CIVIL),
+            (BIRTHS_SHEET_2, SHEET_BIRTHS_2),
+        ],
     );
     let target = resolve("AD22 - Le Bourg - (aucun) - N - 1795 - vue 30/248", &portal).unwrap();
-    assert_eq!(target, register_target(Some(248)));
+    assert_eq!(
+        target,
+        ArchiveTarget::View {
+            url: births_view(30).url,
+            views: vec![births_view(30)],
+            view_count: Some(248),
+            call_number: None,
+            attribution: None,
+            renumbering: None,
+        }
+    );
     // The visitor's entry, the initial's list, the lots, the civil block
-    // opened: never the licence's acceptance, never a viewer.
+    // opened, the sheet numbering view 30: never the licence's acceptance,
+    // never the viewer.
     assert_eq!(
         portal.paths(),
         [
             entry("/EC/ecx"),
             "/EC/ecx/commune.aspx?lettre=B".to_owned(),
             BOURG.to_owned(),
-            toggled
+            toggled,
+            BIRTHS_SHEET_2.to_owned(),
         ]
     );
     assert!(portal.bodies().iter().all(Option::is_none));
+}
+
+/// The owner's case, anonymized: a birth cited without a parish field, by
+/// its register's period, act number and view, which lies behind the
+/// licence: the target is that view, and the licence stands before it.
+#[test]
+fn a_birth_cited_by_period_act_and_view_opens_at_the_view_behind_the_licence() {
+    let registry = ArchiveRegistry::embedded();
+    let evidence = CitationEvidence {
+        title: "AD22 - Exampleville - N - 1796-1800 - acte 65 - vue 36/248".to_owned(),
+        ..CitationEvidence::default()
+    };
+    let citation = registry
+        .recognize(&evidence, None, None)
+        .unwrap()
+        .citation()
+        .expect("a complete citation");
+    assert_eq!(citation.locality, "Exampleville");
+    let own = "/EC/ecx/plage.aspx?id=900000000000021";
+    let portal = registers(
+        LIST_E,
+        &[(own, LOTS_CIVIL_ONLY), (BIRTHS_SHEET_2, SHEET_BIRTHS_2)],
+    );
+    let (archive, collections) = registry.candidates(&citation).unwrap();
+    let target = block_on(Visualys.resolve(archive, collections[0], &citation, &portal)).unwrap();
+    assert_eq!(target.url(), births_view(36).url);
+    let licence = registry
+        .licence("AD22", target.url())
+        .expect("the site's licence");
+    assert_eq!(licence.entry, ENTRY);
+    assert_eq!(licence.page, format!("{SITE}/EC/ecx/licence.aspx"));
+    // The locality's lots, where a view has no address, stand behind it too;
+    // the entry does not.
+    assert!(registry.licence("AD22", &format!("{SITE}{own}")).is_some());
+    assert!(registry.licence("AD22", ENTRY).is_none());
+    assert!(registry.licence("AD44", ENTRY).is_none());
 }
 
 #[test]
@@ -174,7 +243,7 @@ fn opens_only_the_blocks_holding_the_act_that_are_closed() {
         &[(BOURG, LOTS_CLOSED), (parish.as_str(), LOTS_PARISH)],
     );
     let target = resolve("AD22 - Le Bourg - (aucun) - M - 1675", &portal).unwrap();
-    assert_eq!(target, register_target(Some(611)));
+    assert_eq!(target, register_target(BOURG, Some(611)));
     assert_eq!(portal.paths().last(), Some(&parish));
 
     // Without a year, both blocks, each opened by its own toggle: four
@@ -191,7 +260,7 @@ fn opens_only_the_blocks_holding_the_act_that_are_closed() {
     assert_eq!(
         target,
         ArchiveTarget::Results {
-            url: ENTRY.to_owned(),
+            url: format!("{SITE}{BOURG}"),
             matches: Some(4)
         }
     );
@@ -201,7 +270,7 @@ fn opens_only_the_blocks_holding_the_act_that_are_closed() {
     // close it.
     let portal = registers(LIST_B, &[(BOURG, LOTS_CIVIL)]);
     let target = resolve("AD22 - Le Bourg - (aucun) - TD - 1805", &portal).unwrap();
-    assert_eq!(target, register_target(Some(14)));
+    assert_eq!(target, register_target(BOURG, Some(14)));
     assert_eq!(portal.paths().len(), 3);
 }
 
@@ -216,14 +285,14 @@ fn chooses_the_row_of_the_parish_or_the_locality_s_own() {
         ],
     );
     let target = resolve("AD22 - Exampleville - Saint-Exemple - B - 1685", &portal).unwrap();
-    assert_eq!(target, register_target(Some(264)));
+    assert_eq!(target, register_target(parish_lots, Some(264)));
 
     // Without a parish, the locality's own row, whose lots have no parish
     // block.
     let own = "/EC/ecx/plage.aspx?id=900000000000021";
     let portal = registers(LIST_E, &[(own, LOTS_CIVIL_ONLY)]);
     let target = resolve("AD22 - Exampleville - (aucun) - D - 1800", &portal).unwrap();
-    assert_eq!(target, register_target(Some(205)));
+    assert_eq!(target, register_target(own, Some(205)));
     assert_eq!(portal.paths().last().map(String::as_str), Some(own));
 
     // A locality listed only by its parishes: each of them.
@@ -303,7 +372,7 @@ fn searches_the_military_registers_by_class_and_office() {
     assert_eq!(
         target,
         ArchiveTarget::View {
-            url: MILITARY_ENTRY.to_owned(),
+            url: format!("{SITE}/RM/rmx/planche.aspx?id=900000000000302"),
             views: Vec::new(),
             view_count: None,
             call_number: Some("01R9002".to_owned()),
@@ -365,6 +434,47 @@ fn searches_the_military_registers_by_class_and_office() {
             matches: Some(0)
         }
     );
+}
+
+#[test]
+fn a_military_volume_s_view_is_found_on_its_sheets_or_left_to_the_reader() {
+    const SHEET: &str = "/RM/rmx/planche.aspx?id=900000000000302&page=1&width=1400&height=900";
+    let title = "AD22 - Exampleville - Registres matricules - 1900 - 01R 9002 - vue 2";
+    let with_sheet = |sheet: &'static str| {
+        let entry = entry("/RM/rmx");
+        Portal::new(&[
+            (GET, entry.as_str(), LICENCE),
+            (GET, "/RM/rmx/commune.aspx?lettre=*", MILITARY_FORM),
+            (POST, "/RM/rmx/commune.aspx?lettre=*", MILITARY_RESULTS),
+            (GET, SHEET, sheet),
+        ])
+    };
+    let Ok(ArchiveTarget::View { url, views, .. }) = resolve(title, &with_sheet(SHEET_MILITARY_1))
+    else {
+        panic!("a view");
+    };
+    assert_eq!(
+        url,
+        format!("{SITE}/RM/rmx/consult.aspx?image=910030200000002")
+    );
+    assert_eq!(views.len(), 1);
+
+    // A sheet that does not number the view: the volume's sheets.
+    let Ok(ArchiveTarget::View { url, views, .. }) = resolve(title, &with_sheet(SHEET_BIRTHS_2))
+    else {
+        panic!("a view");
+    };
+    assert_eq!(
+        url,
+        format!("{SITE}/RM/rmx/planche.aspx?id=900000000000302")
+    );
+    assert!(views.is_empty());
+
+    // A page without thumbnails is no sheet.
+    assert!(matches!(
+        resolve(title, &with_sheet(LICENCE)),
+        Err(ResolveError::UnexpectedResponse(_))
+    ));
 }
 
 #[test]
@@ -492,7 +602,17 @@ fn validates_the_settings() {
 }
 
 #[test]
-fn every_target_is_the_site_entry_and_the_window_starts_on_the_stylesheet() {
+fn reads_the_view_s_image_on_a_sheet() {
+    assert_eq!(
+        page::thumbnail(SHEET_BIRTHS_2, 36).unwrap().as_deref(),
+        Some("910020100000036")
+    );
+    assert_eq!(page::thumbnail(SHEET_BIRTHS_2, 24).unwrap(), None);
+    assert!(page::thumbnail(LICENCE, 1).is_err());
+}
+
+#[test]
+fn the_search_pages_are_the_site_entry_and_the_window_starts_on_the_stylesheet() {
     let registry = ArchiveRegistry::embedded();
     let archive = registry.archive("AD22").unwrap();
     let citation = registry

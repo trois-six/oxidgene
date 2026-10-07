@@ -6754,6 +6754,8 @@
     "archive_viewer.kind.tsa": "Índices de sucesiones y ausencias",
     "archive_viewer.go_to_view": "El visor del archivo se abre en la primera vista: vaya a la vista {view}.",
     "archive_viewer.renumbered": "La numeración de las vistas ha cambiado desde la cita ({cited} → {count} vistas): vista estimada {view}, la página puede diferir.",
+    "archive_viewer.licence": "El archivo le pide que acepte su licencia de reutilización en esta página. Una vez aceptada, OxidGene abre el registro.",
+    "archive_viewer.licence_tab": "El archivo muestra primero su licencia de reutilización: acéptela en el portal y busque allí el registro.",
     "archive_viewer.no_adapter": "OxidGene no puede buscar el acta citada en este archivo. Continúe la búsqueda en el sitio web del archivo.",
     "archive_viewer.no_image": "El archivo no ofrece ninguna imagen de las vistas citadas para adjuntar.",
     "archive_viewer.not_an_archive_citation": "Esta fuente no es una cita de archivo que OxidGene pueda buscar. Continúe la búsqueda en el sitio web del archivo.",

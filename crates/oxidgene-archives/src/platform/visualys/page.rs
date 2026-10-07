@@ -252,3 +252,24 @@ pub(super) fn volumes(page: &str) -> Result<Vec<Volume>, ResolveError> {
         })
         .collect())
 }
+
+/// The image identifier of view `view` on a sheet of a lot's thumbnails
+/// (`planche.aspx`): the thumbnail numbered with the view
+/// (`<TD CLASS="MiniNum">36.</TD>`), which opens it
+/// (`javascript:ouvrir('<image>')`). `None` when the sheet does not number
+/// it; a page without numbered thumbnails is not a sheet.
+pub(super) fn thumbnail(sheet: &str, view: u16) -> Result<Option<String>, ResolveError> {
+    const NUMBER: &str = "CLASS=\"MiniNum\"";
+    let thumbnails = markup::split_after(sheet, "javascript:ouvrir('");
+    if thumbnails.is_empty() || !sheet.contains(NUMBER) {
+        return Err(unreadable(sheet, "the sheet has no numbered thumbnails"));
+    }
+    Ok(thumbnails.into_iter().find_map(|thumbnail| {
+        let id = &thumbnail[..thumbnail.find('\'')?];
+        let cell = &thumbnail[thumbnail.find(NUMBER)? + NUMBER.len()..];
+        let text = &cell[cell.find('>')? + 1..];
+        let number = first_number::<u16>(&text[..text.find('<')?])?;
+        (number == view && !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| id.to_owned())
+    }))
+}

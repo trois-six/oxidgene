@@ -42,7 +42,7 @@ use crate::platform::markup::fold;
 use crate::platform::select::period_ranges;
 use crate::platform::{Access, BoxFuture};
 use crate::transport::{FetchError, PortalFetch, PortalRequest, PortalTransport};
-use crate::{ArchiveImage, ArchiveRegistry, ArchiveTarget, ResolveError, Resolver};
+use crate::{ArchiveImage, ArchiveRegistry, ArchiveTarget, Licence, ResolveError, Resolver};
 
 /// How a check ended, from the best to the worst.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -315,6 +315,9 @@ pub struct Opening {
     pub view_count: Option<u16>,
     /// For a `display: "iiif"` archive.
     pub image: Option<ArchiveImage>,
+    /// The reuse licence the target stands behind (Visualys): step 4 opens
+    /// its entry, accepts it as a reader does, then the target.
+    pub licence: Option<Licence>,
 }
 
 /// One collection's check.
@@ -624,8 +627,9 @@ async fn resolution(
         .resolve(citation, transport)
         .await
         .map_err(|error| Failure::from_error(Step::Resolution, expected(), &error))?;
-    let opening = check_view(archive, collection, citation, &target, addresses_views)
+    let mut opening = check_view(archive, collection, citation, &target, addresses_views)
         .map_err(|received| Failure::drift(Step::Resolution, expected(), received))?;
+    opening.licence = registry.licence(&citation.code, &opening.url);
     if citation.call_number.is_none() {
         return Ok(opening);
     }
@@ -705,6 +709,7 @@ fn check_view(
             view: 1,
             view_count: view_count.or(citation.view_count),
             image: None,
+            licence: None,
         });
     }
     let view = citation.views[0].view;
@@ -740,6 +745,7 @@ fn check_view(
         // Counted by the probe where the adapter does not count.
         view_count: view_count.or(citation.view_count),
         image: first.image.clone(),
+        licence: None,
     })
 }
 

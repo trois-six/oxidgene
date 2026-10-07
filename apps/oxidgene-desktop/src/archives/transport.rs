@@ -28,7 +28,7 @@ use oxidgene_archives::transport::{
     Guard, PageAnswer, TIMEOUT, anti_bot, check_scheme, page_url, request_url,
 };
 use oxidgene_archives::{
-    ArchiveTarget, FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
+    ArchiveTarget, FetchError, Licence, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
 };
 use oxidgene_ui::archive_viewer::AttachSender;
 use serde::Deserialize;
@@ -108,6 +108,18 @@ pub(super) struct Attachable {
     pub(super) label: String,
 }
 
+/// The target a landing on a portal's reuse licence goes on to (docs/archives.md
+/// §6.1): OxidGene never accepts the licence, and opens the target once a
+/// page behind the licence has shown after the licence page — the reader
+/// accepted it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Onward {
+    pub(super) url: String,
+    pub(super) licence: Licence,
+    /// The banner over the target.
+    pub(super) banner: Option<String>,
+}
+
 /// Where a resolution stands, as its progress overlay says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
@@ -161,6 +173,9 @@ pub(super) enum Command {
         texts: Box<Texts>,
         /// The views the page shows, which the reader may attach.
         attach: Option<Box<Attachable>>,
+        /// For a landing on a portal's reuse licence, the target the window
+        /// goes on to once the reader has accepted it.
+        onward: Option<Box<Onward>>,
     },
     /// The resolution moved on to `stage`.
     Stage { session: SessionId, stage: Stage },
@@ -197,6 +212,9 @@ pub(super) struct Page {
     /// Whether a check shows a widget for the reader to answer.
     #[serde(default)]
     pub(super) interactive: bool,
+    /// The page's address, as the window's IPC channel gives it.
+    #[serde(skip)]
+    pub(super) url: String,
 }
 
 /// What a waiting connection hears of its window.
@@ -558,6 +576,7 @@ impl WindowTransport {
             progress: Some(self.progress(stage)),
             texts: Box::new(self.texts.clone()),
             attach: None,
+            onward: None,
         });
         let started = Instant::now();
         let mut gate = Gate::new(started);
@@ -786,6 +805,7 @@ mod tests {
             state,
             vendor: None,
             interactive,
+            url: String::new(),
         })
     }
 

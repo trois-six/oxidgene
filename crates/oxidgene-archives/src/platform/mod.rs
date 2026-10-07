@@ -118,6 +118,33 @@ impl PortalEndpoint {
     }
 }
 
+/// A reuse licence a portal shows before the pages of a collection
+/// (Archive Portals §6.1): where a reader enters, the licence page they
+/// accept it on, and the pages behind it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Licence {
+    /// The address a reader enters by, which leads to the licence page.
+    pub entry: String,
+    /// The licence page's address, which the reader leaves by accepting.
+    pub page: String,
+    /// The start of every address behind the licence: a site's root.
+    pub scope: String,
+}
+
+impl Licence {
+    /// Whether `url` is a page behind the licence: within its scope, and
+    /// neither the entry nor the licence page.
+    pub fn guards(&self, url: &str) -> bool {
+        url.starts_with(&self.scope) && url != self.entry && !self.is_page(url)
+    }
+
+    /// Whether `url` is the licence page, whatever its query.
+    pub fn is_page(&self, url: &str) -> bool {
+        url.strip_prefix(&self.page)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['?', '#']))
+    }
+}
+
 /// One portal platform.
 pub trait Platform: Send + Sync {
     /// The catalogue value of `platform` this adapter answers to.
@@ -140,6 +167,15 @@ pub trait Platform: Send + Sync {
     /// other adapter.
     fn reads_pages(&self) -> bool {
         false
+    }
+
+    /// The reuse licence the portal shows a reader before any page of the
+    /// collection, which OxidGene never accepts on the reader's behalf: a
+    /// client opens its entry first, and the target once the reader has
+    /// accepted it. `None` for a portal without one, or whose viewer asks
+    /// for it itself.
+    fn licence(&self, _collection: &Collection) -> Option<Licence> {
+        None
     }
 
     /// Resolves a citation to a target in this collection: `View` when one

@@ -1,9 +1,10 @@
 //! The Visualys part of the live checks (Archive Portals §9.1): a site's
 //! search page, reached as a visitor whose licence is pending, lists its
 //! localities (the first initial's) or offers the settings' kind of
-//! register and its offices; a search lists lots. The target is the site's
-//! entry, where step 4 accepts the licence, as a reader does, and finds the
-//! search page behind it: the portal is never opened at a register.
+//! register and its offices; a search lists lots. The target, a view the
+//! lot's sheets of thumbnails number, stands behind the site's licence:
+//! step 4 opens the entry, accepts the licence as a reader does, then the
+//! target, and reads the view the viewer shows.
 
 use super::page::{self, Locality};
 use super::{Mode, Settings, Visualys, find_by_criteria, find_in_localities, get};
@@ -106,7 +107,7 @@ async fn registers(
             call_number: lot.call_number,
             period: lot.period,
             images: lot.images,
-            address: Some(lot.payload),
+            address: Some(lot.payload.id),
             numbers: None,
         })
         .collect())
@@ -131,8 +132,9 @@ impl Probe for Visualys {
         Box::pin(registers(collection, locality, act, fetch))
     }
 
-    /// The target is the site's entry, before the licence: no view.
-    fn addresses_views(&self, _collection: &Collection) -> bool {
-        false
+    /// A search by criteria lists its volumes without their image counts,
+    /// which only the volume's sheets of thumbnails show.
+    fn counts_images(&self, collection: &Collection) -> bool {
+        Settings::read(collection).is_ok_and(|settings| settings.mode == Mode::Localities)
     }
 }

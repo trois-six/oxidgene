@@ -59,8 +59,8 @@ use tracing::{debug, warn};
 
 use cover::Cover;
 use transport::{
-    Attachable, Command, Fetched, Page, PageState, Progress, Seen, SessionId, Shared, Stage, Texts,
-    WindowTransport,
+    Attachable, Command, Fetched, Onward, Page, PageState, Progress, Seen, SessionId, Shared,
+    Stage, Texts, WindowTransport,
 };
 
 /// One message from the scripts of [`script`].
@@ -274,6 +274,7 @@ fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
         progress: None,
         texts: Box::new(texts(&messages)),
         attach: None,
+        onward: None,
     }
 }
 
@@ -334,7 +335,14 @@ fn landing(
         Ok(ArchiveTarget::View { views, .. }) => views.first().map(|view| view.view),
         _ => None,
     };
-    let Landing { url, banner } = Landing::of(link, outcome.map_err(|error| error.code()));
+    let Landing { url, banner, then } = Landing::of(link, outcome.map_err(|error| error.code()));
+    let onward = then.map(|then| {
+        Box::new(Onward {
+            url: then.url,
+            licence: then.licence,
+            banner: then.banner.and_then(|banner| messages.banner(banner)),
+        })
+    });
     Command::Load {
         session: transport.session,
         title: link.title.clone(),
@@ -344,6 +352,7 @@ fn landing(
         progress: Some(transport.progress(Stage::Opening { view })),
         texts: Box::new(transport.texts.clone()),
         attach,
+        onward,
     }
 }
 
@@ -370,6 +379,7 @@ fn cancelled_landing(link: &ArchiveLink, transport: &WindowTransport) -> Command
         progress: None,
         texts: Box::new(transport.texts.clone()),
         attach: None,
+        onward: None,
     }
 }
 
@@ -525,6 +535,39 @@ impl Status {
     }
 }
 
+/// A landing on a portal's reuse licence, waiting for the reader to accept
+/// it (docs/archives.md §6.1). Nothing is accepted on the reader's behalf:
+/// the reader has passed the licence once a page behind it shows after the
+/// licence page did. A page shown before the licence page — the page being
+/// left, the entry's redirect — does not count.
+#[derive(Debug, PartialEq, Eq)]
+struct Pending {
+    onward: Onward,
+    licence_shown: bool,
+}
+
+impl Pending {
+    fn new(onward: Onward) -> Self {
+        Self {
+            onward,
+            licence_shown: false,
+        }
+    }
+
+    /// Whether the portal page at `url` says that the reader has passed the
+    /// licence, so that the window goes on to the target.
+    fn passed(&mut self, state: PageState, url: &str) -> bool {
+        if state != PageState::Portal {
+            return false;
+        }
+        if self.onward.licence.is_page(url) {
+            self.licence_shown = true;
+            return false;
+        }
+        self.licence_shown && self.onward.licence.guards(url)
+    }
+}
+
 /// An open archive window.
 struct ArchiveWindow {
     window: Window,
@@ -539,6 +582,9 @@ struct ArchiveWindow {
     texts: Box<Texts>,
     /// The views on screen the reader may attach.
     attach: Option<Box<Attachable>>,
+    /// The target to go on to once the reader has passed the portal's
+    /// reuse licence on screen.
+    pending: Option<Pending>,
     /// The page whose certificate could not be verified, which the reader
     /// may open in the system browser.
     #[cfg(any(
@@ -568,6 +614,7 @@ impl ArchiveWindow {
         }
         self.status = Status::new(banner);
         self.attach = attach;
+        self.pending = None;
         self.texts = texts;
         self.cover.load(progress, Instant::now());
         self.render();
@@ -623,8 +670,26 @@ impl ArchiveWindow {
     }
 
     /// A page was classified: shows what [`Status::page`] says over it, and
-    /// the overlay as it now stands; the landing's page ends the overlay.
-    fn on_page(&mut self, state: PageState) {
+    /// the overlay as it now stands; the landing's page ends the overlay. A
+    /// page behind the reuse licence the reader was asked to accept goes on
+    /// to the target.
+    fn on_page(&mut self, page: &Page) {
+        if self
+            .pending
+            .as_mut()
+            .is_some_and(|pending| pending.passed(page.state, &page.url))
+            && let Some(Pending { onward, .. }) = self.pending.take()
+        {
+            debug!("the reader passed the portal's licence: opening the target");
+            let origins = origin_of(&onward.url)
+                .map(str::to_owned)
+                .into_iter()
+                .collect();
+            let texts = self.texts.clone();
+            self.load(&onward.url, origins, onward.banner, None, texts, None);
+            return;
+        }
+        let state = page.state;
         self.cover.page();
         let shown = self
             .status
@@ -735,12 +800,15 @@ pub fn install<T: 'static>(
                     progress,
                     texts,
                     attach,
+                    onward,
                 } => {
                     if shared.is_closed(session) {
                         continue;
                     }
+                    let pending = onward.map(|onward| Pending::new(*onward));
                     if let Some(window) = windows.get_mut(&session) {
                         window.load(&url, origins, banner, progress, texts, attach);
+                        window.pending = pending;
                         continue;
                     }
                     let context =
@@ -754,6 +822,7 @@ pub fn install<T: 'static>(
                         progress,
                         texts,
                         attach,
+                        pending,
                     };
                     match open(target, context, opening, inbox.clone()) {
                         Some(window) => {
@@ -847,7 +916,7 @@ fn receive_posted(
         Message::Page(page) => {
             log_page(&page);
             if let Some(window) = window {
-                window.on_page(page.state);
+                window.on_page(&page);
             }
             shared.seen(session, Seen::Page(page));
         }
@@ -907,6 +976,7 @@ struct Opening<'a> {
     progress: Option<Progress>,
     texts: Box<Texts>,
     attach: Option<Box<Attachable>>,
+    pending: Option<Pending>,
 }
 
 /// Loads `url` in the window, revalidated with the portal rather than taken
@@ -987,6 +1057,10 @@ fn receive(
     body: &str,
 ) {
     match read_message(accepted, uri, body) {
+        Ok(Message::Page(mut page)) => {
+            page.url = uri.to_string();
+            inbox.push(session, Inbound::Posted(Message::Page(page)));
+        }
         Ok(message) => inbox.push(session, Inbound::Posted(message)),
         Err(reason) => debug!(reason, "ignoring an IPC message"),
     }
@@ -1105,6 +1179,7 @@ fn open<T>(
         cover,
         texts: opening.texts,
         attach: opening.attach,
+        pending: opening.pending,
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -1166,6 +1241,7 @@ mod tests {
                 progress: None,
                 texts: Box::new(texts(&messages)),
                 attach: None,
+                onward: None,
             }
         );
         // The window's own texts are the interface's.
@@ -1429,6 +1505,7 @@ mod tests {
                 state: PageState::Portal,
                 vendor: None,
                 interactive: false,
+                url: String::new(),
             })),
         );
         tokio::time::timeout(Duration::from_secs(1), woken)
@@ -1572,5 +1649,68 @@ mod tests {
             page_origin(&uri).as_deref(),
             Some("https://archives.example.org")
         );
+    }
+
+    /// The owner's case, anonymized: a register of the Côtes-d'Armor behind
+    /// the portal's reuse licence. The window lands on the site's entry,
+    /// asking the reader to accept the licence, and goes on to the cited view
+    /// only once a page behind the licence shows after the licence page.
+    #[test]
+    fn a_landing_on_a_licence_goes_on_once_the_reader_has_passed_it() {
+        let messages = messages();
+        let evidence = oxidgene_archives::CitationEvidence {
+            title: "AD22 - Exampleville - N - 1796-1800 - acte 65 - vue 36/248".to_owned(),
+            ..Default::default()
+        };
+        let Some(oxidgene_ui::archive_viewer::ArchiveOffer::Register(link)) =
+            oxidgene_ui::archive_viewer::ArchiveOffer::of(Default::default(), None, evidence)
+        else {
+            panic!("a catalogued citation");
+        };
+        let site = "https://sallevirtuelle.cotesdarmor.fr/EC/ecx";
+        let view = format!("{site}/consult.aspx?image=910020100000036");
+        let target = ArchiveTarget::View {
+            url: view.clone(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view: 36,
+                url: view.clone(),
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(248),
+            call_number: None,
+            attribution: None,
+            renumbering: None,
+        };
+        let Command::Load {
+            url,
+            banner,
+            onward,
+            ..
+        } = landing(
+            &link,
+            &messages,
+            None,
+            &transport(&link, &messages),
+            Ok(target),
+        )
+        else {
+            panic!("a load");
+        };
+        assert_eq!(url, format!("{site}/connexion.aspx?ref=demo&res=1920x1080"));
+        assert!(banner.is_some_and(|banner| !banner.starts_with("archive_viewer.")));
+        let onward = *onward.expect("the target behind the licence");
+        assert_eq!(onward.url, view);
+
+        let mut pending = Pending::new(onward);
+        // The page being left, before the licence showed: no.
+        assert!(!pending.passed(PageState::Portal, &format!("{site}/commune.aspx")));
+        // The licence page, then an anti-bot page: no.
+        assert!(!pending.passed(PageState::Portal, &format!("{site}/licence.aspx")));
+        assert!(!pending.passed(PageState::Challenge, &format!("{site}/commune.aspx")));
+        // Another site's page: no.
+        assert!(!pending.passed(PageState::Portal, "https://archives.example.org/"));
+        // The page the reader's acceptance leads to: the window goes on.
+        assert!(pending.passed(PageState::Portal, &format!("{site}/commune.aspx")));
     }
 }

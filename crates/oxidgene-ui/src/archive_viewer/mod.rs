@@ -25,7 +25,7 @@ use std::sync::Arc;
 use dioxus::prelude::try_use_context;
 use futures_channel::mpsc::UnboundedSender;
 use oxidgene_archives::{
-    Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Found, Part,
+    Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Found, Licence, Part,
     SuppliedParts,
 };
 use uuid::Uuid;
@@ -196,7 +196,9 @@ fn failure_key(code: &str) -> &'static str {
 }
 
 /// Every banner a [`Landing`] may name.
-const BANNER_KEYS: [&str; 11] = [
+const BANNER_KEYS: [&str; 13] = [
+    "archive_viewer.licence",
+    "archive_viewer.licence_tab",
     "archive_viewer.not_found",
     "archive_viewer.ambiguous",
     "archive_viewer.go_to_view",
@@ -255,6 +257,23 @@ pub struct Landing {
     pub url: String,
     /// The banner, when there is something to say.
     pub banner: Option<LandingBanner>,
+    /// For a target behind the portal's reuse licence, which `url` — the
+    /// licence's entry — leads to: the target, which the archive window
+    /// opens once the reader has accepted the licence themselves.
+    pub then: Option<Onward>,
+}
+
+/// The target a [`Landing`] goes on to once the reader has passed the
+/// portal's reuse licence (docs/archives.md §6.1). OxidGene never accepts
+/// the licence: the archive window waits for the reader's acceptance — a
+/// page behind the licence showing after the licence page — then opens it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Onward {
+    pub url: String,
+    /// The licence: its page, and the pages behind it.
+    pub licence: Licence,
+    /// The banner over the target.
+    pub banner: Option<LandingBanner>,
 }
 
 impl Landing {
@@ -266,7 +285,12 @@ impl Landing {
     /// an anti-bot check answered — the reader may pass it there — or the
     /// portal was too slow or out of reach — the page may load for the
     /// reader —, and over the archive's website otherwise.
+    ///
+    /// A target behind the portal's reuse licence lands on the licence's
+    /// entry, saying that the reader accepts it there, and goes on to the
+    /// target ([`Onward`]).
     pub fn of(link: &ArchiveLink, outcome: Result<ArchiveTarget, &str>) -> Self {
+        let resolved = outcome.is_ok();
         let (url, banner) = match outcome {
             Ok(ArchiveTarget::Results {
                 url,
@@ -321,7 +345,37 @@ impl Landing {
                 Some(LandingBanner::of(failure_key(code))),
             ),
         };
-        Self { url, banner }
+        let licence = resolved
+            .then(|| ArchiveRegistry::embedded().licence(&link.citation.code, &url))
+            .flatten();
+        match licence {
+            Some(licence) => Self {
+                url: licence.entry.clone(),
+                banner: Some(LandingBanner::of("archive_viewer.licence")),
+                then: Some(Onward {
+                    url,
+                    licence,
+                    banner,
+                }),
+            },
+            None => Self {
+                url,
+                banner,
+                then: None,
+            },
+        }
+    }
+
+    /// What a tab, which cannot go on past a licence for the reader, says
+    /// beside the source: the landing's banner, or for a target behind a
+    /// licence, the target's, or that the licence comes first.
+    pub fn notice(&self) -> Option<LandingBanner> {
+        match &self.then {
+            Some(then) => then
+                .banner
+                .or(Some(LandingBanner::of("archive_viewer.licence_tab"))),
+            None => self.banner,
+        }
     }
 }
 
@@ -740,6 +794,7 @@ mod tests {
             view: Some(5),
             counts: None,
         };
+        assert_eq!(Landing::of(&cited, Ok(register(None))).then, None);
         let text = banner.text(&i18n);
         assert!(text.contains('5') && !text.contains("{view}"), "{text}");
         assert_eq!(
@@ -789,5 +844,69 @@ mod tests {
         }
         assert!(!text.contains('{'), "{text}");
         assert_eq!(Landing::of(&cited, Ok(target(None))).banner, None);
+    }
+
+    /// The owner's case, anonymized: a register of the Côtes-d'Armor stands
+    /// behind the portal's reuse licence. The landing is the site's entry,
+    /// with the banner asking the reader to accept the licence there, and
+    /// goes on to the cited view once they have; the tab says the licence
+    /// comes first.
+    #[test]
+    fn a_target_behind_a_licence_lands_on_its_entry_and_goes_on_to_it() {
+        let cited = link(
+            "AD22 - Exampleville - N - 1796-1800 - acte 65 - vue 36/248",
+            None,
+        )
+        .unwrap();
+        let site = "https://sallevirtuelle.cotesdarmor.fr/EC/ecx";
+        let view = format!("{site}/consult.aspx?image=910020100000036");
+        let target = ArchiveTarget::View {
+            url: view.clone(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view: 36,
+                url: view.clone(),
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(248),
+            call_number: None,
+            attribution: None,
+            renumbering: None,
+        };
+        let landing = Landing::of(&cited, Ok(target));
+        assert_eq!(
+            landing.url,
+            format!("{site}/connexion.aspx?ref=demo&res=1920x1080")
+        );
+        assert_eq!(banner_key(&landing), Some("archive_viewer.licence"));
+        let then = landing.then.clone().expect("the target behind the licence");
+        assert_eq!(then.url, view);
+        assert_eq!(then.licence.page, format!("{site}/licence.aspx"));
+        assert_eq!(then.banner, None);
+        assert_eq!(
+            landing.notice().map(|banner| banner.key),
+            Some("archive_viewer.licence_tab")
+        );
+
+        // The locality's lots, the register opening on its first view: the
+        // view to go to, once there.
+        let lots = ArchiveTarget::View {
+            url: format!("{site}/plage.aspx?id=900000000000021"),
+            views: Vec::new(),
+            view_count: None,
+            call_number: None,
+            attribution: None,
+            renumbering: None,
+        };
+        let landing = Landing::of(&cited, Ok(lots));
+        let then = landing.then.clone().unwrap();
+        assert_eq!(
+            then.banner.map(|banner| banner.key),
+            Some("archive_viewer.go_to_view")
+        );
+        assert_eq!(landing.notice(), then.banner);
+
+        // A failure lands as before, without going on.
+        assert_eq!(Landing::of(&cited, Err("timeout")).then, None);
     }
 }

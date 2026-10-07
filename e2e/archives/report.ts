@@ -22,6 +22,9 @@ export interface Opening {
     view: number;
     view_count: number | null;
     image: { picture: string; thumbnail: string; width: number; height: number } | null;
+    // The reuse licence the target stands behind: its entry, its page and
+    // the pages it guards (docs/archives.md §6.1).
+    licence: { entry: string; page: string; scope: string } | null;
 }
 
 export interface CollectionReport {

@@ -114,6 +114,13 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
 }
 
 async function showView(page: Page, opening: Opening, viewer: Viewer, answered: () => Signature | null): Promise<Failure | null> {
+    // A target behind a reuse licence: its entry first, where the licence
+    // is accepted as a reader accepts it, then the target, as the desktop
+    // window goes on to it (docs/archives.md §6.1).
+    if (opening.licence) {
+        const failure = await passLicence(page, opening.licence, viewer.licence);
+        if (failure) return failure;
+    }
     // A portal behind a challenge keeps the fragment, which carries the view,
     // only once its cookie is set (docs/archives.md §6.1): the bridge has
     // loaded its start page in this page already.
@@ -130,8 +137,7 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
     } catch (error) {
         return unreachable("opening", "the target page", error);
     }
-    if (viewer.landing) return landing(page, viewer.landing, viewer.licence);
-    if (!viewer.view) return drift("opening", `the view or landing of ${opening.platform} in e2e/archives/viewers.ts`, "neither");
+    if (!viewer.view) return drift("opening", `the view of ${opening.platform} in e2e/archives/viewers.ts`, "none");
     const view = viewer.view;
     let shown: number | null = null;
     const deadline = Date.now() + VIEWER_TIMEOUT_MS;
@@ -163,26 +169,33 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
     return null;
 }
 
-// A target that is a portal's entry rather than its viewer: the reuse
-// licence shows and is accepted, as a reader accepts it, then the page
-// behind it, which the reader searches from.
-async function landing(page: Page, behind: string, licence?: string): Promise<Failure | null> {
-    let accepted = !licence;
-    const deadline = Date.now() + VIEWER_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        if (licence && !accepted) {
-            const button = page.locator(licence).first();
-            if (await button.isVisible().catch(() => false)) {
-                await button.click();
-                accepted = true;
-            }
-        }
-        if (accepted && (await page.locator(behind).first().isVisible().catch(() => false))) return null;
-        await page.waitForTimeout(500);
+// The reuse licence a target stands behind: the entry leads to the licence
+// page, whose button is clicked as a reader clicks it, and the page the
+// portal shows next, behind the licence, must load.
+async function passLicence(page: Page, licence: NonNullable<Opening["licence"]>, button?: string): Promise<Failure | null> {
+    if (!button) return drift("opening", "the licence button in e2e/archives/viewers.ts", "none");
+    try {
+        await page.goto(licence.entry, { waitUntil: "domcontentloaded", timeout: VIEWER_TIMEOUT_MS });
+    } catch (error) {
+        return unreachable("opening", "the portal's entry", error);
     }
-    const guard = antiBotPage(await page.content().catch(() => ""));
-    if (guard) return { step: "opening", outcome: "challenged", expected: "the portal's entry", received: `an anti-bot page in place of the entry: ${antiBotName(guard)}` };
-    return drift("opening", accepted ? "the page behind the reuse licence" : "the reuse licence", "not shown");
+    const accept = page.locator(button).first();
+    const shown = await accept.waitFor({ state: "visible", timeout: VIEWER_TIMEOUT_MS }).then(
+        () => true,
+        () => false,
+    );
+    if (!shown) {
+        const guard = antiBotPage(await page.content().catch(() => ""));
+        if (guard) return { step: "opening", outcome: "challenged", expected: "the reuse licence", received: `an anti-bot page in place of the entry: ${antiBotName(guard)}` };
+        return drift("opening", "the reuse licence", "not shown");
+    }
+    await accept.click();
+    const behind = (url: URL) => url.href.startsWith(licence.scope) && !url.href.startsWith(licence.page);
+    const passed = await page.waitForURL(behind, { waitUntil: "domcontentloaded", timeout: VIEWER_TIMEOUT_MS }).then(
+        () => true,
+        () => false,
+    );
+    return passed ? null : drift("opening", "the page behind the reuse licence", "not shown");
 }
 
 interface Loaded {
