@@ -21,6 +21,8 @@ export interface Opening {
     url: string;
     view: number;
     view_count: number | null;
+    // The view a viewer without an address per view is then brought to.
+    go_to: number | null;
     image: { picture: string; thumbnail: string; width: number; height: number } | null;
     // The reuse licence the target stands behind: its entry, its page and
     // the pages it guards (docs/archives.md §6.1).

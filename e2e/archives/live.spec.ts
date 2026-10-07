@@ -7,7 +7,9 @@
 //   this page;
 // - step 4 of every resolved collection: the target opens and the portal's
 //   viewer shows the cited view, after its reuse licence if it asks for one
-//   (a cookie banner is refused as the desktop window refuses it);
+//   (a cookie banner is refused as the desktop window refuses it); a viewer
+//   without an address per view shows its first view, then is brought to
+//   the cited view by the desktop window's own script;
 // - step 5 for a `display: "iiif"` archive: the picture and the thumbnail
 //   are images of the resolved proportions.
 //
@@ -36,8 +38,13 @@ const VIEWER_TIMEOUT_MS = 30_000;
 // The desktop window's cookie-consent script (docs/archives.md §6.1), run
 // as the window runs it: it refuses a recognized banner, never accepts, so
 // that no banner hides the viewer. It posts nothing here.
-const consentDir = path.join(root, "apps/oxidgene-desktop/src/archives");
-const consentScript = `(() => {\nconst consent = ${readFileSync(path.join(consentDir, "consent.json"), "utf8")};\n${readFileSync(path.join(consentDir, "consent.js"), "utf8")}\n})();`;
+const windowDir = path.join(root, "apps/oxidgene-desktop/src/archives");
+const consentScript = `(() => {\nconst consent = ${readFileSync(path.join(windowDir, "consent.json"), "utf8")};\n${readFileSync(path.join(windowDir, "consent.js"), "utf8")}\n})();`;
+
+// The desktop window's script bringing a viewer without an address per view
+// to a view (docs/archives.md §6.1), whose value is a promise of its outcome.
+const goToSource = readFileSync(path.join(windowDir, "go_to.js"), "utf8");
+const goToScript = (viewer: Viewer, view: number) => `(() => {\nconst viewer = ${JSON.stringify(viewer)};\nconst view = ${view};\n${goToSource}\n})()`;
 
 // The archives to check, as the Rust catalogue lists them.
 const archives = execFileSync(bridge, only ? ["--list", only] : ["--list"], { encoding: "utf8" })
@@ -74,8 +81,8 @@ function isImageRequest(request: Request): boolean {
 // requests aborted where the viewer shows its view without them.
 async function open(page: Page, opening: Opening): Promise<Failure | null> {
     const viewer = viewers[opening.platform];
-    if (!viewer) return drift("opening", `a viewer of ${opening.platform} in e2e/archives/viewers.ts`, "none");
-    if (!viewer.blockImages) return openViewer(page, opening, viewer);
+    if (!viewer) return drift("opening", `a viewer of ${opening.platform} in oxidgene-archives' viewers.json`, "none");
+    if (!viewer.block_images) return openViewer(page, opening, viewer);
     const block = (route: Route) => (isImageRequest(route.request()) ? route.abort() : route.fallback());
     await page.route("**/*", block);
     try {
@@ -139,10 +146,10 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
     }
     // An `iiif` archive (its opening carries the image) shows no licence of
     // the portal's: a portal that enables one is `portal` (docs/archives.md §3.1).
-    if (opening.image && viewer.licenceWall && viewer.licenceWall.test(await page.content().catch(() => ""))) {
+    if (opening.image && viewer.licence_wall && new RegExp(viewer.licence_wall).test(await page.content().catch(() => ""))) {
         return drift("opening", `no reuse licence over the ${opening.platform} viewer of an iiif archive`, `the viewer asks to accept a reuse licence: set the archive's display to "portal"`);
     }
-    if (!viewer.view) return drift("opening", `the view of ${opening.platform} in e2e/archives/viewers.ts`, "none");
+    if (!viewer.view) return drift("opening", `the view of ${opening.platform} in oxidgene-archives' viewers.json`, "none");
     const view = viewer.view;
     let shown: number | null = null;
     const deadline = Date.now() + VIEWER_TIMEOUT_MS;
@@ -167,18 +174,40 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
         if (guard) return { step: "opening", outcome: "challenged", expected: `view ${opening.view}`, received: `an anti-bot page answered the viewer's request: ${antiBotName(guard)}` };
         return drift("opening", `view ${opening.view}`, `view ${shown}`);
     }
-    if (viewer.viewCount && opening.view_count !== null) {
-        const count = await numberShown(page, viewer.viewCount, "last");
+    if (viewer.view_count && opening.view_count !== null) {
+        const count = await numberShown(page, viewer.view_count, "last");
         if (count !== opening.view_count) return drift("opening", `${opening.view_count} views`, `${count ?? "no"} views`);
     }
-    return null;
+    return opening.go_to === null ? null : goTo(page, opening, viewer);
+}
+
+interface Driven {
+    state: "shown" | "failed";
+    reason?: string;
+    shown?: number | null;
+}
+
+// A viewer without an address per view, on its first view, brought to the
+// cited view as the desktop window brings it — or, for a register cited at
+// its first view, to the middle of the views the viewer counts.
+async function goTo(page: Page, opening: Opening, viewer: Viewer): Promise<Failure | null> {
+    if (!viewer.go_to) return drift("opening", `a go_to of ${opening.platform} in oxidgene-archives' viewers.json`, "none");
+    let view = opening.go_to ?? 1;
+    if (view <= 1) {
+        const count = opening.view_count ?? (viewer.view_count ? await numberShown(page, viewer.view_count, "last") : null);
+        if (count === null || count < 2) return null;
+        view = Math.ceil(count / 2);
+    }
+    const driven = (await page.evaluate(goToScript(viewer, view)).catch(() => null)) as Driven | null;
+    if (driven?.state === "shown") return null;
+    return drift("opening", `the viewer brought to view ${view}`, driven ? `${driven.reason}, view ${driven.shown ?? "none"} shown` : "no outcome");
 }
 
 // The reuse licence a target stands behind: the entry leads to the licence
 // page, whose button is clicked as a reader clicks it, and the page the
 // portal shows next, behind the licence, must load.
 async function passLicence(page: Page, licence: NonNullable<Opening["licence"]>, button?: string): Promise<Failure | null> {
-    if (!button) return drift("opening", "the licence button in e2e/archives/viewers.ts", "none");
+    if (!button) return drift("opening", "the licence button in oxidgene-archives' viewers.json", "none");
     try {
         await page.goto(licence.entry, { waitUntil: "domcontentloaded", timeout: VIEWER_TIMEOUT_MS });
     } catch (error) {

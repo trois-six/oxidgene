@@ -230,7 +230,7 @@ jobs:
               echo
               echo "Catalogue entry: \`$catalogue\`."
               jq -r --arg id "$ARCHIVE" '.archives[] | select(.archive == $id) | [.collections[].platform] | unique[]
-                | "Adapter: `crates/oxidgene-archives/src/platform/\(.)/`, viewer in `e2e/archives/viewers.ts`."' "$report"
+                | "Adapter: `crates/oxidgene-archives/src/platform/\(.)/`, viewer in `crates/oxidgene-archives/src/platform/viewers.json`."' "$report"
               echo
               echo "A drift is fixed in the collection's \`portal\` settings, or in the adapter and its fixtures when the platform itself changed (docs/archives.md §9.2)."
             } > issue.md

@@ -35,6 +35,7 @@ pub use catalog::{Archive, CatalogError, Collection, Display, Level, Period};
 pub use citation::{
     Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Series, Side,
 };
+pub use platform::viewer::{GoTo, Submit, VIEWERS_JSON, Viewer};
 pub use platform::{Access, Licence, Platform, PortalEndpoint};
 pub use recognize::{
     CitationEvidence, CitedEvent, Found, HeldAt, Part, PlaceLookup, Recognition, Signal,
@@ -314,6 +315,20 @@ impl ArchiveRegistry {
             })
             .unwrap_or_else(|| archive.website.clone());
         Ok(ArchiveTarget::Results { url, matches: None })
+    }
+
+    /// The viewer a resolved target of `citation` opens in: that of the
+    /// first candidate collection whose portal serves the target's origin.
+    pub fn viewer_at(&self, citation: &CitationParts, url: &str) -> Option<&'static Viewer> {
+        let origin = transport::origin_of(url)?;
+        let (_, collections) = self.candidates(citation)?;
+        collections.into_iter().find_map(|collection| {
+            let endpoint = self.platform(&collection.platform)?.endpoint(collection)?;
+            if !endpoint.origins().any(|served| served == origin) {
+                return None;
+            }
+            platform::viewer::viewer(&collection.platform)
+        })
     }
 }
 

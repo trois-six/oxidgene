@@ -2,8 +2,8 @@
 // on Node.js without a dependency: a parser for well-formed fixture markup,
 // the selectors the scripts use (type, `#id`, `.class`, `[attr]`,
 // `[attr="value"]`, compounds of those, the descendant combinator and
-// selector lists), visibility, clicks, a mutation observer the test fires,
-// open shadow roots, and a manual clock.
+// selector lists), visibility, clicks, values and dispatched events, a
+// mutation observer the test fires, open shadow roots, and a manual clock.
 
 const VOID = new Set(["br", "hr", "img", "input", "link", "meta"]);
 
@@ -48,6 +48,10 @@ class Element {
 
     get value() {
         return this.attributes.get("value") ?? "";
+    }
+
+    set value(text) {
+        this.attributes.set("value", String(text));
     }
 
     get textContent() {
@@ -123,6 +127,18 @@ class Element {
 
     focus() {
         this.ownerDocument.activeElement = this;
+    }
+
+    blur() {
+        if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = null;
+    }
+
+    // Records the event on the document, then runs this element's
+    // listeners of its type (no propagation).
+    dispatchEvent(event) {
+        this.ownerDocument.dispatched.push({ target: this, event });
+        for (const listener of this.listeners.get(event.type) ?? []) listener(event);
+        return true;
     }
 
     // Laid out unless detached, `hidden`, or `display: none` inline, on
@@ -204,6 +220,7 @@ class Document extends Element {
         this.ownerDocument = this;
         this.readyState = "complete";
         this.clicked = [];
+        this.dispatched = [];
         this.activeElement = null;
         this.observers = new Set();
         const document = this;

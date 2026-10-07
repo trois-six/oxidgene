@@ -1,20 +1,22 @@
 //! The scripts the archive window runs in the portal's page.
 //!
-//! None of them searches or fills anything: [`page`] says what each loaded
-//! page is — the portal's own, an anti-bot check, or a block —, [`fetch`]
-//! sends one request of an adapter from that page and posts back the answer,
+//! None of them searches anything: [`page`] says what each loaded page is —
+//! the portal's own, an anti-bot check, or a block —, [`fetch`] sends one
+//! request of an adapter from that page and posts back the answer,
 //! [`rendered`] posts back the page itself once the portal's scripts have
-//! rendered it,
-//! [`overlay`] covers the page with the resolution's progress, and
-//! [`banner`] shows the reader what OxidGene found. The resolution itself
-//! runs in Rust. The controls clicked are a cookie banner's refusal and the
-//! acknowledgement of a listed information notice that asks no consent
-//! ([`consent`]): OxidGene refuses on the reader's behalf, never accepts.
+//! rendered it, [`overlay`] covers the page with the resolution's progress,
+//! and [`banner`] shows the reader what OxidGene found. The resolution
+//! itself runs in Rust. The controls of the portal's page used are those a
+//! reader would use: a cookie banner's refusal and the acknowledgement of a
+//! listed information notice that asks no consent ([`consent`]) — OxidGene
+//! refuses on the reader's behalf, never accepts —, and the page-number
+//! control of a viewer without an address per view, set to the cited view
+//! ([`go_to`]).
 
 use std::time::Duration;
 
-use oxidgene_archives::Method;
 use oxidgene_archives::transport::{ANTI_BOT_JSON, TIMEOUT};
+use oxidgene_archives::{Method, Viewer};
 use oxidgene_ui::components::layout::SPINNER_STYLES;
 
 use super::transport::{Progress, Stage, Texts};
@@ -148,6 +150,27 @@ pub(super) fn rendered(ticket: u64, ready: &str) -> String {
     )
 }
 
+/// Brings `viewer`, a viewer without an address per view, to `view` with
+/// its own page-number control, as a reader would (`go_to.js`), and posts
+/// the outcome as `{"kind": "driven", "state", "reason", "shown"}`. The
+/// live checks' browser runs the same script.
+pub(super) fn go_to(viewer: &Viewer, view: u16) -> String {
+    // JSON is a JavaScript expression, so the selectors need no other
+    // escaping.
+    let viewer = serde_json::to_string(viewer).unwrap_or_else(|_| "null".to_owned());
+    format!(
+        r#"(() => {{
+const viewer = {viewer};
+const view = {view};
+const outcome = (() => {{
+{}
+}})();
+outcome.then(result => window.ipc.postMessage(JSON.stringify(Object.assign({{ kind: "driven" }}, result))));
+}})();"#,
+        include_str!("go_to.js")
+    )
+}
+
 /// A banner's button: its label, and the `kind` of the IPC message its
 /// click posts — `open_in_browser` to open the page the window could not
 /// verify in the system browser, `attach` to attach the views on screen.
@@ -234,6 +257,21 @@ mod tests {
                 .as_array()
                 .is_some_and(|list| !list.is_empty())
         );
+    }
+
+    #[test]
+    fn the_go_to_script_receives_the_viewer_and_the_view() {
+        let gaia = oxidgene_archives::platform::viewer::viewer("gaia").unwrap();
+        let script = go_to(gaia, 178);
+        assert!(
+            script
+                .starts_with("(() => {\nconst viewer = {\"view\":\"#pagination input[type=text]\"")
+        );
+        assert!(script.contains("\nconst view = 178;\n"));
+        assert!(script.contains(r#""go_to":{"submit":"blur"}"#));
+        assert!(!script.contains("comment"));
+        assert!(script.contains(r#"Object.assign({ kind: "driven" }, result)"#));
+        assert!(script.ends_with("})();"));
     }
 
     #[test]

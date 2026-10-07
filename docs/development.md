@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T14:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -377,8 +377,9 @@ reported. It contacts the portals, sequentially and with the identifying
 `.github/workflows/archives.yml`, never from `just check`, a pull request
 or the nightly workflow. An adapter brings its live check with it: a
 `live::Probe` in `platform/<platform>/live.rs`, its entry in `live::probe`,
-and its viewer in `e2e/archives/viewers.ts` ([Archive Portals
-§9.1](archives.md#91-live-checks), *Adding an adapter's live check*).
+and its viewer in `crates/oxidgene-archives/src/platform/viewers.json`
+([Archive Portals §9.1](archives.md#91-live-checks), *Adding an adapter's
+live check*).
 
 **End-to-end suite.** `e2e/` holds a Node.js project whose only dependency is
 a pinned `@playwright/test`. `just e2e` builds the debug web bundle for the

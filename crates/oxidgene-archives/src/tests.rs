@@ -500,3 +500,28 @@ fn a_citation_page_completes_its_source_title() {
         [7]
     );
 }
+
+#[test]
+fn the_viewer_of_a_target_is_its_collection_s() {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry
+        .parse("AD61 - Exampleville - (aucun) - BMS - 1760 - vue 5/40")
+        .expect("a catalogued citation");
+    let gaia = registry
+        .viewer_at(
+            &citation,
+            "https://gaia.orne.fr/mdr/index.php/docnumViewer/calculHierarchieDocNum/1/1:2:3:4/900/1400",
+        )
+        .expect("the GAIA viewer");
+    assert_eq!(
+        gaia.go_to.as_ref().map(|go_to| go_to.submit),
+        Some(Submit::Blur)
+    );
+    // Another site serves none of the archive's collections.
+    assert!(
+        registry
+            .viewer_at(&citation, "https://archives.example.org/viewer")
+            .is_none()
+    );
+    assert!(registry.viewer_at(&citation, "not an address").is_none());
+}

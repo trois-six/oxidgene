@@ -7,8 +7,9 @@
 //! as the window's [`Status`](super::Status) tracks it —, or a cookie banner
 //! `consent.js` could not refuse — until it is gone or another document
 //! loads. It is gone once the landing's page — the target,
-//! the filtered results or the failure's page — has shown, or when the
-//! reader cancels. The decisions are apart from the window so that they can
+//! the filtered results or the failure's page — has shown, or, over a viewer
+//! the window brings to the cited view, once that drive has ended; or when
+//! the reader cancels. The decisions are apart from the window so that they can
 //! be tested; the window renders [`Cover::shown`] after each.
 
 use std::time::{Duration, Instant};
@@ -36,8 +37,16 @@ impl Cover {
         self.consent = false;
     }
 
-    /// A document was classified: the landing's ends the resolution.
-    pub(super) fn page(&mut self) {
+    /// A document was classified: the landing's ends the resolution, unless
+    /// `holding` — a drive bringing its viewer to the cited view runs.
+    pub(super) fn page(&mut self, holding: bool) {
+        if !holding {
+            self.release();
+        }
+    }
+
+    /// The landing's drive ended: so does the resolution.
+    pub(super) fn release(&mut self) {
         if self
             .progress
             .as_ref()
@@ -104,7 +113,7 @@ mod tests {
         assert_eq!(cover.shown(start, false), None);
         cover.load(progress(Stage::Connecting), start);
         cover.document();
-        cover.page();
+        cover.page(false);
         let later = start + Duration::from_secs(2);
         assert_eq!(
             cover
@@ -128,12 +137,12 @@ mod tests {
         let mut cover = Cover::default();
         cover.load(progress(Stage::Connecting), now);
         // A check clearing itself stays covered.
-        cover.page();
+        cover.page(false);
         assert_eq!(stage(&cover, now), Some(Stage::Connecting));
         assert_eq!(cover.shown(now, true), None);
         // Covered again once the reader is no longer asked.
         cover.document();
-        cover.page();
+        cover.page(false);
         assert_eq!(stage(&cover, now), Some(Stage::Connecting));
     }
 
@@ -165,17 +174,28 @@ mod tests {
         let now = Instant::now();
         let mut cover = Cover::default();
         cover.load(progress(Stage::Connecting), now);
-        cover.page();
+        cover.page(false);
         cover.load(progress(Stage::Opening { view: Some(5) }), now);
         // The landing's document starts under the overlay.
         cover.document();
         assert_eq!(stage(&cover, now), Some(Stage::Opening { view: Some(5) }));
         // Whatever the landing's page is: the portal's, a check or a block.
-        cover.page();
+        cover.page(false);
         assert_eq!(cover.shown(now, false), None);
         // A stage after the landing shows nothing.
         cover.stage(Stage::Searching, now);
         assert_eq!(cover.shown(now, false), None);
+
+        // Held while the window drives the landing's viewer to the view.
+        cover.load(progress(Stage::Opening { view: Some(5) }), now);
+        cover.page(true);
+        assert_eq!(stage(&cover, now), Some(Stage::Opening { view: Some(5) }));
+        cover.release();
+        assert_eq!(cover.shown(now, false), None);
+        // A search's page is not released by a drive.
+        cover.load(progress(Stage::Searching), now);
+        cover.release();
+        assert_eq!(stage(&cover, now), Some(Stage::Searching));
 
         cover.load(progress(Stage::Searching), now);
         cover.cancel();

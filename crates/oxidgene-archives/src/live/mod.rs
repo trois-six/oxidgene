@@ -313,6 +313,12 @@ pub struct Opening {
     /// The one-based view the viewer must show.
     pub view: u16,
     pub view_count: Option<u16>,
+    /// The cited view, which a viewer without an address per view opens on
+    /// its first view: the browser check then brings it to the cited view,
+    /// as the desktop window does, through the viewer's `go_to`
+    /// (`viewers.json`); or, to a view it counts, for a register cited at
+    /// its first view. `None` where the target addresses the view.
+    pub go_to: Option<u16>,
     /// For a `display: "iiif"` archive.
     pub image: Option<ArchiveImage>,
     /// The reuse licence the target stands behind (Visualys): step 4 opens
@@ -708,6 +714,7 @@ fn check_view(
             url: target.url().to_owned(),
             view: 1,
             view_count: view_count.or(citation.view_count),
+            go_to: Some(citation.views[0].view),
             image: None,
             licence: None,
         });
@@ -744,6 +751,7 @@ fn check_view(
         view,
         // Counted by the probe where the adapter does not count.
         view_count: view_count.or(citation.view_count),
+        go_to: None,
         image: first.image.clone(),
         licence: None,
     })

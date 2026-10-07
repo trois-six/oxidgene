@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1195,9 +1195,12 @@ Resolution:
    (the last two segments are the window size the viewer lays itself out
    for); it needs no cookie. It opens on the first image whatever the cited
    view, so the target is `View` with no views, no view count and the
-   register's call number, and the window names the cited view to go to
-   (§6.1). Its page embeds one object per view in its `docs` array, which
-   only the live check reads.
+   register's call number, and the window brings the viewer to the cited
+   view with its page box — the number typed, then the box left, which
+   jqPagination applies (Enter only leaves the box), the box then reading
+   `Page <n> de <total>` again —, or names the view to go to when it cannot
+   (§6.1). Its page embeds one object per view in its `docs`
+   array, which only the live check reads.
 
 `results_url` is the list of step 1, which a reader can open. Requests: 4
 to 7 without pages or other entries; the viewer is never requested.
@@ -1298,10 +1301,12 @@ Resolution:
    slide file without the portal's ARKs is drift.
 8. `views: "register"`: the target is the viewer page of step 7 itself, a
    `View` with no views and no count, which opens the register on its first
-   view in the session that searched it, the window's (§6.1), with the view
-   to go to as its banner says. The viewer page is not requested: **every
-   opening of it writes a slide file on the server**, as a reader's does, so
-   the window's own opening is the only one.
+   view in the session that searched it, the window's (§6.1); the window
+   then brings the open viewer to the cited view by changing its view
+   input, or names the view to go to when it cannot. The viewer page is not
+   requested: **every opening of it writes a slide file on the server**, as
+   a reader's does, so the window's own opening is the only one; moving
+   within the open viewer opens nothing more.
 
 `results_url` and the target of `Results` are the portal's home page,
 `<base>/FrmAccueilFrame.asp`, a frameset a reader searches from: the search
@@ -1319,7 +1324,9 @@ searches as above; the chosen register of an `ark` collection is counted
 from its slide file, one more opening, and a `register` collection's is not
 counted: it is cited at its first view and step 3 expects a `View` without
 views (§9.1). The viewer shows the current view in `input#imageNum` and the
-count in `h3#imageNumMax` (` / 13`), with its image tiles aborted.
+count in `h3#imageNumMax` (` / 13`), with its image tiles aborted; step 4
+then brings a `register` collection's viewer to the middle of the views it
+counts, changing `input#imageNum` as the window does.
 
 **Collections.** Ille-et-Vilaine (`MOD` 10, 16, 17, 15): the registers of
 acts (parish registers, civil status and their tables in one search), the
@@ -1888,8 +1895,9 @@ Resolution:
    of another kind is never the cited register.
 5. The target is `View` with no views, no view count and no call number,
    on the row's viewer (its address rebuilt from the row, the commune
-   percent-encoded): the register's first view, with the view to go to
-   (§6.1). None, or several, give `Results` on the search's page.
+   percent-encoded): the register's first view, which the window brings to
+   the cited view with the viewer's page input and the Enter key, or names
+   the view to go to when it cannot (§6.1). None, or several, give `Results` on the search's page.
 
 `results_url` is the search's page for the commune as the portal writes
 it (`SAINT-ETIENNE-D'EXEMPLE`), whose search ignores case, or the
@@ -2328,9 +2336,10 @@ challenge's redirect drops the address's fragment, which carries the view,
 while the challenge cookie the first load leaves keeps it.
 
 The window fills no field and clicks no control but a cookie banner's
-refusal and a listed information notice's acknowledgement (below); the
-page's own scripts open
-the viewer at the view. While it resolves, the window covers the portal's
+refusal, a listed information notice's acknowledgement and the
+page-number control of a viewer without an address per view (all below);
+where the portal has an address per view, the page's own scripts open the
+viewer at the view. While it resolves, the window covers the portal's
 pages with OxidGene's progress overlay: an opaque full-window cover hiding
 the portal's page, in the application's theme with its one spinner
 ([UI Common §4.17](ui-common.md#417-spinner)), out of reach of the portal's
@@ -2347,8 +2356,9 @@ when each document starts, so that the overlay covers it at once. The
 overlay gives way whenever the reader has to act on the page — an anti-bot
 check they were asked to answer, until the portal's page shows; a cookie
 banner left to them, until it is gone — and is gone once the landing's page
-has shown: the register at the cited view, or, when the lookup failed, the
-portal's page the failure lands on, with its banner. Its Cancel button (`common.cancel`) stops the resolution — its
+has shown: the register at the cited view — over a viewer the window brings
+to that view, once it is there or the window gave up —, or, when the lookup
+failed, the portal's page the failure lands on, with its banner. Its Cancel button (`common.cancel`) stops the resolution — its
 pending requests are dropped — and the window loads the collection's
 filtered search page (`results_url`, the archive's `website` when there is
 none), without a banner. Once the target has loaded, a banner over the
@@ -2357,7 +2367,8 @@ register or several registers match the citation, over the filtered results;
 or, over a register whose portal has no address per view — a `View` with no
 views although the cited views lie within the register, or its size is
 unknown —, which view to go to (`archive_viewer.go_to_view`, with the first
-cited view); or, over a register counting another number of images than the
+cited view), when the window could not bring the viewer there itself
+(below); or, over a register counting another number of images than the
 citation (§7), that the numbering changed, with both counts and the view
 opened (`archive_viewer.renumbered`). A load's banner shows over every page that follows it — a
 check's redirect, a portal page navigating on — until the reader closes it
@@ -2399,6 +2410,36 @@ What a window's page posts — what the page is, the answer of a request, the
 reader's click on a banner button — wakes the application's event loop at
 once, so that the banner and the resolution never wait for the reader to
 move the mouse over a window.
+
+**Viewers without an address per view.** A portal whose viewer opens every
+register on its first view (GAIA, §4.8; THOT's `views: "register"`, §4.9;
+CAOMEC2, §4.15) is driven the way a reader would drive it: once the landing's page is the
+portal's, a script of the window (`go_to.js`) types the first cited view in
+the viewer's own page-number control and submits it, under the progress
+overlay, which says that the view opens. How is data, per platform, in
+`oxidgene-archives`' `platform/viewers.json` — the file the live checks
+read the viewers with (§9.1) —, a viewer's selectors being lists where a
+platform's portals run different viewers: the element showing the view
+number (`view`) and the count (`view_count`), and `go_to`, the control to
+type in (`input`, `view` by default) and how the number is submitted
+(`submit`): a `change` event, that event followed by the Enter key, a
+`blur` event — a control applying the number once left —, or a click of a
+`button`. The collection is the candidate whose portal serves
+the target's origin. The script gives the viewer 30 seconds to show its view
+number and count, writes the number as a reader types it (its value, an
+`input` event) and submits it, dispatching the events rather than focusing
+the control — a window in the background focuses nothing —, and gives the
+viewer 5 seconds to show the view, three times at most; the view counts as shown
+when the `view` element shows it and the count is unchanged — where one
+element shows both (`Page 178 de 396`), both numbers must show, so that the
+number typed is not taken for the viewer's answer. It never types a view
+beyond the count the viewer shows. When the viewer shows the view, nothing
+more is said; otherwise — or when the page is replaced twice while the
+script runs — the banner names the view to go to, as above. The script
+requests nothing itself; the viewer loads the view's image as for a
+reader's click, and a viewer opening that writes on the server (THOT) is
+not repeated. A viewer whose platform has no `go_to` keeps the banner.
+The outcome is logged at the debug level, without the view.
 
 **Anti-bot checks.** A script of the window classifies each main-frame page
 once its markup is parsed (`DOMContentLoaded`) — not once its images and
@@ -2851,16 +2892,23 @@ renumbering its registers. For each collection of each archive, in order:
    viewer has no address per view (GAIA, whose probe says so) resolves to
    `View` with that call number and no views, which opens on the first
    view: step 4 checks view 1 and the register's count, where it was
-   counted. The same citation
+   counted, then the drive to the cited view (`go_to` of the report's
+   opening). The same citation
    without its call number resolves to the same register or to `Results`,
    never to another register.
 4. **Opening.** The target loads in a browser and the portal's viewer shows
    the cited view: the view number it displays equals the cited one, once
    its reuse licence, if any, is accepted, and its view count, where it
-   shows one, equals the register's. A target behind a reuse licence
-   (Visualys, §4.12; the report's `licence`) is opened as the desktop window
-   opens it: the licence's entry first, whose licence the check accepts as a
-   reader does, a page behind it showing next, then the target.
+   shows one, equals the register's. A viewer without an address per view,
+   on its first view, is then brought to the cited view by the desktop
+   window's own script (§6.1, `go_to.js` with the platform's `go_to`), which
+   must answer that the viewer shows it; a register cited at its first view
+   (THOT's `register` collections, uncounted) is brought to the middle of
+   the views the viewer counts, unless it counts fewer than two. A target
+   behind a reuse licence (Visualys, §4.12; the report's `licence`) is opened
+   as the desktop window opens it: the licence's entry first, whose licence
+   the check accepts as a reader does, a page behind it showing next, then
+   the target.
 5. **Images**, for a `display: "iiif"` archive: the picture and the
    thumbnail load as images no larger than the resolved size, the picture
    with the resolved proportions; a thumbnail may be the portal's own,
@@ -2875,9 +2923,9 @@ What each platform's probe reads, and where its viewer shows the view:
 | Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | Monocle: `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`; Binocle (Hautes-Alpes): `.bn-gallery-counter input.bn-gallery-counter-current`, count `.bn-gallery-counter` (` sur 29`). |
 | Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |
 | Prismia Vision | The API key of `/runtimeConfig.js`; the facet endpoint lists the act filter's values, which hold every `acts` value, and the localities, written `Name (Article)`. | `button[aria-label="Numéro de la vue"]` (`n` and `total`). |
-| THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted. |
+| THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted; a `register` collection's viewer is then brought to a view by changing `input#imageNum`. |
 | Bach | The classification scheme's entries of the collection, or the finding aid's nodes at its level, an office cited by its place (`Exampleville` for `Bureau de recrutement d'Exampleville`); a series of one office has none. The discovery reads the locality's aid; since aids list registers without images too, it opens the first registers a citation would name, call numbers first, at most three, until one links to its images, which the viewer's list or the link's range counts. | `#currentpage input[type="number"]`, count `#currentpage` (`/ 71`); the viewer's image requests are aborted. |
-| GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
+| GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view, then brought to the cited view by typing it in that box and leaving it (`Page n de total`); its image requests are aborted. |
 | Visualys | The visitor's entry, then `localities`: the list of the initial `A`, its first locality listed without a parish; `search`: the form, offering the settings' kind, its first office. The search lists lots, counted for the registers; a military volume is not counted, and cited at its second view. | The licence (`#btnAccepter`) at the site's entry, accepted, then the viewer: `span#LabelImage` (`30 / 248`); its images aborted. |
 | CAOMEC2 | The territory's form: its commune list, act type and year fields; its first commune that is no hospital. The search counts no images: the chosen register's viewer does (one `div#thn<i>` each). | `input#iddoc`, count the last thumbnail's number (`#imgstrip .thn:last-child .thn_id`), on view 1 since the viewer has no address per view; the images aborted. |
 | Gers portal | The module's form: the locality list's and former communes' fields, the settings' checkboxes; its first locality. The results count the images. | `select#fichier option[selected]` (`k / total`), the image aborted. |
@@ -3005,10 +3053,13 @@ check, in three places; archives are then picked up from the catalogue:
    with `false`.
 2. `live::probe` in `crates/oxidgene-archives/src/live/mod.rs` lists it by
    platform id; the `every_adapter_has_a_probe` test fails until it does.
-3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by
-   platform id: the element showing the view number, and the licence button
-   and the view-count element where the viewer has them — for a target
-   behind a reuse licence, the licence page's button.
+3. `crates/oxidgene-archives/src/platform/viewers.json`, which
+   `e2e/archives/viewers.ts` and the desktop window read, describes the
+   portal's viewer by platform id: the element showing the view number, and
+   the licence button and the view-count element where the viewer has them —
+   for a target behind a reuse licence, the licence page's button —; and,
+   for a viewer without an address per view, its `go_to` (§6.1), which the
+   `every_viewer_without_an_address_per_view_can_be_driven` test requires.
 
 The probe's own tests replay the platform's anonymized fixtures, as the
 Arkothèque probe's replay `ad44-search-page.html` and `ad44-engine.json`.

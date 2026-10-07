@@ -1,0 +1,83 @@
+{
+  "archinoe": {
+    "comment": "Archinoë: `n/total` in the viewer's pagination.",
+    "view": "#visu_pagination",
+    "view_count": "#visu_pagination"
+  },
+  "archives32": {
+    "comment": "The Gers portal: `k / total` in the viewer's list of views, whose chosen option is the view the address names.",
+    "view": "select#fichier option[selected]",
+    "view_count": "select#fichier option[selected]",
+    "block_images": true
+  },
+  "arkotheque": {
+    "comment": "Arkothèque 8: the viewer's own test hooks.",
+    "licence": "button[data-cy=\"accept-license\"]",
+    "view": "input[data-cy=\"input-position-image\"]",
+    "view_count": "[data-cy=\"nb-total-images\"]"
+  },
+  "bach": {
+    "comment": "Bach (Anaphore): the viewer's page input and its `/ 71` beside it. It shows the view number without the images.",
+    "view": "#currentpage input[type=\"number\"]",
+    "view_count": "#currentpage",
+    "block_images": true
+  },
+  "caomec2": {
+    "comment": "CAOMEC2 (the Archives nationales d'outre-mer): the OpenSeadragon viewer's page input, and its strip of thumbnails, the last numbered with the count. The viewer has no address per view and opens on its first view; the input goes to the number typed in it on the Enter key (`keypress`, `which` 13).",
+    "view": "input#iddoc",
+    "view_count": "#imgstrip .thn:last-child .thn_id",
+    "block_images": true,
+    "go_to": { "submit": "enter" }
+  },
+  "gaia": {
+    "comment": "GAIA: `Page n de total` in the canvas viewer's page box (jqPagination), which has no address per view and opens on its first view. The box goes to the number typed in it once it is left (`blur`; Enter only leaves it), and then reads `Page n de total` again.",
+    "view": "#pagination input[type=text]",
+    "view_count": "#pagination input[type=text]",
+    "block_images": true,
+    "go_to": { "submit": "blur" }
+  },
+  "ligeo": {
+    "comment": "Ligeo: the Monocle viewer's page navigation, or the Binocle viewer's gallery counter (`<input value=\"5\"> sur 29`) on the portals that run it (Hautes-Alpes). A portal enables the Monocle clickwrap, a reuse licence dialog over the viewer, in the viewer's own configuration (`licence_wall`).",
+    "licence_wall": "\"monocle-clickwrap\"\\s*:\\s*\\{\\s*\"active\"\\s*:\\s*true",
+    "view": ".monocle-PageNav input[role=\"spinbutton\"], .bn-gallery-counter input.bn-gallery-counter-current",
+    "view_count": ".monocle-PageNav-total, .bn-gallery-counter"
+  },
+  "mnesys": {
+    "comment": "Mnesys Expo: the media browser, behind the reuse conditions' dialog.",
+    "licence": "input.btn.primary[value=\"Accepter\"]",
+    "view": ".media-browse .pagination-form input",
+    "view_count": ".media-browse .page-count",
+    "block_images": true
+  },
+  "mnesys-inao": {
+    "comment": "The older Mnesys interface's viewer host (\"Visualiseur v2\"): the current view's input and the count beside it.",
+    "view": "#inputvue_actuelle",
+    "view_count": "#total",
+    "block_images": true
+  },
+  "pleade": {
+    "comment": "Pleade: Mirador 3 (`Vue <input> / 269` in the canvas navigation) or Mirador 2 (the highlighted thumbnail's label, `82 objets`), both of which number their views from the manifest, without the images.",
+    "view": ".mirador-canvas-nav input[type=\"number\"], li.highlight .thumb-label",
+    "view_count": ".mirador-canvas-nav label, .canvas-count",
+    "block_images": true
+  },
+  "prismia": {
+    "comment": "Prismia Vision: `n` and `total` in the view-number button.",
+    "view": "button[aria-label=\"Numéro de la vue\"]",
+    "view_count": "button[aria-label=\"Numéro de la vue\"]"
+  },
+  "thot": {
+    "comment": "THOT: the Zoomify viewer's view input and its ` / 13`, shown without the image tiles. The input goes to the view it is changed to (`onchange`), which the Corsica viewer, without an address per view, needs.",
+    "view": "input#imageNum",
+    "view_count": "h3#imageNumMax",
+    "block_images": true,
+    "go_to": { "submit": "change" }
+  },
+  "visualys": {
+    "comment": "Visualys (the Côtes-d'Armor \"salle virtuelle\"): the target stands behind the site's reuse licence, which the check accepts from the site's entry before opening the viewer, whose `30 / 248` gives the view and the count.",
+    "licence": "#btnAccepter",
+    "view": "span#LabelImage",
+    "view_count": "span#LabelImage",
+    "block_images": true
+  }
+}

@@ -10,8 +10,9 @@
 //! [`query`] percent-encodes query strings, [`markup`] scans portal markup,
 //! [`select`] chooses the cited register among a search's results,
 //! [`locality`] writes a cited locality as a portal's list may,
-//! [`iiif`] reads an image service and builds a view's image, and [`view`]
-//! assembles the `View` target of the chosen register.
+//! [`iiif`] reads an image service and builds a view's image, [`view`]
+//! assembles the `View` target of the chosen register, and [`viewer`]
+//! describes each platform's viewer for the reader's page.
 
 mod archinoe;
 mod archives32;
@@ -31,6 +32,7 @@ pub(crate) mod query;
 pub(crate) mod select;
 mod thot;
 pub(crate) mod view;
+pub mod viewer;
 mod visualys;
 
 use std::future::Future;

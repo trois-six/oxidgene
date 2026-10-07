@@ -451,6 +451,8 @@ fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view(
     let opening = check_view(corsica, collection, &citation, &target, false).unwrap();
     assert_eq!((opening.url.as_str(), opening.view), (url, 1));
     assert_eq!(opening.view_count, None);
+    // The browser check drives the viewer to a view it counts.
+    assert_eq!(opening.go_to, Some(1));
     // The same target from a portal with an address per view is drift.
     assert!(check_view(corsica, collection, &citation, &target, true).is_err());
 }
@@ -495,6 +497,27 @@ fn an_uncounted_register_with_an_address_per_view_is_cited_at_its_second_view() 
 }
 
 #[test]
+fn every_viewer_without_an_address_per_view_can_be_driven() {
+    // The desktop window brings such a viewer to the cited view, and the
+    // browser check verifies it does.
+    let registry = ArchiveRegistry::embedded();
+    for archive in registry.archives() {
+        for collection in &archive.collections {
+            let probe = probe(&collection.platform).unwrap();
+            let viewer = crate::platform::viewer::viewer(&collection.platform).unwrap();
+            if !probe.addresses_views(collection) {
+                assert!(
+                    viewer.go_to.is_some(),
+                    "{}: no `go_to` for the viewer of `{}`",
+                    archive.id,
+                    collection.platform
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn every_adapter_has_a_probe() {
     for platform in crate::platform::builtin() {
         assert!(
@@ -529,6 +552,8 @@ fn a_viewer_without_an_address_per_view_is_checked_on_its_first_view() {
             url: url.clone(),
             view: 1,
             view_count: Some(40),
+            // Opened on its first view, driven to the cited one.
+            go_to: Some(20),
             image: None,
             licence: None,
         })

@@ -125,6 +125,18 @@ pub(super) struct Onward {
     pub(super) banner: Option<String>,
 }
 
+/// A viewer without an address per view, which opens the register on its
+/// first view, to bring to the cited view once the target shows
+/// (docs/archives.md §6.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Drive {
+    /// The script doing it, as a reader would ([`script::go_to`]).
+    pub(super) script: String,
+    /// The banner naming the view to go to, shown when the viewer could not
+    /// be brought there.
+    pub(super) fallback: Option<String>,
+}
+
 /// Where a resolution stands, as its progress overlay says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
@@ -181,6 +193,8 @@ pub(super) enum Command {
         /// For a landing on a portal's reuse licence, the target the window
         /// goes on to once the reader has accepted it.
         onward: Option<Box<Onward>>,
+        /// The viewer to bring to the cited view once the page shows.
+        drive: Option<Box<Drive>>,
     },
     /// The resolution moved on to `stage`.
     Stage { session: SessionId, stage: Stage },
@@ -590,6 +604,7 @@ impl WindowTransport {
             texts: Box::new(self.texts.clone()),
             attach: None,
             onward: None,
+            drive: None,
         });
         let started = Instant::now();
         let mut gate = Gate::new(started);

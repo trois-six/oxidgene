@@ -10,11 +10,13 @@
 //! the cited view, or the portal's filtered results — with a banner saying
 //! what OxidGene found, or, when the resolution failed, the landing of the
 //! failure; a resolution running past [`LOOKUP_DEADLINE`] lands as a
-//! timeout. Until then a progress overlay covers the portal's pages
-//! ([`cover`]), from which the reader may cancel the lookup. What a window's
-//! page posts wakes the event loop at once ([`Inbox`]), so that neither the
-//! banner, the overlay nor the resolution waits for the reader to move the
-//! mouse.
+//! timeout. A viewer without an address per view, which opens the register
+//! on its first view, is then brought to the cited view with its own
+//! page-number control ([`Driver`], `go_to.js`). Until then a progress
+//! overlay covers the portal's pages ([`cover`]), from which the reader may
+//! cancel the lookup. What a window's page posts wakes the event loop at
+//! once ([`Inbox`]), so that neither the banner, the overlay nor the
+//! resolution waits for the reader to move the mouse.
 //!
 //! Windows are top-level, since portals refuse to be framed, and share one
 //! persistent web profile of their own, so that a portal's cookies spare the
@@ -52,7 +54,7 @@ use oxidgene_archives::transport::origin_of;
 use oxidgene_archives::{ArchiveRegistry, ResolveError, Resolver};
 use oxidgene_ui::archive_viewer::{
     ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerBridge, ArchiveViewerMessages,
-    ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing,
+    ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing, LandingBanner,
 };
 use serde::Deserialize;
 use tokio::sync::Notify;
@@ -60,8 +62,8 @@ use tracing::{debug, warn};
 
 use cover::Cover;
 use transport::{
-    Attachable, Command, Fetched, Onward, Page, PageState, Progress, Seen, SessionId, Shared,
-    Stage, Texts, WindowTransport,
+    Attachable, Command, Drive, Fetched, Onward, Page, PageState, Progress, Seen, SessionId,
+    Shared, Stage, Texts, WindowTransport,
 };
 
 /// One message from the scripts of [`script`].
@@ -80,6 +82,7 @@ enum Message {
     /// page.
     Reload,
     Consent(Consent),
+    Driven(Driven),
     /// The reader cancels the lookup from the progress overlay.
     Cancel,
     /// The reader asks to open the page whose certificate could not be
@@ -123,6 +126,34 @@ impl Consent {
             manager = self.manager.as_deref().unwrap_or_default(),
             state = ?self.state,
             "a cookie banner in an archive window"
+        );
+    }
+}
+
+/// Whether `go_to.js` brought a viewer to the cited view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DrivenState {
+    Shown,
+    Failed,
+}
+
+/// What `go_to.js` made of a viewer without an address per view.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct Driven {
+    state: DrivenState,
+    /// Why it failed: `not_ready`, `beyond`, `no_control`, `not_shown` or
+    /// `error`.
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+impl Driven {
+    fn log(&self) {
+        debug!(
+            state = ?self.state,
+            reason = self.reason.as_deref().unwrap_or_default(),
+            "an archive viewer brought to the cited view"
         );
     }
 }
@@ -284,6 +315,7 @@ fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
         texts: Box::new(texts(&messages)),
         attach: None,
         onward: None,
+        drive: None,
     }
 }
 
@@ -340,7 +372,7 @@ fn landing(
 ) -> Command {
     let attach =
         attach.and_then(|sender| attachable(link, outcome.as_ref().ok()?, sender, messages));
-    let view = match &outcome {
+    let addressed = match &outcome {
         Ok(ArchiveTarget::View { views, .. }) => views.first().map(|view| view.view),
         _ => None,
     };
@@ -352,17 +384,49 @@ fn landing(
             banner: then.banner.and_then(|banner| messages.banner(banner)),
         })
     });
+    let drive = banner.and_then(|banner| drive(link, &url, banner, messages));
+    let view = addressed.or(drive.as_ref().map(|(view, _)| *view));
+    // The banner naming the view to go to waits for the drive's outcome.
+    let banner = match drive {
+        Some(_) => None,
+        None => banner.and_then(|banner| messages.banner(banner)),
+    };
     Command::Load {
         session: transport.session,
         title: link.title.clone(),
         origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
         url,
-        banner: banner.and_then(|banner| messages.banner(banner)),
+        banner,
         progress: Some(transport.progress(Stage::Opening { view })),
         texts: Box::new(transport.texts.clone()),
         attach,
         onward,
+        drive: drive.map(|(_, drive)| Box::new(drive)),
     }
+}
+
+/// For a landing whose banner names the view to go to — a register whose
+/// portal has no address per view —, the view and the drive bringing the
+/// viewer there, when the catalogue says how (`go_to` in
+/// oxidgene-archives' `viewers.json`) for the collection serving the
+/// target.
+fn drive(
+    link: &ArchiveLink,
+    url: &str,
+    banner: LandingBanner,
+    messages: &ArchiveViewerMessages,
+) -> Option<(u16, Drive)> {
+    let view = banner.go_to_view()?;
+    let viewer = ArchiveRegistry::embedded()
+        .viewer_at(&link.citation, url)
+        .filter(|viewer| viewer.go_to.is_some())?;
+    Some((
+        view,
+        Drive {
+            script: script::go_to(viewer, view),
+            fallback: messages.banner(banner),
+        },
+    ))
 }
 
 /// Loads the collection's filtered search page — the archive's website
@@ -389,6 +453,7 @@ fn cancelled_landing(link: &ArchiveLink, transport: &WindowTransport) -> Command
         texts: Box::new(transport.texts.clone()),
         attach: None,
         onward: None,
+        drive: None,
     }
 }
 
@@ -549,6 +614,86 @@ impl Status {
     fn dismiss(&mut self) {
         self.dismissed = true;
     }
+
+    /// The banner of the load is now `banner`: a drive's fallback.
+    fn fall_back(&mut self, banner: Option<String>) {
+        self.banner = banner;
+    }
+}
+
+/// How many times a drive starts: a document replacing the page it runs in
+/// stops it, and it starts again on the next portal page.
+const DRIVE_STARTS: u8 = 2;
+
+/// How a drive ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Drove {
+    /// The viewer shows the cited view.
+    Shown,
+    /// It does not: the banner naming the view to go to.
+    Failed(Option<String>),
+}
+
+/// Brings a viewer without an address per view to the cited view, apart
+/// from the window so that it can be tested (docs/archives.md §6.1).
+///
+/// The drive starts on the landing's first portal page, under the progress
+/// overlay, which stays until it ends. A document replacing that page stops
+/// it: it starts again on the next portal page, [`DRIVE_STARTS`] times in
+/// all, and fails after that. When it fails, the banner names the view to
+/// go to.
+#[derive(Debug, Default)]
+struct Driver {
+    drive: Option<Box<Drive>>,
+    running: bool,
+    starts: u8,
+}
+
+impl Driver {
+    fn new(drive: Option<Box<Drive>>) -> Self {
+        Self {
+            drive,
+            ..Self::default()
+        }
+    }
+
+    /// The script to run over a page of `state`: a portal page while the
+    /// drive waits.
+    fn page(&mut self, state: PageState) -> Option<String> {
+        let drive = self.drive.as_ref()?;
+        if state != PageState::Portal || self.running {
+            return None;
+        }
+        self.running = true;
+        self.starts += 1;
+        Some(drive.script.clone())
+    }
+
+    /// Whether the drive runs, which holds the overlay.
+    fn running(&self) -> bool {
+        self.running
+    }
+
+    /// A new document starts: a drive running in the page left stops with
+    /// it, and fails once it has started [`DRIVE_STARTS`] times.
+    fn document(&mut self) -> Option<Drove> {
+        if !std::mem::take(&mut self.running) || self.starts < DRIVE_STARTS {
+            return None;
+        }
+        self.drive.take().map(|drive| Drove::Failed(drive.fallback))
+    }
+
+    /// The outcome `go_to.js` posted, of a drive that runs.
+    fn driven(&mut self, driven: &Driven) -> Option<Drove> {
+        if !std::mem::take(&mut self.running) {
+            return None;
+        }
+        let drive = self.drive.take()?;
+        Some(match driven.state {
+            DrivenState::Shown => Drove::Shown,
+            DrivenState::Failed => Drove::Failed(drive.fallback),
+        })
+    }
 }
 
 /// A landing on a portal's reuse licence, waiting for the reader to accept
@@ -601,6 +746,8 @@ struct ArchiveWindow {
     /// The target to go on to once the reader has passed the portal's
     /// reuse licence on screen.
     pending: Option<Pending>,
+    /// The viewer to bring to the cited view.
+    driver: Driver,
     /// The page whose certificate could not be verified, which the reader
     /// may open in the system browser.
     #[cfg(any(
@@ -616,21 +763,22 @@ struct ArchiveWindow {
 impl ArchiveWindow {
     /// Loads `url`. The overlay of `progress` shows at once over the page
     /// being left, then over the new one.
-    fn load(
-        &mut self,
-        url: &str,
-        origins: Vec<String>,
-        banner: Option<String>,
-        progress: Option<Progress>,
-        texts: Box<Texts>,
-        attach: Option<Box<Attachable>>,
-    ) {
+    fn load(&mut self, url: &str, origins: Vec<String>, landing: Landed) {
+        let Landed {
+            banner,
+            progress,
+            texts,
+            attach,
+            onward,
+            drive,
+        } = landing;
         if let Ok(mut allowed) = self.origins.lock() {
             *allowed = origins;
         }
         self.status = Status::new(banner);
         self.attach = attach;
-        self.pending = None;
+        self.pending = onward.map(|onward| Pending::new(*onward));
+        self.driver = Driver::new(drive);
         self.texts = texts;
         self.cover.load(progress, Instant::now());
         self.render();
@@ -675,6 +823,9 @@ impl ArchiveWindow {
 
     /// A document starts: the overlay covers it at once, if it shows.
     fn on_document(&mut self) {
+        if let Some(Drove::Failed(banner)) = self.driver.document() {
+            self.status.fall_back(banner);
+        }
         self.cover.document();
         if self
             .cover
@@ -690,7 +841,8 @@ impl ArchiveWindow {
     /// page behind the reuse licence the reader was asked to accept goes on
     /// to the target. A server's error page says why once no overlay
     /// covers it: one the resolution meets fails it, and its landing then
-    /// shows.
+    /// shows. A drive starts on the landing's portal page, under the
+    /// overlay.
     fn on_page(&mut self, page: &Page) {
         if self
             .pending
@@ -703,18 +855,37 @@ impl ArchiveWindow {
                 .map(str::to_owned)
                 .into_iter()
                 .collect();
-            let texts = self.texts.clone();
-            self.load(&onward.url, origins, onward.banner, None, texts, None);
+            let landed = Landed {
+                banner: onward.banner,
+                progress: None,
+                texts: self.texts.clone(),
+                attach: None,
+                onward: None,
+                drive: None,
+            };
+            self.load(&onward.url, origins, landed);
             return;
         }
-        self.cover.page();
+        let state = page.state;
+        let drive = self.driver.page(state);
+        self.cover.page(self.driver.running());
         let covered = self
             .cover
             .shown(Instant::now(), self.status.asking)
             .is_some();
         let failed = (!covered).then(|| failure_banner(page.status, &self.texts));
+        self.show_status(state, failed);
+        if let Some(script) = drive {
+            self.eval(&script);
+        }
+        self.render();
+    }
+
+    /// Shows what [`Status::page`] says over a page of `state`; `failed`,
+    /// what to show over a server's error page.
+    fn show_status(&mut self, state: PageState, failed: Option<Shown>) {
         let shown = self.status.page(
-            page.state,
+            state,
             self.attach.as_deref(),
             &self.texts.challenge,
             failed,
@@ -726,6 +897,20 @@ impl ArchiveWindow {
                 action.as_ref().map(|(label, kind)| (label.as_str(), *kind)),
             ));
         }
+    }
+
+    /// The drive ended: the overlay is gone, and when the viewer does not
+    /// show the cited view, the banner names the view to go to.
+    fn on_driven(&mut self, driven: &Driven) {
+        driven.log();
+        let Some(drove) = self.driver.driven(driven) else {
+            return;
+        };
+        if let Drove::Failed(banner) = drove {
+            self.status.fall_back(banner);
+            self.show_status(PageState::Portal, None);
+        }
+        self.cover.release();
         self.render();
     }
 
@@ -837,14 +1022,21 @@ pub fn install<T: 'static>(
                     texts,
                     attach,
                     onward,
+                    drive,
                 } => {
                     if shared.is_closed(session) {
                         continue;
                     }
-                    let pending = onward.map(|onward| Pending::new(*onward));
+                    let landed = Landed {
+                        banner,
+                        progress,
+                        texts,
+                        attach,
+                        onward,
+                        drive,
+                    };
                     if let Some(window) = windows.get_mut(&session) {
-                        window.load(&url, origins, banner, progress, texts, attach);
-                        window.pending = pending;
+                        window.load(&url, origins, landed);
                         continue;
                     }
                     let context =
@@ -854,11 +1046,7 @@ pub fn install<T: 'static>(
                         title: &title,
                         url: &url,
                         origins,
-                        banner,
-                        progress,
-                        texts,
-                        attach,
-                        pending,
+                        landed,
                     };
                     match open(target, context, opening, inbox.clone()) {
                         Some(window) => {
@@ -976,6 +1164,10 @@ fn receive_posted(
             Some(window) => window.on_consent(&consent),
             None => consent.log(),
         },
+        Message::Driven(driven) => match window {
+            Some(window) => window.on_driven(&driven),
+            None => driven.log(),
+        },
         Message::Cancel => {
             shared.cancel(session);
             if let Some(window) = window {
@@ -1020,17 +1212,24 @@ fn log_page(page: &Page) {
     }
 }
 
+/// What a window shows over a page it loads, from a [`Command::Load`].
+struct Landed {
+    banner: Option<String>,
+    progress: Option<Progress>,
+    texts: Box<Texts>,
+    attach: Option<Box<Attachable>>,
+    /// For a landing on a portal's reuse licence, the target to go on to.
+    onward: Option<Box<Onward>>,
+    drive: Option<Box<Drive>>,
+}
+
 /// What a new window opens on.
 struct Opening<'a> {
     session: SessionId,
     title: &'a str,
     url: &'a str,
     origins: Vec<String>,
-    banner: Option<String>,
-    progress: Option<Progress>,
-    texts: Box<Texts>,
-    attach: Option<Box<Attachable>>,
-    pending: Option<Pending>,
+    landed: Landed,
 }
 
 /// Loads `url` in the window, revalidated with the portal rather than taken
@@ -1223,17 +1422,26 @@ fn open<T>(
     tls::watch(&webview, session, Arc::clone(&origins), inbox);
     navigate(&webview, opening.url);
 
+    let Landed {
+        banner,
+        progress,
+        texts,
+        attach,
+        onward,
+        drive,
+    } = opening.landed;
     let mut cover = Cover::default();
-    cover.load(opening.progress, Instant::now());
+    cover.load(progress, Instant::now());
     Some(ArchiveWindow {
         window,
         webview,
         origins,
-        status: Status::new(opening.banner),
+        status: Status::new(banner),
         cover,
-        texts: opening.texts,
-        attach: opening.attach,
-        pending: opening.pending,
+        texts,
+        attach,
+        pending: onward.map(|onward| Pending::new(*onward)),
+        driver: Driver::new(drive),
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -1296,6 +1504,7 @@ mod tests {
                 texts: Box::new(texts(&messages)),
                 attach: None,
                 onward: None,
+                drive: None,
             }
         );
         // The window's own texts are the interface's.
@@ -1330,14 +1539,138 @@ mod tests {
     }
 
     fn link() -> ArchiveLink {
+        link_of("AD44 - Exampleville - (aucun) - N - 1877")
+    }
+
+    fn link_of(title: &str) -> ArchiveLink {
         let evidence = oxidgene_archives::CitationEvidence {
-            title: "AD44 - Exampleville - (aucun) - N - 1877".to_owned(),
+            title: title.to_owned(),
             ..Default::default()
         };
         match oxidgene_ui::archive_viewer::ArchiveOffer::of(Default::default(), None, evidence) {
             Some(oxidgene_ui::archive_viewer::ArchiveOffer::Register(link)) => link,
             _ => panic!("a catalogued citation"),
         }
+    }
+
+    #[test]
+    fn a_viewer_without_an_address_per_view_is_brought_to_the_cited_view() {
+        let messages = messages();
+        let link = link_of("AD61 - Exampleville - (aucun) - BMS - 1760 - vue 178/396");
+        let transport = transport(&link, &messages);
+        let register = |url: &str| {
+            Ok(ArchiveTarget::View {
+                url: url.to_owned(),
+                views: Vec::new(),
+                view_count: None,
+                call_number: Some("9 E 1".to_owned()),
+                attribution: None,
+                renumbering: None,
+            })
+        };
+        let go_to = messages.banner(LandingBanner {
+            key: "archive_viewer.go_to_view",
+            view: Some(178),
+            counts: None,
+        });
+        assert!(go_to.as_deref().is_some_and(|text| text.contains("178")));
+
+        let viewer = "https://gaia.orne.fr/mdr/index.php/docnumViewer/calculHierarchieDocNum/1/1:2:3:4/900/1400";
+        let Command::Load {
+            banner,
+            progress,
+            drive,
+            ..
+        } = landing(&link, &messages, None, &transport, register(viewer))
+        else {
+            panic!("a load");
+        };
+        // The banner waits for the drive, under the step opening the view.
+        assert_eq!(banner, None);
+        assert_eq!(
+            progress.map(|progress| progress.stage),
+            Some(Stage::Opening { view: Some(178) })
+        );
+        let drive = drive.expect("a drive");
+        assert!(drive.script.contains("\nconst view = 178;\n"));
+        assert!(drive.script.contains("#pagination input[type=text]"));
+        assert_eq!(drive.fallback, go_to);
+
+        // A target no collection of the archive serves keeps the banner.
+        let Command::Load { banner, drive, .. } = landing(
+            &link,
+            &messages,
+            None,
+            &transport,
+            register("https://elsewhere.example.org/viewer"),
+        ) else {
+            panic!("a load");
+        };
+        assert_eq!((banner, drive), (go_to, None));
+    }
+
+    fn drive() -> Option<Box<Drive>> {
+        Some(Box::new(Drive {
+            script: "drive()".to_owned(),
+            fallback: Some("Go to view 5.".to_owned()),
+        }))
+    }
+
+    fn driven(state: DrivenState) -> Driven {
+        Driven {
+            state,
+            reason: None,
+        }
+    }
+
+    fn fallback() -> Option<Drove> {
+        Some(Drove::Failed(Some("Go to view 5.".to_owned())))
+    }
+
+    #[test]
+    fn a_drive_runs_on_the_landing_s_portal_page_until_it_ends() {
+        // A check first: the drive waits for the portal's page.
+        let mut driver = Driver::new(drive());
+        assert_eq!(driver.page(PageState::Challenge), None);
+        assert!(!driver.running());
+        assert_eq!(driver.page(PageState::Portal).as_deref(), Some("drive()"));
+        assert!(driver.running());
+        assert_eq!(driver.page(PageState::Portal), None);
+        assert_eq!(
+            driver.driven(&driven(DrivenState::Shown)),
+            Some(Drove::Shown)
+        );
+        assert!(!driver.running());
+        // Over: what follows changes nothing.
+        assert_eq!(driver.page(PageState::Portal), None);
+        assert_eq!(driver.driven(&driven(DrivenState::Failed)), None);
+        assert_eq!(driver.document(), None);
+
+        let mut driver = Driver::new(drive());
+        driver.page(PageState::Portal);
+        assert_eq!(driver.driven(&driven(DrivenState::Failed)), fallback());
+    }
+
+    #[test]
+    fn a_drive_whose_page_is_replaced_starts_once_more() {
+        let mut driver = Driver::new(drive());
+        driver.page(PageState::Portal);
+        assert_eq!(driver.document(), None);
+        assert!(!driver.running());
+        assert!(driver.page(PageState::Portal).is_some());
+        // Then the banner.
+        assert_eq!(driver.document(), fallback());
+        assert_eq!(driver.page(PageState::Portal), None);
+    }
+
+    #[test]
+    fn nothing_changes_while_no_drive_runs() {
+        assert_eq!(Driver::new(drive()).document(), None);
+        assert_eq!(
+            Driver::new(drive()).driven(&driven(DrivenState::Shown)),
+            None
+        );
+        assert_eq!(Driver::new(None).page(PageState::Portal), None);
     }
 
     #[test]
@@ -1491,6 +1824,26 @@ mod tests {
         assert!(matches!(
             serde_json::from_str::<Message>(r#"{"kind": "reload"}"#),
             Ok(Message::Reload)
+        ));
+    }
+
+    #[test]
+    fn the_drive_s_messages_are_read() {
+        assert!(matches!(
+            serde_json::from_str::<Message>(
+                r#"{"kind": "driven", "state": "failed", "reason": "not_shown", "shown": 1}"#
+            ),
+            Ok(Message::Driven(Driven {
+                state: DrivenState::Failed,
+                ..
+            }))
+        ));
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "driven", "state": "shown"}"#),
+            Ok(Message::Driven(Driven {
+                state: DrivenState::Shown,
+                reason: None,
+            }))
         ));
     }
 

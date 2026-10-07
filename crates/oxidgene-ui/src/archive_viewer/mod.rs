@@ -236,6 +236,14 @@ impl LandingBanner {
         self.fill(i18n.t(self.key))
     }
 
+    /// The view the banner tells the reader to go to: over a register whose
+    /// portal has no address per view, which the desktop window brings to
+    /// that view itself when it can (docs/archives.md §6.1).
+    pub fn go_to_view(&self) -> Option<u16> {
+        self.view
+            .filter(|_| self.key == "archive_viewer.go_to_view")
+    }
+
     /// `text` with its `{view}`, `{cited}` and `{count}` placeholders
     /// filled.
     fn fill(&self, mut text: String) -> String {
@@ -809,6 +817,12 @@ mod tests {
         assert_eq!(
             ArchiveViewerMessages::new(&i18n, &crate::theme::BUILTIN_THEMES[0]).banner(banner),
             Some(text)
+        );
+        // The view the desktop window brings the viewer to.
+        assert_eq!(banner.go_to_view(), Some(5));
+        assert_eq!(
+            LandingBanner::of("archive_viewer.not_found").go_to_view(),
+            None
         );
     }
 
