@@ -118,7 +118,7 @@ fn matches(target: &Result<ArchiveTarget, ResolveError>) -> Option<usize> {
 #[test]
 fn one_register_opens_on_the_cited_view_with_its_images() {
     let (target, fetch) = embedded(
-        "AD01 - Exampleville - (aucun) - N - 1880 - 9 E 99 - vue 5/120",
+        "AD01 - Exampleville - (aucun) - N - 1880 - 9 E 99 - vue 5/6",
         AIN_ONE,
     );
     let base = format!("{AIN}/ark:/99999/vtaexample0011");
@@ -145,6 +145,7 @@ fn one_register_opens_on_the_cited_view_with_its_images() {
             // cited one stands.
             call_number: Some("9 E 99".to_owned()),
             attribution: Some("Archives départementales de l'Ain, 9 E 99, vue 5".to_owned()),
+            renumbering: None,
         })
     );
 
@@ -356,6 +357,7 @@ fn civil_status_filters_by_document_type_and_act_and_reads_a_shared_call_number(
             view_count: Some(6),
             call_number: Some("NC 99001".to_owned()),
             attribution: Some("Archives départementales de l'Ardèche, NC 99001, vue ".to_owned()),
+            renumbering: None,
         }
     );
     assert_eq!(
@@ -437,6 +439,7 @@ fn a_view_beyond_the_register_opens_its_first_image() {
             view_count: Some(6),
             call_number: None,
             attribution: Some("Archives départementales de l'Ardèche, , vue ".to_owned()),
+            renumbering: None,
         })
     );
 }
@@ -1232,6 +1235,7 @@ fn an_index_of_persons_finds_the_person_by_the_cited_matricule() {
             view_count: Some(1),
             call_number: Some("9R0001".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
 }

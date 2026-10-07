@@ -111,7 +111,7 @@ async fn resolve(
         Display::Portal => row.images.map_or(usize::MAX, usize::from),
     };
 
-    let cited = cited_views(citation, image_count);
+    let cited = cited_views(citation, image_count, row.period.as_deref());
     let mut views = Vec::with_capacity(cited.len());
     for view in cited {
         let canvas = canvases.get(usize::from(view.view) - 1);

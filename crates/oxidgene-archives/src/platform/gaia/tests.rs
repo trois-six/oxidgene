@@ -150,6 +150,7 @@ fn register(path: &str, call_number: &str) -> ArchiveTarget {
         view_count: None,
         call_number: Some(call_number.to_owned()),
         attribution: None,
+        renumbering: None,
     }
 }
 
@@ -438,6 +439,7 @@ fn a_search_without_kinds_reads_the_acts_from_the_titles() {
             view_count: None,
             call_number: Some("5MI999".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     let target = resolve("AD77 - La Ville-Exemple - (aucun) - TD - 1850", &wizard()).unwrap();

@@ -137,6 +137,7 @@ fn register_target(view_count: Option<u16>) -> ArchiveTarget {
         view_count,
         call_number: None,
         attribution: None,
+        renumbering: None,
     }
 }
 
@@ -307,6 +308,7 @@ fn searches_the_military_registers_by_class_and_office() {
             view_count: None,
             call_number: Some("01R9002".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     let body = portal.bodies()[2].clone().unwrap();

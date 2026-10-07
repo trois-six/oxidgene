@@ -80,6 +80,21 @@ impl Platform for Scripted {
                     view_count: citation.view_count,
                     call_number: citation.call_number.as_ref().map(|c| c.as_str().to_owned()),
                     attribution: archive.attribution_for(None, &[]),
+                    renumbering: None,
+                }),
+                // A register of fewer images than the cited view, showing
+                // another call number, or the cited one (a person's row).
+                outcome @ ("short" | "short-cited") => Ok(ArchiveTarget::View {
+                    url: format!("{url}#first"),
+                    views: Vec::new(),
+                    view_count: Some(10),
+                    call_number: if outcome == "short" {
+                        Some("9 Z 9".to_owned())
+                    } else {
+                        citation.call_number.as_ref().map(|c| c.as_str().to_owned())
+                    },
+                    attribution: archive.attribution_for(None, &[]),
+                    renumbering: None,
                 }),
                 "none" => Ok(ArchiveTarget::Results {
                     url,
@@ -195,6 +210,41 @@ fn tries_the_collections_in_order_until_one_finds_the_register() {
     ));
     assert_eq!(transport.connects.load(Ordering::SeqCst), 2);
     assert_eq!(transport.requests.load(Ordering::SeqCst), 2);
+}
+
+/// A regression: a citation of an older digitisation chose a register of
+/// fewer images than its cited view, opened on its first image. Such a
+/// register is not the cited one: the filtered results, with the banner of
+/// no register, unless another collection finds it.
+#[test]
+fn a_cited_view_beyond_the_chosen_register_gives_the_results() {
+    let title = "AD00 - Exampleville - (aucun) - M - 1850 - acte 14 - vue 40/510";
+    let registry = registry(outcome("none"), outcome("short"));
+    let resolver = Resolver::new(&registry);
+    let target = block_on(resolver.resolve(&citation(&registry, title), &Counting::default()));
+    assert_eq!(
+        target,
+        Ok(ArchiveTarget::Results {
+            url: "https://archives.example.org/civil-status?act=M".to_owned(),
+            matches: Some(0),
+        })
+    );
+    // Within its images, the register opens as it is.
+    let title = "AD00 - Exampleville - (aucun) - M - 1850 - acte 14 - vue 4/510";
+    let target = block_on(resolver.resolve(&citation(&registry, title), &Counting::default()));
+    assert!(
+        matches!(target, Ok(ArchiveTarget::View { .. })),
+        "{target:?}"
+    );
+    // A register carrying the cited call number is the cited one.
+    let registry = super::tests::registry(outcome("none"), outcome("short-cited"));
+    let resolver = Resolver::new(&registry);
+    let title = "AD00 - Exampleville - (aucun) - M - 1850 - 3E1/2 - vue 40/510";
+    let target = block_on(resolver.resolve(&citation(&registry, title), &Counting::default()));
+    assert!(
+        matches!(target, Ok(ArchiveTarget::View { .. })),
+        "{target:?}"
+    );
 }
 
 #[test]

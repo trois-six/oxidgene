@@ -552,7 +552,7 @@ async fn view(
         )),
         Views::Ark => {
             let arks = ark_views(settings, &chosen.payload, fetch).await?;
-            let views = cited_views(citation, arks.len())
+            let views = cited_views(citation, arks.len(), chosen.period.as_deref())
                 .iter()
                 .filter_map(|cited| {
                     let at = arks.get(usize::from(cited.view).checked_sub(1)?)?;

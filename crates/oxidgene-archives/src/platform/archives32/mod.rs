@@ -351,7 +351,7 @@ async fn view(
             ids
         }
     };
-    let views = cited_views(citation, count)
+    let views = cited_views(citation, count, chosen.period.as_deref())
         .iter()
         .filter_map(|cited| {
             let id = ids.get(usize::from(cited.view).checked_sub(1)?)?;

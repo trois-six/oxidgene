@@ -827,7 +827,15 @@ async fn resolve(
     if image_count == 0 {
         return Ok(results(1));
     }
-    let views = views(archive, &settings, citation, ark, image_count, fetch).await?;
+    let views = views(
+        archive,
+        &settings,
+        citation,
+        (ark, row.period.as_deref()),
+        image_count,
+        fetch,
+    )
+    .await?;
     Ok(view_target(
         archive,
         citation,
@@ -843,11 +851,11 @@ async fn views(
     archive: &Archive,
     settings: &Settings,
     citation: &CitationParts,
-    ark: &page::Ark,
+    (ark, period): (&page::Ark, Option<&str>),
     image_count: u16,
     fetch: &dyn PortalFetch,
 ) -> Result<Vec<ArchiveView>, ResolveError> {
-    let cited_views = cited_views(citation, usize::from(image_count));
+    let cited_views = cited_views(citation, usize::from(image_count), period);
     let mut numbers: Vec<u16> = cited_views.iter().map(|view| view.view).collect();
     numbers.sort_unstable();
     numbers.dedup();

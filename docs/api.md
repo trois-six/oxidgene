@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T19:06:14Z }
 ---
 
 
@@ -392,8 +392,12 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 `archive-target` reads nothing it writes, but may query the archive's portal,
 once per call: it is a `POST` so that nothing caches or prefetches it. The
 answer is `{"kind": "view", "url", "views", "view_count", "call_number",
-"attribution"}` — each view `{"view", "url", "ark", "image"}`, `image` being
-`{"picture", "thumbnail", "width", "height"}` or `null` — or `{"kind":
+"attribution", "renumbering"}` — each view `{"view", "url", "ark", "image"}`,
+`image` being `{"picture", "thumbnail", "width", "height"}` or `null`, and
+`renumbering`, present only when the register counts another number of
+images than the citation, `{"cited_count", "shifted_by"}`: the cited count,
+and how far the views opened are from the cited numbers ([Archive Portals
+§7](archives.md#7-errors-and-fallbacks)) — or `{"kind":
 "results", "url", "matches"}`, `matches` being `null` when the address was
 built without querying the portal, as for an archive whose portal only a
 browser reaches. GraphQL answers one `GqlArchiveTarget` object whose `kind`

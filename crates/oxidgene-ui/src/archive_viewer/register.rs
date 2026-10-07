@@ -193,6 +193,7 @@ mod tests {
             view_count: Some(13),
             call_number: Some("3E1/2".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     }
 

@@ -7,8 +7,9 @@
 //! values are first read from the engine's own lists. The answer's result
 //! rows are selected down to one register (`select`), whose viewer endpoint
 //! lists its images; the target is the portal's record page opened on the
-//! cited image, `<search_path>?detail=<record>#<viewer address>/<i>` with `i`
-//! zero-based. A portal that refuses those requests to a script (access
+//! cited image, `<search_path>?detail=<record>#<viewer address>/<i>`, the
+//! viewer address naming the image's file and `i` its zero-based position
+//! in that file. A portal that refuses those requests to a script (access
 //! `page`) is searched by loading its search page with the filters in its
 //! address, whose scripts render the same rows, and is never sent a request.
 //! Archive Portals §4.3 specifies the settings and requests.
@@ -279,7 +280,17 @@ async fn resolve(
         (sources, count)
     };
 
-    let cited = cited_views(citation, image_count);
+    // The viewer's address of image `index` (zero-based): the image's own
+    // file and position where the image list names them, the row's viewer
+    // address and the index otherwise.
+    let anchor = |index: u16| {
+        sources
+            .get(usize::from(index))
+            .and_then(|source| source.viewer_anchor(viewer))
+            .unwrap_or_else(|| format!("{viewer}/{index}"))
+    };
+
+    let cited = cited_views(citation, image_count, row.period.as_deref());
     let mut views = Vec::with_capacity(cited.len());
     for view in cited {
         let source = sources.get(usize::from(view.view) - 1);
@@ -290,7 +301,7 @@ async fn resolve(
         };
         views.push(ArchiveView {
             view: view.view,
-            url: settings.view_url(record, viewer, view.view - 1),
+            url: settings.view_url(record, &anchor(view.view - 1)),
             ark: source
                 .and_then(|source| source.ark.as_ref())
                 .map(|ark| format!("{}{ark}", settings.origin)),
@@ -302,7 +313,7 @@ async fn resolve(
         citation,
         row.call_number.as_deref(),
         image_count,
-        settings.view_url(record, viewer, 0),
+        settings.view_url(record, &anchor(0)),
         views,
     ))
 }

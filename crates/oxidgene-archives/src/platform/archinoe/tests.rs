@@ -174,6 +174,7 @@ fn a_register_is_found_with_the_locality_list_and_one_search() {
             view_count: None,
             call_number: Some("9 E 99/1".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     // The form's locality list, then the search: the portal learns the
@@ -542,6 +543,7 @@ fn the_finding_aid_is_browsed_from_the_commune_to_its_register_block() {
             view_count: Some(107),
             call_number: Some("FRAD021EC 9/001".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     // The aid's page, the commune's nodes, the act node's collections and

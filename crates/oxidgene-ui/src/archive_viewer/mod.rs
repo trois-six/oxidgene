@@ -196,10 +196,11 @@ fn failure_key(code: &str) -> &'static str {
 }
 
 /// Every banner a [`Landing`] may name.
-const BANNER_KEYS: [&str; 10] = [
+const BANNER_KEYS: [&str; 11] = [
     "archive_viewer.not_found",
     "archive_viewer.ambiguous",
     "archive_viewer.go_to_view",
+    "archive_viewer.renumbered",
     "archive_viewer.failed",
     "archive_viewer.no_adapter",
     "archive_viewer.not_an_archive_citation",
@@ -209,30 +210,42 @@ const BANNER_KEYS: [&str; 10] = [
     "archive_viewer.unreachable",
 ];
 
-/// What to tell the reader over a [`Landing`]: a translation key, and the
-/// view number its text names, if any.
+/// What to tell the reader over a [`Landing`]: a translation key, the view
+/// number its text names, if any, and the image counts it compares — the
+/// citation's, then the register's —, if any.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LandingBanner {
     pub key: &'static str,
     pub view: Option<u16>,
+    pub counts: Option<(u16, u16)>,
 }
 
 impl LandingBanner {
     const fn of(key: &'static str) -> Self {
-        Self { key, view: None }
+        Self {
+            key,
+            view: None,
+            counts: None,
+        }
     }
 
     /// The banner's text in the interface language.
     pub fn text(&self, i18n: &I18n) -> String {
-        fill(i18n.t(self.key), self.view)
+        self.fill(i18n.t(self.key))
     }
-}
 
-/// `text` with its `{view}` placeholder filled.
-fn fill(text: String, view: Option<u16>) -> String {
-    match view {
-        Some(view) => text.replace("{view}", &view.to_string()),
-        None => text,
+    /// `text` with its `{view}`, `{cited}` and `{count}` placeholders
+    /// filled.
+    fn fill(&self, mut text: String) -> String {
+        if let Some(view) = self.view {
+            text = text.replace("{view}", &view.to_string());
+        }
+        if let Some((cited, count)) = self.counts {
+            text = text
+                .replace("{cited}", &cited.to_string())
+                .replace("{count}", &count.to_string());
+        }
+        text
     }
 }
 
@@ -273,7 +286,24 @@ impl Landing {
                     unaddressed_view(&link.citation, view_count).map(|view| LandingBanner {
                         key: "archive_viewer.go_to_view",
                         view: Some(view),
+                        counts: None,
                     });
+                (url, banner)
+            }
+            // The register counts another number of images than the
+            // citation: the view opened may not be the cited page.
+            Ok(ArchiveTarget::View {
+                url,
+                views,
+                view_count: Some(count),
+                renumbering: Some(renumbering),
+                ..
+            }) => {
+                let banner = views.first().map(|opened| LandingBanner {
+                    key: "archive_viewer.renumbered",
+                    view: Some(opened.view),
+                    counts: Some((renumbering.cited_count, count)),
+                });
                 (url, banner)
             }
             Ok(target) => (target.url().to_owned(), None),
@@ -374,7 +404,7 @@ impl ArchiveViewerMessages {
         self.banners
             .iter()
             .find(|(known, _)| *known == banner.key)
-            .map(|(_, text)| fill(text.clone(), banner.view))
+            .map(|(_, text)| banner.fill(text.clone()))
     }
 }
 
@@ -678,6 +708,7 @@ mod tests {
             view_count,
             call_number: None,
             attribution: None,
+            renumbering: None,
         };
         let cited = link(
             "AD44 - Exampleville - (aucun) - N - 1877 - vue 5d-6g/13",
@@ -691,7 +722,8 @@ mod tests {
                 landing.banner,
                 Some(LandingBanner {
                     key: "archive_viewer.go_to_view",
-                    view: Some(5)
+                    view: Some(5),
+                    counts: None,
                 }),
                 "{count:?}"
             );
@@ -706,6 +738,7 @@ mod tests {
         let banner = LandingBanner {
             key: "archive_viewer.go_to_view",
             view: Some(5),
+            counts: None,
         };
         let text = banner.text(&i18n);
         assert!(text.contains('5') && !text.contains("{view}"), "{text}");
@@ -713,5 +746,48 @@ mod tests {
             ArchiveViewerMessages::new(&i18n, &crate::theme::BUILTIN_THEMES[0]).banner(banner),
             Some(text)
         );
+    }
+
+    /// A regression: a register bound with earlier years since the
+    /// citation was numbered opened silently on another page than the
+    /// cited one. The banner says the numbering changed and which view
+    /// opened.
+    #[test]
+    fn a_renumbered_register_says_so() {
+        let cited = link(
+            "AD44 - Exampleville - (aucun) - N - 1877 - vue 38d/184",
+            None,
+        )
+        .unwrap();
+        let target = |renumbering| ArchiveTarget::View {
+            url: "https://archives.example.org/register#155".to_owned(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view: 155,
+                url: "https://archives.example.org/register#155".to_owned(),
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(301),
+            call_number: None,
+            attribution: None,
+            renumbering,
+        };
+        let landing = Landing::of(
+            &cited,
+            Ok(target(Some(oxidgene_archives::Renumbering {
+                cited_count: 184,
+                shifted_by: 117,
+            }))),
+        );
+        assert_eq!(landing.url, "https://archives.example.org/register#155");
+        let banner = landing.banner.expect("a banner");
+        assert_eq!(banner.key, "archive_viewer.renumbered");
+        let i18n = I18n::new(crate::i18n::Language::english());
+        let text = banner.text(&i18n);
+        for part in ["184", "301", "155"] {
+            assert!(text.contains(part), "{text}");
+        }
+        assert!(!text.contains('{'), "{text}");
+        assert_eq!(Landing::of(&cited, Ok(target(None))).banner, None);
     }
 }

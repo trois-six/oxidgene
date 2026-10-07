@@ -11,7 +11,7 @@ use async_graphql::{
     ComplexObject, Context, Enum, ID, InputObject, QueryPathSegment, Result, SimpleObject,
 };
 use chrono::{DateTime, Utc};
-use oxidgene_archives::{ArchiveTarget, ArchiveView};
+use oxidgene_archives::{ArchiveTarget, ArchiveView, Renumbering};
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1552,15 +1552,39 @@ pub struct GqlArchiveTarget {
     pub call_number: Option<String>,
     /// `VIEW`: the archive's attribution, for a `display: "iiif"` archive.
     pub attribution: Option<String>,
+    /// `VIEW`: present when the register counts another number of images
+    /// than the citation, whose views may then not be the cited pages.
+    pub renumbering: Option<GqlRenumbering>,
     /// `RESULTS`: how many registers matched; `null` when the address was
     /// built without querying the portal.
     pub matches: Option<usize>,
 }
 
+/// How a register's numbering differs from the citation's.
+#[derive(Debug, Clone, Copy, SimpleObject)]
+pub struct GqlRenumbering {
+    /// The register's image count as cited.
+    pub cited_count: u16,
+    /// How far the views opened are from the cited numbers: the images of
+    /// the earlier years the register now holds before the cited ones, `0`
+    /// when the cited numbers are kept.
+    pub shifted_by: u16,
+}
+
+impl From<Renumbering> for GqlRenumbering {
+    fn from(renumbering: Renumbering) -> Self {
+        Self {
+            cited_count: renumbering.cited_count,
+            shifted_by: renumbering.shifted_by,
+        }
+    }
+}
+
 /// One cited view of a resolved register.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlArchiveView {
-    /// One-based view number, as cited.
+    /// One-based view number in the register: as cited, or as estimated
+    /// when the register's numbering differs (`renumbering`).
     pub view: u16,
     /// The portal page opened on this view.
     pub url: String,
@@ -1590,6 +1614,7 @@ impl From<ArchiveTarget> for GqlArchiveTarget {
                 view_count,
                 call_number,
                 attribution,
+                renumbering,
             } => Self {
                 kind: GqlArchiveTargetKind::View,
                 url,
@@ -1597,6 +1622,7 @@ impl From<ArchiveTarget> for GqlArchiveTarget {
                 view_count,
                 call_number,
                 attribution,
+                renumbering: renumbering.map(GqlRenumbering::from),
                 matches: None,
             },
             ArchiveTarget::Results { url, matches } => Self {
@@ -1606,6 +1632,7 @@ impl From<ArchiveTarget> for GqlArchiveTarget {
                 view_count: None,
                 call_number: None,
                 attribution: None,
+                renumbering: None,
                 matches,
             },
         }

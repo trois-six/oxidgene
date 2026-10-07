@@ -56,6 +56,10 @@ pub enum ArchiveTarget {
         view_count: Option<u16>,
         call_number: Option<String>,
         attribution: Option<String>,
+        /// Present when the register counts another number of images than
+        /// the citation: its views may not be the cited pages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        renumbering: Option<Renumbering>,
     },
     /// Several or no registers matched: the portal's filtered results.
     /// `matches` is `None` when the address was built without a request.
@@ -71,10 +75,24 @@ impl ArchiveTarget {
     }
 }
 
+/// How a register's numbering differs from the citation's: the register,
+/// digitised or bound again since, counts `view_count` images where the
+/// citation counted `cited_count` (Archive Portals §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Renumbering {
+    /// The register's image count as cited.
+    pub cited_count: u16,
+    /// How far the views opened are from the cited numbers: the images of
+    /// the earlier years the register now holds before the cited ones,
+    /// `0` when the cited numbers are kept.
+    pub shifted_by: u16,
+}
+
 /// One cited view of a resolved register.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveView {
-    /// One-based view number, as cited.
+    /// One-based view number in the register: as cited, or as estimated
+    /// when the register's numbering differs (`renumbering`).
     pub view: u16,
     /// The portal page opened on this view.
     pub url: String,
@@ -403,9 +421,19 @@ impl<'r> Resolver<'r> {
             return Ok(ArchiveTarget::Results { url, matches: None });
         }
         let fetch = transport.connect(&endpoint).await?;
-        platform
+        let target = platform
             .resolve(archive, collection, citation, fetch.as_ref())
-            .await
+            .await?;
+        Ok(if beyond_the_register(&target, citation) {
+            ArchiveTarget::Results {
+                url: platform
+                    .results_url(collection, citation)
+                    .unwrap_or_else(|| archive.website.clone()),
+                matches: Some(0),
+            }
+        } else {
+            target
+        })
     }
 
     fn cached(&self, citation: &CitationParts) -> Option<ArchiveTarget> {
@@ -420,6 +448,31 @@ impl<'r> Resolver<'r> {
             cache.insert(citation.clone(), target.clone());
         }
     }
+}
+
+/// Whether a register was chosen although a cited view lies beyond its
+/// images: strong evidence of another register than the cited one (a
+/// citation of an older digitisation, split otherwise), which opening it on
+/// its first image would hide — unless the register carries the cited call
+/// number, such as a person's row of an index of matricules, one view of the
+/// register the citation counts. The filtered results land instead, as for
+/// no register.
+fn beyond_the_register(target: &ArchiveTarget, citation: &CitationParts) -> bool {
+    let ArchiveTarget::View {
+        views,
+        view_count: Some(count),
+        call_number,
+        ..
+    } = target
+    else {
+        return false;
+    };
+    let cited_call_number = citation
+        .call_number
+        .as_ref()
+        .zip(call_number.as_deref())
+        .is_some_and(|(cited, shown)| cited.matches(shown));
+    views.is_empty() && citation.views.iter().any(|cited| cited.view > *count) && !cited_call_number
 }
 
 #[cfg(test)]

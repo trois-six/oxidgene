@@ -315,7 +315,7 @@ async fn resolve(
 
     let manifest = &row.payload.manifest;
     let count = row.images.map_or(usize::MAX, usize::from);
-    let views = cited_views(citation, count)
+    let views = cited_views(citation, count, row.period.as_deref())
         .iter()
         .map(|cited| ArchiveView {
             view: cited.view,

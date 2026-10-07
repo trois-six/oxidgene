@@ -123,10 +123,13 @@ pub(super) async fn find(
         year_to,
         cote,
     };
-    let call_number = citation
-        .call_number
-        .as_ref()
-        .map(|call_number| call_number.as_str().to_owned());
+    // The first of several cited call numbers, as the portal searches one.
+    let call_number = citation.call_number.as_ref().and_then(|call_number| {
+        call_number
+            .alternatives()
+            .first()
+            .map(|first| (*first).to_owned())
+    });
 
     // The portal's call number search matches words and prefixes, so it
     // narrows the register's year-long listing; a call number the portal

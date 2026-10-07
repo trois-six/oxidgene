@@ -23,7 +23,9 @@
 //! The period helpers read the period texts portals display, segments,
 //! act codes, notes and Republican years included.
 
-use crate::citation::{Act, CitationGrammar, CitationParts, republican_numeral, republican_start};
+use crate::citation::{
+    Act, CitationGrammar, CitationParts, MONTHS, day_before, republican_numeral, republican_start,
+};
 
 use super::markup::fold;
 
@@ -94,20 +96,32 @@ pub(crate) fn narrow<'c, T>(
                     .is_some_and(|locality| wanted.contains(&fold(locality)))
         })
         .collect();
+    if kept.is_empty() && !anywhere {
+        kept = renamed_locality(candidates, citation, &wanted);
+    }
+    if let [only] = kept.as_slice()
+        && contradicts(only, citation)
+    {
+        return Vec::new();
+    }
     if kept.len() <= 1 {
         return kept;
     }
 
     if let Some(call_number) = &citation.call_number {
+        // The rows carrying the most of the cited call numbers: a register
+        // cited by its microfilm's, shared by several, and its own.
+        let carried = |candidate: &Candidate<T>| {
+            candidate
+                .call_number
+                .as_deref()
+                .map_or(0, |written| call_number.matched(written))
+        };
+        let most = kept.iter().map(|candidate| carried(candidate)).max();
         let matching: Vec<&Candidate<T>> = kept
             .iter()
             .copied()
-            .filter(|candidate| {
-                candidate
-                    .call_number
-                    .as_deref()
-                    .is_some_and(|written| call_number.matches(written))
-            })
+            .filter(|candidate| most.is_some_and(|most| most > 0 && carried(candidate) == most))
             .collect();
         match matching.len() {
             0 => return without_cited_call_number(kept, citation),
@@ -128,7 +142,123 @@ pub(crate) fn narrow<'c, T>(
             _ => kept = matching,
         }
     }
-    kept
+    nearest_image_count(kept, citation)
+}
+
+/// Whether a register shows both another call number than every cited one
+/// and another image count than the cited one: a citation of another
+/// digitisation (a microfilm's, since replaced by the originals, split
+/// otherwise), which no period overlap makes the cited register, even when
+/// the search returned it alone.
+fn contradicts<T>(candidate: &Candidate<T>, citation: &CitationParts) -> bool {
+    let other_call_number = citation.call_number.as_ref().is_some_and(|cited| {
+        candidate
+            .call_number
+            .as_deref()
+            .is_some_and(|written| !cited.matches(written))
+    });
+    let other_count = citation
+        .view_count
+        .is_some_and(|count| candidate.images.is_some_and(|images| images != count));
+    other_call_number && other_count
+}
+
+/// The candidates of a locality the portal names otherwise than the
+/// citation, when none bears the cited name: a commune renamed since the
+/// citation was written, its new name extending the old one at a word
+/// (`Exampleville` become `Exampleville-en-Plaine`), or a name the portal
+/// qualifies (`Exampleville (Department, France)`). The portal's own
+/// locality filter returned them; each must also agree with every part of
+/// the citation it shows, and carry a cited call number or the cited image
+/// count, since a longer name may as well be another commune's
+/// (`Exampleville-la-Forêt`).
+fn renamed_locality<'c, T>(
+    candidates: &'c [Candidate<T>],
+    citation: &CitationParts,
+    wanted: &[String],
+) -> Vec<&'c Candidate<T>> {
+    let extends = |locality: &str| {
+        let folded = fold(locality);
+        wanted.iter().any(|wanted| {
+            !wanted.is_empty()
+                && folded
+                    .strip_prefix(wanted.as_str())
+                    .is_some_and(|rest| rest.starts_with(' '))
+        })
+    };
+    let cited_call_number = |candidate: &Candidate<T>| {
+        citation.call_number.as_ref().is_some_and(|cited| {
+            candidate
+                .call_number
+                .as_deref()
+                .is_some_and(|written| cited.matches(written))
+        })
+    };
+    let cited_count = |candidate: &Candidate<T>| {
+        citation.view_count.is_some() && candidate.images == citation.view_count
+    };
+    let agrees = |candidate: &Candidate<T>| {
+        let call_number = citation.call_number.is_none()
+            || candidate.call_number.is_none()
+            || cited_call_number(candidate);
+        let period = citation.year.is_none_or(|year| {
+            candidate
+                .period
+                .as_deref()
+                .is_none_or(|period| covers(period, year))
+        });
+        let number = citation.number.is_none_or(|number| {
+            candidate
+                .numbers
+                .is_none_or(|(first, last)| (first..=last).contains(&number))
+        });
+        let count = citation.view_count.is_none()
+            || candidate.images.is_none()
+            || candidate.images == citation.view_count;
+        call_number
+            && period
+            && number
+            && count
+            && holds_act(candidate.act.as_deref(), &citation.act)
+    };
+    candidates
+        .iter()
+        .filter(|candidate| candidate.locality.as_deref().is_some_and(extends))
+        .filter(|candidate| agrees(candidate))
+        .filter(|candidate| cited_call_number(candidate) || cited_count(candidate))
+        .collect()
+}
+
+/// The candidates left once every criterion has run: the one whose image
+/// count is nearest the cited view count, when exactly one is and within a
+/// tenth of it — a portal may have added or removed a few images since the
+/// citation was written (429 for a cited 425) —, all of them otherwise.
+fn nearest_image_count<'c, T>(
+    kept: Vec<&'c Candidate<T>>,
+    citation: &CitationParts,
+) -> Vec<&'c Candidate<T>> {
+    let Some(count) = citation.view_count.filter(|_| kept.len() > 1) else {
+        return kept;
+    };
+    let distance = |candidate: &Candidate<T>| {
+        candidate
+            .images
+            .map(|images| images.abs_diff(count))
+            .filter(|distance| *distance <= (count / 10).max(1))
+    };
+    let Some(nearest) = kept
+        .iter()
+        .filter_map(|candidate| distance(candidate))
+        .min()
+    else {
+        return kept;
+    };
+    let nearest: Vec<&Candidate<T>> = kept
+        .iter()
+        .copied()
+        .filter(|candidate| distance(candidate) == Some(nearest))
+        .collect();
+    if nearest.len() == 1 { nearest } else { kept }
 }
 
 /// The candidates left when no candidate carries the cited call number,
@@ -158,8 +288,33 @@ fn without_cited_call_number<'c, T>(
 }
 
 /// The criteria after the call number, in order; `None` for a part the
-/// citation lacks.
-fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 5] {
+/// citation lacks. After the cited year come, for a cited period other than
+/// one whole year — the register's own period rather than the act's year —,
+/// its bounds, to the day where both the citation and the row write dates:
+/// a row holding the whole period, then one spanning exactly it, then one
+/// overlapping it (a register of half a month among a year's).
+fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8] {
+    let cited = citation
+        .period
+        .as_deref()
+        .map(period_spans)
+        .and_then(|spans| {
+            let first = spans.iter().map(|span| span.0).min()?;
+            let last = spans.iter().map(|span| span.1).max()?;
+            Some((first, last))
+        })
+        .filter(|&(first, last)| !(first % 10_000 == 101 && last == first + 1130));
+    let spanning = move |test: fn((u32, u32), (u32, u32)) -> bool| {
+        cited.map(|cited| {
+            Box::new(move |candidate: &Candidate<T>| {
+                candidate.period.as_deref().is_some_and(|period| {
+                    period_spans(period)
+                        .into_iter()
+                        .any(|span| test(span, cited))
+                })
+            }) as Criterion<'c, T>
+        })
+    };
     [
         Some(
             Box::new(|candidate: &Candidate<T>| holds_act(candidate.act.as_deref(), &citation.act))
@@ -182,6 +337,9 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 5]
                     .is_some_and(|period| covers(period, year))
             }) as Criterion<'c, T>
         }),
+        spanning(|span, cited| span.0 <= cited.0 && cited.1 <= span.1),
+        spanning(|span, cited| span == cited),
+        spanning(|span, cited| span.0 <= cited.1 && cited.0 <= span.1),
         citation.number.map(|number| {
             Box::new(move |candidate: &Candidate<T>| {
                 candidate
@@ -319,39 +477,50 @@ pub(crate) fn covers(text: &str, year: u16) -> bool {
 /// two of them joined into one range as [`joins_range`] reads the text
 /// between them.
 pub(crate) fn period_ranges(text: &str) -> Vec<(u16, u16)> {
+    period_spans(text)
+        .into_iter()
+        .map(|(first, last)| (year_of(first), year_of(last)))
+        .collect()
+}
+
+/// The year of a date written `yyyymmdd`.
+fn year_of(date: u32) -> u16 {
+    u16::try_from(date / 10_000).unwrap_or(u16::MAX)
+}
+
+/// The date ranges of a displayed period, as [`period_ranges`] reads its
+/// years, each bound a `yyyymmdd` number: to the day where the text writes
+/// the day and month before the year (`05/03/1871`, `26 juillet 1849`), to
+/// the month where it writes the month alone (`juillet 1849`), and otherwise
+/// from the first day of the first year to the last day of the last.
+pub(crate) fn period_spans(text: &str) -> Vec<(u32, u32)> {
     let tokens = year_tokens(text);
-    let mut ranges = Vec::new();
+    let date = |token: &YearToken, end: bool| {
+        let year = u32::from(if end { token.last } else { token.first });
+        let (month, day) = match day_before(&text[..token.start]) {
+            Some((month, Some(day))) => (month, day),
+            Some((month, None)) => (month, if end { 31 } else { 1 }),
+            None if end => (12, 31),
+            None => (1, 1),
+        };
+        year * 10_000 + month * 100 + day
+    };
+    let mut spans = Vec::new();
     let mut index = 0;
     while let Some(token) = tokens.get(index) {
-        let mut last = token.last;
+        let mut last = date(token, true);
         if let Some(next) = tokens.get(index + 1)
             && joins_range(&text[token.end..next.start])
         {
-            last = next.last;
+            last = date(next, true);
             index += 1;
         }
-        ranges.push((token.first, last.max(token.first)));
+        let first = date(token, false);
+        spans.push((first, last.max(first)));
         index += 1;
     }
-    ranges
+    spans
 }
-
-/// The French month names, folded, which full dates write between the years
-/// of a period.
-const MONTHS: [&str; 12] = [
-    "janvier",
-    "fevrier",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "aout",
-    "septembre",
-    "octobre",
-    "novembre",
-    "decembre",
-];
 
 /// Whether the text between two years joins them into one range: a dash, a
 /// slash, an ellipsis, `à` or `au` (`1683/1750`, `1621...1687`, `1833 à
@@ -456,7 +625,7 @@ fn year_tokens(text: &str) -> Vec<YearToken> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::citation::CitationGrammar;
+    use crate::citation::{CallNumber, CitationGrammar};
 
     #[test]
     fn reads_every_segment_of_a_period() {
@@ -704,5 +873,306 @@ mod tests {
             ),
             Selection::Many(3)
         );
+    }
+    /// A register cited by its microfilm's call number, which the register
+    /// before it shares, and by its own: the row carrying both, written in a
+    /// cell joining them with an internal reference.
+    #[test]
+    fn several_cited_call_numbers_single_out_the_row_carrying_them_all() {
+        let candidates = [
+            candidate(
+                "Exampleville",
+                "4E 9926 / 5Mi 999 BIS [9999999/1]",
+                "Naissances, mariages, décès",
+                "1793-1805",
+                391,
+                1,
+            ),
+            candidate(
+                "Exampleville",
+                "4E 9927 / 5Mi 999 BIS [9999999/2]",
+                "Naissances, mariages, décès",
+                "1805-1821",
+                429,
+                2,
+            ),
+        ];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1805-1821 - 5MI999BIS - 4E 9927 - 9999999/2 - vue 55d/425"
+            ),
+            Selection::Many(102)
+        );
+        // The shared call number alone: the cited period, which the first
+        // register only touches.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1805-1821 - 5MI999BIS - vue 55d/425"
+            ),
+            Selection::Many(102)
+        );
+        // The year alone: the image count nearest the cited one, within a
+        // tenth of it.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1805 - 5MI999BIS - vue 55d/425"
+            ),
+            Selection::Many(102)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1805 - 5MI999BIS - vue 55d/300"
+            ),
+            Selection::Many(2)
+        );
+    }
+
+    /// A commune renamed since the citation was written, its new name
+    /// extending the cited one, is the cited one's when its row agrees with
+    /// the citation and carries a cited call number or image count.
+    #[test]
+    fn a_renamed_locality_is_kept_on_the_citation_s_evidence() {
+        let candidates = [
+            candidate(
+                "Exampleville-en-Plaine (Department, France)",
+                "4E 9332 / 5Mi 956 BIS [9915874/2]",
+                "Naissances, mariages, décès",
+                "1832-1851",
+                276,
+                1,
+            ),
+            candidate(
+                "Exampleville-la-Forêt",
+                "4E 9400",
+                "Naissances, mariages, décès",
+                "1833-1850",
+                150,
+                2,
+            ),
+        ];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1832-1851 - 5MI956BIS - 4E 9332 - 9915874/2 - acte 11 - vue 10d/276"
+            ),
+            Selection::Many(101)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1840 - vue 10d/276"
+            ),
+            Selection::Many(101)
+        );
+        // Nothing but the year: either may be another commune.
+        assert_eq!(
+            chosen(&candidates, "AB12 - Exampleville - (aucun) - NMD - 1840"),
+            Selection::Many(0)
+        );
+        // A row contradicting the citation is not taken.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - NMD - 1860 - vue 10d/276"
+            ),
+            Selection::Many(0)
+        );
+        // Not a name extending the cited one at a word.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Example - (aucun) - NMD - 1840 - vue 10d/276"
+            ),
+            Selection::Many(0)
+        );
+    }
+
+    /// Registers of half a month, one call number for the year: the cited
+    /// period's days, then the image count.
+    #[test]
+    fn a_period_cited_to_the_day_is_compared_to_the_day() {
+        let half = |first: &str, last: &str, images: u16, payload: u8| {
+            candidate(
+                "Exampleville",
+                "4 E 999 45",
+                "Décès",
+                &format!("{first}/1871 - {last}/1871"),
+                images,
+                payload,
+            )
+        };
+        let candidates = [
+            half("01/01", "15/01", 30, 1),
+            half("16/01", "31/01", 30, 2),
+            half("01/03", "15/03", 30, 3),
+            half("16/03", "31/03", 28, 4),
+            half("01/04", "15/04", 30, 5),
+        ];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - D - 05/03/1871-28/03/1871 - 4E999/45 - acte 246 - vue 4/30"
+            ),
+            Selection::Many(103)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - D - 18/03/1871-28/03/1871 - 4E999/45"
+            ),
+            Selection::Many(104)
+        );
+        // The year alone tells none apart.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - D - 1871 - 4E999/45"
+            ),
+            Selection::Many(5)
+        );
+    }
+
+    #[test]
+    fn reads_the_days_of_a_period() {
+        let date = |year: u32, month: u32, day: u32| year * 10_000 + month * 100 + day;
+        assert_eq!(
+            period_spans("05/03/1871 - 28/03/1871"),
+            [(date(1871, 3, 5), date(1871, 3, 28))]
+        );
+        assert_eq!(
+            period_spans("26 juillet 1849-1er février 1850"),
+            [(date(1849, 7, 26), date(1850, 2, 1))]
+        );
+        assert_eq!(
+            period_spans("juillet 1849"),
+            [(date(1849, 7, 1), date(1849, 7, 31))]
+        );
+        assert_eq!(
+            period_spans("1805-1821"),
+            [(date(1805, 1, 1), date(1821, 12, 31))]
+        );
+        assert_eq!(
+            period_spans("1683/1750"),
+            [(date(1683, 1, 1), date(1750, 12, 31))]
+        );
+        assert_eq!(
+            period_spans("1598-1613 , 1656-1667"),
+            [
+                (date(1598, 1, 1), date(1613, 12, 31)),
+                (date(1656, 1, 1), date(1667, 12, 31))
+            ]
+        );
+    }
+    /// A citation of an older digitisation (its microfilm's call number and
+    /// view count) whose search returns one register of the originals: no
+    /// part but the period agrees, so it is not the cited register.
+    #[test]
+    fn a_lone_register_contradicting_call_number_and_count_is_not_chosen() {
+        let candidates = [candidate(
+            "Exampleville",
+            "3 E 999 19",
+            "Mariages",
+            "An XI-1812",
+            278,
+            1,
+        )];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - M - an VI-1815 - 1 MI EC 999/10 - acte 14 - vue 400d/510"
+            ),
+            Selection::Many(0)
+        );
+        // Either part agreeing keeps it.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - M - an VI-1815 - 1 MI EC 999/10 - vue 4/278"
+            ),
+            Selection::Many(101)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - (aucun) - M - an XI - 3 E 999 19 - vue 4/510"
+            ),
+            Selection::Many(101)
+        );
+    }
+    /// A reel's suffix (`BIS`, `TER`) names another reel: `5MI999TER` is
+    /// neither `5Mi 999` nor `5Mi 999 BIS`.
+    #[test]
+    fn a_reel_suffix_names_another_register() {
+        let candidates = [
+            candidate(
+                "Exampleville",
+                "61E-Dépôt 99 / 1Mi-EC 999",
+                "Baptêmes, mariages, sépultures",
+                "1711-1720",
+                69,
+                1,
+            ),
+            candidate(
+                "Exampleville",
+                "4E 9995 / 5Mi 999",
+                "Baptêmes, mariages, sépultures",
+                "1717-1744",
+                245,
+                2,
+            ),
+            candidate(
+                "Exampleville",
+                "4E 9996 / 5Mi 999 TER",
+                "Baptêmes, mariages, sépultures",
+                "1717-1757",
+                394,
+                3,
+            ),
+            candidate(
+                "Exampleville",
+                "4E 9997 / 5Mi 999 BIS",
+                "Baptêmes, mariages, sépultures",
+                "1745-1757",
+                150,
+                4,
+            ),
+        ];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - Saint-Exemple - BMS - 1717-1757 - 5MI999TER - vue 28d/394"
+            ),
+            Selection::Many(103)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville - Saint-Exemple - BMS - 1745 - 5MI999BIS - vue 28d/150"
+            ),
+            Selection::Many(104)
+        );
+        // Without the reel on the portal, its period and image count.
+        let without = [
+            candidates[0].clone(),
+            candidates[1].clone(),
+            Candidate {
+                call_number: Some("4E 9996".to_owned()),
+                ..candidates[2].clone()
+            },
+        ];
+        assert_eq!(
+            chosen(
+                &without,
+                "AB12 - Exampleville - Saint-Exemple - BMS - 1717-1757 - 5MI999TER - vue 28d/394"
+            ),
+            Selection::Many(103)
+        );
+        assert!(!CallNumber::new("5MI999TER").matches("5Mi 999"));
+        assert!(!CallNumber::new("5MI999TER").matches("5Mi 999 BIS"));
+        assert!(CallNumber::new("5MI999TER").matches("5Mi 999 TER"));
     }
 }

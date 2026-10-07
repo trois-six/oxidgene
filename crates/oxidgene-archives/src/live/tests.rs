@@ -446,6 +446,7 @@ fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view(
         view_count: None,
         call_number: Some("99 NUM 1".to_owned()),
         attribution: None,
+        renumbering: None,
     };
     let opening = check_view(corsica, collection, &citation, &target, false).unwrap();
     assert_eq!((opening.url.as_str(), opening.view), (url, 1));
@@ -484,6 +485,7 @@ fn an_uncounted_register_with_an_address_per_view_is_cited_at_its_second_view() 
         view_count: None,
         call_number: Some("4E 9001".to_owned()),
         attribution: None,
+        renumbering: None,
     };
     let opening = check_view(savoie, collection, &citation, &target, true).unwrap();
     assert_eq!(
@@ -518,6 +520,7 @@ fn a_viewer_without_an_address_per_view_is_checked_on_its_first_view() {
         view_count: None,
         call_number: Some("9NUM4E1".to_owned()),
         attribution: None,
+        renumbering: None,
     };
     assert_eq!(
         check_view(archive, collection, &citation, &register(Vec::new()), false),

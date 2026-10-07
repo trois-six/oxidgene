@@ -59,6 +59,12 @@
       "banner": ".cmplz-cookiebanner",
       "refuse": [".cmplz-deny"],
       "accept": [".cmplz-accept"]
+    },
+    {
+      "name": "orejime",
+      "banner": ".orejime-Notice, .orejime-Modal",
+      "refuse": [".orejime-Notice-declineButton", ".orejime-Button--decline"],
+      "accept": [".orejime-Notice-saveButton", ".orejime-Button--save", ".orejime-Button--accept"]
     }
   ],
   "refuse_phrases": [

@@ -6753,6 +6753,7 @@
     "archive_viewer.kind.ts": "Índices de entierros",
     "archive_viewer.kind.tsa": "Índices de sucesiones y ausencias",
     "archive_viewer.go_to_view": "El visor del archivo se abre en la primera vista: vaya a la vista {view}.",
+    "archive_viewer.renumbered": "La numeración de las vistas ha cambiado desde la cita ({cited} → {count} vistas): vista estimada {view}, la página puede diferir.",
     "archive_viewer.no_adapter": "OxidGene no puede buscar el acta citada en este archivo. Continúe la búsqueda en el sitio web del archivo.",
     "archive_viewer.no_image": "El archivo no ofrece ninguna imagen de las vistas citadas para adjuntar.",
     "archive_viewer.not_an_archive_citation": "Esta fuente no es una cita de archivo que OxidGene pueda buscar. Continúe la búsqueda en el sitio web del archivo.",

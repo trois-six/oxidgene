@@ -497,6 +497,11 @@ type GqlArchiveTarget {
 	"""
 	attribution: String
 	"""
+	`VIEW`: present when the register counts another number of images
+	than the citation, whose views may then not be the cited pages.
+	"""
+	renumbering: GqlRenumbering
+	"""
 	`RESULTS`: how many registers matched; `null` when the address was
 	built without querying the portal.
 	"""
@@ -522,7 +527,8 @@ One cited view of a resolved register.
 """
 type GqlArchiveView {
 	"""
-	One-based view number, as cited.
+	One-based view number in the register: as cited, or as estimated
+	when the register's numbering differs (`renumbering`).
 	"""
 	view: Int!
 	"""
@@ -2339,6 +2345,22 @@ type GqlRecordVersionEdge {
 type GqlRelationLabels {
 	names: [GqlPersonName!]!
 	spouses: [GqlFamilySpouse!]!
+}
+
+"""
+How a register's numbering differs from the citation's.
+"""
+type GqlRenumbering {
+	"""
+	The register's image count as cited.
+	"""
+	citedCount: Int!
+	"""
+	How far the views opened are from the cited numbers: the images of
+	the earlier years the register now holds before the cited ones, `0`
+	when the cited numbers are kept.
+	"""
+	shiftedBy: Int!
 }
 
 """

@@ -140,6 +140,7 @@ fn finds_a_register_in_one_search_and_computes_the_view() {
             view_count: Some(512),
             call_number: Some("5 E 9003".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     let requests = portal.requests();
@@ -299,6 +300,7 @@ fn reads_a_listed_viewer_for_the_census_views() {
             view_count: Some(4),
             call_number: Some("6 M 902".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     assert_eq!(portal.requests().len(), 2);

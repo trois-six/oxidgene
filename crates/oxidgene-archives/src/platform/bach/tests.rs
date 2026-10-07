@@ -245,6 +245,7 @@ fn a_register_opens_on_its_image_named_in_the_range_of_its_link() {
             view_count: Some(12),
             call_number: Some("GG 1".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
     // The list of finding aids, the commune's, the register's page: the
@@ -273,6 +274,7 @@ fn a_register_opens_on_its_image_named_by_the_viewer() {
             view_count: Some(12),
             call_number: Some("9 E 1/3".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
     assert_eq!(
@@ -510,6 +512,7 @@ fn a_view_beyond_the_register_opens_its_first_image() {
             view_count: Some(12),
             call_number: Some("GG 1".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
 }

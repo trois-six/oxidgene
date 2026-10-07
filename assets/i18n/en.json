@@ -6753,6 +6753,7 @@
     "archive_viewer.kind.ts": "Tables of burials",
     "archive_viewer.kind.tsa": "Tables of successions and absences",
     "archive_viewer.go_to_view": "The archive's viewer opens on the first view: go to view {view}.",
+    "archive_viewer.renumbered": "The view numbering has changed since the citation ({cited} → {count} views): estimated view {view}, the page may differ.",
     "archive_viewer.no_adapter": "OxidGene cannot search this archive for the cited act. Continue the search on the archive's website.",
     "archive_viewer.no_image": "The archive serves no image of the cited views to attach.",
     "archive_viewer.not_an_archive_citation": "This source is not an archive citation OxidGene can look up. Continue the search on the archive's website.",

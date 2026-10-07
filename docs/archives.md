@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:12:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T19:06:14Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -573,16 +573,30 @@ Resolution:
    the portal's style — the locality filter is a text match, `Bourg (Le)`
    also returns `Saint-Exemple-lès-le-Bourg` —; a series cited without a
    locality, or a collection without a `locality` cell, keeps every row.
+   When no row bears the cited name, a commune renamed since the citation
+   (`Exampleville` become `Exampleville-en-Plaine`) is kept: rows whose
+   locality extends the cited one at a word, each agreeing with every part
+   of the citation it shows and carrying a cited call number or the cited
+   image count, since a longer name may as well be another commune's.
    One register is then selected by the citation parts it has, in order:
    call number, act kind, parish, period, the cited act or matricule number
    within the numbers the row spans (`n° 1 à 1586`), and image count equal
    to the cited view count; selection stops at the first criterion that
    leaves exactly one row, and a criterion that would leave none is skipped.
-   A cited call number matches a row's without spaces or case, and a range
-   of microfilms (`5 Mi 9_374-376`) matches one it holds or that holds it. A
-   cited call number that no row carries ends the selection with the
-   results, unless exactly one row covers the cited year with the cited
-   image count. Act cells written as codes must hold every cited kind;
+   The call number keeps the rows carrying the most of the cited ones (a
+   microfilm's shared by several registers, then the register's own,
+   §5.1). The period first keeps the rows covering the cited year; then,
+   for a cited period other than one whole year — the register's own rather
+   than the act's year —, the rows holding all of it, the row spanning
+   exactly it, and the rows overlapping it, to the day where both the
+   citation and the row write dates (`05/03/1871-28/03/1871` among
+   registers of half a month). Rows still tied go to the one whose image
+   count is nearest the cited one, within a tenth of it (a portal's
+   register gaining a few images since the citation). A cited call number
+   that no row carries ends the selection with the results, unless exactly
+   one row covers the cited year with the cited image count; a lone row
+   showing both another call number and another image count than the cited
+   ones is no match either (a citation of an older digitisation). Act cells written as codes must hold every cited kind;
    words the search already filtered are left to the engine. A period cell
    may hold several segments (`1598-1613 , 1656-1667`,
    `NMD 1857-1859, N 1853-1872`, `NM an II`, `1793/1802`, `1621...1687`),
@@ -594,18 +608,31 @@ Resolution:
    `Le Mans`, 186 marriage registers) lists the cited register anywhere.
 7. `GET` of the selected register's viewer address. `medias[0].sources`
    lists its images in order: their count, and per image its path
-   (`/_recherche-images/show/<record number>/image/<id>/<index>`, the image's
-   IIIF base on the portal's origin, which some portals write as an absolute
-   address on their host with or without `www.`) and `ARKLink`, its
-   persistent address. Nothing else of the answer is read:
+   (`/_recherche-images/show/<record number>/image/<file>/<position>`, the
+   image's IIIF base on the portal's origin, which some portals write as an
+   absolute address on their host with or without `www.`) and `ARKLink`, its
+   persistent address. A register digitised in parts lists its images from
+   several files, each image's path naming its own file and its position
+   within it (Maine-et-Loire: 109, 1 and 248 images; the Yvelines'
+   censuses: one file per image), while the row's viewer address names the
+   first file only. Nothing else of the answer is read:
    `infosImage["@id"]`, `imageLienComplet` and the file names name internal
    hosts and paths.
 8. The target is the record page opened on the view:
-   `<search_path>?detail=<record>#<viewer address>/<i>`, where `<i>` is the
-   zero-based view index; the portal's viewer opens on that image. Each
-   cited view gets its own address and ARK. A register listed without a
+   `<search_path>?detail=<record>#<viewer address>/<position>`, the viewer
+   address naming the image's file (`…/image/<file>`) and `<position>` the
+   image's zero-based position within that file, both read from the end of
+   the image's path; the portal's viewer opens on that image. A position
+   beyond the named file's images opens the register on its first image, so
+   the register's own index is never written after the row's address: on a
+   register of several files, a view past the first file would open on
+   view 1. An image path of another shape, and a portal read by its pages
+   (below), which lists no images, give the row's viewer address and the
+   view's zero-based index in the register. Each cited view gets its own
+   address and ARK. A register listed without a
    viewer gives `Results` with one match; a view beyond the register's
-   images gives `View` with no views, opened on the first image (§7).
+   images gives `View` with no views, which the resolver takes for another
+   register (§7).
 
 **A portal read by its pages** (`transport: "page"`, §4.2) is sent no
 request: each search of step 2 loads the search page with the same filters
@@ -622,6 +649,9 @@ uses no `#title`, and has no `keyed` filter, whose keys only the engine's
 answer lists. Step 7 is not sent: the row's image count stands for the
 viewer's image list, a row without one leaving the viewer to bound the
 view, and the views have no ARK; such an archive is `display: "portal"`.
+Its views are addressed by the row's viewer address and their index in the
+register (step 8): on a register of several files, a view past the first
+file opens on the register's first image.
 
 A browser transport's start page (§4.2) is the portal's `/robots.txt`: the
 lightest page of the origin, which passes the portals' bot-mitigation check
@@ -764,8 +794,8 @@ Resolution:
    (the viewer's number is the zero-based index plus one). Unlike Arkothèque,
    this is a persistent identifier: it is also returned as `ark`. A register
    listed without images gives `Results` with one match; a view beyond the
-   register's image count gives `View` with no views, opened on the first
-   image (§7).
+   register's image count gives `View` with no views, which the resolver
+   takes for another register (§7).
 
 For a `display: "iiif"` archive the adapter also builds each cited view's
 image. The portal's IIIF service is level 0 and serves the full size only: a
@@ -851,7 +881,7 @@ Resolution:
    - its **numbers**, from the `numbers` cell (`1 à 500`, `N° 1-500`, `Matricules, 1-500`, a person's `984`), or else from the title or the link's label after `n°`, `nos`, `numéros` or `matricule(s)` (`Volume 1 n° 1 à 500.`, `(matricule 984)`);
    - its **image count** and viewer, from the first viewer link, `/ark:/<naan>/<id>/<tag>/<group>` followed by named segments (`/layout:table|linear`, `/idsearch:…`), whose `title` reads `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. A row without one lists a register not digitised.
 4. One register is selected as for Arkothèque (§4.3, step 3), among the rows with a viewer link, each read as the citation names it: a row one of whose places is the cited locality, or lies within it, has the cited locality, the place within it being its parish (the cited `Exampleville` finds `Hameau (Exampleville, …)` with the parish `Hameau`), and a row naming the cited parish among its places or parishes has it. Then act kind, parish, period, number and image count. A collection whose rows show no locality — a series searched by year alone, a select of bureaux — keeps every row whatever the cited locality. A military register is thus found by its bureau and class and the volume whose matricules hold the cited one, a person's row by the matricule itself. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; some show one shared by the registers of every locality of the same kind and year, or by a commune's volumes; a citation of a military register often gives the original's while the portal shows its microfilm. A cited call number no row carries therefore does not discard them.
-5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link: `daogrp/0` normally, `daoloc/0` on some parish registers and a person's row, `dao/0` on others. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, opened on the first image (§7): a person's row of an index opens on the person's own view whatever view of the register the citation counts.
+5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link: `daogrp/0` normally, `daoloc/0` on some parish registers and a person's row, `dao/0` on others. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, which the resolver takes for another register (§7); a person's row of an index, which carries the cited call number, opens on the person's own view whatever view of the register the citation counts.
 6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The canvases' declared sizes are not their images': the live checks found canvases of 1392 × 1212 over images of 2704 × 1780 (Ain), and other proportions on every portal. Each cited view's size is therefore its service's `info.json` (`<service>/info.json`, Image API 3 context, served as `text/html`), one request per view; the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not read. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
 
 The viewer shows the current view in `.monocle-PageNav input[role="spinbutton"]` (`aria-valuenow`) and the total in `.monocle-PageNav-total`, which the live check reads; the Hautes-Alpes portal runs Binocle instead, whose gallery counter shows them (`.bn-gallery-counter-current`, ` sur 29`); the portals observed show no licence step. A live check finds a locality to probe from what backs the locality input, read from the page, not set: a thesaurus named in the page script (`new VT_Control("ArchivesRECHCommune",{…"str":"…"…})`), whose autocomplete `POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index` lists the localities starting with three letters; a typed facet (`new VT_Control(…,{…"url":"/arcfacette.php?…&id=<input>&autoc=1"…})`), whose answer to that address and the letters, or no letters for a short list such as bureaux, lists them as `button.facette-select-<input>`, those qualified by the department a shared portal's `params` filter first; the input's own options or checkboxes, those written as names first (a form's bureaux may include `liste nominative`); the branches of a finding aid's tree (`title="Détail de la branche <locality>"`). A locality typed in a plain input nothing backs is probed with the three letters themselves, which the portal matches as text, and a search by year alone with no locality; a sparse series (Protestant registers) holding nothing of the first locality a shared thesaurus lists, or a portal two archives share answering an error for a locality of the other department, is probed for every locality. An index of persons is probed with the matricule 1, which each class has. The registers listed are read oldest first, whatever the portal's order, and only those of the act searched: a search by act also lists that act's decennial tables.
@@ -964,7 +994,7 @@ Resolution, `ead` (Côte-d'Or), which has no register search form:
    and is skipped. Collections are read in order until the citation decides.
 4. Selection as in §4.3 step 3, with the block's image count, which is not
    rechecked in the viewer. The target is the viewer address with `&vue=<n>`; a
-   cited view beyond the count opens the register on its first view.
+   cited view beyond the count gives `View` with no views (§7).
 
 An anti-bot challenge answers in place of a page (the Pas-de-Calais portal serves
 an F5 challenge to browsers, whose script loads from `/TSPD/`): a body that
@@ -1219,7 +1249,7 @@ Resolution:
    (`<name>/<register>/<view>`). The target of view `n` is the resolver
    `<origin><base>/gestionARK.asp?a=<naan>%2F<name>%2F<register>%2F<n>`,
    which needs no session, the ARK `<URLARK>/<LIENARK>` returned as `ark`;
-   a view beyond the count opens the register on its first view (§7). A
+   a view beyond the count gives `View` with no views (§7). A
    slide file without the portal's ARKs is drift.
 8. `views: "register"`: the target is the viewer page of step 7 itself, a
    `View` with no views and no count, which opens the register on its first
@@ -1638,7 +1668,7 @@ Resolution:
    for `contiguous` views, built without a request; for `listed` views, `GET
    <path>/visu/?<query>`, whose `select#fichier` lists the views'
    identifiers in order, gives view `n`'s and the count. A view beyond the
-   count opens the register on its first view (§7); a citation naming no
+   count gives `View` with no views (§7); a citation naming no
    view sends no viewer request.
 
 `results_url` and the target of `Results` are the module's search form,
@@ -1936,9 +1966,9 @@ overrides of the archive its code names (§3.1).
 | `locality` | Fields up to the parish field; may itself contain ` - `. For a series, the fields before the series, without a period field or a `no_parish` value that ends them; possibly none. A military series' locality is its recruitment bureau. |
 | `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`). A series has none. |
 | `act` | The document kind. An act code: `N`, `B`, `M`, `D`, `S`, `P` (publications of banns, filed and searched with the marriages), and their combinations such as `BMS`, `NMD` or `NPMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TM`, `TS`, `TN`, `TD`), kept as written; a series code `RP`, `RM`, `CM` or `TSA` (§3.1), which `TSA` is rather than a table code. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not. Without an act code, the first field after the code that names a series: by its code, or in words — folded (case, accents and punctuation ignored), the field contains every word of one of the series' phrases, in any order, a word also matching its plural in `s` or `x`. The built-in French phrases are `recensement`, `liste nominative`, `dénombrement` (`RP`); `registre matricule`, `matricule militaire` (`RM`); `conscrit`, `conscription`, `contingent`, `tirage sort`, `garde nationale mobile` (`CM`); `table succession`, `succession absence` (`TSA`); a field naming two series is the first one's in the order `TSA`, `RM`, `CM`, `RP`. An archive's `citation.series` adds phrases. |
-| `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire; a note in parentheses after the period is left aside (`1931 (A-H, collection communale)`). For a series, the period field is the one after the series, or else the one before it, or else a period in parentheses within a free field (`Bureau de Exampleville n° 1 à 1586 (1870)`); years within the series' own name (`des classes 1859 à 1940`) are not its period. A military series' year is its class. |
-| `period` | The period field as written, kept to match portals that list registers by period text. A field that reads as no period leaves both empty and stays a free field. |
-| `call_number` | The first free field shaped like a call number — letters, digits and ` /._-`, at least one digit and one capital, no lowercase word of three letters or more (`1 Mi 456` is one, `acte 26` is not) — compared without spaces or case: `3E73/14` matches `3 E 73 / 14`, and a call number ending with a range of numbers (`5 Mi 9_374-376`, the microfilms of several years) matches one it holds or that holds it. |
+| `year` | The first year of the period field: `1877`, `1702-1703`, a full date (`05/03/1871-28/03/1871`, `26 juillet 1849-1er février 1850`), or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire; a note in parentheses after the period is left aside (`1931 (A-H, collection communale)`). For a series, the period field is the one after the series, or else the one before it, or else a period in parentheses within a free field (`Bureau de Exampleville n° 1 à 1586 (1870)`); years within the series' own name (`des classes 1859 à 1940`) are not its period. A military series' year is its class. |
+| `period` | The period field as written, kept to match portals that list registers by period text, its days and months included. A field that reads as no period leaves both empty and stays a free field. |
+| `call_number` | The free fields shaped like a call number — letters, digits and ` /._-`, at least one digit and one capital, no lowercase word of three letters or more (`1 Mi 456` is one, `acte 26` is not) —, several of them (a register's microfilm's and its original's, `5MI999BIS - 4E 9927`) kept together, joined by the field separator, each compared on its own. A call number is compared without spaces or case, or by its runs of letters and of numbers, numbers without leading zeros: `3E73/14` matches `3 E 73 / 14`, `4E212/45` matches `4 E 212 45`, and `9 R 1` matches `9R0001`. One ending with a range of numbers (`5 Mi 9_374-376`, the microfilms of several years) matches one it holds or that holds it. A portal's text joining several call numbers (`4E 9927 / 5Mi 999 BIS [9999999/2]`: the original's, the microfilm's, an internal reference) matches each of them; a slash before a bare number (`9 E 250 / 1`) belongs to the call number. |
 | `number` | The first free field that is an act or matricule number: `acte 31`, `matricule 1268`, `n° 12`, or a bare number of up to seven digits (`348`). Selection compares it with the numbers a register spans (§4.3, step 3); it is sent to a portal only by an index of persons searched by matricule, to find the person's row (§4.5). |
 | `views`, `view_count` | The last field, introduced by a `view_words` word: `vue <n>[d|g]/<count>`, a range `vue <n>[d|g]-<m>[d|g]/<count>` of at most ten views for an act spanning several, such as `vue 5d-6g/13`, or a view without its count; or written bare, `579/833`, right after a number field. Each view keeps its side (`d` right, `g` left); in a range the sides apply to its ends. A malformed range, or a view beyond the cited count, leaves both empty. |
 
@@ -1966,13 +1996,24 @@ pub enum ArchiveTarget {
         view_count: Option<u16>,
         call_number: Option<String>,
         attribution: Option<String>,
+        /// Present when the register counts another number of images than
+        /// the citation (§7).
+        renumbering: Option<Renumbering>,
     },
     /// Several or no registers matched: the portal's filtered results.
     Results { url: Url, matches: Option<usize> },
 }
 
+pub struct Renumbering {
+    /// The register's image count as cited.
+    pub cited_count: u16,
+    /// How far the views opened are from the cited numbers, `0` when kept.
+    pub shifted_by: u16,
+}
+
 pub struct ArchiveView {
-    /// One-based view number, as cited.
+    /// One-based view number in the register: as cited, or as estimated
+    /// when the register's numbering differs.
     pub view: u16,
     /// The portal page opened on this view.
     pub url: Url,
@@ -1995,7 +2036,8 @@ Addresses are `String`s, and the target serializes with a `kind` of `view` or
 5 and 6 resolves to both. `picture` is the address an attached page holds — a size bounded to
 the screen where the service allows it, the full image otherwise — and
 `thumbnail` the smallest address the archive serves. `attribution` is the
-catalogue template filled with the call number and views.
+catalogue template filled with the call number and views. `renumbering` is
+left out of the serialized target when absent.
 
 The target carries no `terms` and no `display`: both clients embed the
 catalogue and read them from the entry of the citation's archive.
@@ -2044,8 +2086,8 @@ GraphQL): the one view of the cited register to resolve instead of the cited
 views, which the document form attaching cited views asks for when the
 reader adds the previous or the next view of the register (§6.4). It keeps
 the side the citation gives that view, if it cites it; a view below 1 or beyond the cited view count is a
-`400 validation_error`. A view beyond the register's own images resolves,
-as any cited view does, to `View` with no views (§7).
+`400 validation_error`. A view beyond the register's own images resolves
+as any cited view does (§7).
 
 Both surfaces share one service, validation and error mapping, and are tested
 symmetrically ([API Contract](api.md#sources)). The request sends the portal
@@ -2134,7 +2176,9 @@ register or several registers match the citation, over the filtered results;
 or, over a register whose portal has no address per view — a `View` with no
 views although the cited views lie within the register, or its size is
 unknown —, which view to go to (`archive_viewer.go_to_view`, with the first
-cited view). A load's banner shows over every page that follows it — a
+cited view); or, over a register counting another number of images than the
+citation (§7), that the numbering changed, with both counts and the view
+opened (`archive_viewer.renumbered`). A load's banner shows over every page that follows it — a
 check's redirect, a portal page navigating on — until the reader closes it
 or the window loads another page. When the resolution fails, the window
 lands with the banner of the failure's code (`archive_viewer.<code>`): on
@@ -2187,8 +2231,8 @@ never answers a check itself: it waits, and the reader answers.
 reader's behalf and never accepts it. A script of the window, run in each
 main-frame document, recognizes the consent managers of the shared list
 beside it (`consent.json`: the Arkothèque banner, tarteaucitron, Axeptio,
-Didomi, OneTrust, CookieConsent and Osano, Klaro, Complianz — each with its
-banner, refuse and accept controls), watches the document for 15 seconds,
+Didomi, OneTrust, CookieConsent and Osano, Klaro, Complianz, Orejime — each
+with its banner, refuse and accept controls), watches the document for 15 seconds,
 and clicks the first visible refuse control of a banner on screen, once: the
 manager's own, or else, within the banner, a control whose whole text is a
 refuse phrase. Nothing whose text, title, label or value is an accept phrase
@@ -2370,7 +2414,8 @@ reloads. The source, shared by other citations, is never changed.
 | Archive recognized, act or locality missing | A link opening the "Find in the archives" dialog (§6.5); the endpoint, without the reader's parts, answers the filtered search page built without a request, or the archive's website without a document kind. |
 | Portal address of a catalogued archive in the records | The address, opened as it is: in the archive window (desktop) or a new tab (web), without a lookup. |
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
-| View beyond the register's image count | `View` with no views: the register's first image. |
+| View beyond the register's image count | `Results` with no match, the collection's filtered search page with the banner of no register: the register chosen is taken for another one than the cited (a citation of an older digitisation, its call number and view count those of a microfilm since replaced by the originals, split otherwise), which opening it on its first image would hide. A register carrying the cited call number — a person's row of an index of matricules, one view of the register the citation counts — is the cited one: `View` with no views, its first image. |
+| Register counting another number of images than the citation (digitised or bound again since: a register cited for 1832–1851 with 184 images, now bound with the years from 1818 in 301) | Its views, with `renumbering` and the banner `archive_viewer.renumbered` (desktop) or the same notice beside the source (web): the numbering changed, from the cited count to the register's, and the view opened, which may not be the cited page. Where the register's period ends with the cited one but starts earlier and it counts more images, the earlier years come first: each cited view is moved by the difference of the counts (view 38 of 184 opens 155 of 301). Otherwise — the cited period the register's start, the whole of it, or unknown, or the register counting fewer images — the cited numbers are kept. A register opened on its first image (no address per view, a view beyond it) has no `renumbering`. |
 | `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other; the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source (§6.3). |
 | View cited within a register whose portal has no address per view | `View` with no views: the register's first image, with `archive_viewer.go_to_view` naming the cited view, as a banner (desktop) or a notice (web). |
 | Anti-bot check on the start page (desktop) | Waited out for 5 seconds, then the reader's to answer in the window within 3 minutes (§6.1). |
@@ -2915,9 +2960,7 @@ Cases the catalogue model must express:
   The military registers are not catalogued: their class filter finds
   nothing by a plain year, and without it a bureau lists some 300 registers
   over pages that would each be a full page load.
-- **Arkothèque collections left out.** The Yvelines' censuses: the record
-  page opens its viewer on the first image whatever view its address names.
-  Name-indexed military registers (one record per soldier: 04, 24's indexed
+- **Arkothèque collections left out.** Name-indexed military registers (one record per soldier: 04, 24's indexed
   classes, 71) and inventory pages without images are not register
   collections. The Aube's military registers and succession tables have no
   search engine on their landing pages.
@@ -3046,7 +3089,7 @@ only, and *unconfirmed* means no evidence was found.
 | 75 | Paris | `archives.paris.fr` | [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859) (reconstituted, 16th century–1859) and [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860) | Arkothèque | Observed and live-checked (§4.3): civil status from 1860 |
 | 76 | Seine-Maritime | `www.archivesdepartementales76.net` | [`www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil`](https://www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, military registers, succession tables |
 | 77 | Seine-et-Marne | `archives.seine-et-marne.fr` | [`archives.seine-et-marne.fr/fr/etat-civil`](https://archives.seine-et-marne.fr/fr/etat-civil), linking [`archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0`](https://archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): registers and TD, RP, RM, CM, TSA |
-| 78 | Yvelines | `archives.yvelines.fr` | [`archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil`](https://archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, TSA |
+| 78 | Yvelines | `archives.yvelines.fr` | [`archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil`](https://archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, TSA |
 | 79 | Deux-Sèvres | `archives-deux-sevres-vienne.fr` (shared with Vienne) | [`archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil`](https://archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil) | Ligeo (Archinoë in 2014) | URL pattern; catalogued, searched 2026-10-05: parish registers, civil status, censuses, succession tables |
 | 80 | Somme | `archives.somme.fr` | [`archives.somme.fr/search/form/cebd4a00-25b1-4b1c-a31e-8ea66d58efa2`](https://archives.somme.fr/search/form/cebd4a00-25b1-4b1c-a31e-8ea66d58efa2) | Mnesys Expo | Naoned customer list; URL pattern; catalogued (§4.4): registers, censuses, military-register tables, conscription lists; live-checked 2026-10-05 |
 | 81 | Tarn | `archives.tarn.fr` | [`recherche-archives.tarn.fr/archives/classification-scheme#tt2-39`](https://recherche-archives.tarn.fr/archives/classification-scheme#tt2-39) | Bach | Observed (§4.11): parish and civil registers, TD, one finding aid per commune; the reformed churches' registers; the viewer, out of service on 2026-10-05, answered again on 2026-10-06; live-checked 2026-10-06; the military registers (`1 R`) show no images, and the tables of successions are split by surname initial, which no citation names: not catalogued |

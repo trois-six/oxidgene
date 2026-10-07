@@ -350,6 +350,11 @@ pub struct CitedView {
 }
 
 /// A register's call number as cited, compared without spaces or case.
+///
+/// A citation may give a register several call numbers, in fields of their
+/// own — its microfilm's and its original's (`5MI825BIS - 4E 1927`) —:
+/// they are kept together, joined by the citation's field separator, and
+/// each is an [`alternative`](Self::alternatives).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CallNumber(String);
@@ -363,16 +368,76 @@ impl CallNumber {
         &self.0
     }
 
-    /// Whether `other` names the same register: `3E73/14` matches
-    /// `3 E 73 / 14`. A call number ending with a range of numbers
-    /// (`5 Mi 9_374-376`, the microfilms of several years) also matches one
-    /// it contains (`5 Mi 9_375`), and one that contains it.
+    /// The call numbers cited: each field of a joined text when every one
+    /// is shaped like a call number, the whole text otherwise (`MANS - LE`,
+    /// `3 E 12 - 1`).
+    pub fn alternatives(&self) -> Vec<&str> {
+        let pieces: Vec<&str> = self.0.split(SEPARATOR).map(str::trim).collect();
+        if pieces.len() > 1 && pieces.iter().all(|piece| Self::is_shaped(piece)) {
+            pieces
+        } else {
+            vec![self.0.as_str()]
+        }
+    }
+
+    /// Whether `other` names the same register as one of the cited call
+    /// numbers ([`matched`](Self::matched)).
     pub fn matches(&self, other: &str) -> bool {
-        let (mine, theirs): (String, String) = (
-            Self::folded(&self.0).collect(),
-            Self::folded(other).collect(),
-        );
+        self.matched(other) > 0
+    }
+
+    /// How many of the cited call numbers `other` carries: `3E73/14` matches
+    /// `3 E 73 / 14`, and `4E212/45` matches `4 E 212 45`. A call number
+    /// ending with a range of numbers (`5 Mi 9_374-376`, the microfilms of
+    /// several years) also matches one it contains (`5 Mi 9_375`), and one
+    /// that contains it. A portal's text may hold several call numbers —
+    /// `4E 1927 / 5Mi 825 BIS [1134369/2]`, the original's, the microfilm's
+    /// and an internal reference —, each of which is compared.
+    pub fn matched(&self, other: &str) -> usize {
+        let written = Self::parts(other);
+        self.alternatives()
+            .into_iter()
+            .filter(|mine| {
+                written
+                    .iter()
+                    .any(|theirs| Self::same_register(mine, theirs))
+            })
+            .count()
+    }
+
+    /// The call numbers a portal's text holds: the whole text, and, where
+    /// it joins several, each of them — bracketed ones apart, and the rest
+    /// cut at slashes when every piece has letters and digits (`4E 1927 /
+    /// 5Mi 825 BIS`, while `9 E 250 / 1` is one call number).
+    fn parts(text: &str) -> Vec<&str> {
+        let mut parts = vec![text.trim()];
+        let mut outside = text;
+        if let Some((before, rest)) = text.split_once('[')
+            && let Some((inside, after)) = rest.split_once(']')
+            && after.trim().is_empty()
+        {
+            parts.push(inside.trim());
+            outside = before.trim();
+            parts.push(outside);
+        }
+        let pieces: Vec<&str> = outside.split('/').map(str::trim).collect();
+        let call_like = |piece: &&str| {
+            piece.chars().any(|c| c.is_ascii_alphabetic())
+                && piece.chars().any(|c| c.is_ascii_digit())
+        };
+        if pieces.len() > 1 && pieces.iter().all(call_like) {
+            parts.extend(pieces);
+        }
+        parts
+    }
+
+    /// Whether two single call numbers name the same register.
+    fn same_register(mine: &str, theirs: &str) -> bool {
+        let (upper_mine, upper_theirs) = (mine.to_uppercase(), theirs.to_uppercase());
+        let (mine, theirs): (String, String) =
+            (Self::folded(mine).collect(), Self::folded(theirs).collect());
         mine == theirs
+            || Self::tokens(&upper_mine) == Self::tokens(&upper_theirs)
             || Self::numbered(&mine)
                 .zip(Self::numbered(&theirs))
                 .is_some_and(|((prefix, first, last), (other_prefix, from, to))| {
@@ -404,6 +469,55 @@ impl CallNumber {
         text.chars()
             .filter(|c| !c.is_whitespace())
             .flat_map(char::to_uppercase)
+    }
+
+    /// The runs of letters and of digits of a call number, read apart
+    /// wherever a space, a separator or a change between letters and digits
+    /// falls, numbers without their leading zeros: `4E212/45` is `4 E 212
+    /// 45` (`4E21245` is not: its digits run together), and `9R0001` is
+    /// `9 R 1`.
+    fn tokens(folded: &str) -> Vec<&str> {
+        Self::runs(folded)
+            .into_iter()
+            .map(|run| {
+                let trimmed = run.trim_start_matches('0');
+                if run.starts_with(|c: char| c.is_ascii_digit()) && !trimmed.is_empty() {
+                    trimmed
+                } else if run.starts_with('0') {
+                    "0"
+                } else {
+                    run
+                }
+            })
+            .collect()
+    }
+
+    /// The runs of letters and of digits of a call number ([`tokens`](Self::tokens)).
+    fn runs(folded: &str) -> Vec<&str> {
+        let mut tokens = Vec::new();
+        let mut start = None;
+        let mut digits = false;
+        for (at, c) in folded.char_indices() {
+            if !c.is_alphanumeric() {
+                if let Some(from) = start.take() {
+                    tokens.push(&folded[from..at]);
+                }
+                continue;
+            }
+            match start {
+                Some(from) if c.is_ascii_digit() != digits => {
+                    tokens.push(&folded[from..at]);
+                    start = Some(at);
+                }
+                Some(_) => {}
+                None => start = Some(at),
+            }
+            digits = c.is_ascii_digit();
+        }
+        if let Some(from) = start {
+            tokens.push(&folded[from..]);
+        }
+        tokens
     }
 
     /// Whether a free field is shaped like a call number: letters and digits
@@ -569,11 +683,14 @@ impl Tail {
             rest = free;
             (views, view_count) = parse_views(spec).unwrap_or_default();
         }
+        let call_numbers: Vec<&str> = rest
+            .iter()
+            .copied()
+            .filter(|field| CallNumber::is_shaped(field))
+            .collect();
         Self {
-            call_number: rest
-                .iter()
-                .find(|field| CallNumber::is_shaped(field))
-                .map(|field| CallNumber::new(*field)),
+            call_number: (!call_numbers.is_empty())
+                .then(|| CallNumber::new(call_numbers.join(SEPARATOR))),
             number: rest.iter().find_map(|field| number_of(field)),
             views,
             view_count,
@@ -764,16 +881,81 @@ fn period_start(field: &str) -> Option<u16> {
     Some(start)
 }
 
-/// A Gregorian year of four digits, or a Republican year `an <n>`.
+/// A Gregorian year of four digits, alone or ending a date (`05/03/1871`,
+/// `26 juillet 1849`, `1er juillet 1849`), or a Republican year `an <n>`.
 fn year_of(text: &str) -> Option<u16> {
     if text.len() == 4 && text.bytes().all(|byte| byte.is_ascii_digit()) {
         return text.parse().ok();
+    }
+    if let Some(at) = text.len().checked_sub(4)
+        && text.is_char_boundary(at)
+        && text[at..].bytes().all(|byte| byte.is_ascii_digit())
+        && day_before(&text[..at]).is_some()
+    {
+        return text[at..].parse().ok();
     }
     let numeral = text
         .get(..3)
         .filter(|prefix| prefix.eq_ignore_ascii_case("an "))
         .and_then(|_| text.get(3..))?;
     republican_start(republican_numeral(numeral.trim())?)
+}
+
+/// The French month names, folded, which full dates write between the years
+/// of a period.
+pub(crate) const MONTHS: [&str; 12] = [
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre",
+];
+
+/// The month, and the day if written, that a date writes just before its
+/// year: `05/03/` (`05/03/1871`), `26 juillet ` or `1er juillet `.
+pub(crate) fn day_before(before: &str) -> Option<(u32, Option<u32>)> {
+    /// The one or two digits `text` ends with, and what precedes them.
+    fn trailing_number(text: &str) -> Option<(&str, u32)> {
+        let digits = text.len() - text.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        if !(1..=2).contains(&digits) {
+            return None;
+        }
+        let at = text.len() - digits;
+        Some((&text[..at], text[at..].parse().ok()?))
+    }
+    let day_of = |day: u32| (1..=31).contains(&day).then_some(day);
+    if let Some(rest) = before.strip_suffix('/') {
+        let (rest, month) = trailing_number(rest)?;
+        if !(1..=12).contains(&month) {
+            return None;
+        }
+        let day = rest
+            .strip_suffix('/')
+            .and_then(trailing_number)
+            .and_then(|(_, day)| day_of(day));
+        return Some((month, day));
+    }
+    let mut words = before.split_whitespace().rev();
+    let named = fold_words(words.next()?);
+    let month = MONTHS.iter().position(|month| named == *month)?;
+    let day = words.next().and_then(|word| {
+        let word = word.rsplit(['-', '\u{2013}']).next().unwrap_or(word);
+        if fold_words(word) == "1er" {
+            Some(1)
+        } else {
+            trailing_number(word)
+                .filter(|(rest, _)| rest.is_empty())
+                .and_then(|(_, day)| day_of(day))
+        }
+    });
+    Some((u32::try_from(month).ok()? + 1, day))
 }
 
 /// A Republican year number, in Roman or Arabic numerals.
@@ -928,6 +1110,39 @@ mod tests {
     }
 
     #[test]
+    fn keeps_every_call_number_a_citation_gives() {
+        let citation = parse(
+            "AD99 - Exampleville - (aucun) - NMD - 1805-1821 - 5MI999BIS - 4E 9927 - 9999999/2 - vue 55d/425",
+        )
+        .expect("a normalized citation");
+        let call_number = citation.call_number.expect("call numbers");
+        assert_eq!(call_number.as_str(), "5MI999BIS - 4E 9927");
+        assert_eq!(call_number.alternatives(), ["5MI999BIS", "4E 9927"]);
+        // A portal's cell joining the original's, the microfilm's and an
+        // internal reference.
+        assert_eq!(call_number.matched("4E 9927 / 5Mi 999 BIS [9999999/2]"), 2);
+        assert_eq!(call_number.matched("4E 9926 / 5Mi 999 BIS [9999999/1]"), 1);
+        assert_eq!(call_number.matched("4E 9928"), 0);
+        // Fields that are not each a call number stay one.
+        assert_eq!(CallNumber::new("3 E 12 - 1").alternatives(), ["3 E 12 - 1"]);
+    }
+
+    #[test]
+    fn compares_call_numbers_by_their_letters_and_digits() {
+        let cited = CallNumber::new("4E212/45");
+        assert!(cited.matches("4 E 212 45"));
+        assert!(cited.matches("4E 212/45"));
+        assert!(!cited.matches("4 E 21245"));
+        assert!(!cited.matches("4 E 212 46"));
+        // A slash before a bare number belongs to the call number.
+        assert!(!CallNumber::new("9 E 250").matches("9 E 250 / 1"));
+        assert!(!CallNumber::new("3E1").matches("3E1/2"));
+        // Numbers padded with zeros.
+        assert!(CallNumber::new("9 R 1").matches("9R0001"));
+        assert!(!CallNumber::new("9 R 1").matches("9R0010"));
+    }
+
+    #[test]
     fn reads_the_first_year_of_a_period() {
         for (period, year) in [
             ("1877", 1877),
@@ -940,6 +1155,9 @@ mod tests {
             ("an XI-XII", 1802),
             ("an XIV", 1805),
             ("1792-an II", 1792),
+            ("05/03/1871-28/03/1871", 1871),
+            ("26 juillet 1849-1er février 1850", 1849),
+            ("1er juillet 1849", 1849),
         ] {
             let citation = parse(&format!("AD44 - Exampleville - (aucun) - D - {period}"))
                 .expect("a normalized citation");

@@ -147,6 +147,7 @@ fn one_register_opens_on_the_cited_view() {
             view_count: Some(3),
             call_number: Some("E dépôt 99".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
 
@@ -172,6 +173,83 @@ fn one_register_opens_on_the_cited_view() {
     assert_eq!(
         requests[1],
         format!("{AD44_VIEWER_ADDRESS}/{record}/arko_default_6a6b4d70c2bc6/image/900001")
+    );
+}
+
+/// A regression (Maine-et-Loire): a register digitised in parts lists its
+/// images from several files while its row's viewer address names the first
+/// file only. The target named that file with the view's index in the whole
+/// register, beyond the file's images, and the viewer opened the register
+/// on its first image. Each view is addressed by its own file and position.
+#[test]
+fn a_register_of_several_files_opens_each_view_in_its_own_file() {
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.viewer = include_str!("../../../fixtures/arkotheque/ad44-viewer-files.json");
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD44 - Exampleville - Saint-Exemple - B - 1660 - E dépôt 99 - vue 3-5/6",
+        &fetch,
+    );
+    let record = "arko_fiche_0000000000a01";
+    let Ok(ArchiveTarget::View {
+        url,
+        views,
+        view_count,
+        ..
+    }) = target
+    else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(view_count, Some(6));
+    let opened: Vec<(u16, &str)> = views
+        .iter()
+        .map(|view| (view.view, view.url.as_str()))
+        .collect();
+    assert_eq!(
+        opened,
+        [
+            (3, view_url(record, 900002, 0).as_str()),
+            (4, view_url(record, 900003, 0).as_str()),
+            (5, view_url(record, 900003, 1).as_str()),
+        ]
+    );
+    assert_eq!(url, view_url(record, 900002, 0));
+    // The register's own ARKs, counted across its files.
+    assert!(
+        views[2]
+            .ark
+            .as_deref()
+            .is_some_and(|ark| ark.contains(&format!("/{:032x}.", 5)))
+    );
+}
+
+/// A regression: a register bound with earlier years since the citation
+/// was numbered (the citation's 4 images of 1662-1668 are the last of the
+/// register's 6 of 1658-1668) opened on the cited number, an earlier year's
+/// page. The view is moved by the images added before it, and the target
+/// says that the numbering differs.
+#[test]
+fn a_register_bound_with_earlier_years_opens_on_the_estimated_view() {
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.viewer = include_str!("../../../fixtures/arkotheque/ad44-viewer-files.json");
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD44 - Exampleville - Saint-Exemple - B - 1662-1668 - E dépôt 99 - vue 2/4",
+        &fetch,
+    );
+    let Ok(ArchiveTarget::View {
+        url, renumbering, ..
+    }) = target
+    else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(url, view_url("arko_fiche_0000000000a01", 900003, 0));
+    assert_eq!(
+        renumbering,
+        Some(crate::Renumbering {
+            cited_count: 4,
+            shifted_by: 2
+        })
     );
 }
 
@@ -350,6 +428,7 @@ fn a_view_beyond_the_register_opens_the_register() {
             view_count: Some(3),
             call_number: Some("E dépôt 99".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
 }
@@ -986,6 +1065,7 @@ fn a_portal_read_by_its_pages_is_searched_by_loading_its_search_page() {
             view_count: Some(296),
             call_number: Some("9 E 99/2".to_owned()),
             attribution: None,
+            renumbering: None,
         })
     );
     assert!(pages.requests.lock().unwrap().is_empty());

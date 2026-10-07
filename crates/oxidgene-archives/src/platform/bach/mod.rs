@@ -251,7 +251,7 @@ async fn resolve(
     Ok(target(
         archive,
         citation,
-        chosen.call_number.as_deref(),
+        (chosen.call_number.as_deref(), chosen.period.as_deref()),
         link,
         &names,
     ))
@@ -281,7 +281,7 @@ async fn image_names(
 fn target(
     archive: &Archive,
     citation: &CitationParts,
-    call_number: Option<&str>,
+    (call_number, period): (Option<&str>, Option<&str>),
     link: String,
     names: &[String],
 ) -> ArchiveTarget {
@@ -290,7 +290,7 @@ fn target(
     } else {
         names.len()
     };
-    let views = cited_views(citation, count)
+    let views = cited_views(citation, count, period)
         .iter()
         .filter_map(|cited| {
             let name = names.get(usize::from(cited.view).checked_sub(1)?)?;

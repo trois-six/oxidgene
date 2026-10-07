@@ -67,6 +67,11 @@ const banners = {
         markup: `<div id="cmplz-cookiebanner-container"><div class="cmplz-cookiebanner banner-1 optin"><p>Ce site utilise des cookies.</p><div class="cmplz-buttons"><button class="cmplz-btn cmplz-accept">Accepter</button><button class="cmplz-btn cmplz-deny">Refuser</button><button class="cmplz-btn cmplz-view-preferences">Préférences</button></div></div></div>`,
         refuse: "cmplz-btn cmplz-deny",
     },
+    // Orejime (the Aveyron's Ligeo portal): "Accepter" is its save button.
+    orejime: {
+        markup: `<div class="orejime-Notice"><div class="orejime-Notice-body"><p class="orejime-Notice-description">En continuant votre navigation, vous acceptez l'utilisation de cookies.</p><ul class="orejime-Notice-actions"><li><button class="orejime-Button orejime-Button--save orejime-Notice-saveButton" type="button">Accepter</button></li><li><button class="orejime-Button orejime-Button--decline orejime-Notice-declineButton" type="button">Refuser</button></li><li><button class="orejime-Button orejime-Button--info orejime-Notice-learnMoreButton" type="button">En savoir plus</button></li></ul></div></div>`,
+        refuse: "orejime-Button orejime-Button--decline orejime-Notice-declineButton",
+    },
 };
 
 for (const [name, banner] of Object.entries(banners)) {

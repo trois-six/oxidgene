@@ -516,10 +516,11 @@ impl Settings {
         format!("{}{}?{filters}", self.origin, self.search_path)
     }
 
-    /// The record page opened on image `index`, zero-based.
-    pub(super) fn view_url(&self, record: &str, viewer: &str, index: u16) -> String {
+    /// The record page opened on the image the viewer's `anchor` names
+    /// (`<viewer address>/<position>`).
+    pub(super) fn view_url(&self, record: &str, anchor: &str) -> String {
         format!(
-            "{}{}?detail={}#{viewer}/{index}",
+            "{}{}?detail={}#{anchor}",
             self.origin,
             self.search_path,
             crate::platform::query::encode(record)

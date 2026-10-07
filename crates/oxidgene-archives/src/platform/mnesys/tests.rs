@@ -175,6 +175,7 @@ fn one_register_opens_on_the_cited_image_with_its_own_ark() {
             attribution: Some(
                 "Archives départementales d'Indre-et-Loire, 6NUM8/999/050, vue 150".to_owned()
             ),
+            renumbering: None,
         })
     );
 
@@ -431,6 +432,7 @@ fn a_view_beyond_the_register_opens_its_first_image() {
             attribution: Some(
                 "Archives départementales d'Indre-et-Loire, 6NUM8/999/050, vue ".to_owned()
             ),
+            renumbering: None,
         })
     );
     assert_eq!(fetch.requests().len(), 1);
@@ -500,6 +502,7 @@ fn calvados_rows_have_no_call_number_and_the_act_is_in_the_context() {
         call_number,
         attribution,
         view_count,
+        ..
     } = target.unwrap()
     else {
         panic!("expected a view");

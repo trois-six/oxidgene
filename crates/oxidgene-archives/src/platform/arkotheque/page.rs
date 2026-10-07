@@ -503,6 +503,25 @@ pub(super) struct Source {
     pub(super) ark: Option<String>,
 }
 
+impl Source {
+    /// The viewer's address of this image: the register's `viewer` address
+    /// naming the image's own file, then the image's position within that
+    /// file, both read from the end of its path
+    /// (`/_recherche-images/show/<record number>/image/<file>/<position>`).
+    ///
+    /// A register's images may lie in several files, a register digitised
+    /// in parts (Maine-et-Loire), while its row's viewer address names its
+    /// first file only; the viewer opens a position beyond that file's
+    /// images on the register's first image. `None` when either address
+    /// lacks that shape.
+    pub(super) fn viewer_anchor(&self, viewer: &str) -> Option<String> {
+        let (register, _) = viewer.rsplit_once("/image/")?;
+        let (file, position) = self.src.rsplit_once("/image/")?.1.split_once('/')?;
+        let number = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+        (number(file) && number(position)).then(|| format!("{register}/image/{file}/{position}"))
+    }
+}
+
 #[derive(Deserialize)]
 struct ViewerAnswer {
     medias: Vec<Media>,

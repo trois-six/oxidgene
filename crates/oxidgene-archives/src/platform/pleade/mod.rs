@@ -288,6 +288,7 @@ struct Found {
 struct Chosen {
     ark: Ark,
     call_number: Option<String>,
+    period: Option<String>,
     images: Option<usize>,
 }
 
@@ -355,6 +356,7 @@ async fn choose(
         return Ok(Ok(Chosen {
             ark: only.payload.clone(),
             call_number: only.call_number.clone(),
+            period: only.period.clone(),
             images: None,
         }));
     }
@@ -373,6 +375,7 @@ async fn choose(
         [(only, count)] => Ok(Chosen {
             ark: only.payload.clone(),
             call_number: only.call_number.clone(),
+            period: only.period.clone(),
             images: Some(*count),
         }),
         _ => Err(left.len()),
@@ -389,7 +392,7 @@ fn view(
     // A register is counted only where its manifest was read: a cited view
     // is otherwise left to the viewer.
     let count = chosen.images.unwrap_or(usize::MAX);
-    let views = cited_views(citation, count)
+    let views = cited_views(citation, count, chosen.period.as_deref())
         .iter()
         .map(|cited| {
             let url = format!(

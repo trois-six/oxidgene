@@ -43,6 +43,29 @@
       }
     },
     {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.yvelines.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/recensements-de-population/recensements-de-population",
+        "engine": "arko_default_60e468d70b912",
+        "content_ids": ["1776683"],
+        "display_mode": "arko_default_60e46b269bbfd",
+        "fields": {
+          "locality": "arko_default_60e469352cafa",
+          "period": "arko_default_60e469356fd36"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "#2",
+          "period": "date",
+          "call_number": "liaison_cote"
+        }
+      }
+    },
+    {
       "id": "succession-tables",
       "acts": ["TSA"],
       "platform": "arkotheque",

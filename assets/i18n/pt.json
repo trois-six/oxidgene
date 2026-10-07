@@ -6753,6 +6753,7 @@
     "archive_viewer.kind.ts": "Índices de sepultamentos",
     "archive_viewer.kind.tsa": "Índices de sucessões e ausências",
     "archive_viewer.go_to_view": "O visualizador do arquivo abre na primeira vista: vá para a vista {view}.",
+    "archive_viewer.renumbered": "A numeração das vistas mudou desde a citação ({cited} → {count} vistas): vista estimada {view}, a página pode ser diferente.",
     "archive_viewer.no_adapter": "O OxidGene não consegue procurar o assento citado neste arquivo. Continue a pesquisa no sítio do arquivo.",
     "archive_viewer.no_image": "O arquivo não disponibiliza nenhuma imagem das vistas citadas para anexar.",
     "archive_viewer.not_an_archive_citation": "Esta fonte não é uma citação de arquivo que o OxidGene possa procurar. Continue a pesquisa no sítio do arquivo.",

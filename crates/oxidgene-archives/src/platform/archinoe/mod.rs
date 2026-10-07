@@ -396,6 +396,8 @@ struct Chosen {
     /// The viewer's `id`.
     id: String,
     call_number: Option<String>,
+    /// The period as the row shows it.
+    period: Option<String>,
     /// The image count, when the row or the viewer gave it.
     images: Option<usize>,
 }
@@ -405,6 +407,7 @@ impl Chosen {
         Self {
             id: candidate.payload.id.clone(),
             call_number: candidate.call_number.clone(),
+            period: candidate.period.clone(),
             images: counted.or_else(|| candidate.images.map(usize::from)),
         }
     }
@@ -456,7 +459,7 @@ fn view(
     // A register's views are counted only where its row or its viewer gave
     // the count: a cited view is otherwise left to the viewer.
     let count = chosen.images.unwrap_or(usize::MAX);
-    let views = cited_views(citation, count)
+    let views = cited_views(citation, count, chosen.period.as_deref())
         .iter()
         .map(|cited| ArchiveView {
             view: cited.view,

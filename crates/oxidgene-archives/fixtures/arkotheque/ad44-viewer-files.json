@@ -1,0 +1,169 @@
+{
+ "medias": [
+  {
+   "type": "image",
+   "licence": "",
+   "loaded": true,
+   "sources": [
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900001"
+     },
+     "src": "/_recherche-images/show/100001/image/900001/0",
+     "infosImage": {
+      "@context": "http://iiif.io/api/image/2/context.json",
+      "@id": null,
+      "protocol": "http://iiif.io/api/image",
+      "width": 3352,
+      "height": 2248
+     },
+     "ARKLink": "/ark:42067/00000000000000000000000000000001.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900001,
+      "position": 1
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 0,
+      "imageLienComplet": "internal/register/0001.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    },
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900001"
+     },
+     "src": "/_recherche-images/show/100001/image/900001/1",
+     "infosImage": null,
+     "ARKLink": "/ark:42067/00000000000000000000000000000002.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900001,
+      "position": 2
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 1,
+      "imageLienComplet": "internal/register/0002.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    },
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900002"
+     },
+     "src": "/_recherche-images/show/100001/image/900002/0",
+     "infosImage": null,
+     "ARKLink": "/ark:42067/00000000000000000000000000000003.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900002,
+      "position": 3
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 0,
+      "imageLienComplet": "internal/register/0003.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    },
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900003"
+     },
+     "src": "/_recherche-images/show/100001/image/900003/0",
+     "infosImage": null,
+     "ARKLink": "/ark:42067/00000000000000000000000000000004.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900003,
+      "position": 4
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 0,
+      "imageLienComplet": "internal/register/0004.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    },
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900003"
+     },
+     "src": "/_recherche-images/show/100001/image/900003/1",
+     "infosImage": null,
+     "ARKLink": "/ark:42067/00000000000000000000000000000005.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900003,
+      "position": 5
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 1,
+      "imageLienComplet": "internal/register/0005.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    },
+    {
+     "details": {
+      "type": "url",
+      "url": "/_recherche-api/visionneuse-detail/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900003"
+     },
+     "src": "/_recherche-images/show/100001/image/900003/2",
+     "infosImage": null,
+     "ARKLink": "/ark:42067/00000000000000000000000000000006.fiche=arko_fiche_0000000000a01.moteur=arko_default_6a6b4ac0309a5",
+     "infosClasseur": {
+      "refUniqueMoteur": "arko_default_6a6b4ac0309a5",
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "refUniqueField": "arko_default_6a6b4d70c2bc6",
+      "mediaType": "image",
+      "idArkoFile": 900003,
+      "position": 6
+     },
+     "infosSourcesComplementaire": {
+      "refUniqueFiche": "arko_fiche_0000000000a01",
+      "positionImage": 2,
+      "imageLienComplet": "internal/register/0006.jpg"
+     },
+     "refUniqueFiche": "arko_fiche_0000000000a01",
+     "allowDownload": true,
+     "title": "Exampleville - Registre"
+    }
+   ]
+  }
+ ],
+ "initMediaIndex": 0,
+ "initSourceIndex": 0
+}

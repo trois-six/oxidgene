@@ -115,6 +115,7 @@ fn view(views: &[u16], call_number: &str) -> ArchiveTarget {
         view_count: None,
         call_number: Some(call_number.to_owned()),
         attribution: None,
+        renumbering: None,
     }
 }
 

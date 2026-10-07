@@ -142,11 +142,18 @@ write('ad72-after-1902.json', answer(AD72_LATE, ["Commune", "Cote", "Actes", ""]
          actes_only='N 1923 - 1925', images=32)], ad72_row))
 
 def viewer(portal, record, numeric, file_id, count, licence, naan):
+    return viewer_of_files(portal, record, numeric, [(file_id, count)], licence, naan)
+
+# A register whose images lie in several files (a register digitised in
+# parts, as on the Maine-et-Loire portal): each image's path and position
+# name its own file, the row's viewer address the first one only.
+def viewer_of_files(portal, record, numeric, files, licence, naan):
     sources = []
-    for index in range(count):
+    for file_id, position in [(file_id, position) for file_id, count in files for position in range(count)]:
+        index = len(sources)
         sources.append({
             "details": {"type": "url", "url": f"/_recherche-api/visionneuse-detail/{portal['engine']}/{record}/{portal['image_field']}/image/{file_id}"},
-            "src": f"/_recherche-images/show/{numeric}/image/{file_id}/{index}",
+            "src": f"/_recherche-images/show/{numeric}/image/{file_id}/{position}",
             "infosImage": ({"@context": "http://iiif.io/api/image/2/context.json", "@id": None,
                             "protocol": "http://iiif.io/api/image", "width": 3352, "height": 2248}
                            if index == 0 else None),
@@ -154,13 +161,15 @@ def viewer(portal, record, numeric, file_id, count, licence, naan):
             "infosClasseur": {"refUniqueMoteur": portal['engine'], "refUniqueFiche": record,
                               "refUniqueField": portal['image_field'], "mediaType": "image",
                               "idArkoFile": file_id, "position": index + 1},
-            "infosSourcesComplementaire": {"refUniqueFiche": record, "positionImage": index,
+            "infosSourcesComplementaire": {"refUniqueFiche": record, "positionImage": position,
                                            "imageLienComplet": f"internal/register/{index + 1:04}.jpg"},
             "refUniqueFiche": record, "allowDownload": True, "title": "Exampleville - Registre"})
     return {"medias": [{"type": "image", "licence": licence, "loaded": True, "sources": sources}],
             "initMediaIndex": 0, "initSourceIndex": 0}
 
 write('ad44-viewer.json', viewer(AD44, 'arko_fiche_0000000000a01', 100001, 900001, 3, '', '42067'))
+write('ad44-viewer-files.json', viewer_of_files(AD44, 'arko_fiche_0000000000a01', 100001,
+                                                [(900001, 2), (900002, 1), (900003, 3)], '', '42067'))
 write('ad44-info.json', {
     "@context": "http://iiif.io/api/image/2/context.json",
     "@id": "http://internal-host.example.invalid:8182/iiif/2/internal%2Fregister%2F0002.jpg",

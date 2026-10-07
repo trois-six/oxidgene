@@ -1225,6 +1225,7 @@ mod tests {
             view_count: Some(40),
             call_number: None,
             attribution: None,
+            renumbering: None,
         };
         let Command::Load { progress, .. } =
             landing(&link, &messages, None, &transport, Ok(target))

@@ -493,6 +493,7 @@ fn opens_a_corsican_register_on_its_first_view_without_opening_it() {
             view_count: None,
             call_number: Some("99 NUM 3".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
     // The viewer, whose every opening writes a slide file on the server, is

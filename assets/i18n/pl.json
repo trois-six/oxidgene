@@ -6772,6 +6772,7 @@
     "archive_viewer.kind.ts": "Skorowidze pochówków",
     "archive_viewer.kind.tsa": "Skorowidze spadków i nieobecnych",
     "archive_viewer.go_to_view": "Przeglądarka archiwum otwiera się na pierwszym skanie: przejdź do skanu {view}.",
+    "archive_viewer.renumbered": "Numeracja skanów zmieniła się od czasu cytowania ({cited} → {count} skanów): szacowany skan {view}, strona może się różnić.",
     "archive_viewer.no_adapter": "OxidGene nie potrafi wyszukać cytowanego aktu w tym archiwum. Kontynuuj wyszukiwanie na stronie archiwum.",
     "archive_viewer.no_image": "Archiwum nie udostępnia obrazu cytowanych skanów do dołączenia.",
     "archive_viewer.not_an_archive_citation": "To źródło nie jest cytowaniem archiwalnym, które OxidGene może wyszukać. Kontynuuj wyszukiwanie na stronie archiwum.",

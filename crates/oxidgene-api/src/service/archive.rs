@@ -175,6 +175,7 @@ pub async fn archive_target(
                 .as_ref()
                 .map(|call| call.as_str().to_owned()),
             attribution: None,
+            renumbering: None,
         });
     }
     let Some(mut citation) = recognition.citation() else {

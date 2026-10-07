@@ -172,6 +172,7 @@ const SOURCE_TARGET: &str = r#"
             archiveTarget(citationId: $citation) {
                 kind url matches viewCount callNumber attribution
                 views { view url ark image { picture } }
+                renumbering { citedCount shiftedBy }
             }
         }
     }"#;
@@ -218,9 +219,39 @@ async fn a_cited_register_resolves_to_its_view_on_both_surfaces() {
     assert_eq!(gql_target["views"][0]["view"], 2);
     assert_eq!(gql_target["views"][0]["url"], target["views"][0]["url"]);
     assert_eq!(gql_target["matches"], Value::Null);
+    assert_eq!(target.get("renumbering"), None);
+    assert_eq!(gql_target["renumbering"], Value::Null);
     // Both surfaces share the process's resolver: the second answer came
     // from its session cache, without a request.
     assert_eq!(portal.connections(), 1);
+}
+
+/// A register counting another number of images than the citation: both
+/// surfaces say so beside the view opened.
+#[tokio::test]
+async fn a_renumbered_register_is_told_on_both_surfaces() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let source = new_source(&app, &tree, AD44_REGISTER).await;
+    let citation = new_citation(&app, &tree, &source, "acte 4 - vue 2g/4").await;
+
+    let (status, target) = rest(&app, &tree, &source, Some(&citation)).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["view_count"], 3);
+    assert_eq!(target["views"][0]["view"], 2);
+    assert_eq!(
+        target["renumbering"],
+        json!({ "cited_count": 4, "shifted_by": 0 })
+    );
+
+    let response = graphql(&app, &tree, &source, Some(&citation)).await;
+    assert!(response.get("errors").is_none(), "{response}");
+    let gql_target = &response["data"]["source"]["archiveTarget"];
+    assert_eq!(
+        gql_target["renumbering"],
+        json!({ "citedCount": 4, "shiftedBy": 0 })
+    );
 }
 
 #[tokio::test]

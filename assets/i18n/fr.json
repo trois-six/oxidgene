@@ -6753,6 +6753,7 @@
     "archive_viewer.kind.ts": "Tables des sépultures",
     "archive_viewer.kind.tsa": "Tables des successions et absences",
     "archive_viewer.go_to_view": "La visionneuse des archives s’ouvre sur la première vue : allez à la vue {view}.",
+    "archive_viewer.renumbered": "La numérotation des vues a changé depuis la citation ({cited} → {count} vues) : vue estimée {view}, la page peut différer.",
     "archive_viewer.no_adapter": "OxidGene ne sait pas rechercher l’acte cité dans ces archives. Poursuivez la recherche sur le site des archives.",
     "archive_viewer.no_image": "Les archives ne fournissent aucune image des vues citées à joindre.",
     "archive_viewer.not_an_archive_citation": "Cette source n’est pas une citation d’archives qu’OxidGene sait rechercher. Poursuivez la recherche sur le site des archives.",

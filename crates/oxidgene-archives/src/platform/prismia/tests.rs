@@ -129,6 +129,7 @@ fn a_register_opens_in_the_viewer_on_the_cited_canvas() {
             view_count: Some(216),
             call_number: Some("E SUP EXEMPLE GG-1".to_owned()),
             attribution: None,
+            renumbering: None,
         }
     );
 
