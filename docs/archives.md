@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T10:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -154,14 +154,15 @@ that runs an already supported platform is a data change with no code.
 | `display` | `iiif` when OxidGene may use the archive's images over IIIF to attach cited views as remote pages (§6.3, §6.4); `portal` otherwise. Either way the archive opens on its portal. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
-| `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`); `view_words`, the words introducing the views (default `["vue"]`); and `series`, phrases naming a series added to the built-in vocabulary, by series code (`{"RP": ["dénombrement des habitants"]}`, default none). A field left out keeps its default. |
+| `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`); `view_words`, the words introducing the views (default `["vue"]`); `series`, phrases naming a series added to the built-in vocabulary, by series code (`{"RP": ["dénombrement des habitants"]}`, `{"RI": ["C"]}` where a letter of the archive's own convention names its cemeteries' registers; default none); `districts`, the cities cited by their numbered districts, each `{"city", "count"}` (`[{"city": "Paris", "count": 20}]`, default none); `localities`, other names citations give a locality, by the name the archive's portal knows it by (`{"Ivry": ["Ivry-sur-Seine"]}`, default none); and `call_number_periods`, where the archive's call numbers write their register's period, as templates of text around a `{first}` year and an optional `{last}` one, four digits each (`["_RJ{first}{last}_"]` for `XXX_RJ19171918_04`, default none). A field left out keeps its default. |
 | `live_check` | `false` to exclude the archive from the scheduled live checks (§9.2). Default `true`. |
 
 **Collections.** Many archives search their parish registers and their civil
 status through different engines — two search pages, sometimes two
 platforms, and the decennial tables often a third — and publish other series
 beside them: population censuses, military registers, conscription lists,
-the registration offices' tables of successions. One archive therefore has
+the registration offices' tables of successions, the cemeteries' burial
+registers. One archive therefore has
 one or more collections, each resolved on its own:
 
 | Field | Rule |
@@ -181,6 +182,7 @@ The series codes, each a kind of document a collection may hold:
 | `RM` | Military registers (*registres matricules*) | R (`1 R`) | Recruitment bureau, class year, matricule number |
 | `CM` | Conscription lists: conscripts, the contingent, the drawing of lots, the mobile national guard | R | Canton or bureau, class year |
 | `TSA` | Tables of successions and absences | Q, registration (`3 Q`) | Registration office, period |
+| `RI` | Daily burial registers of cemeteries (*registres journaliers d'inhumation*), each burial under its entry number (*n° d'ordre*) | Municipal, the cemeteries' service | Cemetery, year, entry number |
 
 A series register has no parish. The decennial tables and the parish
 tables keep their table codes (`TD`, `TB`, `TM`, `TS`, `TN`). An adapter
@@ -545,7 +547,7 @@ document kinds may sit in several engines, each then its own collection. The
 | `engine` | The engine's unique reference, such as `arko_default_…`. |
 | `content_ids` | The search component's numeric content identifiers. |
 | `display_mode` | The list display mode reference. |
-| `fields` | The engine's filters the search sends, each optional: `locality` (the commune, or for a series the recruitment or registration bureau, or a canton), `act`, and `period` (the year, or a military class). Each is a filter reference, or an object `{"ref", "mode", "keyed", "end"}`: `mode`, the request's `[extras][mode]`, is `popup` for the locality, `select` for the act and `slider` (`<year>\|<year>`) for the period by default, `input` or `autocomplete` for a typed year (`<year>`); `keyed` means the filter takes its listed values with their record keys only; `end` names the second input of a period searched by its first and last year. |
+| `fields` | The engine's filters the search sends, each optional: `locality` (the commune, or for a series the recruitment or registration bureau, or a canton), `act`, and `period` (the year, or a military class). Each is a filter reference, or an object `{"ref", "mode", "keyed", "end", "span"}`: `mode`, the request's `[extras][mode]`, is `popup` for the locality, `select` for the act and `slider` (`<year>\|<year>`) for the period by default, `input` or `autocomplete` for a typed year (`<year>`); `keyed` means the filter takes its listed values with their record keys only; `end` names the second input of a period searched by its first and last year; `span` makes a slider search the cited period (`1917\|1918` for a register of `1917-1918`) rather than its first year, for an engine dating each part of a register by its own dates, which lists the parts after the first year only so. |
 | `acts` | Map from document code to the act filter value or values, as the portal writes them: `Baptèmes[[arko_fiche_…]]` for a list value with its record key, without which a list matches nothing, or a plain text value (`Registre matricule`, `Baptêmes / Naissances`). Several values (the decennial tables of each kind, the typologies of a series) are searched together, any of them matching. Two codes may share a value (`Baptêmes / Naissances` for `B` and `N`). Empty for an engine without an act filter. Where the engine has an act filter, every kind the collection holds needs a value; a combined act (`BMS`) without its own entry is searched by its first kind, publications of banns as marriages. |
 | `locality_style` | How the portal writes a locality (§3.2 `platform/locality.rs`): `plain` (`Le Mans`, default), `article_suffix` (`Mans (Le)`), `article_comma` (`Mans, Le`), `article_dash` (`MANS - LE`), `qualified` (`Le Mans (Sarthe, France)`: searched by the name alone, and a hamlet's `Hamlet (Commune, Department, France)` is never its commune), `district` (`05` for a city's fifth district: `Paris 5e`), or `enclosing` (`Saint-Exemple (EXAMPLEVILLE)`, a city's parish listed apart, or `Office (City, Department, France)`, read as the city, the part before the parentheses being the parish). |
 | `cells` | Where the result rows show what selection reads, each optional: `locality`, `parish`, `act`, `period`, `numbers` and `call_number`. A cell is a `data-champ` name, `#<n>` for the n-th column of a row that shows the part without a name, `#title` for the record's title (`resultats.results[].intitule`), or `#none`. Without a `locality` cell, every row the engine returned is kept (a census listed by canton). The `act` cell joins every span of its name (one per kind). `numbers` is one cell (`1 à 1586`) or two, whose last numbers are the first and last (`mat_debut`, `mat_fin`; `… (acte n° 4024)`, `… (acte n° 4081)`). `call_number` defaults to `#title`. An engine without an act filter whose collection holds several kinds needs the `act` cell. |
@@ -565,7 +567,8 @@ Resolution:
    locality in the portal's style, by name (the engines accept a plain name
    as a text match), or its key; the act filter value or values, with
    `[op]=OR` for several; and the year as the period mode writes it, in both
-   inputs for an `end`. Each filter carries its `[op]` and its
+   inputs for an `end`, the cited period's first and last years for a
+   `span`. Each filter carries its `[op]` and its
    `[extras][mode]`, and the query ends with `from`, `resultSize=100` (the
    engines accept 25, 50 or 100), the content identifiers and the display
    mode, all prefixed with `<engine>--` and percent-encoded. A series cited
@@ -624,7 +627,14 @@ Resolution:
    that no row carries ends the selection with the results, unless exactly
    one row covers the cited year with the cited image count; a lone row
    showing both another call number and another image count than the cited
-   ones is no match either (a citation of an older digitisation). Act cells written as codes must hold every cited kind;
+   ones is no match either (a citation of an older digitisation).
+   Several rows carrying the cited call number are parts of one register,
+   each dated by where it starts (the Paris cemeteries' daily registers, in
+   parts of some 600 entries, `04/01/1918 (n° d'ordre 601)` to
+   `15/01/1918 (n° d'ordre 1201)`): among them the cited number is tried
+   before the period, which would keep the part a register's first year
+   dates rather than the one holding the entry.
+   Act cells written as codes must hold every cited kind;
    words the search already filtered are left to the engine. A period cell
    may hold several segments (`1598-1613 , 1656-1667`,
    `NMD 1857-1859, N 1853-1872`, `NM an II`, `1793/1802`, `1621...1687`),
@@ -704,8 +714,9 @@ elements. The images are served with `Cache-Control: public, max-age=864000`.
 The adapter's tests replay anonymized answers shaped like the catalogued
 portals' (`crates/oxidgene-archives/fixtures/arkotheque/`, written by the
 `generate.py` beside them, which copies no recorded value): the shapes
-above, a populated locality's second page, keyed values, and a census of
-several lists a year told apart by call number and image count.
+above, a populated locality's second page, keyed values, a census of
+several lists a year told apart by call number and image count, and the
+parts of a cemetery's daily registers told apart by entry number.
 
 ### 4.4 Mnesys
 
@@ -1975,7 +1986,7 @@ the order of the segments:
 | An act, a combined register's code in capitals (`BMS`, `NMD`, `N 1877`), a table or a series | The document kind; a year or period after it in the segment is the register's; a preposition after it introduces the locality (`état civil de Exampleville`) |
 | A register word (`registres paroissiaux`, `état civil`, `RP`) | That the text cites a register, parish or civil, which reading the event's kind uses |
 | A view word (`vue`, `v.`, `image`) | The views: `45`, `45/200`, `45 sur 200`, `5d-6g/13`, the sides as the vocabulary writes them |
-| A number word (`acte`, `n°`, `matricule`) | The act or matricule number, unless the word before names another number (`ménage n° 56`) |
+| A number word (`acte`, `n°`, `matricule`, `ordre`, `n° d'ordre`) | The act, matricule or entry number, unless the word before names another number (`ménage n° 56`) |
 | A folio or page word (`f°`, `fol.`, `p.`) | The folio, with its recto or verso: kept for the reader, never a view |
 | A call-number word (`cote`) | The call number, up to the next keyword |
 | A parish word | The parish |
@@ -1995,6 +2006,29 @@ segment of its own; only when the words state none of these, the event's
 place; then a name within another segment.
 The archive's own areas and name are never its locality, but a municipal
 archive serves its commune, which is its locality when nothing else names one.
+Of the document kinds the words name, the first the archive holds is taken
+(`inhumations` beside `cimetière de Exampleville` names the cemetery's
+register where no parish register is catalogued), or else the first.
+
+**Districts and other names.** A city its archive cites by numbered
+districts (`citation.districts`, §3.1) is a locality with its district
+number, however written: the city and the number in Arabic or Roman
+numerals, with or without an ordinal suffix of the vocabularies (`Paris
+11e`, `Paris 11ème`, `Paris 11è`, `Paris XIe`, `Paris XI`, `Paris 1er`,
+`Paris Ier`), with or without a district word (`Paris 20e arrondissement`),
+in parentheses (`Paris (11e)`) or joined by a hyphen (`Paris-11`), or the
+number and a district word, then possibly the city (`11e arrondissement`,
+`naissances du 11e arrondissement de Paris`). A bare Arabic number after the
+city is a district only as a whole segment, so `Paris 12 mars 1917` stays a
+date, and a number beyond the city's count is none. Recognition writes the
+district alike, in the archive's language — `Paris 11e`, `Paris 1er` —,
+which the adapter's locality style turns into the portal's value (§4.3
+`district`: `11`); a number without its city is the first listed city's. A
+locality written as one of the archive's other names (`citation.localities`)
+becomes the name its portal knows it by.
+A citation without a year takes the period its call number writes, by the
+archive's `call_number_periods` (`1904` for `XXX_RJ19041904_01`,
+`1917-1918` for `XXX_RJ19171918_04`, whose year is 1917).
 
 **Vocabularies.** One JSON document per language under `assets/citations/`,
 embedded at build time like the catalogue; adding a language is a data
@@ -2010,6 +2044,7 @@ phrases, written naturally and folded when loaded:
 | `views`, `view_counts`, `sides` | View words, the word before a view count, the side suffixes |
 | `numbers`, `other_numbers`, `folios`, `pages`, `recto`, `verso`, `call_numbers`, `parishes`, `sections`, `approximate`, `bureaus` | The keywords above |
 | `places`, `particles` | Prepositions introducing a locality, and particles within place names |
+| `districts`, `ordinals` | Words naming a city's district (`arrondissement`), and the suffixes of an ordinal number, `first` after 1 (`er`) and `other` after the others (`e`, `ème`); the first of each is written (`Paris 1er`, `Paris 11e`) |
 | `months`, `ranges`, `republican_years` | Month names, the words joining a period, the word before a Republican year (French conventions only) |
 | `unsupported` | Phrases naming a kind of document no collection holds (`minutes notariales`, `matrice cadastrale`, `hypothèques`, `écrou`): a citation naming one is no link (below) |
 | `ignored` | Words that are no locality (`s.d.`, `France`) |
@@ -2064,6 +2099,10 @@ by the citation's page as further fields (`cited_text`):
 <code> - <locality> - <parish> - <act> - <period> - <free…> - vue <n>[d|g]/<count>
 ```
 
+The parish field may be left out when the act code is followed by its
+period: `<code> - <locality> - <act> - <period> - <free…>`, such as
+`AD75 - Paris 11e - N - 1917 - 11N 999 - acte 1894 - vue 11d/31`.
+
 A series of records other than acts (§3.1) is named in words where the
 parish and the act would stand, and its fields vary more, as genealogists
 write them:
@@ -2074,7 +2113,12 @@ write them:
 
 such as `AD99 - Exampleville - Recensement - 1866 - Canton est - 7 M 999 - vue 204d/242`,
 `AD99 - Exampleville - Registres matricules - 1898 - 1 R 9999 - 348 - 579/833` or
-`AD99 - Registres matricules des classes 1859 à 1940 - 1871 - 1 R 9999 - vue 181/196`.
+`AD99 - Registres matricules des classes 1859 à 1940 - 1871 - 1 R 9999 - vue 181/196`,
+or a cemetery's daily burial register, by its cemetery, the call number
+writing its period and the burial's entry number (`ordre`):
+`AD75 - Exampleville - C - XXX_RJ19041904_01 - ordre 945 - vue 18/31`, where
+`C` names the series only because the Paris archives' `citation.series` says
+so, or `AD75 - Cimetière parisien de Exampleville - 1904 - XXX_RJ19041904_01 - n° d'ordre 945 - vue 18/31`.
 
 `CitationParts::parse` returns `CitationParts` with every field optional
 except the code, the locality and the act; the locality is empty only for a
@@ -2086,13 +2130,13 @@ overrides of the archive its code names (§3.1).
 | Part | Read from |
 |---|---|
 | `code` | First field: capitals and digits, matched against `citation_codes`. |
-| `locality` | Fields up to the parish field; may itself contain ` - `. For a series, the fields before the series, without a period field or a `no_parish` value that ends them; possibly none. A military series' locality is its recruitment bureau. |
-| `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`). A series has none. |
-| `act` | The document kind. An act code: `N`, `B`, `M`, `D`, `S`, `P` (publications of banns, filed and searched with the marriages), and their combinations such as `BMS`, `NMD` or `NPMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TM`, `TS`, `TN`, `TD`), kept as written; a series code `RP`, `RM`, `CM` or `TSA` (§3.1), which `TSA` is rather than a table code. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not. Without an act code, the first field after the code that names a series: by its code, or in words — folded (case, accents and punctuation ignored), the field contains every word of one of the series' phrases, in any order, a word also matching its plural in `s` or `x`. The built-in French phrases are `recensement`, `liste nominative`, `dénombrement` (`RP`); `registre matricule`, `matricule militaire` (`RM`); `conscrit`, `conscription`, `contingent`, `tirage sort`, `garde nationale mobile` (`CM`); `table succession`, `succession absence` (`TSA`); a field naming two series is the first one's in the order `TSA`, `RM`, `CM`, `RP`. An archive's `citation.series` adds phrases. |
-| `year` | The first year of the period field: `1877`, `1702-1703`, a full date (`05/03/1871-28/03/1871`, `26 juillet 1849-1er février 1850`), or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire; a note in parentheses after the period is left aside (`1931 (A-H, collection communale)`), and so is a word marking it approximate before it (`env 1792-1952`, `env.`, `environ`, `vers`, `circa`, `ca`, `c.`, `~1850`, the French vocabulary's `approximate` words), the period then being its years alone. For a series, the period field is the one after the series, or else the one before it, or else a period in parentheses within a free field (`Bureau de Exampleville n° 1 à 1586 (1870)`); years within the series' own name (`des classes 1859 à 1940`) are not its period. A military series' year is its class. |
+| `locality` | Fields up to the parish field, or up to the act when the parish is left out; may itself contain ` - `. For a series, the fields before the series, without a period field or a `no_parish` value that ends them; possibly none, when the series field may name its place after a preposition, its name capitalized (`Cimetière parisien de Exampleville`, `Cimetière d'Exampleville`). A military series' locality is its recruitment bureau; a cemetery register's, its cemetery. |
+| `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`) or the act is the third field. A series has none. |
+| `act` | The document kind. An act code: `N`, `B`, `M`, `D`, `S`, `P` (publications of banns, filed and searched with the marriages), and their combinations such as `BMS`, `NMD` or `NPMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TM`, `TS`, `TN`, `TD`), kept as written; a series code `RP`, `RM`, `CM`, `TSA` or `RI` (§3.1), which `TSA` is rather than a table code. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not; failing a dated one there, a third field that is an act code followed by a period is the act of a citation without its parish. Without an act code, the first field after the code that names a series: by its code, or in words — folded (case, accents and punctuation ignored), the field contains every word of one of the series' phrases, in any order, a word also matching its plural in `s` or `x`. The built-in French phrases are `recensement`, `liste nominative`, `dénombrement` (`RP`); `registre matricule`, `matricule militaire` (`RM`); `conscrit`, `conscription`, `contingent`, `tirage sort`, `garde nationale mobile` (`CM`); `table succession`, `succession absence` (`TSA`); `registre journalier`, `registre inhumation`, `cimetière` (`RI`); a field naming two series is the first one's in the order `TSA`, `RM`, `CM`, `RP`, `RI`. An archive's `citation.series` adds phrases. |
+| `year` | The first year of the period field: `1877`, `1702-1703`, a full date (`05/03/1871-28/03/1871`, `26 juillet 1849-1er février 1850`), or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire; a note in parentheses after the period is left aside (`1931 (A-H, collection communale)`), and so is a word marking it approximate before it (`env 1792-1952`, `env.`, `environ`, `vers`, `circa`, `ca`, `c.`, `~1850`, the French vocabulary's `approximate` words), the period then being its years alone. For a series, the period field is the one after the series, or else the one before it, or else a period in parentheses within a free field (`Bureau de Exampleville n° 1 à 1586 (1870)`); years within the series' own name (`des classes 1859 à 1940`) are not its period. A military series' year is its class. Without any of these, the period the call number writes by the archive's `call_number_periods` (§3.1), its first year the year. |
 | `period` | The period field as written, kept to match portals that list registers by period text, its days and months included. A field that reads as no period leaves both empty and stays a free field. |
 | `call_number` | The free fields shaped like a call number — letters, digits and ` /._-`, at least one digit and one capital, no lowercase word of three letters or more (`1 Mi 456` is one, `acte 26` is not) —, several of them (a register's microfilm's and its original's, `5MI999BIS - 4E 9927`) kept together, joined by the field separator, each compared on its own. A call number is compared without spaces or case, or by its runs of letters and of numbers, numbers without leading zeros: `3E73/14` matches `3 E 73 / 14`, `4E212/45` matches `4 E 212 45`, and `9 R 1` matches `9R0001`. One ending with a range of numbers (`5 Mi 9_374-376`, the microfilms of several years) matches one it holds or that holds it. A portal's text joining several call numbers (`4E 9927 / 5Mi 999 BIS [9999999/2]`: the original's, the microfilm's, an internal reference) matches each of them; a slash before a bare number (`9 E 250 / 1`) belongs to the call number. A cited call number joining two with a slash, each with a letter and a digit — a digitization's and the original register's, `9NUM/8E99` — also matches a portal's text that is either alone (`9 NUM`, `8 E 99`). |
-| `number` | The first free field that is an act or matricule number: `acte 31`, `matricule 1268`, `n° 12`, or a bare number of up to seven digits (`348`). Selection compares it with the numbers a register spans (§4.3, step 3); it is sent to a portal only by an index of persons searched by matricule, to find the person's row (§4.5). |
+| `number` | The first free field that is an act, matricule or entry number: `acte 31`, `matricule 1268`, `n° 12`, `ordre 945`, `n° d'ordre 945`, or a bare number of up to seven digits (`348`). Selection compares it with the numbers a register spans (§4.3, step 3); it is sent to a portal only by an index of persons searched by matricule, to find the person's row (§4.5). |
 | `views`, `view_count` | The last field, introduced by a `view_words` word: `vue <n>[d|g]/<count>`, a range `vue <n>[d|g]-<m>[d|g]/<count>` of at most ten views for an act spanning several, such as `vue 5d-6g/13`, or a view without its count; or written bare, `579/833`, right after a number field. Each view keeps its side (`d` right, `g` left); in a range the sides apply to its ends. A malformed range, or a view beyond the cited count, leaves both empty. |
 
 A series cited without a locality, such as a department's military
@@ -2530,7 +2574,8 @@ written before the reader saves it:
   or conscription list (`CM`) `military_archive`, and succession tables
   (`TSA`) `notarial_archive` — the data model has no kind for registration
   records, and estates are the nearest, beside deeds, wills and inventories
-  ([Data Model](data-model.md#media));
+  ([Data Model](data-model.md#media)) —, and a cemetery's burial register
+  (`RI`) `civil_record`, the municipal record of a death nearest to it;
 - the event the citation documents, which the document is attached to, and
   the cited source as a link of the document, so the archive address can be
   resolved again from the citation if the portal moves its images.
@@ -3136,7 +3181,23 @@ Cases the catalogue model must express:
   is a reconstitution, published apart from the civil status from 1860
   onwards. The civil status from 1860 is searched by arrondissement, the
   locality in the `district` style (`05` for `Paris 5e`), and its registers
-  are told apart by the act numbers they span. The reconstituted acts and
+  are told apart by the act numbers they span; citations write the
+  arrondissement in many ways (`Paris 11e`, `Paris XIe`, `Paris (11e)`,
+  `11e arrondissement`), read by the archive's `citation.districts` (§5.1).
+  The daily burial registers of the Parisian cemeteries, inside and outside
+  the city (Pantin, Ivry, Bagneux, Thiais, Saint-Ouen…), are a collection of
+  their own (`RI`): one engine, filtered by cemetery (a list of eighteen
+  names, `Père Lachaise`, `Ivry`, `Saint-Ouen`) and by a year slider
+  that tests overlap with each row's dates; each register (call number
+  `<cemetery>_RJ<first year><last year>_<volume>`, the period read by the
+  archive's `call_number_periods`) is listed in parts of some 600 entries
+  and 31 images, dated and numbered by their first and last burials. Paris
+  citations name the series `C` (`AD75 - Pantin - C - 1918 -
+  PAN_RJ19181918_03 - ordre 981 - vue 20/31`), which the archive's
+  `citation.series` adds, the cemetery as the locality (`Cimetière parisien
+  de Pantin`, `Ivry-sur-Seine` read as the portal's `Ivry` by its
+  `citation.localities`). The annual burial indexes (*répertoires
+  annuels*), which lead to the entry, are not catalogued. The reconstituted acts and
   files have no locality, the decennial tables are split by surname range
   (no citation names the range), and the 1926–1936 censuses are searched by
   name or address on a page without an engine: none is catalogued. The
@@ -3286,7 +3347,7 @@ only, and *unconfirmed* means no evidence was found.
 | 72 | Sarthe | `archives.sarthe.fr` | [`archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil`](https://archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD (two engines), RP, RM, CM, TSA |
 | 73 | Savoie | `recherche-archives.savoie.fr` | [`recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web`](https://recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web) | Mnesys (older interface) | Mnesys Expo logo; URL pattern; observed (§4.14); catalogued, searched and live-checked 2026-10-06: registers, censuses, military registers (the viewer host refuses the check's identified browser: step 4 unverified) |
 | 74 | Haute-Savoie | `archives.hautesavoie.fr` | [`archives.hautesavoie.fr/archive/recherche/etatcivil/n:139`](https://archives.hautesavoie.fr/archive/recherche/etatcivil/n:139) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers, succession tables |
-| 75 | Paris | `archives.paris.fr` | [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859) (reconstituted, 16th century–1859) and [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860) | Arkothèque | Observed and live-checked (§4.3): civil status from 1860 |
+| 75 | Paris | `archives.paris.fr` | [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859) (reconstituted, 16th century–1859), [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860) and [`archives.paris.fr/archives-numerisees/sources-genealogiques-complementaires/cimetieres-et-pompes-funebres/cimetieres/consulter-les-registres-journaliers-dinhumation`](https://archives.paris.fr/archives-numerisees/sources-genealogiques-complementaires/cimetieres-et-pompes-funebres/cimetieres/consulter-les-registres-journaliers-dinhumation) (cemeteries' daily burial registers) | Arkothèque | Observed and live-checked (§4.3): civil status from 1860, RI |
 | 76 | Seine-Maritime | `www.archivesdepartementales76.net` | [`www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil`](https://www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, military registers, succession tables |
 | 77 | Seine-et-Marne | `archives.seine-et-marne.fr` | [`archives.seine-et-marne.fr/fr/etat-civil`](https://archives.seine-et-marne.fr/fr/etat-civil), linking [`archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0`](https://archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): registers and TD, RP, RM, CM, TSA |
 | 78 | Yvelines | `archives.yvelines.fr` | [`archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil`](https://archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, TSA |

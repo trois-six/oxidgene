@@ -1367,8 +1367,13 @@ fn an_archive_designated_in_the_text_wins_over_the_cited_event() {
                 .views("11g")
                 .of(52)
         );
+        // The normalized form without its parish field.
         for part in [Part::Archive, Part::Locality, Part::Act, Part::Year] {
-            assert_eq!(recognition.signal(part), Some(Signal::Words), "{part:?}");
+            assert_eq!(
+                recognition.signal(part),
+                Some(Signal::Normalized),
+                "{part:?}"
+            );
         }
     }
     // The event narrows a combined register to one of its own kinds only.
@@ -1647,4 +1652,228 @@ fn reads_a_section_of_a_city_s_registers_as_its_parish() {
         ),
     ];
     assert_eq!(corpus(&registry(), &cases), 3);
+}
+
+/// The Paris archives: civil status by arrondissement and the cemeteries'
+/// burial registers, the archive's catalogue entry naming its districts,
+/// the cemeteries' other names and the call numbers' periods.
+const AD75: &str = "fr-ad75";
+
+#[test]
+fn reads_an_arrondissement_however_it_is_written() {
+    let registry = ArchiveRegistry::embedded();
+    let birth = |locality: &str| at(AD75).act("N").locality(locality).year(1917);
+    let cases = [
+        (
+            "AD75 - Paris 11e - N - 1917 - 11N 999 - acte 1894 - vue 11d/31",
+            birth("Paris 11e")
+                .call("11N 999")
+                .number(1894)
+                .views("11d")
+                .of(31),
+        ),
+        (
+            "AD75 - Paris 12e - D - 1918 - 12D 999 - acte 4343 - vue 3d/31",
+            at(AD75)
+                .act("D")
+                .locality("Paris 12e")
+                .year(1918)
+                .call("12D 999")
+                .number(4343)
+                .views("3d")
+                .of(31),
+        ),
+        ("AD75 - Paris 11ème - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris 11eme - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris 11è - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris XIe - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris XI - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris 1er - N - 1917", birth("Paris 1er")),
+        ("AD75 - Paris Ier - N - 1917", birth("Paris 1er")),
+        ("AD75 - Paris (11e) - N - 1917", birth("Paris 11e")),
+        ("AD75 - Paris-11 - N - 1917", birth("Paris 11e")),
+        ("AD75 - 11e arrondissement - N - 1917", birth("Paris 11e")),
+        (
+            "AD75 - Paris 20e arrondissement - N - 1917",
+            birth("Paris 20e"),
+        ),
+        // The words, in any order.
+        (
+            "AD75, Paris 11e, naissances 1917, acte 1894, vue 11",
+            birth("Paris 11e").number(1894).views("11"),
+        ),
+        (
+            "AD75, Paris (XIe), naissances 1917, vue 11",
+            birth("Paris 11e").views("11"),
+        ),
+        (
+            "AD75, naissances du 11e arrondissement de Paris, 1917, vue 11",
+            birth("Paris 11e").views("11"),
+        ),
+        (
+            "AD75, état civil de Paris XIe, naissances 1917, vue 11",
+            birth("Paris 11e").views("11"),
+        ),
+        (
+            "Archives de Paris, Paris-11, naissances 1917, vue 11",
+            birth("Paris 11e").views("11"),
+        ),
+    ];
+    assert_eq!(corpus(registry, &cases), 18);
+
+    // A day of the month after the city is no district, nor is a number
+    // beyond the city's districts.
+    for text in [
+        "AD75, Paris 12 mars 1917, naissances, vue 11",
+        "AD75, Paris 21e, naissances 1917, vue 11",
+    ] {
+        let recognition = registry.recognize(&title(text), None, None).unwrap();
+        assert_eq!(recognition.found.locality, None, "{text}");
+    }
+}
+
+#[test]
+fn reads_a_cemetery_burial_register() {
+    let registry = ArchiveRegistry::embedded();
+    let register = |locality: &str, year: u16| at(AD75).act("RI").locality(locality).year(year);
+    let cases = [
+        // `C`, the archive's letter for its cemeteries, and the year from
+        // the call number when the citation writes none.
+        (
+            "AD75 - Exampleville - C - XXX_RJ19041904_01 - ordre 945 - vue 18/31",
+            register("Exampleville", 1904)
+                .call("XXX_RJ19041904_01")
+                .number(945)
+                .views("18")
+                .of(31),
+        ),
+        (
+            "AD75 - Exampleville - C - 1918 - XXX_RJ19181918_03 - ordre 981 - vue 20/31",
+            register("Exampleville", 1918)
+                .call("XXX_RJ19181918_03")
+                .number(981)
+                .views("20")
+                .of(31),
+        ),
+        (
+            "AD75 - Exampleville - Registres journaliers d'inhumation - 1918 - XXX_RJ19181918_03 - n° d'ordre 981 - vue 20/31",
+            register("Exampleville", 1918)
+                .call("XXX_RJ19181918_03")
+                .number(981)
+                .views("20")
+                .of(31),
+        ),
+        (
+            "AD75 - Cimetière parisien de Exampleville - XXX_RJ19171918_04 - ordre 981 - vue 20/31",
+            register("Exampleville", 1917)
+                .call("XXX_RJ19171918_04")
+                .number(981)
+                .views("20")
+                .of(31),
+        ),
+        // The cemetery's other name: the portal's.
+        (
+            "AD75 - Ivry-sur-Seine - inhumation - 1918 - XXX_RJ19181918_03 - ordre 981",
+            register("Ivry", 1918).call("XXX_RJ19181918_03").number(981),
+        ),
+        // The words.
+        (
+            "AD75, cimetière parisien d'Exampleville, registre journalier d'inhumation, XXX_RJ19171918_04, n° d'ordre 981, vue 20/31",
+            register("Exampleville", 1917)
+                .call("XXX_RJ19171918_04")
+                .number(981)
+                .views("20")
+                .of(31),
+        ),
+        // A burial beside a cemetery is its register where the archive
+        // keeps no parish register.
+        (
+            "AD75, cimetière de Exampleville, inhumations 1918, ordre 981, vue 20",
+            register("Exampleville", 1918).number(981).views("20"),
+        ),
+    ];
+    assert_eq!(corpus(registry, &cases), 7);
+    let recognition = registry
+        .recognize(
+            &title("AD75 - Exampleville - C - XXX_RJ19171918_04 - ordre 981"),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(recognition.found.period.as_deref(), Some("1917-1918"));
+    assert_eq!(recognition.signal(Part::Year), Some(Signal::Normalized));
+    let recognition = registry
+        .recognize(
+            &title("AD75, Exampleville, cimetière, XXX_RJ19041904_01, ordre 945"),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(recognition.found.year, Some(1904));
+    assert_eq!(recognition.signal(Part::Year), Some(Signal::Words));
+}
+
+/// The owner's shapes, with invented call numbers and entry numbers: a
+/// cemetery of the Paris archives cited with the letter `C`, with or
+/// without the year field, and arrondissements cited as `Paris 11e`,
+/// `Paris 12e`. Each is a complete citation, resolved in the collection its
+/// document kind names, whose search page filters by the locality as the
+/// portal writes it.
+#[test]
+fn the_paris_cemeteries_and_arrondissements_are_links() {
+    let registry = ArchiveRegistry::embedded();
+    for (text, collection, locality, year, written) in [
+        (
+            "AD75 - Pantin - C - 1918 - PAN_RJ19181918_09 - ordre 999 - vue 20/31",
+            "cemetery-registers",
+            "Pantin",
+            1918,
+            "Pantin",
+        ),
+        (
+            "AD75 - Ivry - C - IVR_RJ19041904_09 - ordre 999 - vue 18/31",
+            "cemetery-registers",
+            "Ivry",
+            1904,
+            "Ivry",
+        ),
+        (
+            "AD75 - Ivry-sur-Seine - C - 1904 - IVR_RJ19041904_09 - ordre 999",
+            "cemetery-registers",
+            "Ivry",
+            1904,
+            "Ivry",
+        ),
+        (
+            "AD75 - Paris 11e - N - 1917 - 11N 999 - acte 999 - vue 11d/31",
+            "civil-status-from-1860",
+            "Paris 11e",
+            1917,
+            "11",
+        ),
+        (
+            "AD75 - Paris 12e - D - 1918 - 12D 999 - acte 999 - vue 3d/31",
+            "civil-status-from-1860",
+            "Paris 12e",
+            1918,
+            "12",
+        ),
+    ] {
+        let recognition = registry
+            .recognize(&title(text), None, None)
+            .unwrap_or_else(|error| panic!("{error:?}: {text}"));
+        assert!(recognition.missing().is_empty(), "{text}");
+        let citation = recognition.citation().expect("a complete citation");
+        assert_eq!(citation.locality, locality, "{text}");
+        assert_eq!(citation.year, Some(year), "{text}");
+        assert_eq!(citation.number, Some(999), "{text}");
+        let (_, collections) = registry.candidates(&citation).expect("a collection");
+        assert_eq!(collections[0].id, collection, "{text}");
+        let target = registry.offline_target(&citation).unwrap();
+        assert!(
+            target.url().contains(&format!("%5Bq%5D%5B%5D={written}&")),
+            "{written} in {}",
+            target.url()
+        );
+    }
 }

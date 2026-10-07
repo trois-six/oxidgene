@@ -42,9 +42,19 @@ const LAST_REPUBLICAN_YEAR: i32 = 14;
 /// parish registers.
 const FIRST_CIVIL_STATUS_YEAR: u16 = 1793;
 
-/// The words, folded, that introduce an act or matricule number:
-/// `acte 26`, `matricule 1268`, `n° 12`.
-const NUMBER_WORDS: [&str; 5] = ["acte", "matricule", "n", "no", "numero"];
+/// The words, folded, that introduce an act, matricule or entry number:
+/// `acte 26`, `matricule 1268`, `n° 12`, `ordre 945`, `n° d'ordre 945`.
+const NUMBER_WORDS: [&str; 9] = [
+    "acte",
+    "matricule",
+    "n",
+    "no",
+    "numero",
+    "ordre",
+    "n d ordre",
+    "no d ordre",
+    "numero d ordre",
+];
 
 const ROMAN_NUMERALS: [&str; LAST_REPUBLICAN_YEAR as usize] = [
     "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV",
@@ -120,16 +130,21 @@ pub enum Series {
     /// `TSA`, the tables of successions and absences of a registration
     /// office and a period (series Q).
     SuccessionTables,
+    /// `RI`, the daily burial registers of a cemetery (*registres
+    /// journaliers d'inhumation*), each burial under its entry number (*n°
+    /// d'ordre*).
+    CemeteryRegister,
 }
 
 impl Series {
     /// Every series, in the order its vocabulary is tried: a field naming
     /// two series is the first one's.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::SuccessionTables,
         Self::MilitaryRegister,
         Self::ConscriptionList,
         Self::Census,
+        Self::CemeteryRegister,
     ];
 
     /// The code a collection's `acts` and a normalized citation write.
@@ -139,6 +154,7 @@ impl Series {
             Self::MilitaryRegister => "RM",
             Self::ConscriptionList => "CM",
             Self::SuccessionTables => "TSA",
+            Self::CemeteryRegister => "RI",
         }
     }
 
@@ -160,6 +176,7 @@ impl Series {
                 "garde nationale mobile",
             ],
             Self::SuccessionTables => &["table succession", "succession absence"],
+            Self::CemeteryRegister => &["registre journalier", "registre inhumation", "cimetiere"],
         }
     }
 
@@ -171,6 +188,9 @@ impl Series {
             // Registration records of estates: the closest kind is that of
             // deeds, wills and inventories.
             Self::SuccessionTables => DocumentCategory::NotarialArchive,
+            // A municipal record of a death, kept by the cemetery: the
+            // closest kind is that of the civil records of deaths.
+            Self::CemeteryRegister => DocumentCategory::CivilRecord,
         }
     }
 }
@@ -212,7 +232,7 @@ fn names_phrase(field_words: &[&str], phrase: &str) -> bool {
 ///
 /// Written as a code: one act letter (`N`), several for a register mixing
 /// them (`BMS`, `NMD`, `NPMD`), a table code starting with `T` (`TB`, `TD`),
-/// kept as written, or a series code (`RP`, `RM`, `CM`, `TSA`).
+/// kept as written, or a series code (`RP`, `RM`, `CM`, `TSA`, `RI`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum Act {
@@ -496,10 +516,10 @@ impl CallNumber {
         Self::runs(folded)
             .into_iter()
             .map(|run| {
-                let trimmed = run.trim_start_matches('0');
+                let trimmed = run.trim_start_matches("0");
                 if run.starts_with(|c: char| c.is_ascii_digit()) && !trimmed.is_empty() {
                     trimmed
-                } else if run.starts_with('0') {
+                } else if run.starts_with("0") {
                     "0"
                 } else {
                     run
@@ -573,6 +593,29 @@ pub struct CitationGrammar {
     /// Phrases naming a series, added to the built-in French vocabulary:
     /// `{"RP": ["dénombrement de population"]}`. Default none.
     pub series: BTreeMap<Series, Vec<String>>,
+    /// Cities cited by their numbered districts (`Paris 11e`, `Paris XIe`,
+    /// `11e arrondissement`), which recognition writes alike: `Paris 11e`.
+    /// Default none.
+    pub districts: Vec<District>,
+    /// Other names citations give a locality, by the name the archive's
+    /// portal knows it by: `{"Ivry": ["Ivry-sur-Seine"]}`. Default none.
+    pub localities: BTreeMap<String, Vec<String>>,
+    /// Where the archive's call numbers write their register's period:
+    /// templates of text with a `{first}` year and an optional `{last}` one,
+    /// four digits each, such as `RJ{first}{last}` for `PAN_RJ19171918_04`.
+    /// A citation without a year takes the period of its call number.
+    /// Default none.
+    pub call_number_periods: Vec<String>,
+}
+
+/// A city whose citations name one of its numbered districts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct District {
+    /// The city's name, as citations write it: `Paris`.
+    pub city: String,
+    /// How many districts it has, numbered from 1.
+    pub count: u8,
 }
 
 impl Default for CitationGrammar {
@@ -581,8 +624,34 @@ impl Default for CitationGrammar {
             no_parish: vec!["(aucun)".to_owned()],
             view_words: vec!["vue".to_owned()],
             series: BTreeMap::new(),
+            districts: Vec::new(),
+            localities: BTreeMap::new(),
+            call_number_periods: Vec::new(),
         }
     }
+}
+
+/// The year placeholders of a call-number period template.
+const FIRST_YEAR: &str = "{first}";
+const LAST_YEAR: &str = "{last}";
+
+/// A call-number period template cut at its placeholders: the text before
+/// `{first}`, between it and `{last}`, and after; `None` without `{last}`.
+fn template_parts(template: &str) -> Option<(&str, Option<&str>, &str)> {
+    let (before, rest) = template.split_once(FIRST_YEAR)?;
+    let (between, after) = match rest.split_once(LAST_YEAR) {
+        Some((between, after)) => (Some(between), after),
+        None => (None, rest),
+    };
+    let clean = |text: &str| !text.chars().any(|c| "{}".contains(c));
+    (clean(before) && between.is_none_or(clean) && clean(after)).then_some((before, between, after))
+}
+
+/// Four digits at the start of `text`, as a year.
+fn leading_year(text: &str) -> Option<u16> {
+    text.get(..4)
+        .filter(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|digits| digits.parse().ok())
 }
 
 impl CitationGrammar {
@@ -603,7 +672,69 @@ impl CitationGrammar {
         {
             return Err("a series phrase needs a word".to_owned());
         }
+        if self
+            .districts
+            .iter()
+            .any(|district| fold_words(&district.city).is_empty() || district.count == 0)
+        {
+            return Err("a district rule needs a city and a count".to_owned());
+        }
+        if self
+            .localities
+            .iter()
+            .any(|(name, others)| blank(std::slice::from_ref(name)) || blank(others))
+        {
+            return Err("locality names must not be blank".to_owned());
+        }
+        if self
+            .call_number_periods
+            .iter()
+            .any(|template| template_parts(template).is_none())
+        {
+            return Err(
+                "a call-number period is text around `{first}` and an optional `{last}`".to_owned(),
+            );
+        }
         Ok(())
+    }
+
+    /// The period a call number writes, as text (`1917-1918`), and its first
+    /// year, by the first of `call_number_periods` it matches.
+    pub fn call_number_period(&self, call_number: &str) -> Option<(String, u16)> {
+        self.call_number_periods.iter().find_map(|template| {
+            let (before, between, after) = template_parts(template)?;
+            call_number.match_indices(before).find_map(|(at, _)| {
+                let rest = &call_number[at + before.len()..];
+                let first = leading_year(rest)?;
+                let rest = &rest[4..];
+                let (last, rest) = match between {
+                    Some(between) => {
+                        let rest = rest.strip_prefix(between)?;
+                        (leading_year(rest)?, &rest[4..])
+                    }
+                    None => (first, rest),
+                };
+                if first > last || !rest.starts_with(after) {
+                    return None;
+                }
+                let period = if first == last {
+                    first.to_string()
+                } else {
+                    format!("{first}-{last}")
+                };
+                Some((period, first))
+            })
+        })
+    }
+
+    /// The name the archive's portal knows a locality by, when citations
+    /// give it another (`localities`), compared folded.
+    pub fn locality_name(&self, written: &str) -> Option<&str> {
+        let wanted = fold_words(written);
+        self.localities
+            .iter()
+            .find(|(_, others)| others.iter().any(|other| fold_words(other) == wanted))
+            .map(|(name, _)| name.as_str())
     }
 
     fn is_no_parish(&self, field: &str) -> bool {
@@ -720,23 +851,36 @@ impl CitationParts {
     pub fn parse(title: &str, grammar: &CitationGrammar) -> Option<Self> {
         let fields: Vec<&str> = title.split(SEPARATOR).map(str::trim).collect();
         let code = code_of(title)?;
-        find_act(&fields)
+        let mut parts = find_act(&fields)
             .and_then(|act_at| Self::parse_act(code, &fields, act_at, grammar))
-            .or_else(|| Self::parse_series(code, &fields, grammar))
+            .or_else(|| Self::parse_series(code, &fields, grammar))?;
+        if parts.year.is_none()
+            && let Some((period, year)) = parts
+                .call_number
+                .as_ref()
+                .and_then(|call_number| grammar.call_number_period(call_number.as_str()))
+        {
+            parts.year = Some(year);
+            parts.period = Some(period);
+        }
+        Some(parts)
     }
 
-    /// `<code> - <locality> - <parish> - <act> - <period> - <free…>`.
+    /// `<code> - <locality> - <parish> - <act> - <period> - <free…>`, or
+    /// without the parish, `<code> - <locality> - <act> - <period> - <free…>`.
     fn parse_act(
         code: &str,
         fields: &[&str],
         act_at: usize,
         grammar: &CitationGrammar,
     ) -> Option<Self> {
-        let locality = fields[1..act_at - 1].join(SEPARATOR);
+        let parish_at = (act_at > 2).then(|| act_at - 1);
+        let locality = fields[1..parish_at.unwrap_or(act_at)].join(SEPARATOR);
         if locality.is_empty() || grammar.is_no_parish(&locality) {
             return None;
         }
-        let parish = Some(fields[act_at - 1])
+        let parish = parish_at
+            .map(|at| fields[at])
             .filter(|parish| !parish.is_empty() && !grammar.is_no_parish(parish))
             .map(str::to_owned);
         let act = Act::from_code(fields[act_at])?;
@@ -799,9 +943,14 @@ impl CitationParts {
         }
         let period = period.or_else(|| rest.iter().find_map(|field| parenthesized_period(field)));
         let tail = Tail::read(rest, grammar);
+        let mut locality = before.join(SEPARATOR);
+        if locality.is_empty() {
+            // `Cimetière parisien de Exampleville`: the series names its place.
+            locality = place_in(fields[at]).unwrap_or_default().to_owned();
+        }
         Some(Self {
             code: code.to_owned(),
-            locality: before.join(SEPARATOR),
+            locality,
             parish: None,
             act: Act::Series(series),
             year: period.map(|(_, year)| year),
@@ -819,17 +968,41 @@ impl CitationParts {
     }
 }
 
-/// An act or matricule number: `acte 26`, `matricule 1268`, `n° 12`, or a
-/// bare `348`.
+/// An act, matricule or entry number: `acte 26`, `matricule 1268`, `n° 12`,
+/// `ordre 945`, or a bare `348`.
 fn number_of(field: &str) -> Option<u32> {
     let folded = fold_words(field);
-    let digits = match folded.split_once(' ') {
-        Some((word, digits)) if NUMBER_WORDS.contains(&word) => digits,
+    let digits = match folded.rsplit_once(' ') {
+        Some((words, digits)) if NUMBER_WORDS.contains(&words) => digits,
         Some(_) => return None,
         None => folded.as_str(),
     };
     let valid = (1..=7).contains(&digits.len()) && digits.bytes().all(|byte| byte.is_ascii_digit());
     valid.then(|| digits.parse().ok()).flatten()
+}
+
+/// The place a field naming a series names after a preposition, its name
+/// capitalized: `Exampleville` in `Cimetière parisien de Exampleville` or
+/// `cimetière d'Exampleville`, `Exemple` in `Cimetière de l'Exemple`.
+fn place_in(field: &str) -> Option<&str> {
+    const PREPOSITIONS: [&str; 5] = ["de ", "du ", "des ", "d'", "d\u{2019}"];
+    const ARTICLES: [&str; 4] = ["l'", "L'", "l\u{2019}", "L\u{2019}"];
+    let starts_word = |at: usize| at == 0 || field[..at].ends_with(' ');
+    field
+        .char_indices()
+        .filter(|(at, _)| starts_word(*at))
+        .find_map(|(at, _)| {
+            let rest = &field[at..];
+            let after = PREPOSITIONS
+                .into_iter()
+                .find_map(|preposition| rest.strip_prefix(preposition))?
+                .trim_start();
+            let after = ARTICLES
+                .into_iter()
+                .find_map(|article| after.strip_prefix(article))
+                .unwrap_or(after);
+            after.starts_with(char::is_uppercase).then_some(after)
+        })
 }
 
 /// A period written in parentheses within a free field, such as the class
@@ -853,23 +1026,31 @@ pub fn code_of(title: &str) -> Option<&str> {
 }
 
 /// The index of the act field. The locality and the parish come first, so it
-/// is at least the fourth field; an act code followed by a period wins over
-/// an earlier one that is not.
+/// is the fourth field or a later one; an act code followed by a period wins
+/// over an earlier one that is not. A citation leaving the parish out
+/// (`AD75 - Paris 11e - N - 1917`) writes its act third, followed by a
+/// period, which is read when no later field is a dated act code.
 fn find_act(fields: &[&str]) -> Option<usize> {
+    let dated = |at: usize| {
+        fields
+            .get(at + 1)
+            .is_some_and(|next| period_start(next).is_some())
+    };
     let mut first = None;
     for (at, field) in fields.iter().enumerate().skip(3) {
         if Act::from_code(field).is_none() {
             continue;
         }
-        if fields
-            .get(at + 1)
-            .is_some_and(|next| period_start(next).is_some())
-        {
+        if dated(at) {
             return Some(at);
         }
         first.get_or_insert(at);
     }
-    first
+    let without_parish = fields
+        .get(2)
+        .is_some_and(|field| Act::from_code(field).is_some())
+        && dated(2);
+    if without_parish { Some(2) } else { first }
 }
 
 /// The Gregorian first year of a period field: `1877`, `1702-1703`, `an XII`,
@@ -1716,6 +1897,180 @@ mod tests {
     }
 
     #[test]
+    fn reads_an_act_cited_without_its_parish() {
+        let citation =
+            parse("AD99 - Exampleville 11e - D - 1918 - 12D 999 - acte 4343 - vue 3d/31")
+                .expect("a normalized citation");
+        assert_eq!(citation.locality, "Exampleville 11e");
+        assert_eq!(citation.parish, None);
+        assert_eq!(citation.act, Act::Register(vec![ActKind::Death]));
+        assert_eq!(citation.year, Some(1918));
+        assert_eq!(citation.call_number, Some(CallNumber::new("12D 999")));
+        assert_eq!(citation.number, Some(4343));
+        assert_eq!(citation.views, [view(3, Some(Side::Right))]);
+        assert_eq!(citation.view_count, Some(31));
+        // A dated act code after the parish field still wins.
+        let citation = parse("AD99 - Exampleville - N - Saint-Exemple - B - 1750").unwrap();
+        assert_eq!(citation.locality, "Exampleville - N");
+        assert_eq!(citation.parish.as_deref(), Some("Saint-Exemple"));
+        assert_eq!(citation.act, Act::Register(vec![ActKind::Baptism]));
+    }
+
+    /// The grammar of an archive whose cemetery registers are cited with a
+    /// `C` and a call number writing their period.
+    fn cemetery_grammar() -> CitationGrammar {
+        serde_json::from_str(
+            r#"{
+                "series": {"RI": ["C", "inhumation"]},
+                "call_number_periods": ["_RJ{first}{last}_"]
+            }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn reads_a_cemetery_register_and_its_entry_number() {
+        let grammar = cemetery_grammar();
+        assert!(grammar.validate().is_ok());
+        let parts = |title: &str| {
+            let citation = CitationParts::parse(title, &grammar)
+                .unwrap_or_else(|| panic!("a cemetery citation: {title}"));
+            (
+                citation.act,
+                citation.locality,
+                citation.year,
+                citation.period,
+                citation.call_number.map(|call| call.as_str().to_owned()),
+                citation.number,
+                citation.views,
+                citation.view_count,
+            )
+        };
+        let register = Act::Series(Series::CemeteryRegister);
+        let s = |text: &str| Some(text.to_owned());
+        // The year from the call number when the citation writes none.
+        assert_eq!(
+            parts("AD99 - Exampleville - C - XXX_RJ19041904_01 - ordre 945 - vue 18/31"),
+            (
+                register.clone(),
+                "Exampleville".to_owned(),
+                Some(1904),
+                s("1904"),
+                s("XXX_RJ19041904_01"),
+                Some(945),
+                vec![view(18, None)],
+                Some(31),
+            )
+        );
+        // The citation's own year wins.
+        assert_eq!(
+            parts("AD99 - Exampleville - C - 1918 - XXX_RJ19171918_03 - ordre 981 - vue 20/31").2,
+            Some(1918)
+        );
+        // A register over two years.
+        let (_, _, year, period, ..) =
+            parts("AD99 - Exampleville - C - XXX_RJ19171918_04 - ordre 1500 - vue 9/31");
+        assert_eq!((year, period), (Some(1917), s("1917-1918")));
+        // The series in words, and the number after `n° d'ordre`.
+        for title in [
+            "AD99 - Exampleville - Registres journaliers d'inhumation - XXX_RJ19041904_01 - n° d'ordre 945 - vue 18/31",
+            "AD99 - Exampleville - inhumation - 1904 - XXX_RJ19041904_01 - numéro d'ordre 945 - vue 18/31",
+            "AD99 - Cimetière parisien de Exampleville - XXX_RJ19041904_01 - ordre 945 - vue 18/31",
+            "AD99 - Cimetière d'Exampleville - 1904 - XXX_RJ19041904_01 - ordre 945 - vue 18/31",
+        ] {
+            let (act, locality, year, _, call_number, number, ..) = parts(title);
+            assert_eq!(
+                (act, locality.as_str(), year, call_number.as_deref(), number),
+                (
+                    register.clone(),
+                    "Exampleville",
+                    Some(1904),
+                    Some("XXX_RJ19041904_01"),
+                    Some(945)
+                ),
+                "{title}"
+            );
+        }
+        // `C` names the series only where the archive says so; the
+        // built-in words do everywhere.
+        assert_eq!(
+            parse("AD99 - Exampleville - C - XXX_RJ19041904_01 - ordre 945"),
+            None
+        );
+        assert_eq!(
+            parse("AD99 - Exampleville - Cimetière - 1904 - ordre 945").map(|parts| parts.act),
+            Some(register)
+        );
+        // Without the archive's call-number periods, no year.
+        assert_eq!(
+            parse("AD99 - Exampleville - Cimetière - XXX_RJ19041904_01 - ordre 945")
+                .unwrap()
+                .year,
+            None
+        );
+    }
+
+    #[test]
+    fn reads_the_period_a_call_number_writes() {
+        let grammar = cemetery_grammar();
+        let period = |call_number: &str| grammar.call_number_period(call_number);
+        assert_eq!(period("XXX_RJ19041904_01"), Some(("1904".to_owned(), 1904)));
+        assert_eq!(
+            period("XXX_RJ18601869_01"),
+            Some(("1860-1869".to_owned(), 1860))
+        );
+        for other in [
+            "XXX_RJ1904_01",
+            "XXX_RJ19051904_01",
+            "XXX_RI19041904_01",
+            "4E 1234",
+        ] {
+            assert_eq!(period(other), None, "{other}");
+        }
+        let single: CitationGrammar =
+            serde_json::from_str(r#"{"call_number_periods": ["E {first}/"]}"#).unwrap();
+        assert_eq!(
+            single.call_number_period("3 E 1877/12"),
+            Some(("1877".to_owned(), 1877))
+        );
+        for templates in [r#"["RJ"]"#, r#"["{last}{first}"]"#, r#"["{first}{other}"]"#] {
+            let grammar: CitationGrammar =
+                serde_json::from_str(&format!(r#"{{"call_number_periods": {templates}}}"#))
+                    .unwrap();
+            assert!(grammar.validate().is_err(), "{templates}");
+        }
+    }
+
+    #[test]
+    fn names_a_locality_as_the_portal_knows_it() {
+        let grammar: CitationGrammar = serde_json::from_str(
+            r#"{
+                "localities": {"Exemple": ["Exemple-sur-Mer", "Nord"]},
+                "districts": [{"city": "Exampleville", "count": 20}]
+            }"#,
+        )
+        .unwrap();
+        assert!(grammar.validate().is_ok());
+        assert_eq!(grammar.locality_name("exemple sur mer"), Some("Exemple"));
+        assert_eq!(grammar.locality_name("Nord"), Some("Exemple"));
+        assert_eq!(grammar.locality_name("Exemple"), None);
+        for invalid in [
+            r#"{"localities": {"Exemple": [" "]}}"#,
+            r#"{"districts": [{"city": "Exampleville", "count": 0}]}"#,
+            r#"{"districts": [{"city": " ", "count": 20}]}"#,
+        ] {
+            let grammar: CitationGrammar = serde_json::from_str(invalid).unwrap();
+            assert!(grammar.validate().is_err(), "{invalid}");
+        }
+        assert!(
+            serde_json::from_str::<CitationGrammar>(
+                r#"{"districts": [{"city": "Exampleville", "count": 20, "other": 1}]}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn proposes_the_kind_of_record() {
         use DocumentCategory::{
             Census, CivilRecord, MilitaryArchive, NotarialArchive, ParishRecord,
@@ -1771,6 +2126,10 @@ mod tests {
                 "AD99 - Exampleville - Tables des successions et absences - 1897",
                 Some(NotarialArchive),
             ),
+            (
+                "AD99 - Exampleville - Registres journaliers d'inhumation - 1904",
+                Some(CivilRecord),
+            ),
         ] {
             assert_eq!(parse(title).unwrap().category(), category, "{title}");
         }
@@ -1783,7 +2142,8 @@ mod tests {
             "ad44 - Exampleville - (aucun) - N - 1877",
             "AD44 - (aucun) - N - 1877",
             "AD44 - Exampleville - (aucun) - X - 1877",
-            "AD44 - Exampleville - N - 1877",
+            // Without its parish, the act needs its period.
+            "AD44 - Exampleville - N - vue 3",
             "AD44 - (aucun) - (aucun) - N - 1877",
         ] {
             assert_eq!(parse(title), None, "{title}");

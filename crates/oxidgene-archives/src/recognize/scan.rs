@@ -9,6 +9,7 @@ use crate::citation::{
 };
 use crate::vocabulary::{Family, Meaning, fold};
 
+use super::district::Districts;
 use super::lex::{Lexicon, Segment, Token, matches_at, year};
 
 /// How a locality is written.
@@ -67,20 +68,20 @@ impl Facts {
             || self.call_number.is_some()
     }
 
-    /// The document kind the text names: its act kinds when it names some —
-    /// `baptême` within `BMS de Saint-Exemple` — or else the first act code,
-    /// table or series.
-    pub fn act(&self) -> Option<Act> {
-        if !self.kinds.is_empty() {
-            let mut kinds = Vec::new();
-            for kind in &self.kinds {
-                if !kinds.contains(kind) {
-                    kinds.push(*kind);
-                }
+    /// Every document kind the text names, the likeliest first: its act
+    /// kinds together — `baptême` within `BMS de Saint-Exemple` —, then its
+    /// act codes, tables and series in order.
+    pub fn acts(&self) -> impl Iterator<Item = Act> + '_ {
+        let mut kinds = Vec::new();
+        for kind in &self.kinds {
+            if !kinds.contains(kind) {
+                kinds.push(*kind);
             }
-            return Some(Act::Register(kinds));
         }
-        self.documents.first().cloned()
+        (!kinds.is_empty())
+            .then_some(Act::Register(kinds))
+            .into_iter()
+            .chain(self.documents.iter().cloned())
     }
 
     /// The register's year: a period written with its document — a
@@ -108,15 +109,64 @@ enum Context {
 pub(super) struct Scanner<'a> {
     pub lexicon: Lexicon<'a>,
     pub archives: &'a [Archive],
+    /// Every archive's cities cited by their districts.
+    pub districts: Districts<'a>,
 }
 
 impl Scanner<'_> {
     pub fn read(&self, segments: &[Segment]) -> Facts {
         let mut facts = Facts::default();
-        for segment in segments {
-            self.segment(segment, &mut facts);
+        let mut index = 0;
+        while let Some(segment) = segments.get(index) {
+            match self.district_across(segment, segments.get(index + 1)) {
+                Some(joined) => {
+                    self.segment(&joined, &mut facts);
+                    index += 2;
+                }
+                None => {
+                    self.segment(segment, &mut facts);
+                    index += 1;
+                }
+            }
         }
         facts
+    }
+
+    /// `Paris (11e)`: a segment ending with a city cited by its districts,
+    /// joined to the next when that one holds only the district's number,
+    /// which the parentheses cut apart.
+    fn district_across(&self, segment: &Segment, next: Option<&Segment>) -> Option<Segment> {
+        let next = next.filter(|next| next.tokens.len() == 1)?;
+        if self.districts.is_empty() {
+            return None;
+        }
+        let joined = Segment {
+            tokens: segment.tokens.iter().chain(&next.tokens).cloned().collect(),
+        };
+        let end = joined.tokens.len();
+        (0..segment.tokens.len())
+            .any(|at| self.district_at(&joined, at) == Some(end))
+            .then_some(joined)
+    }
+
+    /// The end of a district named from token `at` (`Paris 11e`, `Paris-11`
+    /// as a whole segment, `11e arrondissement de Paris`).
+    fn district_at(&self, segment: &Segment, at: usize) -> Option<usize> {
+        if self.districts.is_empty() {
+            return None;
+        }
+        let mut words = Vec::new();
+        // The token ending after each word, for a word that ends its token.
+        let mut ends = Vec::new();
+        for (index, token) in segment.tokens.iter().enumerate().skip(at) {
+            for (offset, word) in token.words.iter().enumerate() {
+                words.push(word.clone());
+                ends.push((offset + 1 == token.words.len()).then_some(index + 1));
+            }
+        }
+        let mention = self.districts.mention(&words)?;
+        let end = (*ends.get(mention.words.checked_sub(1)?)?)?;
+        (!mention.bare || end == segment.tokens.len()).then_some(end)
     }
 
     fn segment(&self, segment: &Segment, facts: &mut Facts) {
@@ -464,6 +514,9 @@ impl Scanner<'_> {
     /// particles between them (`Saint-Exemple-sur-Loire`, `La Roche des
     /// Exemples`), and no keyword.
     pub fn place_run(&self, segment: &Segment, at: usize) -> Option<(String, usize)> {
+        if let Some(end) = self.district_at(segment, at) {
+            return Some((segment.text(at, end), end));
+        }
         let tokens = &segment.tokens;
         let mut end = None;
         let mut index = at;

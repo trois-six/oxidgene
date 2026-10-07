@@ -14,6 +14,7 @@ const READER_PAGE_SIZE: &str = "25";
 use crate::catalog::{CatalogError, Collection};
 use crate::citation::{Act, CitationParts};
 use crate::platform::locality::LocalityStyle;
+use crate::platform::select::period_ranges;
 use crate::platform::{Access, Query, is_https_origin};
 
 /// A collection's `portal` settings.
@@ -76,6 +77,11 @@ pub(super) struct Filter {
     pub(super) keyed: bool,
     /// A period searched by two inputs: the reference of the last year's.
     pub(super) end: Option<String>,
+    /// A slider searching the cited period, `1917|1918` for `1917-1918`,
+    /// rather than its first year: for an engine dating each part of a
+    /// register by its own dates, so that the parts after its first year
+    /// are listed too.
+    pub(super) span: bool,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +102,8 @@ struct DetailedFilter {
     keyed: bool,
     #[serde(default)]
     end: Option<String>,
+    #[serde(default)]
+    span: bool,
 }
 
 impl From<FilterSetting> for Filter {
@@ -106,12 +114,14 @@ impl From<FilterSetting> for Filter {
                 mode: None,
                 keyed: false,
                 end: None,
+                span: false,
             },
             FilterSetting::Detailed(filter) => Self {
                 reference: filter.reference,
                 mode: filter.mode,
                 keyed: filter.keyed,
                 end: filter.end,
+                span: filter.span,
             },
         }
     }
@@ -259,9 +269,15 @@ impl Settings {
         if ended
             .into_iter()
             .flatten()
-            .any(|filter| filter.end.is_some())
+            .any(|filter| filter.end.is_some() || filter.span)
         {
-            return Err(invalid("only the period filter has an end"));
+            return Err(invalid("only the period filter has an end or a span"));
+        }
+        if let Some(period) = &self.fields.period
+            && period.span
+            && (period.end.is_some() || period.mode.is_some_and(|mode| mode != Mode::Slider))
+        {
+            return Err(invalid("only a slider spans the cited period"));
         }
         if self.content_ids.is_empty()
             || !self
@@ -437,8 +453,14 @@ impl Settings {
         }
         if let (Some(field), Some(year)) = (&self.fields.period, citation.year) {
             let mode = field.mode.unwrap_or(Mode::Slider);
+            let last = field
+                .span
+                .then(|| period_ranges(citation.period.as_deref()?).first().copied())
+                .flatten()
+                .filter(|(first, _)| *first == year)
+                .map_or(year, |(_, last)| last);
             let plain = || match mode {
-                Mode::Slider => format!("{year}|{year}"),
+                Mode::Slider => format!("{year}|{last}"),
                 _ => year.to_string(),
             };
             if let Some(value) = keyed_or(field, &keys.period, plain) {

@@ -1220,3 +1220,94 @@ fn only_an_adapter_that_reads_pages_takes_a_portal_read_by_its_pages() {
     let error = error.to_string();
     assert!(error.contains("searches no portal by its pages"), "{error}");
 }
+
+const AD75_CEMETERY: &str = include_str!("../../../fixtures/arkotheque/ad75-cemetery.json");
+const AD75_CEMETERY_VIEWER: &str =
+    include_str!("../../../fixtures/arkotheque/ad75-cemetery-viewer.json");
+
+/// Resolves a citation of the Paris cemeteries' burial registers over the
+/// anonymized parts of two registers of one cemetery.
+fn cemetery(title: &str) -> (Result<ArchiveTarget, ResolveError>, Fixtures) {
+    let fetch = Fixtures {
+        viewer: AD75_CEMETERY_VIEWER,
+        ..Fixtures::new(AD75_CEMETERY)
+    };
+    let target = resolve(ArchiveRegistry::embedded(), title, &fetch);
+    (target, fetch)
+}
+
+#[test]
+fn a_burial_opens_in_the_part_of_its_register_holding_its_entry() {
+    let (target, fetch) =
+        cemetery("AD75 - Exampleville - C - 1918 - XXX_RJ19181918_01 - ordre 981 - vue 20/31");
+    let target = target.unwrap();
+    assert_eq!(opened_record(&target), fixture_record(0x7504));
+    let ArchiveTarget::View {
+        views,
+        view_count,
+        call_number,
+        ..
+    } = &target
+    else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(views.len(), 1);
+    assert!(
+        views[0].url.ends_with("/image/975004/19"),
+        "{}",
+        views[0].url
+    );
+    assert_eq!(*view_count, Some(31));
+    assert_eq!(call_number.as_deref(), Some("XXX_RJ19181918_01"));
+    // The cemetery chosen in its list, the year on the slider.
+    let search = &fetch.requests()[0];
+    for expected in [
+        "%5Bq%5D%5B%5D=Exampleville&",
+        "%5Bextras%5D%5Bmode%5D=select&",
+        "%5Bq%5D%5B%5D=1918%7C1918&",
+    ] {
+        assert!(search.contains(expected), "{expected} in {search}");
+    }
+}
+
+#[test]
+fn a_register_over_two_years_is_searched_over_both() {
+    // No year in the citation: its call number's period is searched, and
+    // the entry number picks the part, each part being dated by its start.
+    let (target, fetch) =
+        cemetery("AD75 - Exampleville - C - XXX_RJ19171918_04 - ordre 1000 - vue 9/31");
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0x7501));
+    let search = &fetch.requests()[0];
+    assert!(search.contains("%5Bq%5D%5B%5D=1917%7C1918&"), "{search}");
+    // A cited year after the part's start.
+    let (target, _) =
+        cemetery("AD75 - Exampleville - C - 1918 - XXX_RJ19171918_04 - ordre 300 - vue 5/31");
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0x7500));
+    // Without the call number, the entry numbers of both registers match.
+    let (target, _) = cemetery("AD75 - Exampleville - C - 1918 - ordre 981 - vue 20/31");
+    assert!(matches!(
+        target,
+        Ok(ArchiveTarget::Results {
+            matches: Some(2),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn only_a_slider_spans_the_cited_period() {
+    let registry = ArchiveRegistry::embedded();
+    let paris = registry.archive("AD75").unwrap();
+    let mut collection = paris
+        .collections
+        .iter()
+        .find(|collection| collection.id == "cemetery-registers")
+        .unwrap()
+        .clone();
+    assert!(Settings::read(&collection).is_ok());
+    collection.portal["fields"]["period"]["mode"] = "input".into();
+    assert!(Settings::read(&collection).is_err());
+    collection.portal["fields"]["period"]["mode"] = "slider".into();
+    collection.portal["fields"]["locality"]["span"] = true.into();
+    assert!(Settings::read(&collection).is_err());
+}

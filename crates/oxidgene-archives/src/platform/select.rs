@@ -18,7 +18,10 @@
 //!    candidate carries means the register may not be among them, and the
 //!    answer is the results rather than a guess — unless exactly one
 //!    candidate both covers the cited year and has the cited image count,
-//!    strong evidence of a call number the portal writes otherwise.
+//!    strong evidence of a call number the portal writes otherwise. Several
+//!    candidates carrying the cited call number are parts of one register,
+//!    each dated by where it starts: the cited number is tried before the
+//!    period among them.
 //!
 //! The period helpers read the period texts portals display, segments,
 //! act codes, notes and Republican years included.
@@ -109,6 +112,7 @@ pub(crate) fn narrow<'c, T>(
         return kept;
     }
 
+    let mut parts_of_register = false;
     if let Some(call_number) = &citation.call_number {
         // The rows carrying the most of the cited call numbers: a register
         // cited by its microfilm's, shared by several, and its own.
@@ -127,11 +131,14 @@ pub(crate) fn narrow<'c, T>(
         match matching.len() {
             0 => return without_cited_call_number(kept, citation),
             1 => return matching,
-            _ => kept = matching,
+            _ => {
+                kept = matching;
+                parts_of_register = true;
+            }
         }
     }
 
-    for criterion in criteria(citation).iter().flatten() {
+    for criterion in criteria(citation, parts_of_register).iter().flatten() {
         let matching: Vec<&Candidate<T>> = kept
             .iter()
             .copied()
@@ -293,8 +300,14 @@ fn without_cited_call_number<'c, T>(
 /// one whole year — the register's own period rather than the act's year —,
 /// its bounds, to the day where both the citation and the row write dates:
 /// a row holding the whole period, then one spanning exactly it, then one
-/// overlapping it (a register of half a month among a year's).
-fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8] {
+/// overlapping it (a register of half a month among a year's). Among the
+/// parts of one register, `parts_of_register`, the cited number comes before
+/// the year and the period: a part's period dates where it starts, its
+/// numbers bound it.
+fn criteria<'c, T>(
+    citation: &'c CitationParts,
+    parts_of_register: bool,
+) -> [Option<Criterion<'c, T>>; 8] {
     let cited = citation
         .period
         .as_deref()
@@ -316,7 +329,7 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8]
             }) as Criterion<'c, T>
         })
     };
-    [
+    let mut criteria = [
         Some(
             Box::new(|candidate: &Candidate<T>| holds_act(candidate.act.as_deref(), &citation.act))
                 as Criterion<'c, T>,
@@ -352,7 +365,12 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 8]
             Box::new(move |candidate: &Candidate<T>| candidate.images == Some(count))
                 as Criterion<'c, T>
         }),
-    ]
+    ];
+    if parts_of_register {
+        // The number, after the year and the three period bounds, first.
+        criteria[2..7].rotate_right(1);
+    }
+    criteria
 }
 
 /// A parish as compared: folded, and a section of a large commune's

@@ -7,6 +7,18 @@
   "areas": ["Paris"],
   "citation_codes": ["AD75"],
   "website": "https://archives.paris.fr",
+  "citation": {
+    "series": { "RI": ["C", "inhumation"] },
+    "districts": [{ "city": "Paris", "count": 20 }],
+    "localities": {
+      "Ivry": ["Ivry-sur-Seine"],
+      "Montmartre": ["Nord"],
+      "Montparnasse": ["Sud"],
+      "Père Lachaise": ["Est"],
+      "Saint-Ouen": ["Saint-Ouen-sur-Seine"]
+    },
+    "call_number_periods": ["_RJ{first}{last}_"]
+  },
   "collections": [
     {
       "id": "civil-status-from-1860",
@@ -37,6 +49,29 @@
           "period": "tranche_d_txt",
           "numbers": ["tranche_d_txt", "tranche_f_txt"],
           "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "cemetery-registers",
+      "acts": ["RI"],
+      "period": [1804, 1975],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.paris.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/sources-genealogiques-complementaires/cimetieres-et-pompes-funebres/cimetieres/consulter-les-registres-journaliers-dinhumation",
+        "engine": "arko_default_64c11d444499f",
+        "content_ids": ["10841969"],
+        "display_mode": "arko_default_64c11df9e0c32",
+        "fields": {
+          "locality": { "ref": "arko_default_64c11dabb5212", "mode": "select" },
+          "period": { "ref": "arko_default_64c11dabc9b02", "span": true }
+        },
+        "cells": {
+          "locality": "cimetiere",
+          "period": "tranche_d_texte",
+          "numbers": ["tranche_d_texte", "tranche_f_texte"]
         }
       }
     }

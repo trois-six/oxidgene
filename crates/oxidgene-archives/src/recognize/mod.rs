@@ -24,6 +24,7 @@
 //! language, and a country's conventions data per country: nothing here
 //! knows a language.
 
+mod district;
 mod lex;
 mod scan;
 
@@ -39,6 +40,7 @@ use crate::transport::origin_of;
 use crate::vocabulary::{Family, Vocabulary, fold};
 use crate::{ArchiveRegistry, cited_text};
 
+use district::Districts;
 use lex::{Lexicon, segments};
 use scan::{Facts, Placing, Scanner};
 
@@ -421,6 +423,12 @@ impl ArchiveRegistry {
                 vocabularies: &self.vocabularies,
             },
             archives: &self.archives,
+            districts: Districts::new(
+                self.archives
+                    .iter()
+                    .flat_map(|archive| &archive.citation.districts),
+                &self.vocabularies,
+            ),
         };
         let reading = self.read(&scanner, evidence);
         let normalized = self.normalized(evidence);
@@ -447,8 +455,11 @@ impl ArchiveRegistry {
             .views()
             .take(Part::Views, &mut signals)
             .unwrap_or_default();
-        let found = Found {
-            locality: locality.take(Part::Locality, &mut signals),
+        let archive = &self.archives[index];
+        let mut found = Found {
+            locality: locality
+                .take(Part::Locality, &mut signals)
+                .map(|text| archive.citation.written_locality(text, &self.vocabularies)),
             parish: parish.take(Part::Parish, &mut signals),
             act: act.take(Part::Act, &mut signals),
             year: year.as_ref().map(|(_, year)| *year),
@@ -459,6 +470,20 @@ impl ArchiveRegistry {
             view_count,
             folio: weighing.folio().take(Part::Folio, &mut signals),
         };
+        // A register's period its call number writes, for a citation
+        // giving no year.
+        if found.year.is_none()
+            && let Some((period, year)) = found
+                .call_number
+                .as_ref()
+                .and_then(|call_number| archive.citation.call_number_period(call_number.as_str()))
+        {
+            found.year = Some(year);
+            found.period = Some(period);
+            if let Some(signal) = signals.get(&Part::CallNumber).copied() {
+                signals.insert(Part::Year, signal);
+            }
+        }
         Ok(Recognition {
             archive: &self.archives[index],
             found,
@@ -799,8 +824,20 @@ impl Weighing<'_> {
             self.normalized.as_ref().map(|parts| parts.act.clone()),
             Signal::Normalized,
         );
+        // The first kind the words name that the archive holds, or else the
+        // first they name: `inhumation` beside `cimetière` is a cemetery's
+        // register where no parish register is catalogued.
+        let named: Vec<Act> = self
+            .reading
+            .register_texts()
+            .flat_map(Facts::acts)
+            .collect();
         act.offer(
-            self.reading.register_texts().find_map(Facts::act),
+            named
+                .iter()
+                .find(|act| self.archive.holds(act))
+                .or(named.first())
+                .cloned(),
             Signal::Words,
         );
         // A kind of document no collection holds, named in the words, is

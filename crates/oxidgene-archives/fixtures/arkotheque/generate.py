@@ -397,4 +397,23 @@ def landes(index, commune, period, act, cote, images, places=()):
 ], total=1234))
 (OUT / 'ad40-rendered-none.html').write_text(rendered(AD40, [], total=0))
 
+# fr-ad75 `cemetery-registers`: a daily burial register (one call number) in
+# parts of about 600 entries each, every part a row naming its first and last
+# burial dates and entry numbers (`n° d'ordre`), the call number in the
+# title; the entry numbers start again with each register.
+AD75_CEMETERY = dict(engine='arko_default_64c11d444499f', image_field='arko_default_0000000007501')
+def cemetery_part(index, cote, first, last, count):
+    (start, first_number), (end, last_number) = first, last
+    return dict(record=record(0x7500 + index), file=975000 + index, images=count, title=cote, cells=[
+        ('cimetiere', 'Exampleville'), ('tranche_d_texte', f"{start} (n° d'ordre {first_number})"),
+        ('tranche_f_texte', f"{end} (n° d'ordre {last_number})")])
+write('ad75-cemetery.json', generic(AD75_CEMETERY, [
+    cemetery_part(0, 'XXX_RJ19171918_04', ('20/12/1917', 1), ('04/01/1918', 601), 31),
+    cemetery_part(1, 'XXX_RJ19171918_04', ('04/01/1918', 601), ('15/01/1918', 1201), 31),
+    cemetery_part(2, 'XXX_RJ19171918_04', ('15/01/1918', 1201), ('22/03/1918', 1607), 21),
+    cemetery_part(3, 'XXX_RJ19181918_01', ('23/03/1918', 1), ('05/04/1918', 601), 31),
+    cemetery_part(4, 'XXX_RJ19181918_01', ('05/04/1918', 601), ('20/04/1918', 1201), 31),
+    cemetery_part(5, 'XXX_RJ19181918_01', ('20/04/1918', 1201), ('12/07/1918', 1811), 21)]))
+write('ad75-cemetery-viewer.json', viewer(AD75_CEMETERY, record(0x7504), 100075, 975004, 31, '', '00000'))
+
 print(sorted(p.name for p in OUT.iterdir()))

@@ -71,12 +71,30 @@
       "table des successions",
       "tables des successions et absences",
       "successions et absences"
+    ],
+    "RI": [
+      "registre journalier d'inhumation",
+      "registre d'inhumation",
+      "registre des inhumations",
+      "cimetière"
     ]
   },
   "views": ["vue", "v.", "image", "img.", "cliché"],
   "view_counts": ["sur"],
   "sides": { "right": ["d", "droite", "dr."], "left": ["g", "gauche"] },
-  "numbers": ["acte", "numéro", "n°", "nº", "n.", "num.", "matricule", "mle"],
+  "numbers": [
+    "acte",
+    "numéro",
+    "n°",
+    "nº",
+    "n.",
+    "num.",
+    "matricule",
+    "mle",
+    "ordre",
+    "n° d'ordre",
+    "numéro d'ordre"
+  ],
   "other_numbers": ["ménage", "maison", "famille", "feuille"],
   "folios": ["folio", "fol.", "f°", "f."],
   "pages": ["page", "p.", "pp."],
@@ -107,6 +125,8 @@
     "répertoire",
     "liste électorale"
   ],
+  "districts": ["arrondissement", "arrondt", "arr."],
+  "ordinals": { "first": ["er", "re", "ère"], "other": ["e", "ème", "eme", "è", "ième"] },
   "months": [
     ["janvier", "janv.", "jan."],
     ["février", "févr.", "fév."],

@@ -78,6 +78,18 @@ struct Sides {
     left: Vec<String>,
 }
 
+/// The suffixes of an ordinal number: `1er`, `11e`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ordinals {
+    /// After 1.
+    #[serde(default)]
+    first: Vec<String>,
+    /// After any other number.
+    #[serde(default)]
+    other: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Registers {
@@ -147,6 +159,11 @@ struct Document {
     /// citation of it is no link.
     #[serde(default)]
     unsupported: Vec<String>,
+    /// Words naming a city's district: `arrondissement`.
+    #[serde(default)]
+    districts: Vec<String>,
+    #[serde(default)]
+    ordinals: Ordinals,
     /// Twelve lists, January first, or none.
     #[serde(default)]
     months: Vec<Vec<String>>,
@@ -285,6 +302,11 @@ pub struct Vocabulary {
     particles: Vec<Phrase>,
     right: Vec<String>,
     left: Vec<String>,
+    districts: Vec<Phrase>,
+    /// The ordinal suffixes, folded: after 1, and after other numbers.
+    ordinals: (Vec<String>, Vec<String>),
+    /// The ordinal suffixes written: after 1, and after other numbers.
+    written_ordinals: (Option<String>, Option<String>),
     /// The words written back into a citation (Archive Portals §6.5): the
     /// first phrase of each act, table and series, and the first view word.
     written: BTreeMap<String, String>,
@@ -327,9 +349,27 @@ impl Vocabulary {
         let single = |texts: &[String]| -> Vec<String> {
             texts.iter().map(|text| fold(text).join(" ")).collect()
         };
+        if document
+            .districts
+            .iter()
+            .chain(&document.ordinals.first)
+            .chain(&document.ordinals.other)
+            .any(|text| fold(text).is_empty())
+        {
+            return Err(error("district words and ordinals need a word".to_owned()));
+        }
         Ok(Self {
             right: single(&document.sides.right),
             left: single(&document.sides.left),
+            districts: document.districts.iter().map(|text| fold(text)).collect(),
+            ordinals: (
+                single(&document.ordinals.first),
+                single(&document.ordinals.other),
+            ),
+            written_ordinals: (
+                document.ordinals.first.first().cloned(),
+                document.ordinals.other.first().cloned(),
+            ),
             particles: document.particles.iter().map(|text| fold(text)).collect(),
             language: document.language,
             countries: document.countries,
@@ -363,6 +403,24 @@ impl Vocabulary {
         self.particles
             .iter()
             .any(|particle| particle.len() == 1 && particle[0] == word)
+    }
+
+    /// The words naming a city's district, folded.
+    pub(crate) fn districts(&self) -> &[Phrase] {
+        &self.districts
+    }
+
+    /// Whether a folded suffix makes a number ordinal: `er`, `e`, `eme`.
+    pub(crate) fn is_ordinal(&self, suffix: &str) -> bool {
+        let (first, other) = &self.ordinals;
+        first.iter().chain(other).any(|known| known == suffix)
+    }
+
+    /// The suffix this language writes an ordinal number with: `er` after
+    /// 1, `e` after the others.
+    pub(crate) fn written_ordinal(&self, number: u8) -> Option<&str> {
+        let (first, other) = &self.written_ordinals;
+        if number == 1 { first } else { other }.as_deref()
     }
 
     /// The side a folded suffix names.
