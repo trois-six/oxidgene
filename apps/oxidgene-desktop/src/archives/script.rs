@@ -7,7 +7,8 @@
 //! rendered it,
 //! [`overlay`] covers the page with the resolution's progress, and
 //! [`banner`] shows the reader what OxidGene found. The resolution itself
-//! runs in Rust. The one control clicked is a cookie banner's refusal
+//! runs in Rust. The controls clicked are a cookie banner's refusal and the
+//! acknowledgement of a listed information notice that asks no consent
 //! ([`consent`]): OxidGene refuses on the reader's behalf, never accepts.
 
 use std::time::Duration;
@@ -29,12 +30,14 @@ pub(super) fn page() -> String {
     )
 }
 
-/// The consent managers [`consent`] recognizes, and their controls.
+/// The consent managers and information notices [`consent`] recognizes,
+/// and their controls.
 const CONSENT_JSON: &str = include_str!("consent.json");
 
-/// Refuses a recognized cookie banner's consent in each main-frame document
-/// (`consent.js`), with the managers of `consent.json`, which it receives as
-/// `consent`. Posts `{"kind": "consent", "state", "manager"}`.
+/// Refuses a recognized cookie banner's consent, and acknowledges a listed
+/// information notice, in each main-frame document (`consent.js`), with the
+/// managers and notices of `consent.json`, which it receives as `consent`.
+/// Posts `{"kind": "consent", "state", "manager"}`.
 pub(super) fn consent() -> String {
     format!(
         "(() => {{\nconst consent = {CONSENT_JSON};\n{}\n}})();",

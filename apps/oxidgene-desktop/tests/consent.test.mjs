@@ -178,6 +178,50 @@ test("a frame of the page is left alone", () => {
     assert.equal(page.document.observers.size, 0);
 });
 
+// The information notice of Mnesys portals, in fictitious markup.
+const notice = `<div id="rgpd-infos" class="disclaimer"><div class="text"><p>Ce site utilise des cookies techniques, exemptés de consentement.</p></div><div class="buttons"><a href="/page/conditions" class="btn btn-secondary">En savoir plus</a><button type="button" class="btn btn-primary" id="rgpd-infos-understand">J'ai compris</button></div></div>`;
+
+test("an information notice is acknowledged once, and nothing else clicked", () => {
+    const page = run(`<main>Registres paroissiaux</main>${notice}`);
+    assert.deepEqual(page.clicked(), ["rgpd-infos-understand"]);
+    assert.deepEqual(page.posted, [{ kind: "consent", state: "dismissed", manager: "mnesys" }]);
+    // Still on screen, it is not clicked again.
+    page.document.notify();
+    page.timers.advance(15000);
+    assert.deepEqual(page.clicked(), ["rgpd-infos-understand"]);
+    assert.equal(page.document.observers.size, 0);
+});
+
+test("a notice that shows later is acknowledged, beside a refused banner", () => {
+    const page = run(`<div hidden>${notice}</div>${banners.arkotheque.markup}`);
+    assert.deepEqual(page.clicked(), ["btn_refuser"]);
+    page.document.querySelector("div[hidden]").removeAttribute("hidden");
+    page.document.notify();
+    assert.deepEqual(page.clicked(), ["btn_refuser", "rgpd-infos-understand"]);
+});
+
+test("a notice offering a refusal asks a consent and is not acknowledged", () => {
+    const asking = notice.replace("</div></div>", `<button type="button" class="btn">Refuser</button></div></div>`);
+    const page = run(asking);
+    page.timers.advance(15000);
+    assert.deepEqual(page.clicked(), []);
+    assert.deepEqual(page.posted, []);
+});
+
+test("a notice seen after the watch is left alone", () => {
+    const page = run(`<div hidden>${notice}</div>${banners.osano.markup}`);
+    page.timers.advance(15000);
+    page.document.querySelector("div[hidden]").removeAttribute("hidden");
+    page.document.notify();
+    assert.ok(!page.clicked().includes("rgpd-infos-understand"));
+});
+
+test("every notice declares its banner and its dismiss control", () => {
+    for (const listed of consent.notices) {
+        assert.ok(listed.name && listed.banner && listed.dismiss, JSON.stringify(listed));
+    }
+});
+
 test("every manager declares a banner, refuse and accept controls", () => {
     for (const manager of consent.managers) {
         assert.ok(manager.name && manager.banner, JSON.stringify(manager));

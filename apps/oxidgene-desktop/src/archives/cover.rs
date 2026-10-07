@@ -60,7 +60,7 @@ impl Cover {
         match state {
             ConsentState::Left => self.consent = true,
             ConsentState::Closed => self.consent = false,
-            ConsentState::Refused => {}
+            ConsentState::Refused | ConsentState::Dismissed => {}
         }
     }
 
@@ -143,6 +143,9 @@ mod tests {
         let mut cover = Cover::default();
         cover.load(progress(Stage::Connecting), now);
         cover.consent(ConsentState::Refused);
+        assert!(cover.shown(now, false).is_some());
+        // An information notice acknowledged leaves nothing to the reader.
+        cover.consent(ConsentState::Dismissed);
         assert!(cover.shown(now, false).is_some());
         cover.consent(ConsentState::Left);
         assert_eq!(cover.shown(now, false), None);

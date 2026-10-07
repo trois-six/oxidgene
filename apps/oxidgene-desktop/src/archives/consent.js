@@ -4,19 +4,30 @@
 //
 // `consent` is defined before this script runs (`consent.json`): the consent
 // managers recognized — the `banner` each shows, the `refuse` controls to
-// click and the `accept` controls never to click, as CSS selectors —, and
-// the exact `refuse_phrases` and `accept_phrases` of such controls.
+// click and the `accept` controls never to click, as CSS selectors —, the
+// information notices recognized, and the exact `refuse_phrases` and
+// `accept_phrases` of consent controls.
 //
 // The document is watched for 15 seconds (a MutationObserver: managers
 // render after the page's own scripts). Once a recognized banner shows, its
 // first visible refuse control is clicked, once: the manager's own, or else,
 // within the banner, a button or a link whose whole text is a refuse phrase.
-// Nothing whose text, title, label or value is an accept phrase is ever
-// clicked. A banner that shows an accept control and no refuse control, or
-// is still on screen after the 15 seconds, is left to the reader, and
-// OxidGene clicks nothing more in the document. Posts `{"kind": "consent",
-// "state", "manager"}`: `refused` on a click, `left` for a banner left to
-// the reader, and `closed` once that banner is gone.
+// Nothing in a consent banner whose text, title, label or value is an accept
+// phrase is ever clicked. A banner that shows an accept control and no
+// refuse control, or is still on screen after the 15 seconds, is left to
+// the reader, and OxidGene clicks nothing more in the document.
+//
+// `consent.notices` are information notices that ask no consent — a
+// portal's note that it sets only cookies exempt from consent —, each with
+// the `banner` it shows and the `dismiss` control acknowledging it, listed
+// once the notice's text has been read. Acknowledging such a notice grants
+// nothing: while the document is watched, its dismiss control is clicked,
+// once, unless the notice offers a control whose whole text is a refuse
+// phrase, which would make it a consent request.
+//
+// Posts `{"kind": "consent", "state", "manager"}`: `refused` on a click,
+// `left` for a banner left to the reader, `closed` once that banner is
+// gone, and `dismissed` for a notice acknowledged.
 const WATCH_MS = 15000;
 // How long a refused banner may take to go away before it counts as stuck.
 const SETTLE_MS = 1000;
@@ -80,9 +91,27 @@ const refuse = found => {
     return false;
 };
 
+// Acknowledges the information notices on screen, each once.
+const dismissed = new Set();
+const dismiss = () => {
+    for (const notice of consent.notices) {
+        const banner = visible(document, notice.banner)[0];
+        const control = banner && visible(banner, notice.dismiss)[0];
+        if (!control || dismissed.has(notice.name)) continue;
+        const asks = visible(banner, CLICKABLE).some(other =>
+            refusePhrases.has(normalize(other.textContent || other.value)),
+        );
+        if (asks) continue;
+        dismissed.add(notice.name);
+        control.click();
+        report({ state: "dismissed", manager: notice.name });
+    }
+};
+
 const observer = new MutationObserver(() => look());
 
 function look() {
+    if (watching) dismiss();
     if (settling) return;
     const found = banners();
     if (left === null && watching && refuse(found)) return;

@@ -19,8 +19,9 @@
 //! Windows are top-level, since portals refuse to be framed, and share one
 //! persistent web profile of their own, so that a portal's cookies spare the
 //! reader its reuse licence and its challenge at every opening; a portal's
-//! cookie banner is refused on the reader's behalf, never accepted
-//! (`consent.js`), and the profile keeps that choice too. On WebKitGTK,
+//! cookie banner is refused on the reader's behalf, never accepted, and a
+//! listed notice that asks no consent is acknowledged (`consent.js`); the
+//! profile keeps that choice too. On WebKitGTK,
 //! a portal certificate served without its issuer is completed ([`tls`]).
 
 mod cover;
@@ -100,6 +101,8 @@ enum ConsentState {
     Left,
     /// The banner left to the reader is gone.
     Closed,
+    /// OxidGene acknowledged an information notice that asks no consent.
+    Dismissed,
 }
 
 /// A cookie banner's outcome, posted by `consent.js`.
@@ -720,7 +723,10 @@ impl ArchiveWindow {
     /// is gone.
     fn on_consent(&mut self, consent: &Consent) {
         consent.log();
-        if consent.state != ConsentState::Refused {
+        if !matches!(
+            consent.state,
+            ConsentState::Refused | ConsentState::Dismissed
+        ) {
             self.cover.consent(consent.state);
             self.render();
         }
@@ -1439,6 +1445,7 @@ mod tests {
         for (state, expected) in [
             ("left", ConsentState::Left),
             ("closed", ConsentState::Closed),
+            ("dismissed", ConsentState::Dismissed),
         ] {
             let consent = read(&format!(r#"{{"kind": "consent", "state": "{state}"}}"#));
             assert_eq!(consent.map(|consent| consent.state), Some(expected));

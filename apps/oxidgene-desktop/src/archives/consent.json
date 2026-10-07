@@ -67,6 +67,13 @@
       "accept": [".orejime-Notice-saveButton", ".orejime-Button--save", ".orejime-Button--accept"]
     }
   ],
+  "notices": [
+    {
+      "name": "mnesys",
+      "banner": "#rgpd-infos",
+      "dismiss": "#rgpd-infos-understand"
+    }
+  ],
   "refuse_phrases": [
     "refuser",
     "tout refuser",

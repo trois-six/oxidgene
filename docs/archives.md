@@ -2264,7 +2264,8 @@ challenge's redirect drops the address's fragment, which carries the view,
 while the challenge cookie the first load leaves keeps it.
 
 The window fills no field and clicks no control but a cookie banner's
-refusal (below); the page's own scripts open
+refusal and a listed information notice's acknowledgement (below); the
+page's own scripts open
 the viewer at the view. While it resolves, the window covers the portal's
 pages with OxidGene's progress overlay: an opaque full-window cover hiding
 the portal's page, in the application's theme with its one spinner
@@ -2369,8 +2370,17 @@ refuse phrase. Nothing whose text, title, label or value is an accept phrase
 is ever clicked. A banner offering only an accept control, still there after
 the refusal, or still on screen after the 15 seconds, is left to the reader,
 and the progress overlay gives way to it.
-The window's persistent profile keeps the choice. The live checks' browser
-runs the same script.
+An information notice that asks no consent is acknowledged instead: the
+same list names such notices with their banner and the one control that
+dismisses them (`notices`: the Mnesys Expo portals' note that they set only
+technical cookies exempt from consent, `#rgpd-infos`, dismissed by its
+"J'ai compris"). Acknowledging it grants nothing, since the portal asks for
+no consent and sets the same cookies either way, so the window clicks that
+control once while it watches the document; a notice is listed only after
+its text has been read, never recognized by its wording, and one that
+offers a control whose whole text is a refuse phrase is a consent request
+and is not clicked. The window's persistent profile keeps the choice. The
+live checks' browser runs the same script.
 
 **Certificates on Linux.** WebKitGTK does not fetch an intermediate
 certificate a server omits, where Chromium, Firefox and the macOS and
@@ -2572,9 +2582,10 @@ Archive portals are public services whose terms OxidGene follows:
   the reader sees. The window answers no check itself: it waits for a check
   that clears itself, and asks the reader to answer one that does not
   (§6.1).
-- The window's only click on a portal page is a cookie banner's refusal, on
-  the reader's behalf (§6.1): it never accepts a consent, never answers a
-  check, and fills nothing.
+- The window's only clicks on a portal page are a cookie banner's refusal,
+  on the reader's behalf, and the acknowledgement of a listed information
+  notice that asks no consent (§6.1): it never accepts a consent, never
+  answers a check, and fills nothing.
 - Requests of the `native` transport identify OxidGene in their
   `User-Agent`, `OxidGene/<version> (+https://github.com/trois-six/oxidgene)`;
   the `window` transport's are the portal page's own. Both time out
@@ -2655,10 +2666,12 @@ Archive portals are public services whose terms OxidGene follows:
 - The window's consent script, run on Node.js over a minimal DOM (`just
   ui-js`), refuses each recognized manager's banner with its refuse control,
   never clicks an accept control, leaves accept-only banners to the reader
-  and ignores pages without a banner; Rust tests read its messages, none of
-  which says a consent was accepted. The progress overlay, run the same way,
-  shows each step, the elapsed time from 3 seconds, gives way and goes when
-  told, and its Cancel posts the window's message; Rust tests cover when the
+  and ignores pages without a banner; it acknowledges a listed information
+  notice once while it watches, and not one offering a refusal; Rust tests
+  read its messages, none of which says a consent was accepted. The
+  progress overlay, run the same way, shows each step, the elapsed time from
+  3 seconds, gives way and goes when told, and its Cancel posts the window's
+  message; Rust tests cover when the
   overlay gives way and is gone, the cancellation of a resolution, and the
   landing of a cancelled lookup.
 - The Linux window's certificate completion reads the issuer address of a
