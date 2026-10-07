@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:20:00Z }
 ---
 
 
@@ -735,7 +735,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
 | `GET` | `/trees/{tree_id}/dictionary/sources?prefix=...` | Sources + citation counts; `prefix` keeps the titles starting with it, ignoring case (absent or empty: every source) |
 | `GET` | `/trees/{tree_id}/dictionary/sources/groups?prefix=` | The Sources tab's next drill-down level: `{prefix, total, groups}`, single-choice levels skipped so `prefix` may be longer than asked. Once no group is left (`total` within the drill threshold), the level's sources come with it in `sources`, so the tab needs no second request. GraphQL: `dictionarySourceDrill` |
-| `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons citing a source |
+| `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons a source documents: those cited directly, the person of a cited individual event, and the spouses of a cited family or family event. Deleted persons, events and families are left out |
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place: those whose own events take place there, the spouses of the couples whose events do, and the persons a media filed there (or one of its pages) is linked to — directly, through one of their events or couples — or shows in a crop. Deleted persons are left out |
 

@@ -30,8 +30,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::entities::{
-    citation, event, family_spouse, media, media_link, person, person_name, place, sea_enums,
-    source, vignette,
+    citation, event, family, family_spouse, media, media_link, person, person_name, place,
+    sea_enums, source, vignette,
 };
 use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
@@ -478,8 +478,10 @@ impl DictionaryRepo {
         Ok(out)
     }
 
-    /// Distinct persons cited by a given source (via a direct person
-    /// citation, or via the person of a cited individual event).
+    /// Distinct live persons a source documents: those cited directly, the
+    /// person of a cited individual event, and the spouses of a cited family
+    /// or of a cited family event. The same citations the source's count
+    /// counts, so a cited source never lists nobody.
     pub async fn source_usage_person_ids(
         db: &impl ConnectionTrait,
         source_id: Uuid,
@@ -490,27 +492,30 @@ impl DictionaryRepo {
             .await
             .map_err(db_err)?;
 
-        let mut event_ids = Vec::new();
-        let mut person_ids: Vec<Uuid> = Vec::new();
+        let mut persons: Vec<Uuid> = Vec::new();
+        let mut families: Vec<Uuid> = Vec::new();
+        let mut event_ids: Vec<Uuid> = Vec::new();
         for c in &citations {
-            if let Some(pid) = c.person_id {
-                person_ids.push(pid);
-            } else if let Some(eid) = c.event_id {
-                event_ids.push(eid);
-            }
+            persons.extend(c.person_id);
+            families.extend(c.family_id);
+            event_ids.extend(c.event_id);
         }
 
         let events = in_chunks(&event_ids, |chunk| async move {
             event::Entity::find()
                 .filter(event::Column::Id.is_in(chunk))
+                .filter(event::Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
         })
         .await?;
-        person_ids.extend(events.into_iter().filter_map(|e| e.person_id));
+        for e in events {
+            persons.extend(e.person_id);
+            families.extend(e.family_id);
+        }
 
-        Ok(sorted_unique(person_ids))
+        live_persons_with_spouses(db, persons, families).await
     }
 
     /// Distinct live persons a place concerns: those whose own events take
@@ -605,33 +610,7 @@ impl DictionaryRepo {
             families.extend(e.family_id);
         }
 
-        // A couple is its spouses.
-        let spouses = in_chunks(&sorted_unique(families), |chunk| async move {
-            family_spouse::Entity::find()
-                .filter(family_spouse::Column::FamilyId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        persons.extend(spouses.into_iter().map(|s| s.person_id));
-
-        let persons = sorted_unique(persons);
-        let live: HashSet<Uuid> = in_chunks(&persons, |chunk| async move {
-            person::Entity::find()
-                .select_only()
-                .column(person::Column::Id)
-                .filter(person::Column::Id.is_in(chunk))
-                .filter(person::Column::DeletedAt.is_null())
-                .into_tuple::<Uuid>()
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?
-        .into_iter()
-        .collect();
-        Ok(persons.into_iter().filter(|id| live.contains(id)).collect())
+        live_persons_with_spouses(db, persons, families).await
     }
 
     /// Distinct persons holding a given occupation label in a tree.
@@ -941,6 +920,43 @@ impl DictionaryRepo {
         out.sort_by_cached_key(|p| p.given_names.as_deref().unwrap_or("").to_lowercase());
         Ok(out)
     }
+}
+
+/// The live persons among `persons` and the spouses of `families` (a couple
+/// is its spouses, a deleted couple has none), sorted and deduplicated.
+async fn live_persons_with_spouses(
+    db: &impl ConnectionTrait,
+    mut persons: Vec<Uuid>,
+    families: Vec<Uuid>,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let spouses = in_chunks(&sorted_unique(families), |chunk| async move {
+        family_spouse::Entity::find()
+            .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
+            .filter(family_spouse::Column::FamilyId.is_in(chunk))
+            .filter(family::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    persons.extend(spouses.into_iter().map(|s| s.person_id));
+
+    let persons = sorted_unique(persons);
+    let live: HashSet<Uuid> = in_chunks(&persons, |chunk| async move {
+        person::Entity::find()
+            .select_only()
+            .column(person::Column::Id)
+            .filter(person::Column::Id.is_in(chunk))
+            .filter(person::Column::DeletedAt.is_null())
+            .into_tuple::<Uuid>()
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?
+    .into_iter()
+    .collect();
+    Ok(persons.into_iter().filter(|id| live.contains(id)).collect())
 }
 
 fn trimmed(value: Option<&str>) -> Option<String> {

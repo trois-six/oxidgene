@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:20:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:20:00Z }
 ---
 
 
@@ -239,7 +239,9 @@ Each row shows:
 - Author, then the names of the repositories holding the source (secondary muted text, if present; the list endpoint returns them as `repositories`)
 - Usage count badge: number of `Citation` rows referencing this source
 - Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
-- Chevron — clicking **expands the row inline** to show full metadata and drill-down to citing persons/events
+- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents
+
+The expanded list holds the persons the citations concern, each linking to the person: those cited directly, the person of a cited individual event, and the spouses of a cited family or of a cited family event (a marriage's citation lists both spouses; the list has no separate couple row, like the Places tab). A citation is one use, so the count counts citations and the list counts persons: a cited source never lists nobody, and a person cited several times appears once. Deleted persons, events and families are left out.
 
 ### 8.11 Source Editor
 

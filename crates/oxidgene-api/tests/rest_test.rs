@@ -4896,3 +4896,94 @@ async fn reads_are_answered_while_a_write_holds_the_writer() {
         .unwrap();
     assert_eq!(status, StatusCode::CREATED);
 }
+
+/// A source documents the persons cited directly, the person of a cited
+/// individual event, and the spouses of a cited family or family event, so a
+/// source with citations never lists nobody. A deleted couple has no spouses.
+#[tokio::test]
+async fn source_usage_resolves_family_and_event_citations() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let direct = create_person_via_api(&app, &tree_id).await;
+    let husband = create_person_via_api(&app, &tree_id).await;
+    let wife = create_person_via_api(&app, &tree_id).await;
+    let lone = create_person_via_api(&app, &tree_id).await;
+    let family_id = create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&husband, "husband"), (&wife, "wife")],
+        &[],
+    )
+    .await;
+    let (status, marriage) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({ "event_type": "marriage", "family_id": family_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let marriage_id = marriage["id"].as_str().unwrap().to_string();
+    let (status, birth) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({ "event_type": "birth", "person_id": lone })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let birth_id = birth["id"].as_str().unwrap().to_string();
+
+    let source_id = create_source_via_api(&app, &tree_id).await;
+    let usage = |expected: Vec<&String>| {
+        let mut expected: Vec<String> = expected.into_iter().cloned().collect();
+        expected.sort();
+        let app = app.clone();
+        let uri = format!("/api/v1/trees/{tree_id}/dictionary/sources/{source_id}/usage");
+        async move {
+            let (status, body) = send(&app, Method::GET, &uri, None).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            let mut ids: Vec<String> = body
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["person_id"].as_str().unwrap().to_string())
+                .collect();
+            ids.sort();
+            assert_eq!(ids, expected);
+        }
+    };
+    let cite = |body: serde_json::Value| {
+        let app = app.clone();
+        let uri = format!("/api/v1/trees/{tree_id}/citations");
+        async move {
+            let (status, _) = send(&app, Method::POST, &uri, Some(body)).await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+    };
+
+    // The reported case: one citation, on a family's marriage event, with the
+    // event and the family both set and no person.
+    cite(serde_json::json!({
+        "source_id": source_id, "event_id": marriage_id, "family_id": family_id
+    }))
+    .await;
+    usage(vec![&husband, &wife]).await;
+
+    // Direct, person-event and family citations add up, deduplicated.
+    cite(serde_json::json!({ "source_id": source_id, "person_id": direct })).await;
+    cite(serde_json::json!({ "source_id": source_id, "event_id": birth_id })).await;
+    cite(serde_json::json!({ "source_id": source_id, "family_id": family_id })).await;
+    usage(vec![&direct, &husband, &wife, &lone]).await;
+
+    // A deleted couple documents nobody.
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/families/{family_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    usage(vec![&direct, &lone]).await;
+}

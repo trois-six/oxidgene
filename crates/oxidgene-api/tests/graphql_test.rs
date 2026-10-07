@@ -5067,3 +5067,108 @@ async fn a_remote_page_thumbnail_address_over_graphql() {
         "{resp}"
     );
 }
+
+/// GraphQL twin of the REST test: a source documents the persons cited
+/// directly, the person of a cited individual event, and the spouses of a
+/// cited family or family event. A deleted couple has no spouses.
+#[tokio::test]
+async fn graphql_source_usage_resolves_family_and_event_citations() {
+    let app = setup_app().await;
+    let run = |query: String| {
+        let app = app.clone();
+        async move { data(&graphql(app, &query, None).await).clone() }
+    };
+    let tree_id = run(r#"mutation { createTree(input: { name: "Sample tree" }) { id } }"#.into())
+        .await["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut persons = Vec::new();
+    for _ in 0..4 {
+        persons.push(
+            run(format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+            ))
+            .await["createPerson"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let [direct, husband, wife, lone] = [&persons[0], &persons[1], &persons[2], &persons[3]];
+    let family_id = run(format!(
+        r#"mutation {{ createFamily(treeId: "{tree_id}") {{ id }} }}"#
+    ))
+    .await["createFamily"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (person_id, role) in [(husband, "HUSBAND"), (wife, "WIFE")] {
+        run(format!(
+            r#"mutation {{ addSpouse(treeId: "{tree_id}", familyId: "{family_id}", input: {{ personId: "{person_id}", role: {role} }}) {{ id }} }}"#
+        ))
+        .await;
+    }
+    let marriage_id = run(format!(
+        r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: MARRIAGE, familyId: "{family_id}" }}) {{ id }} }}"#
+    ))
+    .await["createEvent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let birth_id = run(format!(
+        r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: BIRTH, personId: "{lone}" }}) {{ id }} }}"#
+    ))
+    .await["createEvent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_id = run(format!(
+        r#"mutation {{ createSource(treeId: "{tree_id}", input: {{ title: "Sample register" }}) {{ id }} }}"#
+    ))
+    .await["createSource"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let cite = |fields: String| {
+        run(format!(
+            r#"mutation {{ createCitation(treeId: "{tree_id}", input: {{ sourceId: "{source_id}", {fields} }}) {{ id }} }}"#
+        ))
+    };
+    let usage = |expected: Vec<&String>| {
+        let mut expected: Vec<String> = expected.into_iter().cloned().collect();
+        expected.sort();
+        let query = format!(
+            r#"{{ sourceUsage(treeId: "{tree_id}", sourceId: "{source_id}") {{ personId }} }}"#
+        );
+        let run = &run;
+        async move {
+            let mut ids: Vec<String> = run(query).await["sourceUsage"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["personId"].as_str().unwrap().to_string())
+                .collect();
+            ids.sort();
+            assert_eq!(ids, expected);
+        }
+    };
+
+    cite(format!(
+        r#"eventId: "{marriage_id}", familyId: "{family_id}""#
+    ))
+    .await;
+    usage(vec![husband, wife]).await;
+
+    cite(format!(r#"personId: "{direct}""#)).await;
+    cite(format!(r#"eventId: "{birth_id}""#)).await;
+    cite(format!(r#"familyId: "{family_id}""#)).await;
+    usage(vec![direct, husband, wife, lone]).await;
+
+    run(format!(
+        r#"mutation {{ deleteFamily(treeId: "{tree_id}", id: "{family_id}") }}"#
+    ))
+    .await;
+    usage(vec![direct, lone]).await;
+}
