@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T08:51:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 # OxidGene Quickstart
@@ -39,6 +39,10 @@ source-build path.
 - A graphical desktop session.
 - A system WebView: WebKitGTK on Linux, WebView2 on Windows, or WebKit on macOS.
 - No PostgreSQL, S3 service, Redis service, or container runtime.
+- Network access only to open a cited register on its archive's portal and
+  for the Geneanet import; everything else works offline. The archive window
+  keeps the portals' cookies in a profile of its own under the state
+  directory ([Architecture §8.3](architecture.md#83-local-files)).
 
 ### Hardware requirements
 
@@ -257,6 +261,11 @@ enabling it now provisions the infrastructure and injects the reserved
 - Published or locally accessible OxidGene backend and frontend OCI images.
 - For durable media storage, an existing S3 bucket or RustFS Operator 0.0.6+
   and a dynamic StorageClass.
+- Outbound access from the backend to the archive portals, for opening a cited
+  register: `https`, and plain `http` to the one portal the catalogue names as
+  an exception ([Archive Portals §3.1](archives.md#31-catalogue)). Without it,
+  the lookup fails (`unreachable` or `timeout`) and the reader's tab opens the
+  portal's own search page.
 
 The backend is not ready for direct untrusted public exposure until
 authentication and per-tree authorization are implemented. Use a private

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 
@@ -170,6 +170,30 @@ access control.
 - Multiple tree layouts (ancestor chart, descendant chart, fan chart).
 - Export high-resolution PDFs.
 - → see [Tree View spec](ui-genealogy-tree.md)
+
+### 3.11 Archive Registers
+
+- Open the register a source cites at the cited view, on the archive's own
+    portal: in a dedicated archive window on the desktop, in a new browser tab
+    on the web, with no portal search repeated by hand.
+- Recognize a citation however it is written — a description down to the
+    act, its short form, a normalized form, a source held by an archive with
+    the act on the cited event, a portal address — with the words of each
+    language and the conventions of each country kept as data; French is
+    shipped.
+- Catalogue archives per country and level as data, each served by one
+    adapter per portal platform; today every French departmental archive but
+    the Bouches-du-Rhône, and the overseas civil status of the Archives
+    nationales d'outre-mer. Acts, tables, censuses, military registers,
+    conscription lists, succession tables and cemetery burial registers are
+    resolved.
+- Complete a partial citation in a "Find in the archives" dialog.
+- Act only on the reader's click: no crawling or prefetching, no image copied
+    or stored, never a consent or a reuse licence accepted nor an anti-bot
+    check answered for the reader.
+- Attaching a cited view as a remote document is built but not offered, until
+    the archives can be browsed freely from OxidGene.
+- → see [Archive Portals](archives.md) · [Person Profile](ui-person-profile.md#opening-a-cited-register)
 
 ---
 

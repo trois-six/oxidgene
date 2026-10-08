@@ -7,9 +7,9 @@
 OxidGene is a genealogy application written entirely in Rust. Bring your trees
 in from GEDCOM, GEDZIP, GeneWeb or Geneanet, then explore, edit and question
 them: pedigrees and fan charts with the family's photographs, profiles,
-statistics on a map, consistency tools, kinship, and a history of every
-change. It runs as a desktop application that works offline, or as a web
-deployment for your own server.
+statistics on a map, consistency tools, kinship, cited registers opened on
+the archives' own sites, and a history of every change. It runs as a desktop
+application that works offline, or as a web deployment for your own server.
 
 <p align="center">
 	<img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, fan chart, couple, statistics map, kinship, search, media library, history and themes, on a fictitious family" width="900">
@@ -45,6 +45,10 @@ photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credit
 	wizard, ancestry completeness, and every relationship between two persons.
 - **Never lose a change**: an audit log of every write, and every version of a
 	person compared side by side and restorable, even after a deletion.
+- **Go back to the registers**: a cited source opens its register at the cited
+	view on the archive's own site, for every French département but one,
+	overseas included, however the citation is written, and a dialog completes
+	a partial one.
 - **Understand the records**: a built-in place dictionary of twelve countries,
 	explanatory sheets for thousands of occupations and given names, four
 	calendars, and dates written out in nine languages.

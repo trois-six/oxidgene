@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T14:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -132,7 +132,19 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Dates, places, tags and categories on media ([API Contract](api.md#media)).
 - Filesystem storage, or S3-compatible object storage for stateless web deployments ([Architecture §8.1](architecture.md#81-web-deployment)).
 
-## 11. History
+## 11. Archives
+
+- A cited source opens its register at the cited view on the archive's own portal: in an archive window on the desktop, in a new browser tab on the web ([Person Profile](ui-person-profile.md#opening-a-cited-register), [Archive Portals §6](archives.md#6-display)).
+- Citations recognised however they are written — the classic description, its short form, the normalized form, a source held by an archive with the act on the cited event, a portal address — with the words of each language kept as data, French shipped ([Archive Portals §5.1](archives.md#51-citation-recognition)).
+- Every French departmental archive but the Bouches-du-Rhône, and the overseas civil status of the Archives nationales d'outre-mer, each catalogued with the portal software it runs, one adapter serving every archive on the same software ([Archive Portals §3.1](archives.md#31-catalogue), [Archive Portals §4](archives.md#4-platforms)).
+- Parish and civil-status registers, decennial and parish tables, population censuses, military registers, conscription lists, tables of successions and absences, and cemetery burial registers ([Archive Portals §3.1](archives.md#31-catalogue)).
+- A "Find in the archives" dialog that completes a partial citation, and on request writes the details back to it ([Archive Portals §6.5](archives.md#65-find-in-the-archives)).
+- The desktop's archive window: a progress overlay that can cancel the lookup, cookie consent refused on the reader's behalf, anti-bot checks and reuse licences left to the reader before it goes on to the register, viewers without a view address brought to the cited view, and a banner when no register, several, or a renumbered one answers the citation ([Archive Portals §6.1](archives.md#61-desktop)).
+- The same lookup through REST and GraphQL ([API Contract](api.md#sources)).
+- A weekly live check of every catalogued archive against its real portal, a drift opening an issue ([Archive Portals §9.2](archives.md#92-scheduled-run)).
+- **Planned:** attaching a cited view as a document, built but not offered until the archives can be browsed freely from OxidGene ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)).
+
+## 12. History
 
 ![A person's history compared side by side](../assets/screenshots/history.webp)
 
@@ -140,7 +152,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Every version of a person compared field by field, and restored, even after a deletion ([Person History](ui-person-history.md)).
 - Versions of places, sources, repositories and settings too ([Data Model §5.2](data-model.md#52-versions-record_version)).
 
-## 12. Import and export
+## 13. Import and export
 
 - GEDCOM 5.5.1 and 7.0 import with version detection, and GEDCOM 5.5.1 export ([API Contract §4](api.md#4-gedcom-compatibility-reference)).
 - GEDZIP archives in and out, with their media ([Import](ui-import.md)).
@@ -150,14 +162,14 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Export options: notes and sources, media, merged occupations and merged names; a submitter; and a kept archive downloadable again for an hour ([Tree Settings §12](ui-settings.md#12-section-export)).
 - Imports and exports run as durable background jobs ([Architecture §6](architecture.md#6-asynchronous-processing)).
 
-## 13. Places and entry help
+## 14. Places and entry help
 
 - A built-in place dictionary of twelve countries, with merged municipalities, former names and historical subdivisions, needing no network ([Place Dictionary](place-dictionary.md)).
 - Every free-text field suggests the tree's values and the reference dictionaries, while accepting any text ([Common UI §4.4](ui-common.md#44-fields-with-suggestions)).
 - Per-tree date display: format, event symbols, « circa », and a second calendar ([Tree Settings §9](ui-settings.md#9-section-date-display)).
 - Per-tree entry options: suggestions, surnames in capitals, suggested persons, date input format and default calendar ([Tree Settings §10](ui-settings.md#10-section-entry-options)).
 
-## 14. Appearance and languages
+## 15. Appearance and languages
 
 ![Theme picker of the application settings, dark theme](../assets/screenshots/app-settings-dark.webp)
 
@@ -166,25 +178,25 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Pedigree chart, theme and depth preferences, and name display ([App Settings](ui-app-settings.md)).
 - A responsive layout from phones to wide screens ([Common UI §6](ui-common.md#6-responsive-behavior)).
 
-## 15. Privacy
+## 16. Privacy
 
 - A tree-wide default privacy and per-person, per-couple and per-media privacy, recorded ([Tree Settings §8](ui-settings.md#8-section-privacy)).
 - **Planned:** enforcing privacy, hiding contemporary persons and authentication; today privacy is recorded and hides nothing ([General §4](general.md#4-security--privacy)).
 
-## 16. Desktop and web
+## 17. Desktop and web
 
 - A desktop application for Linux, Windows and macOS: one binary embedding the server, SQLite and the interface, working offline ([Architecture §8.2](architecture.md#82-desktop-distribution)).
 - A web deployment: WebAssembly frontend, Axum server, worker and PostgreSQL ([Architecture §8.1](architecture.md#81-web-deployment)).
 - Files kept in the XDG data, config, state and cache directories ([Architecture §8.3](architecture.md#83-local-files)).
 
-## 17. APIs and assistants
+## 18. APIs and assistants
 
 - A REST API with its generated OpenAPI 3.1 document, on the desktop and the web ([API Contract §2](api.md#2-rest-api)).
 - A GraphQL API, with GraphiQL, strictly symmetric with REST, in the web deployment only ([API Contract §3](api.md#3-graphql-api)).
 - A read-only Model Context Protocol server in the desktop binary, for Claude and other assistants ([Assistant Access](mcp.md)).
 - **Planned:** AI features on media with the user's own LLM provider ([AI Features](ai.md)) and DNA kits ([DNA Kits](dna.md)), specified only.
 
-## 18. Operations
+## 19. Operations
 
 - Structured logs, and OpenTelemetry logs, traces and metrics on every process and in the browser ([Cross-cutting Rules §5](cross-cutting.md#5-logging-and-observability)).
 - Docker images and a Compose stack; a Helm chart for Kubernetes with PostgreSQL and S3 options ([Quickstart §3](quickstart.md#3-run-the-web-stack-with-docker-compose), [Quickstart §4](quickstart.md#4-deploy-to-kubernetes-with-helm)).

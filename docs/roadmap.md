@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -59,8 +59,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
 
 ## 3b. Active: archive viewer
 
-The desktop opens a cited register at the cited view through an
-archive catalogue and one driver per portal platform ([Person
+A cited source opens its register at the cited view on the archive's own
+portal — in an archive window on the desktop, in a new tab on the web —
+through a per-country archive catalogue and one adapter per portal platform
+([Archive Portals](archives.md), [Person
 Profile](ui-person-profile.md#opening-a-cited-register)).
 
 - [x] Drive the Loire-Atlantique archives (Arkothèque) for births and
@@ -96,7 +98,8 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)).
 - [x] Cite and resolve series beyond acts — population censuses, military
   registers, conscription lists, tables of successions and absences — named
-  in words or by code, through Arkothèque and Ligeo collections
+  in words or by code, and cemetery burial registers, through the
+  collections of every adapter whose portals publish them
   ([Archive Portals §3.1, §5.1](archives.md#51-citation-recognition)).
 - [x] Recognize citations written in any convention — the classic
   description, its short form, structured repository records with the cited
@@ -110,6 +113,10 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   check or a block, name the view to go to on a portal without an address
   per view, and complete on Linux a portal certificate served without its
   issuer ([Archive Portals §6.1](archives.md#61-desktop)).
+- [x] Cover the portal with a progress overlay that can cancel the lookup,
+  refuse cookie consent on the reader's behalf, bring viewers without an
+  address per view to the cited view, and say why a portal's server failed
+  ([Archive Portals §6.1](archives.md#61-desktop)).
 - [x] Catalogue the French departmental archives with an adapter per portal
   platform — every department but the Bouches-du-Rhône — and the overseas
   civil status of the Archives nationales d'outre-mer, the one portal
