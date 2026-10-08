@@ -294,7 +294,7 @@ kubectl -n oxidgene wait --for=condition=Ready \
   tenant/oxidgene-rustfs --timeout=10m
 ```
 
-The default RustFS image is `rustfs/rustfs:1.0.0-beta.10`. RustFS does not
+The default RustFS image is `rustfs/rustfs:1.0.0`. RustFS does not
 publish a Debian Trixie variant for this release; the official image is Alpine.
 The OxidGene backend and frontend runtime images use Debian Trixie variants.
 

@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T08:07:26Z }
 ---
 
 # OxidGene Quickstart
@@ -304,7 +304,7 @@ docker push registry.example.invalid/oxidgene-server:0.1.0
 docker push registry.example.invalid/oxidgene-web:0.1.0
 ```
 
-The OxidGene runtime images use Debian Trixie. RustFS 1.0.0-beta.10 has no
+The OxidGene runtime images use Debian Trixie. RustFS 1.0.0 has no
 official Trixie variant, so the chart uses its official Alpine image.
 
 ### Ephemeral SQLite and filesystem
@@ -777,7 +777,7 @@ All other `redis-operator.*` values pass through to the upstream operator chart.
 |---|---|---|
 | `s3.rustfs.requireCrd` | `true` | Fail rendering when Helm discovery does not report the `Tenant` API. |
 | `s3.rustfs.tenantName` | Generated | Optional explicit Tenant name. |
-| `s3.rustfs.image` | `rustfs/rustfs:1.0.0-beta.10` | RustFS server image. |
+| `s3.rustfs.image` | `rustfs/rustfs:1.0.0` | RustFS server image. |
 | `s3.rustfs.adminCredentialsSecret` | `oxidgene-rustfs-admin` | Tenant administrator Secret with `accesskey` and `secretkey`. |
 | `s3.rustfs.applicationCredentialsSecret` | `oxidgene-s3` | Provisioned application-user Secret with `accesskey` and `secretkey`; also consumed by the backend. |
 | `s3.rustfs.rpcSecret` | `oxidgene-rustfs-rpc` | Dedicated internode RPC Secret. |
