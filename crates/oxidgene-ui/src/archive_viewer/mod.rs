@@ -11,9 +11,9 @@
 //! [`ArchiveViewerOpener`] that resolves the citation in an archive window;
 //! the web client, which has none, asks the backend for the target and opens
 //! it in a new browser tab. For an archive whose images OxidGene may use
-//! (`display: "iiif"`), the reader may attach the cited views as a document
+//! (`display: "iiif"`), the cited views can be attached as a document
 //! ([`attach`]): from the archive window on the desktop, from beside the
-//! source on the web.
+//! source on the web — an offer disabled for now by [`ATTACH_OFFERED`].
 
 mod attach;
 mod find;
@@ -25,8 +25,8 @@ use std::sync::Arc;
 use dioxus::prelude::try_use_context;
 use futures_channel::mpsc::UnboundedSender;
 use oxidgene_archives::{
-    Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Found, Licence, Part,
-    SuppliedParts,
+    Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Display, Found,
+    Licence, Part, SuppliedParts,
 };
 use uuid::Uuid;
 
@@ -479,13 +479,35 @@ impl ArchiveViewerMessages {
     }
 }
 
+/// Whether OxidGene offers the reader to attach the cited views of an
+/// archive whose images it may use (`display: "iiif"`) as a document:
+/// off. Attaching is implemented, but viewing the source an event cites is
+/// not where a reader collects documents; the offer is kept for a future
+/// free browsing of the archives, where a reader who finds a document may
+/// want to attach it to a person of the tree (docs/archives.md §6.3).
+///
+/// The one switch of every entry point, each reading it through
+/// [`offers_attach`]: the web's **Attach as a document** button beside the
+/// source, the target the desktop's archive window sends back, and the
+/// offer in that window's banner. Turning it on restores all of them; the
+/// attaching path itself stays built and tested either way.
+pub const ATTACH_OFFERED: bool = false;
+
+/// Whether the cited views of `archive` are offered for attaching while the
+/// switch is `offered` — [`ATTACH_OFFERED`] in the application: only for an
+/// archive whose images OxidGene may use.
+pub fn offers_attach(archive: &Archive, offered: bool) -> bool {
+    offered && archive.display == Display::Iiif
+}
+
 /// One request to open a register.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArchiveViewerRequest {
     pub link: ArchiveLink,
     pub messages: ArchiveViewerMessages,
     /// Where the window sends the target it shows when the reader asks to
-    /// attach its views: given for an archive whose images OxidGene may use.
+    /// attach its views: given for an archive whose images OxidGene may use
+    /// while [`ATTACH_OFFERED`] is on (see [`offers_attach`]).
     pub attach: Option<AttachSender>,
 }
 
@@ -600,6 +622,27 @@ mod tests {
             ..CitationEvidence::default()
         };
         ArchiveOffer::of(Uuid::nil(), None, evidence)
+    }
+
+    /// Attaching is disabled for now ([`ATTACH_OFFERED`]): no archive's
+    /// cited views are offered, not even an archive whose images OxidGene
+    /// may use, while the switch on offers those and only those.
+    #[test]
+    fn the_offer_to_attach_follows_its_switch() {
+        let iiif = link(
+            "AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5/13",
+            None,
+        )
+        .expect("a catalogued citation")
+        .archive;
+        let portal = link("AD44 - Exampleville - (aucun) - N - 1877 - vue 5/13", None)
+            .expect("a catalogued citation")
+            .archive;
+        assert_eq!(iiif.display, Display::Iiif);
+        assert_eq!(offers_attach(iiif, ATTACH_OFFERED), ATTACH_OFFERED);
+        assert!(!offers_attach(iiif, false));
+        assert!(offers_attach(iiif, true));
+        assert!(!offers_attach(portal, true));
     }
 
     #[test]

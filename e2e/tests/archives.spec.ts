@@ -1,9 +1,12 @@
-// A cited register opens on its archive's portal, for every archive alike;
-// for an archive whose images OxidGene may use (docs/archives.md §6.2, §6.4),
-// the cited views attach as a document from beside the source; and the
-// "Find in the archives" dialog completes a citation (§6.5). No archive
-// portal is contacted: the backend's archive-target answer is stubbed, and
-// the archive's pages and pictures are served by the test.
+// A cited register opens on its archive's portal, for every archive alike,
+// without the offer to attach its views, which is disabled for now
+// (docs/archives.md §6.3); with the offer on, the cited views of an archive
+// whose images OxidGene may use attach as a document from beside the source
+// (§6.2, §6.4); and the "Find in the archives" dialog completes a citation
+// (§6.5). No archive portal is contacted: the backend's archive-target answer
+// is stubbed, and the archive's pages and pictures are served by the test.
+
+import type { APIRequestContext, Page } from "@playwright/test";
 
 import { apiUrl, expect, test } from "./fixtures";
 
@@ -42,18 +45,16 @@ function target(view: number) {
     };
 }
 
-test("a cited register opens on the portal, and an iiif archive's cited view attaches as a document", async ({
-    page,
-    request,
-    tree,
-}) => {
-    // The fixture cites "Parish register 0" on every birth: rewrite it as a
-    // normalized citation of the archive.
+/// Rewrites "Parish register 0", which the fixture cites on every birth, as
+/// a normalized citation of the archive, and stubs the backend's
+/// archive-target answer. Returns the views asked for, `null` for the cited
+/// one.
+async function citeTheArchive(page: Page, request: APIRequestContext, treeId: string) {
     const sources = await (
-        await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/sources?title=Parish%20register%200`)
+        await request.get(`${apiUrl}/api/v1/trees/${treeId}/sources?title=Parish%20register%200`)
     ).json();
     const source = sources.edges[0].node;
-    const renamed = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/sources/${source.id}`, {
+    const renamed = await request.put(`${apiUrl}/api/v1/trees/${treeId}/sources/${source.id}`, {
         data: { title: CITATION },
     });
     expect(renamed.ok()).toBeTruthy();
@@ -65,6 +66,11 @@ test("a cited register opens on the portal, and an iiif archive's cited view att
         asked.push(view);
         await route.fulfill({ json: target(view ?? 5) });
     });
+    return asked;
+}
+
+test("a cited register opens on the portal, with no offer to attach its views", async ({ page, request, tree }) => {
+    const asked = await citeTheArchive(page, request, tree.treeId);
 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     // Every birth of the timeline cites the register: the first opens on
@@ -75,6 +81,28 @@ test("a cited register opens on the portal, and an iiif archive's cited view att
     await tab.waitForURL(`${ARCHIVE}/ark:/00000/a1/5`);
     expect(asked).toEqual([null]);
     await expect(page.locator(".media-viewer")).toHaveCount(0);
+    // Viewing a cited source is not where documents are collected: the
+    // offer to attach is off (`ATTACH_OFFERED`).
+    await expect(page.locator(".pd-ev-source-link").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Attach as a document" })).toHaveCount(0);
+});
+
+// The offer to attach is off (`ATTACH_OFFERED` in oxidgene-ui's
+// archive_viewer, docs/archives.md §6.3): this runs again once it is turned
+// on, with the free browsing of the archives (docs/roadmap.md) — the test
+// above then fails, as a reminder.
+test.skip("with the offer on, an iiif archive's cited view attaches as a document", async ({
+    page,
+    request,
+    tree,
+}) => {
+    const asked = await citeTheArchive(page, request, tree.treeId);
+
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    const opened = page.waitForEvent("popup");
+    await page.getByRole("button", { name: CITATION }).first().click();
+    await (await opened).waitForURL(`${ARCHIVE}/ark:/00000/a1/5`);
+    expect(asked).toEqual([null]);
 
     // Nothing is written until the form is saved.
     await page.getByRole("button", { name: "Attach as a document" }).first().click();

@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -91,9 +91,10 @@ which portal software each runs, how to recognize a citation that belongs to
 one, and how to turn that citation into the address of the cited image on the
 portal. OxidGene uses it to open sources in the portal's own viewer, for
 every archive alike. Where the archive publishes its images over IIIF and its
-terms allow it, a reader who wants to keep the cited act attaches it as a
-document whose pages are the archive's image addresses (§6.3, §6.4). OxidGene never
-copies, stores or redistributes the image bytes themselves.
+terms allow it, OxidGene can attach the cited act as a document whose pages
+are the archive's image addresses (§6.3, §6.4) — implemented, but not offered
+to the reader for now (§6.3). OxidGene never copies, stores or redistributes
+the image bytes themselves.
 
 The catalogue and the citation recognizer live in this crate, which the interface
 uses on both clients. The register is resolved through the portal's request
@@ -116,7 +117,8 @@ since some portals demand a browser, and displays the result (§4.2, §6;
   platform allows it.
 - The desktop archive window and the web tab that display a target.
 - Attaching one or several views, at the reader's explicit request, as a
-  document of remote pages, then cropping it with the existing region tool.
+  document of remote pages, then cropping it with the existing region tool;
+  implemented, its offer disabled for now (§6.3).
 
 **Out of scope**
 
@@ -151,7 +153,7 @@ that runs an already supported platform is a data change with no code.
 | `citation_codes` | Uppercase codes a citation may start with, such as `["AD44"]`. Unique across the catalogue. |
 | `website` | The archive's home page. |
 | `collections` | The archive's searchable collections of registers, each with its own engine (below). Empty when no adapter exists yet. |
-| `display` | `iiif` when OxidGene may use the archive's images over IIIF to attach cited views as remote pages (§6.3, §6.4); `portal` otherwise. Either way the archive opens on its portal. Default `portal`. |
+| `display` | `iiif` when OxidGene may use the archive's images over IIIF to attach cited views as remote pages (§6.3, §6.4) — an offer disabled for now, the value kept as the record of the archive's reuse terms —; `portal` otherwise. Either way the archive opens on its portal. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
 | `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`); `view_words`, the words introducing the views (default `["vue"]`); `series`, phrases naming a series added to the built-in vocabulary, by series code (`{"RP": ["dénombrement des habitants"]}`, `{"RI": ["C"]}` where a letter of the archive's own convention names its cemeteries' registers; default none); `districts`, the cities cited by their numbered districts, each `{"city", "count"}` (`[{"city": "Paris", "count": 20}]`, default none); `localities`, other names citations give a locality, by the name the archive's portal knows it by (`{"Ivry": ["Ivry-sur-Seine"]}`, default none); and `call_number_periods`, where the archive's call numbers write their register's period, as templates of text around a `{first}` year and an optional `{last}` one, four digits each (`["_RJ{first}{last}_"]` for `XXX_RJ19171918_04`, default none). A field left out keeps its default. |
@@ -214,7 +216,8 @@ the transports reach plain `http` for that endpoint alone.
 
 `display: "iiif"` is set only for an archive whose terms allow reuse with
 attribution and whose images load across origins; the decision is recorded
-with the archive, not inferred. Every collection of an `iiif` archive
+with the archive, not inferred, and kept, with the live checks reading its
+images, while the offer to attach is disabled (§6.3). Every collection of an `iiif` archive
 answers any client (`transport: "any"`), since the backend resolves its
 views for attaching on the web (§6.3); the catalogue refuses one with a `browser`
 collection. An archive whose viewer requires accepting a
@@ -2610,7 +2613,8 @@ could not be verified (`archive_viewer.certificate`) with a button opening
 the page in the system browser (`archive_viewer.open_in_browser`), and a
 resolution waiting on that page fails `unreachable`.
 
-**Attaching from the window.** Over the views of an archive whose images
+**Attaching from the window.** Disabled for now (§6.3): the banner never
+offers it. With the offer on, over the views of an archive whose images
 OxidGene may use (`display: "iiif"`, §6.3) — a `View` target whose every
 view carries its image —, the window's banner, once the portal's dialogs
 are answered (above), says that OxidGene can keep the cited view (`archive_viewer.attach_hint`, or the landing's own message)
@@ -2679,9 +2683,28 @@ portal (§6.1, §6.2). For a `display: "iiif"` archive it also knows each
 cited view's image — its `picture` and `thumbnail` addresses and its pixel
 size, read over IIIF by the adapter (§4) — and uses it to attach the views
 as a document (§6.4), with the attribution the archive's terms require.
-Nothing is displayed in OxidGene before the reader attaches: the desktop
-offers to attach from the archive window's banner (§6.1), the web from an
-**Attach as a document** button beside the cited source, whose click asks
+
+**The offer is disabled.** Attaching is implemented but offered nowhere:
+viewing the source an event cites is not where a reader collects documents —
+the act is already cited, and the portal already shows it. The offer is meant
+for a future free browsing and search of the archives within OxidGene
+([Roadmap](roadmap.md#3b-active-archive-viewer)), where a reader who finds a
+document may want to attach it to a person of the tree. One switch holds it
+off, `ATTACH_OFFERED` in `oxidgene-ui`'s `archive_viewer`, which every entry
+point reads through `offers_attach`: the web's button beside the source, the
+interface's request giving the desktop's archive window somewhere to send its
+target, and that window's banner, which checks the switch again before
+offering anything. Turning it on restores all three. Everything else stays
+built and tested: `display: "iiif"` in the catalogue and its live checks,
+the adapters' IIIF reads, the backend endpoint on both surfaces with its
+`view` (§5.3), the document form's register paging (§6.4), and the window's
+banner action; the interface and desktop tests exercise the enabled path
+explicitly, and check that nothing is offered with the switch off (§9).
+
+With the offer on, nothing is displayed in OxidGene before the reader
+attaches: the desktop offers to attach from the archive window's banner
+(§6.1), the web from an **Attach as a document** button beside the cited
+source, whose click asks
 the backend for the target (§5.3) — one lookup, answered from the session
 cache when the source was just opened — and, when its views carry their
 images, opens the document form. Any other answer — several or no
@@ -2690,7 +2713,7 @@ as the landing's notice (§6.2), or `archive_viewer.no_image`.
 
 ### 6.4 Attaching and cropping
 
-**Attach as a document** (§6.1, §6.3) opens the canonical `DocumentForm`
+With the offer on (§6.3), **Attach as a document** (§6.1) opens the canonical `DocumentForm`
 ([UI Common](ui-common.md#adding-a-document)) prefilled, and nothing is
 written before the reader saves it:
 
@@ -2771,7 +2794,7 @@ reloads. The source, shared by other citations, is never changed.
 | Commune listed by the portal under another name than the cited one (renamed, merged) | The register under that name, chosen as §5.1 (*Other names of the locality*) says: a name the place dictionary knows as the cited locality's, a shortened or extending name only with a cited call number or image count. A portal matching names as text is searched once more for that name; when nothing decides, `Results` on that search. |
 | View beyond the register's image count | `Results` with no match, the collection's filtered search page with the banner of no register: the register chosen is taken for another one than the cited (a citation of an older digitisation, its call number and view count those of a microfilm since replaced by the originals, split otherwise), which opening it on its first image would hide. A register carrying the cited call number — a person's row of an index of matricules, one view of the register the citation counts — is the cited one: `View` with no views, its first image. |
 | Register counting another number of images than the citation (digitised or bound again since: a register cited for 1832–1851 with 184 images, now bound with the years from 1818 in 301) | Its views, with `renumbering` and the banner `archive_viewer.renumbered` (desktop) or the same notice beside the source (web): the numbering changed, from the cited count to the register's, and the view opened, which may not be the cited page. Where the register's period ends with the cited one but starts earlier and it counts more images, the earlier years come first: each cited view is moved by the difference of the counts (view 38 of 184 opens 155 of 301). Otherwise — the cited period the register's start, the whole of it, or unknown, or the register counting fewer images — the cited numbers are kept. A register opened on its first image (no address per view, a view beyond it) has no `renumbering`. |
-| `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other; the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source (§6.3). |
+| `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other. With the offer to attach on (§6.3), the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source. |
 | Target behind a portal's reuse licence | The licence's entry, with `archive_viewer.licence` (desktop): once the reader has accepted it, the window opens the target; the tab opens the entry with `archive_viewer.licence_tab` (§6.1, §6.2). |
 | View cited within a register whose portal has no address per view | `View` with no views: the register's first image, with `archive_viewer.go_to_view` naming the cited view, as a banner (desktop) or a notice (web). |
 | Anti-bot check on the start page (desktop) | Waited out for 5 seconds, then the reader's to answer in the window within 3 minutes (§6.1). |
@@ -2913,10 +2936,14 @@ Archive portals are public services whose terms OxidGene follows:
   an incomplete citation before and after the reader's parts, refused parts
   and a portal address; interface tests read the attached register, its
   kinds of record and the views a target lets attach from fictitious
-  targets, what a citation offers, and the dialog's kinds and completion;
-  the desktop's, the archive window's banner action and its message; and the
-  browser test opens a register in a tab, attaches an `iiif` archive's views
-  and completes a citation in the dialog.
+  targets, the document drafted from cited views, what a citation offers,
+  and the dialog's kinds and completion; the desktop's, the archive window's
+  banner action and its message. Both check the offer to attach against its
+  switch: nothing offered with it off, an `iiif` archive's views offered
+  with it on (§6.3). The browser test opens a register in a tab without an
+  offer to attach, and completes a citation in the dialog; its scenario
+  attaching an `iiif` archive's views is skipped until the offer is turned
+  on.
 
 `just check` never contacts a portal: the tests above run offline.
 
@@ -3209,7 +3236,8 @@ id>` included, then skips, and relies on the user-reported failures of §7.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
    both surfaces and open targets from the web client; add `display`, the
    IIIF view in the shared viewer, attaching views as a remote multi-page
-   document, and `Media.thumbnail_url`. All of it is in place.
+   document, and `Media.thumbnail_url`. All of it is in place, the offer to
+   attach disabled since (§6.3).
 3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
    departmental archives running the four platforms in the order of §11.4,
    then municipal and Swiss cantonal archives.

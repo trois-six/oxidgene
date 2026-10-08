@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
 ---
 
 
@@ -324,10 +324,14 @@ the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
 otherwise) while the tab opens the archive's website, or its filtered search
 results after an anti-bot check. The next click clears it.
 
-Every archive opens the same way, on its portal. For an archive whose
-catalogue entry is `display: "iiif"` — one whose reuse terms let OxidGene use
-its images with their credit — the reader may also keep the cited views as a
-document ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)): on
+Every archive opens the same way, on its portal, and nothing beside the
+source or over the portal offers to keep the cited views: attaching them as a
+document is implemented but disabled for now, since viewing a cited source is
+not where a reader collects documents; it is meant for a future free browsing
+of the archives ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)).
+With the offer on, for an archive whose catalogue entry is `display: "iiif"` —
+one whose reuse terms let OxidGene use its images with their credit — the
+reader may keep the cited views as a document: on
 the desktop, the archive window's banner over the cited view offers **Attach
 as a document**, which brings this page forward with the document form; on
 the web, an **Attach as a document** button beside the source asks the

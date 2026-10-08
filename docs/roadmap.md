@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T09:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -87,7 +87,13 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 - [x] Attach `iiif` archives' cited views as a remote multi-page document that
   the region tool can crop, every archive opening alike on its portal — from
   the desktop's archive window, from beside the source on the web
-  ([Archive Portals §6.3–6.4](archives.md#63-iiif-behind-the-scenes)).
+  ([Archive Portals §6.3–6.4](archives.md#63-iiif-behind-the-scenes)). The
+  offer is disabled since: viewing a cited source is not where documents are
+  collected.
+- [ ] Browse and search the archives freely from OxidGene, beyond the
+  registers the tree cites, and offer there to attach a document found to a
+  person of the tree, turning the attaching offer back on
+  ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)).
 - [x] Cite and resolve series beyond acts — population censuses, military
   registers, conscription lists, tables of successions and absences — named
   in words or by code, through Arkothèque and Ligeo collections

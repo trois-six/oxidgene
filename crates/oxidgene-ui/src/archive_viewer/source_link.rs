@@ -5,14 +5,14 @@ use dioxus::prelude::*;
 use futures_util::StreamExt;
 use uuid::Uuid;
 
-use oxidgene_archives::{ArchiveTarget, Display};
+use oxidgene_archives::ArchiveTarget;
 
 use super::attach::AttachForm;
 use super::find::FindInArchives;
 use super::{
-    ArchiveAddress, ArchiveLink, ArchiveOffer, ArchivePageRequest, ArchiveRegister,
+    ATTACH_OFFERED, ArchiveAddress, ArchiveLink, ArchiveOffer, ArchivePageRequest, ArchiveRegister,
     ArchiveViewerBridge, ArchiveViewerMessages, ArchiveViewerRequest, AttachSender, Landing,
-    LandingBanner, ViewPage,
+    LandingBanner, ViewPage, offers_attach,
 };
 use crate::api::{ApiClient, ApiError, UpdateCitationBody};
 use crate::i18n::{I18n, use_i18n};
@@ -29,10 +29,11 @@ type Attaching = (ArchiveRegister, Vec<ViewPage>);
 /// "Find in the archives" dialog, whose completed parts open the register as
 /// above. Plain text where the desktop cannot open a register.
 ///
-/// For an archive whose images OxidGene may use (`display: "iiif"`), the
-/// reader may attach the cited views as a document of event `event_id`:
-/// from the archive window on the desktop, which sends its target back
-/// here, and from a button beside the source on the web. `on_attached`
+/// For an archive whose images OxidGene may use (`display: "iiif"`), and
+/// while [`ATTACH_OFFERED`] is on, the reader may attach the cited views as
+/// a document of event `event_id`: from the archive window on the desktop,
+/// which sends its target back here, and from a button beside the source on
+/// the web. `on_attached`
 /// fires once something is written: a document saved, or the parts the
 /// reader completed written into the citation's page.
 #[component]
@@ -52,7 +53,7 @@ pub fn ArchiveSourceLink(
     let mut finding = use_signal(|| false);
     let mut attaching = use_signal(|| None::<Attaching>);
     let archive = offer.archive();
-    let attachable = archive.display == Display::Iiif;
+    let attachable = offers_attach(archive, ATTACH_OFFERED);
     let hint = i18n.t_args("person.source_open_archive", &[("archive", &archive.name)]);
 
     let received = use_attach_targets(tree_id, &offer, bridge.clone(), attaching);
@@ -70,7 +71,7 @@ pub fn ArchiveSourceLink(
         use_callback(move |link: ArchiveLink| {
             notice.set(None);
             if let Some(bridge) = &bridge {
-                let attach = (link.archive.display == Display::Iiif)
+                let attach = offers_attach(link.archive, ATTACH_OFFERED)
                     .then(|| AttachSender::new(received.tx()));
                 bridge.open(ArchiveViewerRequest {
                     link,

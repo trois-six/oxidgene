@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T10:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -636,8 +636,9 @@ while it is being typed. Pages may be reordered and removed before saving.
 
 A caller that has already assembled a document opens the same form
 prefilled rather than a form of its own: attaching an archive's cited views
-— from the desktop's archive window or beside the cited source on the web
-([Archive Portals §6.4](archives.md#64-attaching-and-cropping)) —
+— from the desktop's archive window or beside the cited source on the web,
+an offer disabled for now
+([Archive Portals §6.3–6.4](archives.md#64-attaching-and-cropping)) —
 fills the title, description, kind of record, medium, the event checked, the
 source the document is linked to, and one remote page per view, each with its
 pixel size and thumbnail address. For such a register the page list also

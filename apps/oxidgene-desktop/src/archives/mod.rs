@@ -53,8 +53,9 @@ use oxidgene_archives::ArchiveTarget;
 use oxidgene_archives::transport::origin_of;
 use oxidgene_archives::{ArchiveRegistry, ResolveError, Resolver};
 use oxidgene_ui::archive_viewer::{
-    ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerBridge, ArchiveViewerMessages,
-    ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing, LandingBanner,
+    ATTACH_OFFERED, ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerBridge,
+    ArchiveViewerMessages, ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing,
+    LandingBanner, offers_attach,
 };
 use serde::Deserialize;
 use tokio::sync::Notify;
@@ -371,8 +372,15 @@ fn landing(
     transport: &WindowTransport,
     outcome: Result<ArchiveTarget, ResolveError>,
 ) -> Command {
-    let attach =
-        attach.and_then(|sender| attachable(link, outcome.as_ref().ok()?, sender, messages));
+    let attach = attach.and_then(|sender| {
+        attachable(
+            link,
+            outcome.as_ref().ok()?,
+            sender,
+            messages,
+            ATTACH_OFFERED,
+        )
+    });
     let addressed = match &outcome {
         Ok(ArchiveTarget::View { views, .. }) => views.first().map(|view| view.view),
         _ => None,
@@ -526,15 +534,18 @@ fn hold(link: Option<&ArchiveLink>, url: &str) -> Vec<String> {
         .collect()
 }
 
-/// What the window offers to attach: for an archive whose images OxidGene
-/// may use, a target whose views all carry their image.
+/// What the window offers to attach while the switch is `offered` —
+/// [`ATTACH_OFFERED`], off for now (docs/archives.md §6.3): for an archive
+/// whose images OxidGene may use, a target whose views all carry their
+/// image.
 fn attachable(
     link: &ArchiveLink,
     target: &ArchiveTarget,
     sender: AttachSender,
     messages: &ArchiveViewerMessages,
+    offered: bool,
 ) -> Option<Box<Attachable>> {
-    ArchiveRegister::attachable(link, target).then(|| {
+    (offers_attach(link.archive, offered) && ArchiveRegister::attachable(link, target)).then(|| {
         Box::new(Attachable {
             sender,
             target: target.clone(),
@@ -2111,6 +2122,65 @@ mod tests {
             status.page(PageState::Error, None, "Answer", Some(timed_out)),
             None
         );
+    }
+
+    /// The offer to attach follows [`ATTACH_OFFERED`], off for now: a
+    /// landing on views of an archive whose images OxidGene may use, each
+    /// with its image, offers nothing to attach even when the interface
+    /// gave somewhere to send them, while the switch turned on offers them.
+    #[test]
+    fn the_offer_to_attach_follows_its_switch() {
+        let messages = messages();
+        let link = link_of("AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5/13");
+        let url = "https://archives.example.org/ark:/00000/a1/5";
+        let target = ArchiveTarget::View {
+            url: url.to_owned(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view: 5,
+                url: url.to_owned(),
+                ark: None,
+                image: Some(oxidgene_archives::ArchiveImage {
+                    picture: "https://archives.example.org/iiif/5/full/max/0/default.jpg"
+                        .to_owned(),
+                    thumbnail: "https://archives.example.org/images/5_thumbnail.jpg".to_owned(),
+                    width: 3000,
+                    height: 2000,
+                }),
+            }],
+            view_count: Some(13),
+            call_number: Some("3E1/2".to_owned()),
+            attribution: None,
+            renumbering: None,
+        };
+        let sender = || AttachSender::new(futures_channel::mpsc::unbounded().0);
+
+        let Command::Load { attach, .. } = landing(
+            &link,
+            &messages,
+            Some(sender()),
+            &transport(&link, &messages),
+            Ok(target.clone()),
+        ) else {
+            panic!("a load");
+        };
+        assert_eq!(attach.is_some(), ATTACH_OFFERED);
+        let mut status = Status::new(None);
+        assert_eq!(
+            status
+                .page(PageState::Portal, attach.as_deref(), "Answer", None)
+                .is_some(),
+            ATTACH_OFFERED
+        );
+
+        // The switch on, the same views are offered; off, they are not.
+        let offered =
+            super::attachable(&link, &target, sender(), &messages, true).expect("views to attach");
+        assert_eq!(offered.target, target);
+        assert_eq!(offered.label, messages.attach);
+        assert!(super::attachable(&link, &target, sender(), &messages, false).is_none());
+        // Never for an archive whose images OxidGene may not use.
+        let portal = link_of("AD44 - Exampleville - (aucun) - N - 1877 - vue 5/13");
+        assert!(super::attachable(&portal, &target, sender(), &messages, true).is_none());
     }
 
     #[test]

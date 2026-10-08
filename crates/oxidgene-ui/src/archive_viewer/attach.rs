@@ -60,3 +60,66 @@ pub(super) fn AttachForm(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use oxidgene_archives::ArchiveImage;
+    use oxidgene_core::enums::DocumentCategory;
+
+    use super::*;
+    use crate::i18n::Language;
+
+    fn page(view: u16, cited: bool) -> ViewPage {
+        ViewPage {
+            view,
+            cited,
+            image: ArchiveImage {
+                picture: format!("https://archives.example.org/iiif/{view}/full/max/0/default.jpg"),
+                thumbnail: format!("https://archives.example.org/images/{view}_thumbnail.jpg"),
+                width: 1200,
+                height: 800,
+            },
+        }
+    }
+
+    /// The document attaching cited views — offered once `ATTACH_OFFERED` is
+    /// on — is prefilled with the cited views only, named after the register
+    /// and its views, of the record's kind, linked to the cited source and
+    /// checked as documenting the event.
+    #[test]
+    fn the_draft_holds_the_cited_views() {
+        let i18n = I18n::new(Language::english());
+        let link = super::super::tests::link(
+            "AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5-6/13",
+            None,
+        )
+        .expect("a catalogued citation");
+        let register = ArchiveRegister {
+            tree_id: Uuid::nil(),
+            link: link.clone(),
+            view_count: Some(13),
+            call_number: Some("3E1/2".to_owned()),
+        };
+        let event_id = Uuid::now_v7();
+        let draft = draft(
+            &i18n,
+            &register,
+            &[page(5, true), page(6, true), page(7, false)],
+            event_id,
+        );
+        assert_eq!(draft.title, "3E1/2, views 5-6");
+        assert_eq!(draft.category, Some(DocumentCategory::CivilRecord));
+        assert_eq!(draft.medium, SourceMediaType::Manuscript);
+        assert_eq!(
+            draft
+                .pages
+                .iter()
+                .map(|page| (page.view, page.file_name.as_str()))
+                .collect::<Vec<_>>(),
+            [(Some(5), "5.jpg"), (Some(6), "6.jpg")]
+        );
+        assert_eq!(draft.event_ids, [event_id]);
+        assert_eq!(draft.source_id, Some(link.source_id));
+        assert_eq!(draft.register, Some(register));
+    }
+}
