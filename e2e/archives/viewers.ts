@@ -17,6 +17,11 @@ export interface Viewer {
     // shows its view number without them would otherwise download a full
     // image and its neighbours' thumbnails at each opening.
     blockImages?: boolean;
+    // A pattern of the viewer page's source that shows it asks the reader to
+    // accept a reuse licence before showing an image. An `iiif` archive,
+    // whose images the desktop window shows without a portal step, must not
+    // match it (docs/archives.md §3.1): the archive is `portal` instead.
+    licenceWall?: RegExp;
 }
 
 export const viewers: Record<string, Viewer> = {
@@ -63,8 +68,10 @@ export const viewers: Record<string, Viewer> = {
     },
     // Ligeo: the Monocle viewer's page navigation, or the Binocle viewer's
     // gallery counter (`<input value="5"> sur 29`) on the portals that run
-    // it (Hautes-Alpes).
+    // it (Hautes-Alpes). A portal enables the Monocle clickwrap, a reuse
+    // licence dialog over the viewer, in the viewer's own configuration.
     ligeo: {
+        licenceWall: /"monocle-clickwrap"\s*:\s*\{\s*"active"\s*:\s*true/,
         view: '.monocle-PageNav input[role="spinbutton"], .bn-gallery-counter input.bn-gallery-counter-current',
         viewCount: ".monocle-PageNav-total, .bn-gallery-counter",
     },

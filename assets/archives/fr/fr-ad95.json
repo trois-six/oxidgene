@@ -7,8 +7,7 @@
   "areas": ["Val-d'Oise"],
   "citation_codes": ["AD95"],
   "website": "https://archives.valdoise.fr/",
-  "display": "iiif",
-  "attribution": "Archives départementales du Val-d'Oise, {call_number}, vue {view}",
+  "display": "portal",
   "terms": "https://archives.valdoise.fr/n/modalites-de-reutilisation/n:51",
   "collections": [
     {

@@ -137,6 +137,11 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
     } catch (error) {
         return unreachable("opening", "the target page", error);
     }
+    // An `iiif` archive (its opening carries the image) shows no licence of
+    // the portal's: a portal that enables one is `portal` (docs/archives.md §3.1).
+    if (opening.image && viewer.licenceWall && viewer.licenceWall.test(await page.content().catch(() => ""))) {
+        return drift("opening", `no reuse licence over the ${opening.platform} viewer of an iiif archive`, `the viewer asks to accept a reuse licence: set the archive's display to "portal"`);
+    }
     if (!viewer.view) return drift("opening", `the view of ${opening.platform} in e2e/archives/viewers.ts`, "none");
     const view = viewer.view;
     let shown: number | null = null;

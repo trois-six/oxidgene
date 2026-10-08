@@ -7,8 +7,7 @@
   "areas": ["Hérault"],
   "citation_codes": ["AD34"],
   "website": "https://archives-pierresvives.herault.fr/",
-  "display": "iiif",
-  "attribution": "Document conservé aux Archives départementales de l'Hérault, sous la cote {call_number}, vue {view}",
+  "display": "portal",
   "terms": "https://pierresvives.herault.fr/933-regles-de-reproduction-et-de-reutilisation.htm",
   "collections": [
     {
