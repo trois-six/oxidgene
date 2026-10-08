@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use super::locality::{forms, label_name, matching_labels};
+use super::locality::{forms, label_name, naming_labels};
 use super::markup;
 use super::query::encode;
 use super::select::{Candidate, narrow};
@@ -418,7 +418,7 @@ async fn search(
     let act = settings.act_value(&citation.act);
     check_form(settings, &form, act)?;
     let labels = form.values(settings.locality);
-    let named = matching_labels(&labels, localities);
+    let named = naming_labels(&labels, localities, citation);
     if named.is_empty() || named.len() > MAX_LABELS {
         return Ok(Found {
             candidates: Vec::new(),

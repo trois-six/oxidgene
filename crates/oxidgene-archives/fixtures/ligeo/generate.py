@@ -429,3 +429,27 @@ def info(width, height):
 write("info-wide.json", json.dumps(info(2704, 1780), indent=1) + "\n")
 write("info-tall.json", json.dumps(info(1780, 2704), indent=1) + "\n")
 write("info-small.json", json.dumps(info(1000, 800), indent=1) + "\n")
+
+
+# A commune renamed since the citation: the portal lists it under a shorter
+# name, its thesaurus-qualified locality cell beside an act cell mixing the
+# document type and the act, the image count and a call number of its own;
+# a search for that name, matched as a substring, also returns another
+# commune whose name extends it, with the same image count.
+RENAMED_HEADERS = ["Commune", "Acte", "Dates", "Vues", "Cote", "Action(s)"]
+
+
+def renamed_row(n, locality, year, count, cote):
+    label = f"Actes de naissances, {year}."
+    return [esc(f"{locality} (Exampledept, France)"), "acte, naissance", year,
+            viewer_link(n, count, label, css="arc_img_visu_noicone"), esc(cote), actions(n, 217)]
+
+
+write("renamed.html", page(
+    '<span class="arc_nbr_reponses">4 réponses dans 1 inventaire</span>',
+    table(RENAMED_HEADERS, [
+        renamed_row(121, "Exampleville", "1902", 198, "EXV 1E38"),
+        renamed_row(122, "Exampleville", "1903", 201, "EXV 1E39"),
+        renamed_row(123, "Exampleville", "1904", 205, "EXV 1E40"),
+        renamed_row(124, "Exampleville-la-Forêt", "1903", 201, "EXF 1E12"),
+    ])))

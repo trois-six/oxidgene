@@ -102,12 +102,25 @@ impl PortalTransport for Unavailable {
     }
 }
 
-/// The place dictionary, as recognizing a citation consults it.
-pub struct DictionaryPlaces;
+/// The place dictionary, as one recognition of a citation consults it:
+/// read at most once for all its lookups, and dropped with it
+/// ([`crate::reference::PlaceReading`]).
+#[derive(Default)]
+pub struct DictionaryPlaces(crate::reference::PlaceReading);
+
+impl DictionaryPlaces {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 impl PlaceLookup for DictionaryPlaces {
     fn areas(&self, names: &[String]) -> Vec<Vec<String>> {
-        crate::reference::place_areas(names)
+        self.0.areas(names)
+    }
+
+    fn other_names(&self, name: &str, areas: &[String]) -> Vec<String> {
+        self.0.other_names(name, areas)
     }
 }
 
@@ -150,7 +163,7 @@ pub async fn archive_target(
     let span = tracing::info_span!("archive.recognize");
     let reader = supplied.clone();
     let recognition = crate::service::blocking::run(span, move || {
-        registry.recognize(&evidence, reader.as_ref(), Some(&DictionaryPlaces))
+        registry.recognize(&evidence, reader.as_ref(), Some(&DictionaryPlaces::new()))
     })
     .await?
     .map_err(|unrecognized| {

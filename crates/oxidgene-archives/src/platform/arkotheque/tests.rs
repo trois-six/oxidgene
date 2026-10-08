@@ -41,6 +41,8 @@ fn block_on<F: Future>(future: F) -> F::Output {
 /// Answers each kind of request with its fixture, and records the requests.
 struct Fixtures {
     search: &'static str,
+    /// Searches answered otherwise, by a text their address holds.
+    answers: Vec<(&'static str, &'static str)>,
     /// The search's next page, asked from a row other than the first.
     next: &'static str,
     /// The engine's bare answer, where a filter's values are read.
@@ -54,6 +56,7 @@ impl Fixtures {
     fn new(search: &'static str) -> Self {
         Self {
             search,
+            answers: Vec::new(),
             next: AD44_NONE,
             engine: AD44_ENGINE,
             viewer: AD44_VIEWER,
@@ -76,8 +79,14 @@ impl PortalFetch for Fixtures {
             self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
             let first_page = url.contains("--from=0&");
-            let body = if url.starts_with("/_recherche-api/moteur?") && !url.contains("ficheFocus")
-            {
+            let answer = self
+                .answers
+                .iter()
+                .find(|(part, _)| url.contains(part))
+                .map(|(_, answer)| *answer);
+            let body = if let Some(answer) = answer {
+                answer
+            } else if url.starts_with("/_recherche-api/moteur?") && !url.contains("ficheFocus") {
                 self.engine
             } else if url.starts_with("/_recherche-api/moteur?") && first_page {
                 self.search
@@ -1310,4 +1319,36 @@ fn only_a_slider_spans_the_cited_period() {
     collection.portal["fields"]["period"]["mode"] = "slider".into();
     collection.portal["fields"]["locality"]["span"] = true.into();
     assert!(Settings::read(&collection).is_err());
+}
+/// A commune the portal lists under the cited name without its qualifier:
+/// the cited name finds nothing, and one more search, of one page, for the
+/// shortened name finds the register, taken on its cited image count.
+#[test]
+fn a_commune_listed_under_a_shorter_name_is_searched_again() {
+    let title = "AD44 - Exampleville-sous-Bois - Saint-Exemple - B - 1660 - acte 4 - vue 2g/46";
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.answers = vec![("Exampleville-sous-Bois", AD44_NONE)];
+    let target = resolve(ArchiveRegistry::embedded(), title, &fetch).unwrap();
+    assert_eq!(opened_record(&target), "arko_fiche_0000000000a01");
+    let searches: Vec<String> = fetch
+        .requests()
+        .into_iter()
+        .filter(|request| request.starts_with("/_recherche-api/moteur?"))
+        .collect();
+    assert_eq!(searches.len(), 2, "{searches:?}");
+    assert!(searches[0].contains("Exampleville-sous-Bois"));
+    assert!(!searches[1].contains("sous-Bois"));
+
+    // Without the call number nor the image count, the year alone does not
+    // make the shortened name's register the cited one: its results.
+    let title = "AD44 - Exampleville-sous-Bois - Saint-Exemple - B - 1660";
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.answers = vec![("Exampleville-sous-Bois", AD44_NONE)];
+    match resolve(ArchiveRegistry::embedded(), title, &fetch) {
+        Ok(ArchiveTarget::Results { url, matches }) => {
+            assert_eq!(matches, Some(0));
+            assert!(!url.contains("sous-Bois"), "{url}");
+        }
+        other => panic!("expected results, got {other:?}"),
+    }
 }

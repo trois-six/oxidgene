@@ -587,6 +587,7 @@ fn citation_of(archive: &Archive, act: &Act, register: &Register, uncounted: u16
             side: None,
         }],
         view_count: register.images,
+        alternate_localities: Vec::new(),
     }
 }
 

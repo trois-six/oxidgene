@@ -11,7 +11,7 @@ use super::{Found, Register, Search, Settings, get, unexpected};
 use crate::ResolveError;
 use crate::citation::{Act, CitationParts};
 use crate::platform::Query;
-use crate::platform::locality::{label_name, matching_labels};
+use crate::platform::locality::{label_name, naming_labels};
 use crate::platform::select::{Candidate, narrow};
 use crate::transport::PortalFetch;
 
@@ -141,7 +141,7 @@ pub(super) async fn find(
         return Err(unexpected("settings of another mode"));
     };
     let labels = form.options(&format!("query{}", criteria.locality));
-    let named = matching_labels(&labels, localities);
+    let named = naming_labels(&labels, localities, citation);
     let mut found = Found {
         candidates: Vec::new(),
         results_url: None,

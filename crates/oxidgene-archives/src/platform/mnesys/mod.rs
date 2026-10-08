@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::iiif::image_info;
-use super::locality::{LocalityStyle, forms};
+use super::locality::{LocalityStyle, OtherNames, forms};
 use super::markup::{self, fold};
 use super::select::{Candidate, Selection, number_range, select};
 use super::view::{cited_views, view_target};
@@ -41,6 +41,15 @@ const MAX_WINDOW: u16 = 10;
 
 /// The Mnesys adapter.
 pub struct Mnesys;
+
+/// The locality labels a search sends.
+#[derive(Debug, PartialEq, Eq)]
+struct Labels {
+    sent: Vec<String>,
+    /// The name the labels give the cited locality, when the form's list
+    /// names it otherwise than the citation ([`OtherNames`]).
+    renamed: Option<String>,
+}
 
 /// A collection's `portal` settings.
 #[derive(Debug, Clone, Deserialize)]
@@ -413,20 +422,43 @@ impl Settings {
     }
 
     /// The labels of the form's locality list that name the cited locality
-    /// under one of the patterns.
-    fn listed_labels(&self, options: &[String], citation: &CitationParts) -> Vec<String> {
+    /// under one of the patterns; failing any, those naming it under another
+    /// name ([`OtherNames`]), with that name, which the rows found then
+    /// show for selection to weigh.
+    fn listed_labels(&self, options: &[String], citation: &CitationParts) -> Labels {
         let wanted = self.locality_forms(citation);
-        options
+        let names = |label: &str| -> Vec<String> {
+            self.locality_label
+                .iter()
+                .flat_map(|pattern| named_by(pattern, label))
+                .map(str::to_owned)
+                .collect()
+        };
+        let sent: Vec<String> = options
             .iter()
-            .filter(|label| {
-                self.locality_label.iter().any(|pattern| {
-                    named_by(pattern, label)
-                        .into_iter()
-                        .any(|name| wanted.contains(&fold(name)))
-                })
-            })
+            .filter(|label| names(label).iter().any(|name| wanted.contains(&fold(name))))
             .cloned()
-            .collect()
+            .collect();
+        if !sent.is_empty() {
+            return Labels {
+                sent,
+                renamed: None,
+            };
+        }
+        let written: Vec<&str> = wanted.iter().map(String::as_str).collect();
+        let others = OtherNames::new(citation, &written);
+        let named = options.iter().flat_map(|label| {
+            names(label)
+                .into_iter()
+                .map(move |name| (label.clone(), self.locality_style.cited(&name)))
+        });
+        let best = others.best(named, |(_, name)| name.clone());
+        let mut sent: Vec<String> = best.iter().map(|(label, _)| label.clone()).collect();
+        sent.dedup();
+        Labels {
+            renamed: best.into_iter().next().map(|(_, name)| name),
+            sent,
+        }
     }
 
     /// Whether a context entry shows a label the patterns spell, as a
@@ -472,12 +504,16 @@ impl Settings {
         &self,
         citation: &CitationParts,
         fetch: &dyn PortalFetch,
-    ) -> Result<Option<Vec<String>>, ResolveError> {
+    ) -> Result<Option<Labels>, ResolveError> {
+        let built = |sent| Labels {
+            sent,
+            renamed: None,
+        };
         let Some(field) = self.fields.locality.as_deref() else {
-            return Ok(Some(Vec::new()));
+            return Ok(Some(built(Vec::new())));
         };
         if !self.looks_up(citation) {
-            return Ok(Some(self.built_labels(citation)));
+            return Ok(Some(built(self.built_labels(citation))));
         }
         let form = fetch.get(&self.form_path()).await?;
         let options = page::options(&form, field).ok_or_else(|| {
@@ -487,7 +523,7 @@ impl Settings {
             )
         })?;
         let labels = self.listed_labels(&options, citation);
-        Ok((!labels.is_empty()).then_some(labels))
+        Ok((!labels.sent.is_empty()).then_some(labels))
     }
 
     /// The filters of a search, shared by the request and the search page:
@@ -814,7 +850,7 @@ async fn resolve(
             matches: Some(0),
         });
     };
-    let filters = settings.filters(citation, &labels);
+    let filters = settings.filters(citation, &labels.sent);
     let results = |matches| ArchiveTarget::Results {
         url: settings.search_page(&filters),
         matches: Some(matches),
@@ -827,7 +863,16 @@ async fn resolve(
         return Ok(results(page.total));
     }
 
-    let candidates = settings.candidates(page.rows, citation);
+    let mut candidates = settings.candidates(page.rows, citation);
+    // Rows of a label naming the locality otherwise show that name, which
+    // selection weighs on the citation's evidence.
+    if let Some(renamed) = &labels.renamed {
+        for candidate in &mut candidates {
+            if candidate.locality.as_deref() == Some(citation.locality.as_str()) {
+                candidate.locality = Some(renamed.clone());
+            }
+        }
+    }
     // Rows showing no call number cannot be told apart by the cited one.
     let without_call_number;
     let cited = if settings.call_number == CallNumberSource::None && citation.call_number.is_some()

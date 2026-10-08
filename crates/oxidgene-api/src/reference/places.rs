@@ -143,30 +143,92 @@ pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLo
     }
 }
 
-/// The subdivisions and regions of the places named each of `names`,
-/// written as the dictionary does: what recognizing an archive citation asks
-/// to tell a municipality of the archive's area from a parish or a hamlet
-/// (docs/archives.md §5.1). Empty for a name that is no place.
+/// One reading of the place dictionary by recognizing an archive citation
+/// (docs/archives.md §5.1), which may ask it two things: the areas of the
+/// localities a citation offers, and the other names of the one chosen.
 ///
-/// Like [`locate_places`], it reuses the index place searches build when it
-/// is in memory, and otherwise reads the dictionary once for the rows so
-/// named, keeping nothing afterwards.
-pub fn place_areas(names: &[String]) -> Vec<Vec<String>> {
-    let _span = tracing::info_span!(
-        "reference.places.areas",
-        name.count = names.len(),
-        place.index_loaded = DICTIONARY.get().is_some(),
-    )
-    .entered();
-    let folded: Vec<String> = names.iter().map(|name| fold_words(name)).collect();
-    match DICTIONARY.get() {
-        Some(dictionary) => dictionary.areas_of(&folded),
-        None => {
-            let wanted: HashSet<&str> = folded.iter().map(String::as_str).collect();
-            Dictionary::parse_keeping(&decompressed(), |name, _| wanted.contains(name))
-                .areas_of(&folded)
+/// Each lookup reuses the index place searches build when it is in memory.
+/// Otherwise the file is decompressed on the first lookup and kept only as
+/// long as the reading — one recognition —, so that the second lookup does
+/// not decompress it again; each lookup then reads from it the rows it
+/// needs. Nothing outlives the reading.
+#[derive(Default)]
+pub struct PlaceReading {
+    text: OnceLock<String>,
+}
+
+impl PlaceReading {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The decompressed file, read once for the reading.
+    fn text(&self) -> &str {
+        self.text.get_or_init(decompressed)
+    }
+
+    /// The subdivisions and regions of the places named each of `names`,
+    /// written as the dictionary does: what tells a municipality of the
+    /// archive's area from a parish or a hamlet. Empty for a name that is no
+    /// place. Without the index, only the rows so named are kept.
+    pub fn areas(&self, names: &[String]) -> Vec<Vec<String>> {
+        let _span = tracing::info_span!(
+            "reference.places.areas",
+            name.count = names.len(),
+            place.index_loaded = DICTIONARY.get().is_some(),
+        )
+        .entered();
+        let folded: Vec<String> = names.iter().map(|name| fold_words(name)).collect();
+        match DICTIONARY.get() {
+            Some(dictionary) => dictionary.areas_of(&folded),
+            None => {
+                let wanted: HashSet<&str> = folded.iter().map(String::as_str).collect();
+                Dictionary::parse_keeping(self.text(), |name, _| wanted.contains(name))
+                    .areas_of(&folded)
+            }
         }
     }
+
+    /// The other names of the commune named `name` within one of the
+    /// `written` areas — the subdivisions or regions an archive serves, as
+    /// the file writes them —: what recognition passes on, for a portal
+    /// listing the commune under another name than the citation.
+    ///
+    /// They are the names of the same commune, its official code telling it
+    /// (a former name, today's name, a name it bore under another code
+    /// before a département was split), within the areas, and for a commune
+    /// merged into another, that one's current name; the current names come
+    /// first. A parish or a hamlet has none, and neither does a name the
+    /// dictionary does not know within the areas. Without the index, only
+    /// the rows filed under the areas are kept, found by their text before
+    /// any name is folded.
+    pub fn other_names(&self, name: &str, written: &[String]) -> Vec<String> {
+        let _span = tracing::info_span!(
+            "reference.places.other_names",
+            place.index_loaded = DICTIONARY.get().is_some(),
+        )
+        .entered();
+        let folded = fold_words(name);
+        let areas: Vec<String> = written.iter().map(|area| fold_words(area)).collect();
+        if folded.is_empty() || areas.is_empty() {
+            return Vec::new();
+        }
+        let dictionary = match DICTIONARY.get() {
+            Some(dictionary) => dictionary,
+            None => &Dictionary::within_areas(self.text(), written),
+        };
+        let lineage = dictionary.lineage(&folded, &areas);
+        dictionary.other_names(&folded, &areas, &lineage)
+    }
+}
+
+/// The official codes a commune's names are told by.
+#[derive(Debug, Default, PartialEq)]
+struct Lineage {
+    /// The codes the commune itself bears or bore.
+    own: Vec<String>,
+    /// The codes of the communes it was merged into.
+    absorbing: Vec<String>,
 }
 
 /// A label read against the dictionary.
@@ -466,9 +528,40 @@ impl Dictionary {
         })
     }
 
+    /// The rows filed under one of the `written` areas, found by the areas'
+    /// quoted text, with either apostrophe: every row
+    /// [`Self::other_names`] may name, read without folding the others.
+    fn within_areas(csv: &str, written: &[String]) -> Self {
+        let quoted: Vec<String> = written
+            .iter()
+            .flat_map(|area| {
+                [
+                    area.replace('\u{2019}', "'"),
+                    area.replace('\'', "\u{2019}"),
+                ]
+            })
+            .map(|area| format!("\"{area}\""))
+            .collect();
+        Self::parse_lines(
+            csv,
+            |line| quoted.iter().any(|area| line.contains(area.as_str())),
+            |_, _| true,
+        )
+    }
+
     /// The rows `keep` accepts, given their folded name and their line. A row
     /// it refuses is not split: only its first fields are read.
     fn parse_keeping(csv: &str, keep: impl Fn(&str, &str) -> bool) -> Self {
+        Self::parse_lines(csv, |_| true, keep)
+    }
+
+    /// The rows whose line `line` accepts, its name not even folded
+    /// otherwise, and then `keep` as [`Self::parse_keeping`].
+    fn parse_lines(
+        csv: &str,
+        line_kept: impl Fn(&str) -> bool,
+        keep: impl Fn(&str, &str) -> bool,
+    ) -> Self {
         let mut text = String::new();
         let mut store = |value: &str| {
             let span = Span {
@@ -487,7 +580,7 @@ impl Dictionary {
             })
         };
         let mut entries = Vec::new();
-        for line in csv.lines().filter(|l| !l.is_empty()) {
+        for line in csv.lines().filter(|l| !l.is_empty() && line_kept(l)) {
             let folded = fold_words(&first_field(line));
             if !keep(&folded, line) {
                 continue;
@@ -591,6 +684,100 @@ impl Dictionary {
                 areas
             })
             .collect()
+    }
+
+    /// Whether an entry lies within one of the folded `areas`, by its
+    /// subdivision or its region.
+    fn within(&self, entry: &Entry, areas: &[String]) -> bool {
+        [entry.subdivision, entry.region]
+            .iter()
+            .any(|part| areas.contains(&self.parts[usize::from(*part)].folded[0]))
+    }
+
+    /// The codes of the commune named `folded` within `areas`: a commune's
+    /// own; a former name's commune today (its successor), else its code; a
+    /// former commune's own, and the commune that absorbed it when that one
+    /// bears another code. Parishes and hamlets have none.
+    fn lineage(&self, folded: &str, areas: &[String]) -> Lineage {
+        let mut lineage = Lineage::default();
+        let add = |codes: &mut Vec<String>, code: &str| {
+            if !code.is_empty() && !codes.iter().any(|known| known == code) {
+                codes.push(code.to_owned());
+            }
+        };
+        for entry in self.named(folded).filter(|e| self.within(e, areas)) {
+            let code = self.get(entry.code);
+            let successor = self.get(entry.successor);
+            match entry.kind {
+                PlaceKind::Commune | PlaceKind::MunicipalArrondissement => {
+                    add(&mut lineage.own, code);
+                }
+                PlaceKind::FormerName => {
+                    add(
+                        &mut lineage.own,
+                        if successor.is_empty() {
+                            code
+                        } else {
+                            successor
+                        },
+                    );
+                }
+                PlaceKind::FormerCommune => {
+                    add(&mut lineage.own, code);
+                    if successor != code {
+                        add(&mut lineage.absorbing, successor);
+                    }
+                }
+                PlaceKind::Settlement | PlaceKind::Parish => {}
+            }
+        }
+        lineage
+    }
+
+    /// The names, other than `folded`, of the commune whose codes are
+    /// `lineage`, within `areas`: every commune, former name or former
+    /// commune bearing one of its own codes, every former name whose
+    /// successor is one, and the current name of a commune absorbing it.
+    /// Current names first, each name once.
+    fn other_names(&self, folded: &str, areas: &[String], lineage: &Lineage) -> Vec<String> {
+        let mut current: Vec<&Entry> = Vec::new();
+        let mut former: Vec<&Entry> = Vec::new();
+        for entry in &self.entries {
+            let living = matches!(
+                entry.kind,
+                PlaceKind::Commune | PlaceKind::MunicipalArrondissement
+            );
+            let code = self.get(entry.code);
+            let named = |codes: &[String]| codes.iter().any(|known| known == code);
+            let same = match entry.kind {
+                PlaceKind::Commune
+                | PlaceKind::MunicipalArrondissement
+                | PlaceKind::FormerCommune => named(&lineage.own),
+                PlaceKind::FormerName => {
+                    let successor = self.get(entry.successor);
+                    named(&lineage.own) || lineage.own.iter().any(|known| known == successor)
+                }
+                PlaceKind::Settlement | PlaceKind::Parish => false,
+            };
+            let absorbing = living && named(&lineage.absorbing);
+            if (same || absorbing) && self.within(entry, areas) {
+                if living {
+                    current.push(entry);
+                } else {
+                    former.push(entry);
+                }
+            }
+        }
+        let mut seen = vec![folded.to_owned()];
+        let mut names = Vec::new();
+        for entry in current.into_iter().chain(former) {
+            let key = self.get(entry.folded);
+            if !seen.iter().any(|known| known == key) {
+                seen.push(key.to_owned());
+                names.push(self.get(entry.name).to_owned());
+            }
+        }
+        names
     }
 
     /// The entries whose folded name is exactly `folded`.
@@ -1137,6 +1324,59 @@ mod tests {
         let found = dictionary.locate_all(&[("Ville-A", 1), ("Ville-B", 3)], ReferenceLang::En);
         assert_eq!(found[0].country.as_deref(), Some("France"));
         assert_eq!(found[0].subdivision.as_deref(), Some("Département A"));
+    }
+
+    /// Fictitious communes of one département, renamed, merged and split
+    /// as the INSEE history files them, beside a homonym elsewhere.
+    const HISTORY: &str = r#""Ville-Nouvelle","99010","Département A","Région A","France","commune","1968-01-01","","","48.0","2.0","1"
+"Ville-Ancienne","99010","Département A","Région A","France","former_name","","1990-01-01","99010","48.0","2.0","1"
+"Ville-Ancienne","88010","Ancien Département","Région A","France","former_name","","1968-01-01","99010","48.0","2.0",""
+"Bourg-Fusion","99020","Département A","Région A","France","commune","2016-01-01","","","48.1","2.1","1"
+"Bourg-Chef","99020","Département A","Région A","France","former_commune","","2016-01-01","99020","48.1","2.1","1"
+"Hameau-Absorbé","99021","Département A","Région A","France","former_commune","","2016-01-01","99020","48.2","2.2","1"
+"Le Clos","99020","Département A","Région A","France","settlement","","","","48.1","2.1","1"
+"Ville-Ancienne","99030","Département B","Région B","France","commune","","","","45.0","5.0","1"
+"Ville-Nouvelle","01010","Kreis A","Land A","Allemagne","commune","","","","53.0","9.0","1"
+"#;
+
+    #[test]
+    fn a_commune_has_its_other_names_within_the_areas() {
+        let dictionary = Dictionary::parse(HISTORY);
+        let areas = [fold_words("Département A")];
+        let other = |name: &str| {
+            let folded = fold_words(name);
+            let lineage = dictionary.lineage(&folded, &areas);
+            dictionary.other_names(&folded, &areas, &lineage)
+        };
+        // A former name: today's name; and the other way round.
+        assert_eq!(other("Ville-Ancienne"), ["Ville-Nouvelle"]);
+        assert_eq!(other("Ville-Nouvelle"), ["Ville-Ancienne"]);
+        // A commune merged into another: that one's current name, its own
+        // names and only them, never another commune merged with it.
+        assert_eq!(other("Hameau-Absorbé"), ["Bourg-Fusion"]);
+        assert_eq!(other("Bourg-Chef"), ["Bourg-Fusion"]);
+        assert_eq!(other("Bourg-Fusion"), ["Bourg-Chef"]);
+        // A hamlet, or a name unknown within the areas, has none.
+        assert!(other("Le Clos").is_empty());
+        assert!(other("Nowhere").is_empty());
+        let elsewhere = [fold_words("Département B")];
+        let folded = fold_words("Ville-Ancienne");
+        let lineage = dictionary.lineage(&folded, &elsewhere);
+        assert!(
+            dictionary
+                .other_names(&folded, &elsewhere, &lineage)
+                .is_empty()
+        );
+
+        // Read without the index, the rows of the areas alone give the same.
+        let written = ["Département A".to_owned()];
+        let partial = Dictionary::within_areas(HISTORY, &written);
+        assert_eq!(partial.entries.len(), 6);
+        for name in ["Ville-Ancienne", "Hameau-Absorbé", "Bourg-Fusion"] {
+            let folded = fold_words(name);
+            let lineage = partial.lineage(&folded, &areas);
+            assert_eq!(partial.other_names(&folded, &areas, &lineage), other(name));
+        }
     }
 
     #[test]

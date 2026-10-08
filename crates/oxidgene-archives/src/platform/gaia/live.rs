@@ -149,6 +149,7 @@ async fn registers_at(
         number: None,
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     };
     let failed = |error: ResolveError| Failure::from_error(step, expected, &error);
     let (answer, others) = match start(settings, &citation, fetch).await.map_err(failed)? {

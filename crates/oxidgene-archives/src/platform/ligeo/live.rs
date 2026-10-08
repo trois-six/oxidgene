@@ -325,6 +325,7 @@ async fn search(
         number: settings.fields.number.as_ref().map(|_| 1),
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     };
     let expected = "the result rows of the first listed locality";
     let answer = fetch

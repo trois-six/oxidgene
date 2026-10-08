@@ -134,6 +134,7 @@ async fn registers(
         number: None,
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     };
     let (document, level) = find_document(&settings, &citation, fetch)
         .await

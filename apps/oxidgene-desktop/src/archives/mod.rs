@@ -557,7 +557,7 @@ async fn refined(link: &ArchiveLink) -> oxidgene_archives::CitationParts {
             .recognize(
                 &evidence,
                 supplied.as_ref(),
-                Some(&oxidgene_api::service::archive::DictionaryPlaces),
+                Some(&oxidgene_api::service::archive::DictionaryPlaces::new()),
             )
             .ok()
             .and_then(|recognition| recognition.citation());

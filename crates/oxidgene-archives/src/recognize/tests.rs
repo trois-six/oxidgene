@@ -1240,6 +1240,56 @@ impl PlaceLookup for Places {
             })
             .collect()
     }
+
+    /// `Ancienville` of the Exampleshire is today's `Exampleville`.
+    fn other_names(&self, name: &str, areas: &[String]) -> Vec<String> {
+        let within = areas.iter().any(|area| area == "Exampleshire");
+        match name {
+            "Ancienville" if within => vec!["Exampleville".to_owned()],
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// The other names the dictionary knows for the locality, within the
+/// archive's areas, ride with the parts to resolve; without the
+/// dictionary there are none.
+#[test]
+fn the_place_dictionary_gives_the_other_names_of_the_locality() {
+    let registry = registry();
+    let places = Places {
+        lookups: Cell::new(0),
+    };
+    // A citation without the parish field, read from its words.
+    let evidence = title("AD99 - Ancienville - N - 1903 - EXV 1E39 - acte 10 - vue 4d/201");
+    let recognition = registry.recognize(&evidence, None, Some(&places)).unwrap();
+    assert_eq!(
+        Parts::from(&recognition),
+        at(AD99)
+            .act("N")
+            .locality("Ancienville")
+            .year(1903)
+            .call("EXV 1E39")
+            .number(10)
+            .views("4d")
+            .of(201)
+    );
+    assert_eq!(recognition.alternate_localities, ["Exampleville"]);
+    let citation = recognition.citation().unwrap();
+    assert_eq!(citation.locality, "Ancienville");
+    assert_eq!(citation.alternate_localities, ["Exampleville"]);
+    let recognition = registry.recognize(&evidence, None, None).unwrap();
+    assert!(
+        recognition
+            .citation()
+            .unwrap()
+            .alternate_localities
+            .is_empty()
+    );
+    // A locality the dictionary knows nothing else of.
+    let evidence = title("AD99 - Exampleville - N - 1903 - vue 4d/201");
+    let recognition = registry.recognize(&evidence, None, Some(&places)).unwrap();
+    assert!(recognition.alternate_localities.is_empty());
 }
 
 #[test]

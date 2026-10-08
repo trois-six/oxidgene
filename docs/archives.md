@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T13:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -247,7 +247,7 @@ crates/oxidgene-archives/
       mod.rs        The Platform trait and the adapter registry
       query.rs      Percent-encoded query strings
       markup.rs     Attribute and text scans of portal markup, folding
-      locality.rs   The forms in which a portal may write a cited locality
+      locality.rs   The forms in which a portal may write a cited locality, and its other names (§5.1)
       select.rs     Choosing the cited register among search results (§4.3)
       iiif.rs       Reading an image service and building a view's image
       view.rs       The View target of a chosen register (§5.2, §7)
@@ -429,7 +429,10 @@ included), an error status, an oversized body, a request or redirect leaving
 the endpoint's origins, and a refused header, body or kind of request apart.
 
 An adapter issues only the requests it needs to find one register: no list
-download beyond the search it performs, no image request.
+download beyond the search it performs, no image request. A portal that
+lists the cited locality under another name costs at most one more search,
+and only when the cited name finds nothing (§5.1, *Other names of the
+locality*).
 
 `validate` also refuses a collection holding a series (§3.1) that the
 adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo,
@@ -559,8 +562,10 @@ Resolution:
    the request the search page sends on load), whose aggregations list each
    filter's values, the buckets under the field or under `<field>_terms`:
    the locality's value is the one whose name, read in the portal's style,
-   folds to the cited locality — none means the portal lists no such
-   locality, and the answer is `Results` with no match —, the period's the
+   folds to the cited locality, or failing any the one value naming it
+   under another name (§5.1, *Other names of the locality*) — none means
+   the portal lists no such locality, and the answer is `Results` with no
+   match —, the period's the
    one naming the cited year alone (`Classe 1911`, `1936`) — none leaves the
    period filter out.
 2. `GET /_recherche-api/moteur?refUnique=<engine>` with the filters: the
@@ -601,11 +606,22 @@ Resolution:
    the portal's style — the locality filter is a text match, `Bourg (Le)`
    also returns `Saint-Exemple-lès-le-Bourg` —; a series cited without a
    locality, or a collection without a `locality` cell, keeps every row.
-   When no row bears the cited name, a commune renamed since the citation
-   (`Exampleville` become `Exampleville-en-Plaine`) is kept: rows whose
-   locality extends the cited one at a word, each agreeing with every part
-   of the citation it shows and carrying a cited call number or the cited
-   image count, since a longer name may as well be another commune's.
+   A row bearing a name the place dictionary knows for the cited locality
+   is the locality's (§5.1, *Other names of the locality*). When no row
+   bears either, a commune renamed since the citation is kept: rows whose
+   locality is the cited one without its qualifier (`Exampleville-sous-Bois`
+   become `Exampleville`) or extends it, its shortened form or a known name
+   at a word of its name (`Exampleville` become `Exampleville-en-Plaine`,
+   `Exampleville-sur-Mer` become `Exampleville-Billancourt`), each agreeing
+   with every part of the citation it shows — the image count excepted for
+   a row carrying a cited call number, renumbered since (§7) — and carrying
+   a cited call number or the cited image count, since such a name may as
+   well be another commune's (`Exampleville-la-Forêt`, an `Exampleville`
+   elsewhere). A row of a known name needs no such evidence.
+   A text-matched search (steps 1–2) whose rows hold no register of the
+   cited locality and name it nowhere is sent once more, for the first page
+   only, with the other name §5.1 gives; `results_url` of what follows is
+   that search's.
    One register is then selected by the citation parts it has, in order:
    call number, act kind, parish, period, the cited act or matricule number
    within the numbers the row spans (`n° 1 à 1586`), and image count equal
@@ -759,8 +775,11 @@ Resolution:
 
 1. With `locality_lookup`, `GET /search/form/<form>`: the locality select's
    `data-options` lists its labels, and the labels naming the cited locality
-   are sent. A locality the list does not name has no register in the
-   collection: `Results` with no match, without a search. Otherwise the
+   are sent; failing any, those naming it under another name (§5.1, *Other
+   names of the locality*), whose rows then show that name, so that
+   selection takes their register on the citation's evidence. A locality
+   the list does not name either way has no register in the collection:
+   `Results` with no match, without a search. Otherwise the
    patterns are filled in with the locality in the portal's style. A series
    cited without a locality, or a form without a locality input, sends none.
 2. `GET /search/results?formUuid=<form>&mode=list&sort=date_asc` with the
@@ -914,7 +933,7 @@ department on a portal two archives share). The `portal` settings are:
 
 Resolution:
 
-1. `GET <prefix>/resultats/<search>[/<layout>]/n:<node>?<locality input>=<locality>&<act filter>&<params>&<years>&<number input>=<number>&<call-number input>=<call number>&type=<search>` — or `<prefix>/fonds/<fonds>/<search>/n:<node>?…` within a finding aid — the address a form submission reaches through a redirect from `<prefix>/recherche/…`. Values are the readable names and labels; no key is needed. `results_url` is this address. The locality is a **substring** match on most searches (`Exampleville` also returns `Exampleville-lès-Bois`). The years are an interval test, both inputs the cited year (widened by `year_margin` on a portal whose index dates a register `mars - décembre 1672` by other years), or the single `year` input; a citation without a year omits them. Only an index of persons with a `number` input receives the cited matricule, which finds the person's row, and only a collection with a `call_number` input the cited call number, as written: the Gironde's search of `Bordeaux` for a year's deaths lists the registers of every section of the city and outlasts the portal's own gateway (`504 Gateway Time-out`), while the same search with the call number answers its one register in a second. A search by call number that answers no row — a call number the portal writes otherwise, or the original's where it shows its copy's — is sent once more without it. The portal otherwise learns the locality, the act, the collection's own inputs and the year, nothing else of the citation. Portals that answer with a redirect to `…/tableau/<finding aid>/n:<node>` are followed on their origin.
+1. `GET <prefix>/resultats/<search>[/<layout>]/n:<node>?<locality input>=<locality>&<act filter>&<params>&<years>&<number input>=<number>&<call-number input>=<call number>&type=<search>` — or `<prefix>/fonds/<fonds>/<search>/n:<node>?…` within a finding aid — the address a form submission reaches through a redirect from `<prefix>/recherche/…`. Values are the readable names and labels; no key is needed. `results_url` is this address. The locality is a **substring** match on most searches (`Exampleville` also returns `Exampleville-lès-Bois`). When the answer holds no register of the cited locality and no row names it — a commune the portal lists under another name, `Exampleville` for a cited `Exampleville-sous-Bois` — the search is sent once more with the other name §5.1 gives (*Other names of the locality*): a name the place dictionary knows for it, else the cited name without its qualifier, whose substring match lists every name extending it; that search's address is then `results_url` of what follows. The years are an interval test, both inputs the cited year (widened by `year_margin` on a portal whose index dates a register `mars - décembre 1672` by other years), or the single `year` input; a citation without a year omits them. Only an index of persons with a `number` input receives the cited matricule, which finds the person's row, and only a collection with a `call_number` input the cited call number, as written: the Gironde's search of `Bordeaux` for a year's deaths lists the registers of every section of the city and outlasts the portal's own gateway (`504 Gateway Time-out`), while the same search with the call number answers its one register in a second. A search by call number that answers no row — a call number the portal writes otherwise, or the original's where it shows its copy's — is sent once more without it. Each of these runs at most once. The portal otherwise learns the locality, the act, the collection's own inputs and the year, nothing else of the citation. Portals that answer with a redirect to `…/tableau/<finding aid>/n:<node>` are followed on their origin.
 2. The answer is a Ligeo page when it holds `div#arc_liste_update`, or `div#arc_fonds_notice` within a finding aid. Any other body is an anti-bot challenge when it bears the signature of Anubis or of the F5 pages (`ResolveError::Challenged`, §5.2: not drift), and a changed shape otherwise. The count is in `p.nb_reponses > span` or `span.arc_nbr_reponses`. The results are a table whose header row (`tr.entete`) names the columns of its rows (`tr.pair`, `tr.impair`), a list of notices (`tr.arc_pair`, `tr.arc_impair` of `div#linear_liste`, or `li.arc_notice` in a finding aid) whose items carry their labels (`<strong class="arc_libelle_strong">Commune : </strong>…`), or nothing (no match). A column the settings name that a table lacks is a changed shape; a notice shows only the items it has. More answers than rows read (pages of 5 to 50 rows) gives `Results` with the count rather than a guess.
 3. Each row gives:
    - its **places**, every one its locality cell names: a name with the thesaurus qualifier of the places it lies within (`Hameau (Exampleville, Exampledept ; lieu-dit)`, an article written back before the name, `Bourg (Le)`), several places in one cell (`Exampleville (…), Autreville (…)`, or one after another), a place within a commune after it (`Exampleville / Saint-Exemple (paroisse)`, `Exampleville — Ancienne`, `Exampleville -- Rue …`, a city's section `Exampleville -- Section 3`, `EXAMPLEVILLE Hameau`, `Exampleville, paroisse Saint-Exemple`), without bracketed notes (`[aujourd'hui : …]`), the last step of a finding aid's path (`Registres > Exampleville`), an office or district standing for its seat (`Bureau de Exampleville`, `subdivision de …`, `Canton de …`); on a title, the head up to ` : `, `, `, `. `, `.- `, ` - `, ` n°` or a word starting with a digit, after a leading call number (`9 M 99 - Exampleville - 1901`), and its parish (`Exampleville : Saint-Exemple, paroisse de …`, `paroisse de Saint-Exemple.`);
@@ -923,7 +942,7 @@ Resolution:
    - its **call number**, the cell up to the heading's next part (`9 NUM /1 - `), or the title's (before its first ` - `, or the shaped words after its first sentence, `… Saint-Exemple. 1 GG 8, registre …`), or the viewer link's label when shaped like one (`3 vues - 9 Mi 99`);
    - its **numbers**, from the `numbers` cell (`1 à 500`, `N° 1-500`, `Matricules, 1-500`, a person's `984`), or else from the title or the link's label after `n°`, `nos`, `numéros` or `matricule(s)` (`Volume 1 n° 1 à 500.`, `(matricule 984)`);
    - its **image count** and viewer, from the first viewer link, `/ark:/<naan>/<id>/<tag>/<group>` followed by named segments (`/layout:table|linear`, `/idsearch:…`), whose `title` reads `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. A row without one lists a register not digitised.
-4. One register is selected as for Arkothèque (§4.3, step 3), among the rows with a viewer link, each read as the citation names it: a row one of whose places is the cited locality, or lies within it, has the cited locality, the place within it being its parish (the cited `Exampleville` finds `Hameau (Exampleville, …)` with the parish `Hameau`), and a row naming the cited parish among its places or parishes has it. Then act kind, parish, period, number and image count. A collection whose rows show no locality — a series searched by year alone, a select of bureaux — keeps every row whatever the cited locality. A military register is thus found by its bureau and class and the volume whose matricules hold the cited one, a person's row by the matricule itself. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; some show one shared by the registers of every locality of the same kind and year, or by a commune's volumes; a citation of a military register often gives the original's while the portal shows its microfilm. A cited call number no row carries therefore does not discard them.
+4. One register is selected as for Arkothèque (§4.3, step 3), among the rows with a viewer link, each read as the citation names it: a row one of whose places is the cited locality, or lies within it, has the cited locality, the place within it being its parish (the cited `Exampleville` finds `Hameau (Exampleville, …)` with the parish `Hameau`), failing which a place naming it under another name is the row's locality, for selection to weigh (§4.3, step 5), and a row naming the cited parish among its places or parishes has it. Then act kind, parish, period, number and image count. A collection whose rows show no locality — a series searched by year alone, a select of bureaux — keeps every row whatever the cited locality. A military register is thus found by its bureau and class and the volume whose matricules hold the cited one, a person's row by the matricule itself. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows or none (a renamed commune's register, kept on its cited call number), choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; some show one shared by the registers of every locality of the same kind and year, or by a commune's volumes; a citation of a military register often gives the original's while the portal shows its microfilm. A cited call number no row carries therefore does not discard them.
 5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link: `daogrp/0` normally, `daoloc/0` on some parish registers and a person's row, `dao/0` on others. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, which the resolver takes for another register (§7); a person's row of an index, which carries the cited call number, opens on the person's own view whatever view of the register the citation counts.
 6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The canvases' declared sizes are not their images': the live checks found canvases of 1392 × 1212 over images of 2704 × 1780 (Ain), and other proportions on every portal. Each cited view's size is therefore its service's `info.json` (`<service>/info.json`, Image API 3 context, served as `text/html`), one request per view; the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not read. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
 
@@ -1260,8 +1279,10 @@ Resolution:
    registration office `EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)`, a part of
    a city `EXAMPLEVILLE (NORD-EST)` — beside a plain `EXAMPLEVILLE`, which
    is preferred. A hamlet keeps the commune its label names, `HAMEAU
-   (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)`. No label gives `Results` with
-   no match; more than three, `Results` with their number.
+   (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)`. Failing any, the labels naming
+   it under another name (§5.1, *Other names of the locality*). No label
+   gives `Results` with no match; more than three, `Results` with their
+   number.
 4. For each label, `POST <base>/Recherche/FrmRechDOCCritere.asp`,
    form-encoded: the form's hidden inputs, `txt_CIN_IDX<locality>=1` and
    `txt_CIN_CH<locality>=<label>`, the type (`txt_CIN_IDX<act>=1`,
@@ -1385,8 +1406,9 @@ Resolution, `form`:
    cited or naming it (§4.9, step 3): `Exampleville (Exemple, France)`, a
    former commune `Exampleville (Exemple, France ; jusqu'à 1919)
    [aujourd'hui : …]` — a commune and its former namesake both, three at
-   most. The search matches a label exactly: `Exampleville` alone finds
-   nothing.
+   most —, failing any those naming it under another name (§5.1, *Other
+   names of the locality*). The search matches a label exactly:
+   `Exampleville` alone finds nothing.
 2. For each label, `GET <path>/<results>?<hidden inputs>&query<locality>=<label>&query<kind>=<kind>&du<year>=<year>&db<year>=&de<year>=`,
    the kind being the registers' or the tables' value, the year empty
    without one. The year is an interval test on each register's period
@@ -1716,8 +1738,10 @@ Resolution:
    (some with a trailing space the search needs). When the list does not
    hold the cited locality as written, the search is sent again with the
    label naming it, case, accents and punctuation aside — a commune's, or
-   failing one a former commune's (`lieu=all&ancienne=<label>`) —; no
-   label gives `Results` with no match. An answer without the locality list
+   failing one a former commune's (`lieu=all&ancienne=<label>`), or failing
+   both the one label of either list naming it under another name (§5.1,
+   *Other names of the locality*) —; no label gives `Results` with no
+   match. An answer without the locality list
    is a challenge when it bears one's signature, a changed shape otherwise.
 2. The answer's table (`table.tableau_td`) lists every register at once,
    its columns named by their headings (`Commune` or `Bureau`, `Ancienne
@@ -2077,9 +2101,61 @@ within one of the archive's areas is the locality, and a name the words gave
 before it is the parish (`AD72, Saint-Exemple, Exampleville, BMS 1745`). It
 never sets the event's place against a locality the words state. The dictionary
 is read once for the names asked, unless a place search already holds its
-index, and nothing is kept; it is never asked about a single candidate. The
+index; it is never asked about a single candidate. One recognition
+decompresses the file at most once for all its lookups — these areas and the
+other names below — and drops it with the recognition: nothing is kept. The
 web interface, which does not embed it, offers the link from the other
 signals, so it is never what decides whether a citation is a link.
+
+**Other names of the locality.** A commune renamed since the citation was
+written may be listed by the portal under its current name, or a register
+under a former one: `Exampleville-sous-Bois` cited, `Exampleville` listed,
+the portal's locality filter finding nothing for the cited name. Three
+sources give the other names a portal may use, none of which the citation
+spells:
+
+- **The place dictionary.** Once the locality is known, the backend and the
+  desktop ask the [place dictionary](place-dictionary.md) for the other
+  names of the commune so named within one of the archive's areas
+  (`PlaceLookup::other_names`): the names that bore its official code — its
+  current name, its former names, a name under the code of a département
+  since split —, and for a commune merged into another, that one's current
+  name; never another commune merged into the same one, nor a parish or a
+  hamlet. They ride with the parts to resolve
+  (`CitationParts::alternate_localities`, current names first), so that
+  `oxidgene-archives` never depends on the dictionary. The rows of the
+  archive's areas alone are read from the file the recognition decompressed,
+  unless a place search already holds the index, and nothing is kept. It covers renames since 1943
+  (INSEE history); older ones (`-sous-Bois` dropped in 1937) come from the
+  names alone. The web interface has none, which only makes those names
+  unknown.
+- **The cited name shortened.** The cited name without the qualifier closing
+  it: from its first `sur`, `sous`, `en`, `lès`, `lez`, `près`, `de`, `du`,
+  `des`, `d'`, `la`, `le`, `l'`, `au` or `aux` after its first word, a
+  leading article aside, with a word after it — `Exampleville` for
+  `Exampleville-sous-Bois`, `La Ville` for `La Ville-en-Plaine`.
+- **Names extending one of these.** A name extending the cited one, its
+  shortened form or a known name at a word of its own name — a hyphen or a
+  space, then a word or a parenthesised qualifier (`Exampleville-en-Plaine`,
+  `Exampleville-Billancourt`, `Exampleville (Department, France)`) —, never
+  a part of the place after a dash, a comma or a slash (`EXAMPLEVILLE -
+  Section A`).
+
+A name the dictionary knows is the cited locality: its rows are selected as
+the cited name's. A shortened or extending name may as well be another
+commune's (`Exampleville-la-Forêt`, an `Exampleville` elsewhere): its rows
+are kept only when none bears the cited or a known name, each agreeing with
+the citation and carrying a cited call number or the cited image count
+(§4.3, step 5). A portal's list of localities, where an adapter reads one
+anyway (Arkothèque's keyed values, Mnesys's `locality_lookup`, THOT,
+Pleade, the Gers portal), is matched with them when no label names the
+cited locality, the most likely kind winning: a known name, then the
+shortened one, then names extending. A portal matching the locality as text
+(Ligeo, Arkothèque) whose answer holds no register of the cited locality and
+names it nowhere is searched once more, with the first known name the
+cited one's text does not hold, else the shortened name, whose text match
+finds every name extending it: one more request at most, and none when the
+cited name finds its locality.
 
 **What becomes a link.** A citation is recognized once a catalogued archive
 with an adapter is designated; one designated by a repository alone must also
@@ -2692,6 +2768,7 @@ reloads. The source, shared by other citations, is never changed.
 | Archive recognized, act or locality missing | A link opening the "Find in the archives" dialog (§6.5); the endpoint, without the reader's parts, answers the filtered search page built without a request, or the archive's website without a document kind. |
 | Portal address of a catalogued archive in the records | The address, opened as it is: in the archive window (desktop) or a new tab (web), without a lookup. |
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
+| Commune listed by the portal under another name than the cited one (renamed, merged) | The register under that name, chosen as §5.1 (*Other names of the locality*) says: a name the place dictionary knows as the cited locality's, a shortened or extending name only with a cited call number or image count. A portal matching names as text is searched once more for that name; when nothing decides, `Results` on that search. |
 | View beyond the register's image count | `Results` with no match, the collection's filtered search page with the banner of no register: the register chosen is taken for another one than the cited (a citation of an older digitisation, its call number and view count those of a microfilm since replaced by the originals, split otherwise), which opening it on its first image would hide. A register carrying the cited call number — a person's row of an index of matricules, one view of the register the citation counts — is the cited one: `View` with no views, its first image. |
 | Register counting another number of images than the citation (digitised or bound again since: a register cited for 1832–1851 with 184 images, now bound with the years from 1818 in 301) | Its views, with `renumbering` and the banner `archive_viewer.renumbered` (desktop) or the same notice beside the source (web): the numbering changed, from the cited count to the register's, and the view opened, which may not be the cited page. Where the register's period ends with the cited one but starts earlier and it counts more images, the earlier years come first: each cited view is moved by the difference of the counts (view 38 of 184 opens 155 of 301). Otherwise — the cited period the register's start, the whole of it, or unknown, or the register counting fewer images — the cited numbers are kept. A register opened on its first image (no address per view, a view beyond it) has no `renumbering`. |
 | `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other; the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source (§6.3). |

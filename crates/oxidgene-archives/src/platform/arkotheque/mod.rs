@@ -22,6 +22,7 @@ mod settings;
 mod tests;
 
 use super::iiif::image_info;
+use super::locality::{self, OtherNames};
 use super::markup::fold;
 use super::select::{Candidate, Selection, period_ranges, select};
 use super::view::{cited_views, view_target};
@@ -120,11 +121,18 @@ async fn keys(
     {
         let style = settings.locality_style;
         let wanted = fold(&style.cited(&citation.locality));
-        match listed(filter)?
-            .into_iter()
-            .find(|value| fold(&style.cited(page::without_key(value))) == wanted)
-        {
-            Some(value) => keys.locality = Some(value.to_owned()),
+        let values = listed(filter)?;
+        let named = |value: &&str| style.cited(page::without_key(value));
+        let exact = values.iter().find(|value| fold(&named(value)) == wanted);
+        // Failing the cited name, the one value naming the locality
+        // otherwise, whose rows selection weighs on the citation's evidence.
+        let others = OtherNames::new(citation, &[&citation.locality, &wanted]);
+        let renamed = || match others.best(values.iter(), |value| named(value)).as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        };
+        match exact.or_else(renamed) {
+            Some(value) => keys.locality = Some((*value).to_owned()),
             None => return Ok(None),
         }
     }
@@ -210,15 +218,17 @@ fn rows(
 const MAX_PAGES: usize = 3;
 
 /// The registers the search lists for the citation: its first page, and
-/// while the cited call number is on none read so far, the next pages.
+/// while the cited call number is on none read so far, the next pages, up
+/// to `pages` in all.
 async fn search(
     settings: &Settings,
     citation: &CitationParts,
     keys: &Keys,
+    pages: usize,
     fetch: &dyn PortalFetch,
 ) -> Result<Vec<Candidate<Register>>, ResolveError> {
     let mut found = Vec::new();
-    for _ in 0..MAX_PAGES {
+    for _ in 0..pages {
         let filters = settings.page_filters(citation, keys, RESULT_SIZE, found.len());
         let answer = search_answer(settings, &filters, fetch).await?;
         let (rows, total) = rows(settings, &answer, citation)?;
@@ -257,10 +267,35 @@ async fn resolve(
         matches: Some(matches),
     };
 
-    let rows = search(&settings, citation, &keys, fetch).await?;
+    let rows = search(&settings, citation, &keys, MAX_PAGES, fetch).await?;
     let localities = settings.localities(citation);
     let localities: Vec<&str> = localities.iter().map(String::as_str).collect();
-    let row = match select(&rows, citation, &localities) {
+    // A locality the portal lists under another name: one more search, of
+    // one page, for that name (Archive Portals §4.3, step 2).
+    let again = match search_again(&settings, citation, &rows, &localities) {
+        Some(locality) => {
+            let renamed = CitationParts {
+                locality,
+                ..citation.clone()
+            };
+            let rows = search(&settings, &renamed, &keys, 1, fetch).await?;
+            Some((settings.results_page(&renamed, &keys), rows))
+                .filter(|(_, rows)| !rows.is_empty())
+        }
+        None => None,
+    };
+    let rows = match &again {
+        Some((_, rows)) => rows,
+        None => &rows,
+    };
+    let results = |matches| match &again {
+        Some((url, _)) => ArchiveTarget::Results {
+            url: url.clone(),
+            matches: Some(matches),
+        },
+        None => results(matches),
+    };
+    let row = match select(rows, citation, &localities) {
         Selection::One(row) => row,
         Selection::Many(matches) => return Ok(results(matches)),
     };
@@ -317,6 +352,39 @@ async fn resolve(
         settings.view_url(record, &anchor(0)),
         views,
     ))
+}
+
+/// The name the collection is searched for once more when the rows found
+/// for the cited locality hold no register of it and name it nowhere: a
+/// name the place dictionary knows for it, or the cited name without its
+/// qualifier, whose text match finds every name extending it
+/// ([`locality::search_again`]). `None` for a collection whose rows show no
+/// locality or whose locality filter takes listed values.
+fn search_again(
+    settings: &Settings,
+    citation: &CitationParts,
+    rows: &[Candidate<Register>],
+    localities: &[&str],
+) -> Option<String> {
+    let text = settings
+        .fields
+        .locality
+        .as_ref()
+        .is_some_and(|filter| !filter.keyed);
+    if !text || localities.is_empty() || citation.locality.is_empty() {
+        return None;
+    }
+    let wanted: Vec<String> = localities.iter().map(|locality| fold(locality)).collect();
+    let others = OtherNames::new(citation, localities);
+    let named = rows.iter().any(|row| {
+        row.locality
+            .as_deref()
+            .is_some_and(|locality| wanted.contains(&fold(locality)) || others.is_known(locality))
+    });
+    if named || !matches!(select(rows, citation, localities), Selection::Many(0)) {
+        return None;
+    }
+    locality::search_again(citation)
 }
 
 /// The image of one view, for a `display: "iiif"` archive: its size from the

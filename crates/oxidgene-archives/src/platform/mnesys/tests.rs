@@ -1018,10 +1018,34 @@ fn a_lookup_sends_the_labels_the_form_lists() {
             .parse(&format!("AD59 - {locality} - (aucun) - N - 1850"))
             .unwrap();
         assert_eq!(
-            settings.listed_labels(&options, &citation),
+            settings.listed_labels(&options, &citation).sent,
             expected,
             "{locality}"
         );
+    }
+    // A commune the list names otherwise: the cited name without its
+    // qualifier rather than a name extending it, which the rows then show
+    // for selection to weigh; nothing else of the citation's name.
+    for (locality, sent, renamed) in [
+        (
+            "Exampleville-sur-Mer",
+            vec!["EXAMPLEVILLE"],
+            Some("EXAMPLEVILLE"),
+        ),
+        (
+            "Saint-Exemple-sous-Bois",
+            vec!["SAINT-EXEMPLE"],
+            Some("SAINT-EXEMPLE"),
+        ),
+        ("Saint-Exemple", vec!["SAINT-EXEMPLE"], None),
+        ("Sampleton-sur-Mer", vec![], None),
+    ] {
+        let citation = registry
+            .parse(&format!("AD59 - {locality} - (aucun) - N - 1850"))
+            .unwrap();
+        let labels = settings.listed_labels(&options, &citation);
+        assert_eq!(labels.sent, sent, "{locality}");
+        assert_eq!(labels.renamed.as_deref(), renamed, "{locality}");
     }
 
     // A form without the list, or an anti-bot page in its place.

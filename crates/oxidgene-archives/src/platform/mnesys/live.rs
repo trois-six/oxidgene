@@ -154,6 +154,7 @@ fn citation_of(locality: String, act: &Act) -> CitationParts {
         number: None,
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     }
 }
 
@@ -173,7 +174,7 @@ async fn registers(
         .map_err(|error| Failure::from_error(step, expected, &error))?
         .ok_or_else(|| Failure::drift(step, expected, "no label of the locality"))?;
     let found = settings
-        .search(&settings.filters(&search, &labels), fetch)
+        .search(&settings.filters(&search, &labels.sent), fetch)
         .await
         .map_err(|error| Failure::from_error(step, expected, &error))?;
     if found.rows.is_empty() {

@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:46:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T11:30:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -176,6 +176,17 @@ hamlet can be located by its municipality; they locate the places among them
 exactly as the whole index would,
 and drop them, in about a fifth of a second in a release build, so a
 session that only opens the statistics keeps no dictionary in memory.
+
+Recognizing an archive citation ([Archive Portals §5.1](archives.md))
+asks the dictionary two things the same way, reusing the index when a
+search has built it and otherwise keeping nothing: the subdivisions and
+regions of the places named like the localities a citation offers, read
+from the rows so named; and the other names of the cited commune within the
+archive's areas — the names that bore its code (former names, today's
+name, a code of a département since split) and, for a commune merged into
+another, that one's current name —, read from the rows filed under those
+areas alone, found by their text before any name is folded. Both read the
+file one recognition decompressed at most once, dropped with it.
 
 ## 3. France
 

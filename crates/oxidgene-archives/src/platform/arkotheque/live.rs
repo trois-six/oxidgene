@@ -259,6 +259,7 @@ async fn discover(
         number: None,
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     };
     let expected = "the result rows of the first listed locality";
     let keys = keys(settings, &search, fetch)

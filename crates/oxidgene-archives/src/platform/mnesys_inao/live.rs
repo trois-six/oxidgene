@@ -32,6 +32,7 @@ fn citation(locality: &str, act: &Act) -> CitationParts {
         number: None,
         views: Vec::new(),
         view_count: None,
+        alternate_localities: Vec::new(),
     }
 }
 

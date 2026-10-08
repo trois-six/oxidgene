@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use super::locality::{forms, matching_labels};
+use super::locality::{OtherNames, forms, label_name, matching_labels};
 use super::markup;
 use super::select::{Candidate, act_code, narrow};
 use super::view::{cited_views, view_target};
@@ -298,6 +298,22 @@ async fn search(
                 .first()
                 .map(|label| ((*label).to_owned(), Listed::Former))
         });
+    // Failing any, the one label naming the locality otherwise, whose
+    // registers selection weighs on the citation's evidence.
+    let label = label.or_else(|| {
+        let others = OtherNames::new(citation, localities);
+        let listed = communes
+            .iter()
+            .map(|label| (label, Listed::Commune))
+            .chain(formers.iter().map(|label| (label, Listed::Former)));
+        match others
+            .best(listed, |(label, _)| label_name(label))
+            .as_slice()
+        {
+            [(label, listed)] => Some(((*label).clone(), *listed)),
+            _ => None,
+        }
+    });
     let Some((label, listed)) = label else {
         return Ok(None);
     };

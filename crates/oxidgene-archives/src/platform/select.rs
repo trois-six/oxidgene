@@ -8,7 +8,9 @@
 //!
 //! 1. keeps the candidates whose locality, folded, is one of the accepted
 //!    forms (portal searches often match the locality as text: `Bourg (Le)`
-//!    also finds `Saint-Exemple-lès-le-Bourg`);
+//!    also finds `Saint-Exemple-lès-le-Bourg`) or a name the place
+//!    dictionary knows for it; failing any, those of a commune renamed
+//!    since the citation, on the citation's evidence ([`OtherNames`]);
 //! 2. narrows them by the citation's parts, in order: call number, act kind,
 //!    parish, period, the act or matricule number within the numbers a
 //!    register spans, image count, stopping at the first that leaves exactly
@@ -31,6 +33,7 @@ use crate::citation::{
     republican_start,
 };
 
+use super::locality::OtherNames;
 use super::markup::fold;
 
 /// One register a search returned, as the portal displays it.
@@ -90,18 +93,20 @@ pub(crate) fn narrow<'c, T>(
     // A series cited without a locality, such as a department's military
     // registers, keeps every candidate.
     let anywhere = wanted.iter().all(String::is_empty);
+    let others = OtherNames::new(citation, localities);
+    // A name the place dictionary knows for the cited locality is the
+    // cited locality.
     let mut kept: Vec<&Candidate<T>> = candidates
         .iter()
         .filter(|candidate| {
             anywhere
-                || candidate
-                    .locality
-                    .as_deref()
-                    .is_some_and(|locality| wanted.contains(&fold(locality)))
+                || candidate.locality.as_deref().is_some_and(|locality| {
+                    wanted.contains(&fold(locality)) || others.is_known(locality)
+                })
         })
         .collect();
     if kept.is_empty() && !anywhere {
-        kept = renamed_locality(candidates, citation, &wanted);
+        kept = renamed_locality(candidates, citation, &others);
     }
     if let [only] = kept.as_slice()
         && contradicts(only, citation)
@@ -174,26 +179,19 @@ fn contradicts<T>(candidate: &Candidate<T>, citation: &CitationParts) -> bool {
 /// The candidates of a locality the portal names otherwise than the
 /// citation, when none bears the cited name: a commune renamed since the
 /// citation was written, its new name extending the old one at a word
-/// (`Exampleville` become `Exampleville-en-Plaine`), or a name the portal
-/// qualifies (`Exampleville (Department, France)`). The portal's own
-/// locality filter returned them; each must also agree with every part of
+/// (`Exampleville` become `Exampleville-en-Plaine`) or the old one without
+/// its qualifier (`Exampleville-sous-Bois` become `Exampleville`), or a name
+/// the portal qualifies (`Exampleville (Department, France)`) — see
+/// [`OtherNames::renamed`]. The portal's own locality filter returned them,
+/// or a search for the other name; each must also agree with every part of
 /// the citation it shows, and carry a cited call number or the cited image
-/// count, since a longer name may as well be another commune's
-/// (`Exampleville-la-Forêt`).
+/// count, since such a name may as well be another commune's
+/// (`Exampleville-la-Forêt`, an `Exampleville` elsewhere).
 fn renamed_locality<'c, T>(
     candidates: &'c [Candidate<T>],
     citation: &CitationParts,
-    wanted: &[String],
+    others: &OtherNames,
 ) -> Vec<&'c Candidate<T>> {
-    let extends = |locality: &str| {
-        let folded = fold(locality);
-        wanted.iter().any(|wanted| {
-            !wanted.is_empty()
-                && folded
-                    .strip_prefix(wanted.as_str())
-                    .is_some_and(|rest| rest.starts_with(' '))
-        })
-    };
     let cited_call_number = |candidate: &Candidate<T>| {
         citation.call_number.as_ref().is_some_and(|cited| {
             candidate
@@ -220,9 +218,12 @@ fn renamed_locality<'c, T>(
                 .numbers
                 .is_none_or(|(first, last)| (first..=last).contains(&number))
         });
+        // A register carrying the cited call number may count other images
+        // since (§7, renumbering).
         let count = citation.view_count.is_none()
             || candidate.images.is_none()
-            || candidate.images == citation.view_count;
+            || candidate.images == citation.view_count
+            || cited_call_number(candidate);
         call_number
             && period
             && number
@@ -231,7 +232,12 @@ fn renamed_locality<'c, T>(
     };
     candidates
         .iter()
-        .filter(|candidate| candidate.locality.as_deref().is_some_and(extends))
+        .filter(|candidate| {
+            candidate
+                .locality
+                .as_deref()
+                .is_some_and(|locality| others.renamed(locality).is_some())
+        })
         .filter(|candidate| agrees(candidate))
         .filter(|candidate| cited_call_number(candidate) || cited_count(candidate))
         .collect()
@@ -1022,6 +1028,65 @@ mod tests {
             ),
             Selection::Many(0)
         );
+    }
+
+    /// A commune renamed to a shorter name, or to another the portal shares
+    /// with a commune elsewhere: its register is the cited one only on the
+    /// citation's evidence; a name the place dictionary knows for the
+    /// locality is the locality itself.
+    #[test]
+    fn a_shortened_or_known_name_stands_for_the_cited_locality() {
+        let candidates = [
+            candidate("Exampleville", "EXV 1E39", "N", "1903", 201, 1),
+            candidate("Exampleville", "EXV 1E38", "N", "1902", 198, 2),
+            candidate("Exampleville-la-Forêt", "EXF 1E12", "N", "1903", 201, 3),
+        ];
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville-sous-Bois - (aucun) - N - 1903 - EXV 1E39 - acte 10 - vue 4d/201"
+            ),
+            Selection::Many(101)
+        );
+        // The register renumbered since: its call number decides.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville-sous-Bois - (aucun) - N - 1903 - EXV 1E39 - vue 4d/190"
+            ),
+            Selection::Many(101)
+        );
+        // The image count alone: both communes' registers.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville-sous-Bois - (aucun) - N - 1903 - vue 4d/201"
+            ),
+            Selection::Many(2)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Exampleville-sous-Bois - (aucun) - N - 1903"
+            ),
+            Selection::Many(0)
+        );
+
+        // A name the dictionary knows: no further evidence asked.
+        let mut citation = CitationParts::parse(
+            "AB12 - Ancienville - (aucun) - N - 1903",
+            &CitationGrammar::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            select(&candidates, &citation, &["Ancienville"]),
+            Selection::Many(0)
+        );
+        citation.alternate_localities = vec!["Exampleville".to_owned()];
+        let Selection::One(chosen) = select(&candidates, &citation, &["Ancienville"]) else {
+            panic!("one register");
+        };
+        assert_eq!(chosen.payload, 1);
     }
 
     /// Registers of half a month, one call number for the year: the cited

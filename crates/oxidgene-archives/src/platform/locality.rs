@@ -7,6 +7,7 @@
 use serde::Deserialize;
 
 use super::markup::fold;
+use crate::citation::CitationParts;
 
 /// How a portal writes a locality: the setting `locality_style` of the
 /// adapters that search by locality label.
@@ -229,6 +230,215 @@ pub(crate) fn matching_labels<'l>(labels: &'l [String], forms: &[&str]) -> Vec<&
         .collect()
 }
 
+/// The words, folded, that open the qualifier a commune's name may have
+/// gained or lost when it was renamed: `-sur-Seine`, `-sous-Bois`,
+/// `-en-Vexin`, `-lès-Exemple`, `-la-Forêt`, `-d'Exemple`.
+const QUALIFIER_WORDS: [&str; 15] = [
+    "sur", "sous", "en", "les", "lez", "pres", "de", "du", "des", "d", "la", "le", "l", "aux", "au",
+];
+
+/// The locality without the qualifier closing its name, as a portal may
+/// list a commune renamed since the citation was written: `Exampleville`
+/// for `Exampleville-sous-Bois` or `Exampleville sous Bois` (a folded
+/// form), `La Ville` for `La Ville-en-Plaine`. The qualifier starts at the
+/// first word of [`QUALIFIER_WORDS`] after the name's first word, a leading
+/// article aside, and has a word after it. `None` for a name without one.
+pub(crate) fn shortened(locality: &str) -> Option<&str> {
+    let separators = locality
+        .char_indices()
+        .filter(|(_, c)| matches!(c, '-' | ' '))
+        .map(|(at, _)| at);
+    for at in separators {
+        let before = locality[..at].trim_end();
+        let named = !before.is_empty()
+            && !ARTICLES
+                .iter()
+                .any(|article| fold(article.trim_end()) == fold(before));
+        if !named {
+            continue;
+        }
+        let rest = fold(&locality[at + 1..]);
+        let mut words = rest.split(' ');
+        let opens = words
+            .next()
+            .is_some_and(|word| QUALIFIER_WORDS.contains(&word));
+        if opens && words.next().is_some_and(|word| !word.is_empty()) {
+            return Some(before);
+        }
+    }
+    None
+}
+
+/// How a portal's name stands for the cited locality under another name.
+/// The order is the order of preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Renamed {
+    /// One of the other names the place dictionary knows for it within the
+    /// archive's areas: the same commune.
+    Known,
+    /// The cited name without its qualifier ([`shortened`]): `Exampleville`
+    /// for `Exampleville-sous-Bois`.
+    Shortened,
+    /// A name extending the cited one, its shortened form or one of its
+    /// known names at a word: `Exampleville-en-Plaine`,
+    /// `Exampleville-Billancourt`, `Exampleville (Department, France)`.
+    Extended,
+}
+
+/// The names under which a portal may list the cited locality when it lists
+/// none as cited, folded: what the place dictionary knows of it, and what
+/// its own name suggests (Archive Portals §5.1).
+#[derive(Debug, Clone)]
+pub(crate) struct OtherNames {
+    cited: Vec<String>,
+    known: Vec<String>,
+    shortened: Option<String>,
+}
+
+impl OtherNames {
+    /// The other names of the cited locality, which a portal writes in the
+    /// `written` forms (as cited, and in the portal's style).
+    pub(crate) fn new(citation: &CitationParts, written: &[&str]) -> Self {
+        let mut cited: Vec<String> = written
+            .iter()
+            .copied()
+            .chain([citation.locality.as_str()])
+            .map(fold)
+            .filter(|form| !form.is_empty())
+            .collect();
+        cited.dedup();
+        let mut known: Vec<String> = Vec::new();
+        for name in &citation.alternate_localities {
+            for form in forms(name) {
+                let form = fold(&form);
+                if !form.is_empty() && !cited.contains(&form) && !known.contains(&form) {
+                    known.push(form);
+                }
+            }
+        }
+        let shortened = shortened(&citation.locality)
+            .map(fold)
+            .filter(|name| !name.is_empty() && !cited.contains(name));
+        Self {
+            cited,
+            known,
+            shortened,
+        }
+    }
+
+    /// How a portal's name, read as a citation writes it, stands for the
+    /// cited locality under another name; `None` for the cited name itself
+    /// and for a name of no relation to it.
+    pub(crate) fn renamed(&self, name: &str) -> Option<Renamed> {
+        let folded = fold(name);
+        if folded.is_empty() || self.cited.contains(&folded) {
+            return None;
+        }
+        if self.known.contains(&folded) {
+            return Some(Renamed::Known);
+        }
+        if self.shortened.as_ref() == Some(&folded) {
+            return Some(Renamed::Shortened);
+        }
+        self.cited
+            .iter()
+            .chain(&self.known)
+            .chain(&self.shortened)
+            .any(|base| extends(name, base))
+            .then_some(Renamed::Extended)
+    }
+
+    /// Whether a portal's name is one the place dictionary knows for the
+    /// cited locality.
+    pub(crate) fn is_known(&self, name: &str) -> bool {
+        self.renamed(name) == Some(Renamed::Known)
+    }
+
+    /// The items whose name, as `name` reads it, stands best for the cited
+    /// locality under another name: all those of the most preferred
+    /// [`Renamed`] any of them has, none when none has one.
+    pub(crate) fn best<T>(
+        &self,
+        items: impl IntoIterator<Item = T>,
+        name: impl Fn(&T) -> String,
+    ) -> Vec<T> {
+        let mut best: Vec<T> = Vec::new();
+        let mut rank = None;
+        for item in items {
+            let Some(renamed) = self.renamed(&name(&item)) else {
+                continue;
+            };
+            if rank.is_none_or(|rank| renamed < rank) {
+                rank = Some(renamed);
+                best.clear();
+            }
+            if rank == Some(renamed) {
+                best.push(item);
+            }
+        }
+        best
+    }
+}
+
+/// Whether `name` extends the folded `base` at a word of its own name: a
+/// hyphen or a space, then a word or a parenthesised qualifier
+/// (`Exampleville-en-Plaine`, `Exampleville Billancourt`, `Exampleville
+/// (Department, France)`), not a part of the place after a dash, a comma or
+/// a slash (`EXAMPLEVILLE - Section A`, `Exampleville, paroisse …`).
+fn extends(name: &str, base: &str) -> bool {
+    name.char_indices()
+        .filter(|(_, c)| matches!(c, '-' | ' '))
+        .any(|(at, separator)| {
+            let mut after = name[at + separator.len_utf8()..].chars();
+            let word = match (separator, after.next()) {
+                ('-', Some(next)) => next.is_alphanumeric(),
+                (' ', Some(next)) => next.is_alphanumeric() || next == '(',
+                _ => false,
+            };
+            let before = &name[..at];
+            word && before.chars().last().is_some_and(char::is_alphanumeric) && fold(before) == base
+        })
+}
+
+/// The name a portal matching the locality as text is searched for once
+/// more when the cited name finds nothing there: the first name the place
+/// dictionary knows for it that does not hold the cited one — a search for
+/// the cited name has found any that does —, else the cited name
+/// shortened, whose matches hold every name extending it.
+pub(crate) fn search_again(citation: &CitationParts) -> Option<String> {
+    let cited = fold(&citation.locality);
+    if cited.is_empty() {
+        return None;
+    }
+    citation
+        .alternate_localities
+        .iter()
+        .find(|name| {
+            let folded = fold(name);
+            !folded.is_empty() && !folded.contains(&cited)
+        })
+        .cloned()
+        .or_else(|| shortened(&citation.locality).map(str::to_owned))
+}
+
+/// The labels of a portal's list that name the cited locality: as
+/// [`matching_labels`] finds them, or failing any, those naming it under
+/// another name ([`OtherNames::best`]), each read by [`label_name`]. A
+/// register a label found that way is chosen only on the citation's
+/// evidence ([`super::select`]).
+pub(crate) fn naming_labels<'l>(
+    labels: &'l [String],
+    forms: &[&str],
+    citation: &CitationParts,
+) -> Vec<&'l str> {
+    let exact = matching_labels(labels, forms);
+    if !exact.is_empty() {
+        return exact;
+    }
+    OtherNames::new(citation, forms)
+        .best(labels.iter().map(String::as_str), |label| label_name(label))
+}
+
 /// The start of the locality's name, without its article, up to the first
 /// space or apostrophe: what a portal's prefix lookup matches whichever way
 /// the rest is written (`Mas-d'Exemple` and `Mas-d’Exemple` both start with
@@ -428,5 +638,134 @@ mod tests {
         assert_eq!(name_start("Saint Exemple", 30), "Saint");
         assert_eq!(name_start("L\u{2019}Isle", 30), "Isle");
         assert_eq!(name_start("Exampleville-sur-Mer", 7), "Example");
+    }
+
+    #[test]
+    fn shortens_a_name_before_its_qualifier() {
+        for (locality, short) in [
+            ("Exampleville-sous-Bois", Some("Exampleville")),
+            ("Exampleville-sur-Mer", Some("Exampleville")),
+            ("Saint-Exemple-en-Plaine", Some("Saint-Exemple")),
+            ("Saint-Exemple-lès-Exampleville", Some("Saint-Exemple")),
+            ("Pont-d'Exemple", Some("Pont")),
+            ("Bourg-la-Forêt", Some("Bourg")),
+            ("La Ville-aux-Bois", Some("La Ville")),
+            ("Les Examples-sous-Bois", Some("Les Examples")),
+            // A folded name, its hyphens become spaces.
+            ("exampleville sous bois", Some("exampleville")),
+            // No qualifier: a compound name, a leading article, a name
+            // ending with the qualifier's word.
+            ("Saint-Exemple", None),
+            ("Le Bourg", None),
+            ("La Ville-Example", None),
+            ("Exampleville-le", None),
+            ("Exampleville", None),
+        ] {
+            assert_eq!(shortened(locality), short, "{locality}");
+        }
+    }
+
+    fn parts(locality: &str, alternates: &[&str]) -> CitationParts {
+        let mut citation = CitationParts::parse(
+            &format!("AB12 - {locality} - (aucun) - N - 1903"),
+            &crate::citation::CitationGrammar::default(),
+        )
+        .unwrap();
+        citation.alternate_localities = alternates.iter().map(|name| (*name).to_owned()).collect();
+        citation
+    }
+
+    #[test]
+    fn tells_how_a_portal_s_name_stands_for_a_renamed_locality() {
+        let citation = parts("Exampleville-sous-Bois", &["Nouvelleville"]);
+        let others = OtherNames::new(&citation, &[&citation.locality]);
+        for (name, renamed) in [
+            ("Exampleville-sous-Bois", None),
+            ("EXAMPLEVILLE SOUS BOIS", None),
+            ("Nouvelleville", Some(Renamed::Known)),
+            ("Exampleville", Some(Renamed::Shortened)),
+            ("Exampleville-Billancourt", Some(Renamed::Extended)),
+            (
+                "Exampleville (Exampledept, France)",
+                Some(Renamed::Extended),
+            ),
+            (
+                "Exampleville-sous-Bois-et-Autreville",
+                Some(Renamed::Extended),
+            ),
+            ("Nouvelleville-en-Plaine", Some(Renamed::Extended)),
+            // A part of the place after a dash or a comma, another name.
+            ("EXAMPLEVILLE - Section A", None),
+            ("Exampleville, paroisse Saint-Exemple", None),
+            ("Examplevilleneuve", None),
+            ("Autreville", None),
+        ] {
+            assert_eq!(others.renamed(name), renamed, "{name}");
+        }
+        assert!(others.is_known("NOUVELLEVILLE"));
+        // The most preferred kind wins, all of its names kept.
+        let names = [
+            "Exampleville-Billancourt",
+            "Exampleville",
+            "Autreville",
+            "Exampleville-la-Forêt",
+        ];
+        assert_eq!(
+            others.best(names, |name| (*name).to_owned()),
+            ["Exampleville"]
+        );
+        assert_eq!(
+            others.best(
+                ["Exampleville-Billancourt", "Exampleville-la-Forêt"],
+                |name| (*name).to_owned()
+            ),
+            ["Exampleville-Billancourt", "Exampleville-la-Forêt"]
+        );
+        assert!(
+            others
+                .best(["Autreville"], |name| (*name).to_owned())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn searches_again_for_a_known_name_or_the_shortened_one() {
+        // A known name the cited one's search has not found already.
+        assert_eq!(
+            search_again(&parts("Ancienville", &["Nouvelleville"])).as_deref(),
+            Some("Nouvelleville")
+        );
+        assert_eq!(
+            search_again(&parts("Exampleville", &["Exampleville-en-Vexin"])),
+            None
+        );
+        assert_eq!(
+            search_again(&parts("Exampleville-sous-Bois", &[])).as_deref(),
+            Some("Exampleville")
+        );
+        assert_eq!(search_again(&parts("Exampleville", &[])), None);
+    }
+
+    #[test]
+    fn names_a_label_under_another_name_only_when_none_bears_the_cited_one() {
+        let labels: Vec<String> = [
+            "EXAMPLEVILLE (EXEMPLE, FRANCE)",
+            "EXAMPLEVILLE - Section A",
+            "AUTREVILLE",
+        ]
+        .map(str::to_owned)
+        .into();
+        let citation = parts("Exampleville-sous-Bois", &[]);
+        assert_eq!(
+            naming_labels(&labels, &[&citation.locality], &citation),
+            ["EXAMPLEVILLE (EXEMPLE, FRANCE)"]
+        );
+        let citation = parts("Autreville", &[]);
+        assert_eq!(
+            naming_labels(&labels, &[&citation.locality], &citation),
+            ["AUTREVILLE"]
+        );
+        let citation = parts("Elsewhere", &[]);
+        assert!(naming_labels(&labels, &[&citation.locality], &citation).is_empty());
     }
 }

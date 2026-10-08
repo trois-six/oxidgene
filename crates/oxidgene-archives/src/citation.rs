@@ -824,6 +824,14 @@ pub struct CitationParts {
     pub views: Vec<CitedView>,
     /// The register's image count, as cited.
     pub view_count: Option<u16>,
+    /// The other names of the cited locality the place dictionary knows
+    /// within the archive's areas — its current name and its former ones,
+    /// the commune that absorbed it —, which a portal may list it under
+    /// (Archive Portals §5.1). Filled by recognition where the dictionary
+    /// is at hand, the backend and the desktop; never sent to a portal
+    /// unless the cited name finds nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternate_localities: Vec<String>,
 }
 
 /// What the free fields after the act or the series give.
@@ -928,6 +936,7 @@ impl CitationParts {
             number: tail.number,
             views: tail.views,
             view_count: tail.view_count,
+            alternate_localities: Vec::new(),
         })
     }
 
@@ -979,6 +988,7 @@ impl CitationParts {
             number: tail.number,
             views: tail.views,
             view_count: tail.view_count,
+            alternate_localities: Vec::new(),
         })
     }
 

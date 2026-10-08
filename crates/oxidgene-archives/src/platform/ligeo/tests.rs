@@ -21,6 +21,7 @@ const ARDECHE_PARISH: &str = include_str!("../../../fixtures/ligeo/ardeche-paris
 const HG_SEVERAL: &str = include_str!("../../../fixtures/ligeo/hg-several.html");
 const SECTIONS: &str = include_str!("../../../fixtures/ligeo/sections.html");
 const SECTION_ONE: &str = include_str!("../../../fixtures/ligeo/section-one.html");
+const RENAMED: &str = include_str!("../../../fixtures/ligeo/renamed.html");
 const MANIFEST: &str = include_str!("../../../fixtures/ligeo/manifest.json");
 const INFO_WIDE: &str = include_str!("../../../fixtures/ligeo/info-wide.json");
 const INFO_TALL: &str = include_str!("../../../fixtures/ligeo/info-tall.json");
@@ -46,6 +47,8 @@ struct Fixtures {
     search: &'static str,
     /// The answer to a search by call number, where it differs.
     by_call_number: Option<&'static str>,
+    /// Searches answered otherwise, by a text their address holds.
+    answers: Vec<(&'static str, &'static str)>,
     manifest: &'static str,
     info: &'static str,
     requests: Mutex<Vec<String>>,
@@ -56,6 +59,7 @@ impl Fixtures {
         Self {
             search,
             by_call_number: None,
+            answers: Vec::new(),
             manifest: MANIFEST,
             info: INFO_TALL,
             requests: Mutex::new(Vec::new()),
@@ -75,9 +79,16 @@ impl PortalFetch for Fixtures {
         Box::pin(async move {
             self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
-            let body = if url.contains("RECH_cote=")
-                && let Some(answer) = self.by_call_number
-            {
+            let answer = self
+                .by_call_number
+                .filter(|_| url.contains("RECH_cote="))
+                .or_else(|| {
+                    self.answers
+                        .iter()
+                        .find(|(part, _)| url.contains(part))
+                        .map(|(_, answer)| *answer)
+                });
+            let body = if let Some(answer) = answer {
                 answer
             } else if url.contains("/resultats/") || url.contains("/fonds/") {
                 self.search
@@ -1481,4 +1492,100 @@ fn a_section_selects_its_register_whichever_way_it_is_written() {
         SECTIONS,
     );
     assert_eq!(matches(&target), Some(4));
+}
+
+/// The Seine-Saint-Denis settings, over a portal listing as `Exampleville`
+/// the commune cited as `Exampleville-sous-Bois`: the cited name finds
+/// nothing.
+fn renamed_portal() -> Fixtures {
+    let mut fetch = Fixtures::new(RENAMED);
+    fetch.answers = vec![("rech_commune=Exampleville-sous-Bois&", AIN_NONE)];
+    fetch
+}
+
+fn resolve_renamed(
+    citation: &CitationParts,
+    fetch: &Fixtures,
+) -> Result<ArchiveTarget, ResolveError> {
+    let registry = ArchiveRegistry::embedded();
+    let (archive, collections) = registry.candidates(citation).expect("a catalogued act");
+    block_on(Ligeo.resolve(archive, collections[0], citation, fetch))
+}
+
+/// A commune renamed since the citation, listed by the portal under the
+/// cited name without its qualifier: one more search, for that name, whose
+/// registers are taken on the citation's evidence — the cited call number
+/// telling the register from that of another commune extending the name.
+#[test]
+fn a_commune_listed_under_a_shorter_name_is_searched_again() {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry
+        .parse(
+            "AD93 - Exampleville-sous-Bois - (aucun) - N - 1903 - EXV 1E39 - acte 10 - vue 4d/201",
+        )
+        .unwrap();
+    let fetch = renamed_portal();
+    let target = resolve_renamed(&citation, &fetch).unwrap();
+    assert_eq!(viewed(&target), "vtaexample0122");
+    let requests = fetch.requests();
+    assert!(
+        requests[0].contains("rech_commune=Exampleville-sous-Bois&"),
+        "{requests:?}"
+    );
+    assert!(
+        requests[1].contains("rech_commune=Exampleville&"),
+        "{requests:?}"
+    );
+    assert!(requests[2].ends_with("/manifest"), "{requests:?}");
+
+    // The image count alone tells the commune's register from the other
+    // commune's no better than the year: the results of the second search.
+    let citation = registry
+        .parse("AD93 - Exampleville-sous-Bois - (aucun) - N - 1903 - acte 10 - vue 4d/201")
+        .unwrap();
+    let target = resolve_renamed(&citation, &renamed_portal());
+    assert_eq!(matches(&target), Some(2));
+    assert!(target.unwrap().url().contains("rech_commune=Exampleville&"));
+    // Nothing but the year: either may be another commune; no register.
+    let citation = registry
+        .parse("AD93 - Exampleville-sous-Bois - (aucun) - N - 1903")
+        .unwrap();
+    let target = resolve_renamed(&citation, &renamed_portal());
+    assert_eq!(matches(&target), Some(0));
+}
+
+/// A name the place dictionary knows for the cited locality is searched
+/// when the cited one finds nothing, and its registers are the cited
+/// locality's without further evidence.
+#[test]
+fn a_name_the_dictionary_knows_is_searched_when_the_cited_one_finds_nothing() {
+    let registry = ArchiveRegistry::embedded();
+    let mut citation = registry
+        .parse("AD93 - Ancienville - (aucun) - N - 1903")
+        .unwrap();
+    citation.alternate_localities = vec!["Exampleville".to_owned()];
+    let mut fetch = Fixtures::new(RENAMED);
+    fetch.answers = vec![("rech_commune=Ancienville&", AIN_NONE)];
+    let target = resolve_renamed(&citation, &fetch).unwrap();
+    assert_eq!(viewed(&target), "vtaexample0122");
+    assert!(fetch.requests()[1].contains("rech_commune=Exampleville&"));
+}
+
+/// A locality the answer names is searched once, its own name winning
+/// over another commune's extending it.
+#[test]
+fn a_locality_the_answer_names_is_searched_once() {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry
+        .parse("AD93 - Exampleville - (aucun) - N - 1903")
+        .unwrap();
+    let fetch = Fixtures::new(RENAMED);
+    let target = resolve_renamed(&citation, &fetch).unwrap();
+    assert_eq!(viewed(&target), "vtaexample0122");
+    let searches = fetch
+        .requests()
+        .iter()
+        .filter(|request| request.contains("/resultats/"))
+        .count();
+    assert_eq!(searches, 1);
 }

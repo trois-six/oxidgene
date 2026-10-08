@@ -227,11 +227,19 @@ pub enum Unrecognized {
 }
 
 /// The place dictionary, as recognition consults it to tell a locality from
-/// a parish or a hamlet (Archive Portals §5.1).
+/// a parish or a hamlet, and to know the other names of the locality
+/// (Archive Portals §5.1).
 pub trait PlaceLookup {
     /// For each of `names`, the subdivisions and regions of every place so
     /// named; empty for a name that is no known place.
     fn areas(&self, names: &[String]) -> Vec<Vec<String>>;
+
+    /// The other names of the commune named `name` within one of `areas`
+    /// (subdivisions or regions): its current name and its former ones,
+    /// and for a commune since merged into another, that one's current
+    /// name; the current names first. Empty for a name the dictionary does
+    /// not know there.
+    fn other_names(&self, name: &str, areas: &[String]) -> Vec<String>;
 }
 
 /// A citation recognized as a register of a catalogued archive.
@@ -247,6 +255,10 @@ pub struct Recognition<'r> {
     /// Whether the place dictionary confirmed the locality within the
     /// archive's area.
     pub confirmed_locality: bool,
+    /// The other names the place dictionary knows for the locality within
+    /// the archive's areas ([`PlaceLookup::other_names`]); empty without
+    /// the dictionary.
+    pub alternate_localities: Vec<String>,
 }
 
 impl Recognition<'_> {
@@ -274,6 +286,7 @@ impl Recognition<'_> {
             number: self.found.number,
             views: self.found.views.clone(),
             view_count: self.found.view_count,
+            alternate_localities: self.alternate_localities.clone(),
         })
     }
 
@@ -484,12 +497,19 @@ impl ArchiveRegistry {
                 signals.insert(Part::Year, signal);
             }
         }
+        let alternate_localities = match (places, &found.locality) {
+            (Some(places), Some(locality)) if !archive.areas.is_empty() => {
+                places.other_names(locality, &archive.areas)
+            }
+            _ => Vec::new(),
+        };
         Ok(Recognition {
-            archive: &self.archives[index],
+            archive,
             found,
             signals,
             address: weighing.address(),
             confirmed_locality,
+            alternate_localities,
         })
     }
 

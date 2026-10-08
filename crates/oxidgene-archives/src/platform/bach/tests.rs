@@ -198,6 +198,7 @@ fn cite(
             })
             .collect(),
         view_count: count,
+        alternate_localities: Vec::new(),
     }
 }
 
