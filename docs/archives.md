@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
+description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -2358,8 +2358,9 @@ as any cited view does (§7).
 
 Both surfaces share one service, validation and error mapping, and are tested
 symmetrically ([API Contract](api.md#sources)). The request sends the portal
-only the locality, period, act and call number; never the person's name, the
-citation text, or the act or matricule number.
+only the locality, period, act and call number, and the cited matricule to an
+index of persons searched by it (§4.5); never the person's name, the
+citation text, or the act number.
 
 **What is read.** The backend recognizes the citation from the stored
 records (§5.1): the source, the named citation's page and text, the
@@ -2389,7 +2390,8 @@ archive citation — nothing in the records names a register of an archive
 (§5.1) — is `422 not_an_archive_citation`; a citation of an archive the
 catalogue does not list, or of an act none of its collections holds, is
 `422 no_adapter`. A resolution failure keeps its `ResolveError`
-code: `502 unexpected_response`, `502 unreachable`, `504 timeout`, and the
+code: `502 unexpected_response`, `502 challenged`, `502 unreachable`,
+`504 timeout`, and the
 same codes in upper case in GraphQL's `extensions`. They are the portal's
 failures, not the server's: no correlation ID, and the backend logs the
 code and the archive's identifier only, never the citation. GraphQL answers
@@ -3234,13 +3236,17 @@ id>` included, then skips, and relies on the user-reported failures of §7.
    Every later archive or adapter arrives with its live check. All of it is
    in place.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
-   both surfaces and open targets from the web client; add `display`, the
-   IIIF view in the shared viewer, attaching views as a remote multi-page
-   document, and `Media.thumbnail_url`. All of it is in place, the offer to
-   attach disabled since (§6.3).
+   both surfaces and open targets from the web client; add `display`,
+   attaching views as a remote multi-page document, and
+   `Media.thumbnail_url`. All of it is in place; every archive displays in
+   its portal's own viewer, and the offer to attach is disabled since (§6.3).
 3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
    departmental archives running the four platforms in the order of §11.4,
-   then municipal and Swiss cantonal archives.
+   then municipal and Swiss cantonal archives. The departmental archives are
+   in place, every one but the Bouches-du-Rhône, with the adapters of every
+   platform they run (§4) and the overseas civil status of the Archives
+   nationales d'outre-mer; the municipal and Swiss cantonal archives are
+   next ([Roadmap](roadmap.md#3b-active-archive-viewer)).
 
 ## 11. French departmental portals
 

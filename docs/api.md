@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:20:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 
@@ -405,7 +405,9 @@ is `VIEW` or `RESULTS` and whose fields of the other kind are `null`, and
 answers the field only for a source read on its own, never for the items of
 a list (`VALIDATION_ERROR`). `view` is how the document form attaching cited
 views adds the previous or next view of the register, one request per click
-([Archive Portals §6.4](archives.md#64-attaching-and-cropping)): it resolves that
+([Archive Portals §6.4](archives.md#64-attaching-and-cropping)), an offer the
+interface keeps disabled for now
+([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)): it resolves that
 view alone, with the side the citation gives it, and a view below 1 or
 beyond the cited view count is a `400 validation_error` (`VALIDATION_ERROR`).
 `parts` win over everything the records say; an unknown document kind, one
@@ -428,7 +430,7 @@ GraphQL, with no `request_id`:
 | 502 | `unexpected_response` | The portal answered, but not as its adapter expects. |
 | 502 | `challenged` | The portal answered with an anti-bot challenge instead of its page. |
 | 502 | `unreachable` | The portal could not be reached, or answered with a server error. |
-| 504 | `timeout` | The portal did not answer within 10 seconds. |
+| 504 | `timeout` | A request to the portal got no answer within 30 seconds, or its gateway answered `504`. |
 
 ### Repositories
 

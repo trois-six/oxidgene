@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:22:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -38,7 +38,10 @@ Every user-visible project string uses the i18n mechanism, including:
 - validation, confirmation, warning, loading, empty, and error states;
 - accessibility names, descriptions, live-region text, and image alt text;
 - enum display values, event names, date qualifiers, and formatting labels;
-- backend workflow messages intended for display by a client.
+- backend workflow messages intended for display by a client;
+- what the application shows over a third party's page: the desktop archive
+  window's progress overlay and banners over an archive portal
+  ([Archive Portals §6.1](archives.md#61-desktop)).
 
 User-provided names, places, notes, sources, media metadata, and imported data
 are never translated.
@@ -300,7 +303,9 @@ genealogy rather than routing metadata: a route template replaces every
 identifier with `{id}`. A failed request is logged by its error category and
 status, never by the error's message, which can repeat the URL or the server's
 answer. Configuration failures likewise log a stable category without echoing
-the rejected value.
+the rejected value. An archive lookup logs its outcome's code, the archive's
+catalogue identifier and its duration, never the citation, a portal address
+or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
 
 ### 5.4 Operational behavior
 
@@ -582,6 +587,12 @@ user cannot lose entered data.
   The web fonts ship with the application rather than coming from a font
   service, and GraphiQL, whose page loads from a CDN, is served only where a
   deployment enables it.
+- An archive portal is contacted only when the reader opens a cited register,
+  one lookup per click, never ahead of it. It receives what its search needs —
+  locality, document kind, year, call number — never the person's name or the
+  citation text; no image is copied or stored, and the desktop's archive
+  window keeps the portals' cookies in a profile of its own, apart from the
+  application's ([Archive Portals §8](archives.md#8-access-etiquette)).
 
 ### 7.1 Backend exposure before authentication
 

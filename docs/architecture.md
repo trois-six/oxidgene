@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 
@@ -604,11 +604,16 @@ Where it needs something only the desktop can do — the
 [Geneanet login window](ui-import.md) — it declares a trait
 (`oxidgene_ui::geneanet::GeneanetCollector`) that `oxidgene-desktop` implements
 and injects as context. The web build simply finds none and renders the
-explanation instead of the control. It uses `oxidgene-archives` for its
-catalogue and citation parser only, without the crate's `native` transport,
-which links `reqwest`'s native client; `oxidgene-api` enables that transport
-for the archive-target endpoint
-([Archive Portals §3.3](archives.md#33-dependencies)).
+explanation instead of the control. The archive window is injected the same
+way: the desktop implements `oxidgene_ui::archive_viewer::ArchiveViewerOpener`,
+which resolves a cited source in a WebView window of its own, and the web
+build, finding none, asks the backend for the target and opens it in a new
+tab ([Archive Portals §6](archives.md#6-display)). `oxidgene-ui` uses
+`oxidgene-archives` for its catalogue and citation recognizer only, without
+the crate's `native` transport, which links `reqwest`'s native client;
+`oxidgene-api` enables that transport for the archive-target endpoint
+([Archive Portals §3.3](archives.md#33-dependencies)), and the desktop
+resolves through its archive window instead.
 
 The workspace keeps libraries under `crates/` and application entry points
 under `apps/`. `oxidgene-place-dictionary` is a development tool rather than a

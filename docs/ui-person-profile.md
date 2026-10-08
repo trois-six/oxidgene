@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
 ---
 
 
@@ -293,21 +293,30 @@ archive running it; the platforms supported are listed in
 
 A click resolves the citation through the portal's own request interface,
 inside the archive window
-([Archive Portals §6.1](archives.md#61-desktop)): the window opens on the
-collection's search page, OxidGene searches the register from that page and
-selects it among the results, then the window loads the register opened on
-the cited view. A banner over the portal page reports the lookup in the
-interface language (`archive_viewer.*`): searching while it runs, then no
-matching register or several matching registers over the portal's filtered
-results, instead of an arbitrary register; or, on a portal whose viewer
-cannot open a given view, which view to go to. When the portal shows an
-anti-bot check that does not clear itself within seconds, the banner asks
-the reader to answer it in the window, and the search continues once they
-have. When the portal does not answer as expected, the window opens the
-archive's website with a failure banner — or, when an anti-bot measure
-stopped the search, the collection's filtered search results, where the
-reader can pass the check and continue. Once the target has loaded, the
-reader browses the portal freely.
+([Archive Portals §6.1](archives.md#61-desktop)): the window first loads a
+light page of the portal, so that its checks pass; OxidGene then searches
+the register from that page and selects it among the results, and the window
+loads the register opened on the cited view. While it resolves, a progress
+overlay in the application's theme covers the portal's pages with the
+archive, the citation and the current step; its Cancel button stops the
+lookup and leaves the reader on the collection's search page. The window
+refuses a cookie banner's consent on the reader's behalf, never accepts one,
+and acknowledges a listed notice that asks no consent. Once the target has
+loaded, a banner over the portal page reports in the interface language
+(`archive_viewer.*`) that no register or several registers match, over the
+portal's filtered results instead of an arbitrary register, or that the
+register's numbering changed since it was cited. A viewer that cannot open a
+given view by its address is brought to the cited view by typing it in its
+own page-number control; the banner names the view to go to only when that
+fails. When the portal shows an anti-bot check that does not clear itself
+within seconds, the banner asks the reader to answer it in the window, and
+the search continues once they have. A register behind a reuse licence opens
+on the licence, which the reader accepts on the portal's page; the window
+then goes on to the register by itself. When the lookup fails, the window
+opens the collection's filtered search results after an anti-bot measure, a
+timeout or an unreachable portal, where the reader can continue, and the
+archive's website otherwise, with a banner saying why. The reader then
+browses the portal freely.
 
 On the web, a click asks the backend for the target
 (`POST …/sources/{source_id}/archive-target` with the clicked citation,
@@ -322,7 +331,10 @@ banner would say appears beside the source instead, as a status notice: no
 matching register or several over the filtered results, or, on a failure,
 the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
 otherwise) while the tab opens the archive's website, or its filtered search
-results after an anti-bot check. The next click clears it.
+results after an anti-bot check, a timeout or an unreachable portal. A
+register behind a reuse licence opens on the licence, and the notice says
+that the register is to be looked up on the portal once it is accepted
+(`archive_viewer.licence_tab`). The next click clears it.
 
 Every archive opens the same way, on its portal, and nothing beside the
 source or over the portal offers to keep the cited views: attaching them as a
@@ -342,9 +354,11 @@ register's previous and next views; nothing is written before Save
 ([§6.4](archives.md#64-attaching-and-cropping)). The event's documents
 refresh once it is saved; the gallery's region tool keeps only the act.
 
-The portal receives the locality, the act category, and the year, plus the
-portal's own collection and display identifiers. It does not receive the
-person's name, the citation text, the call number, or the act number. Each
+The portal receives what its search needs: the locality, the document kind,
+the year or period, the portal's own collection identifiers, the call number,
+and a matricule for an index of persons searched by it
+([Archive Portals §5.3](archives.md#53-api)). It never receives the person's
+name, the citation text, or the act number. Each
 register opens as a top-level page, because archive portals disallow
 embedding their pages in an OxidGene frame, in a web profile of its own that
 keeps the portals' cookies, so a reuse licence or an anti-bot challenge is
