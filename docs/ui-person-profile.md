@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:40Z }
 ---
 
 

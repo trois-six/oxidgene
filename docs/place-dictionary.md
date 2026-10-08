@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T11:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:40Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
