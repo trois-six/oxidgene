@@ -2917,9 +2917,9 @@ dependencies = [
 
 [[package]]
 name = "ged_io"
-version = "0.16.4"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ac6ca2ce34326ace67161a690ea78ecb7980ec56def334382b9d6ba0599866"
+checksum = "e4c52d91a78332ce0dfb60e2f53227ecdb58f99afe624c8e69506dc225a39caf"
 dependencies = [
  "calendrical_calculations",
  "calendrier",
@@ -2951,9 +2951,9 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e76d1670d8a891942eb8b552625807e675bb91e1c97224d1ad5732ba6c8ff658"
+checksum = "d904298a1424faf7699d6c33193e0253aa39990e89e837cbea0208006f99beb6"
 dependencies = [
  "ged_io",
 ]

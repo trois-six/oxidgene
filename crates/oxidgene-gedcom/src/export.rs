@@ -5,8 +5,11 @@
 use std::collections::HashMap;
 
 use ged_io::GedcomWriter;
+use ged_io::gedzip::GedzipWriter;
 use ged_io::types::GedcomData;
+use ged_io::types::address::Address as GedAddress;
 use ged_io::types::age::{Age as GedAge, AgeModifier as GedAgeModifier};
+use ged_io::types::custom::UserDefinedTag;
 use ged_io::types::date::Date;
 use ged_io::types::event::Event as GedEvent;
 use ged_io::types::event::detail::Detail as GedDetail;
@@ -31,10 +34,14 @@ use ged_io::types::multimedia::format::Format;
 use ged_io::types::note::Note as GedNote;
 use ged_io::types::place::{MapCoordinates, Place as GedPlace};
 use ged_io::types::repository::Repository as GedRepository;
+use ged_io::types::repository::citation::{
+    CallNumber as GedCallNumber, Citation as GedRepositoryCitation,
+};
 use ged_io::types::source::Source as GedSource;
 use ged_io::types::source::citation::Citation as GedCitation;
 use ged_io::types::source::citation::CitationSource;
 use ged_io::types::source::citation::data::SourceCitationData;
+use ged_io::types::source::data::Data as GedSourceData;
 use ged_io::types::source::quay::CertaintyAssessment;
 use ged_io::types::source::text::Text as GedText;
 use ged_io::types::submitter::Submitter;
@@ -263,11 +270,14 @@ pub fn export_gedcom(
         xrefs,
     };
 
+    let (mut extensions, extension_warnings) = media_extensions(media, vignettes, &index);
+    warnings.extend(extension_warnings);
+
     let mut data = GedcomData {
         header: Some(gedcom_header()),
         ..Default::default()
     };
-    data.submitters = vec![index.submitter(submitter.name, self_person_id)];
+    data.submitters = vec![index.submitter(submitter, self_person_id)];
     data.sources = sources.iter().map(|src| index.source(src)).collect();
     data.repositories = repositories
         .iter()
@@ -277,7 +287,10 @@ pub fn export_gedcom(
         .iter()
         // Dissolved into its pages, which carry the bytes; see `pages_of`.
         .filter(|m| !m.is_document())
-        .map(|m| index.multimedia(m, media_paths))
+        .map(|m| {
+            let custom_data = extensions.remove(&m.id).unwrap_or_default();
+            index.multimedia(m, media_paths, custom_data)
+        })
         .collect();
     for person in persons {
         let individual = index.individual(person, merge_names, merge_occupations, &mut warnings);
@@ -291,14 +304,6 @@ pub fn export_gedcom(
     drop(build_guard);
 
     let gedcom = write_gedcom(&data)?;
-    let gedcom = crate::finish::finish(
-        &gedcom,
-        |owner| index.notes_of(owner),
-        &index.additions(persons, families, sources, repositories, submitter),
-    );
-    let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
-    warnings.extend(extension_warnings);
-
     Ok(ExportResult { gedcom, warnings })
 }
 
@@ -389,7 +394,11 @@ fn associations(
                     xref: target_xref,
                     relationship: w.relation.clone(),
                     association_type: None,
-                    note: None,
+                    role: None,
+                    role_phrase: None,
+                    phrase: None,
+                    sources: Vec::new(),
+                    notes: Vec::new(),
                     custom_data: Vec::new(),
                 });
         }
@@ -453,49 +462,28 @@ fn gedcom_header() -> Header {
     }
 }
 
+/// The longest value the writer puts on one line before continuing it on
+/// `CONC` lines.
+///
+/// GEDCOM 5.5.1 caps a whole line at 255 characters, level, tag and
+/// delimiters included, while the writer's limit counts the value alone:
+/// this leaves room for the longest prefix it writes before a value it
+/// continues, a two-digit level and a four-letter tag (`10 NOTE `).
+const MAX_VALUE_LENGTH: usize = 255 - "10 NOTE ".len();
+
 /// Serialize the model to GEDCOM text.
 fn write_gedcom(data: &GedcomData) -> Result<String, String> {
     let write_span =
         tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
     let gedcom = write_span
-        // Unwrapped: `crate::finish` continues long lines itself, as
-        // `ged_io` would split them beside a space.
         .in_scope(|| {
             GedcomWriter::new()
-                .max_line_length(usize::MAX)
+                .max_line_length(MAX_VALUE_LENGTH)
                 .write_to_string(data)
         })
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", gedcom.len());
     Ok(gedcom)
-}
-
-/// Add the OxidGene media extensions to the written GEDCOM.
-fn inject_extensions(
-    gedcom: String,
-    media: &[Media],
-    vignettes: &[Vignette],
-    index: &ExportIndex,
-) -> (String, Vec<String>) {
-    let extensions_span = tracing::info_span!(
-        "export.inject_extensions",
-        export.input_bytes = gedcom.len(),
-        export.output_bytes = tracing::field::Empty,
-        export.vignette_count = vignettes.len(),
-    );
-    let (gedcom, warnings) = extensions_span.in_scope(|| {
-        inject_oxidgene_media_extensions(
-            gedcom,
-            media,
-            vignettes,
-            &index.xrefs.media,
-            &index.xrefs.person,
-            &index.place_map,
-            &index.notes_by_media,
-        )
-    });
-    extensions_span.record("export.output_bytes", gedcom.len());
-    (gedcom, warnings)
 }
 
 /// Every lookup the export reads, built once from the rows it writes.
@@ -533,10 +521,15 @@ impl ExportIndex<'_> {
     ///
     /// The tree's submitter name; else the display name of its "Who am I?"
     /// person; else `Not Provided` — Gramps' wording for the same gap — when
-    /// the tree names nobody, or somebody nameless. Its email and address are
-    /// `additions`: `ged_io` writes neither the one nor a multi-line other.
-    fn submitter(&self, setting: Option<&str>, self_person_id: Option<Uuid>) -> Submitter {
-        let name = setting
+    /// the tree names nobody, or somebody nameless. Its email and its
+    /// address, over several lines, when the settings hold them.
+    fn submitter(
+        &self,
+        settings: SubmitterSettings<'_>,
+        self_person_id: Option<Uuid>,
+    ) -> Submitter {
+        let name = settings
+            .name
             .map(str::trim)
             .filter(|name| !name.is_empty())
             .map(str::to_string)
@@ -551,105 +544,65 @@ impl ExportIndex<'_> {
         Submitter {
             xref: Some(SUBMITTER_XREF.to_string()),
             name: Some(name),
+            address: settings.address.and_then(to_ged_address),
+            email: non_blank(settings.email)
+                .map(str::to_string)
+                .into_iter()
+                .collect(),
             ..Default::default()
         }
     }
 
-    /// A `REPO` record, of which `ged_io` writes the name: `additions`
-    /// adds the address, the contact details and the notes.
+    /// A `REPO` record: its name, its address over several lines, its phone,
+    /// email and website, and its notes.
     fn repository(&self, repo: &Repository) -> GedRepository {
         GedRepository {
             xref: self.xrefs.repository.get(&repo.id).cloned(),
             name: Some(repo.name.clone()),
+            address: repo.address.as_deref().and_then(to_ged_address),
+            phone: non_blank(repo.phone.as_deref())
+                .map(str::to_string)
+                .into_iter()
+                .collect(),
+            email: non_blank(repo.email.as_deref())
+                .map(str::to_string)
+                .into_iter()
+                .collect(),
+            website: non_blank(repo.website.as_deref())
+                .map(str::to_string)
+                .into_iter()
+                .collect(),
+            notes: all_notes(self.notes_by_repository.get(&repo.id)),
             ..Default::default()
         }
     }
 
-    /// A `SOUR` record.
+    /// A `SOUR` record, with its publication facts, the agency responsible
+    /// for its data, and the repositories holding it.
     fn source(&self, src: &Source) -> GedSource {
+        let mut data = GedSourceData::default();
+        data.agency = non_blank(src.agency.as_deref()).map(str::to_string);
         GedSource {
             xref: self.xrefs.source.get(&src.id).cloned(),
             title: Some(src.title.clone()),
             author: src.author.clone(),
-            // `ged_io` writes no `PUBL`: `additions` adds it to the text.
-            publication_facts: None,
+            publication_facts: non_blank(src.publisher.as_deref()).map(gedcom_text),
             abbreviation: src.abbreviation.clone(),
+            data,
             notes: all_notes(self.notes_by_source.get(&src.id)),
+            repo_citations: self.repository_citations(src.id),
             ..Default::default()
         }
     }
 
-    /// What the text `ged_io` writes lacks, by record xref: the `RESN` of a
-    /// private person or family, and each source's publication facts and
-    /// agency — `ged_io` 0.16 writes neither a record's `RESN`, nor a `PUBL`,
-    /// nor a source's `DATA`.
-    ///
-    /// A private record is `RESN confidential`, GEDCOM's word for data its
-    /// owner marked to be kept from reports and exports, and the one the
-    /// import reads back as private. `Public` has no `RESN` to be written as:
-    /// it comes back as following the tree.
-    fn additions(
+    /// An `OBJE` record for one page, with the OxidGene extensions written
+    /// beneath it (see [`media_extensions`]).
+    fn multimedia(
         &self,
-        persons: &[Person],
-        families: &[Family],
-        sources: &[Source],
-        repositories: &[Repository],
-        submitter: SubmitterSettings<'_>,
-    ) -> HashMap<String, Vec<crate::finish::Addition>> {
-        let mut additions: HashMap<String, Vec<crate::finish::Addition>> = HashMap::new();
-        for (tag, value) in [("ADDR", submitter.address), ("EMAIL", submitter.email)] {
-            if let Some(value) = value.filter(|v| !v.trim().is_empty()) {
-                additions
-                    .entry(SUBMITTER_XREF.to_string())
-                    .or_default()
-                    .push(crate::finish::Addition::new(tag, value.trim()));
-            }
-        }
-        let private = persons
-            .iter()
-            .filter(|p| p.privacy == Privacy::Private)
-            .filter_map(|p| self.xrefs.person.get(&p.id))
-            .chain(
-                families
-                    .iter()
-                    .filter(|f| f.privacy == Privacy::Private)
-                    .filter_map(|f| self.xrefs.family.get(&f.id)),
-            );
-        for xref in private {
-            additions
-                .entry(xref.clone())
-                .or_default()
-                .push(crate::finish::Addition::new("RESN", "confidential"));
-        }
-        for src in sources {
-            let Some(xref) = self.xrefs.source.get(&src.id) else {
-                continue;
-            };
-            let entry = additions.entry(xref.clone()).or_default();
-            if let Some(publisher) = src.publisher.as_deref().filter(|p| !p.trim().is_empty()) {
-                entry.push(crate::finish::Addition::new("PUBL", publisher));
-            }
-            if let Some(agency) = src.agency.as_deref().filter(|a| !a.trim().is_empty()) {
-                entry.push(
-                    crate::finish::Addition::new("DATA", "")
-                        .with(crate::finish::Addition::new("AGNC", agency)),
-                );
-            }
-            entry.extend(self.repository_citations(src.id));
-        }
-        for repo in repositories {
-            if let Some(xref) = self.xrefs.repository.get(&repo.id) {
-                additions
-                    .entry(xref.clone())
-                    .or_default()
-                    .extend(self.repository_details(repo));
-            }
-        }
-        additions
-    }
-
-    /// An `OBJE` record for one page.
-    fn multimedia(&self, m: &Media, media_paths: &HashMap<Uuid, String>) -> GedMultimedia {
+        m: &Media,
+        media_paths: &HashMap<Uuid, String>,
+        custom_data: Vec<UserDefinedTag>,
+    ) -> GedMultimedia {
         // Title, description, category and medium describe the document, not
         // the scan. Reading them from the parent is what keeps a `.ged` other
         // software opens from showing thirty-eight untitled files — and what
@@ -689,7 +642,13 @@ impl ExportIndex<'_> {
                     .unwrap_or(1),
                 m.page_index,
             ),
-            note_structure: described.description.as_deref().map(to_ged_note),
+            notes: described
+                .description
+                .as_deref()
+                .map(to_ged_note)
+                .into_iter()
+                .collect(),
+            custom_data: custom_data.into_iter().map(Box::new).collect(),
             ..Default::default()
         }
     }
@@ -723,9 +682,6 @@ impl ExportIndex<'_> {
         }
 
         let source = self.citations(self.cites_by_person.get(&person.id), warnings);
-        // The model holds one note; it stands in for all of them.
-        let note =
-            crate::finish::note_slot(person.id, self.notes_by_person.contains_key(&person.id));
         let multimedia = self.portrait_first_multimedia(person);
         // FAMS/FAMC back-links to the families this person belongs to.
         let families = to_ged_family_links(
@@ -738,6 +694,7 @@ impl ExportIndex<'_> {
 
         Individual {
             xref: self.xrefs.person.get(&person.id).cloned(),
+            restriction: restriction(person.privacy),
             names,
             sex: Some(Gender {
                 value: convert_sex(person.sex),
@@ -749,7 +706,7 @@ impl ExportIndex<'_> {
             events,
             attributes,
             source,
-            note,
+            notes: all_notes(self.notes_by_person.get(&person.id)),
             multimedia,
             associations: self
                 .assoc_by_person
@@ -808,51 +765,33 @@ impl ExportIndex<'_> {
         self.multimedia_refs(ordered.into_iter().copied())
     }
 
-    /// A source's `REPO` citations, each with its call number and medium —
-    /// `ged_io` writes neither `CALN` nor `MEDI`, so the whole structure is
-    /// added. GEDCOM 5.5.1 puts `MEDI` under `CALN`: a medium without a call
-    /// number is written under an empty one.
-    fn repository_citations(&self, source_id: Uuid) -> Vec<crate::finish::Addition> {
-        use crate::finish::Addition;
+    /// A source's `REPO` citations: one per repository link, with its call
+    /// number and medium. GEDCOM 5.5.1 puts `MEDI` under `CALN`: a medium
+    /// without a call number is written under an empty one.
+    fn repository_citations(&self, source_id: Uuid) -> Vec<GedRepositoryCitation> {
         self.repos_by_source
             .get(&source_id)
             .into_iter()
             .flatten()
             .filter_map(|link| {
                 let xref = self.xrefs.repository.get(&link.repository_id)?;
-                let call_number = link.call_number.as_deref().unwrap_or_default();
-                let mut citation = Addition::new("REPO", xref.clone());
-                if !call_number.is_empty() || link.media_type.is_some() {
-                    let mut caln = Addition::new("CALN", call_number);
-                    if let Some(medium) = link.media_type {
-                        caln = caln.with(Addition::new("MEDI", medium.as_str()));
-                    }
-                    citation = citation.with(caln);
-                }
-                Some(citation)
+                let call_number = link.call_number.clone().unwrap_or_default();
+                let call_numbers = if call_number.is_empty() && link.media_type.is_none() {
+                    Vec::new()
+                } else {
+                    vec![GedCallNumber {
+                        value: call_number,
+                        medium: link.media_type.map(|medium| medium.as_str().to_string()),
+                        medium_phrase: None,
+                    }]
+                };
+                Some(GedRepositoryCitation {
+                    xref: xref.clone(),
+                    call_numbers,
+                    ..Default::default()
+                })
             })
             .collect()
-    }
-
-    /// What `ged_io` leaves out of a `REPO` record: the address over several
-    /// lines, the phone, the email, the website and the notes.
-    fn repository_details(&self, repo: &Repository) -> Vec<crate::finish::Addition> {
-        use crate::finish::Addition;
-        let mut details = Vec::new();
-        for (tag, value) in [
-            ("ADDR", &repo.address),
-            ("PHON", &repo.phone),
-            ("EMAIL", &repo.email),
-            ("WWW", &repo.website),
-        ] {
-            if let Some(value) = value.as_deref().filter(|v| !v.trim().is_empty()) {
-                details.push(Addition::new(tag, value));
-            }
-        }
-        for note in self.notes_by_repository.get(&repo.id).into_iter().flatten() {
-            details.push(Addition::new("NOTE", note.text.clone()));
-        }
-        details
     }
 
     /// A `FAM` record.
@@ -887,6 +826,7 @@ impl ExportIndex<'_> {
 
         GedFamily {
             xref: self.xrefs.family.get(&fam.id).cloned(),
+            restriction: restriction(fam.privacy),
             individual1: husband,
             individual2: wife,
             children,
@@ -1020,18 +960,6 @@ impl ExportIndex<'_> {
             .collect()
     }
 
-    /// The texts of every note of a person or an event, for
-    /// [`crate::finish::finish`] to write where the model held one.
-    fn notes_of(&self, owner: Uuid) -> Vec<&str> {
-        self.notes_by_person
-            .get(&owner)
-            .or_else(|| self.notes_by_event.get(&owner))
-            .into_iter()
-            .flatten()
-            .map(|note| note.text.as_str())
-            .collect()
-    }
-
     /// What an event and an attribute write alike: its date, place,
     /// citations, notes and media.
     fn event_parts(&self, evt: &Event, warnings: &mut Vec<String>) -> EventParts {
@@ -1054,8 +982,7 @@ impl ExportIndex<'_> {
                 .and_then(|pid| self.place_map.get(&pid))
                 .map(|p| to_ged_place(p)),
             citations: self.citations(self.cites_by_event.get(&evt.id), warnings),
-            // The model holds one note; it stands in for all of them.
-            note: crate::finish::note_slot(evt.id, self.notes_by_event.contains_key(&evt.id)),
+            notes: all_notes(self.notes_by_event.get(&evt.id)),
             multimedia: self.multimedia_refs(
                 self.mlinks_by_event
                     .get(&evt.id)
@@ -1072,7 +999,7 @@ struct EventParts {
     date: Option<Date>,
     place: Option<GedPlace>,
     citations: Vec<GedCitation>,
-    note: Option<GedNote>,
+    notes: Vec<GedNote>,
     multimedia: Vec<GedMultimedia>,
 }
 
@@ -1101,17 +1028,63 @@ fn all_notes(notes: Option<&Vec<&Note>>) -> Vec<GedNote> {
         .collect()
 }
 
-fn inject_oxidgene_media_extensions(
-    gedcom: String,
+/// `text` when it says something.
+fn non_blank(text: Option<&str>) -> Option<&str> {
+    text.filter(|text| !text.trim().is_empty())
+}
+
+/// Free text as GEDCOM writes it: a carriage return is a line break like
+/// any other, which the writer continues on a `CONT` line — written as such
+/// inside a value, a reader would take it for the end of the line.
+fn gedcom_text(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// An address held as one text over several lines, as GEDCOM's `ADDR`
+/// writes it, one `CONT` per further line.
+fn to_ged_address(text: &str) -> Option<GedAddress> {
+    Some(GedAddress {
+        value: Some(gedcom_text(non_blank(Some(text))?.trim())),
+        ..Default::default()
+    })
+}
+
+/// The `RESN` of a person or a family: `confidential` for a private record,
+/// GEDCOM's word for data its owner marked to be kept from reports and
+/// exports, and the one the import reads back as private. A record
+/// following the tree, or public, has none: it comes back as following the
+/// tree.
+fn restriction(privacy: Privacy) -> Option<String> {
+    (privacy == Privacy::Private).then(|| "confidential".to_string())
+}
+
+/// An OxidGene extension tag holding `value`.
+fn extension(tag: &str, value: String) -> UserDefinedTag {
+    UserDefinedTag {
+        xref: None,
+        tag: tag.to_string(),
+        value: Some(value),
+        children: Vec::new(),
+    }
+}
+
+/// The OxidGene extensions written beneath each page's `OBJE` record, by
+/// page id: `_OXIDGENE_MEDIA` (what the page says about itself),
+/// `_OXIDGENE_DOC` (the document it belongs to) and one `_OXIDGENE_VIGNETTE`
+/// per person identified on it.
+fn media_extensions(
     media: &[Media],
     vignettes: &[Vignette],
-    media_xref: &HashMap<Uuid, String>,
-    person_xref: &HashMap<Uuid, String>,
-    places: &HashMap<Uuid, &Place>,
-    notes_by_media: &HashMap<Uuid, Vec<&Note>>,
-) -> (String, Vec<String>) {
+    index: &ExportIndex,
+) -> (HashMap<Uuid, Vec<UserDefinedTag>>, Vec<String>) {
     let mut warnings = Vec::new();
-    let mut by_media = HashMap::<String, Vec<String>>::new();
+    let mut by_media = HashMap::<Uuid, Vec<UserDefinedTag>>::new();
+    let ExportIndex {
+        xrefs,
+        place_map: places,
+        notes_by_media,
+        ..
+    } = index;
 
     let media_by_id: HashMap<Uuid, &Media> = media.iter().map(|m| (m.id, m)).collect();
     let notes_of = |media_id: Uuid| -> Vec<MediaNoteExtension> {
@@ -1142,9 +1115,9 @@ fn inject_oxidgene_media_extensions(
     }
 
     for item in media.iter().filter(|item| !item.is_document()) {
-        let Some(xref) = media_xref.get(&item.id) else {
+        if !xrefs.media.contains_key(&item.id) {
             continue;
-        };
+        }
         // Page-level, and only page-level: the file it was, and its transcript.
         let metadata = MediaMetadataExtension {
             version: 1,
@@ -1155,9 +1128,9 @@ fn inject_oxidgene_media_extensions(
         };
         match serde_json::to_string(&metadata) {
             Ok(value) => by_media
-                .entry(xref.clone())
+                .entry(item.id)
                 .or_default()
-                .push(format!("1 _OXIDGENE_MEDIA {value}")),
+                .push(extension("_OXIDGENE_MEDIA", value)),
             Err(err) => warnings.push(format!(
                 "Media {} metadata could not be serialized: {err}",
                 item.id
@@ -1208,9 +1181,9 @@ fn inject_oxidgene_media_extensions(
         };
         match serde_json::to_string(&container) {
             Ok(value) => by_media
-                .entry(xref.clone())
+                .entry(item.id)
                 .or_default()
-                .push(format!("1 _OXIDGENE_DOC {value}")),
+                .push(extension("_OXIDGENE_DOC", value)),
             Err(err) => warnings.push(format!(
                 "Media {} document metadata could not be serialized: {err}",
                 item.id
@@ -1219,16 +1192,16 @@ fn inject_oxidgene_media_extensions(
     }
 
     for vignette in vignettes {
-        let Some(media) = media_xref.get(&vignette.media_id) else {
+        if !xrefs.media.contains_key(&vignette.media_id) {
             warnings.push(format!(
                 "Vignette {} references media {} which is not part of this export",
                 vignette.id, vignette.media_id
             ));
             continue;
-        };
+        }
         let person = match vignette.person_id {
             Some(person_id) => {
-                let Some(person) = person_xref.get(&person_id) else {
+                let Some(person) = xrefs.person.get(&person_id) else {
                     warnings.push(format!(
                         "Vignette {} references person {} who is not part of this export",
                         vignette.id, person_id
@@ -1239,29 +1212,18 @@ fn inject_oxidgene_media_extensions(
             }
             None => "-",
         };
-        by_media.entry(media.clone()).or_default().push(format!(
-            "1 _OXIDGENE_VIGNETTE {person} {} {} {} {}",
-            vignette.x, vignette.y, vignette.width, vignette.height
-        ));
+        by_media
+            .entry(vignette.media_id)
+            .or_default()
+            .push(extension(
+                "_OXIDGENE_VIGNETTE",
+                format!(
+                    "{person} {} {} {} {}",
+                    vignette.x, vignette.y, vignette.width, vignette.height
+                ),
+            ));
     }
-
-    let mut output = String::with_capacity(gedcom.len() + media.len() * 256 + vignettes.len() * 64);
-    for line in gedcom.lines() {
-        output.push_str(line);
-        output.push('\n');
-        if let Some(header) = line.strip_prefix("0 ") {
-            let mut fields = header.split_whitespace();
-            if let (Some(xref), Some("OBJE")) = (fields.next(), fields.next())
-                && let Some(rows) = by_media.get(xref)
-            {
-                for row in rows {
-                    output.push_str(row);
-                    output.push('\n');
-                }
-            }
-        }
-    }
-    (output, warnings)
+    (by_media, warnings)
 }
 
 /// Where a media's bytes live inside a GEDZIP, if we hold any.
@@ -1312,87 +1274,68 @@ fn extension_for(mime_type: &str) -> Option<&'static str> {
 /// empty slice produces the bare `gedcom.ged` archive, which is what this
 /// wrote unconditionally before: the format's entire point is that the media
 /// travel with the data, and a `.gdz` holding only the GEDCOM is a `.ged` in
-/// a costume.
+/// a costume. A file already compressed — a JPEG, a PNG, a PDF — is stored as
+/// it is, any other deflated.
 ///
 /// # Errors
 ///
 /// Returns `Err` if the ZIP archive cannot be written.
-pub fn export_gedzip(gedcom: &str, files: &[(String, String, Vec<u8>)]) -> Result<Vec<u8>, String> {
-    let cursor = std::io::Cursor::new(Vec::new());
-    let mut writer = zip::ZipWriter::new(cursor);
-    write_gedcom_entry(&mut writer, gedcom)?;
-    for (path, mime_type, bytes) in files {
-        write_media_entry(&mut writer, path, mime_type, bytes)?;
+pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let mut writer = GedzipFileWriter::new(std::io::Cursor::new(Vec::new()), gedcom)?;
+    for (path, bytes) in files {
+        writer.add_media_file(path, bytes)?;
     }
-    let cursor = writer.finish().map_err(|e| format!("GEDZIP error: {e}"))?;
-    Ok(cursor.into_inner())
+    writer.finish().map(std::io::Cursor::into_inner)
 }
 
-/// A GEDZIP archive written directly to a local file.
-pub struct GedzipFileWriter {
-    writer: zip::ZipWriter<std::fs::File>,
+/// A GEDZIP archive written as its media are read, so that each can be
+/// released before the next is loaded.
+pub struct GedzipFileWriter<W: std::io::Write + std::io::Seek = std::fs::File> {
+    writer: GedzipWriter<W>,
 }
 
 impl GedzipFileWriter {
-    /// Create an archive and write its mandatory `gedcom.ged` entry.
+    /// Create an archive file and write its mandatory `gedcom.ged` entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the file cannot be created or written.
     pub fn create(path: &std::path::Path, gedcom: &str) -> Result<Self, String> {
         let file = std::fs::File::create(path).map_err(|e| format!("GEDZIP error: {e}"))?;
-        let mut writer = zip::ZipWriter::new(file);
-        write_gedcom_entry(&mut writer, gedcom)?;
+        Self::new(file, gedcom)
+    }
+}
+
+impl<W: std::io::Write + std::io::Seek> GedzipFileWriter<W> {
+    fn new(destination: W, gedcom: &str) -> Result<Self, String> {
+        let mut writer =
+            GedzipWriter::new(destination).map_err(|e| format!("GEDZIP error: {e}"))?;
+        writer
+            .write_gedcom_bytes(gedcom.as_bytes())
+            .map_err(|e| format!("GEDZIP error: {e}"))?;
         Ok(Self { writer })
     }
 
-    /// Add one media entry. Callers can release `bytes` before loading the next.
-    pub fn add_media_file(
-        &mut self,
-        path: &str,
-        mime_type: &str,
-        bytes: &[u8],
-    ) -> Result<(), String> {
-        write_media_entry(&mut self.writer, path, mime_type, bytes)
-    }
-
-    /// Finalize the ZIP central directory and flush the output file.
-    pub fn finish(self) -> Result<(), String> {
+    /// Add one media entry, stored as it is when already compressed.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the entry cannot be written.
+    pub fn add_media_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.writer
-            .finish()
-            .map(|_| ())
+            .add_media_file(path, bytes)
             .map_err(|e| format!("GEDZIP error: {e}"))
     }
-}
 
-fn write_gedcom_entry<W: std::io::Write + std::io::Seek>(
-    writer: &mut zip::ZipWriter<W>,
-    gedcom: &str,
-) -> Result<(), String> {
-    let options = zip::write::FileOptions::<()>::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-    writer
-        .start_file(ged_io::gedzip::GEDCOM_FILENAME, options)
-        .map_err(|e| format!("GEDZIP error: {e}"))?;
-    std::io::Write::write_all(writer, gedcom.as_bytes()).map_err(|e| format!("GEDZIP error: {e}"))
-}
-
-fn write_media_entry<W: std::io::Write + std::io::Seek>(
-    writer: &mut zip::ZipWriter<W>,
-    path: &str,
-    mime_type: &str,
-    bytes: &[u8],
-) -> Result<(), String> {
-    let options = zip::write::FileOptions::<()>::default()
-        .compression_method(media_compression_method(mime_type));
-    writer
-        .start_file(path, options)
-        .map_err(|e| format!("GEDZIP error: {e}"))?;
-    std::io::Write::write_all(writer, bytes).map_err(|e| format!("GEDZIP error: {e}"))
-}
-
-fn media_compression_method(mime_type: &str) -> zip::CompressionMethod {
-    match mime_type {
-        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "application/pdf" => {
-            zip::CompressionMethod::Stored
-        }
-        _ => zip::CompressionMethod::Deflated,
+    /// Finalize the ZIP central directory and hand back the destination.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the archive cannot be finalized.
+    pub fn finish(self) -> Result<W, String> {
+        self.writer
+            .finish()
+            .map_err(|e| format!("GEDZIP error: {e}"))
     }
 }
 
@@ -1454,7 +1397,7 @@ fn to_ged_family_links(
             pedigree_linkage_type,
             child_linkage_status: None,
             adopted_by: None,
-            note: None,
+            notes: Vec::new(),
             custom_data: Vec::new(),
         });
     }
@@ -1578,9 +1521,10 @@ fn convert_event_type(et: EventType, sex: Option<Sex>) -> GedEvent {
         | EventType::Fact => GedEvent::Other,
         // No tag in either version: a generic `EVEN` that `even_type_label`
         // names. The LDS ordinances do have tags (`BAPL`, `CONL`, `ENDL`,
-        // `SLGC`, `SLGS`), but `ged_io` holds no place, description or media
-        // for them and OxidGene's import does not read them, so they stay
-        // events that GEDCOM readers and OxidGene both read whole.
+        // `SLGC`, `SLGS`), but GEDCOM's ordinance structure has no room for
+        // an event's description, media, age or agency, which an OxidGene
+        // event can hold: written as generic events, GEDCOM readers and
+        // OxidGene both read them whole.
         EventType::MilitaryService
         | EventType::CivilUnion
         | EventType::Separation
@@ -1690,8 +1634,8 @@ fn convert_confidence(c: Option<Confidence>) -> Option<CertaintyAssessment> {
     })
 }
 
-/// The `ged_io` age a stored age is written as. `phrase` stays unset: the
-/// writer would emit GEDCOM 7's `PHRASE` into a 5.5.1 file.
+/// The `ged_io` age a stored age is written as. A stored age is canonical,
+/// so it has no phrase to carry.
 fn to_ged_age(age: Option<&str>) -> Option<GedAge> {
     use oxidgene_core::types::age::{AgeAtEvent, AgeModifier};
     let unit = |count: Option<u16>| count.and_then(|c| u8::try_from(c).ok());
@@ -1722,7 +1666,7 @@ fn to_ged_age(age: Option<&str>) -> Option<GedAge> {
 
 fn to_ged_note(text: &str) -> GedNote {
     GedNote {
-        value: Some(text.to_string()),
+        value: Some(gedcom_text(text)),
         ..Default::default()
     }
 }
@@ -1745,7 +1689,7 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
         date,
         place,
         citations,
-        note,
+        notes,
         multimedia,
     } = index.event_parts(evt, warnings);
 
@@ -1763,8 +1707,13 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
         event,
         value,
         date,
+        address: None,
+        phone: Vec::new(),
+        email: Vec::new(),
+        fax: Vec::new(),
+        website: Vec::new(),
         place,
-        note,
+        notes,
         family_link: None,
         family_event_details: Vec::new(),
         event_type,
@@ -1778,6 +1727,7 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
         age: to_ged_age(evt.age.as_deref()).filter(|_| evt.family_id.is_none()),
         agency: evt.agency.clone(),
         religion: None,
+        custom_data: Vec::new(),
     }
 }
 
@@ -1808,8 +1758,8 @@ fn event_type_to_attribute(et: EventType) -> Option<GedIndividualAttribute> {
 /// Collapses every `OCCU` attribute in a person's attribute list into one,
 /// for the `merge_occupations` export option (see `export_gedcom`). Values
 /// are joined with `", "`; the first occupation's date/place/cause/etc. are
-/// kept, and every occupation's source citations and first note are
-/// preserved on the merged entry. A no-op if the person has 0 or 1 `OCCU`.
+/// kept, and every occupation's source citations, media and notes are
+/// preserved on the merged entry, once each. A no-op if the person has 0 or 1 `OCCU`.
 fn merge_occupation_attributes(attributes: Vec<GedAttributeDetail>) -> Vec<GedAttributeDetail> {
     let occupation_count = attributes
         .iter()
@@ -1847,8 +1797,11 @@ fn merge_occupation_attributes(attributes: Vec<GedAttributeDetail>) -> Vec<GedAt
                         m.multimedia.push(media);
                     }
                 }
-                if m.note.is_none() {
-                    m.note = attr.note;
+                // The same goes for its notes.
+                for note in attr.notes {
+                    if !m.notes.iter().any(|kept| kept.value == note.value) {
+                        m.notes.push(note);
+                    }
                 }
             }
         }
@@ -1895,7 +1848,7 @@ fn to_ged_attribute_detail(
         date,
         place,
         citations,
-        note,
+        notes,
         multimedia,
     } = index.event_parts(evt, warnings);
 
@@ -1908,7 +1861,7 @@ fn to_ged_attribute_detail(
         place,
         date,
         sources: citations,
-        note,
+        notes,
         multimedia,
         attribute_type: None,
         restriction: None,
@@ -1916,6 +1869,12 @@ fn to_ged_attribute_detail(
         address: None,
         cause: evt.cause.clone(),
         agency: evt.agency.clone(),
+        phone: Vec::new(),
+        email: Vec::new(),
+        fax: Vec::new(),
+        website: Vec::new(),
+        associations: Vec::new(),
+        custom_data: Vec::new(),
     }
 }
 
@@ -1945,11 +1904,13 @@ fn to_ged_citation(
             .filter(|text| !text.trim().is_empty())
             .map(|text| SourceCitationData {
                 date: None,
-                text: Some(GedText {
+                texts: vec![GedText {
                     value: Some(text.to_string()),
-                }),
+                }],
+                custom_data: Vec::new(),
             }),
-        note: None,
+        notes: Vec::new(),
+        texts: Vec::new(),
         certainty_assessment: convert_confidence(cite.confidence),
         submitter_registered_rfn: None,
         multimedia: Vec::new(),
@@ -2244,15 +2205,8 @@ mod tests {
         );
         assert!(!export.gedcom.contains("C:\\Photos"));
 
-        let bytes = export_gedzip(
-            &export.gedcom,
-            &[(
-                path.clone(),
-                "image/jpeg".to_string(),
-                b"JPEGBYTES".to_vec(),
-            )],
-        )
-        .expect("zips");
+        let bytes =
+            export_gedzip(&export.gedcom, &[(path.clone(), b"JPEGBYTES".to_vec())]).expect("zips");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
         assert_eq!(
             archive
@@ -2274,11 +2228,7 @@ mod tests {
     fn a_bitmap_is_compressed_inside_a_gedzip() {
         let bytes = export_gedzip(
             "0 HEAD\n0 TRLR\n",
-            &[(
-                "media/scan.bmp".to_string(),
-                "image/bmp".to_string(),
-                vec![0; 1024],
-            )],
+            &[("media/scan.bmp".to_string(), vec![0; 1024])],
         )
         .expect("writes GEDZIP");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
@@ -2444,15 +2394,8 @@ mod tests {
         assert!(export.gedcom.contains("1 NOTE First line"));
         assert!(export.gedcom.contains("2 CONT Second line"));
 
-        let archive = export_gedzip(
-            &export.gedcom,
-            &[(
-                archive_path,
-                "image/jpeg".to_string(),
-                b"IMAGE BYTES".to_vec(),
-            )],
-        )
-        .expect("creates GEDZIP");
+        let archive = export_gedzip(&export.gedcom, &[(archive_path, b"IMAGE BYTES".to_vec())])
+            .expect("creates GEDZIP");
         let imported_archive =
             crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports GEDZIP");
         assert_eq!(imported_archive.files.len(), 1);
@@ -2617,19 +2560,18 @@ mod tests {
             },
         )
         .expect("exports");
+        // The value opens with the person's xref, and so with GEDCOM's
+        // escape of a leading `@`, which the import reads back as one.
         assert!(
             export
                 .gedcom
-                .contains("1 _OXIDGENE_VIGNETTE @I1@ 120 45 64 82"),
+                .contains("1 _OXIDGENE_VIGNETTE @@I1@ 120 45 64 82"),
             "{}",
             export.gedcom
         );
 
-        let archive = export_gedzip(
-            &export.gedcom,
-            &[(path, "image/jpeg".to_string(), b"JPEGBYTES".to_vec())],
-        )
-        .expect("writes GEDZIP");
+        let archive =
+            export_gedzip(&export.gedcom, &[(path, b"JPEGBYTES".to_vec())]).expect("writes GEDZIP");
         let imported = crate::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports");
         let back = imported.result;
 

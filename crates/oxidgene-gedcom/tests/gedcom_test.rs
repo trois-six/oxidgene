@@ -413,7 +413,7 @@ fn test_import_place_dedup() {
     assert!(result.places[0].name.contains("London"));
 }
 
-/// A file whose ages are partly free text, which `ged_io` refuses outright.
+/// A file whose ages are partly free text or empty.
 const UNREADABLE_AGE_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
@@ -434,19 +434,28 @@ const UNREADABLE_AGE_GEDCOM: &str = "\
 0 TRLR
 ";
 
-/// An `AGE` that is not a GEDCOM age costs that line, not the import: the
-/// valid ones are kept, the rest are reported by line number and nothing of
-/// the value leaks into the warning.
+/// An `AGE` that is not a GEDCOM age costs that age, not the import: the
+/// valid ones are kept, the rest are reported naming their record, and
+/// nothing of the value leaks into the warning.
 #[test]
 fn an_unreadable_age_is_a_warning_rather_than_a_failed_import() {
     let result = import_gedcom(UNREADABLE_AGE_GEDCOM, Uuid::now_v7()).expect("imports");
     assert_eq!(result.persons.len(), 1);
     let death = event_of(&result, oxidgene_core::EventType::Death);
     assert_eq!(death.date_value.as_deref(), Some("1870"));
+    assert_eq!(death.age, None);
     assert!(death.place_id.is_some(), "the PLAC after the AGE survives");
+    let burial = event_of(&result, oxidgene_core::EventType::Burial);
+    assert_eq!(burial.age.as_deref(), Some("69y"));
     assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
-    assert!(result.warnings[0].starts_with("Line 10:"));
-    assert!(result.warnings[1].starts_with("Line 13:"));
+    assert!(
+        result
+            .warnings
+            .iter()
+            .all(|w| w.starts_with("Individual @I1@: an AGE")),
+        "{:?}",
+        result.warnings
+    );
     assert!(result.warnings.iter().all(|w| !w.contains("majeur")));
 
     let archive = oxidgene_gedcom::export::export_gedzip(UNREADABLE_AGE_GEDCOM, &[])
@@ -503,6 +512,29 @@ fn a_note_pointer_imports_the_text_of_its_record() {
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
 }
 
+/// GEDCOM 7.0 points at a shared note with `SNOTE`; a pointer to a record
+/// the file does not hold is left out with a warning, the notes beside it
+/// kept.
+#[test]
+fn a_shared_note_pointer_of_either_version_resolves_or_is_reported() {
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME Branch /Alpha/\n\
+                  1 SNOTE @N1@\n1 NOTE @N9@\n1 NOTE Kept\n1 BIRT\n2 DATE 1801\n2 SNOTE @N1@\n\
+                  0 @N1@ SNOTE Shared\n1 CONT remark\n0 TRLR\n";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let person_id = result.persons[0].id;
+    let birth = event_of(&result, oxidgene_core::EventType::Birth).id;
+    assert_eq!(
+        note_texts(&result, |n| n.person_id == Some(person_id)),
+        ["Shared\nremark", "Kept"]
+    );
+    assert_eq!(
+        note_texts(&result, |n| n.event_id == Some(birth)),
+        ["Shared\nremark"]
+    );
+    assert_eq!(result.warnings.len(), 1, "{:?}", result.warnings);
+    assert!(result.warnings[0].contains("@N9@"), "{:?}", result.warnings);
+}
+
 /// A person, an event and an attribute with several notes each, as GEDCOM
 /// 5.5.1 allows.
 const SEVERAL_NOTES_GEDCOM: &str = "\
@@ -526,7 +558,7 @@ const SEVERAL_NOTES_GEDCOM: &str = "\
 ";
 
 /// Every note of a person, an event or an attribute is imported, and every
-/// one is exported again: `ged_io` keeps one note each, in both directions.
+/// one is exported again.
 #[test]
 fn every_note_of_a_structure_survives_an_import_and_an_export() {
     let imported = import_gedcom(SEVERAL_NOTES_GEDCOM, Uuid::now_v7()).expect("imports");
@@ -572,9 +604,9 @@ fn a_long_note_survives_a_round_trip_word_for_word() {
     );
 }
 
-/// What earlier exports wrote for a long note: `ged_io` split it at the 255th
-/// byte, which fell just before a space, so the continuation opens with the
-/// space GEDCOM keeps and `ged_io` trims.
+/// What earlier exports wrote for a long note: split at the 255th byte, which
+/// fell just before a space, so the continuation opens with the space GEDCOM
+/// keeps and readers that trim a `CONC` value lose.
 #[test]
 fn a_continuation_opening_with_a_space_keeps_it() {
     let head = "x".repeat(248);
@@ -760,8 +792,8 @@ const CITATION_TEXT_GEDCOM: &str = "\
 ";
 
 /// The ages and agencies of events and attributes, and a source's agency,
-/// are imported in canonical form and written back: `SOUR.DATA.AGNC`, which
-/// `ged_io` does not write, is added by the export itself.
+/// are imported in canonical form and written back, `SOUR.DATA.AGNC`
+/// included.
 #[test]
 fn ages_and_agencies_survive_a_round_trip() {
     let gedcom = CITATION_TEXT_GEDCOM
@@ -955,6 +987,64 @@ fn repositories_survive_a_round_trip() {
     check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
 }
 
+/// A source held at one repository under several call numbers, each with
+/// its own medium, has one link per call number, and keeps them all through
+/// a round trip.
+#[test]
+fn every_call_number_of_a_repository_citation_survives_a_round_trip() {
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @R1@ REPO\n1 NAME Sample Archives\n\
+                  0 @S1@ SOUR\n1 TITL Parish register\n1 REPO @R1@\n\
+                  2 CALN E 123\n3 MEDI Film\n2 CALN E 124\n3 MEDI book\n2 CALN E 125\n0 TRLR\n";
+    let check = |result: &oxidgene_gedcom::ImportResult| {
+        let mut links: Vec<_> = result.source_repositories.iter().collect();
+        links.sort_by_key(|link| link.sort_order);
+        let held: Vec<_> = links
+            .iter()
+            .map(|link| (link.call_number.as_deref(), link.media_type))
+            .collect();
+        use oxidgene_core::SourceMediaType::{Book, Film};
+        assert_eq!(
+            held,
+            [
+                (Some("E 123"), Some(Film)),
+                (Some("E 124"), Some(Book)),
+                (Some("E 125"), None)
+            ]
+        );
+        assert!(
+            links
+                .iter()
+                .all(|link| link.repository_id == result.repositories[0].id)
+        );
+    };
+    let imported = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    check(&imported);
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("2 CALN E 123\n3 MEDI film\n"),
+        "{exported}"
+    );
+    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+}
+
+/// A line break in a note, whatever its kind, is written as a `CONT` line:
+/// a carriage return inside a value would end the line for a reader.
+#[test]
+fn every_kind_of_line_break_in_a_note_becomes_a_cont_line() {
+    let mut imported = import_gedcom(
+        &MINIMAL_GEDCOM.replace("0 TRLR", "1 NOTE placeholder\n0 TRLR"),
+        Uuid::now_v7(),
+    )
+    .expect("imports");
+    imported.notes[0].text = "one\r\ntwo\rthree\n\nfive".to_string();
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("1 NOTE one\n2 CONT two\n2 CONT three\n2 CONT\n2 CONT five\n"),
+        "{exported}"
+    );
+    assert!(!exported.contains('\r'), "{exported}");
+}
+
 /// The text a citation quotes from its source is exported, and comes back.
 #[test]
 fn a_citation_text_survives_a_round_trip() {
@@ -1020,8 +1110,8 @@ fn every_quay_and_its_absence_survive_a_round_trip() {
     assert!(quays(&gedcom).contains(&("none".to_string(), None)));
 }
 
-/// A source's publication facts are exported once — `ged_io` writes no
-/// `PUBL` — and come back, over several lines too.
+/// A source's publication facts are exported once and come back, over
+/// several lines too.
 #[test]
 fn a_source_publisher_survives_a_round_trip() {
     let gedcom = CITATION_TEXT_GEDCOM.replace(
@@ -1108,13 +1198,13 @@ fn a_qualified_date_in_another_calendar_survives_a_round_trip() {
     );
 }
 
-/// The death reason the `geneweb` crate writes into a death's note becomes
-/// the death's cause, exported as `CAUS`.
+/// The death reason the `geneweb` crate writes beneath a death becomes the
+/// death's cause, exported as `CAUS`.
 #[test]
 fn a_geneweb_death_reason_is_the_cause_of_death() {
     let gedcom = MINIMAL_GEDCOM.replace(
         "2 PLAC Paris, France\n",
-        "2 PLAC Paris, France\n2 NOTE Sample remark\n3 CONT _GWDEATH killed\n",
+        "2 PLAC Paris, France\n2 NOTE Sample remark\n2 _GWDEATH killed\n",
     );
     let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
     let death = event_of(&imported, oxidgene_core::EventType::Death);
@@ -2311,8 +2401,7 @@ fn test_export_result_serialization() {
 
 /// What the `geneweb` crate writes for a `.gw` personal event GEDCOM has no
 /// tag for: a generic `EVEN` whose `TYPE` names the tag it would have used,
-/// plus a `_GWTAG` line appended to the note's *text* recording the original
-/// `.gw` tag. Both are bookkeeping for that crate's own reverse direction.
+/// and a `_GWTAG` extension beneath it recording the original `.gw` tag.
 const GENEWEB_CONVERTED_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
@@ -2324,14 +2413,14 @@ const GENEWEB_CONVERTED_GEDCOM: &str = "\
 2 TYPE EDUC
 2 DATE 1932
 2 NOTE Institution Sainte-Marie
-3 CONT _GWTAG #educ
+2 _GWTAG #educ
 1 EVEN
 2 TYPE OCCU
-2 NOTE _GWTAG #occu
+2 _GWTAG #occu
 1 EVEN
 2 TYPE Tutelle apres un deces
 2 NOTE Acte non numerise
-3 CONT _GWTAG #Tutelle apres un deces
+2 _GWTAG #Tutelle apres un deces
 0 TRLR
 ";
 
@@ -2356,14 +2445,13 @@ fn test_import_drops_geneweb_bookkeeping_from_events() {
     // The note keeps what was written about the event, and nothing else.
     assert_eq!(note_of(education.id), Some("Institution Sainte-Marie"));
 
-    // A note that was only the marker leaves no note at all.
+    // The extension makes no note.
     let occupation = event_of(&result, oxidgene_core::EventType::Occupation);
     assert_eq!(occupation.description, None);
     assert_eq!(note_of(occupation.id), None);
 
     // A user-defined GeneWeb event name is not bookkeeping: it is the only
-    // record of what the event was, so it stays as the description — and is
-    // dropped from the note, where it was a verbatim duplicate of it.
+    // record of what the event was, so it stays as the description.
     let other = event_of(&result, oxidgene_core::EventType::Other);
     assert_eq!(other.description.as_deref(), Some("Tutelle apres un deces"));
     assert_eq!(note_of(other.id), Some("Acte non numerise"));
@@ -2917,6 +3005,12 @@ const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
 1 XYZZ Sample value
 2 DATE 1901
 2 NOTE Sample other note
+1 XYZZ
+1 CREA
+2 DATE 1 JAN 2000
+1 SUBM @U1@
+1 _MILT Custom
+2 DATE 1902
 0 @S1@ SOUR
 1 TITL Sample register
 0 @M1@ OBJE
@@ -2925,10 +3019,12 @@ const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
 0 TRLR
 ";
 
-/// A `MILI` — an extension no GEDCOM version defines, which `ged_io` skips
-/// while reading its substructures as the person's own — imports as a
-/// military service holding its date, place, note, citation and media; any
-/// other such tag as a described event of its own.
+/// A `MILI` — an extension no GEDCOM version defines, which `ged_io` keeps
+/// whole as an extension of the person — imports as a military service
+/// holding its date, place, note, citation and media; any other such tag as
+/// a described event of its own. Such a tag with nothing beneath it, a
+/// standard tag that is no event (`CREA`, `SUBM`) and a custom `_` tag are
+/// no events.
 #[test]
 fn an_event_tag_no_version_defines_keeps_its_substructures() {
     let result = import_gedcom(UNDEFINED_EVENT_TAGS_GEDCOM, Uuid::now_v7()).expect("imports");

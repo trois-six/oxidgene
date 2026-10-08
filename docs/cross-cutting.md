@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:22:46Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -374,7 +374,7 @@ the rejected value.
   are not individually spanned because that would add volume without a useful
   operational boundary.
 - GEDCOM generation divides its `export.serialize` service span into
-  `export.build_model`, `export.write`, and `export.inject_extensions`. These
+  `export.build_model` and `export.write`. These
   spans record aggregate entity counts and
   input/output byte lengths only; genealogical values and identifiers remain
   excluded.

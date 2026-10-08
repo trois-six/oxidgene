@@ -182,10 +182,9 @@ pub struct ExportData {
     pub gedcom: String,
     pub warnings: Vec<String>,
     /// What a GEDZIP of this export must contain, as (storage key, path inside
-    /// the archive, MIME type). Empty unless the export asked for archive
-    /// paths: a plain `.ged` references the producer's own paths and carries
-    /// no files.
-    pub media_files: Vec<(String, String, String)>,
+    /// the archive). Empty unless the export asked for archive paths: a plain
+    /// `.ged` references the producer's own paths and carries no files.
+    pub media_files: Vec<(String, String)>,
 }
 
 /// Insert a batch of active models using `insert_many`, chunked to stay within
@@ -906,7 +905,7 @@ pub async fn load_and_export(
             continue;
         };
         media_paths.insert(medium.id, path.clone());
-        media_files.push((key, path, medium.mime_type.clone()));
+        media_files.push((key, path));
     }
 
     // Export to GEDCOM

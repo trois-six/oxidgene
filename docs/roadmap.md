@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -206,33 +206,22 @@ Remaining tabs:
 
 ## 6b. Planned: upstream GEDCOM fixes
 
-OxidGene works around `ged_io` 0.16 and the `geneweb` crate (pre-parse repairs
-in `oxidgene-gedcom/src/sanitize.rs`, post-write additions in `finish.rs`).
-Each workaround goes once its upstream fix ships. Patches to propose, against
-upstream `main` (mentioning the overlap with `ged_io`'s pending CRUD-API
-refactor):
+`ged_io` 0.17 and `geneweb` 0.3 carry every fix proposed so far, and
+OxidGene's pre-parse repairs and post-write additions are gone with them.
+What OxidGene still does in `ged_io`'s place, each to go once its upstream
+fix ships:
 
-- [ ] `ged_io`: read an `AGE` leniently — free text and an empty value as a
-  phrase rather than a failed file, `1y6m` without spaces, approximate wording
-  kept as text.
-- [ ] `ged_io`: write a source's `REPO` citations with their `CALN`, `MEDI`
-  and `NOTE`; keep several `CALN` (each with its `MEDI`) and read `MEDI` only
-  under `CALN`.
-- [ ] `ged_io`: write a `REPO` record's `PHON`, `EMAIL`, `FAX`, `WWW`, `NOTE`,
-  `REFN`, `RIN` and custom tags, and a source's `DATA` (`EVEN`, `DATE`,
-  `PLAC`, `AGNC`), `PUBL`, `TEXT`, `OBJE`, `REFN` and `RIN`.
-- [ ] `ged_io`: write `PHRASE` only in GEDCOM 7 output; 5.5.1 uses parentheses.
-- [ ] `ged_io`: keep every `NOTE` of a record or structure (not the last), and
-  write them all; parse 7.0 `SNOTE` and resolve note pointers.
-- [ ] `ged_io`: keep and write custom tags everywhere; read `CONC`/`CONT`
-  without trimming the delimiting space and never split a line beside a space;
-  read continuations of every long value; write shared `NOTE` records with
-  continuations.
-- [ ] `ged_io`: parse `INDI.SUBM` and `FAM.SUBM`; write a `SUBM` record's
-  `EMAIL`, `PHON` and `WWW`; a structured date model with per-bound calendars.
-- [ ] `geneweb`: keep event witnesses where they belong and report unresolved
-  ones; emit a union event for family-line witnesses; keep the death reason
-  and titles' places and ends; map `rel` relations to their GEDCOM forms.
+- [ ] `ged_io`: read `CHAR ANSI` as Windows-1252 rather than 7-bit ASCII
+  (`import_gedcom_bytes` falls back to Windows-1252 itself).
+- [ ] `ged_io`: count the whole line, level and tag included, against
+  `max_line_length` (the export lowers the limit to fit 255 characters), and
+  write a carriage return inside a value as a line break (the export turns
+  it into one).
+- [ ] `ged_io`: write an extension tag's value holding a line break over
+  `CONT` lines (`geneweb` writes such a value's lines as `CONT`
+  substructures itself).
+- [ ] `ged_io`: keep an LDS ordinance's `STAT` outside the enumeration, and
+  its extension tags.
 
 ## 7. Planned: dictionary descent
 

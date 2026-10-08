@@ -697,14 +697,14 @@ impl BackgroundJobWorker {
     }
 
     /// Copies an export's media from the store into `scratch`; each staged
-    /// file's archive path, MIME type and local path. A medium absent from
+    /// file's archive path and local path. A medium absent from
     /// the store is left out with a warning.
     async fn stage_export_media(
         &self,
         job_id: Uuid,
         scratch: &Path,
-        media_files: &[(String, String, String)],
-    ) -> Result<Vec<(String, String, std::path::PathBuf)>, OxidGeneError> {
+        media_files: &[(String, String)],
+    ) -> Result<Vec<(String, std::path::PathBuf)>, OxidGeneError> {
         let media_root = scratch.join("media");
         tokio::fs::create_dir_all(&media_root).await?;
         let total = as_i64(media_files.len());
@@ -715,11 +715,11 @@ impl BackgroundJobWorker {
         );
         let mut staged_media = Vec::with_capacity(media_files.len());
         async {
-            for (index, (key, archive_path, mime_type)) in media_files.iter().enumerate() {
+            for (index, (key, archive_path)) in media_files.iter().enumerate() {
                 let local_path = media_root.join(index.to_string());
                 match self.media.get_to_file(key, &local_path).await {
                     Ok(()) => {
-                        staged_media.push((archive_path.clone(), mime_type.clone(), local_path));
+                        staged_media.push((archive_path.clone(), local_path));
                     }
                     Err(error) => tracing::warn!(
                         job_id = %job_id,
@@ -743,7 +743,7 @@ impl BackgroundJobWorker {
         &self,
         job_id: Uuid,
         gedcom: String,
-        staged_media: Vec<(String, String, std::path::PathBuf)>,
+        staged_media: Vec<(String, std::path::PathBuf)>,
         artifact_path: &Path,
     ) -> Result<(), OxidGeneError> {
         let archive_path = artifact_path.to_path_buf();
@@ -753,13 +753,13 @@ impl BackgroundJobWorker {
         let archive_task = crate::service::blocking::spawn_in(package_span.clone(), move || {
             let mut writer =
                 GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
-            for (entry_path, mime_type, local_path) in staged_media {
+            for (entry_path, local_path) in staged_media {
                 let bytes = std::fs::read(local_path)?;
                 writer
-                    .add_media_file(&entry_path, &mime_type, &bytes)
+                    .add_media_file(&entry_path, &bytes)
                     .map_err(OxidGeneError::Gedcom)?;
             }
-            writer.finish().map_err(OxidGeneError::Gedcom)
+            writer.finish().map(drop).map_err(OxidGeneError::Gedcom)
         });
         self.with_heartbeat(job_id, "packaging", async {
             archive_task

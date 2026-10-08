@@ -8,12 +8,15 @@
 //! together. Both directions live here so they cannot drift.
 //!
 //! Qualifier parsing and the conversion of non-Gregorian dates for the sortable
-//! date are delegated to `ged_io` (its `calendar` feature). Calendar escapes
-//! and ranges are handled here: `ged_io` models a single instant with the
-//! escape as its prefix, while GEDCOM 5.5.1 writes the escape before each date
-//! of a value — after the qualifier, `ABT @#DJULIAN@ 1700`, and before both
-//! bounds of `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`. Both forms are read;
-//! the GEDCOM one is written.
+//! date are delegated to `ged_io` (its `calendar` feature). The split into
+//! columns is made here, on the text: `ged_io`'s `DateValue` reads a value
+//! into its bounds, each in its own calendar, but keeps of a bound only the
+//! parts it recognises — `vers 1850` reads as an empty date — while the domain
+//! keeps each bound's wording as the file gives it. GEDCOM 5.5.1 writes a
+//! calendar escape before each date of a value — after the qualifier, `ABT
+//! @#DJULIAN@ 1700`, and before both bounds of `BET @#DJULIAN@ 1700 AND
+//! @#DJULIAN@ 1710` — and some programs write one before the whole value.
+//! Both forms are read; the GEDCOM one is written.
 //!
 //! ## Known lossy mappings
 //!
@@ -188,9 +191,9 @@ pub fn parse(raw: &str) -> ImportedDate {
         return ImportedDate::default();
     }
 
-    // An escape opening the whole value is the form `ged_io` and earlier
-    // exports write (`@#DJULIAN@ ABT 1700`); GEDCOM's own puts one before
-    // each date (`ABT @#DJULIAN@ 1700`). The first escape found is the
+    // An escape opening the whole value is the form some programs and
+    // earlier OxidGene exports write (`@#DJULIAN@ ABT 1700`); GEDCOM's own
+    // puts one before each date (`ABT @#DJULIAN@ 1700`). The first escape found is the
     // calendar; the domain keeps one for both bounds.
     let (leading, body) = split_escape(raw);
     let (qualifier, first, second) = split_qualifier(body);
@@ -394,7 +397,7 @@ mod tests {
         );
     }
 
-    /// The form `ged_io` and earlier exports wrote still reads the same.
+    /// The form earlier exports wrote still reads the same.
     #[test]
     fn a_leading_escape_over_a_qualified_value_is_still_read() {
         for raw in ["@#DJULIAN@ ABT 1700", "ABT @#DJULIAN@ 1700"] {

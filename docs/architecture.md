@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
 ---
 
 
@@ -26,8 +26,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 | ORM | SeaORM | 2.0+ | Async, supports PostgreSQL + SQLite |
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
-| GEDCOM | ged_io | 0.16+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming |
-| GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.2+ | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats |
+| GEDCOM | ged_io | 0.17+ | Read/write, GEDCOM 5.5.1 + 7.0, streaming, GEDZIP |
+| GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.3+ | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats |
 | Read projections | Same database | — | `person_denorm` and `person_search_fts`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |

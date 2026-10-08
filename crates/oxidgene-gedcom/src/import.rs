@@ -13,8 +13,13 @@ use std::io::{Read, Seek};
 
 use chrono::Utc;
 use ged_io::GedcomBuilder;
+use ged_io::gedzip::GedzipReader;
 use ged_io::types::GedcomData;
+use ged_io::types::custom::UserDefinedTag;
 use ged_io::types::event::Event as GedEvent;
+use ged_io::types::event::detail::Detail as GedDetail;
+use ged_io::types::lds::LdsOrdinance;
+use ged_io::types::note::Note as GedNote;
 use ged_io::types::source::citation::CitationSource;
 use uuid::Uuid;
 
@@ -28,9 +33,11 @@ use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, Sp
 
 use crate::{DocumentExtension, ImportResult, MediaMetadataExtension};
 
+/// The largest `gedcom.ged` a GEDZIP may hold, uncompressed.
 const GEDZIP_GEDCOM_LIMIT: u64 = 1024 * 1024 * 1024;
+/// The largest media file a GEDZIP may hold, uncompressed: the upload limit
+/// of a single file.
 const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
-const GEDCOM_FILENAME: &str = "gedcom.ged";
 
 /// Import a GEDCOM string into OxidGene domain model entities.
 ///
@@ -40,14 +47,12 @@ const GEDCOM_FILENAME: &str = "gedcom.ged";
 ///
 /// Returns `Err` if the GEDCOM string cannot be parsed.
 pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, String> {
-    let sanitized = crate::sanitize::sanitize(gedcom_str);
     let data = GedcomBuilder::new()
-        .build_from_str(&sanitized.text)
+        .build_from_str(gedcom_str)
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    result.warnings.splice(0..0, sanitized.warnings);
-    import_oxidgene_media_extensions(gedcom_str, &mut result);
+    import_oxidgene_media_extensions(&data, &mut result);
     assign_portraits(&mut result);
     Ok(result)
 }
@@ -59,7 +64,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 /// UTF-8, those files were refused outright. `ged_io` detects the encoding —
 /// a byte-order mark, then `CHAR` — and decodes the bytes to text.
 ///
-/// Except for `CHAR ANSI`, which `ged_io` 0.16 takes for 7-bit ASCII and
+/// Except for `CHAR ANSI`, which `ged_io` 0.17 takes for 7-bit ASCII and
 /// decodes as UTF-8, failing on the first accent. The software writing it
 /// means the Windows code page, so a file that is not UTF-8 after all is read
 /// as Windows-1252, the superset of Latin-1 `ged_io` decodes.
@@ -147,84 +152,42 @@ pub struct GedzipImportPlan {
     pub files: Vec<(Uuid, String)>,
 }
 
-/// A GEDZIP reader that bounds each decompressed entry before allocating it.
-pub struct GedzipReader<R: Read + Seek> {
-    archive: zip::ZipArchive<R>,
-    file_names: Vec<String>,
-}
-
-impl<R: Read + Seek> GedzipReader<R> {
-    fn new(source: R) -> Result<Self, String> {
-        let archive =
-            zip::ZipArchive::new(source).map_err(|error| format!("GEDZIP read error: {error}"))?;
-        let file_names: Vec<String> = archive.file_names().map(String::from).collect();
-        if !file_names.iter().any(|name| name == GEDCOM_FILENAME) {
-            return Err(format!(
-                "GEDZIP read error: archive holds no {GEDCOM_FILENAME}"
-            ));
-        }
-        Ok(Self {
-            archive,
-            file_names,
-        })
-    }
-
-    fn read_entry(&mut self, name: &str, limit: u64) -> Result<Vec<u8>, String> {
-        let entry = self
-            .archive
-            .by_name(name)
-            .map_err(|error| format!("GEDZIP read error for '{name}': {error}"))?;
-        if entry.size() > limit {
-            return Err(format!(
-                "GEDZIP entry '{name}' exceeds the {limit}-byte limit"
-            ));
-        }
-        let mut bytes = Vec::new();
-        entry
-            .take(limit.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("GEDZIP read error for '{name}': {error}"))?;
-        if bytes.len() as u64 > limit {
-            return Err(format!(
-                "GEDZIP entry '{name}' exceeds the {limit}-byte limit"
-            ));
-        }
-        Ok(bytes)
-    }
-
-    /// Read one media entry, bounded by the normal per-file upload limit.
-    pub fn read_media_file(&mut self, name: &str) -> Result<Vec<u8>, String> {
-        self.read_entry(name, GEDZIP_MEDIA_LIMIT)
-    }
-}
-
 /// Parse the genealogy and resolve each media record to its archive entry
 /// without extracting those entries.
+///
+/// The returned reader refuses any media entry larger than the upload limit
+/// of a single file, checked against the size the archive declares and
+/// enforced while reading; `gedcom.ged` itself is read within a larger one.
+/// A `FILE` names its entry the way its producer wrote it — backslashes, a
+/// leading `./`, percent-encoding, another letter case — and `ged_io` matches
+/// it to the archive's own spelling.
+///
+/// # Errors
+///
+/// Returns `Err` if `source` is not a readable ZIP, if it holds no
+/// `gedcom.ged`, or if that GEDCOM cannot be parsed.
 pub fn prepare_gedzip<R: Read + Seek>(
     source: R,
     tree_id: Uuid,
 ) -> Result<(GedzipReader<R>, GedzipImportPlan), String> {
-    let mut reader = GedzipReader::new(source)?;
-    let gedcom = reader.read_entry(GEDCOM_FILENAME, GEDZIP_GEDCOM_LIMIT)?;
+    let mut reader = GedzipReader::new(source)
+        .map_err(|error| format!("GEDZIP read error: {error}"))?
+        .max_entry_size(GEDZIP_GEDCOM_LIMIT);
+    let gedcom = reader
+        .read_gedcom_bytes()
+        .map_err(|error| format!("GEDZIP read error: {error}"))?;
     let (content, _) = ged_io::decode_gedcom_bytes(&gedcom)
         .map_err(|error| format!("GEDZIP parse error: {error}"))?;
     drop(gedcom);
-    let sanitized = crate::sanitize::sanitize(&content);
     let data = GedcomBuilder::new()
-        .build(sanitized.text.chars())
+        .build(content.chars())
         .map_err(|error| format!("GEDZIP parse error: {error}"))?;
+    drop(content);
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    result.warnings.splice(0..0, sanitized.warnings);
-    import_oxidgene_media_extensions(&content, &mut result);
+    import_oxidgene_media_extensions(&data, &mut result);
     assign_portraits(&mut result);
-
-    let entries: HashMap<String, String> = reader
-        .file_names
-        .iter()
-        .filter(|name| name.as_str() != GEDCOM_FILENAME)
-        .map(|name| (entry_key(name), name.clone()))
-        .collect();
+    let reader = reader.max_entry_size(GEDZIP_MEDIA_LIMIT);
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
     for media in &result.media {
@@ -233,8 +196,8 @@ pub fn prepare_gedzip<R: Read + Seek>(
         if media.is_document() || is_remote_url(&media.file_path) {
             continue;
         }
-        match entries.get(&entry_key(&media.file_path)) {
-            Some(name) => wanted.push((media.id, name.clone())),
+        match reader.find_entry(&media.file_path) {
+            Some(name) => wanted.push((media.id, name.to_string())),
             None => result.warnings.push(format!(
                 "GEDZIP: the archive holds no file named '{}'; the media record was kept without its bytes",
                 media.file_path
@@ -244,9 +207,10 @@ pub fn prepare_gedzip<R: Read + Seek>(
 
     let referenced: std::collections::HashSet<&str> =
         wanted.iter().map(|(_, name)| name.as_str()).collect();
-    let unreferenced = entries
-        .values()
-        .filter(|name| !referenced.contains(name.as_str()))
+    let unreferenced = reader
+        .media_files()
+        .into_iter()
+        .filter(|name| !referenced.contains(name))
         .count();
     if unreferenced > 0 {
         result.warnings.push(format!(
@@ -295,19 +259,6 @@ pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, Stri
     }
 
     Ok(GedzipImport { result, files })
-}
-
-/// Folds an archive entry name and a `FILE` value onto a common key.
-///
-/// A ZIP entry is a forward-slash path, but the `FILE` value naming it comes
-/// from whatever wrote the archive: producers on Windows write backslashes,
-/// some prefix `./`, and case differs between a file system that cares and one
-/// that does not. Matching on the folded form costs nothing and recovers media
-/// that an exact comparison would leave unheld.
-fn entry_key(raw: &str) -> String {
-    let slashed = raw.replace('\\', "/");
-    let trimmed = slashed.trim_start_matches("./").trim_start_matches('/');
-    trimmed.to_ascii_lowercase()
 }
 
 /// Import an already-parsed GEDCOM model into OxidGene domain model entities.
@@ -418,8 +369,9 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
 }
 
 /// What every record of one import is converted against: the tree, the
-/// import time, and the UUID allocated to each top-level record's xref.
-struct ImportContext {
+/// import time, the UUID allocated to each top-level record's xref, and the
+/// shared note records notes point at.
+struct ImportContext<'d> {
     tree_id: Uuid,
     now: chrono::DateTime<Utc>,
     indi_map: HashMap<String, Uuid>,
@@ -427,11 +379,15 @@ struct ImportContext {
     source_map: HashMap<String, Uuid>,
     /// The document each `OBJE` record becomes; links point at it.
     media_map: HashMap<String, Uuid>,
+    /// The text of each shared note record (`0 @N1@ NOTE` in 5.5.1,
+    /// `0 @N1@ SNOTE` in 7.0), by xref: a file can point at one from every
+    /// person, so they are looked up rather than searched.
+    shared_notes: HashMap<&'d str, &'d str>,
 }
 
-impl ImportContext {
+impl<'d> ImportContext<'d> {
     /// Pass 1: allocate UUIDs for all top-level records.
-    fn allocate(data: &GedcomData, tree_id: Uuid) -> Self {
+    fn allocate(data: &'d GedcomData, tree_id: Uuid) -> Self {
         let now = Utc::now();
         Self {
             tree_id,
@@ -440,7 +396,105 @@ impl ImportContext {
             fam_map: allocate_ids(data.families.iter().map(|fam| fam.xref.as_ref())),
             source_map: allocate_ids(data.sources.iter().map(|src| src.xref.as_ref())),
             media_map: allocate_ids(data.multimedia.iter().map(|mm| mm.xref.as_ref())),
+            shared_notes: data
+                .shared_notes
+                .iter()
+                .filter_map(|note| Some((note.xref.as_deref()?, note.text.as_str())))
+                .collect(),
         }
+    }
+
+    /// The text of a note: its own, or that of the shared note record it
+    /// points at. A pointer to a record the file does not hold is a warning,
+    /// and no text.
+    fn note_text(&self, note: &GedNote, warnings: &mut Vec<String>) -> Option<String> {
+        let Some(xref) = note.shared_note_xref() else {
+            return note.value.clone();
+        };
+        let text = self.shared_notes.get(xref).map(|text| (*text).to_string());
+        if text.is_none() {
+            warnings.push(format!(
+                "A NOTE points at {xref}, which the file does not hold; it was left out"
+            ));
+        }
+        text
+    }
+
+    /// The texts of `notes` that say something, as written, pointers
+    /// resolved.
+    fn note_texts(&self, notes: &[GedNote], warnings: &mut Vec<String>) -> Vec<String> {
+        notes
+            .iter()
+            .filter_map(|note| self.note_text(note, warnings))
+            .filter(|text| !text.trim().is_empty())
+            .collect()
+    }
+
+    /// One note row per note of `notes`, attached to `owner`.
+    fn import_notes(&self, notes: &[GedNote], owner: NoteOwner, result: &mut ImportResult) {
+        for text in self.note_texts(notes, &mut result.warnings) {
+            result.notes.push(owner.note(self.tree_id, self.now, text));
+        }
+    }
+}
+
+/// The record an imported note is attached to.
+#[derive(Clone, Copy)]
+enum NoteOwner {
+    Person(Uuid),
+    Family(Uuid),
+    Event(Uuid),
+    Source(Uuid),
+    Repository(Uuid),
+}
+
+impl NoteOwner {
+    /// A note row holding `text`, attached to this owner.
+    fn note(self, tree_id: Uuid, now: chrono::DateTime<Utc>, text: String) -> Note {
+        let mut note = Note {
+            id: Uuid::now_v7(),
+            tree_id,
+            text,
+            person_id: None,
+            event_id: None,
+            family_id: None,
+            source_id: None,
+            // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
+            media_id: None,
+            repository_id: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        match self {
+            Self::Person(id) => note.person_id = Some(id),
+            Self::Family(id) => note.family_id = Some(id),
+            Self::Event(id) => note.event_id = Some(id),
+            Self::Source(id) => note.source_id = Some(id),
+            Self::Repository(id) => note.repository_id = Some(id),
+        }
+        note
+    }
+}
+
+/// The record an event belongs to: a person's, or a family's.
+#[derive(Clone, Copy)]
+struct EventOwner<'x> {
+    /// The record's xref, to name it in a warning.
+    xref: &'x str,
+    person_id: Option<Uuid>,
+    family_id: Option<Uuid>,
+}
+
+impl EventOwner<'_> {
+    /// How a warning names the record.
+    fn label(&self) -> String {
+        let kind = if self.family_id.is_some() {
+            "Family"
+        } else {
+            "Individual"
+        };
+        format!("{kind} {}", self.xref)
     }
 }
 
@@ -511,12 +565,12 @@ fn import_repositories(
         };
         let id = Uuid::now_v7();
         index.by_xref.insert(xref.clone(), id);
-        let first_note = repo
-            .notes
-            .iter()
-            .find_map(|n| non_blank(n.value.as_deref()));
+        let notes = ctx.note_texts(&repo.notes, &mut result.warnings);
         let name = non_blank(repo.name.as_deref())
-            .or_else(|| first_note.map(|n| n.lines().next().unwrap_or_default().to_string()))
+            .or_else(|| {
+                let first = notes.first()?.trim();
+                Some(first.lines().next().unwrap_or_default().to_string())
+            })
             .unwrap_or_else(|| xref.trim_matches('@').to_string());
         result.repositories.push(Repository {
             id,
@@ -530,24 +584,11 @@ fn import_repositories(
             updated_at: ctx.now,
             deleted_at: None,
         });
-        for note in &repo.notes {
-            let Some(text) = non_blank(note.value.as_deref()) else {
-                continue;
-            };
-            result.notes.push(Note {
-                id: Uuid::now_v7(),
-                tree_id: ctx.tree_id,
-                text,
-                person_id: None,
-                event_id: None,
-                family_id: None,
-                source_id: None,
-                media_id: None,
-                repository_id: Some(id),
-                created_at: ctx.now,
-                updated_at: ctx.now,
-                deleted_at: None,
-            });
+        for text in notes {
+            let text = text.trim().to_string();
+            result
+                .notes
+                .push(NoteOwner::Repository(id).note(ctx.tree_id, ctx.now, text));
         }
     }
     index
@@ -584,9 +625,11 @@ fn first_non_blank(values: &[String]) -> Option<String> {
 }
 
 /// The links of source `source_id` to the repositories its `SOUR.REPO`
-/// citations name. A pointer to a record the file does not hold is a
-/// warning; a citation without a pointer names a repository by its text —
-/// the line's own, else its notes' — created once per distinct text.
+/// citations name, one per call number (`CALN`), each with its own medium
+/// (`MEDI`), and one without a call number for a citation that has none. A
+/// pointer to a record the file does not hold is a warning; a citation
+/// without a pointer names a repository by its text — the line's own, else
+/// its notes' — created once per distinct text.
 fn import_repository_citations(
     src: &ged_io::types::source::Source,
     source_id: Uuid,
@@ -594,7 +637,8 @@ fn import_repository_citations(
     repositories: &mut RepositoryIndex,
     result: &mut ImportResult,
 ) {
-    for (order, citation) in src.repo_citations.iter().enumerate() {
+    let mut order = 0;
+    for citation in &src.repo_citations {
         let pointer = citation.xref.trim();
         let repository_id = if pointer.starts_with('@') {
             let Some(&id) = repositories.by_xref.get(pointer) else {
@@ -607,25 +651,38 @@ fn import_repository_citations(
             id
         } else {
             let text = non_blank(Some(pointer)).or_else(|| {
-                let notes: Vec<String> = citation
-                    .notes
+                let notes: Vec<String> = ctx
+                    .note_texts(&citation.notes, &mut result.warnings)
                     .iter()
-                    .filter_map(|n| non_blank(n.value.as_deref()))
+                    .map(|text| text.trim().to_string())
                     .collect();
                 (!notes.is_empty()).then(|| notes.join("\n"))
             });
             let Some(text) = text else { continue };
             text_repository(&text, ctx, repositories, result)
         };
-        result.source_repositories.push(SourceRepository {
-            id: Uuid::now_v7(),
-            source_id,
-            repository_id,
-            call_number: non_blank(citation.call_number.as_deref()),
-            media_type: non_blank(citation.media_type.as_deref())
-                .map(|m| SourceMediaType::parse(&m).unwrap_or(SourceMediaType::Other)),
-            sort_order: order as i32,
-        });
+        let call_numbers: Vec<(Option<String>, Option<&str>)> = if citation.call_numbers.is_empty()
+        {
+            vec![(None, None)]
+        } else {
+            citation
+                .call_numbers
+                .iter()
+                .map(|call| (non_blank(Some(&call.value)), call.medium.as_deref()))
+                .collect()
+        };
+        for (call_number, medium) in call_numbers {
+            result.source_repositories.push(SourceRepository {
+                id: Uuid::now_v7(),
+                source_id,
+                repository_id,
+                call_number,
+                media_type: non_blank(medium)
+                    .map(|m| SourceMediaType::parse(&m).unwrap_or(SourceMediaType::Other)),
+                sort_order: order,
+            });
+            order += 1;
+        }
     }
 }
 
@@ -683,19 +740,7 @@ fn import_sources(
             deleted_at: None,
         });
 
-        // Notes on the source
-        for note in &src.notes {
-            import_note(
-                &note.value,
-                ctx.tree_id,
-                ctx.now,
-                None,
-                None,
-                None,
-                Some(id),
-                result,
-            );
-        }
+        ctx.import_notes(&src.notes, NoteOwner::Source(id), result);
         import_repository_citations(src, id, ctx, repositories, result);
     }
 }
@@ -728,10 +773,7 @@ fn import_multimedia(
 
         let (file_path, mime_type, source_media_type) = media_file(mm);
         let file_name = file_name_of(&file_path);
-        let description = mm
-            .note_structure
-            .as_ref()
-            .and_then(|note| note.value.clone());
+        let description = media_description(mm, ctx, result);
         result.media.push(Media {
             id: document_id,
             tree_id: ctx.tree_id,
@@ -894,17 +936,24 @@ fn import_individual(
         result.person_names.extend(aliases);
     }
 
-    // Events
-    for evt_detail in &indi.events {
+    // Events, then the LDS ordinances and the event tags no GEDCOM version
+    // defines, read as events too.
+    let owner = EventOwner {
+        xref,
+        person_id: Some(person_id),
+        family_id: None,
+    };
+    let more = more_events(
+        &indi.lds_ordinances,
+        &indi.custom_data,
+        owner,
+        &mut result.warnings,
+    );
+    for evt_detail in indi.events.iter().chain(&more) {
         import_event_detail(
             evt_detail,
-            ctx.tree_id,
-            Some(person_id),
-            None,
-            ctx.now,
-            &ctx.source_map,
-            &ctx.media_map,
-            &ctx.indi_map,
+            owner,
+            ctx,
             get_or_create_place,
             get_or_create_text_source,
             result,
@@ -917,11 +966,8 @@ fn import_individual(
     for attr_detail in &indi.attributes {
         import_attribute_detail(
             attr_detail,
-            ctx.tree_id,
-            person_id,
-            ctx.now,
-            &ctx.source_map,
-            &ctx.media_map,
+            owner,
+            ctx,
             get_or_create_place,
             get_or_create_text_source,
             result,
@@ -941,28 +987,8 @@ fn import_individual(
         );
     }
 
-    // Note on the individual
-    if let Some(ref note) = indi.note {
-        import_note(
-            &note.value,
-            ctx.tree_id,
-            ctx.now,
-            Some(person_id),
-            None,
-            None,
-            None,
-            result,
-        );
-    }
-
-    import_media_links(
-        &indi.multimedia,
-        LinkOwner::Person(person_id),
-        ctx.tree_id,
-        ctx.now,
-        &ctx.media_map,
-        result,
-    );
+    ctx.import_notes(&indi.notes, NoteOwner::Person(person_id), result);
+    import_media_links(&indi.multimedia, LinkOwner::Person(person_id), ctx, result);
 }
 
 /// Import a `FAM` record: the family, its spouses and children, events,
@@ -1008,22 +1034,30 @@ fn import_family(
         });
     }
 
-    // Family events. Some GEDCOM files put them in the `family_event` field.
-    for evt_detail in fam.events.iter().chain(&fam.family_event) {
+    // Family events — some GEDCOM files put them in the `family_event`
+    // field — then the couple's LDS sealing and the event tags no GEDCOM
+    // version defines, read as events too.
+    let owner = EventOwner {
+        xref,
+        person_id: None,
+        family_id: Some(family_id),
+    };
+    let more = more_events(
+        &fam.lds_ordinances,
+        &fam.custom_data,
+        owner,
+        &mut result.warnings,
+    );
+    for evt_detail in fam.events.iter().chain(&fam.family_event).chain(&more) {
         import_event_detail(
             evt_detail,
-            ctx.tree_id,
-            None,
-            Some(family_id),
-            ctx.now,
-            &ctx.source_map,
-            &ctx.media_map,
-            &ctx.indi_map,
+            owner,
+            ctx,
             get_or_create_place,
             get_or_create_text_source,
             result,
         );
-        let spouse_ages = spouse_ages(evt_detail, fam, ctx);
+        let spouse_ages = spouse_ages(evt_detail, fam, owner, ctx, &mut result.warnings);
         if let Some(event) = result.events.last_mut() {
             event.spouse_ages = spouse_ages;
         }
@@ -1042,36 +1076,174 @@ fn import_family(
         );
     }
 
-    // Notes on the family
-    for note in &fam.notes {
-        import_note(
-            &note.value,
-            ctx.tree_id,
-            ctx.now,
-            None,
-            None,
-            Some(family_id),
-            None,
-            result,
-        );
-    }
+    ctx.import_notes(&fam.notes, NoteOwner::Family(family_id), result);
+    import_media_links(&fam.multimedia, LinkOwner::Family(family_id), ctx, result);
+}
 
-    import_media_links(
-        &fam.multimedia,
-        LinkOwner::Family(family_id),
-        ctx.tree_id,
-        ctx.now,
-        &ctx.media_map,
-        result,
+/// The events GEDCOM writes in structures of their own, as the generic
+/// events OxidGene's export writes for them and the import reads like any
+/// other: the LDS ordinances of a person or a couple (see [`lds_event`]),
+/// then the tags no GEDCOM version defines (see [`undefined_event`]).
+fn more_events(
+    ordinances: &[LdsOrdinance],
+    extensions: &[Box<UserDefinedTag>],
+    owner: EventOwner<'_>,
+    warnings: &mut Vec<String>,
+) -> Vec<GedDetail> {
+    let mut events: Vec<GedDetail> = ordinances.iter().filter_map(lds_event).collect();
+    events.extend(
+        extensions
+            .iter()
+            .filter_map(|tag| undefined_event(tag, owner, warnings)),
     );
+    events
+}
+
+/// An LDS ordinance (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's
+/// `INIL`) as a generic event typed by its tag: its date, place, notes and
+/// citations are the event's, and its temple and status, the date of the
+/// status included, its description in GEDCOM's words (`TEMP SLAKE, STAT
+/// COMPLETED 2 JAN 1950`). It imports as its LDS type (`INIL`, which no type
+/// matches, as `Other`).
+fn lds_event(ordinance: &LdsOrdinance) -> Option<GedDetail> {
+    let tag = ordinance.ordinance_type.as_ref()?.to_tag();
+    let mut words = Vec::new();
+    if let Some(temple) = non_blank(ordinance.temple.as_deref()) {
+        words.push(format!("TEMP {temple}"));
+    }
+    if let Some(status) = &ordinance.status {
+        let date = ordinance
+            .status_date
+            .as_ref()
+            .and_then(|date| non_blank(date.value.as_deref()));
+        words.push(match date {
+            Some(date) => format!("STAT {status} {date}"),
+            None => format!("STAT {status}"),
+        });
+    }
+    Some(GedDetail {
+        event: GedEvent::Event,
+        value: (!words.is_empty()).then(|| words.join(", ")),
+        date: ordinance.date.clone(),
+        address: None,
+        phone: Vec::new(),
+        email: Vec::new(),
+        fax: Vec::new(),
+        website: Vec::new(),
+        place: ordinance.place.clone(),
+        notes: ordinance.notes.clone(),
+        family_link: None,
+        family_event_details: Vec::new(),
+        event_type: Some(tag.to_string()),
+        citations: ordinance.source_citations.clone(),
+        multimedia: Vec::new(),
+        sort_date: None,
+        associations: Vec::new(),
+        cause: None,
+        restriction: None,
+        age: None,
+        agency: None,
+        religion: None,
+        custom_data: Vec::new(),
+    })
+}
+
+/// The standard tags `ged_io` keeps as extensions of a person or a family
+/// that are no event: a 7.0 creation date, a 5.5.1 record file number and a
+/// 7.0 family's association.
+const NON_EVENT_TAGS: &[&str] = &["CREA", "RFN", "ASSO"];
+
+/// A person's or a family's tag that no GEDCOM version defines, such as
+/// `MILI`, as a generic event: typed `Military service` for a `MILI` and by
+/// the tag itself otherwise, a `TYPE` beneath it joining its line value in
+/// the descriptor (`1 EVEN Army: Sergeant`), and everything else beneath it
+/// — date, place, notes, citations, media — the event's.
+///
+/// `ged_io` keeps such a tag whole, as an extension; it is written back as
+/// an `EVEN` for `ged_io` to read like any other event. A custom `_` tag, a
+/// standard one that is no event and a tag with nothing beneath it are left
+/// alone.
+fn undefined_event(
+    tag: &UserDefinedTag,
+    owner: EventOwner<'_>,
+    warnings: &mut Vec<String>,
+) -> Option<GedDetail> {
+    if tag.tag.starts_with("_")
+        || tag.children.is_empty()
+        || NON_EVENT_TAGS.contains(&tag.tag.as_str())
+    {
+        return None;
+    }
+    let (types, children): (Vec<&UserDefinedTag>, Vec<&UserDefinedTag>) = tag
+        .children
+        .iter()
+        .map(|child| &**child)
+        .partition(|child| child.tag == "TYPE");
+    let descriptor: Vec<&str> = types
+        .iter()
+        .filter_map(|child| child.value.as_deref())
+        .chain(tag.value.as_deref())
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .collect();
+    let type_text = match tag.tag.as_str() {
+        "MILI" => crate::export::even_type_label(EventType::MilitaryService).unwrap_or("MILI"),
+        other => other,
+    };
+
+    let mut text = String::new();
+    push_extension_line(&mut text, 1, "EVEN", Some(&descriptor.join(": ")));
+    push_extension_line(&mut text, 2, "TYPE", Some(type_text));
+    for child in children {
+        push_extension(&mut text, 2, child);
+    }
+    let mut tokenizer = ged_io::tokenizer::Tokenizer::new(text.chars());
+    let event = tokenizer
+        .next_token()
+        .and_then(|()| tokenizer.next_token())
+        .and_then(|()| GedDetail::new(&mut tokenizer, 1, "EVEN"));
+    if event.is_err() {
+        warnings.push(format!(
+            "{}: a {} that could not be read as an event was left out",
+            owner.label(),
+            tag.tag
+        ));
+    }
+    event.ok()
+}
+
+/// Writes `tag` back as the GEDCOM lines it was read from, at `level`.
+fn push_extension(text: &mut String, level: u8, tag: &UserDefinedTag) {
+    push_extension_line(text, level, &tag.tag, tag.value.as_deref());
+    for child in &tag.children {
+        push_extension(text, level.saturating_add(1), child);
+    }
+}
+
+/// One GEDCOM line. A value opening with `@` that is no pointer is escaped,
+/// as `ged_io` unescaped it.
+fn push_extension_line(text: &mut String, level: u8, tag: &str, value: Option<&str>) {
+    text.push_str(&format!("{level} {tag}"));
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        let pointer = value.starts_with('@') && value.ends_with('@') && !value.contains(' ');
+        let escape = if value.starts_with('@') && !pointer {
+            "@"
+        } else {
+            ""
+        };
+        text.push_str(&format!(" {escape}{value}"));
+    }
+    text.push('\n');
 }
 
 /// The ages a family event gives for the family's `HUSB` and `WIFE`
 /// (`HUSB.AGE`, `WIFE.AGE`), for the spouses the file holds.
 fn spouse_ages(
-    detail: &ged_io::types::event::detail::Detail,
+    detail: &GedDetail,
     fam: &ged_io::types::family::Family,
+    owner: EventOwner<'_>,
     ctx: &ImportContext,
+    warnings: &mut Vec<String>,
 ) -> Vec<oxidgene_core::types::SpouseAge> {
     use ged_io::types::event::spouse::Spouse;
     detail
@@ -1084,7 +1256,7 @@ fn spouse_ages(
             };
             Some(oxidgene_core::types::SpouseAge {
                 person_id: *ctx.indi_map.get(xref)?,
-                age: import_age(member.age.as_ref())?,
+                age: import_age(member.age.as_ref(), owner, warnings)?,
             })
         })
         .collect()
@@ -1141,13 +1313,11 @@ enum LinkOwner {
 fn import_media_links(
     multimedia: &[ged_io::types::multimedia::Multimedia],
     owner: LinkOwner,
-    tree_id: Uuid,
-    now: chrono::DateTime<Utc>,
-    media_map: &HashMap<String, Uuid>,
+    ctx: &ImportContext,
     result: &mut ImportResult,
 ) {
     for (index, mm) in multimedia.iter().enumerate() {
-        let Some(media_id) = resolve_or_create_media(mm, tree_id, now, media_map, result) else {
+        let Some(media_id) = resolve_or_create_media(mm, ctx, result) else {
             continue;
         };
         let (person_id, event_id, family_id, sort_order) = match owner {
@@ -1406,43 +1576,34 @@ fn witness_individual_event(
 }
 
 /// Restore OxidGene metadata and crop annotations beneath top-level `OBJE`
-/// records. `ged_io` deliberately ignores unknown GEDCOM extension tags, so
-/// the standard model is imported first and these narrowly scoped lines are
-/// resolved against the xref maps it produced.
-fn import_oxidgene_media_extensions(gedcom: &str, result: &mut ImportResult) {
-    import_media_metadata_extensions(gedcom, result);
-    import_document_extensions(gedcom, result);
-    import_vignette_extensions(gedcom, result);
+/// records. `ged_io` keeps them as extension tags of the records; the
+/// standard model is imported first and they are resolved against the xref
+/// maps it produced.
+fn import_oxidgene_media_extensions(data: &GedcomData, result: &mut ImportResult) {
+    import_media_metadata_extensions(data, result);
+    import_document_extensions(data, result);
+    import_vignette_extensions(data, result);
 }
 
-/// Collect the `_OXIDGENE_*` lines that sit under each top-level `OBJE`.
-///
-/// `ged_io` drops unknown extension tags, so this is a plain text scan over the
-/// same file: for each media xref, the payloads written beneath it.
-fn media_extension_lines<'a>(gedcom: &'a str, tag: &str) -> Vec<(&'a str, &'a str)> {
-    let prefix = format!("1 {tag} ");
-    let mut media_xref = None::<&str>;
-    let mut found = Vec::new();
-    for line in gedcom.lines() {
-        if line.starts_with("0 ") {
-            let fields = line.split_whitespace().collect::<Vec<_>>();
-            media_xref = match fields.as_slice() {
-                ["0", xref, "OBJE", ..] => Some(*xref),
-                _ => None,
-            };
-            continue;
-        }
-        if let (Some(xref), Some(value)) = (media_xref, line.strip_prefix(&prefix)) {
-            found.push((xref, value));
-        }
-    }
-    found
+/// The values of the `tag` extension beneath each top-level `OBJE`, with the
+/// xref of the record each sits under.
+fn media_extensions<'d>(data: &'d GedcomData, tag: &str) -> Vec<(&'d str, &'d str)> {
+    data.multimedia
+        .iter()
+        .filter_map(|mm| Some((mm.xref.as_deref()?, &mm.custom_data)))
+        .flat_map(|(xref, extensions)| {
+            extensions
+                .iter()
+                .filter(|extension| extension.tag == tag)
+                .filter_map(move |extension| Some((xref, extension.value.as_deref()?)))
+        })
+        .collect()
 }
 
 /// Restore what a page says about itself: its file name, its timestamps and
 /// its transcript.
-fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
-    for (media_xref, value) in media_extension_lines(gedcom, "_OXIDGENE_MEDIA") {
+fn import_media_metadata_extensions(data: &GedcomData, result: &mut ImportResult) {
+    for (media_xref, value) in media_extensions(data, "_OXIDGENE_MEDIA") {
         let Some(media_id) = result.media_by_xref.get(media_xref).copied() else {
             continue;
         };
@@ -1499,8 +1660,8 @@ fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
 /// dropped, and any link that pointed at a dropped document is moved to the
 /// survivor — so a person attached to a forty-page dossier stays attached to
 /// it rather than to page one.
-fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
-    let by_token = document_pages(gedcom, result);
+fn import_document_extensions(data: &GedcomData, result: &mut ImportResult) {
+    let by_token = document_pages(data, result);
     let dropped = regroup_document_pages(result, by_token);
     if !dropped.is_empty() {
         redirect_to_kept_documents(result, &dropped);
@@ -1510,11 +1671,11 @@ fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
 /// The imported pages carrying an OxidGene document extension, by document
 /// token; a page whose extension cannot be read is left alone, with a warning.
 fn document_pages(
-    gedcom: &str,
+    data: &GedcomData,
     result: &mut ImportResult,
 ) -> HashMap<String, Vec<(Uuid, DocumentExtension)>> {
     let mut by_token: HashMap<String, Vec<(Uuid, DocumentExtension)>> = HashMap::new();
-    for (media_xref, value) in media_extension_lines(gedcom, "_OXIDGENE_DOC") {
+    for (media_xref, value) in media_extensions(data, "_OXIDGENE_DOC") {
         let Some(page_id) = result.media_by_xref.get(media_xref).copied() else {
             continue;
         };
@@ -1724,33 +1885,22 @@ fn apply_document_metadata(
     }
 }
 
-fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
-    let mut media_xref = None::<&str>;
-
-    for line in gedcom.lines() {
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        if fields.first() == Some(&"0") {
-            media_xref = match fields.as_slice() {
-                ["0", xref, "OBJE", ..] => Some(*xref),
-                _ => None,
-            };
-            continue;
-        }
-        let ["1", "_OXIDGENE_VIGNETTE", person_xref, x, y, width, height] = fields.as_slice()
-        else {
+/// Restore the identifications of persons on a page: one
+/// `_OXIDGENE_VIGNETTE <person xref or -> <x> <y> <width> <height>` each.
+fn import_vignette_extensions(data: &GedcomData, result: &mut ImportResult) {
+    for (media_xref, value) in media_extensions(data, "_OXIDGENE_VIGNETTE") {
+        let fields = value.split_whitespace().collect::<Vec<_>>();
+        let [person_xref, x, y, width, height] = fields.as_slice() else {
             // An arity we do not write. Saying so beats dropping the crop in
             // silence: a file written by an older OxidGene carried a page
             // number here, and its identifications would otherwise vanish
             // without a word.
-            if fields.get(1) == Some(&"_OXIDGENE_VIGNETTE") {
-                result.warnings.push(format!(
-                    "Vignette on {media_xref:?}: unrecognised _OXIDGENE_VIGNETTE line — skipped"
-                ));
-            }
+            result.warnings.push(format!(
+                "Vignette on {media_xref}: unrecognised _OXIDGENE_VIGNETTE line — skipped"
+            ));
             continue;
         };
-        let Some(media_id) = media_xref.and_then(|xref| result.media_by_xref.get(xref).copied())
-        else {
+        let Some(media_id) = result.media_by_xref.get(media_xref).copied() else {
             continue;
         };
         let person_id = if *person_xref == "-" {
@@ -1760,7 +1910,7 @@ fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
         };
         if *person_xref != "-" && person_id.is_none() {
             result.warnings.push(format!(
-                "Vignette on {media_xref:?}: person {person_xref} was not found"
+                "Vignette on {media_xref}: person {person_xref} was not found"
             ));
             continue;
         }
@@ -1772,14 +1922,14 @@ fn import_vignette_extensions(gedcom: &str, result: &mut ImportResult) {
         );
         let (Ok(x), Ok(y), Ok(width), Ok(height)) = parsed else {
             result.warnings.push(format!(
-                "Vignette on {media_xref:?}: invalid crop coordinates"
+                "Vignette on {media_xref}: invalid crop coordinates"
             ));
             continue;
         };
         if x < 0 || y < 0 || width <= 0 || height <= 0 {
-            result.warnings.push(format!(
-                "Vignette on {media_xref:?}: invalid crop rectangle"
-            ));
+            result
+                .warnings
+                .push(format!("Vignette on {media_xref}: invalid crop rectangle"));
             continue;
         }
         let now = Utc::now();
@@ -2443,13 +2593,29 @@ fn convert_quay(
     }
 }
 
-/// The canonical form of an age `ged_io` read; `None` for one OxidGene does
-/// not hold as an age (an empty value, a count beyond 999).
-fn import_age(age: Option<&ged_io::types::age::Age>) -> Option<String> {
-    age?.to_string()
-        .parse::<oxidgene_core::types::AgeAtEvent>()
-        .ok()
-        .map(|age| age.to_string())
+/// The canonical form of an age.
+///
+/// `ged_io` reads an `AGE` leniently: what does not follow GEDCOM's age
+/// grammar is kept as its text. Such text is held when OxidGene reads it as
+/// an age (`child`, `1 y`); anything else — free text such as `majeur`, an
+/// empty value, a count beyond 999 — is left out, with a warning naming the
+/// record, never the value, which is the person's data.
+fn import_age(
+    age: Option<&ged_io::types::age::Age>,
+    owner: EventOwner<'_>,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let age = age?.to_string().parse::<oxidgene_core::types::AgeAtEvent>();
+    match age {
+        Ok(age) => Some(age.to_string()),
+        Err(_) => {
+            warnings.push(format!(
+                "{}: an AGE that is not a GEDCOM age was left out",
+                owner.label()
+            ));
+            None
+        }
+    }
 }
 
 /// `text` when it says something.
@@ -2463,23 +2629,19 @@ fn non_blank(text: Option<&str>) -> Option<String> {
 // Import sub-record helpers
 // ═══════════════════════════════════════════════════════════════════════
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
-)]
 fn import_event_detail(
-    detail: &ged_io::types::event::detail::Detail,
-    tree_id: Uuid,
-    person_id: Option<Uuid>,
-    family_id: Option<Uuid>,
-    now: chrono::DateTime<Utc>,
-    source_map: &HashMap<String, Uuid>,
-    media_map: &HashMap<String, Uuid>,
-    indi_map: &HashMap<String, Uuid>,
+    detail: &GedDetail,
+    owner: EventOwner<'_>,
+    ctx: &ImportContext,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
+    let EventOwner {
+        person_id,
+        family_id,
+        ..
+    } = owner;
     let event_type = convert_event_type(&detail.event, detail.event_type.as_deref());
 
     // Date — split into calendar / qualifier / value(s), see `crate::date`.
@@ -2492,7 +2654,7 @@ fn import_event_detail(
 
     let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
-    let (cause, note) = death_cause(event_type, detail);
+    let cause = death_cause(event_type, detail);
 
     // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
     // (e.g. "PACS", "Concubinage") — preserve it as the description so the
@@ -2512,9 +2674,12 @@ fn import_event_detail(
     // child's own `FAMC` with `PEDI adopted` makes them an adopted child of it.
 
     let event_id = Uuid::now_v7();
+    // A family event states each spouse's age instead (`HUSB.AGE`).
+    let age = import_age(detail.age.as_ref(), owner, &mut result.warnings)
+        .filter(|_| family_id.is_none());
     result.events.push(Event {
         id: event_id,
-        tree_id,
+        tree_id: ctx.tree_id,
         event_type,
         date_value: date.value,
         date_sort: date.sort,
@@ -2522,16 +2687,15 @@ fn import_event_detail(
         date_value2: date.value2,
         calendar: date.calendar,
         cause,
-        // A family event states each spouse's age instead (`HUSB.AGE`).
-        age: import_age(detail.age.as_ref()).filter(|_| family_id.is_none()),
+        age,
         agency: non_blank(detail.agency.as_deref()),
         spouse_ages: Vec::new(),
         place_id,
         person_id,
         family_id,
         description,
-        created_at: now,
-        updated_at: now,
+        created_at: ctx.now,
+        updated_at: ctx.now,
         deleted_at: None,
     });
 
@@ -2540,7 +2704,7 @@ fn import_event_detail(
     // (an `ASSO` may point at a FAM record per the GEDCOM grammar, which
     // has no home in `EventWitness`).
     for (idx, assoc) in detail.associations.iter().enumerate() {
-        if let Some(&witness_person_id) = indi_map.get(&assoc.xref) {
+        if let Some(&witness_person_id) = ctx.indi_map.get(&assoc.xref) {
             result.event_witnesses.push(EventWitness {
                 id: Uuid::now_v7(),
                 event_id,
@@ -2558,80 +2722,43 @@ fn import_event_detail(
             None,
             Some(event_id),
             family_id,
-            source_map,
+            &ctx.source_map,
             get_or_create_text_source,
             result,
         );
     }
 
-    // Multimedia on the event
-    import_media_links(
-        &detail.multimedia,
-        LinkOwner::Event(event_id),
-        tree_id,
-        now,
-        media_map,
-        result,
-    );
-
-    // Note on the event
-    import_note(
-        &note,
-        tree_id,
-        now,
-        None,
-        Some(event_id),
-        None,
-        None,
-        result,
-    );
+    import_media_links(&detail.multimedia, LinkOwner::Event(event_id), ctx, result);
+    ctx.import_notes(&detail.notes, NoteOwner::Event(event_id), result);
 }
 
-/// The marker the `geneweb` crate writes into a death event's note, followed
-/// by how the person died: `killed`, `murdered`, `executed`, `disappeared`,
-/// `died young` or `presumed dead`.
-///
-/// GEDCOM's word for it is `CAUS`, but the crate writes into a model with no
-/// room for a custom tag on an event, so the reason rides in the note.
-const GENEWEB_DEATH_REASON_MARKER: &str = "_GWDEATH";
+/// The extension the `geneweb` crate writes beneath a death, holding how
+/// the person died: `killed`, `murdered`, `executed`, `disappeared`, `died
+/// young` or `presumed dead` (`2 _GWDEATH killed`).
+const GENEWEB_DEATH_REASON_TAG: &str = "_GWDEATH";
 
-/// An event's cause and note text, with a GeneWeb death reason moved out of
-/// the note into the cause — after the cause the file states, if any.
-fn death_cause(
-    event_type: EventType,
-    detail: &ged_io::types::event::detail::Detail,
-) -> (Option<String>, Option<String>) {
+/// An event's cause: the one the file states, then, on a death, the reason
+/// a GeneWeb file gives for it, GEDCOM's word for which is `CAUS` too.
+fn death_cause(event_type: EventType, detail: &GedDetail) -> Option<String> {
     let cause = detail.cause.clone();
-    let note = detail.note.as_ref().and_then(|note| note.value.clone());
-    let (EventType::Death, Some(text)) = (event_type, note.as_deref()) else {
-        return (cause, note);
-    };
-    let mut reasons = Vec::new();
-    let kept: Vec<&str> = text
-        .lines()
-        .filter(|line| {
-            match line
-                .trim_start()
-                .strip_prefix(GENEWEB_DEATH_REASON_MARKER)
-                .filter(|rest| rest.starts_with(char::is_whitespace))
-            {
-                Some(reason) => {
-                    reasons.push(reason.trim());
-                    false
-                }
-                None => true,
-            }
-        })
+    if event_type != EventType::Death {
+        return cause;
+    }
+    let reasons: Vec<&str> = detail
+        .custom_data
+        .iter()
+        .filter(|tag| tag.tag == GENEWEB_DEATH_REASON_TAG)
+        .filter_map(|tag| tag.value.as_deref().map(str::trim))
+        .filter(|reason| !reason.is_empty())
         .collect();
     if reasons.is_empty() {
-        return (cause, note);
+        return cause;
     }
     let reason = reasons.join("; ");
-    let cause = match cause.filter(|cause| !cause.trim().is_empty()) {
+    Some(match cause.filter(|cause| !cause.trim().is_empty()) {
         Some(cause) => format!("{cause}; {reason}"),
         None => reason,
-    };
-    (Some(cause), Some(kept.join("\n")))
+    })
 }
 
 /// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as one or
@@ -2641,17 +2768,10 @@ fn death_cause(
 /// its value is split on common separators and case-normalized into one
 /// Occupation event per profession (see
 /// `split_occupations`/`normalize_occupation_case`).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
-)]
 fn import_attribute_detail(
     detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
-    tree_id: Uuid,
-    person_id: Uuid,
-    now: chrono::DateTime<Utc>,
-    source_map: &HashMap<String, Uuid>,
-    media_map: &HashMap<String, Uuid>,
+    owner: EventOwner<'_>,
+    ctx: &ImportContext,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
@@ -2669,7 +2789,7 @@ fn import_attribute_detail(
     let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
     let cause = detail.cause.clone();
-    let age = import_age(detail.age.as_ref());
+    let age = import_age(detail.age.as_ref(), owner, &mut result.warnings);
     let agency = non_blank(detail.agency.as_deref());
 
     // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
@@ -2700,7 +2820,7 @@ fn import_attribute_detail(
         let event_id = Uuid::now_v7();
         result.events.push(Event {
             id: event_id,
-            tree_id,
+            tree_id: ctx.tree_id,
             event_type,
             date_value: date.value.clone(),
             date_sort: date.sort,
@@ -2712,11 +2832,11 @@ fn import_attribute_detail(
             agency: agency.clone(),
             spouse_ages: Vec::new(),
             place_id,
-            person_id: Some(person_id),
+            person_id: owner.person_id,
             family_id: None,
             description,
-            created_at: now,
-            updated_at: now,
+            created_at: ctx.now,
+            updated_at: ctx.now,
             deleted_at: None,
         });
 
@@ -2727,7 +2847,7 @@ fn import_attribute_detail(
                 None,
                 Some(event_id),
                 None,
-                source_map,
+                &ctx.source_map,
                 get_or_create_text_source,
                 result,
             );
@@ -2737,28 +2857,8 @@ fn import_attribute_detail(
         // deed behind a TITL. A value that split into several professions
         // gives each of them the scan, the same way each gets the citations:
         // one line documented them all.
-        import_media_links(
-            &detail.multimedia,
-            LinkOwner::Event(event_id),
-            tree_id,
-            now,
-            media_map,
-            result,
-        );
-
-        // Note on the attribute
-        if let Some(ref note) = detail.note {
-            import_note(
-                &note.value,
-                tree_id,
-                now,
-                None,
-                Some(event_id),
-                None,
-                None,
-                result,
-            );
-        }
+        import_media_links(&detail.multimedia, LinkOwner::Event(event_id), ctx, result);
+        ctx.import_notes(&detail.notes, NoteOwner::Event(event_id), result);
     }
 }
 
@@ -2839,11 +2939,14 @@ fn import_citation(
 
     let confidence = convert_quay(cite.certainty_assessment.as_ref());
     let page = cite.page.clone();
-    let text = cite
+    // The transcript, `DATA.TEXT`, which may come in several parts.
+    let texts: Vec<&str> = cite
         .data
-        .as_ref()
-        .and_then(|d| d.text.as_ref())
-        .and_then(|t| t.value.clone());
+        .iter()
+        .flat_map(|data| &data.texts)
+        .filter_map(|text| text.value.as_deref())
+        .collect();
+    let text = (!texts.is_empty()).then(|| texts.join("\n"));
 
     result.citations.push(Citation {
         id: Uuid::now_v7(),
@@ -2859,88 +2962,15 @@ fn import_citation(
     });
 }
 
-/// The marker the `geneweb` crate appends to an event's note text when it
-/// converts `.gw` to GEDCOM.
-///
-/// GEDCOM has no tag for most of GeneWeb's event vocabulary, so those events
-/// are emitted as a generic `EVEN` with a `TYPE`. To keep its own
-/// GEDCOM → `.gw` direction reversible, the crate records which `.gw` tag the
-/// event came from — but writes it *into the note's text*, as a trailing
-/// `_GWTAG #educ` line, rather than as a GEDCOM custom sub-tag. Read back, it
-/// is a line of machine bookkeeping sitting in the middle of what the user
-/// wrote about the event.
-const GENEWEB_EVENT_TAG_MARKER: &str = "_GWTAG";
-
-/// Drops that marker from a note body.
-///
-/// Nothing is lost: a `.gw` tag GeneWeb itself defines (`#educ`, `#occu`, …)
-/// has already become the `EventType` this event carries, and a user-defined
-/// one is already the event's description, verbatim — the marker only ever
-/// restates one of the two.
-///
-/// The crate's other in-note marker, `_GWDEATH`, carries information of its
-/// own — how the person died — and becomes the death's cause instead: see
-/// [`death_cause`].
-fn strip_geneweb_event_marker(text: &str) -> String {
-    if !text.contains(GENEWEB_EVENT_TAG_MARKER) {
-        return text.to_string();
-    }
-    text.lines()
-        .filter(|line| {
-            let line = line.trim_start();
-            !line
-                .strip_prefix(GENEWEB_EVENT_TAG_MARKER)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
-)]
-fn import_note(
-    value: &Option<String>,
-    tree_id: Uuid,
-    now: chrono::DateTime<Utc>,
-    person_id: Option<Uuid>,
-    event_id: Option<Uuid>,
-    family_id: Option<Uuid>,
-    source_id: Option<Uuid>,
+/// What an `OBJE` says of its media: the text of its notes, one after the
+/// other.
+fn media_description(
+    mm: &ged_io::types::multimedia::Multimedia,
+    ctx: &ImportContext,
     result: &mut ImportResult,
-) {
-    let Some(value) = value else {
-        return;
-    };
-    // `ged_io` keeps one note per person, event or attribute; the sanitize
-    // pass joined the structure's notes into it so that none is lost, and
-    // each one becomes a note of its own again here.
-    for part in value.split(crate::sanitize::NOTE_SEPARATOR) {
-        // A note that held nothing but the marker leaves no note at all,
-        // rather than an empty row for the UI to render as a blank entry.
-        let text = strip_geneweb_event_marker(part);
-        if text.is_empty() {
-            continue;
-        }
-        result.notes.push(Note {
-            id: Uuid::now_v7(),
-            tree_id,
-            text,
-            person_id,
-            event_id,
-            family_id,
-            source_id,
-            // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
-            media_id: None,
-            repository_id: None,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-        });
-    }
+) -> Option<String> {
+    let texts = ctx.note_texts(&mm.notes, &mut result.warnings);
+    (!texts.is_empty()).then(|| texts.join("\n"))
 }
 
 /// Resolve a multimedia reference to a `Media` UUID.
@@ -2950,14 +2980,13 @@ fn import_note(
 /// and its page and return the document UUID. Returns `None` if neither applies.
 fn resolve_or_create_media(
     mm: &ged_io::types::multimedia::Multimedia,
-    tree_id: Uuid,
-    now: chrono::DateTime<Utc>,
-    media_map: &HashMap<String, Uuid>,
+    ctx: &ImportContext,
     result: &mut ImportResult,
 ) -> Option<Uuid> {
+    let (tree_id, now) = (ctx.tree_id, ctx.now);
     // Case 1: cross-reference to a top-level OBJE record
     if let Some(ref xref) = mm.xref
-        && let Some(&media_id) = media_map.get(xref)
+        && let Some(&media_id) = ctx.media_map.get(xref)
     {
         return Some(media_id);
     }
@@ -3006,6 +3035,7 @@ fn resolve_or_create_media(
             updated_at: now,
             deleted_at: None,
         };
+        let description = media_description(mm, ctx, result);
         result.media.push(Media {
             id: document_id,
             file_name: mm.title.clone().unwrap_or_else(|| page.file_name.clone()),
@@ -3013,10 +3043,7 @@ fn resolve_or_create_media(
             file_path: String::new(),
             parent_media_id: None,
             title: mm.title.clone(),
-            description: mm
-                .note_structure
-                .as_ref()
-                .and_then(|note| note.value.clone()),
+            description,
             ..page.clone()
         });
         result.media.push(page);
@@ -3186,67 +3213,18 @@ mod type_text_description_tests {
 }
 
 #[cfg(test)]
-mod geneweb_marker_tests {
+mod geneweb_death_reason_tests {
     use super::*;
 
-    #[test]
-    fn the_trailing_tag_marker_is_dropped() {
-        // The reported shape: one line the user wrote, one line of the
-        // converter's own bookkeeping.
-        assert_eq!(
-            strip_geneweb_event_marker("Institution Saint-Joseph\n_GWTAG #educ"),
-            "Institution Saint-Joseph"
-        );
-    }
-
-    #[test]
-    fn a_note_that_was_only_the_marker_becomes_empty() {
-        // Which stops `import_note` creating a row at all.
-        assert_eq!(strip_geneweb_event_marker("_GWTAG #occu"), "");
-    }
-
-    #[test]
-    fn a_user_defined_event_label_goes_with_it() {
-        // GeneWeb lets an event be named freely, and the marker then repeats
-        // that whole label — it is already the event's description.
-        assert_eq!(
-            strip_geneweb_event_marker(
-                "Document non officiellement numérisé\n_GWTAG #Tutelle après un décès"
-            ),
-            "Document non officiellement numérisé"
-        );
-    }
-
-    #[test]
-    fn the_rest_of_a_multi_line_note_is_kept_intact() {
-        assert_eq!(
-            strip_geneweb_event_marker("Matricule: 559\nRéformé pour maladie\n_GWTAG #mser"),
-            "Matricule: 559\nRéformé pour maladie"
-        );
-    }
-
-    #[test]
-    fn a_note_merely_mentioning_the_word_is_left_alone() {
-        // Only a line that *is* the marker counts, so prose that happens to
-        // name it — or a URL containing it — survives.
-        for text in [
-            "The exporter writes _GWTAG lines into notes.",
-            "_GWTAGGED is not the marker",
-            "https://example.org/_GWTAG",
-        ] {
-            assert_eq!(strip_geneweb_event_marker(text), text);
-        }
-    }
-
-    /// A death read by `ged_io`, with this cause and this note.
-    fn death_with(cause: Option<&str>, note: &str) -> ged_io::types::event::detail::Detail {
+    /// A death read by `ged_io`, with this cause and these `_GWDEATH`
+    /// reasons beneath it.
+    fn death_with(cause: Option<&str>, reasons: &[&str]) -> GedDetail {
         let mut gedcom = String::from("0 HEAD\n0 @I1@ INDI\n1 DEAT\n");
         if let Some(cause) = cause {
             gedcom.push_str(&format!("2 CAUS {cause}\n"));
         }
-        for (index, line) in note.lines().enumerate() {
-            let tag = if index == 0 { "2 NOTE" } else { "3 CONT" };
-            gedcom.push_str(&format!("{tag} {line}\n"));
+        for reason in reasons {
+            gedcom.push_str(&format!("2 _GWDEATH {reason}\n"));
         }
         gedcom.push_str("0 TRLR\n");
         let mut data = GedcomBuilder::new()
@@ -3256,30 +3234,29 @@ mod geneweb_marker_tests {
     }
 
     #[test]
-    fn the_death_reason_becomes_the_cause_and_leaves_the_note() {
-        let detail = death_with(None, "Sample remark\n_GWDEATH killed");
+    fn the_death_reason_becomes_the_cause() {
         assert_eq!(
-            death_cause(EventType::Death, &detail),
-            (Some("killed".into()), Some("Sample remark".into()))
+            death_cause(EventType::Death, &death_with(None, &["killed"])),
+            Some("killed".into())
         );
-        let detail = death_with(Some("Fever"), "_GWDEATH died young");
         assert_eq!(
-            death_cause(EventType::Death, &detail),
-            (Some("Fever; died young".into()), Some(String::new()))
+            death_cause(
+                EventType::Death,
+                &death_with(Some("Fever"), &["died young"])
+            ),
+            Some("Fever; died young".into())
         );
     }
 
     #[test]
-    fn a_death_note_without_the_marker_and_other_events_are_left_alone() {
-        let detail = death_with(None, "Mentions _GWDEATH in passing");
+    fn a_death_without_a_reason_and_other_events_keep_their_cause() {
         assert_eq!(
-            death_cause(EventType::Death, &detail),
-            (None, Some("Mentions _GWDEATH in passing".into()))
+            death_cause(EventType::Death, &death_with(Some("Fever"), &[])),
+            Some("Fever".into())
         );
-        let detail = death_with(None, "_GWDEATH killed");
         assert_eq!(
-            death_cause(EventType::Burial, &detail),
-            (None, Some("_GWDEATH killed".into()))
+            death_cause(EventType::Burial, &death_with(None, &["killed"])),
+            None
         );
     }
 }
@@ -3425,15 +3402,9 @@ mod gedzip_tests {
     }
 
     fn archive(gedcom: &str, files: &[(&str, &[u8])]) -> Vec<u8> {
-        let files: Vec<(String, String, Vec<u8>)> = files
+        let files: Vec<(String, Vec<u8>)> = files
             .iter()
-            .map(|(name, bytes)| {
-                (
-                    (*name).to_string(),
-                    "application/octet-stream".to_string(),
-                    (*bytes).to_vec(),
-                )
-            })
+            .map(|(name, bytes)| ((*name).to_string(), (*bytes).to_vec()))
             .collect();
         crate::export::export_gedzip(gedcom, &files).expect("writes the archive")
     }
@@ -3560,6 +3531,20 @@ mod gedzip_tests {
     }
 
     #[test]
+    fn a_percent_encoded_reference_still_finds_the_entry() {
+        // GEDCOM 7.0 writes a `FILE` as a URI reference.
+        let bytes = archive(
+            &gedcom_naming("media/my%20portrait.jpg"),
+            &[("media/my portrait.jpg", b"JPEGBYTES")],
+        );
+
+        let import = import_gedzip(&bytes, Uuid::now_v7()).expect("imports");
+
+        assert_eq!(import.files.len(), 1, "got {:?}", import.result.warnings);
+        assert_eq!(import.files[0].1, b"JPEGBYTES");
+    }
+
+    #[test]
     fn a_url_is_recorded_rather_than_looked_for_in_the_archive() {
         let bytes = archive(&gedcom_naming("https://example.org/portrait.jpg"), &[]);
 
@@ -3635,18 +3620,26 @@ mod gedzip_tests {
         );
     }
 
+    /// Earlier exports wrote the person's xref leading the value without
+    /// GEDCOM's escape of a leading `@` (`@@`), which `ged_io` now writes:
+    /// both read as the same identification.
     #[test]
-    fn a_decompressed_entry_must_fit_its_limit() {
-        let bytes = archive(
-            &gedcom_naming("media/portrait.jpg"),
-            &[("media/portrait.jpg", b"JPEGBYTES")],
-        );
-        let mut reader = GedzipReader::new(std::io::Cursor::new(bytes)).expect("opens");
-
-        let error = reader
-            .read_entry("media/portrait.jpg", 4)
-            .expect_err("entry exceeds four bytes");
-
-        assert!(error.contains("exceeds the 4-byte limit"), "got {error}");
+    fn a_vignette_reads_with_or_without_the_escape_of_its_leading_at_sign() {
+        for value in ["@I1@ 120 45 64 82", "@@I1@ 120 45 64 82"] {
+            let gedcom = format!(
+                "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 SEX U\n\
+                 0 @M1@ OBJE\n1 FILE photo.jpg\n2 FORM image/jpeg\n\
+                 1 _OXIDGENE_VIGNETTE {value}\n0 TRLR\n"
+            );
+            let result = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+            assert_eq!(result.vignettes.len(), 1, "{value}: {:?}", result.warnings);
+            let vignette = &result.vignettes[0];
+            assert_eq!(vignette.person_id, Some(result.persons[0].id), "{value}");
+            assert_eq!(
+                (vignette.x, vignette.y, vignette.width, vignette.height),
+                (120, 45, 64, 82),
+                "{value}"
+            );
+        }
     }
 }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:58:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
 ---
 
 
@@ -150,9 +150,7 @@ tiles the gallery shows. Warnings collapse behind a disclosure with a count.
 
 ## 5. Data mapping & fidelity
 
-The import uses `ged_io` 0.16 to parse GEDCOM files, after a repair pass for
-the few constructs it would reject or misread (an unreadable `AGE`, a note
-pointer, several notes on one structure, a `CONC` opening with a space). See
+The import uses `ged_io` 0.17 to parse GEDCOM files. See
 [API Contract §4](api.md) for the full round-trip fidelity table, which is
 authoritative where this summary is shorter.
 
@@ -189,13 +187,13 @@ can ignore that extension while retaining all standard fields.
 
 These GEDCOM tags are parsed by `ged_io` but not mapped to the OxidGene data
 model. They are skipped silently: the import warnings name only what the
-import had to repair or could not resolve (an unreadable `AGE`, a dangling
-note pointer, a missing spouse or source, a GEDZIP file it does not hold).
+import could not read or resolve (an unreadable `AGE`, a dangling note
+pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 | GEDCOM tag | Description | Reason |
 |---|---|---|
-| SUBM other than `HEAD.SUBM`'s, `INDI.SUBM`, `FAM.SUBM` | Other submitter records and pointers | The header's submitter fills the tree's empty submitter settings; the others are counted in one warning, the record pointers are not parsed by `ged_io` |
-| AGE that is not a GEDCOM age | Free text, empty value | `ged_io` would reject the file; left out with a warning naming its line (a loosely spelt age such as `1y6m` is rewritten instead) |
+| SUBM other than `HEAD.SUBM`'s, `INDI.SUBM`, `FAM.SUBM` | Other submitter records and pointers | The header's submitter fills the tree's empty submitter settings; the others are counted in one warning, the record pointers are not imported |
+| AGE that is not a GEDCOM age | Free text, empty value | Left out with a warning naming its record (a loosely spelt age such as `1y6m` or `child` is read in GEDCOM's form instead) |
 | RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
 | `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |
 
