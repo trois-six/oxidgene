@@ -537,14 +537,18 @@ pub fn use_init_print() {
     });
 }
 
+/// The theme a printed page is recoloured with.
+const PRINT_THEME_ID: &str = "light";
+
 /// The stylesheet that recolours the printed page with the `light` theme.
 ///
-/// Paper is white whatever theme is on screen. Rather than spell colours out
-/// in the stylesheet, the print media gets the `light` palette's own block,
-/// emitted after the active one so it wins on paper only.
+/// Paper is white whatever theme is on screen, and whichever is the default.
+/// Rather than spell colours out in the stylesheet, the print media gets the
+/// `light` palette's own block, emitted after the active one so it wins on
+/// paper only.
 #[must_use]
 pub fn print_palette_css() -> String {
-    crate::theme::builtin_theme(crate::theme::DEFAULT_THEME_ID)
+    crate::theme::builtin_theme(PRINT_THEME_ID)
         .map(|theme| format!("@media print {{\n{}}}\n", theme.css()))
         .unwrap_or_default()
 }
@@ -1057,7 +1061,7 @@ mod tests {
     fn print_palette_is_the_light_theme_for_print_media_only() {
         let css = print_palette_css();
         assert!(css.starts_with("@media print {"));
-        let light = crate::theme::builtin_theme(crate::theme::DEFAULT_THEME_ID).unwrap();
+        let light = crate::theme::builtin_theme("light").unwrap();
         assert!(css.contains(&light.css()));
     }
 }

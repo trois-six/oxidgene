@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:19:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:10:27Z }
 ---
 
 
@@ -144,13 +144,14 @@ theme as a tile:
 Choosing a theme applies immediately, with no save step, and is persisted in
 `localStorage('oxidgene-theme')` as the theme's id.
 
-There is no automatic light/dark selection. The application starts on `light`
-and stays there until a theme is chosen: with a theme list anyone can extend,
+There is no automatic light/dark selection. The application starts on
+`myheritage` (MyHeritage) and stays there until a theme is chosen, and a
+reader's stored choice is kept: with a theme list anyone can extend,
 "follow the system" has no well-defined member, and a palette that changed on
 its own under a window left open all day was not wanted.
 
 A selected id that no longer resolves — a user theme whose file was renamed or
-removed — resets the selection and stored preference to `light`. Restoring
+removed — resets the selection and stored preference to `myheritage`. Restoring
 the file makes it available again but does not select it automatically.
 
 ### Custom themes

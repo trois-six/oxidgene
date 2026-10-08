@@ -265,7 +265,7 @@ theme_tokens! {
 pub enum FontChoice {
     /// Bundled Lato.
     Lato,
-    /// Bundled Cinzel, the engraved capitals of the default headings.
+    /// Bundled Cinzel, the engraved capitals of the light theme's headings.
     Cinzel,
     /// The platform's interface font.
     System,
@@ -385,8 +385,8 @@ pub struct ThemeStyle {
 }
 
 impl ThemeStyle {
-    /// The default theme's: Lato with Cinzel headings, soft corners and
-    /// shadows, regular density.
+    /// The light theme's, and where any theme without a `base` starts:
+    /// Lato with Cinzel headings, soft corners and shadows, regular density.
     pub const DEFAULT: Self = Self {
         body_font: FontChoice::Lato,
         heading_font: FontChoice::Cinzel,
@@ -689,7 +689,10 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
 ];
 
 /// The id used when nothing is stored, and when a stored id no longer exists.
-pub const DEFAULT_THEME_ID: &str = "light";
+///
+/// Not the first theme listed: `light` stays first because the others
+/// resolve from it, and stays the print palette (see `print_palette_css`).
+pub const DEFAULT_THEME_ID: &str = "myheritage";
 
 /// The shipped themes.
 ///
@@ -854,7 +857,8 @@ impl ThemeState {
 /// Hook: initialise the theme (call once in `AppShell`).
 ///
 /// There is deliberately no `prefers-color-scheme` branch. The application
-/// starts light and stays light until someone picks otherwise: a theme list
+/// starts on [`DEFAULT_THEME_ID`] and stays there until someone picks
+/// otherwise, and a stored choice is kept as it is: a theme list
 /// that anyone can extend has no meaningful "system" member, and a palette
 /// that changed under the user because the hour changed was surprising in a
 /// window they leave open all day.
@@ -942,7 +946,18 @@ mod tests {
         let themes = &*BUILTIN_THEMES;
         assert_eq!(themes.len(), BUILTIN_SOURCES.len());
         assert!(themes.iter().all(|theme| theme.builtin));
-        assert_eq!(themes[0].id, DEFAULT_THEME_ID);
+        // Every other theme resolves from `light`, so it stays first.
+        assert_eq!(themes[0].id, "light");
+        assert!(builtin_theme(DEFAULT_THEME_ID).is_some());
+    }
+
+    /// A reader who has never chosen a theme gets MyHeritage's.
+    #[test]
+    fn the_default_theme_is_myheritage() {
+        let state = ThemeState::default();
+        assert_eq!(state.selected_id(), "myheritage");
+        assert_eq!(state.active().id, "myheritage");
+        assert_eq!(active_theme(None).id, "myheritage");
     }
 
     #[test]

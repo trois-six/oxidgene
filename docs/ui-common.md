@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:33Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -157,7 +157,8 @@ spacing.
 Themes are JSON documents. The shipped set is whatever
 `assets/themes/` holds, listed in the order
 `BUILTIN_SOURCES` declares; `light` comes first and is the only complete one,
-and every other theme resolves from an earlier entry. Adding or removing one
+and every other theme resolves from an earlier entry. The default theme is
+`myheritage` (`DEFAULT_THEME_ID`), which need not be first. Adding or removing one
 is a matter of a file and a line, and is not tracked here.
 
 A theme whose name is an ordinary interface word — `Light`, `Dark` — is
@@ -169,11 +170,13 @@ Users may add their own themes, which appear in the app-settings picker
 alongside the shipped ones. The
 selected theme is emitted as a `:root { … }` block ahead of the stylesheet, so
 every `var(--token)` in the CSS resolves against it. There is no `:root.dark`
-selector and no `prefers-color-scheme` branch: `light` is the default and the
-only way to change it is to choose another theme.
+selector and no `prefers-color-scheme` branch: `myheritage` is the default and
+the only way to change it is to choose another theme.
 
 The choice is stored as the theme's id in `localStorage('oxidgene-theme')`.
-An id that no longer resolves resets the selected and stored value to `light`.
+A reader with no stored choice gets `myheritage`; a stored choice is kept. An
+id that no longer resolves resets the selected and stored value to
+`myheritage`.
 
 #### File format
 
@@ -206,8 +209,8 @@ An id that no longer resolves resets the selected and stored value to `light`.
 `lato` and `cinzel` are the bundled faces; `system`, `serif` and `mono` name
 the platform's own interface, book and monospace fonts, so no theme makes the
 application fetch a font. The shipped themes each choose presets that suit
-the site or palette they are named after; `light`, the default, keeps every
-default.
+the site or palette they are named after; `light`, the base of the others,
+keeps every default.
 
 Without `base`, every token in §3.2 must be given. With it, only the
 differences need listing — which is how `dark` is written, and what keeps an

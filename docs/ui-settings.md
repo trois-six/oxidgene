@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: github-copilot/copilot, at: 2026-10-02T19:45:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:10:27Z }
 ---
 
 
@@ -500,7 +500,7 @@ those depths; the global values initialize trees without a saved view.
 ## 14. Design Consistency
 
 The settings page uses the shared `sub-page` layout and interaction states from
-[Common UI](ui-common.md). The light/dark theme applies globally.
+[Common UI](ui-common.md). The selected theme applies globally.
 
 Every sidebar section switch resets the scrollable content container to offset
 zero after the displayed section is updated,
