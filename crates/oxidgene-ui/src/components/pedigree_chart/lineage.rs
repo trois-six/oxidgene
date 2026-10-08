@@ -154,7 +154,9 @@ pub(super) struct LineageLayout {
 }
 
 impl LineageLayout {
-    pub(super) fn fit_target(&self) -> FitTarget {
+    /// What a fit frames; the chart's cards are the theme's own, drawn with
+    /// `metrics`.
+    pub(super) fn fit_target(&self, metrics: &PedigreeMetrics) -> FitTarget {
         let (root_x, root_y) = self
             .centres
             .get(self.root_index)
@@ -168,6 +170,7 @@ impl LineageLayout {
             root_cx: self.origin_x + root_x,
             root_cy: self.origin_y + root_y,
             root_at_left: self.root_at_left,
+            card_h: metrics.inner_h,
         }
     }
 

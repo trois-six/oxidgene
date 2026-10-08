@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T10:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T06:47:00Z }
 ---
 
 
@@ -527,7 +527,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Drag on canvas | Free pan — starting on a card, a segment or the root disc as well: a press that moves more than 5 px before its release pans and is not a click, in every view |
 | Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x (up to 16x in the wheel and the fan, as their narrowest labels need) |
 | Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
-| FIT button | Reframes the entire tree in the window, shrinking a large one but never enlarging past 0.7x, so a small pedigree keeps reasonably sized cards and is centred in the free canvas; the framed extent includes the edit button under the focus card and keeps a margin on every side (the automatic fit on opening and on a depth, view or sidebar change shares this cap); a tree too large to fit at 0.3x is centred on the focus person — in the lineage view, whose focus person is its left edge, it keeps them centred vertically and starts at the left margin when wider than the window (centred across otherwise) |
+| FIT button | Reframes the entire tree in the window, filling the free canvas whatever the number of cards, unless that would draw a card taller than 112 px on screen: the cap is on the cards' drawn size, not on the scale, so it holds whatever the card theme — a shield card (162 px tall in the layout) stops at about 0.69x, a classic card (67 px) only past 1.6x, so five full generations of classic cards fill the window while a couple or a few shield cards keep a reasonable size, centred in the free canvas (in the wheel and the fan, the card is a ring of names along the arc, 64 px deep); the framed extent includes the edit button under the focus card and keeps a margin on every side (the automatic fit on opening and on a depth, view or sidebar change shares this cap); a tree too large to fit at 0.3x is centred on the focus person — in the lineage view, whose focus person is its left edge, it keeps them centred vertically and starts at the left margin when wider than the window (centred across otherwise) |
 | Depth selector | Recalculates layout, recenters on current focus |
 
 A zoom holds one point of the canvas still and moves everything else around it.

@@ -558,6 +558,10 @@ pub(super) struct CircularLayout {
 impl CircularLayout {
     /// The whole canvas, margin included: a fit that framed the rim exactly
     /// would leave it touching the edges of a viewport as tall as the chart.
+    ///
+    /// The chart's card is a segment of a ring whose names run along the
+    /// arc: its depth holds the names and lifespan a pedigree card holds, so
+    /// a fit caps it as it caps a card.
     pub(super) fn fit_target(&self) -> FitTarget {
         let (root_dx, root_dy) = self.root_label.as_ref().map_or((0.0, 0.0), |l| (l.x, l.y));
         FitTarget {
@@ -568,6 +572,7 @@ impl CircularLayout {
             root_cx: self.origin_x + root_dx,
             root_cy: self.origin_y + root_dy,
             root_at_left: false,
+            card_h: TANGENTIAL_RING,
         }
     }
 }

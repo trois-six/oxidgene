@@ -69,12 +69,18 @@ const ZOOM_MIN: f64 = 0.3;
 /// Four steps past the 200 % the chart used to stop at: close enough to read
 /// the smallest line of a compact card on a large screen.
 const ZOOM_MAX: f64 = 4.0;
-/// The largest scale a fit may choose. A fit shrinks a large graph but must
-/// not blow up a small one: with two or three generations it would otherwise
-/// scale the cards to 160 % and more, far past the size they are designed to
-/// be read at. 0.7 is where a pedigree of a couple of generations reads
-/// comfortably on a laptop-sized canvas. Manual zoom keeps [`ZOOM_MAX`].
-const FIT_MAX_SCALE: f64 = 0.7;
+/// The tallest a card may be drawn on screen by a fit, in CSS pixels.
+///
+/// A fit fills the canvas, which blows a pedigree of a few cards up far
+/// past the size it is read at; a cap on the scale itself cannot stop that
+/// for every theme, as the themes' cards differ in size (the medieval
+/// shield is drawn 162 px tall, the classic card 67 px), so a scale that
+/// suits one leaves the other too large or a full five-generation chart too
+/// small. The cap is on what the reader sees instead: 112 px is the shield
+/// at the 69 % found comfortable, and lets a classic card reach 167 %, past
+/// what a chart of many cards needs to fill a large screen. Manual zoom
+/// keeps [`ZOOM_MAX`].
+const FIT_MAX_CARD_HEIGHT: f64 = 112.0;
 // ── Default portraits ────────────────────────────────────────────────────
 
 /// The silhouettes, embedded as the PNG files themselves.
@@ -2376,12 +2382,12 @@ impl ChartScene {
         }
     }
 
-    /// What a fit frames, whichever view is drawn.
-    fn fit_target(&self) -> FitTarget {
+    /// What a fit frames, whichever view is drawn with `metrics`.
+    fn fit_target(&self, metrics: &PedigreeMetrics) -> FitTarget {
         match self {
-            Self::Tree(layout) => FitTarget::of(layout),
+            Self::Tree(layout) => FitTarget::of(layout, metrics),
             Self::Circular(layout) => layout.fit_target(),
-            Self::Lineage(layout) => layout.fit_target(),
+            Self::Lineage(layout) => layout.fit_target(metrics),
         }
     }
 }
@@ -3034,10 +3040,13 @@ struct FitTarget {
     /// rather than centring the root, which would leave half the screen
     /// empty.
     root_at_left: bool,
+    /// Drawn height of one of the chart's cards, in content units: a fit
+    /// never draws it taller than [`FIT_MAX_CARD_HEIGHT`] on screen.
+    card_h: f64,
 }
 
 impl FitTarget {
-    fn of(layout: &PedigreeLayout) -> Self {
+    fn of(layout: &PedigreeLayout, metrics: &PedigreeMetrics) -> Self {
         Self {
             content_cx: layout.content_cx,
             content_cy: layout.content_cy,
@@ -3046,14 +3055,22 @@ impl FitTarget {
             root_cx: layout.root_cx,
             root_cy: layout.root_cy,
             root_at_left: false,
+            card_h: metrics.inner_h,
         }
+    }
+
+    /// The largest scale a fit may choose: the one drawing a card
+    /// [`FIT_MAX_CARD_HEIGHT`] tall, within the manual zoom range.
+    fn max_scale(self) -> f64 {
+        (FIT_MAX_CARD_HEIGHT / self.card_h.max(1.0)).clamp(ZOOM_MIN, ZOOM_MAX)
     }
 }
 
 /// The transform that fits `target` into the free part of `rect`.
 ///
-/// A graph that fits is framed whole, at no more than [`FIT_MAX_SCALE`] (a
-/// small graph stays centred at that scale). One that does not — a deep pedigree
+/// A graph that fits fills the free canvas, margins kept, unless that would
+/// draw its cards taller than [`FIT_MAX_CARD_HEIGHT`]: a graph of a few
+/// cards stops there, centred. One that does not fit — a deep pedigree
 /// already at the smallest scale — is centred on the root card instead: that
 /// person is who the user asked to see, and centring the graph's middle could
 /// leave them off screen entirely. A graph whose root is its left edge (the
@@ -3064,7 +3081,7 @@ fn fit_transform(rect: ViewportRect, target: FitTarget) -> ViewportTransform {
     let fit_w = (rect.width - 2.0 * side_padding).max(1.0);
     let fit_h = (rect.height * (1.0 - 2.0 * FIT_SIDE_PADDING_RATIO)).max(1.0);
     let whole = (fit_w / target.content_w).min(fit_h / target.content_h);
-    let scale = whole.clamp(ZOOM_MIN, FIT_MAX_SCALE);
+    let scale = whole.clamp(ZOOM_MIN, target.max_scale());
     let (center_x, center_y) = rect.center();
     let (x, focus_y) = if whole >= ZOOM_MIN {
         (center_x - target.content_cx * scale, target.content_cy)
@@ -4819,7 +4836,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         },
     );
     let max_zoom = scene.max_zoom();
-    let fit_target = scene.fit_target();
+    let fit_target = scene.fit_target(&theme.metrics);
 
     let actions = ChartActions {
         selected_person_id,
@@ -5200,6 +5217,7 @@ mod zoom_tests {
             root_cx: 900.0,
             root_cy: 550.0,
             root_at_left: false,
+            card_h: PedigreeMetrics::CLASSIC.inner_h,
         };
         let fit = fit_transform(fit_rect(), target);
         let (cx, cy) = fit_rect().center();
@@ -5207,7 +5225,41 @@ mod zoom_tests {
         assert!((fit.y + target.content_cy * fit.scale - cy).abs() < 1e-9);
     }
 
-    /// A small tree is not blown up to fill the canvas, and stays centred.
+    /// A canvas of the size the fit cap was chosen on.
+    fn screen_rect() -> ViewportRect {
+        ViewportRect {
+            height: 1000.0,
+            ..fit_rect()
+        }
+    }
+
+    /// The tree view of person 1, laid out with `theme`, and its fit on a
+    /// [`screen_rect`].
+    fn fitted(
+        data: &PedigreeData,
+        theme: &PedigreeTheme,
+        ancestor_levels: usize,
+    ) -> (PedigreeLayout, ViewportTransform) {
+        let layout = compute_layout(
+            id(1),
+            data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::full(ancestor_levels, 1),
+            theme,
+        );
+        let fit = fit_transform(screen_rect(), FitTarget::of(&layout, &theme.metrics));
+        (layout, fit)
+    }
+
+    /// The scale that would fill the free canvas, margins kept.
+    fn filling_scale(rect: ViewportRect, layout: &PedigreeLayout) -> f64 {
+        let free = 1.0 - 2.0 * FIT_SIDE_PADDING_RATIO;
+        (rect.width * free / layout.content_w).min(rect.height * free / layout.content_h)
+    }
+
+    /// A small tree is not blown up to fill the canvas: its cards stop at
+    /// the largest on-screen height, and it stays centred.
     #[test]
     fn a_small_graph_is_capped_and_centred() {
         let target = FitTarget {
@@ -5218,33 +5270,28 @@ mod zoom_tests {
             root_cx: 300.0,
             root_cy: 350.0,
             root_at_left: false,
+            card_h: 80.0,
         };
         let fit = fit_transform(fit_rect(), target);
-        assert_eq!(fit.scale, FIT_MAX_SCALE);
+        assert!((target.card_h * fit.scale - FIT_MAX_CARD_HEIGHT).abs() < 1e-9);
         let (cx, cy) = fit_rect().center();
         assert!((fit.x + target.content_cx * fit.scale - cx).abs() < 1e-9);
         assert!((fit.y + target.content_cy * fit.scale - cy).abs() < 1e-9);
     }
 
-    /// A couple with two empty parent slots: the layout must frame the edit
-    /// button under the focus card, and the fit must be capped with the whole
-    /// extent, margins included, inside the canvas.
+    /// Shield cards, a couple with two empty parent slots: filling the canvas
+    /// would draw them at more than 200 %. The fit stops at the card cap,
+    /// and frames the whole extent — the edit button under the focus card
+    /// included — inside the canvas with its margins.
     #[test]
-    fn a_couple_with_empty_parents_is_capped_and_fully_framed() {
+    fn a_shield_couple_with_empty_parents_is_capped_and_fully_framed() {
         let mut f = Fixture::default();
         f.person(1, Sex::Male, "Root", "Branch_A")
             .person(8, Sex::Female, "Spouse_1", "Branch_E");
         f.family(103, &[1, 8], &[]);
         let data = f.build();
-        let theme = &PedigreeTheme::CLASSIC;
-        let layout = compute_layout(
-            id(1),
-            &data,
-            None,
-            &HashSet::new(),
-            PedigreeLayoutOptions::full(1, 1),
-            theme,
-        );
+        let theme = &PedigreeTheme::MEDIEVAL;
+        let (layout, fit) = fitted(&data, theme, 1);
         let m = &theme.metrics;
         let fab_bottom = layout.root_cy - m.card_h / 2.0
             + m.card_h
@@ -5253,12 +5300,63 @@ mod zoom_tests {
         let content_bottom = layout.content_cy + layout.content_h / 2.0;
         assert!(content_bottom >= fab_bottom - 1e-9, "edit button is framed");
 
-        let rect = fit_rect();
-        let fit = fit_transform(rect, FitTarget::of(&layout));
-        assert_eq!(fit.scale, FIT_MAX_SCALE);
+        let rect = screen_rect();
+        assert!(
+            filling_scale(rect, &layout) > 2.0,
+            "filling would blow it up"
+        );
+        assert!((m.inner_h * fit.scale - FIT_MAX_CARD_HEIGHT).abs() < 1e-9);
+        assert!((fit.scale - 0.69).abs() < 0.005, "{}", fit.scale);
         let top = fit.y + (layout.content_cy - layout.content_h / 2.0) * fit.scale;
         let bottom = fit.y + content_bottom * fit.scale;
-        assert!(top >= 0.0 && bottom <= rect.height, "inside the canvas");
+        let margin = rect.height * FIT_SIDE_PADDING_RATIO;
+        assert!(top >= margin - 1e-9 && bottom <= rect.height - margin + 1e-9);
+    }
+
+    /// Shield cards, two parents and their three children with four empty
+    /// grandparent slots: filling the canvas would draw them near 150 %, and
+    /// the fit stops at the card cap — 69 %, the size found comfortable.
+    #[test]
+    fn a_few_shield_cards_stop_at_the_card_cap() {
+        let mut f = Fixture::default();
+        f.person(1, Sex::Male, "Root", "Branch_A")
+            .person(2, Sex::Male, "Father", "Branch_A")
+            .person(3, Sex::Female, "Mother", "Branch_B")
+            .person(4, Sex::Female, "Sibling_1", "Branch_A")
+            .person(5, Sex::Male, "Sibling_2", "Branch_A");
+        f.family(100, &[2, 3], &[1, 4, 5]);
+        let data = f.build();
+        let theme = &PedigreeTheme::MEDIEVAL;
+        let (layout, fit) = fitted(&data, theme, 2);
+        assert!(filling_scale(screen_rect(), &layout) > 1.4);
+        assert!((theme.metrics.inner_h * fit.scale - FIT_MAX_CARD_HEIGHT).abs() < 1e-9);
+        assert!((fit.scale - 0.69).abs() < 0.005, "{}", fit.scale);
+    }
+
+    /// Classic cards, five full generations (31 cards, 16 on the top row):
+    /// the cap is far above the scale that fills the canvas, so the chart
+    /// fills it, and is not stopped at a fixed scale.
+    #[test]
+    fn five_generations_of_classic_cards_fill_the_canvas() {
+        let mut f = Fixture::default();
+        for n in 1..=31_u128 {
+            let sex = if n == 1 || n % 2 == 0 {
+                Sex::Male
+            } else {
+                Sex::Female
+            };
+            f.person(n, sex, &format!("Given_{n}"), &format!("Branch_{n}"));
+        }
+        for n in 1..=15_u128 {
+            f.family(1_000 + n, &[2 * n, 2 * n + 1], &[n]);
+        }
+        let data = f.build();
+        let theme = &PedigreeTheme::CLASSIC;
+        let (layout, fit) = fitted(&data, theme, 4);
+        let fill = filling_scale(screen_rect(), &layout);
+        assert!((fit.scale - fill).abs() < 1e-9, "{} vs {fill}", fit.scale);
+        assert!(fit.scale > 0.9, "{}", fit.scale);
+        assert!(theme.metrics.inner_h * fit.scale < FIT_MAX_CARD_HEIGHT);
     }
 
     /// A graph larger than the canvas is still shrunk to fit, below the cap.
@@ -5272,9 +5370,10 @@ mod zoom_tests {
             root_cx: 2_000.0,
             root_cy: 1_000.0,
             root_at_left: false,
+            card_h: PedigreeMetrics::CLASSIC.inner_h,
         };
         let fit = fit_transform(fit_rect(), target);
-        assert!(fit.scale < FIT_MAX_SCALE && fit.scale > ZOOM_MIN);
+        assert!(fit.scale < target.max_scale() && fit.scale > ZOOM_MIN);
         assert!(target.content_h * fit.scale <= fit_rect().height);
         assert!(target.content_w * fit.scale <= fit_rect().width + 1e-9);
     }
@@ -5292,6 +5391,7 @@ mod zoom_tests {
             root_cx: 61_234.0,
             root_cy: 1_100.0,
             root_at_left: false,
+            card_h: PedigreeMetrics::CLASSIC.inner_h,
         };
         let fit = fit_transform(fit_rect(), target);
         assert_eq!(fit.scale, ZOOM_MIN);
@@ -5314,6 +5414,7 @@ mod zoom_tests {
             root_cx: 100.0,
             root_cy: 20_000.0,
             root_at_left: true,
+            card_h: PedigreeMetrics::CLASSIC.inner_h,
         };
         let fit = fit_transform(rect, wide);
         assert_eq!(fit.scale, ZOOM_MIN);
