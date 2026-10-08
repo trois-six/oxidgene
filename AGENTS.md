@@ -150,7 +150,7 @@ Dependency direction (`architecture.md` §9.2 has the full graph):
 core <- db <- api <- server <- worker
 core <- gedcom <- api
 core <- geneanet <- api/desktop
-core <- archives <- ui/desktop
+core <- archives <- api/ui/desktop
 api <- desktop
 core <- ui <- web/desktop
 core <- place-dictionary
