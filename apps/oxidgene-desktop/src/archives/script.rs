@@ -36,6 +36,27 @@ pub(super) fn page() -> String {
 /// and their controls.
 const CONSENT_JSON: &str = include_str!("consent.json");
 
+/// The selectors of the cookie banners of [`CONSENT_JSON`]'s managers.
+pub(super) fn consent_banners() -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Manager {
+        banner: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Managers {
+        managers: Vec<Manager>,
+    }
+    serde_json::from_str::<Managers>(CONSENT_JSON).map_or_else(
+        |_| Vec::new(),
+        |list| {
+            list.managers
+                .into_iter()
+                .map(|manager| manager.banner)
+                .collect()
+        },
+    )
+}
+
 /// Refuses a recognized cookie banner's consent, and acknowledges a listed
 /// information notice, in each main-frame document (`consent.js`), with the
 /// managers and notices of `consent.json`, which it receives as `consent`.
@@ -178,56 +199,27 @@ pub(super) type Action<'a> = (&'a str, &'a str);
 
 /// Shows `text` in a banner over the page with a close button labelled
 /// `close`, replacing any earlier banner, and the button of `action` when
-/// given. Closing it posts `{"kind": "dismiss"}`: the window then stops
-/// showing it again over the pages that follow.
-pub(super) fn banner(text: &str, close: &str, action: Option<Action<'_>>) -> String {
-    let text = serde_json::Value::from(text);
-    let close = serde_json::Value::from(close);
-    let (action, kind) = match action {
-        Some((label, kind)) => (
-            serde_json::Value::from(label),
-            serde_json::json!({ "kind": kind }).to_string(),
-        ),
-        None => (serde_json::Value::Null, "null".to_owned()),
-    };
-    let kind = serde_json::Value::from(kind);
+/// given (`banner.js`). Closing it posts `{"kind": "dismiss"}`: the window
+/// then stops showing it again over the pages that follow. The banner stays
+/// hidden while an element matching one of the `hold` selectors is on
+/// screen: a dialog the reader has to answer first.
+pub(super) fn banner(
+    text: &str,
+    close: &str,
+    action: Option<Action<'_>>,
+    hold: &[String],
+) -> String {
+    // JSON is a JavaScript expression, so the texts need no other escaping.
+    let banner = serde_json::json!({
+        "text": text,
+        "close": close,
+        "action": action.map(|(label, _)| label),
+        "message": action.map(|(_, kind)| serde_json::json!({ "kind": kind }).to_string()),
+        "hold": hold,
+    });
     format!(
-        r#"(() => {{
-    document.getElementById("oxidgene-archive-status")?.remove();
-    const banner = document.createElement("div");
-    banner.id = "oxidgene-archive-status";
-    banner.setAttribute("role", "status");
-    banner.style.cssText = "position:fixed;z-index:2147483647;top:12px;left:50%;"
-        + "transform:translateX(-50%);max-width:min(640px,90vw);display:flex;gap:12px;"
-        + "align-items:center;padding:10px 14px;border-radius:8px;background:#1e1a14;"
-        + "color:#f6f0e4;font:14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px #0000004d";
-    const label = document.createElement("span");
-    label.textContent = {text};
-    banner.append(label);
-    const action = {action};
-    if (action) {{
-        const open = document.createElement("button");
-        open.type = "button";
-        open.textContent = action;
-        open.style.cssText = "border:1px solid currentColor;border-radius:6px;background:none;"
-            + "color:inherit;font:inherit;padding:4px 10px;cursor:pointer;white-space:nowrap";
-        const message = {kind};
-        open.addEventListener("click", () => window.ipc.postMessage(message));
-        banner.append(open);
-    }}
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "×";
-    button.setAttribute("aria-label", {close});
-    button.style.cssText = "border:0;background:none;color:inherit;font-size:18px;"
-        + "cursor:pointer;line-height:1";
-    button.addEventListener("click", () => {{
-        banner.remove();
-        window.ipc.postMessage(JSON.stringify({{ kind: "dismiss" }}));
-    }});
-    banner.append(button);
-    document.documentElement.append(banner);
-}})();"#
+        "(() => {{\nconst banner = {banner};\n{}\n}})();",
+        include_str!("banner.js")
     )
 }
 
@@ -251,6 +243,7 @@ mod tests {
         assert!(script.contains(r#""name": "tarteaucitron""#));
         assert!(script.contains("new MutationObserver"));
         assert!(script.ends_with("})();"));
+        assert!(consent_banners().contains(&"#tarteaucitronAlertBig".to_owned()));
         let managers: serde_json::Value = serde_json::from_str(CONSENT_JSON).unwrap();
         assert!(
             managers["managers"]
@@ -388,17 +381,30 @@ mod tests {
 
     #[test]
     fn the_banner_text_is_set_as_text() {
+        /// The model `banner.js` receives, read back from the script.
+        fn model(script: &str) -> serde_json::Value {
+            let start = script.find("const banner = ").unwrap() + "const banner = ".len();
+            let end = script[start..].find(";\n").unwrap();
+            serde_json::from_str(&script[start..start + end]).unwrap()
+        }
+
         let script = banner(
             "No register <b>matches</b> \"the\" citation.",
             "Close",
             None,
+            &[],
         );
-        assert!(
-            script
-                .contains(r#"label.textContent = "No register <b>matches</b> \"the\" citation.";"#)
+        assert_eq!(
+            model(&script),
+            serde_json::json!({
+                "text": "No register <b>matches</b> \"the\" citation.",
+                "close": "Close",
+                "action": null,
+                "message": null,
+                "hold": [],
+            })
         );
-        assert!(script.contains(r#"setAttribute("aria-label", "Close")"#));
-        assert!(script.contains("const action = null;"));
+        assert!(script.contains("label.textContent = banner.text;"));
         assert!(!script.contains("innerHTML"));
         // Closed, it is not shown again over the pages that follow.
         assert!(script.contains(r#"window.ipc.postMessage(JSON.stringify({ kind: "dismiss" }));"#));
@@ -407,11 +413,22 @@ mod tests {
             "Unverified.",
             "Close",
             Some(("Open in the <browser>", "open_in_browser")),
+            &[],
         );
-        assert!(script.contains(r#"const action = "Open in the <browser>";"#));
-        assert!(script.contains(r#"const message = "{\"kind\":\"open_in_browser\"}";"#));
+        assert_eq!(model(&script)["action"], "Open in the <browser>");
+        assert_eq!(model(&script)["message"], r#"{"kind":"open_in_browser"}"#);
 
-        let script = banner("A view to keep.", "Close", Some(("Attach", "attach")));
-        assert!(script.contains(r#"const message = "{\"kind\":\"attach\"}";"#));
+        let hold = ["[aria-modal=\"true\"]".to_owned()];
+        let script = banner(
+            "A view to keep.",
+            "Close",
+            Some(("Attach", "attach")),
+            &hold,
+        );
+        assert_eq!(model(&script)["message"], r#"{"kind":"attach"}"#);
+        assert_eq!(
+            model(&script)["hold"],
+            serde_json::json!(["[aria-modal=\"true\"]"])
+        );
     }
 }

@@ -101,11 +101,7 @@ mod tests {
                 let viewer = viewer(&collection.platform).unwrap_or_else(|| {
                     panic!("{}: no viewer of `{}`", archive.id, collection.platform)
                 });
-                assert!(
-                    viewer.view.is_some(),
-                    "`{}`: no view",
-                    collection.platform
-                );
+                assert!(viewer.view.is_some(), "`{}`: no view", collection.platform);
             }
         }
     }

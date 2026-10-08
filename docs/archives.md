@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -2392,6 +2392,20 @@ for a reader answering a check twice — lands as a `timeout`. The failure is
 logged with its code and the archive's identifier only. A reader who closes
 the window during the resolution stops it.
 
+The banner never competes with what the portal asks of the reader: over a
+portal page, it stays hidden while one of the portal's dialogs is on screen
+— a modal dialog (`dialog[open]`, `[aria-modal="true"]`: the Val-d'Oise
+Monocle viewer's reuse licence), a cookie banner of the managers the window
+recognizes (below), or the reuse licence of the viewer the target opens in
+(`licence` in `viewers.json`: Arkothèque's « licence clic ») —, looked at
+every half second, and shows once the reader has answered; on a licence
+page the reader is asked to accept (below), only dialogs hold the request.
+The request to answer an anti-bot check and a server's error page's reason
+show at once. The banner lives in a shadow root whose host's styles are
+reset (`all: initial`), so that no style sheet of the portal changes it,
+and a banner without text is never shown. A banner with a button
+(attaching, reloading, opening in the browser) is compact.
+
 **Reuse licences.** A target behind a portal's reuse licence (the
 Côtes-d'Armor "salle virtuelle", §4.12) is never opened directly: OxidGene
 never accepts a licence for the reader. The window lands on the licence's
@@ -2522,8 +2536,8 @@ resolution waiting on that page fails `unreachable`.
 
 **Attaching from the window.** Over the views of an archive whose images
 OxidGene may use (`display: "iiif"`, §6.3) — a `View` target whose every
-view carries its image —, the window's banner says that OxidGene can keep
-the cited view (`archive_viewer.attach_hint`, or the landing's own message)
+view carries its image —, the window's banner, once the portal's dialogs
+are answered (above), says that OxidGene can keep the cited view (`archive_viewer.attach_hint`, or the landing's own message)
 with an **Attach as a document** button (`archive_viewer.attach`). Its
 click sends the target the window shows, over the window's IPC channel, to
 the page of the application that opened it, which brings its window forward

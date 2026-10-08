@@ -309,6 +309,7 @@ fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
         session,
         title,
         origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
+        hold: hold(None, &url),
         url,
         banner,
         progress: None,
@@ -377,6 +378,9 @@ fn landing(
         _ => None,
     };
     let Landing { url, banner, then } = Landing::of(link, outcome.map_err(|error| error.code()));
+    // On a licence page the reader is asked to accept, only dialogs hold
+    // the banner asking it; over the target, its viewer's licence too.
+    let hold = hold(Some(link), then.as_ref().map_or(url.as_str(), |_| ""));
     let onward = then.map(|then| {
         Box::new(Onward {
             url: then.url,
@@ -402,6 +406,7 @@ fn landing(
         attach,
         onward,
         drive: drive.map(|(_, drive)| Box::new(drive)),
+        hold,
     }
 }
 
@@ -454,6 +459,7 @@ fn cancelled_landing(link: &ArchiveLink, transport: &WindowTransport) -> Command
         attach: None,
         onward: None,
         drive: None,
+        hold: hold(Some(link), ""),
     }
 }
 
@@ -495,6 +501,29 @@ async fn within(
     tokio::time::timeout(deadline, resolution)
         .await
         .unwrap_or(Err(ResolveError::Timeout))
+}
+
+/// A portal's modal dialog, which the reader answers before OxidGene's
+/// banner shows over the page: a viewer's reuse licence (Val-d'Oise's
+/// Monocle viewer).
+const MODAL_DIALOGS: &str = r#"dialog[open], [aria-modal="true"]"#;
+
+/// What the reader answers on a portal's page before OxidGene's banner shows
+/// over it, so that the banner never covers it (docs/archives.md §6.1): any
+/// modal dialog, a cookie banner of the managers `consent.js` knows, and the
+/// reuse licence of the viewer the target `url` opens in (Arkothèque's
+/// « licence clic »), for a link's target.
+fn hold(link: Option<&ArchiveLink>, url: &str) -> Vec<String> {
+    let licence = link.and_then(|link| {
+        ArchiveRegistry::embedded()
+            .viewer_at(&link.citation, url)?
+            .licence
+            .clone()
+    });
+    std::iter::once(MODAL_DIALOGS.to_owned())
+        .chain(licence)
+        .chain(script::consent_banners())
+        .collect()
 }
 
 /// What the window offers to attach: for an archive whose images OxidGene
@@ -748,6 +777,8 @@ struct ArchiveWindow {
     pending: Option<Pending>,
     /// The viewer to bring to the cited view.
     driver: Driver,
+    /// What the reader answers before the banner shows over the portal.
+    hold: Vec<String>,
     /// The page whose certificate could not be verified, which the reader
     /// may open in the system browser.
     #[cfg(any(
@@ -771,6 +802,7 @@ impl ArchiveWindow {
             attach,
             onward,
             drive,
+            hold,
         } = landing;
         if let Ok(mut allowed) = self.origins.lock() {
             *allowed = origins;
@@ -779,6 +811,7 @@ impl ArchiveWindow {
         self.attach = attach;
         self.pending = onward.map(|onward| Pending::new(*onward));
         self.driver = Driver::new(drive);
+        self.hold = hold;
         self.texts = texts;
         self.cover.load(progress, Instant::now());
         self.render();
@@ -800,7 +833,7 @@ impl ArchiveWindow {
     }
 
     fn show(&self, text: &str) {
-        self.eval(&script::banner(text, &self.texts.close, None));
+        self.eval(&script::banner(text, &self.texts.close, None, &[]));
     }
 
     /// Sends the views on screen to the interface, which opens the document
@@ -862,6 +895,7 @@ impl ArchiveWindow {
                 attach: None,
                 onward: None,
                 drive: None,
+                hold: self.hold.clone(),
             };
             self.load(&onward.url, origins, landed);
             return;
@@ -884,17 +918,22 @@ impl ArchiveWindow {
     /// Shows what [`Status::page`] says over a page of `state`; `failed`,
     /// what to show over a server's error page.
     fn show_status(&mut self, state: PageState, failed: Option<Shown>) {
-        let shown = self.status.page(
-            state,
-            self.attach.as_deref(),
-            &self.texts.challenge,
-            failed,
-        );
+        let shown = self
+            .status
+            .page(state, self.attach.as_deref(), &self.texts.challenge, failed);
         if let Some((text, action)) = shown {
+            // Over the portal's page, the banner waits for its dialogs; the
+            // request to answer a check, or why a server failed, shows at
+            // once.
+            let hold = match state {
+                PageState::Portal => self.hold.as_slice(),
+                PageState::Challenge | PageState::Blocked | PageState::Error => &[],
+            };
             self.eval(&script::banner(
                 &text,
                 &self.texts.close,
                 action.as_ref().map(|(label, kind)| (label.as_str(), *kind)),
+                hold,
             ));
         }
     }
@@ -966,6 +1005,7 @@ impl ArchiveWindow {
             &self.texts.certificate,
             &self.texts.close,
             Some((&self.texts.open_in_browser, "open_in_browser")),
+            &[],
         ));
     }
 
@@ -1023,6 +1063,7 @@ pub fn install<T: 'static>(
                     attach,
                     onward,
                     drive,
+                    hold,
                 } => {
                     if shared.is_closed(session) {
                         continue;
@@ -1034,6 +1075,7 @@ pub fn install<T: 'static>(
                         attach,
                         onward,
                         drive,
+                        hold,
                     };
                     if let Some(window) = windows.get_mut(&session) {
                         window.load(&url, origins, landed);
@@ -1221,6 +1263,7 @@ struct Landed {
     /// For a landing on a portal's reuse licence, the target to go on to.
     onward: Option<Box<Onward>>,
     drive: Option<Box<Drive>>,
+    hold: Vec<String>,
 }
 
 /// What a new window opens on.
@@ -1429,6 +1472,7 @@ fn open<T>(
         attach,
         onward,
         drive,
+        hold,
     } = opening.landed;
     let mut cover = Cover::default();
     cover.load(progress, Instant::now());
@@ -1442,6 +1486,7 @@ fn open<T>(
         attach,
         pending: onward.map(|onward| Pending::new(*onward)),
         driver: Driver::new(drive),
+        hold,
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -1505,6 +1550,8 @@ mod tests {
                 attach: None,
                 onward: None,
                 drive: None,
+                // Its banner waits for the portal's dialogs.
+                hold: hold(None, ""),
             }
         );
         // The window's own texts are the interface's.
@@ -2085,6 +2132,62 @@ mod tests {
             status.page(PageState::Portal, Some(&attach), "Answer", None),
             None
         );
+    }
+
+    /// Regressions: the offer to attach showed over the Val-d'Oise viewer's
+    /// reuse-licence dialog, and a banner over the Cantal viewer's « licence
+    /// clic ». Banners over a portal's page wait for its modal dialogs, the
+    /// cookie banners OxidGene recognizes, and the target viewer's licence.
+    #[test]
+    fn banners_wait_for_the_portal_s_dialogs() {
+        let messages = messages();
+        let transport = |link: &ArchiveLink| transport(link, &messages);
+        let view = |url: &str, view: u16| ArchiveTarget::View {
+            url: url.to_owned(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view,
+                url: url.to_owned(),
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(396),
+            call_number: Some("9 E 1".to_owned()),
+            attribution: None,
+            renumbering: None,
+        };
+
+        let link = link_of("AD95 - Exampleville - (aucun) - N - 1877 - vue 3/40");
+        let url = "https://archives.valdoise.fr/ark:/00000/a1/daogrp/0/3";
+        let Command::Load { hold, .. } =
+            landing(&link, &messages, None, &transport(&link), Ok(view(url, 3)))
+        else {
+            panic!("a load");
+        };
+        assert_eq!(hold[0], MODAL_DIALOGS);
+        assert!(hold.contains(&"#tarteaucitronAlertBig".to_owned()));
+
+        // An Arkothèque viewer behind its licence: the banner waits for the
+        // licence, and the window opens the target as it is — the viewer
+        // shows the cited view itself once the reader accepts the licence.
+        let link = link_of("AD15 - Exampleville - (aucun) - BMS - 1760 - vue 191g/396");
+        let url = "https://www.archives.cantal.fr/viewer#/_recherche-api/visionneuse-infos/1/2/3/image/4/191";
+        let Command::Load {
+            hold,
+            url: loaded,
+            drive,
+            ..
+        } = landing(
+            &link,
+            &messages,
+            None,
+            &transport(&link),
+            Ok(view(url, 191)),
+        )
+        else {
+            panic!("a load");
+        };
+        assert!(hold.contains(&r#"button[data-cy="accept-license"]"#.to_owned()));
+        assert_eq!((loaded.as_str(), drive), (url, None));
     }
 
     /// A regression: a portal page taken from WebKit's cache after a

@@ -195,6 +195,9 @@ pub(super) enum Command {
         onward: Option<Box<Onward>>,
         /// The viewer to bring to the cited view once the page shows.
         drive: Option<Box<Drive>>,
+        /// What the reader answers on the portal's page before the banner
+        /// shows over it (`script::banner`): the portal's dialogs.
+        hold: Vec<String>,
     },
     /// The resolution moved on to `stage`.
     Stage { session: SessionId, stage: Stage },
@@ -605,6 +608,7 @@ impl WindowTransport {
             attach: None,
             onward: None,
             drive: None,
+            hold: Vec::new(),
         });
         let started = Instant::now();
         let mut gate = Gate::new(started);
