@@ -69,6 +69,12 @@ const ZOOM_MIN: f64 = 0.3;
 /// Four steps past the 200 % the chart used to stop at: close enough to read
 /// the smallest line of a compact card on a large screen.
 const ZOOM_MAX: f64 = 4.0;
+/// The largest scale a fit may choose. A fit shrinks a large graph but must
+/// not blow up a small one: with two or three generations it would otherwise
+/// scale the cards to 160 % and more, far past the size they are designed to
+/// be read at. 0.7 is where a pedigree of a couple of generations reads
+/// comfortably on a laptop-sized canvas. Manual zoom keeps [`ZOOM_MAX`].
+const FIT_MAX_SCALE: f64 = 0.7;
 // ── Default portraits ────────────────────────────────────────────────────
 
 /// The silhouettes, embedded as the PNG files themselves.
@@ -2767,6 +2773,13 @@ fn compute_layout(
         };
         bounds.add(tn.x + desc_tx, tn.y + desc_ty, metrics.card_w, ch);
     }
+    // The focus card's edit button hangs below it; a fit must frame it too.
+    bounds.add(
+        asc_root_x,
+        asc_root_y,
+        metrics.card_w,
+        metrics.card_h + theme.card.edit_fab_gap + 2.0 * theme.card.edit_fab_r,
+    );
     // Include root biological siblings in bounding box.
     for node in &extra_asc_nodes {
         bounds.add(node.x, node.y, metrics.card_w, metrics.card_h);
@@ -3039,7 +3052,8 @@ impl FitTarget {
 
 /// The transform that fits `target` into the free part of `rect`.
 ///
-/// A graph that fits is framed whole. One that does not — a deep pedigree
+/// A graph that fits is framed whole, at no more than [`FIT_MAX_SCALE`] (a
+/// small graph stays centred at that scale). One that does not — a deep pedigree
 /// already at the smallest scale — is centred on the root card instead: that
 /// person is who the user asked to see, and centring the graph's middle could
 /// leave them off screen entirely. A graph whose root is its left edge (the
@@ -3048,8 +3062,9 @@ impl FitTarget {
 fn fit_transform(rect: ViewportRect, target: FitTarget) -> ViewportTransform {
     let side_padding = rect.width * FIT_SIDE_PADDING_RATIO;
     let fit_w = (rect.width - 2.0 * side_padding).max(1.0);
-    let whole = (fit_w / target.content_w).min(rect.height / target.content_h);
-    let scale = whole.clamp(ZOOM_MIN, ZOOM_MAX);
+    let fit_h = (rect.height * (1.0 - 2.0 * FIT_SIDE_PADDING_RATIO)).max(1.0);
+    let whole = (fit_w / target.content_w).min(fit_h / target.content_h);
+    let scale = whole.clamp(ZOOM_MIN, FIT_MAX_SCALE);
     let (center_x, center_y) = rect.center();
     let (x, focus_y) = if whole >= ZOOM_MIN {
         (center_x - target.content_cx * scale, target.content_cy)
@@ -5162,6 +5177,7 @@ mod culling_tests {
 
 #[cfg(test)]
 mod zoom_tests {
+    use super::geometry_golden_tests::{Fixture, id};
     use super::*;
 
     fn fit_rect() -> ViewportRect {
@@ -5189,6 +5205,78 @@ mod zoom_tests {
         let (cx, cy) = fit_rect().center();
         assert!((fit.x + target.content_cx * fit.scale - cx).abs() < 1e-9);
         assert!((fit.y + target.content_cy * fit.scale - cy).abs() < 1e-9);
+    }
+
+    /// A small tree is not blown up to fill the canvas, and stays centred.
+    #[test]
+    fn a_small_graph_is_capped_and_centred() {
+        let target = FitTarget {
+            content_cx: 300.0,
+            content_cy: 200.0,
+            content_w: 600.0,
+            content_h: 400.0,
+            root_cx: 300.0,
+            root_cy: 350.0,
+            root_at_left: false,
+        };
+        let fit = fit_transform(fit_rect(), target);
+        assert_eq!(fit.scale, FIT_MAX_SCALE);
+        let (cx, cy) = fit_rect().center();
+        assert!((fit.x + target.content_cx * fit.scale - cx).abs() < 1e-9);
+        assert!((fit.y + target.content_cy * fit.scale - cy).abs() < 1e-9);
+    }
+
+    /// A couple with two empty parent slots: the layout must frame the edit
+    /// button under the focus card, and the fit must be capped with the whole
+    /// extent, margins included, inside the canvas.
+    #[test]
+    fn a_couple_with_empty_parents_is_capped_and_fully_framed() {
+        let mut f = Fixture::default();
+        f.person(1, Sex::Male, "Root", "Branch_A")
+            .person(8, Sex::Female, "Spouse_1", "Branch_E");
+        f.family(103, &[1, 8], &[]);
+        let data = f.build();
+        let theme = &PedigreeTheme::CLASSIC;
+        let layout = compute_layout(
+            id(1),
+            &data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::full(1, 1),
+            theme,
+        );
+        let m = &theme.metrics;
+        let fab_bottom = layout.root_cy - m.card_h / 2.0
+            + m.card_h
+            + theme.card.edit_fab_gap
+            + 2.0 * theme.card.edit_fab_r;
+        let content_bottom = layout.content_cy + layout.content_h / 2.0;
+        assert!(content_bottom >= fab_bottom - 1e-9, "edit button is framed");
+
+        let rect = fit_rect();
+        let fit = fit_transform(rect, FitTarget::of(&layout));
+        assert_eq!(fit.scale, FIT_MAX_SCALE);
+        let top = fit.y + (layout.content_cy - layout.content_h / 2.0) * fit.scale;
+        let bottom = fit.y + content_bottom * fit.scale;
+        assert!(top >= 0.0 && bottom <= rect.height, "inside the canvas");
+    }
+
+    /// A graph larger than the canvas is still shrunk to fit, below the cap.
+    #[test]
+    fn a_large_graph_is_shrunk_to_fit() {
+        let target = FitTarget {
+            content_cx: 2_000.0,
+            content_cy: 1_000.0,
+            content_w: 4_000.0,
+            content_h: 2_000.0,
+            root_cx: 2_000.0,
+            root_cy: 1_000.0,
+            root_at_left: false,
+        };
+        let fit = fit_transform(fit_rect(), target);
+        assert!(fit.scale < FIT_MAX_SCALE && fit.scale > ZOOM_MIN);
+        assert!(target.content_h * fit.scale <= fit_rect().height);
+        assert!(target.content_w * fit.scale <= fit_rect().width + 1e-9);
     }
 
     /// A deep pedigree cannot be framed whole at the smallest scale; the
