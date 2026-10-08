@@ -115,16 +115,20 @@ impl PrintHeader {
 /// hold it on screen do not print.
 #[must_use]
 pub fn search_print_title(i18n: &I18n, last: &str, first: &str) -> String {
+    match search_query(last, first) {
+        Some(query) => i18n.t_args("print.search_for", &[("query", &query)]),
+        None => i18n.t("search.title"),
+    }
+}
+
+/// The names searched for, family names first; none for an empty search.
+pub fn search_query(last: &str, first: &str) -> Option<String> {
     let query = [last.trim(), first.trim()]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    if query.is_empty() {
-        i18n.t("search.title")
-    } else {
-        i18n.t_args("print.search_for", &[("query", &query)])
-    }
+    (!query.is_empty()).then_some(query)
 }
 
 // ── The whole chart over several sheets ────────────────────────────────────

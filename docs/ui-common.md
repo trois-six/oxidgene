@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T10:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -40,8 +40,12 @@ reference these rules instead of redefining them.
 
 The application has two top-level bars:
 
-1. `app-nav`: the branding navbar displayed on every page.
-2. `td-topbar`: the contextual breadcrumb and actions on tree-scoped pages.
+1. `app-nav`: the branding navbar, displayed on the homepage and the
+   application settings.
+2. `td-topbar`: the contextual breadcrumb and actions on every other page,
+   and under the navbar on the application settings.
+
+The first of them carries the back and forward buttons ([§2.4](#24-back-and-forward)).
 
 Non-pedigree pages use `sub-page` with a scrollable `sub-page-content` area,
 centered at `max-width: 1200px` with `24px` padding. The pedigree owns its
@@ -53,7 +57,8 @@ the contextual topbar.
 - Compact, approximately 48px high, full width, in normal document flow.
 - Background: `var(--nav-bg)` with `backdrop-filter: blur(12px)`.
 - Bottom border: `1px solid var(--border)`.
-- The OxidGene logo links to `/` and is the only MVP content.
+- The back and forward buttons ([§2.4](#24-back-and-forward)), then the
+  OxidGene logo linking to `/`, are its only MVP content.
 - Future account, notification, and global navigation controls must not be
   documented as current behavior until implemented.
 
@@ -61,7 +66,9 @@ the contextual topbar.
 
 - Compact, approximately 40px high, full width, `10px 16px` padding.
 - Transparent background and `1px solid var(--border)` bottom border.
-- Left zone: home logo, linked tree name, separator, localized current page.
+- Left zone: the back and forward buttons on a page without the navbar
+  ([§2.4](#24-back-and-forward)), home logo, linked tree name, separator,
+  localized current page.
 - Right zone: page-specific search or actions, then the print action
   ([§7](#7-printing)) on every page that prints.
 
@@ -83,6 +90,58 @@ Tree and search pages share two compact fields for family names and given
 names, plus a search icon button. Either field may be used independently.
 Submitting navigates to the search page and preserves both values. `/` focuses
 the family-name field when focus is not already in an editable control.
+
+### 2.4 Back and forward
+
+The application keeps the reader's path through its pages as a browser does,
+and offers it on every page: the desktop window has no browser around it.
+
+- **Buttons.** A back and a forward button lead the page's first bar: the
+  navbar where the page shows it, else the contextual topbar, before the
+  logo. Each is an arrow icon button with a localized accessible name and a
+  tooltip naming its shortcut and its list; one with nowhere to go is
+  disabled. They do not print.
+- **Several steps at once.** A long press (half a second) or a secondary
+  click on either button, or **Down** while it has the focus, lists the pages
+  that way, nearest first, on the shared contextual surface
+  ([§4.8](#48-contextmenu)), which takes the focus on the nearest; choosing
+  one goes there in one move, and **Escape** closes the list. Each page reads
+  as its kind — its breadcrumb label, or *Home*, *Person*, *Couple* — then
+  what it is about, as the page itself named it from the data it shows: the
+  person a pedigree is drawn around or a profile shows, the couple, the person
+  whose versions are compared, the dictionary tab and the entry whose usage is
+  open, the search query, the tree on the pages about the tree as a whole.
+  Nothing is fetched to name an entry: a page left before it loaded reads as
+  its kind alone.
+- **One history.** The reader's path is one model (`nav_history.rs`), kept in
+  step with the router: a navigation adds a page and drops the pages ahead of
+  the current one, a replacement rewrites the current page, and back, forward
+  and a jump move within it. It holds the latest 50 pages, dropping the
+  oldest. It stands in front of the history the router uses, the platform's,
+  which still does the navigating.
+- **Web.** The platform's history is the browser's, so the in-app buttons,
+  the browser's buttons and history menu, Alt+Left and Alt+Right, and the
+  mouse's back and forward buttons all move through the one browser stack.
+  The application adds no shortcut of its own there — the browser's already
+  moves, once — and its history follows the browser to the page it lands on,
+  preferring the move it announced when the same page is found both ways. The
+  browser tab keeps the titles and the place in them in its session storage,
+  as it keeps its own history, so a reload finds them again.
+- **Desktop.** The window's in-memory history does the navigating, and the
+  application handles Alt+Left, Alt+Right and the mouse's back and forward
+  buttons itself — except in a text field, list or editable area, where the
+  keys keep their editing meaning.
+- **What going back finds.** A history entry reopens its page as the reader
+  left it. What the page is about is in its route: the pedigree names the
+  person it is drawn around (`?person=`), replacing its route as the reader
+  moves about the chart rather than adding pages, so going back to it reopens
+  it on that person ([Tree View §1](ui-genealogy-tree.md#1-general-structure)). The view of a
+  page — its tab, filters, page and open rows — is not an address: it is kept
+  with the page's history entry, as a browser keeps a page's state, and taken
+  up again when the reader comes back to that entry, while a page opened anew
+  starts from its defaults. The [Dictionary](ui-dictionary.md#4-tabs) keeps
+  its view this way. That view is held in memory, and a reload of the web page
+  forgets it.
 
 ## 3. Design tokens
 

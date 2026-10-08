@@ -25,6 +25,7 @@ use crate::components::tree_cache::{
 };
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
+use crate::nav_history::use_history_subject;
 use crate::prefs::PedigreeDefaults;
 use crate::router::{
     Route, couple_route, pedigree_route, person_route, push_tree_route, replace_tree_route,
@@ -360,17 +361,19 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
     }
 
     // Root person — from query param, view-state cache, or first person.
-    let initial_person = person.and_then(|p| p.parse::<Uuid>().ok()).or_else(|| {
-        tree_id_parsed()
-            .and_then(|tid| view_cache.get_untracked(tid))
-            .and_then(|vs| vs.selected_root)
-    });
+    let saved_root = tree_id_parsed()
+        .and_then(|tid| view_cache.get_untracked(tid))
+        .and_then(|vs| vs.selected_root);
+    let named = person.and_then(|p| p.parse::<Uuid>().ok());
+    let initial_person = named.or(saved_root);
     let mut selected_root = use_signal(move || initial_person);
 
-    // Start at 1 when a person param is present on mount, so centering
-    // triggers even though prev_person_raw is initialized to the same value.
-    let has_person_param = person.is_some();
-    let mut center_gen = use_signal(move || u32::from(has_person_param));
+    // Start at 1 when the route names a person on mount, so centering
+    // triggers even though prev_person_raw is initialized to the same value
+    // — unless it names the root the saved view was framed on, as going
+    // back to the pedigree does: that view is reopened as it was left.
+    let recenter_on_mount = named.is_some() && named != saved_root;
+    let mut center_gen = use_signal(move || u32::from(recenter_on_mount));
 
     // Reset state when navigating to a different tree (component is reused by the router).
     let mut prev_tree_id = use_signal(|| tree_id.to_string());
@@ -384,13 +387,19 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
     // We compare the raw string to detect re-navigation to the same person.
     let person_raw = person.cloned();
     let mut prev_person_raw = use_signal(|| person_raw.clone());
+    // The route as the page last rewrote it itself (see `use_root_in_route`).
+    let mut rewritten = use_signal(|| None::<Option<String>>);
     if person_raw != prev_person_raw() {
-        prev_person_raw.set(person_raw);
-        if initial_person.is_some() {
-            selected_root.set(initial_person);
+        prev_person_raw.set(person_raw.clone());
+        let written_here = std::mem::take(&mut *rewritten.write()) == Some(person_raw);
+        if !written_here {
+            if initial_person.is_some() {
+                selected_root.set(initial_person);
+            }
+            center_gen += 1;
         }
-        center_gen += 1;
     }
+    use_root_in_route(tree_id_parsed, selected_root, prev_person_raw, rewritten);
 
     RootSelection {
         tree_id: tree_id_parsed,
@@ -398,6 +407,36 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
         center_gen,
         tree_changed,
     }
+}
+
+/// Keeps the route naming the person the chart is drawn around, whichever
+/// way they became its root — a click on a card, a relative gone to, a
+/// merge — so that the history entry reopens the chart on them. The route
+/// is replaced rather than pushed: moving about the chart is not a new
+/// page. The page notes the route it wrote, so that reading it back does
+/// not re-centre a chart the click has already moved.
+fn use_root_in_route(
+    tree_id: Signal<Option<Uuid>>,
+    selected_root: Signal<Option<Uuid>>,
+    route_person: Signal<Option<String>>,
+    mut rewritten: Signal<Option<Option<String>>>,
+) {
+    let nav = navigator();
+    use_effect(move || {
+        let named = route_person();
+        let Some(tid) = tree_id() else {
+            return;
+        };
+        // Without a root of its own the chart is on the tree's default one,
+        // and the route names nobody — not a person deleted since.
+        let root = selected_root();
+        let root_raw = root.map(|root| root.to_string());
+        if named == root_raw {
+            return;
+        }
+        rewritten.set(Some(root_raw));
+        nav.replace(pedigree_route(tid.to_string(), root));
+    });
 }
 
 /// The pedigree around the selected person, else around the tree's default
@@ -545,6 +584,12 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         .loaded_or_cached(tree_id_parsed(), tree.as_ref())
         .map(|t| t.name)
         .unwrap_or_default();
+    // The history names the chart after the person it is drawn around.
+    let root_name = match (pedigree_data.as_ref(), root_person_id) {
+        (Some(data), Some(root)) => Some(resolve_name(root, &data.names, &i18n)),
+        _ => Some(tree_name_str.clone()).filter(|name| !name.is_empty()),
+    };
+    use_history_subject(root_name);
 
     // ── Render ──
 

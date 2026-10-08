@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 use std::sync::LazyLock;
 
-use crate::components::tree_cache;
+use crate::components::{history_nav, tree_cache};
 use crate::i18n;
 use crate::router::Route;
 
@@ -79,6 +79,9 @@ pub fn AppShell() -> Element {
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();
     let _current_person = tree_cache::use_init_current_person();
+    // Before the router, which takes the history it finds above it.
+    let _history = crate::nav_history::use_init_app_history();
+    history_nav::use_init_history_list();
 
     // The palette is a block of custom properties, so it can be recomputed
     // and swapped on its own: the stylesheet below never changes, and
@@ -96,6 +99,7 @@ pub fn AppShell() -> Element {
         style { {LAYOUT_STYLES} }
         style { {SPINNER_STYLES} }
         Router::<Route> {}
+        history_nav::HistoryListHost {}
     }
 }
 
@@ -107,16 +111,18 @@ pub fn AppShell() -> Element {
 #[component]
 pub fn Layout() -> Element {
     let route = use_route::<Route>();
-    let show_nav = matches!(route, Route::Home {} | Route::AppSettings {});
 
     rsx! {
-        if show_nav {
+        if route.shows_navbar() {
             nav { class: "app-nav",
-                Link { to: Route::Home {}, class: "nav-logo",
-                    img {
-                        src: logo_data_url(),
-                        alt: "OxidGene",
-                        class: "nav-logo-img",
+                div { class: "nav-start",
+                    history_nav::HistoryNav {}
+                    Link { to: Route::Home {}, class: "nav-logo",
+                        img {
+                            src: logo_data_url(),
+                            alt: "OxidGene",
+                            class: "nav-logo-img",
+                        }
                     }
                 }
             }
@@ -407,6 +413,64 @@ pub const LAYOUT_STYLES: &str = r#"
     .nav-logo-img {
         height: 36px;
         width: auto;
+    }
+
+    .nav-start {
+        display: flex;
+        align-items: center;
+        gap: var(--space-6);
+        min-width: 0;
+    }
+
+    /* ── In-app history: back and forward ─────────────────────────── */
+
+    .nav-history {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        flex-shrink: 0;
+    }
+
+    .nav-history-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        background: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+        /* A long press lists the pages: no text selection or touch callout. */
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+    }
+
+    .nav-history-btn:hover:not(:disabled) {
+        color: var(--orange);
+        border-color: var(--border);
+    }
+
+    .nav-history-btn:disabled {
+        color: var(--text-muted);
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .context-menu.nav-history-menu {
+        max-width: min(420px, calc(100vw - 16px));
+        max-height: min(60vh, 480px);
+        overflow-y: auto;
+    }
+
+    .nav-history-menu .context-menu-item {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     /* ── Page layout containers ──────────────────────────────────── */

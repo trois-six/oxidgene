@@ -11,6 +11,7 @@ use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::print::PrintHeading;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::nav_history::use_history_subject;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::use_synced;
 
@@ -78,7 +79,8 @@ pub fn use_tree_page(tree_id: &str) -> TreePage {
 /// scrollable `children`.
 ///
 /// The sidebar is the tool pages' one, acting on `selected_person_id`,
-/// unless the page brings its own `sidebar`.
+/// unless the page brings its own `sidebar`. The frame names the page's
+/// `subject` in its history entry.
 #[component]
 pub fn ToolPageFrame(
     tree_id: String,
@@ -102,8 +104,14 @@ pub fn ToolPageFrame(
     #[props(default)]
     page_class: String,
     #[props(default)] content_class: String,
+    /// What the page is about, as its history entry names it; the tree
+    /// unless the page says otherwise.
+    subject: Option<String>,
     children: Element,
 ) -> Element {
+    use_history_subject(
+        subject.or_else(|| Some(tree_name.clone()).filter(|name| !name.is_empty())),
+    );
     let print_title = print_title.unwrap_or_else(|| title.clone());
     rsx! {
         div { class: "sub-page {page_class}",

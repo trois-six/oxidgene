@@ -16,6 +16,7 @@ pub mod date_words;
 pub mod geneanet;
 pub mod i18n;
 pub mod image_host;
+pub mod nav_history;
 pub mod pages;
 pub mod prefs;
 pub mod router;

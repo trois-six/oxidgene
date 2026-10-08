@@ -137,6 +137,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
             tree_name: page.name(),
             title: i18n.t("history.breadcrumb"),
             print_title: format!("{person_name} / {}", i18n.t("history.breadcrumb")),
+            subject: person_name.clone(),
             crumbs: rsx! {
                 if is_deleted {
                     span { class: "td-bc-link", "{person_name}" }

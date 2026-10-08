@@ -19,7 +19,7 @@ use crate::components::event_icon::EventIcon;
 use crate::components::pager::Pager;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
-use crate::components::print::{PrintPageNote, search_print_title};
+use crate::components::print::{PrintPageNote, search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
@@ -563,6 +563,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             tree_name: tree_page.name(),
             title: i18n.t("search.title"),
             print_title: search_print_title(&i18n, &(filters.committed_last)(), &(filters.committed_first)()),
+            subject: search_query(&(filters.committed_last)(), &(filters.committed_first)()),
             topbar: rsx! {
                 TopbarSearch {
                     tree_id: props.tree_id.clone(),

@@ -24,6 +24,7 @@ use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
+use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::pages::dictionary_repositories::DictionaryRepositories;
 use crate::prefs::{SortParticles, use_sort_particles};
@@ -205,13 +206,80 @@ impl OpenedTabs {
     }
 }
 
-/// The tabs opened so far, the page opening on the family names.
-fn use_opened_tabs() -> OpenedTabs {
+/// The tabs opened so far, the page opening on `first`.
+fn use_opened_tabs(first: DictTab) -> OpenedTabs {
     OpenedTabs {
-        family_names: use_signal(|| true),
-        sources: use_signal(|| false),
-        places: use_signal(|| false),
-        occupations: use_signal(|| false),
+        family_names: use_signal(|| first == DictTab::FamilyNames),
+        sources: use_signal(|| first == DictTab::Sources),
+        places: use_signal(|| first == DictTab::Places),
+        occupations: use_signal(|| first == DictTab::Occupations),
+    }
+}
+
+/// What the reader was looking at, kept with the page's history entry so
+/// that coming back to it — from the pedigree a usage list led to, say —
+/// finds the tab, filters, page and open entry as they were left.
+#[derive(Debug, Clone, PartialEq)]
+struct DictionaryView {
+    tab: DictTab,
+    quick: String,
+    letter: Option<char>,
+    page_size: PageSize,
+    page: usize,
+    expanded: Option<UsageKey>,
+    source_history: Vec<String>,
+}
+
+impl Default for DictionaryView {
+    fn default() -> Self {
+        Self {
+            tab: DictTab::FamilyNames,
+            quick: String::new(),
+            letter: None,
+            page_size: PageSize::Fixed(25),
+            page: 1,
+            expanded: None,
+            source_history: Vec::new(),
+        }
+    }
+}
+
+/// How the history names the dictionary: the tab, then the entry whose
+/// usage is open, as the loaded lists name it.
+fn history_subject(
+    i18n: &I18n,
+    tab: DictTab,
+    expanded: Option<&UsageKey>,
+    places: &FiledEntries<PlaceDictionaryEntry>,
+    sources: Option<&SourcesView>,
+) -> String {
+    let tab_label = DictTab::ALL
+        .iter()
+        .find(|(t, _)| *t == tab)
+        .map(|(_, key)| i18n.t(key))
+        .unwrap_or_default();
+    let entry = match expanded {
+        Some(UsageKey::FamilyName(value) | UsageKey::Occupation(value)) => Some(value.clone()),
+        Some(UsageKey::Place(id)) => places
+            .entries
+            .iter()
+            .find(|entry| entry.place.id == *id)
+            .map(|entry| entry.place.name.clone()),
+        Some(UsageKey::Source(id)) => match sources {
+            Some(SourcesView::List { sources, .. }) => sources
+                .iter()
+                .find(|entry| entry.source.id == *id)
+                .map(|entry| entry.source.title.clone()),
+            _ => None,
+        },
+        None => None,
+    };
+    match entry {
+        Some(entry) => i18n.t_args(
+            "nav_history.entry",
+            &[("page", tab_label.as_str()), ("subject", entry.as_str())],
+        ),
+        None => tab_label,
     }
 }
 
@@ -232,18 +300,29 @@ pub fn Dictionary(tree_id: String) -> Element {
         *tree_id_parsed.write() = new_parsed;
     }
 
-    let mut active_tab = use_signal(|| DictTab::FamilyNames);
-    let quick_filter = use_signal(String::new);
-    let letter_filter = use_signal(|| None::<char>);
-    let page_size = use_signal(|| PageSize::Fixed(25));
-    let mut current_page = use_signal(|| 1_usize);
-    let mut expanded = use_signal(|| None::<UsageKey>);
+    // The view the reader left here, when coming back through the history.
+    let restored = use_restored_view::<DictionaryView>().unwrap_or_default();
+    let mut active_tab = use_signal(|| restored.tab);
+    let quick_filter = use_signal(|| restored.quick.clone());
+    let letter_filter = use_signal(|| restored.letter);
+    let page_size = use_signal(|| restored.page_size);
+    let mut current_page = use_signal(|| restored.page);
+    let mut expanded = use_signal(|| restored.expanded.clone());
     // Sources tab drill-down history: each entry is a branch label the user
     // clicked (see ui-dictionary.md §8.10). Empty = "All sources" root.
-    let mut source_history = use_signal(Vec::<String>::new);
+    let mut source_history = use_signal(|| restored.source_history.clone());
+    use_saved_view(move || DictionaryView {
+        tab: active_tab(),
+        quick: quick_filter(),
+        letter: letter_filter(),
+        page_size: page_size(),
+        page: current_page(),
+        expanded: expanded(),
+        source_history: source_history(),
+    });
 
     // Reset filters/pagination/expansion when switching tabs.
-    let mut prev_tab = use_signal(|| DictTab::FamilyNames);
+    let mut prev_tab = use_signal(|| restored.tab);
     if prev_tab() != active_tab() {
         prev_tab.set(active_tab());
         quick_filter.clone().set(String::new());
@@ -280,7 +359,7 @@ pub fn Dictionary(tree_id: String) -> Element {
 
     // Each tab asks for its data the first time it is opened, not when the
     // page opens: a tree's dictionary is four aggregations over all of it.
-    let opened = use_opened_tabs();
+    let opened = use_opened_tabs(restored.tab);
 
     let mut family_names_resource =
         use_traced_resource(load_trace.clone(), "family_names", move || {
@@ -404,6 +483,13 @@ pub fn Dictionary(tree_id: String) -> Element {
             tree_id: tree_id.clone(),
             tree_name: page.name(),
             title: i18n.t("dictionary.breadcrumb"),
+            subject: history_subject(
+                &i18n,
+                active_tab(),
+                expanded().as_ref(),
+                &filed_places.read(),
+                sources_view_resource.read().as_ref().and_then(Option::as_ref).and_then(|view| view.as_ref().ok()),
+            ),
             selected_person_id: page.selected_person_id,
             Tabs {
                 tabs: DictTab::ALL.iter().map(|(tab, label)| (*tab, i18n.t(label))).collect::<Vec<_>>(),

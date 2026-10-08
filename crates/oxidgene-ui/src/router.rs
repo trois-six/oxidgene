@@ -121,6 +121,32 @@ impl Route {
             Route::Home {} | Route::AppSettings {} | Route::NotFound { .. } => None,
         }
     }
+
+    /// The kind of page, as the history lists it before what the page is
+    /// about: the page's breadcrumb label where it has one.
+    pub fn page_label_key(&self) -> &'static str {
+        match self {
+            Route::Home {} => "nav_history.page.home",
+            Route::TreeDetail { .. } => "pedigree.breadcrumb",
+            Route::SearchResults { .. } => "search.title",
+            Route::PersonDetail { .. } => "nav_history.page.person",
+            Route::PersonHistory { .. } => "history.breadcrumb",
+            Route::CoupleDetail { .. } => "nav_history.page.couple",
+            Route::Kinship { .. } => "kinship.breadcrumb",
+            Route::Dictionary { .. } => "dictionary.breadcrumb",
+            Route::Statistics { .. } => "stats.breadcrumb",
+            Route::Tools { .. } => "tools.breadcrumb",
+            Route::Settings { .. } => "settings.breadcrumb",
+            Route::AppSettings {} => "app_settings.title",
+            Route::NotFound { .. } => "not_found.title",
+        }
+    }
+
+    /// Whether the page shows the navbar above everything else; the others
+    /// open on their contextual topbar.
+    pub fn shows_navbar(&self) -> bool {
+        matches!(self, Route::Home {} | Route::AppSettings {})
+    }
 }
 
 /// A handler pushing the route `route` makes of the tree `tree_id` and the
@@ -218,5 +244,42 @@ mod tests {
         }
         assert_eq!(Route::Home {}.tree_id(), None);
         assert_eq!(Route::AppSettings {}.tree_id(), None);
+    }
+
+    /// The history lists every kind of page by a label each language has.
+    #[test]
+    fn every_page_is_named_in_the_history() {
+        let english = crate::i18n::Language::english().translations();
+        for raw in [
+            "/",
+            "/trees/t?person=p",
+            "/trees/t/search?last=a&first=b&origin=",
+            "/trees/t/persons/p",
+            "/trees/t/persons/p/history",
+            "/trees/t/couples/f",
+            "/trees/t/kinship?from=p&to=",
+            "/trees/t/dictionary",
+            "/trees/t/statistics",
+            "/trees/t/tools",
+            "/trees/t/settings",
+            "/settings",
+            "/nowhere",
+        ] {
+            let route: Route = raw.parse().unwrap();
+            let key = route.page_label_key();
+            assert!(english.contains_key(key), "{raw}: {key}");
+        }
+    }
+
+    #[test]
+    fn only_the_homepage_and_the_application_settings_show_the_navbar() {
+        assert!(Route::Home {}.shows_navbar());
+        assert!(Route::AppSettings {}.shows_navbar());
+        assert!(
+            !Route::Dictionary {
+                tree_id: "t".into()
+            }
+            .shows_navbar()
+        );
     }
 }

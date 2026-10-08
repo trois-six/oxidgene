@@ -269,6 +269,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
             tree_id: tree_id.clone(),
             tree_name: tree_name_str.clone(),
             title: title.clone(),
+            subject: Some(title.clone()).filter(|title| !title.is_empty()),
             topbar: rsx! {
                 TopbarSearch { tree_id: tree_id.clone(), from_person: true }
             },

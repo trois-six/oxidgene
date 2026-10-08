@@ -12,6 +12,7 @@ pub mod document_form;
 pub mod empty_state;
 pub mod event_icon;
 pub mod history_diff;
+pub mod history_nav;
 pub mod homonym_picker;
 pub mod image_cropper;
 pub mod import_modal;

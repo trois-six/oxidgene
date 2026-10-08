@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T10:30:00Z }
 ---
 
 
@@ -27,6 +27,8 @@ The canvas displays a **mixed tree**: the focus person is at the vertical center
 
 The number of generations displayed is fixed at any given time, but can be changed via the depth selector. The maximum is **10 ascending generations + 10 descending generations**.
 The global pedigree preferences initialize the window to **4 ascending generations + 3 descending generations** by default. They are editable from both [App Settings](ui-app-settings.md) and the global-preferences group in [Tree Settings](ui-settings.md). A saved per-tree view state supplies its own depths instead. That view state (root person, depths, pan and zoom) lasts as long as the window: leaving the tree for any other page, the home page and the application settings included, and coming back reopens it on the same root and framing.
+
+The route names the person the chart is drawn around (`?person=`), however they became its focus — a click on a card, a relative gone to, a search result, a merge — so its history entry reopens the chart on them ([Common UI §2.4](ui-common.md#24-back-and-forward)). Moving the focus about the chart replaces the route rather than adding a page to the history. Coming back to a route that names the saved view's root reopens that view, framing included; a route naming anyone else centres the chart on them.
 
 ### Always a Connected Tree
 

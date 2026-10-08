@@ -233,6 +233,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             tree_id: tree_id.clone(),
             tree_name: tree_name_str.clone(),
             title: display_name.clone(),
+            subject: Some(display_name.clone()).filter(|name| !name.is_empty()),
             topbar: rsx! {
                 TopbarSearch { tree_id: tree_id.clone(), from_person: true }
             },
