@@ -244,7 +244,7 @@ s3:
   rustfs:
     requireCrd: true
     tenantName: ""
-    image: rustfs/rustfs:1.0.0
+    image: rustfs/rustfs:1.0.1
     adminCredentialsSecret: oxidgene-rustfs-admin
     applicationCredentialsSecret: oxidgene-s3
     rpcSecret: oxidgene-rustfs-rpc

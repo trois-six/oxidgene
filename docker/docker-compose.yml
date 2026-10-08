@@ -8,7 +8,7 @@
 services:
   # ── OpenTelemetry collector ─────────────────────────────────────────
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.161.0
+    image: otel/opentelemetry-collector-contrib:0.162.0
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
@@ -43,7 +43,7 @@ services:
 
   # ── S3-compatible object storage ────────────────────────────────────
   rustfs:
-    image: rustfs/rustfs:1.0.0
+    image: rustfs/rustfs:1.0.1
     restart: unless-stopped
     environment:
       RUSTFS_VOLUMES: "/data"

@@ -109,7 +109,7 @@ jobs:
       # A prebuilt binary; the version of mise.toml.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest@0.9.146
+          tool: cargo-nextest@0.9.148
 
       - uses: actions/setup-node@v7
         with:
