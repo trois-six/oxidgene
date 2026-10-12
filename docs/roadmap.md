@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T14:10:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T14:15:46Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -56,6 +56,13 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T14:10:49Z }
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
+- [ ] Re-import a Geneanet tree incrementally into a tree already imported from
+  it: read the tree's data-entry history (`<tree>_w/history/editing`, every
+  person, family, parents and picture added, updated or deleted, dated) and
+  fetch only the persons changed since the last import through the GeneWeb
+  plugin API's `person` action ([Geneanet Upload
+  API](geneanet-upload-api.md)), instead of importing a fresh `.gw` export
+  whole ([Import](ui-import.md)).
 
 ## 3b. Active: archive viewer
 
