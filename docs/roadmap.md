@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T11:13:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T14:10:49Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -96,6 +96,14 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   registers the tree cites, and offer there to attach a document found to a
   person of the tree, turning the attaching offer back on
   ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)).
+- [ ] Attach an event to the archive register it comes from when a Geneanet
+  person links an image of one of Geneanet's indexed registers
+  (`/registres/view/<register>/<page>`, images listed by
+  `www.geneanet.org/registres/api/images/<register>`): identify the archive,
+  the register and the view, and record them as the event's citation so it
+  opens through the archive catalogue like any other cited register
+  ([Archive Portals §5.1](archives.md#51-citation-recognition), [Geneanet Media
+  Import](geneanet-media-import.md)).
 - [x] Cite and resolve series beyond acts — population censuses, military
   registers, conscription lists, tables of successions and absences — named
   in words or by code, and cemetery burial registers, through the
