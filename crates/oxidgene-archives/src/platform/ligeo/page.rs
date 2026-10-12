@@ -162,9 +162,15 @@ impl Cells {
 }
 
 /// A cell's text: tags stripped, and the dashes and bullets that portals
-/// put around a heading's parts trimmed (`2 E 1/1 - `, ` • 1843 1852`).
+/// put around a heading's parts trimmed (`2 E 1/1 - `, ` • 1843 1852`). A
+/// value the portal shortens to fit (`Exampleville (…) / Autreville......`)
+/// is read whole from the `title` of its `div.arc_info`.
 fn cell_text(html: &str) -> String {
-    strip_tags(html)
+    let whole = html
+        .split_once("<div class=\"arc_info\"")
+        .and_then(|(_, rest)| attribute(rest.split('>').next()?, "title"));
+    whole
+        .unwrap_or_else(|| strip_tags(html))
         .trim_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '\u{2022}' | ':'))
         .to_owned()
 }

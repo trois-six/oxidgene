@@ -13,6 +13,11 @@
 //! - a typed facet, `new VT_Control("…",{…"url":"/arcfacette.php?…&id=
 //!   <input>&autoc=1"…})`, whose answer to that address and `&<input>=`
 //!   letters lists the matching values as `button.facette-select`;
+//! - a list button, `new VT_Control("…Liste",{…"url":"<prefix>/recherche/
+//!   <search>","name":"<input>_Liste","event":"click"…})`, whose click
+//!   loads that page with `<input>_Liste=1`: every locality of the
+//!   thesaurus, each a `span.arc_thesaurus_libel` (`Exampleville
+//!   (Department, France)`) followed by its record count;
 //! - the input's own `<option>`s or checkboxes (the bureaux of a military
 //!   search);
 //! - for a finding aid, the branches of its tree (`title="Détail de la
@@ -72,6 +77,29 @@ fn facet_url(page: &str, field: &str) -> Option<String> {
     let value = &object[object.find(marker)? + marker.len()..];
     let url = value[..value.find('"')?].replace("\\/", "/");
     url.starts_with("/arcfacette.php?").then_some(url)
+}
+
+/// The address a list button declared for `field` loads: the search page
+/// its script names, asked for the list (`<field>_Liste=1`).
+fn list_url(page: &str, field: &str, search: &str) -> Option<String> {
+    let name = format!("{field}_Liste");
+    let object = control_with(page, "name", |value| value == name)?;
+    let marker = "\"url\":\"";
+    let value = &object[object.find(marker)? + marker.len()..];
+    let url = value[..value.find('"')?].replace("\\/", "/");
+    url.starts_with('/')
+        .then(|| format!("{url}?type={}&{}=1", encode(search), encode(&name)))
+}
+
+/// The labels a list button's answer lists, without their record counts.
+fn list_labels(answer: &str) -> Vec<String> {
+    markup::split_after(answer, "class=\"arc_thesaurus_libel")
+        .into_iter()
+        .filter_map(|item| {
+            let label = item.split_once('>')?.1.split("</span>").next()?;
+            Some(markup::decode_entities(label.trim()))
+        })
+        .collect()
 }
 
 /// The values a facet's answer lists for `field`, the answer listing the
@@ -251,6 +279,18 @@ async fn localities(
             }
         }
         return Ok(Some(Vec::new()));
+    }
+    if let Some(url) = list_url(form, locality, &settings.search) {
+        let answer = fetch
+            .get(&url)
+            .await
+            .map_err(|error| Failure::fetch(step, expected, error))?;
+        return Ok(Some(
+            list_labels(&answer)
+                .iter()
+                .filter_map(|label| named(label))
+                .collect(),
+        ));
     }
     if settings.fonds.is_some() {
         return Ok(Some(branches(form)));
@@ -493,6 +533,25 @@ mod tests {
         assert_eq!(
             facet_values(answer, "RECH_ville"),
             ["Saint-Exemple", "Saint-Autre-d'Exemple"]
+        );
+    }
+
+    #[test]
+    fn reads_the_localities_a_list_button_lists() {
+        let page = r#"<script>new VT_Control("ArchivesRechCommuneListe",{"id":"ArchivesRechCommuneListe","form":"arc_form_rech","url":"\/archive\/recherche\/etatcivil","name":"Rech_commune_Liste","event":"click","desti":"arc_presentation"});</script>"#;
+        assert_eq!(
+            list_url(page, "Rech_commune", "etatcivil").as_deref(),
+            Some("/archive/recherche/etatcivil?type=etatcivil&Rech_commune_Liste=1")
+        );
+        assert_eq!(list_url(page, "Rech_paroisse", "etatcivil"), None);
+        let answer = r#"<div id='arc_thesaurus_liste'><ul><li class='arc_thesaurus_ligne'><span class="perso after"><button type="submit" name="Archives.Rech_commune_Select_1" class="arc_select_sel"></button><span id="ArchivesRechCommuneSelect1Libel" class="arc_thesaurus_libel ">Autreville (Exampledept, France)</span> (1502)</span></li>
+            <li class='arc_thesaurus_ligne'><span class="perso after"><span id="ArchivesRechCommuneSelect2Libel" class="arc_thesaurus_libel ">Exampleville-l&#039;Exemple (Exampledept, France)</span> (12)</span></li></ul></div>"#;
+        assert_eq!(
+            list_labels(answer),
+            [
+                "Autreville (Exampledept, France)",
+                "Exampleville-l'Exemple (Exampledept, France)"
+            ]
         );
     }
 

@@ -582,6 +582,13 @@ fn reads_the_acts_a_text_names() {
         ("Di", true, None),
         ("autres", true, None),
         ("Publications de mariages", true, Some("M")),
+        // A document type naming a table first: the table of the acts it
+        // indexes, not those acts.
+        ("Table ; Naissance", true, Some("TD")),
+        ("Table décennale ; Mariage", true, Some("TD")),
+        ("Acte ; Baptême", true, Some("B")),
+        ("Tables annuelles des naissances", false, Some("TA")),
+        ("Table des successions collatérales", true, Some("TSA")),
         // A title's initial is not an act, and an unrelated word is none.
         ("Exampleville (MQ S. 1762)", false, None),
         ("Saint-Jean-Baptiste", false, None),
@@ -1588,4 +1595,103 @@ fn a_locality_the_answer_names_is_searched_once() {
         .filter(|request| request.contains("/resultats/"))
         .count();
     assert_eq!(searches, 1);
+}
+
+const YEAR_TABLES: &str = include_str!("../../../fixtures/ligeo/year-tables.html");
+const BUREAU: &str = include_str!("../../../fixtures/ligeo/bureau.html");
+
+/// A fictitious archive whose civil status files births with baptisms and
+/// deaths with burials under one act value each, and its decennial tables
+/// in a collection of their own.
+fn year_tables_registry() -> ArchiveRegistry {
+    registry_with(
+        serde_json::json!(["B", "M", "S", "N", "D", "TD"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "etatcivil",
+            "node": 64,
+            "fields": {
+                "locality": "Rech_commune",
+                "act": "Rech_typeacte[]",
+                "year_from": "Rech_annee_debut",
+                "year_to": "Rech_annee_fin"
+            },
+            "acts": {
+                "B": "NB", "N": "NB", "M": "Mariage", "S": "SD", "D": "SD",
+                "TD": { "Rech_collection[]": "table_decennale" }
+            },
+            "columns": {
+                "locality": "Commune",
+                "acts": ["Type de document", "Type d'acte"],
+                "parish": "Paroisses, hôpitaux, municipalités",
+                "period": "Date"
+            }
+        }),
+    )
+}
+
+#[test]
+fn a_year_s_table_bound_apart_is_no_register_of_its_acts() {
+    let registry = year_tables_registry();
+    for (title, register, filter) in [
+        (
+            "AD00 - Exampleville - (aucun) - N - 1850",
+            "vtaexample0132",
+            "Rech_typeacte%5B%5D=NB",
+        ),
+        (
+            "AD00 - Exampleville - (aucun) - B - 1750",
+            "vtaexample0134",
+            "Rech_typeacte%5B%5D=NB",
+        ),
+        (
+            "AD00 - Exampleville - SAINT-EXEMPLE - B - 1750",
+            "vtaexample0134",
+            "Rech_typeacte%5B%5D=NB",
+        ),
+        (
+            "AD00 - Exampleville - (aucun) - TD - 1843-1852",
+            "vtaexample0131",
+            "Rech_collection%5B%5D=table_decennale",
+        ),
+    ] {
+        let fetch = Fixtures::new(YEAR_TABLES);
+        let target = resolve(&registry, title, &fetch).unwrap();
+        assert_eq!(viewed(&target), register, "{title}");
+        let requests = fetch.requests();
+        assert!(requests[0].contains(filter), "{title}: {requests:?}");
+    }
+}
+
+#[test]
+fn a_shortened_locality_cell_is_read_whole_from_its_title() {
+    let registry = registry_with(
+        serde_json::json!(["TSA"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "enregistrement",
+            "node": 33,
+            "fields": {
+                "locality": "Rech_commune",
+                "year_from": "Rech_annee_debut",
+                "year_to": "Rech_annee_fin"
+            },
+            "columns": {
+                "locality": "Commune",
+                "acts": "Typologie",
+                "period": "Date"
+            }
+        }),
+    );
+    // A commune the cell shortens away is still one the office serves, and
+    // the office's table of burial extracts is no succession table.
+    for title in [
+        "AD00 - Troisville - (aucun) - TSA - 1850",
+        "AD00 - Exampleville - (aucun) - TSA - 1850",
+    ] {
+        let fetch = Fixtures::new(BUREAU);
+        let target = resolve(&registry, title, &fetch).unwrap();
+        assert_eq!(viewed(&target), "vtaexample0141", "{title}");
+        assert_eq!(fetch.requests().len(), 1, "{title}");
+    }
 }

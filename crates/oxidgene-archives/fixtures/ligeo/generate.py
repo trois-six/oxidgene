@@ -4,7 +4,8 @@
 They have the markup and JSON shapes of answers recorded from the Ain,
 Ardèche and Haute-Garonne portals, of the other Ligeo shapes recorded on
 departmental portals since (notice lists, qualified and composite locality
-cells, indexes of persons, a search within a finding aid), and a
+cells, indexes of persons, a search within a finding aid, a year's
+table bound apart, a locality cell shortened to fit), and a
 military-register table built in the same markup, with fictitious
 localities, parishes, sections, call numbers, internal references, ARK names and
 image paths; no recorded value is copied. Only what the adapter reads is
@@ -452,4 +453,52 @@ write("renamed.html", page(
         renamed_row(122, "Exampleville", "1903", 201, "EXV 1E39"),
         renamed_row(123, "Exampleville", "1904", 205, "EXV 1E40"),
         renamed_row(124, "Exampleville-la-Forêt", "1903", 201, "EXF 1E12"),
+    ])))
+
+
+# Civil status whose document type tells a year's register from the table of
+# that year, bound apart, and from the decennial table; the parish column
+# names a city's parish in capitals.
+YEAR_HEADERS = ["Commune", "Type de document", "Type d'acte", "Date", "Paroisses, hôpitaux, municipalités",
+                "Vues", "Action(s)"]
+
+
+def year_row(n, kind, act, dates, parish, count, group="daogrp/0"):
+    place = '<mark class="arc_mark">Exampleville</mark> (Exampledept, France)'
+    return [place, esc(kind), esc(act), dates, esc(parish), viewer_link(n, count, dates, group=group),
+            actions(n, 64)]
+
+
+write("year-tables.html", page(
+    '<span class="arc_nbr_reponses">5 réponses dans 1 inventaire</span>',
+    table(YEAR_HEADERS, [
+        year_row(131, "Table décennale", "Naissance", "1843-1852", "", 25),
+        year_row(132, "Acte", "Naissance", "1850", "", 47),
+        year_row(133, "Table", "Naissance", "1850", "", 3),
+        year_row(134, "Acte", "Baptême", "1750", "SAINT-EXEMPLE", 23),
+        year_row(135, "Table", "Baptême", "1750", "SAINT-EXEMPLE", 1, group="daoloc/0"),
+    ])))
+
+
+# A registration office's tables: the commune cell lists the communes the
+# office serves, shortened to fit, the whole list in the title of its
+# `div.arc_info`; the office's table of burial extracts beside its table of
+# successions.
+BUREAU_HEADERS = ["Bureau", "Commune", "Typologie", "Complément", "Date", "Images"]
+COMMUNES = ["Exampleville", "Autreville", "Troisville", "Quatreville"]
+
+
+def bureau_row(n, kind, dates, count):
+    whole = " / ".join(f"{commune} (Exampledept, France)" for commune in COMMUNES)
+    shown = f'<mark class="arc_mark">{COMMUNES[0]}</mark> (Exampledept, France) / {COMMUNES[1]}......'
+    office = f'Exampledept. Bureau d\'enregistrement (<mark class="arc_mark">{COMMUNES[0]}</mark>)'
+    return [office, f'<div class="arc_info" title="{esc(whole)}">{shown}</div>', esc(kind), "", dates,
+            viewer_link(n, count, dates)]
+
+
+write("bureau.html", page(
+    '<p class="nb_reponses"><span>2</span> réponses à votre recherche</p>',
+    table(BUREAU_HEADERS, [
+        bureau_row(141, "Table des décès, successions et absences", "1844-1852", 146),
+        bureau_row(142, "Table des extraits de sépulture", "1844-1852", 80),
     ])))

@@ -410,9 +410,11 @@ pub(crate) fn holds_act(displayed: Option<&str>, act: &Act) -> bool {
 
 /// The act of a register as the codes `select` reads: the series its text
 /// names in the citation vocabulary (`RP` for `Recensement de population`),
-/// the kinds its text names (`BMS`), or `TD` for decennial tables. With
-/// `codes`, a word made of act letters (`N`, `B, M, S`, `BMS`) names kinds
-/// too; a title would take an initial for one.
+/// the kinds its text names (`BMS`), or a table: `TD` for decennial tables,
+/// and for any text naming a table first, whose kinds are those it indexes
+/// (`Table ; Naissance`, `Tables des mariages`). With `codes`, a word made
+/// of act letters (`N`, `B, M, S`, `BMS`) names kinds too; a title would
+/// take an initial for one.
 pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
     if let Some(series) = CitationGrammar::default().series_of(text) {
         return Some(series.code().to_owned());
@@ -421,6 +423,9 @@ pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
     let words: Vec<&str> = folded.split(' ').collect();
     if words.iter().any(|word| word.starts_with("decennal")) {
         return Some("TD".to_owned());
+    }
+    if words.first().is_some_and(|word| word.starts_with("tabl")) {
+        return Some(table_code(&words));
     }
     let mut kinds = String::new();
     let mut add = |letter: char| {
@@ -448,13 +453,19 @@ pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
     if !kinds.is_empty() {
         return Some(kinds);
     }
-    words.iter().any(|word| word.starts_with("tabl")).then(|| {
-        if words.iter().any(|word| word.starts_with("annuel")) {
-            "TA".to_owned()
-        } else {
-            "TD".to_owned()
-        }
-    })
+    words
+        .iter()
+        .any(|word| word.starts_with("tabl"))
+        .then(|| table_code(&words))
+}
+
+/// The code of a table: `TA` for annual tables, `TD` otherwise.
+fn table_code(words: &[&str]) -> String {
+    if words.iter().any(|word| word.starts_with("annuel")) {
+        "TA".to_owned()
+    } else {
+        "TD".to_owned()
+    }
 }
 
 /// The words, folded, that introduce the numbers a register spans in a
