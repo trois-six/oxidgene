@@ -2014,3 +2014,71 @@ fn a_later_code_of_the_same_kind_still_designates_another_archive() {
         Err(Unrecognized::NoAdapter)
     );
 }
+
+/// A name of a fictitious person, read as the tree stores it.
+fn person_name(
+    given: Option<&str>,
+    prefix: Option<&str>,
+    surname: Option<&str>,
+    primary: bool,
+) -> PersonName {
+    serde_json::from_value(serde_json::json!({
+        "id": "00000000-0000-7000-8000-000000000001",
+        "person_id": "00000000-0000-7000-8000-000000000002",
+        "name_type": "birth",
+        "given_names": given,
+        "surname": surname,
+        "surname_prefix": prefix,
+        "prefix": null,
+        "suffix": null,
+        "nickname": null,
+        "is_primary": primary,
+        "sort_order": 0,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
+    }))
+    .expect("a person name")
+}
+
+/// The cited person rides with the parts, by their primary name, and
+/// never changes what is recognized.
+#[test]
+fn the_cited_person_rides_with_the_parts_by_their_primary_name() {
+    let registry = registry();
+    let names = [
+        person_name(Some("Paul"), None, Some("Autrenom"), false),
+        person_name(Some(" Jean Pierre "), Some("de la"), Some("Exemple"), true),
+    ];
+    let evidence = title("AD99 - Exampleville - Registres matricules - 1890 - matricule 12")
+        .with_person(&names);
+    let citation = registry
+        .recognize(&evidence, None, None)
+        .unwrap()
+        .citation()
+        .unwrap();
+    assert_eq!(
+        citation.person,
+        Some(CitedPerson {
+            surname: "de la Exemple".to_owned(),
+            given_names: Some("Jean Pierre".to_owned()),
+        })
+    );
+    let unnamed = title("AD99 - Exampleville - Registres matricules - 1890 - matricule 12");
+    let without = registry
+        .recognize(&unnamed, None, None)
+        .unwrap()
+        .citation()
+        .unwrap();
+    assert_eq!(
+        CitationParts {
+            person: None,
+            ..citation
+        },
+        without
+    );
+
+    // A name without a surname gives a portal nothing to search by.
+    let evidence = unnamed.with_person(&[person_name(Some("Jean"), None, None, true)]);
+    assert_eq!(evidence.person, None);
+    assert_eq!(title("AD99").with_person(&[]).person, None);
+}

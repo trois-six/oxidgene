@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -589,8 +589,14 @@ user cannot lose entered data.
   deployment enables it.
 - An archive portal is contacted only when the reader opens a cited register,
   one lookup per click, never ahead of it. It receives what its search needs —
-  locality, document kind, year, call number — never the person's name or the
-  citation text; no image is copied or stored, and the desktop's archive
+  locality, document kind, year, call number — never the citation text. A
+  person's name reaches only an index of persons searched by name, such as a
+  department's military registers, one row per person: the surname of the
+  person the stored citation is about, read from the tree and never from a
+  request, and only where the other parts cannot single out that person's
+  row; never the given names, and no other collection receives any name
+  ([Archive Portals §4.5, §5.3](archives.md#53-api)). No image is copied or
+  stored, and the desktop's archive
   window keeps the portals' cookies in a profile of its own, apart from the
   application's ([Archive Portals §8](archives.md#8-access-etiquette)).
 

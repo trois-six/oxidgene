@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
 ---
 
 
@@ -357,8 +357,13 @@ refresh once it is saved; the gallery's region tool keeps only the act.
 The portal receives what its search needs: the locality, the document kind,
 the year or period, the portal's own collection identifiers, the call number,
 and a matricule for an index of persons searched by it
-([Archive Portals §5.3](archives.md#53-api)). It never receives the person's
-name, the citation text, or the act number. Each
+([Archive Portals §5.3](archives.md#53-api)). An index of persons searched by
+name, such as a department's military registers, also receives the surname of
+the event's principal, only where the other parts cannot single out the
+person's row; a family event's citation carries no name, and the given names
+are only compared with the portal's rows
+([Archive Portals §4.5](archives.md#45-ligeo)). No other collection receives a
+name, and no portal the citation text or the act number. Each
 register opens as a top-level page, because archive portals disallow
 embedding their pages in an OxidGene frame, in a web profile of its own that
 keeps the portals' cookies, so a reuse licence or an anti-bot challenge is

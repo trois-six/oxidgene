@@ -373,6 +373,7 @@ async fn registers(
             images: row.images,
             address: Some(row.payload.id),
             numbers: row.numbers,
+            person: None,
         })
         .collect())
 }

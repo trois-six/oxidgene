@@ -150,6 +150,7 @@ async fn registers_at(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let failed = |error: ResolveError| Failure::from_error(step, expected, &error);
     let (answer, others) = match start(settings, &citation, fetch).await.map_err(failed)? {
@@ -217,6 +218,7 @@ async fn discover(
             Some(Register {
                 locality: citation.locality.clone(),
                 numbers: page::title_numbers(&row.title),
+                person: None,
                 period: row.period.or(Some(row.title)),
                 call_number: row.call_number,
                 images: None,

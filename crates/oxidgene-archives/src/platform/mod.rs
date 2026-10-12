@@ -171,6 +171,13 @@ pub trait Platform: Send + Sync {
         false
     }
 
+    /// Whether the collection is an index of persons whose search takes the
+    /// cited person's name ([`CitationParts::person`]): the one kind of
+    /// collection a resolution passes the name to. `false` by default.
+    fn searches_by_name(&self, _collection: &Collection) -> bool {
+        false
+    }
+
     /// The reuse licence the portal shows a reader before any page of the
     /// collection, which OxidGene never accepts on the reader's behalf: a
     /// client opens its entry first, and the target once the reader has

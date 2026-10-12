@@ -267,6 +267,7 @@ fn register(call_number: &str, period: &str, images: u16) -> Register {
         images: Some(images),
         address: Some("/viewer".to_owned()),
         numbers: None,
+        person: None,
     }
 }
 
@@ -341,6 +342,7 @@ fn volumes_of_a_military_register_are_told_apart_by_their_matricules() {
     let volume = |first, last| Register {
         call_number: None,
         numbers: Some((first, last)),
+        person: None,
         ..register("", "1870", 400)
     };
     let registers = [volume(1, 500), volume(501, 1000)];
@@ -366,6 +368,36 @@ fn volumes_of_a_military_register_are_told_apart_by_their_matricules() {
         "AD44 - Exampleville - (aucun) - RM - 1870 - n° 501 - vue 200/400"
     );
     assert_eq!(ArchiveRegistry::embedded().parse(&title), Some(citation));
+}
+
+#[test]
+fn the_persons_of_one_matricule_are_told_apart_by_their_names() {
+    // An index's rows of one class and matricule: the class's register and
+    // its volunteers', one person each.
+    let row = |surname: &str| Register {
+        call_number: None,
+        numbers: Some((1, 1)),
+        person: Some(CitedPerson {
+            surname: surname.to_owned(),
+            given_names: Some("Jean".to_owned()),
+        }),
+        ..register("", "1872", 1)
+    };
+    let registers = [row("NOMEXEMPLE"), row("AUTRENOM")];
+    let collection = &ad44().collections[0];
+    assert_eq!(
+        choose(&registers, "Exampleville", collection).unwrap(),
+        &registers[0]
+    );
+    assert!(!registers[0].is_confusable_with(&registers[1]));
+
+    // The citation carries the person as a reader's does; the report's
+    // title names no one.
+    let series = Act::Series(crate::Series::MilitaryRegister);
+    let citation = citation_of(ad44(), &series, &registers[0], 1);
+    assert_eq!(citation.person, registers[0].person);
+    let title = title_of(&citation);
+    assert!(!title.contains("NOMEXEMPLE"), "{title}");
 }
 
 #[test]
@@ -435,6 +467,7 @@ fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view(
         images: None,
         address: Some("/Internet_THOT/FrmLotDocFrame.asp?idlot=1".to_owned()),
         numbers: None,
+        person: None,
     };
     let citation = citation_of(corsica, &collection.acts[0], &register, 1);
     assert_eq!(citation.views[0].view, 1);
@@ -471,6 +504,7 @@ fn an_uncounted_register_with_an_address_per_view_is_cited_at_its_second_view() 
         images: None,
         address: Some("/?id=detail&page_ref=1".to_owned()),
         numbers: None,
+        person: None,
     };
     let citation = citation_of(savoie, &collection.acts[0], &register, UNCOUNTED_VIEW);
     assert_eq!(citation.views[0].view, 2);

@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::page::Register;
 use crate::catalog::{CatalogError, Collection};
-use crate::citation::{Act, CitationParts};
+use crate::citation::{Act, CitationParts, CitedPerson};
 use crate::platform::markup::fold;
 use crate::platform::{Access, Query, is_https_origin};
 
@@ -41,6 +41,13 @@ pub(super) struct Settings {
     #[serde(default)]
     pub(super) layout: Option<String>,
     pub(super) fields: Fields,
+    /// The values of a locality input that takes a fixed list — the
+    /// checkboxes of a form's recruitment subdivisions —, each with the
+    /// names citations give it: the cited locality is sent as the value it
+    /// names, and a locality none names is not sent at all, every value
+    /// then searched. Empty for an input sent the cited locality as written.
+    #[serde(default)]
+    pub(super) localities: BTreeMap<String, Vec<String>>,
     /// Inputs sent with every search, with their values: the department of
     /// a portal two archives share, the kind of register a collection holds.
     #[serde(default)]
@@ -80,6 +87,13 @@ pub(super) struct Fields {
     /// number, which finds the person's row.
     #[serde(default)]
     pub(super) number: Option<String>,
+    /// The surname input of an index of persons (`Rech_nom`), which takes
+    /// the cited person's surname only where the other parts cannot single
+    /// out the person's row (Archive Portals §4.5, step 1). Only a
+    /// collection of series, whose rows name their person
+    /// (`columns.person`), may declare it.
+    #[serde(default)]
+    pub(super) surname: Option<String>,
     /// The input taking the cited call number (`RECH_cote`), which singles
     /// out the register on a portal whose search by locality alone answers
     /// too slowly for its largest communes (a city's registers by section).
@@ -102,6 +116,7 @@ impl Fields {
             &self.year_to,
             &self.year,
             &self.number,
+            &self.surname,
             &self.call_number,
         ]
         .into_iter()
@@ -180,6 +195,10 @@ pub(super) struct Columns {
     /// register (`1 à 1586`), or the one matricule of a person's row.
     #[serde(default)]
     pub(super) numbers: Option<Names>,
+    /// The person a row of an index of persons names, `SURNAME, Given,
+    /// Given`, compared with the cited person.
+    #[serde(default)]
+    pub(super) person: Option<Names>,
 }
 
 impl Columns {
@@ -193,6 +212,7 @@ impl Columns {
             &self.period,
             &self.call_number,
             &self.numbers,
+            &self.person,
         ]
         .into_iter()
         .flatten()
@@ -272,6 +292,15 @@ impl Settings {
             return Err(invalid("search and node, page, fonds and layout"));
         }
         self.fields.check()?;
+        let localities = self.localities.iter().all(|(value, names)| {
+            is_value(value) && names.iter().all(|name| !fold(name).is_empty())
+        });
+        if !localities {
+            return Err(invalid("localities need values and names"));
+        }
+        if !self.localities.is_empty() && self.fields.locality.is_none() {
+            return Err(invalid("localities need fields.locality"));
+        }
         let params = self
             .params
             .iter()
@@ -283,8 +312,21 @@ impl Settings {
     }
 
     /// Every act code is valid and has a usable filter, and every act the
-    /// collection holds has one, unless the form has no act filter.
+    /// collection holds has one, unless the form has no act filter. A
+    /// surname input serves only a collection of series whose rows name
+    /// their person: an index of persons, never a register of acts.
     fn check_acts(&self, collection: &Collection) -> Result<(), CatalogError> {
+        if self.fields.surname.is_some()
+            && (self.columns.person.is_none()
+                || !collection
+                    .acts
+                    .iter()
+                    .all(|act| matches!(act, Act::Series(_))))
+        {
+            return Err(invalid(
+                "fields.surname serves a collection of series with columns.person",
+            ));
+        }
         for (code, filter) in &self.acts {
             if Act::from_code(code).is_none() {
                 return Err(invalid(&format!("`{code}` is not an act code")));
@@ -370,16 +412,53 @@ impl Settings {
         inputs
     }
 
+    /// Whether the collection searches its persons by the cited person's
+    /// surname, and the citation names one.
+    pub(super) fn names(&self, citation: &CitationParts) -> bool {
+        self.fields.surname.is_some() && citation.person.is_some()
+    }
+
+    /// Whether the cited person's surname goes with the first search: where
+    /// no cited matricule can find the person's row — the citation gives
+    /// none, or the form takes none. Otherwise the matricule is searched
+    /// first, and the surname only when its rows do not single out the
+    /// person (Archive Portals §4.5, step 1).
+    pub(super) fn names_first(&self, citation: &CitationParts) -> bool {
+        self.names(citation) && (self.fields.number.is_none() || citation.number.is_none())
+    }
+
+    /// The value the locality input is sent: the cited locality as written,
+    /// or, for an input taking a fixed list, the value whose names hold it
+    /// (`None` when none does: every value searched).
+    fn locality_value<'s>(&'s self, cited: &'s str) -> Option<&'s str> {
+        if self.localities.is_empty() {
+            return Some(cited);
+        }
+        let wanted = fold(cited);
+        if wanted.is_empty() {
+            return None;
+        }
+        self.localities
+            .iter()
+            .find(|(value, names)| {
+                fold(value) == wanted || names.iter().any(|name| fold(name) == wanted)
+            })
+            .map(|(value, _)| value.as_str())
+    }
+
     /// The filters of a search, shared by the request and the results page:
     /// the locality, the act, the collection's own inputs, the year, an
-    /// index's matricule number, and the cited call number where the form
-    /// takes one. Nothing else of the citation leaves the application. The
-    /// locality is the portal's text match, and the year is the portal's
-    /// test: both are re-checked on the rows.
-    pub(super) fn filters(&self, citation: &CitationParts) -> Query {
+    /// index's matricule number, the cited person's surname when `named`,
+    /// and the cited call number where the form takes one. Nothing else of
+    /// the citation leaves the application: never the given names, which
+    /// are compared on the rows. The locality is the portal's text match,
+    /// and the year is the portal's test: both are re-checked on the rows.
+    pub(super) fn filters(&self, citation: &CitationParts, named: bool) -> Query {
         let mut query = Query::new();
-        if let Some(locality) = &self.fields.locality {
-            query.push(locality, citation.locality.as_str());
+        if let Some(input) = &self.fields.locality
+            && let Some(value) = self.locality_value(&citation.locality)
+        {
+            query.push(input, value);
         }
         for (name, value) in self.act_inputs(&citation.act) {
             query.push(name, value);
@@ -404,6 +483,11 @@ impl Settings {
         }
         if let (Some(name), Some(number)) = (&self.fields.number, citation.number) {
             query.push(name, number.to_string());
+        }
+        if let (true, Some(input), Some(CitedPerson { surname, .. })) =
+            (named, &self.fields.surname, &citation.person)
+        {
+            query.push(input, surname.as_str());
         }
         if let (Some(name), Some(call_number)) = (&self.fields.call_number, &citation.call_number) {
             query.push(name, call_number.as_str());

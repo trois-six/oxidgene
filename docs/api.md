@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
 ---
 
 
@@ -387,7 +387,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
-| `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a cited source opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …, "parts": …}`, `citation_id` naming a citation of the source whose page, text and event complete what the source and its repositories say ([Archive Portals §5.1](archives.md#51-citation-recognition)), `view` one view of the cited register to resolve instead of the cited ones, and `parts`, `{"locality", "act", "year", "view"}` all optional, what the reader completed in the "Find in the archives" dialog, `act` a document kind's code. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view, parts: ArchivePartsInput)` |
+| `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a cited source opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …, "parts": …}`, `citation_id` naming a citation of the source whose page, text and event complete what the source and its repositories say ([Archive Portals §5.1](archives.md#51-citation-recognition)), and whose person — the person it is attached to, or its individual event's principal — gives the surname an index of persons searched by name may be sent, read from the tree and never from the body ([Archive Portals §5.3](archives.md#53-api)), `view` one view of the cited register to resolve instead of the cited ones, and `parts`, `{"locality", "act", "year", "view"}` all optional, what the reader completed in the "Find in the archives" dialog, `act` a document kind's code. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view, parts: ArchivePartsInput)` |
 
 `archive-target` reads nothing it writes, but may query the archive's portal,
 once per call: it is a `POST` so that nothing caches or prefetches it. The

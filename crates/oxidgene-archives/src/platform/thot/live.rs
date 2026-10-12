@@ -74,6 +74,7 @@ async fn registers(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let wanted = forms(locality);
     let localities: Vec<&str> = wanted.iter().map(String::as_str).collect();
@@ -93,6 +94,7 @@ async fn registers(
             images: None,
             address: Some(settings.viewer_path(&row.payload)),
             numbers: row.numbers,
+            person: None,
         })
         .collect())
 }

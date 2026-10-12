@@ -155,6 +155,7 @@ fn citation_of(locality: String, act: &Act) -> CitationParts {
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     }
 }
 
@@ -194,6 +195,7 @@ async fn registers(
             images: row.images,
             address: row.payload.ark.map(|ark| ark.image("", &ark.first_image)),
             numbers: row.numbers,
+            person: None,
         })
         .collect())
 }

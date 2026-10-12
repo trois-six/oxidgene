@@ -16,7 +16,9 @@
 //!    kind, year, call number, first number where the register shows the
 //!    numbers it spans, and a view in the middle of its images — resolves
 //!    through the [`Resolver`] to that view of that register, and the same
-//!    citation without its call number to the same register or the results.
+//!    citation without its call number to the same register or the results;
+//!    in an index of persons searched by name, the citation of a person's
+//!    row without its matricule, by the person's surname, to the same row.
 //!
 //! What a platform knows — where its references and locality list are, how
 //! to search one locality — is its [`Probe`], beside its adapter; the
@@ -37,7 +39,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::catalog::{Archive, Collection};
-use crate::citation::{Act, CallNumber, CitationParts, CitedView};
+use crate::citation::{Act, CallNumber, CitationParts, CitedPerson, CitedView};
 use crate::platform::markup::fold;
 use crate::platform::select::period_ranges;
 use crate::platform::{Access, BoxFuture};
@@ -159,6 +161,10 @@ pub struct Register {
     /// The act or matricule numbers the register spans, where the results
     /// show them: a volume of a military register.
     pub numbers: Option<(u32, u32)>,
+    /// The person a row of an index of persons names, which the check's
+    /// citation carries as a reader's would: read from the portal and sent
+    /// back to it only, never written to a report.
+    pub person: Option<CitedPerson>,
 }
 
 impl Register {
@@ -195,8 +201,13 @@ impl Register {
             (Some((first, _)), Some((from, to))) => (from..=to).contains(&first),
             _ => true,
         };
+        let same_person = match (&self.person, &other.person) {
+            (Some(mine), Some(theirs)) => mine == theirs,
+            _ => true,
+        };
         same_call_number
             && same_numbers
+            && same_person
             && self.images == other.images
             && other
                 .period
@@ -588,6 +599,7 @@ fn citation_of(archive: &Archive, act: &Act, register: &Register, uncounted: u16
         }],
         view_count: register.images,
         alternate_localities: Vec::new(),
+        person: register.person.clone(),
     }
 }
 
@@ -637,6 +649,9 @@ async fn resolution(
     let mut opening = check_view(archive, collection, citation, &target, addresses_views)
         .map_err(|received| Failure::drift(Step::Resolution, expected(), received))?;
     opening.licence = registry.licence(&citation.code, &opening.url);
+    if citation.person.is_some() && citation.number.is_some() {
+        by_name(registry, transport, citation, &opening).await?;
+    }
     if citation.call_number.is_none() {
         return Ok(opening);
     }
@@ -662,6 +677,45 @@ async fn resolution(
             "another register",
         )),
         _ => Ok(opening),
+    }
+}
+
+/// A person's row cited without its matricule resolves, by the person's
+/// surname, to the same row: the portal's name input still finds them.
+async fn by_name(
+    registry: &ArchiveRegistry,
+    transport: &dyn PortalTransport,
+    citation: &CitationParts,
+    opening: &Opening,
+) -> Result<(), Failure> {
+    let expected = "without the matricule, by the surname, the same person's row";
+    let unnumbered = CitationParts {
+        number: None,
+        ..citation.clone()
+    };
+    let target = Resolver::new(registry)
+        .resolve(&unnumbered, transport)
+        .await
+        .map_err(|error| Failure::from_error(Step::Resolution, expected, &error))?;
+    match &target {
+        // The view opened, or the register where its viewer has no
+        // address per view.
+        ArchiveTarget::View { url, views, .. }
+            if *views.first().map_or(url, |view| &view.url) == opening.url =>
+        {
+            Ok(())
+        }
+        ArchiveTarget::View { .. } => {
+            Err(Failure::drift(Step::Resolution, expected, "another row"))
+        }
+        ArchiveTarget::Results { matches, .. } => Err(Failure::drift(
+            Step::Resolution,
+            expected,
+            match matches {
+                Some(count) => format!("Results with {count} matches"),
+                None => "Results built offline".to_owned(),
+            },
+        )),
     }
 }
 

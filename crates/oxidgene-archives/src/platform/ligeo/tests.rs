@@ -1695,3 +1695,293 @@ fn a_shortened_locality_cell_is_read_whole_from_its_title() {
         assert_eq!(fetch.requests().len(), 1, "{title}");
     }
 }
+
+const PERSONS: &str = include_str!("../../../fixtures/ligeo/persons.html");
+const PERSONS_NAMED: &str = include_str!("../../../fixtures/ligeo/persons-named.html");
+const PERSONS_CLOSED: &str = include_str!("../../../fixtures/ligeo/persons-closed.html");
+
+/// A fictitious index of persons searched by subdivision, class, matricule
+/// and surname, its subdivisions a fixed list of checkboxes: the shape of
+/// the Bouches-du-Rhône military registers.
+fn persons_registry() -> ArchiveRegistry {
+    registry_with(
+        serde_json::json!(["RM"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "transport": "browser",
+            "search": "matricule",
+            "node": 38,
+            "fields": {
+                "locality": "Rech_circonscription[]",
+                "year_from": "Rech_classe_debut",
+                "year_to": "Rech_classe_fin",
+                "number": "Rech_matricule",
+                "surname": "Rech_nom"
+            },
+            "localities": {
+                "Subdivision de Exampleville": ["Exampleville"],
+                "Subdivision de Exampleville – Autreville": ["Autreville"]
+            },
+            "columns": {
+                "period": "Classe",
+                "numbers": "Matricule",
+                "person": "Nom, Prénom(s)"
+            }
+        }),
+    )
+}
+
+/// The class 1872's first matricule, in the subdivision of Exampleville.
+const FIRST_MATRICULE: &str = "AD00 - Exampleville - Registres matricules - 1872 - matricule 1";
+/// Its search: the subdivision, the class and the matricule.
+const FIRST_MATRICULE_SEARCH: &str = "/archive/resultats/matricule/n:38\
+    ?Rech_circonscription%5B%5D=Subdivision%20de%20Exampleville\
+    &Rech_classe_debut=1872&Rech_classe_fin=1872&Rech_matricule=1";
+
+/// `title` cited for the person of `surname` and `given_names`.
+fn cited_for(
+    registry: &ArchiveRegistry,
+    title: &str,
+    surname: &str,
+    given_names: Option<&str>,
+) -> CitationParts {
+    CitationParts {
+        person: Some(CitedPerson {
+            surname: surname.to_owned(),
+            given_names: given_names.map(str::to_owned),
+        }),
+        ..registry.parse(title).expect("a normalized citation")
+    }
+}
+
+fn resolve_parts(
+    registry: &ArchiveRegistry,
+    citation: &CitationParts,
+    fetch: &Fixtures,
+) -> Result<ArchiveTarget, ResolveError> {
+    let (archive, collections) = registry.candidates(citation).expect("a catalogued act");
+    block_on(Ligeo.resolve(archive, collections[0], citation, fetch))
+}
+
+/// The matricule a class's register and its volunteers' registers share
+/// lists one person per register: the rows naming the cited person tell
+/// them apart, without the name leaving the application.
+#[test]
+fn the_registers_sharing_a_matricule_are_told_apart_by_the_cited_person() {
+    let registry = persons_registry();
+    for (given, register) in [
+        (Some("Louis Joseph"), "vtaexample0153"),
+        (Some("Jean-Pierre"), "vtaexample0151"),
+        (Some("jean"), "vtaexample0151"),
+    ] {
+        let citation = cited_for(&registry, FIRST_MATRICULE, "Nomexemple", given);
+        let fetch = Fixtures::new(PERSONS);
+        let target = resolve_parts(&registry, &citation, &fetch).unwrap();
+        assert_eq!(viewed(&target), register, "{given:?}");
+        assert_eq!(
+            target.url(),
+            format!("{EXAMPLE}/ark:/99999/{register}/daoloc/0/1")
+        );
+        assert_eq!(
+            fetch.requests(),
+            [format!("{FIRST_MATRICULE_SEARCH}&type=matricule")],
+            "{given:?}"
+        );
+    }
+    // Without a person, or the surname alone, the rows stay several.
+    let citation = registry.parse(FIRST_MATRICULE).unwrap();
+    let fetch = Fixtures::new(PERSONS);
+    assert_eq!(
+        matches(&resolve_parts(&registry, &citation, &fetch)),
+        Some(4)
+    );
+    assert_eq!(fetch.requests().len(), 1);
+}
+
+/// Rows naming another person than the cited one: the search runs once
+/// more with the cited surname, never the given names, which are compared
+/// on the rows.
+#[test]
+fn the_surname_goes_to_the_portal_only_when_the_rows_leave_the_person_unknown() {
+    let registry = persons_registry();
+    let citation = cited_for(&registry, FIRST_MATRICULE, "Quatrenom", Some("Jacques"));
+    let mut fetch = Fixtures::new(PERSONS);
+    fetch.answers = vec![("Rech_nom=", PERSONS_NAMED)];
+    let target = resolve_parts(&registry, &citation, &fetch).unwrap();
+    assert_eq!(viewed(&target), "vtaexample0155");
+    assert_eq!(
+        fetch.requests(),
+        [
+            format!("{FIRST_MATRICULE_SEARCH}&type=matricule"),
+            format!("{FIRST_MATRICULE_SEARCH}&Rech_nom=Quatrenom&type=matricule"),
+        ]
+    );
+    assert!(
+        fetch
+            .requests()
+            .iter()
+            .all(|request| !request.contains("Jacques"))
+    );
+
+    // Two rows of the cited surname, and no given name to choose: the
+    // surname's search lists them both.
+    let citation = cited_for(&registry, FIRST_MATRICULE, "Nomexemple", None);
+    let mut fetch = Fixtures::new(PERSONS);
+    fetch.answers = vec![("Rech_nom=", PERSONS)];
+    let target = resolve_parts(&registry, &citation, &fetch);
+    assert_eq!(matches(&target), Some(2));
+    assert_eq!(fetch.requests().len(), 2);
+}
+
+/// Without a matricule, a class lists every person of the subdivision:
+/// the surname goes with the one search, and with the filtered search page.
+#[test]
+fn without_a_matricule_the_surname_goes_with_the_first_search() {
+    let registry = persons_registry();
+    let title = "AD00 - Exampleville - Registres matricules - 1872";
+    let citation = cited_for(&registry, title, "Quatrenom", Some("Jacques"));
+    let fetch = Fixtures::new(PERSONS_NAMED);
+    let target = resolve_parts(&registry, &citation, &fetch).unwrap();
+    assert_eq!(viewed(&target), "vtaexample0155");
+    let search = "/archive/resultats/matricule/n:38\
+        ?Rech_circonscription%5B%5D=Subdivision%20de%20Exampleville\
+        &Rech_classe_debut=1872&Rech_classe_fin=1872&Rech_nom=Quatrenom&type=matricule";
+    assert_eq!(fetch.requests(), [search]);
+
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    assert_eq!(
+        Ligeo.results_url(collection, &citation),
+        Some(format!("{EXAMPLE}{search}"))
+    );
+    // With a matricule, the filtered page has none: the reader sees the
+    // matricule's few rows.
+    let numbered = cited_for(&registry, FIRST_MATRICULE, "Quatrenom", Some("Jacques"));
+    assert_eq!(
+        Ligeo.results_url(collection, &numbered),
+        Some(format!("{EXAMPLE}{FIRST_MATRICULE_SEARCH}&type=matricule"))
+    );
+    // A collection searched by name says so; another does not.
+    assert!(Ligeo.searches_by_name(collection));
+    assert!(!Ligeo.searches_by_name(&collection_with(|_| {})));
+}
+
+/// A recent class lists its persons without their sheets: the cited
+/// person's row has no viewer, and another person's sheet is never opened
+/// in its place.
+#[test]
+fn a_class_listed_without_its_sheets_opens_no_other_person_s() {
+    let registry = persons_registry();
+    let title = "AD00 - Exampleville - Registres matricules - 1930 - matricule 7";
+    let citation = cited_for(&registry, title, "Nomexemple", Some("Jean"));
+    let fetch = Fixtures::new(PERSONS_CLOSED);
+    let target = resolve_parts(&registry, &citation, &fetch);
+    assert_eq!(matches(&target), Some(0));
+    // Rows without a sheet leave nothing for the surname to find.
+    assert_eq!(fetch.requests().len(), 1);
+}
+
+/// A fixed list of subdivisions takes the value naming the cited one, and
+/// a subdivision none names is not sent: every one is searched.
+#[test]
+fn a_fixed_list_of_subdivisions_is_sent_the_value_naming_the_cited_one() {
+    let registry = persons_registry();
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    let url = |locality: &str| {
+        let mut citation = registry.parse(FIRST_MATRICULE).unwrap();
+        citation.locality = locality.to_owned();
+        Ligeo.results_url(collection, &citation).unwrap()
+    };
+    let value = |value: &str| format!("Rech_circonscription%5B%5D={value}&");
+    assert!(url("Autreville").contains(&value(
+        "Subdivision%20de%20Exampleville%20%E2%80%93%20Autreville"
+    )));
+    assert!(url("subdivision de exampleville").contains(&value("Subdivision%20de%20Exampleville")));
+    for unnamed in ["Troisville", ""] {
+        assert!(!url(unnamed).contains("Rech_circonscription"), "{unnamed}");
+    }
+}
+
+#[test]
+fn reads_a_row_s_person_and_compares_it_with_the_cited_one() {
+    let person = |surname: &str, given: Option<&str>| CitedPerson {
+        surname: surname.to_owned(),
+        given_names: given.map(str::to_owned),
+    };
+    assert_eq!(
+        person_of("NOMEXEMPLE, Jean, Pierre"),
+        Some(person("NOMEXEMPLE", Some("Jean Pierre")))
+    );
+    assert_eq!(person_of("NOMEXEMPLE"), Some(person("NOMEXEMPLE", None)));
+    assert_eq!(person_of(" , Jean"), None);
+    for (row, cited, same) in [
+        (
+            ("NOMEXEMPLE", Some("Jean Pierre")),
+            ("Nomexemple", Some("Jean")),
+            true,
+        ),
+        (
+            ("NOMEXEMPLE", Some("Jean Pierre")),
+            ("Nomexemple", Some("Pierre Jean")),
+            true,
+        ),
+        (
+            ("NOMEXEMPLE", Some("Jean Pierre")),
+            ("Nomexemple", Some("Louis")),
+            false,
+        ),
+        (("NOMEXEMPLE", None), ("Nomexemple", Some("Louis")), true),
+        (("NOMEXEMPLE", Some("Jean")), ("Nomexemple", None), true),
+        (
+            ("EXEMPLE (de la)", Some("Jean")),
+            ("de la Exemple", Some("Jean")),
+            true,
+        ),
+        (
+            ("NOMÉXEMPLE", Some("Jean-Baptiste")),
+            ("Noméxemple", Some("Jean-Baptiste Paul")),
+            true,
+        ),
+        (
+            ("AUTRENOM", Some("Jean")),
+            ("Nomexemple", Some("Jean")),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            is_person(&person(row.0, row.1), &person(cited.0, cited.1)),
+            same,
+            "{row:?} {cited:?}"
+        );
+    }
+}
+
+#[test]
+fn validates_the_settings_of_an_index_searched_by_name() {
+    let base = || persons_registry().archive("AD00").unwrap().collections[0].clone();
+    assert_eq!(Ligeo.validate(&base()), Ok(()));
+    let mut acts = base();
+    acts.acts = vec![crate::Act::from_code("N").unwrap()];
+    acts.portal["fields"]["act"] = "Rech_acte".into();
+    acts.portal["acts"] = serde_json::json!({ "N": "Naissance" });
+    let mut no_person = base();
+    no_person.portal["columns"]
+        .as_object_mut()
+        .unwrap()
+        .remove("person");
+    let mut no_input = base();
+    no_input.portal["fields"]
+        .as_object_mut()
+        .unwrap()
+        .remove("locality");
+    let mut blank = base();
+    blank.portal["localities"]["Subdivision de Exampleville"] = serde_json::json!([" "]);
+    for (collection, expected) in [
+        (acts, "fields.surname serves a collection of series"),
+        (no_person, "fields.surname serves a collection of series"),
+        (no_input, "localities need fields.locality"),
+        (blank, "localities need values and names"),
+    ] {
+        let error = Ligeo.validate(&collection).unwrap_err().to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+}

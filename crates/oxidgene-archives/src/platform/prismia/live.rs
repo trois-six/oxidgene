@@ -133,6 +133,7 @@ async fn registers(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let expected = "the registers of the first listed locality";
     let facets = fetch
@@ -161,6 +162,7 @@ async fn registers(
             images: row.images,
             address: Some(row.payload.manifest),
             numbers: row.numbers,
+            person: None,
         })
         .collect())
 }

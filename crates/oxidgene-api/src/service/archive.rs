@@ -5,7 +5,9 @@
 //! (docs/archives.md §5.1): the source, the citation's page and text, the
 //! repositories holding the source with their call numbers, the source's
 //! linked media addresses, and the cited event with its place — with the
-//! place dictionary telling a locality from a parish or a hamlet. The
+//! place dictionary telling a locality from a parish or a hamlet. The name
+//! of the person the stored citation is about rides with it, for a
+//! collection searched per person only (docs/archives.md §5.3). The
 //! process shares one [`Resolver`], whose session cache spares a second
 //! request for a citation already resolved. Portals whose access is `any`
 //! are searched over the native transport; a `browser` portal, which only a
@@ -23,8 +25,8 @@ use oxidgene_archives::{
 use oxidgene_core::error::{ArchiveFailure, OxidGeneError};
 use oxidgene_core::types::{Citation, Source};
 use oxidgene_db::repo::{
-    CitationRepo, EventRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PlaceRepo, RepositoryRepo,
-    SourceRepo, SourceRepositoryRepo,
+    CitationRepo, EventRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PersonNameRepo, PlaceRepo,
+    RepositoryRepo, SourceRepo, SourceRepositoryRepo,
 };
 use sea_orm::ConnectionTrait;
 use tracing::warn;
@@ -52,7 +54,20 @@ impl ArchivePortals {
 
     /// Over `transport` instead: a recorded portal, in tests.
     pub fn with_transport(transport: Arc<dyn PortalTransport>) -> Self {
-        let portals = Self::native();
+        Self::with_catalogue(ArchiveRegistry::embedded(), transport)
+    }
+
+    /// Over `registry` and `transport` instead of the embedded catalogue
+    /// and the native client: a fictitious archive and a recorded portal,
+    /// in tests.
+    pub fn with_catalogue(
+        registry: &'static ArchiveRegistry,
+        transport: Arc<dyn PortalTransport>,
+    ) -> Self {
+        let portals = Self {
+            resolver: Resolver::new(registry),
+            transport: OnceLock::new(),
+        };
         let _ = portals.transport.set(transport);
         portals
     }
@@ -315,7 +330,10 @@ pub async fn source_addresses(
 /// Everything the tree records about a citation of `source`: the source,
 /// the citation's page and text, the repositories holding the source with
 /// their call numbers and websites, the addresses of the source's linked
-/// media, and the cited event with its place.
+/// media, the cited event with its place, and the name of the person the
+/// citation is about ([`Citation::cited_person_id`]) — read from the tree,
+/// never from the request, so that a portal is sent no text a caller
+/// chose.
 async fn load_evidence(
     db: &impl ConnectionTrait,
     source: &Source,
@@ -345,13 +363,22 @@ async fn load_evidence(
     let mut evidence = CitationEvidence::new(source, citation)
         .with_repositories(held)
         .with_urls(urls);
-    if let Some(event_id) = citation.and_then(|citation| citation.event_id) {
-        let event = EventRepo::get(db, event_id).await?;
-        let place = match event.place_id {
+    let Some(citation) = citation else {
+        return Ok(evidence);
+    };
+    let mut event = None;
+    if let Some(event_id) = citation.event_id {
+        let cited = EventRepo::get(db, event_id).await?;
+        let place = match cited.place_id {
             Some(place_id) => Some(PlaceRepo::get(db, place_id).await?.name),
             None => None,
         };
-        evidence = evidence.with_event(&event, place.as_deref());
+        evidence = evidence.with_event(&cited, place.as_deref());
+        event = Some(cited);
+    }
+    if let Some(person_id) = citation.cited_person_id(event.as_ref()) {
+        let names = PersonNameRepo::list_by_person(db, person_id).await?;
+        evidence = evidence.with_person(&names);
     }
     Ok(evidence)
 }

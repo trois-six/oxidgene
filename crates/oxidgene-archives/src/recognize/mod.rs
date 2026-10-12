@@ -31,11 +31,11 @@ mod scan;
 use std::collections::BTreeMap;
 
 use oxidgene_core::enums::EventType;
-use oxidgene_core::types::{Citation, Event, Source};
+use oxidgene_core::types::{Citation, Event, PersonName, Source};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Archive, Level};
-use crate::citation::{Act, ActKind, CallNumber, CitationParts, CitedView, Series};
+use crate::citation::{Act, ActKind, CallNumber, CitationParts, CitedPerson, CitedView, Series};
 use crate::transport::origin_of;
 use crate::vocabulary::{Family, Vocabulary, fold};
 use crate::{ArchiveRegistry, cited_text};
@@ -80,6 +80,11 @@ pub struct CitationEvidence {
     pub event: Option<CitedEvent>,
     /// Addresses of the source's media held as links.
     pub urls: Vec<String>,
+    /// The person the citation is attached to ([`Citation::cited_person_id`]):
+    /// never read for the citation's parts, only carried to a collection
+    /// searched per person (Archive Portals §5.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<CitedPerson>,
 }
 
 impl CitationEvidence {
@@ -106,6 +111,14 @@ impl CitationEvidence {
             place: place.map(str::to_owned),
             agency: event.agency.clone(),
         });
+        self
+    }
+
+    /// With the name of the person the citation is attached to, the primary
+    /// one among `names` ([`PersonName::primary`]); none without a surname.
+    #[must_use]
+    pub fn with_person<'a>(mut self, names: impl IntoIterator<Item = &'a PersonName>) -> Self {
+        self.person = PersonName::primary(names).and_then(CitedPerson::of);
         self
     }
 
@@ -259,6 +272,9 @@ pub struct Recognition<'r> {
     /// the archive's areas ([`PlaceLookup::other_names`]); empty without
     /// the dictionary.
     pub alternate_localities: Vec<String>,
+    /// The name of the person the citation is attached to, carried to the
+    /// parts as context ([`CitationParts::person`]).
+    pub person: Option<CitedPerson>,
 }
 
 impl Recognition<'_> {
@@ -287,6 +303,7 @@ impl Recognition<'_> {
             views: self.found.views.clone(),
             view_count: self.found.view_count,
             alternate_localities: self.alternate_localities.clone(),
+            person: self.person.clone(),
         })
     }
 
@@ -510,6 +527,7 @@ impl ArchiveRegistry {
             address: weighing.address(),
             confirmed_locality,
             alternate_localities,
+            person: evidence.person.clone(),
         })
     }
 

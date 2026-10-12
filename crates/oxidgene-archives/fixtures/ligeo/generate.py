@@ -4,11 +4,12 @@
 They have the markup and JSON shapes of answers recorded from the Ain,
 Ardèche and Haute-Garonne portals, of the other Ligeo shapes recorded on
 departmental portals since (notice lists, qualified and composite locality
-cells, indexes of persons, a search within a finding aid, a year's
-table bound apart, a locality cell shortened to fit), and a
+cells, indexes of persons searched by matricule or by name, a search
+within a finding aid, a year's table bound apart, a locality cell
+shortened to fit), and a
 military-register table built in the same markup, with fictitious
-localities, parishes, sections, call numbers, internal references, ARK names and
-image paths; no recorded value is copied. Only what the adapter reads is
+persons, localities, parishes, sections, call numbers, internal references,
+ARK names and image paths; no recorded value is copied. Only what the adapter reads is
 kept, plus the neighbouring markup it must skip (action cells, notice
 links, scripts). The manifest keeps neither the portal's server paths nor
 its renderings."""
@@ -502,3 +503,35 @@ write("bureau.html", page(
         bureau_row(141, "Table des décès, successions et absences", "1844-1852", 146),
         bureau_row(142, "Table des extraits de sépulture", "1844-1852", 80),
     ])))
+
+# An index of persons searched by name: one row per person and register,
+# the person's name first. A class's matricule is shared by the class's
+# register and the registers of its volunteers, whose rows tell them apart
+# by the person alone; a recent class is listed without a viewer link.
+PERSON_HEADERS = ["Nom, Prénom(s)", "Matricule", "Classe", "Circonscription", "Type de document",
+                  "Images", "Action(s)"]
+SUBDIVISION = "Subdivision de Exampleville"
+
+
+def person_row(n, person, matricule, year, viewable=True):
+    label = f"{person} : Etat signalétique et militaire."
+    link = viewer_link(n, 1, label, group="daoloc/0") if viewable else ""
+    return [esc(person), str(matricule), f'<mark class="arc_mark">{year}</mark>', SUBDIVISION,
+            "<p>Registre matricule</p>", link, actions(n, 38)]
+
+
+write("persons.html", page("", table(PERSON_HEADERS, [
+    person_row(151, "NOMEXEMPLE, Jean, Pierre", 1, 1872),
+    person_row(152, "AUTRENOM, Louis, Marie", 1, 1872),
+    person_row(153, "NOMEXEMPLE, Louis, Joseph", 1, 1872),
+    person_row(154, "TROISNOM, Paul", 1, 1872),
+])))
+
+write("persons-named.html", page("", table(PERSON_HEADERS, [
+    person_row(155, "QUATRENOM, Jacques, Henri", 1, 1872),
+])))
+
+write("persons-closed.html", page("", table(PERSON_HEADERS, [
+    person_row(156, "NOMEXEMPLE, Jean", 7, 1930, viewable=False),
+    person_row(157, "AUTRENOM, Paul", 7, 1930, viewable=False),
+])))

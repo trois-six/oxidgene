@@ -366,10 +366,11 @@ async fn search(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let expected = "the result rows of the first listed locality";
     let answer = fetch
-        .get(&settings.results_path(&settings.filters(&search)))
+        .get(&settings.results_path(&settings.filters(&search, false)))
         .await
         .map_err(|error| Failure::fetch(step, expected, error))?;
     page::results(&answer, &settings.columns)
@@ -459,6 +460,7 @@ async fn registers(
                 images: row.images,
                 address: row.payload.register.map(|register| register.viewer()),
                 numbers: row.numbers,
+                person: row.payload.person.as_deref().and_then(super::person_of),
             }
         })
         .collect())

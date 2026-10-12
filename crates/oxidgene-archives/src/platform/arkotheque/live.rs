@@ -260,6 +260,7 @@ async fn discover(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let expected = "the result rows of the first listed locality";
     let keys = keys(settings, &search, fetch)
@@ -318,6 +319,7 @@ async fn registers(
             images: if reads_pages { row.images } else { None },
             address: row.payload.viewer,
             numbers: row.numbers,
+            person: None,
         })
         .collect())
 }

@@ -795,7 +795,8 @@ fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCit
 }
 
 /// Everything the bundle records about a citation of `source` attached to
-/// event `event_id`.
+/// event `event_id`, with the name of the person it is about: the event's
+/// principal, none for a family event (docs/archives.md §5.1).
 fn citation_evidence(
     detail: &PersonDetailBundle,
     source: &oxidgene_core::types::Source,
@@ -821,12 +822,21 @@ fn citation_evidence(
     let mut evidence = CitationEvidence::new(source, Some(citation))
         .with_repositories(repositories)
         .with_urls(urls);
-    if let Some(event) = detail.events.iter().find(|event| event.id == event_id) {
+    let event = detail.events.iter().find(|event| event.id == event_id);
+    if let Some(event) = event {
         let place = event
             .place_id
             .and_then(|id| detail.places.iter().find(|place| place.id == id))
             .map(|place| place.name.as_str());
         evidence = evidence.with_event(event, place);
+    }
+    if let Some(person_id) = citation.cited_person_id(event) {
+        evidence = evidence.with_person(
+            detail
+                .names
+                .iter()
+                .filter(|name| name.person_id == person_id),
+        );
     }
     evidence
 }
@@ -2003,6 +2013,82 @@ mod tests {
 
         let order: Vec<_> = unions.iter().map(|union| union.0).collect();
         assert_eq!(order, ["earlier", "later", "undated_a", "undated_b"]);
+    }
+
+    /// A page bundle of fictitious records: a person cited for their own
+    /// event and for a marriage, from a catalogued series.
+    fn cited_bundle(person: Uuid, birth: Uuid, marriage: Uuid) -> PersonDetailBundle {
+        let (source, family) = (Uuid::from_u128(10), Uuid::from_u128(11));
+        let at = "2026-01-01T00:00:00Z";
+        let event = |id: Uuid, event_type: &str, person: Option<Uuid>, family: Option<Uuid>| {
+            serde_json::json!({
+                "id": id, "tree_id": Uuid::nil(), "event_type": event_type,
+                "date_value": null, "date_sort": null, "date_qualifier": "exact",
+                "date_value2": null, "calendar": "gregorian", "cause": null,
+                "place_id": null, "person_id": person, "family_id": family,
+                "description": null, "created_at": at, "updated_at": at, "deleted_at": null
+            })
+        };
+        let citation = |id: u128, event: Uuid| {
+            serde_json::json!({
+                "id": Uuid::from_u128(id), "source_id": source, "person_id": null,
+                "event_id": event, "family_id": null, "page": null, "confidence": null,
+                "text": null, "created_at": at, "updated_at": at
+            })
+        };
+        serde_json::from_value(serde_json::json!({
+            "sosa_number": null,
+            "persons": [],
+            "names": [{
+                "id": Uuid::from_u128(12), "person_id": person, "name_type": "birth",
+                "given_names": "Jean", "surname": "Nomexemple", "surname_prefix": null,
+                "prefix": null, "suffix": null, "nickname": null, "is_primary": true,
+                "sort_order": 0, "created_at": at, "updated_at": at
+            }],
+            "events": [
+                event(birth, "military_service", Some(person), None),
+                event(marriage, "marriage", None, Some(family)),
+            ],
+            "places": [],
+            "spouses": [],
+            "children": [],
+            "citations": [citation(13, birth), citation(14, marriage)],
+            "sources": [{
+                "id": source, "tree_id": Uuid::nil(),
+                "title": "AD01 - Exampleville - Registres matricules - 1890", "author": null,
+                "publisher": null, "abbreviation": null, "created_at": at,
+                "updated_at": at, "deleted_at": null
+            }],
+            "profile_media": [],
+            "profile_vignettes": [],
+            "event_media": [],
+            "gallery": { "media": [], "vignettes": [] }
+        }))
+        .expect("a page bundle")
+    }
+
+    /// The citation of an individual event carries its principal's name to
+    /// the archive link; a family event's carries none.
+    #[test]
+    fn an_event_s_citation_carries_its_principal_s_name_to_the_archive() {
+        let (person, birth, marriage) =
+            (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
+        let citations = citations_by_event(&cited_bundle(person, birth, marriage));
+        let person_of = |event: Uuid| match &citations[&event][0].archive {
+            Some(ArchiveOffer::Register(link)) => {
+                assert_eq!(link.citation.person, link.evidence.person);
+                link.citation.person.clone()
+            }
+            other => panic!("expected a register, got {other:?}"),
+        };
+        assert_eq!(
+            person_of(birth),
+            Some(oxidgene_archives::CitedPerson {
+                surname: "Nomexemple".to_owned(),
+                given_names: Some("Jean".to_owned()),
+            })
+        );
+        assert_eq!(person_of(marriage), None);
     }
 
     #[test]

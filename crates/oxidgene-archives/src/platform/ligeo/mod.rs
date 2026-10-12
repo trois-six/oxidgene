@@ -10,6 +10,8 @@
 //! with the cited locality and parish; its viewer address is
 //! `/ark:/<naan>/<id>/<tag>/<group>/<view>`, and for a `display: "iiif"`
 //! archive its IIIF Presentation 2 manifest gives the image count and sizes.
+//! An index of persons whose settings name a surname input is searched by
+//! the cited person's surname where the other parts leave several persons.
 //! Archive Portals §4.5 specifies the requests.
 
 #[cfg(any(test, feature = "live"))]
@@ -27,7 +29,7 @@ use super::select::{Candidate, Selection, parish_key, select};
 use super::view::{cited_views, view_target};
 use super::{BoxFuture, Platform, PortalEndpoint};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
-use crate::citation::CitationParts;
+use crate::citation::{CitationParts, CitedPerson};
 use crate::transport::PortalFetch;
 use crate::{ArchiveImage, ArchiveTarget, ArchiveView, ResolveError};
 use page::Row;
@@ -60,8 +62,13 @@ impl Platform for Ligeo {
 
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String> {
         let settings = Settings::read(collection).ok()?;
-        let path = settings.results_path(&settings.filters(citation));
+        let named = settings.names_first(citation);
+        let path = settings.results_path(&settings.filters(citation, named));
         Some(format!("{}{path}", settings.origin))
+    }
+
+    fn searches_by_name(&self, collection: &Collection) -> bool {
+        Settings::read(collection).is_ok_and(|settings| settings.fields.surname.is_some())
     }
 
     fn resolve<'a>(
@@ -141,41 +148,127 @@ async fn resolve(
 /// The search's path and answer. A cited call number the portal writes
 /// otherwise finds nothing: the search by the other parts then runs, once.
 /// A portal listing the cited locality under another name finds no register
-/// of it: the search for that name then runs, once (Archive Portals §4.5,
-/// step 1).
+/// of it: the search for that name then runs, once. An index of persons
+/// whose rows the other parts leave several, or more than a page, is
+/// searched once more with the cited person's surname, unless it went with
+/// the first search (Archive Portals §4.5, step 1).
 async fn search(
     settings: &Settings,
     citation: &CitationParts,
     fetch: &dyn PortalFetch,
 ) -> Result<(String, page::Found), ResolveError> {
-    let path = settings.results_path(&settings.filters(citation));
-    let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
-    let (searched, path, found) = if !found.rows.is_empty()
-        || settings.fields.call_number.is_none()
-        || citation.call_number.is_none()
+    let named = settings.names_first(citation);
+    let (mut path, mut found) = run(settings, citation, named, fetch).await?;
+    let mut searched = citation.clone();
+    if found.rows.is_empty()
+        && settings.fields.call_number.is_some()
+        && citation.call_number.is_some()
     {
-        (citation.clone(), path, found)
-    } else {
-        let mut plain = citation.clone();
-        plain.call_number = None;
-        let path = settings.results_path(&settings.filters(&plain));
-        let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
-        (plain, path, found)
-    };
-    let Some(locality) = search_again(&found, citation, settings) else {
+        searched.call_number = None;
+        (path, found) = run(settings, &searched, named, fetch).await?;
+    }
+    if let Some(locality) = search_again(&found, citation, settings) {
+        let renamed = CitationParts {
+            locality,
+            ..searched.clone()
+        };
+        let (again, answer) = run(settings, &renamed, named, fetch).await?;
+        if !answer.rows.is_empty() {
+            (path, found, searched) = (again, answer, renamed);
+        }
+    }
+    if named || !settings.names(&searched) || singles_out(&found, citation, settings) {
         return Ok((path, found));
-    };
-    let renamed = CitationParts {
-        locality,
-        ..searched
-    };
-    let again = settings.results_path(&settings.filters(&renamed));
-    let answer = page::results(&fetch.get(&again).await?, &settings.columns)?;
+    }
+    let (again, answer) = run(settings, &searched, true, fetch).await?;
     Ok(if answer.rows.is_empty() {
         (path, found)
     } else {
         (again, answer)
     })
+}
+
+/// One search of `citation`, with the cited person's surname when `named`.
+async fn run(
+    settings: &Settings,
+    citation: &CitationParts,
+    named: bool,
+    fetch: &dyn PortalFetch,
+) -> Result<(String, page::Found), ResolveError> {
+    let path = settings.results_path(&settings.filters(citation, named));
+    let found = page::results(&fetch.get(&path).await?, &settings.columns)?;
+    Ok((path, found))
+}
+
+/// Whether an answer leaves nothing a surname could narrow: all on its
+/// page, with one row at most, none to open, or one chosen.
+fn singles_out(found: &page::Found, citation: &CitationParts, settings: &Settings) -> bool {
+    !found.total.is_some_and(|total| total > found.rows.len())
+        && (found.rows.len() <= 1
+            || !found.rows.iter().any(|row| row.payload.register.is_some())
+            || matches!(choose(&found.rows, citation, settings), Selection::One(_)))
+}
+
+/// The person a row of an index names: `SURNAME, Given, Given`, or the
+/// surname alone.
+pub(super) fn person_of(text: &str) -> Option<CitedPerson> {
+    let (surname, given) = text.split_once(',').unwrap_or((text, ""));
+    let surname = surname.trim();
+    let given: Vec<&str> = given
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .collect();
+    (!surname.is_empty()).then(|| CitedPerson {
+        surname: surname.to_owned(),
+        given_names: (!given.is_empty()).then(|| given.join(" ")),
+    })
+}
+
+/// Whether a row's person is the cited one, case, accents and punctuation
+/// aside: every word of the cited surname is one of the row's surname (a
+/// particle written after it, `EXEMPLE (de la)`), and the first cited given
+/// name is among the row's, where both give them.
+fn is_person(row: &CitedPerson, cited: &CitedPerson) -> bool {
+    let words =
+        |text: &str| -> Vec<String> { fold(text).split_whitespace().map(str::to_owned).collect() };
+    let within = |part: &str, whole: &str| {
+        let (part, whole) = (words(part), words(whole));
+        !part.is_empty() && part.iter().all(|word| whole.contains(word))
+    };
+    let first_given = cited
+        .given_names
+        .as_deref()
+        .and_then(|given| given.split_whitespace().next());
+    within(&cited.surname, &row.surname)
+        && match (first_given, row.given_names.as_deref()) {
+            (Some(first), Some(given)) => within(first, given),
+            _ => true,
+        }
+}
+
+/// The rows of the cited person, when some name them; otherwise every row,
+/// the tree and the register spelling a name differently. Rows that name no
+/// person, or a citation without one, keep them all.
+fn of_person<'r>(
+    rows: &'r [Candidate<Row>],
+    person: Option<&CitedPerson>,
+) -> Vec<&'r Candidate<Row>> {
+    let all: Vec<&Candidate<Row>> = rows.iter().collect();
+    let Some(person) = person else {
+        return all;
+    };
+    let named: Vec<&Candidate<Row>> = rows
+        .iter()
+        .filter(|row| {
+            row.payload
+                .person
+                .as_deref()
+                .and_then(person_of)
+                .is_some_and(|named| is_person(&named, person))
+        })
+        .collect();
+    if named.is_empty() { all } else { named }
 }
 
 /// The name the collection is searched for once more when its answer for
@@ -257,7 +350,8 @@ fn as_cited(
 }
 
 /// The row of the cited register, among those with a viewer link: a
-/// register listed without one is not digitised. Rows are compared as the
+/// register listed without one is not digitised. An index's rows of the
+/// cited person come first ([`of_person`]). Rows are compared as the
 /// citation reads them ([`as_cited`]); a collection whose rows show no
 /// locality, a series searched by year alone, keeps every row whatever the
 /// cited locality. The call number only breaks a tie: the portals show none
@@ -275,8 +369,10 @@ fn choose<'r>(
         String::new()
     };
     let parish = citation.parish.as_deref().map(parish_key);
-    let viewable: Vec<&Candidate<Row>> = rows
-        .iter()
+    // The cited person's rows first: another person's sheet is never opened
+    // in place of theirs, which may have no viewer link.
+    let viewable: Vec<&Candidate<Row>> = of_person(rows, citation.person.as_ref())
+        .into_iter()
         .filter(|row| row.payload.register.is_some())
         .collect();
     let mut cited = citation.clone();

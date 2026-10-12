@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 
 pub use catalog::{Archive, CatalogError, Collection, Display, Level, Period};
 pub use citation::{
-    Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Series, Side,
+    Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedPerson, CitedView, Series, Side,
 };
 pub use platform::viewer::{GoTo, Submit, VIEWERS_JSON, Viewer};
 pub use platform::{Access, Licence, Platform, PortalEndpoint};
@@ -254,6 +254,13 @@ impl ArchiveRegistry {
             .map(AsRef::as_ref)
     }
 
+    /// Whether `collection` is searched per person, by the cited person's
+    /// name ([`Platform::searches_by_name`]).
+    pub fn searches_by_name(&self, collection: &Collection) -> bool {
+        self.platform(&collection.platform)
+            .is_some_and(|platform| platform.searches_by_name(collection))
+    }
+
     /// Reads a source title with the grammar of the archive its code names,
     /// or the default grammar for a code the catalogue does not list.
     pub fn parse(&self, title: &str) -> Option<CitationParts> {
@@ -391,6 +398,23 @@ impl<'r> Resolver<'r> {
             .registry
             .candidates(citation)
             .ok_or(ResolveError::NoAdapter)?;
+        // The cited person's name reaches a collection searched per person
+        // only: no other adapter sees it, and it does not split the cache
+        // of a register several persons' events cite.
+        let unnamed;
+        let citation = if citation.person.is_some()
+            && !collections
+                .iter()
+                .any(|collection| self.registry.searches_by_name(collection))
+        {
+            unnamed = CitationParts {
+                person: None,
+                ..citation.clone()
+            };
+            &unnamed
+        } else {
+            citation
+        };
         if let Some(target) = self.cached(citation) {
             return Ok(target);
         }

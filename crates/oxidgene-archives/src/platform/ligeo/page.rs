@@ -89,6 +89,8 @@ pub(super) struct Row {
     pub(super) register: Option<Register>,
     pub(super) places: Vec<Place>,
     pub(super) parishes: Vec<String>,
+    /// The person a row of an index of persons names, as written.
+    pub(super) person: Option<String>,
 }
 
 /// The rows of a results page, and the count the page announces.
@@ -327,6 +329,7 @@ fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
             register: link.map(|link| link.register),
             places,
             parishes,
+            person: cells.get(columns.person.as_ref()),
         },
     }
 }

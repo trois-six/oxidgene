@@ -135,6 +135,7 @@ async fn registers(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let (document, level) = find_document(&settings, &citation, fetch)
         .await
@@ -166,6 +167,7 @@ async fn registers(
                 candidate.payload.id
             )),
             numbers: candidate.numbers,
+            person: None,
         })
         .collect();
     // An aid lists registers without images beside the others: the first

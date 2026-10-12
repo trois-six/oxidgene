@@ -58,10 +58,19 @@ impl Platform for Scripted {
     }
 
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String> {
+        let person = citation
+            .person
+            .as_ref()
+            .map(|person| format!("&name={}", person.surname))
+            .unwrap_or_default();
         Some(format!(
-            "https://archives.example.org/{}?act={}",
+            "https://archives.example.org/{}?act={}{person}",
             collection.id, citation.act
         ))
+    }
+
+    fn searches_by_name(&self, collection: &Collection) -> bool {
+        collection.portal["by_name"].as_bool() == Some(true)
     }
 
     fn resolve<'a>(
@@ -259,6 +268,40 @@ fn keeps_resolved_targets_for_the_session() {
     let second = block_on(resolver.resolve(&citation, &transport)).unwrap();
     assert_eq!(first, second);
     assert_eq!(transport.requests.load(Ordering::SeqCst), 1);
+}
+
+/// The cited person's name reaches a collection searched by name, and no
+/// other: a register several persons' events cite is one cache entry.
+#[test]
+fn only_a_collection_searched_by_name_receives_the_cited_person() {
+    let plain = registry(outcome("none"), outcome("view"));
+    let named = |surname: &str| CitationParts {
+        person: Some(CitedPerson {
+            surname: surname.to_owned(),
+            given_names: Some("Jean".to_owned()),
+        }),
+        ..citation(&plain, MARRIAGE_1792)
+    };
+    let resolver = Resolver::new(&plain);
+    let transport = Counting::default();
+    let first = block_on(resolver.resolve(&named("Nomexemple"), &transport)).unwrap();
+    assert_eq!(
+        first.url(),
+        "https://archives.example.org/civil-status?act=M#view"
+    );
+    let second = block_on(resolver.resolve(&named("Autrenom"), &transport)).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 2);
+
+    let mut by_name = outcome("view");
+    by_name["by_name"] = serde_json::json!(true);
+    let searched = registry(outcome("none"), by_name);
+    let resolver = Resolver::new(&searched);
+    let target = block_on(resolver.resolve(&named("Nomexemple"), &Counting::default())).unwrap();
+    assert_eq!(
+        target.url(),
+        "https://archives.example.org/civil-status?act=M&name=Nomexemple#view"
+    );
 }
 
 #[test]

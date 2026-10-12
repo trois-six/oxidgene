@@ -33,6 +33,7 @@ fn citation(locality: &str, act: &Act) -> CitationParts {
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     }
 }
 
@@ -141,6 +142,7 @@ async fn registers(
             images: None,
             address: Some(node.payload),
             numbers: node.numbers,
+            person: None,
         })
         .collect())
 }

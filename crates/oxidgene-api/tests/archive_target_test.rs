@@ -16,7 +16,9 @@ use axum::http::{Method, StatusCode};
 use oxidgene_api::service::archive::ArchivePortals;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_archives::platform::BoxFuture;
-use oxidgene_archives::{FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport};
+use oxidgene_archives::{
+    ArchiveRegistry, FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
+};
 use serde_json::{Value, json};
 
 use common::{gql, gql_error_code, new_person, new_tree, ok, send, setup_db, test_media_root};
@@ -718,4 +720,209 @@ async fn a_portal_address_in_the_citation_is_the_target_as_it_is() {
     assert_eq!(gql_target["kind"], "VIEW", "{response}");
     assert_eq!(gql_target["url"], address);
     assert_eq!(portal.connections(), 0);
+}
+
+/// A fictitious archive whose military registers are an index of persons
+/// searched by name that only a browser reaches: the backend answers the
+/// filtered search page, built without a request.
+const NAMED_INDEX: &str = r#"{
+    "id": "fr-ad00",
+    "country": "FR",
+    "level": "departmental",
+    "name": "Archives départementales d'Exemple",
+    "citation_codes": ["AD00"],
+    "website": "https://archives.example.org",
+    "collections": [{
+        "id": "military-registers",
+        "acts": ["RM"],
+        "platform": "ligeo",
+        "portal": {
+            "origin": "https://archives.example.org",
+            "transport": "browser",
+            "search": "matricule",
+            "node": 38,
+            "fields": {
+                "year_from": "Rech_classe_debut",
+                "year_to": "Rech_classe_fin",
+                "number": "Rech_matricule",
+                "surname": "Rech_nom"
+            },
+            "columns": {
+                "period": "Classe",
+                "numbers": "Matricule",
+                "person": "Nom, Prénom(s)"
+            }
+        }
+    }]
+}"#;
+const NAMED_REGISTERS: &str = "AD00 - Registres matricules - 1890";
+
+/// A router whose archive catalogue is [`NAMED_INDEX`], over `portal`.
+async fn named_index_app(portal: &Arc<Recorded>) -> Router {
+    let registry: &'static ArchiveRegistry = Box::leak(Box::new(
+        ArchiveRegistry::new(
+            &[("fr", NAMED_INDEX)],
+            oxidgene_archives::platform::builtin(),
+        )
+        .expect("a valid catalogue"),
+    ));
+    let state = AppState::new(setup_db().await, test_media_root()).with_archive_portals(
+        ArchivePortals::with_catalogue(registry, Arc::clone(portal) as Arc<dyn PortalTransport>),
+    );
+    build_router(state)
+}
+
+/// A person of `tree` named `given` `surname`; its id.
+async fn named_person(app: &Router, tree: &str, surname: &str, given: &str) -> String {
+    let person = new_person(app, tree).await;
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/persons/{person}/names"),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": given,
+            "surname": surname,
+            "is_primary": true
+        })),
+    )
+    .await;
+    person
+}
+
+async fn cite(app: &Router, tree: &str, body: Value) -> String {
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/citations"),
+        Some(body),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// The filtered search page both surfaces answer for `citation`.
+async fn offline_url(app: &Router, tree: &str, source: &str, citation: &str) -> String {
+    let (status, target) = rest(app, tree, source, Some(citation)).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "results");
+    let response = graphql(app, tree, source, Some(citation)).await;
+    assert!(response.get("errors").is_none(), "{response}");
+    assert_eq!(
+        response["data"]["source"]["archiveTarget"]["url"],
+        target["url"]
+    );
+    target["url"].as_str().unwrap().to_owned()
+}
+
+/// The surname of the person a stored citation is about reaches an index of
+/// persons searched by name, on both surfaces: the citation's own person
+/// or its individual event's principal, never a family event's spouses,
+/// and only where no cited matricule finds the person's row. The given
+/// names never leave.
+#[tokio::test]
+async fn an_index_of_persons_is_sent_the_cited_person_s_surname_on_both_surfaces() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = named_index_app(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let source = new_source(&app, &tree, NAMED_REGISTERS).await;
+    let person = named_person(&app, &tree, "Nomexemple", "Jean Pierre").await;
+
+    let of_person = cite(
+        &app,
+        &tree,
+        json!({ "source_id": source, "person_id": person }),
+    )
+    .await;
+    let url = offline_url(&app, &tree, &source, &of_person).await;
+    assert!(
+        url.starts_with("https://archives.example.org/archive/resultats/matricule/n:38?")
+            && url.contains("Rech_classe_debut=1890")
+            && url.contains("&Rech_nom=Nomexemple&")
+            && !url.contains("Jean"),
+        "{url}"
+    );
+
+    // Cited for the principal of an individual event.
+    let event = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({ "event_type": "military_service", "person_id": person })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let of_event = cite(
+        &app,
+        &tree,
+        json!({ "source_id": source, "event_id": event }),
+    )
+    .await;
+    assert!(
+        offline_url(&app, &tree, &source, &of_event)
+            .await
+            .contains("&Rech_nom=Nomexemple&")
+    );
+
+    // A cited matricule finds the person's row: the name stays.
+    let numbered = cite(
+        &app,
+        &tree,
+        json!({ "source_id": source, "person_id": person, "page": "matricule 12" }),
+    )
+    .await;
+    let url = offline_url(&app, &tree, &source, &numbered).await;
+    assert!(
+        url.contains("Rech_matricule=12") && !url.contains("Rech_nom"),
+        "{url}"
+    );
+
+    // A family event is about two persons: no name.
+    let family = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/families"),
+        None,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/families/{family}/spouses"),
+        Some(json!({ "person_id": person, "role": "husband" })),
+    )
+    .await;
+    let marriage = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({ "event_type": "marriage", "family_id": family })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let of_family = cite(
+        &app,
+        &tree,
+        json!({ "source_id": source, "event_id": marriage }),
+    )
+    .await;
+    assert!(
+        !offline_url(&app, &tree, &source, &of_family)
+            .await
+            .contains("Rech_nom")
+    );
+    // The source on its own is about no one.
+    let (status, target) = rest(&app, &tree, &source, None).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert!(!target["url"].as_str().unwrap().contains("Rech_nom"));
+    assert_eq!(portal.connections(), 0, "the portal needs a browser");
 }

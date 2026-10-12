@@ -27,6 +27,7 @@ use std::fmt;
 use oxidgene_core::calendar;
 use oxidgene_core::enums::{Calendar, DocumentCategory};
 use oxidgene_core::search::fold_words;
+use oxidgene_core::types::PersonName;
 use serde::{Deserialize, Serialize};
 
 /// What separates the fields of a normalized citation.
@@ -832,6 +833,41 @@ pub struct CitationParts {
     /// unless the cited name finds nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternate_localities: Vec<String>,
+    /// The person the citation is attached to, by the name the tree gives
+    /// them: the citation's own person, or the principal of the individual
+    /// event it is attached to (Archive Portals §5.1). Context, not a part
+    /// of the citation: only a collection searched per person reads it
+    /// ([`crate::Platform::searches_by_name`]), and the resolver drops it
+    /// before any other collection sees it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<CitedPerson>,
+}
+
+/// The name of the person a citation is attached to.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CitedPerson {
+    /// The surname as written, its particle included (`de la Exemple`).
+    pub surname: String,
+    /// The given names, as one text (`Jean Baptiste`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub given_names: Option<String>,
+}
+
+impl CitedPerson {
+    /// The person a tree's name designates; `None` without a surname, by
+    /// which a portal searches its persons.
+    pub fn of(name: &PersonName) -> Option<Self> {
+        let surname = name.full_surname()?.trim().to_owned();
+        (!surname.is_empty()).then(|| Self {
+            surname,
+            given_names: name
+                .given_names
+                .as_deref()
+                .map(str::trim)
+                .filter(|given| !given.is_empty())
+                .map(str::to_owned),
+        })
+    }
 }
 
 /// What the free fields after the act or the series give.
@@ -937,6 +973,7 @@ impl CitationParts {
             views: tail.views,
             view_count: tail.view_count,
             alternate_localities: Vec::new(),
+            person: None,
         })
     }
 
@@ -989,6 +1026,7 @@ impl CitationParts {
             views: tail.views,
             view_count: tail.view_count,
             alternate_localities: Vec::new(),
+            person: None,
         })
     }
 

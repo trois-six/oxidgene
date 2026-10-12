@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:07:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -140,6 +140,12 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   ([Archive Portals §4, §11](archives.md#11-french-departmental-portals)).
 - [x] Catalogue the Bouches-du-Rhône archives once their portal passes its
   live check ([Archive Portals §11.5](archives.md#115-survey-by-department)).
+- [x] Search an index of persons by the cited person's surname where the
+  other parts leave several persons
+  ([Archive Portals §4.5](archives.md#45-ligeo)).
+- [ ] Catalogue the Bouches-du-Rhône military registers, searched by the
+  cited person's surname, once their portal passes its live check
+  ([Archive Portals §11.5](archives.md#115-survey-by-department)).
 - [ ] Catalogue the municipal archives that publish their own civil status
   (Lyon, Bordeaux, Marseille), then the Swiss cantonal archives and other
   countries.

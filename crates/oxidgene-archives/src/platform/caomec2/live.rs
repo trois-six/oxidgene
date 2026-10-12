@@ -65,6 +65,7 @@ async fn registers(
         views: Vec::new(),
         view_count: None,
         alternate_localities: Vec::new(),
+        person: None,
     };
     let found = search(&settings, &citation, fetch)
         .await
@@ -81,6 +82,7 @@ async fn registers(
             images: None,
             address: Some(candidate.payload),
             numbers: None,
+            person: None,
         })
         .collect();
     if registers.is_empty() {
