@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T14:15:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:07:45Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -133,12 +133,12 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   address per view to the cited view, and say why a portal's server failed
   ([Archive Portals §6.1](archives.md#61-desktop)).
 - [x] Catalogue the French departmental archives with an adapter per portal
-  platform — every department but the Bouches-du-Rhône — and the overseas
+  platform — every department — and the overseas
   civil status of the Archives nationales d'outre-mer, the one portal
   reached over plain `http`; open a register behind a portal's reuse
   licence once the reader has accepted it
   ([Archive Portals §4, §11](archives.md#11-french-departmental-portals)).
-- [ ] Catalogue the Bouches-du-Rhône archives once their portal passes its
+- [x] Catalogue the Bouches-du-Rhône archives once their portal passes its
   live check ([Archive Portals §11.5](archives.md#115-survey-by-department)).
 - [ ] Catalogue the municipal archives that publish their own civil status
   (Lyon, Bordeaux, Marseille), then the Swiss cantonal archives and other

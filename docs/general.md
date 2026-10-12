@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:07:45Z }
 ---
 
 
@@ -183,9 +183,8 @@ access control.
     language and the conventions of each country kept as data; French is
     shipped.
 - Catalogue archives per country and level as data, each served by one
-    adapter per portal platform; today every French departmental archive but
-    the Bouches-du-Rhône, and the overseas civil status of the Archives
-    nationales d'outre-mer. Acts, tables, censuses, military registers,
+    adapter per portal platform; today every French departmental archive,
+    and the overseas civil status of the Archives nationales d'outre-mer. Acts, tables, censuses, military registers,
     conscription lists, succession tables and cemetery burial registers are
     resolved.
 - Complete a partial citation in a "Find in the archives" dialog.

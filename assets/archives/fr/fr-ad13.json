@@ -1,0 +1,88 @@
+{
+  "id": "fr-ad13",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Bouches-du-Rhône",
+  "jurisdiction": ["13"],
+  "areas": ["Bouches-du-Rhône"],
+  "citation_codes": ["AD13"],
+  "website": "https://www.archives13.fr/",
+  "display": "portal",
+  "terms": "https://www.archives13.fr/n/reproduire-reutiliser-les-archives/n:295",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives13.fr",
+        "transport": "browser",
+        "search": "etatcivil",
+        "node": 64,
+        "fields": {
+          "locality": "Rech_commune",
+          "act": "Rech_typeacte[]",
+          "year_from": "Rech_annee_debut",
+          "year_to": "Rech_annee_fin"
+        },
+        "acts": {
+          "B": "NB",
+          "N": "NB",
+          "M": "Mariage",
+          "S": "SD",
+          "D": "SD",
+          "TD": {
+            "Rech_collection[]": "table_decennale"
+          }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": ["Type de document", "Type d'acte"],
+          "parish": "Paroisses, hôpitaux, municipalités",
+          "period": "Date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives13.fr",
+        "transport": "browser",
+        "search": "recensement2",
+        "node": 45,
+        "fields": {
+          "locality": "Rech_communes",
+          "year": "Rech_annee"
+        },
+        "columns": {
+          "locality": "Communes",
+          "acts": "Typologie",
+          "period": "Année"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives13.fr",
+        "transport": "browser",
+        "search": "enregistrement",
+        "node": 33,
+        "fields": {
+          "locality": "Rech_commune",
+          "year_from": "Rech_annee_debut",
+          "year_to": "Rech_annee_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Typologie",
+          "period": "Date"
+        }
+      }
+    }
+  ]
+}
