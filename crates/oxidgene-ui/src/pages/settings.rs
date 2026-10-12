@@ -10,7 +10,9 @@ use oxidgene_core::enums::{
 use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, DownloadableExport, ExportChoices, UpdateTreeBody};
+use crate::api::{
+    ApiClient, ApiError, ArchiveChoices, DownloadableExport, ExportChoices, UpdateTreeBody,
+};
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
     calendar_from_value, calendar_value, format_date, format_example, input_format_label,
@@ -41,7 +43,7 @@ fn is_live(export: &DownloadableExport) -> bool {
 async fn wait_for_export(
     api: &ApiClient,
     tree_id: Uuid,
-    choices: ExportChoices,
+    choices: ArchiveChoices,
 ) -> Result<DownloadableExport, ApiError> {
     let started = trace_ui_action_step(
         UiActionStep::ExportQueue,
@@ -136,7 +138,7 @@ type ExportOutcome = Result<Option<String>, String>;
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
-    choices: ExportChoices,
+    choices: ArchiveChoices,
     _file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
@@ -160,7 +162,7 @@ async fn export_gedzip(
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
-    choices: ExportChoices,
+    choices: ArchiveChoices,
     file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
@@ -418,10 +420,13 @@ pub fn Settings(tree_id: String) -> Element {
         let is_gedzip = export_format() == "gedzip";
         // The merges are a plain GEDCOM's, the media a GEDZIP's.
         let choices = ExportChoices {
-            merge_occupations: !is_gedzip && export_merge_occupations(),
-            merge_names: !is_gedzip && export_merge_names(),
+            merge_occupations: export_merge_occupations(),
+            merge_names: export_merge_names(),
             include_notes_and_sources: export_notes_and_sources(),
-            include_media: !is_gedzip || export_media(),
+        };
+        let archive_choices = ArchiveChoices {
+            include_notes_and_sources: export_notes_and_sources(),
+            include_media: export_media(),
         };
         let extension = if is_gedzip { "gdz" } else { "ged" };
         let file_name = format!("{base_name}.{extension}");
@@ -433,7 +438,16 @@ pub fn Settings(tree_id: String) -> Element {
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
         spawn(trace_ui_action(action, async move {
             let outcome = if is_gedzip {
-                export_gedzip(&api, tid, choices, &file_name, &i18n, target, last_export).await
+                export_gedzip(
+                    &api,
+                    tid,
+                    archive_choices,
+                    &file_name,
+                    &i18n,
+                    target,
+                    last_export,
+                )
+                .await
             } else {
                 export_gedcom(&api, tid, choices, &file_name, &i18n).await
             };

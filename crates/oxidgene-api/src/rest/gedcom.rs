@@ -20,15 +20,16 @@ use crate::service::history;
 /// GET /api/v1/trees/:tree_id/gedcom/export
 ///
 /// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
-/// `?format=gedzip` to instead receive a GEDZIP archive (`application/zip`)
-/// wrapping the same GEDCOM data. Pass `?merge_occupations=true` to collapse
-/// each person's multiple `OCCU` tags back into one, comma-separated. Pass
-/// `?merge_names=true` to collapse each person's non-primary names into the
-/// primary name's `SURN` tag, comma-separated. Pass
-/// `?include_notes_and_sources=false` to leave the notes and the sources out,
-/// and `?format=gedzip&include_media=false` to leave the media out of an
-/// archive. Either way the export is recorded in the tree's audit log, as
-/// GraphQL's `exportGedcom` records it.
+/// `?format=gedzip` to instead receive a GEDZIP archive (`application/zip`):
+/// the same records as GEDCOM 7.0, which GEDZIP requires, with the media.
+/// Pass `?merge_occupations=true` to collapse each person's multiple `OCCU`
+/// tags back into one, comma-separated, and `?merge_names=true` to collapse
+/// each person's non-primary names into the primary name's `SURN` tag,
+/// comma-separated: both are a plain GEDCOM's, which a GEDZIP, always
+/// lossless, does not read. Pass `?include_notes_and_sources=false` to leave
+/// the notes and the sources out, and `?format=gedzip&include_media=false`
+/// to leave the media out of an archive. Either way the export is recorded
+/// in the tree's audit log, as GraphQL's `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,

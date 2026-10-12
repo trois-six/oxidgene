@@ -7,7 +7,7 @@ use uuid::Uuid;
 use oxidgene_core::types::{Note, Person, PersonName};
 use oxidgene_core::{EventType, NameType, Privacy, Sex};
 use oxidgene_gedcom::export::{
-    ExportChoices, ExportOptions, ExportRecords, SubmitterSettings, export_gedcom,
+    ExportChoices, ExportOptions, ExportRecords, ExportTarget, SubmitterSettings, export_gedcom,
 };
 use oxidgene_gedcom::import::import_gedcom;
 
@@ -228,7 +228,7 @@ fn reexport(imported: &oxidgene_gedcom::ImportResult) -> String {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -710,7 +710,7 @@ fn the_export_names_its_submitter() {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id,
                 submitter,
             },
@@ -1158,7 +1158,7 @@ fn partners_are_exported_as_husband_and_wife() {
         },
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1385,7 +1385,7 @@ fn test_export_produces_valid_gedcom() {
         &result.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1412,7 +1412,7 @@ fn test_export_family() {
         &result.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1441,7 +1441,7 @@ fn test_export_source() {
         &result.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1461,7 +1461,7 @@ fn test_export_empty() {
         },
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1529,7 +1529,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         },
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1552,7 +1552,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
         &result.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1591,7 +1591,7 @@ fn test_roundtrip_preserves_individuals() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1634,7 +1634,7 @@ fn test_roundtrip_preserves_names() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1684,7 +1684,7 @@ fn test_roundtrip_preserves_surname_particle() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -1995,7 +1995,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -2118,7 +2118,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -2142,7 +2142,7 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
                 merge_occupations: true,
                 ..Default::default()
             },
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -2222,7 +2222,7 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -2255,7 +2255,7 @@ fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
                 merge_names: true,
                 ..Default::default()
             },
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -2391,7 +2391,7 @@ fn test_export_result_serialization() {
         },
         &ExportOptions {
             choices: ExportChoices::default(),
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -3237,7 +3237,7 @@ fn export_documented(choices: ExportChoices) -> String {
         &imported.records(),
         &ExportOptions {
             choices,
-            media_paths: &HashMap::new(),
+            target: ExportTarget::Gedcom,
             self_person_id: None,
             submitter: Default::default(),
         },
@@ -3473,4 +3473,328 @@ fn misplaced_events_and_an_unlisted_lds_status_are_read() {
     }
     let baptism = event_of(&result, EventType::LdsBaptism);
     assert_eq!(baptism.description.as_deref(), Some("STAT RECORDED"));
+}
+
+/// `tree` as the GEDCOM 5.5.1 of a `.ged` and as the GEDCOM 7.0 of a
+/// GEDZIP holding every medium it names but a web address, each written
+/// with the default choices; and that GEDZIP.
+fn both_exports(
+    tree: &mut oxidgene_gedcom::ImportResult,
+) -> (
+    oxidgene_gedcom::ExportResult,
+    oxidgene_gedcom::ExportResult,
+    Vec<u8>,
+) {
+    for medium in &mut tree.media {
+        if !medium.is_document() && !oxidgene_core::types::is_remote_url(&medium.file_path) {
+            medium.storage_key = Some(format!("media/{}", medium.id));
+        }
+    }
+    let mut media_paths = HashMap::new();
+    let mut files = Vec::new();
+    for medium in &tree.media {
+        if let Some(path) = oxidgene_gedcom::export::archive_path(medium) {
+            media_paths.insert(medium.id, path.clone());
+            files.push((path, b"BYTES".to_vec()));
+        }
+    }
+    let ged = export_as(tree, ExportTarget::Gedcom);
+    let gdz = export_as(
+        tree,
+        ExportTarget::Gedzip {
+            media_paths: &media_paths,
+        },
+    );
+    let archive =
+        oxidgene_gedcom::export::export_gedzip(&gdz.gedcom, &files).expect("writes a GEDZIP");
+    (ged, gdz, archive)
+}
+
+/// A GEDCOM's lines but the `FILE` ones, which a GEDZIP rewrites into its
+/// archive entries.
+fn without_files(gedcom: &str) -> Vec<&str> {
+    gedcom
+        .lines()
+        .filter(|line| !line.starts_with("1 FILE "))
+        .collect()
+}
+
+/// `lines` without the attributes that say nothing — no value and nothing
+/// beneath (a GeneWeb `#occu` alone): GEDCOM 7.0 requires an attribute's
+/// value and has no form for one without, so a GEDZIP cannot carry it.
+fn without_empty_attributes<'l>(lines: &[&'l str]) -> Vec<&'l str> {
+    const ATTRIBUTES: [&str; 13] = [
+        "CAST", "DSCR", "EDUC", "IDNO", "NATI", "NCHI", "NMR", "OCCU", "PROP", "RELI", "SSN",
+        "TITL", "FACT",
+    ];
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| {
+            let empty_attribute = line
+                .strip_prefix("1 ")
+                .is_some_and(|tag| ATTRIBUTES.contains(&tag));
+            let nothing_beneath = lines
+                .get(i + 1)
+                .is_none_or(|next| next.starts_with("0 ") || next.starts_with("1 "));
+            !(empty_attribute && nothing_beneath)
+        })
+        .map(|(_, line)| *line)
+        .collect()
+}
+
+/// What GEDCOM 5.5.1 and 7.0 write differently: age keywords, which 7.0
+/// writes as durations with a phrase; interpreted dates, dual years, dates
+/// before the common era and calendar escapes; text holding `@`; a long
+/// note, which only 5.5.1 continues on `CONC` lines.
+const VERSION_SENSITIVE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alder /Example/
+1 DEAT
+2 AGE CHILD
+1 BURI
+2 AGE STILLBORN
+1 RESI
+2 AGE INFANT
+1 CENS
+2 AGE < 1y 6m
+1 EVEN
+2 TYPE Lease
+2 DATE INT 1850 (about the harvest)
+1 OCCU Weaver
+2 DATE (unknown)
+1 EDUC Village school
+2 DATE 30 JAN 1648/49
+1 RELI Example faith
+2 DATE 44 B.C.
+1 NATI Example land
+2 DATE ABT @#DJULIAN@ 1700
+1 TITL Example title
+2 DATE BET @#DFRENCH R@ 1 VEND 3 AND @#DFRENCH R@ 5 BRUM 4
+1 DSCR Tall
+2 DATE EST 1801
+1 IDNO 12
+2 TYPE Register
+2 DATE @#DHEBREW@ 5 TSH 5600
+1 NOTE Written to someone@example.org about @@ signs
+1 NOTE A note long enough to run past the two hundred and fifty five \
+characters a GEDCOM 5.5.1 line holds, so that a plain export continues it on \
+CONC lines and a GEDZIP writes it whole on one line, the GEDCOM 7.0 way, \
+which has no line limit and no CONC at all, and still reads back the same.
+0 TRLR
+";
+
+/// The `gedcom.ged` of a GEDZIP is GEDCOM 7.0, conformant, and an import of
+/// the archive restores exactly what an import of the `.ged` does: every
+/// fixture of this file round-trips through both alike.
+#[test]
+fn a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does() {
+    for (name, fixture) in [
+        ("MINIMAL", MINIMAL_GEDCOM),
+        ("FAMILY", FAMILY_GEDCOM),
+        ("SOURCE", SOURCE_GEDCOM),
+        ("FREE_TEXT_SOURCE", FREE_TEXT_SOURCE_GEDCOM),
+        ("MULTIMEDIA", MULTIMEDIA_GEDCOM),
+        ("ASSOCIATION", ASSOCIATION_GEDCOM),
+        ("ASSOCIATION_DUPLICATE", ASSOCIATION_DUPLICATE_GEDCOM),
+        ("UNREADABLE_AGE", UNREADABLE_AGE_GEDCOM),
+        ("NOTE_RECORD", NOTE_RECORD_GEDCOM),
+        ("SEVERAL_NOTES", SEVERAL_NOTES_GEDCOM),
+        ("CITATION_TEXT", CITATION_TEXT_GEDCOM),
+        ("REPOSITORY", REPOSITORY_GEDCOM),
+        ("GENEANET", GENEANET_GEDCOM),
+        ("MULTI_OCCUPATION", MULTI_OCCUPATION_GEDCOM),
+        ("TWO_OCCUPATIONS", TWO_OCCUPATIONS_GEDCOM),
+        ("SURNAME_ALIAS", SURNAME_ALIAS_GEDCOM),
+        ("GENEWEB_CONVERTED", GENEWEB_CONVERTED_GEDCOM),
+        ("RESTRICTION", RESTRICTION_GEDCOM),
+        ("COUPLE", COUPLE_GEDCOM),
+        ("UNDEFINED_EVENT_TAGS", UNDEFINED_EVENT_TAGS_GEDCOM),
+        ("LDS_ORDINANCES", LDS_ORDINANCES_GEDCOM),
+        ("DOCUMENTED", DOCUMENTED_GEDCOM),
+        ("GEDCOM_7", GEDCOM_7),
+        ("MISPLACED_EVENTS", MISPLACED_EVENTS_GEDCOM),
+        ("VERSION_SENSITIVE", VERSION_SENSITIVE_GEDCOM),
+    ] {
+        let mut tree = import_gedcom(fixture, Uuid::now_v7()).expect("imports");
+        let (ged, gdz, archive) = both_exports(&mut tree);
+
+        assert!(ged.gedcom.contains("2 VERS 5.5.1\n"), "{name}");
+        assert!(
+            gdz.gedcom
+                .starts_with("\u{feff}0 HEAD\n1 GEDC\n2 VERS 7.0\n"),
+            "{name}: {}",
+            gdz.gedcom
+        );
+        let deviations = ged_io::spec::validate_bytes(gdz.gedcom.as_bytes());
+        assert!(
+            deviations.is_empty(),
+            "{name}: {deviations:?}\n{}",
+            gdz.gedcom
+        );
+
+        let from_ged = import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("imports the .ged");
+        let from_gdz = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
+            .expect("imports the GEDZIP");
+        assert_eq!(
+            from_gdz.files.len(),
+            tree.media
+                .iter()
+                .filter(|m| m.storage_key.is_some())
+                .count(),
+            "{name}: every packed file comes back"
+        );
+        assert_eq!(
+            without_files(&reexport(&from_gdz.result)),
+            without_empty_attributes(&without_files(&reexport(&from_ged))),
+            "{name}"
+        );
+    }
+}
+
+/// OxidGene's media extensions are documented extension tags of a GEDZIP's
+/// GEDCOM 7.0: its header declares each with the URI of its documentation.
+#[test]
+fn a_gedzip_declares_oxidgenes_extensions() {
+    let mut tree = import_gedcom(MULTIMEDIA_GEDCOM, Uuid::now_v7()).expect("imports");
+    let (ged, gdz, _) = both_exports(&mut tree);
+    for tag in ["_OXIDGENE_MEDIA", "_OXIDGENE_DOC", "_OXIDGENE_VIGNETTE"] {
+        let declaration = format!(
+            "2 TAG {tag} https://github.com/trois-six/oxidgene/blob/main/docs/api.md#{}\n",
+            tag.to_ascii_lowercase()
+        );
+        assert!(gdz.gedcom.contains(&declaration), "{}", gdz.gedcom);
+    }
+    assert!(gdz.gedcom.contains("1 _OXIDGENE_MEDIA {"), "{}", gdz.gedcom);
+    assert!(!ged.gedcom.contains("SCHMA"), "5.5.1 has no schema");
+}
+
+/// A person with three media: one under a Windows path, one under a
+/// relative path climbing out of the file's folder, one at a web address.
+const THREE_MEDIA_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Ann /Example/
+1 OBJE @M1@
+1 OBJE @M2@
+1 OBJE @M3@
+0 @M1@ OBJE
+1 FILE C:\\Photos\\portrait 1.jpg
+2 FORM jpg
+0 @M2@ OBJE
+1 FILE ../scans/register.png
+2 FORM png
+0 @M3@ OBJE
+1 FILE https://example.org/media/portrait.jpg
+2 FORM jpg
+0 TRLR
+";
+
+/// `THREE_MEDIA_GEDCOM` imported with the scan held, and its archive path.
+fn tree_holding_the_scan() -> (oxidgene_gedcom::ImportResult, Uuid, String) {
+    let mut tree = import_gedcom(THREE_MEDIA_GEDCOM, Uuid::now_v7()).expect("imports");
+    let scan = tree
+        .media
+        .iter_mut()
+        .find(|m| m.file_path.ends_with("register.png"))
+        .expect("the scan");
+    scan.storage_key = Some("media/scan".to_string());
+    let path = oxidgene_gedcom::export::archive_path(scan).expect("held media have a path");
+    let held = scan.id;
+    (tree, held, path)
+}
+
+/// `tree` exported with the default choices as `target` says.
+fn export_as(
+    tree: &oxidgene_gedcom::ImportResult,
+    target: ExportTarget<'_>,
+) -> oxidgene_gedcom::ExportResult {
+    export_gedcom(
+        &tree.records(),
+        &ExportOptions {
+            choices: ExportChoices::default(),
+            target,
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports")
+}
+
+/// A medium OxidGene holds no bytes for has no place in a GEDZIP, which
+/// names the files it carries and web addresses only: a `.ged` keeps its
+/// path, the GEDZIP leaves it out, with its links, and says so.
+#[test]
+fn a_gedzip_leaves_out_the_media_it_cannot_carry() {
+    let (tree, held, path) = tree_holding_the_scan();
+
+    let ged = export_as(&tree, ExportTarget::Gedcom);
+    assert!(ged.gedcom.contains("1 FILE C:\\Photos\\portrait 1.jpg\n"));
+    assert!(ged.warnings.is_empty(), "{:?}", ged.warnings);
+
+    let media_paths = HashMap::from([(held, path.clone())]);
+    let gdz = export_as(
+        &tree,
+        ExportTarget::Gedzip {
+            media_paths: &media_paths,
+        },
+    );
+    for absent in ["Photos", "file:", ".."] {
+        assert!(!gdz.gedcom.contains(absent), "{absent} in {}", gdz.gedcom);
+    }
+    for file in [path.as_str(), "https://example.org/media/portrait.jpg"] {
+        assert!(gdz.gedcom.contains(&format!("1 FILE {file}\n")), "{file}");
+    }
+    assert_eq!(gdz.gedcom.matches("1 OBJE @").count(), 2, "{}", gdz.gedcom);
+    assert_eq!(gdz.warnings.len(), 1, "{:?}", gdz.warnings);
+    assert!(gdz.warnings[0].starts_with("1 media"), "{:?}", gdz.warnings);
+    assert!(ged_io::spec::validate_bytes(gdz.gedcom.as_bytes()).is_empty());
+
+    let archive = oxidgene_gedcom::export::export_gedzip(&gdz.gedcom, &[(path, b"PNG".to_vec())])
+        .expect("writes a GEDZIP");
+    let back = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports");
+    let pages = back.result.media.iter().filter(|m| !m.is_document());
+    assert_eq!(pages.count(), 2, "the held scan and the web address");
+    assert_eq!(back.result.media_links.len(), 2);
+    assert_eq!(back.files.len(), 1);
+    assert!(
+        back.result.warnings.is_empty(),
+        "{:?}",
+        back.result.warnings
+    );
+}
+
+/// The merges serve a `.ged`'s importers; a GEDZIP, always lossless, keeps
+/// every profession and every name however they are set.
+#[test]
+fn a_gedzip_applies_no_merge() {
+    let mut tree = import_gedcom(MULTI_OCCUPATION_GEDCOM, Uuid::now_v7()).expect("imports");
+    let (_, lossless, _) = both_exports(&mut tree);
+    let merged = export_gedcom(
+        &tree.records(),
+        &ExportOptions {
+            choices: ExportChoices {
+                merge_occupations: true,
+                merge_names: true,
+                ..ExportChoices::default()
+            },
+            target: ExportTarget::Gedzip {
+                media_paths: &HashMap::new(),
+            },
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports");
+    assert_eq!(merged.gedcom, lossless.gedcom);
+    assert!(
+        merged.gedcom.matches("1 OCCU ").count() > 1,
+        "{}",
+        merged.gedcom
+    );
 }

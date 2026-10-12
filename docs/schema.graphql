@@ -3283,13 +3283,16 @@ type MutationRoot {
 	"""
 	renameFamilyName(treeId: ID!, input: RenameFamilyNameInput!): GqlFamilyNameRename!
 	"""
-	Queue a durable GEDZIP export. The artifact is downloaded through the
-	URL exposed by `exportJobStatus` once the worker completes it. A tree
-	already running a job answers CONFLICT. The options are
-	`exportGedcom`'s, plus `includeMedia: false` to pack no media and
-	write no `OBJE`.
+	Queue a durable GEDZIP export: a GEDCOM 7.0 `gedcom.ged` and the
+	media it references. The artifact is downloaded through the URL
+	exposed by `exportJobStatus` once the worker completes it. A tree
+	already running a job answers CONFLICT. Pass
+	`includeNotesAndSources: false` to leave the notes and the sources
+	out, and `includeMedia: false` to pack no media and write no `OBJE`.
+	A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
+	GEDCOM's.
 	"""
-	startExportJob(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean, includeNotesAndSources: Boolean, includeMedia: Boolean): GqlBackgroundJobStarted!
+	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean): GqlBackgroundJobStarted!
 	"""
 	Encode a Geneanet wizard session as a base64 archive.
 	"""

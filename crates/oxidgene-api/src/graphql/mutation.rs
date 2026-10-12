@@ -1350,17 +1350,18 @@ impl MutationRoot {
         .await
     }
 
-    /// Queue a durable GEDZIP export. The artifact is downloaded through the
-    /// URL exposed by `exportJobStatus` once the worker completes it. A tree
-    /// already running a job answers CONFLICT. The options are
-    /// `exportGedcom`'s, plus `includeMedia: false` to pack no media and
-    /// write no `OBJE`.
+    /// Queue a durable GEDZIP export: a GEDCOM 7.0 `gedcom.ged` and the
+    /// media it references. The artifact is downloaded through the URL
+    /// exposed by `exportJobStatus` once the worker completes it. A tree
+    /// already running a job answers CONFLICT. Pass
+    /// `includeNotesAndSources: false` to leave the notes and the sources
+    /// out, and `includeMedia: false` to pack no media and write no `OBJE`.
+    /// A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
+    /// GEDCOM's.
     async fn start_export_job(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        merge_occupations: Option<bool>,
-        merge_names: Option<bool>,
         include_notes_and_sources: Option<bool>,
         include_media: Option<bool>,
     ) -> Result<GqlBackgroundJobStarted> {
@@ -1369,9 +1370,7 @@ impl MutationRoot {
             let job_id = crate::service::background_job::start_export_job(
                 db_from_ctx(ctx),
                 tree_id,
-                crate::service::gedcom::export_choices(
-                    merge_occupations,
-                    merge_names,
+                crate::service::background_job::ArchiveChoices::from_options(
                     include_notes_and_sources,
                     include_media,
                 ),

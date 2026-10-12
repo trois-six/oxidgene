@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -155,7 +155,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 ## 13. Import and export
 
 - GEDCOM 5.5.1 and 7.0 import with version detection, and GEDCOM 5.5.1 export ([API Contract §4](api.md#4-gedcom-compatibility-reference)).
-- GEDZIP archives in and out, with their media ([Import](ui-import.md)).
+- GEDZIP archives in and out, with their media, written as the GEDCOM 7.0 the format requires ([API Contract](api.md#gedzip), [Import](ui-import.md)).
 - GeneWeb `.gw` import ([API Contract](api.md#geneweb-gw)).
 - A guided desktop import of a Geneanet tree that recovers its photos and documents and their links to persons ([Geneanet Media Import](geneanet-media-import.md), [Import §9](ui-import.md#9-from-geneanet-tab)).
 - An import receipt counting persons, families, events, sources, places, notes, images, documents and pages, with its warnings ([Import](ui-import.md#result)).

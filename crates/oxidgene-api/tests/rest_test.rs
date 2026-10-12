@@ -3642,8 +3642,6 @@ async fn tree_list_marks_only_running_file_imports() {
             source_key: Some(format!("jobs/{job_id}/source.gedcom")),
             payload_json: None,
             original_filename: None,
-            merge_occupations: false,
-            merge_names: false,
             include_notes_and_sources: true,
             include_media: true,
         },

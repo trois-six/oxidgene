@@ -489,22 +489,18 @@ pub struct FileImportStartedResponse {
 }
 
 /// Options for creating an asynchronous GEDZIP export: those of
-/// [`ExportGedcomQuery`] but the format.
+/// [`ExportGedcomQuery`] that a GEDZIP reads.
 #[derive(Debug, Deserialize)]
 pub struct StartExportJobQuery {
-    pub merge_occupations: Option<bool>,
-    pub merge_names: Option<bool>,
     pub include_notes_and_sources: Option<bool>,
     pub include_media: Option<bool>,
 }
 
 impl StartExportJobQuery {
     /// The choices these options make; an option left out keeps the
-    /// complete, lossless export.
-    pub fn choices(&self) -> crate::service::gedcom::ExportChoices {
-        crate::service::gedcom::export_choices(
-            self.merge_occupations,
-            self.merge_names,
+    /// complete export.
+    pub fn choices(&self) -> crate::service::background_job::ArchiveChoices {
+        crate::service::background_job::ArchiveChoices::from_options(
             self.include_notes_and_sources,
             self.include_media,
         )
@@ -530,13 +526,13 @@ pub struct ExportGedcomQuery {
     pub format: Option<String>,
     /// Collapse each person's multiple `OCCU` tags back into one
     /// (comma-separated), for importers such as Geneanet that only support
-    /// a single profession field. Defaults to `false` (one `OCCU` per
-    /// profession, lossless).
+    /// a single profession field, in a plain GEDCOM only: a GEDZIP is
+    /// always lossless. Defaults to `false` (one `OCCU` per profession).
     pub merge_occupations: Option<bool>,
     /// Collapse each person's non-primary names into the primary name's
     /// `SURN` tag (comma-separated), for importers such as Geneanet that
-    /// only read the first `NAME` structure. Defaults to `false` (one
-    /// `NAME` per name, lossless).
+    /// only read the first `NAME` structure, in a plain GEDCOM only.
+    /// Defaults to `false` (one `NAME` per name).
     pub merge_names: Option<bool>,
     /// Write the notes, and the sources with their citations and
     /// repositories. Defaults to `true`.

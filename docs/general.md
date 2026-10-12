@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 ---
 
 
@@ -108,9 +108,10 @@ access control.
     [Roadmap](roadmap.md)).
 - Import GeneWeb `.gw` files through `geneweb`, converted into the same domain
     mapping as GEDCOM.
-- Import and export GEDZIP `.gdz` archives. Embedded media use the ordinary
-    storage, validation, thumbnail, and linking pipeline; missing or unsupported
-    files produce warnings without discarding valid genealogy.
+- Import and export GEDZIP `.gdz` archives, whose `gedcom.ged` an export
+    writes as GEDCOM 7.0, as the format requires. Embedded media use the
+    ordinary storage, validation, thumbnail, and linking pipeline; missing or
+    unsupported files produce warnings without discarding valid genealogy.
 - Recover Geneanet media links through a guided desktop flow. Authentication
     and collection run in an incognito browser window, media shared by several
     people are stored once, and event evidence links are created only on an

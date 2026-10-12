@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:10:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 ---
 
 
@@ -409,10 +409,10 @@ restore at its top.
 
 Two export format options, each displayed as a card with icon, name, description and an action button:
 
-| Format | Extension | Description |
-|---|---|---|
-| GEDCOM 5.5.1 | `.ged` | Universal standard. Compatible with Ancestry, Geneanet, MyHeritage, MacFamilyTree and most genealogy software. |
-| GEDZIP | `.gdz` | GEDCOM archive including associated media files (photos, documents). Ideal for full backups or sharing with attachments. |
+| Format | Extension | Writes | Description |
+|---|---|---|---|
+| GEDCOM 5.5.1 | `.ged` | GEDCOM 5.5.1 text, its media referenced by their producers' paths | Standard genealogy exchange format, read by Ancestry, Geneanet, MyHeritage, MacFamilyTree and most genealogy software. |
+| GEDCOM 7.0 (GEDZIP) | `.gdz` | A ZIP archive: a GEDCOM 7.0 `gedcom.ged`, as GEDZIP requires, and the media files OxidGene holds | Recent exchange format bundling the media into one archive, read by software supporting GEDCOM 7.0. Ideal for full backups or sharing with attachments. A medium OxidGene holds no file for, which only a path outside the archive names, has no place in it and is left out with a warning; the `.ged` keeps it ([API Contract §4](api.md#gedzip)). |
 
 ### Export options (toggles)
 
@@ -424,8 +424,8 @@ section shows only the options of the chosen format.
 |---|---|
 | Include notes and sources | On by default. When disabled, the export leaves out every note (of a person, a family, an event, a source, a repository or a medium), every source with its citations, and every repository, which only sources reach. Nothing written points at a record left out, so the file still imports cleanly. A medium's own description stays: it describes the medium, it is not a note |
 | Include media (GEDZIP only) | On by default: the archive carries the photos and documents. When disabled, the archive holds `gedcom.ged` alone, and that GEDCOM has no `OBJE` record, no link to one and no identification (vignette) — not even a `FILE` reference to a file left behind, which an import would keep as a medium without its bytes. A plain GEDCOM never carries file bytes and always writes its media's references, so the option is not shown for it |
-| Merge occupations into a single field (GEDCOM only) | Off by default (one `OCCU` tag per profession, lossless). When enabled, collapses a person's multiple `OCCU` tags back into one, comma-separated, for compatibility with importers such as Geneanet that only support a single profession field. See [API Contract](api.md) (GEDCOM) |
-| Merge name aliases into a single field (GEDCOM only) | Off by default (one `NAME`/`SURN` structure per name, lossless). When enabled, collapses a person's non-primary names into the primary name's `SURN` tag, comma-separated, for compatibility with importers such as Geneanet that only read the first `NAME` structure. See [API Contract](api.md) (GEDCOM) |
+| Merge occupations into a single field (GEDCOM only) | Off by default (one `OCCU` tag per profession, lossless). When enabled, collapses a person's multiple `OCCU` tags back into one, comma-separated, for compatibility with importers such as Geneanet that only support a single profession field. A GEDZIP is always the complete export and has no such option. See [API Contract](api.md) (GEDCOM) |
+| Merge name aliases into a single field (GEDCOM only) | Off by default (one `NAME`/`SURN` structure per name, lossless). When enabled, collapses a person's non-primary names into the primary name's `SURN` tag, comma-separated, for compatibility with importers such as Geneanet that only read the first `NAME` structure. A GEDZIP has no such option either. See [API Contract](api.md) (GEDCOM) |
 | Include contemporary persons (planned) | Leaves out the persons the contemporary-person rules hide. It waits for those rules ([§8](#contemporary-persons-planned)) and is not shown |
 
 The options travel with the export request — the GEDCOM request, or the
@@ -437,7 +437,8 @@ Export is triggered directly by the format buttons.
 ### Submitter
 
 A card under the export options says who the exported files are from —
-GEDCOM's submitter (`SUBM`), which GEDCOM 5.5.1 requires: **Name**, **Email**
+GEDCOM's submitter (`SUBM`), which GEDCOM 5.5.1 requires and both exports
+write: **Name**, **Email**
 and **Address** (several lines), saved together by their own **Save** and
 stored on the tree (`submitter_name`, `submitter_email`,
 `submitter_address`). A blank name falls back to the person set as **Who am

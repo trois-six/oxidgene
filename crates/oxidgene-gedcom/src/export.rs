@@ -1,10 +1,12 @@
 //! OxidGene domain model → GEDCOM export.
 //!
 //! Converts domain model entities into `ged_io`'s model and writes it as
-//! GEDCOM 5.5.1. `ged_io`'s writer is conformant: it writes every line by the
-//! version's line rules (255 characters at most, a long text continued on
-//! `CONC` lines, a line break of any kind on a `CONT` line, `@` escaped) and
-//! repairs, as extension structures, what the version does not permit.
+//! GEDCOM 5.5.1 for a `.ged`, or as GEDCOM 7.0 for the `gedcom.ged` of a
+//! GEDZIP. `ged_io`'s writer is conformant: it converts the model to the
+//! version written, writes every line by the version's line rules (in 5.5.1,
+//! 255 characters at most and a long text continued on `CONC` lines; a line
+//! break of any kind on a `CONT` line, `@` escaped) and repairs, as extension
+//! structures, what the version does not permit.
 
 use std::collections::HashMap;
 
@@ -16,11 +18,11 @@ use ged_io::model::{
     HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
     MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
     Note as GedNote, Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail,
-    Repository as GedRepository, RepositoryCitation, Restriction, Sex as GedSex,
+    Repository as GedRepository, RepositoryCitation, Restriction, Schema, Sex as GedSex,
     Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
     XrefId,
 };
-use ged_io::{GedcomVersion, GedcomWriter};
+use ged_io::{Bom, GedcomVersion, GedcomWriter};
 use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
@@ -109,13 +111,30 @@ impl Default for ExportChoices {
     }
 }
 
+/// What an export writes: a plain GEDCOM file, or the `gedcom.ged` of a
+/// GEDZIP archive.
+#[derive(Debug, Clone, Copy)]
+pub enum ExportTarget<'a> {
+    /// A `.ged`: GEDCOM 5.5.1, the version every genealogy program and
+    /// site reads. Its media keep their producers' paths, since no archive
+    /// carries their bytes.
+    Gedcom,
+    /// The `gedcom.ged` of a `.gdz`: GEDCOM 7.0, which the GEDZIP format
+    /// requires, with the extensions it uses declared in `HEAD.SCHMA`.
+    /// `media_paths` holds the archive entry each medium packed in the
+    /// archive is written as.
+    Gedzip {
+        media_paths: &'a HashMap<Uuid, String>,
+    },
+}
+
 /// How an export writes the records: see [`export_gedcom`].
 #[derive(Debug, Clone, Copy)]
 pub struct ExportOptions<'a> {
     /// What the file holds and how it writes it.
     pub choices: ExportChoices,
-    /// The archive entry each media held in a GEDZIP is written as.
-    pub media_paths: &'a HashMap<Uuid, String>,
+    /// The file the export writes.
+    pub target: ExportTarget<'a>,
     /// The tree's "Who am I?" person.
     pub self_person_id: Option<Uuid>,
     /// The tree's submitter settings.
@@ -130,9 +149,20 @@ pub struct SubmitterSettings<'a> {
     pub address: Option<&'a str>,
 }
 
-/// Export domain model entities to a GEDCOM 5.5.1 string.
+/// Export domain model entities to GEDCOM text: GEDCOM 5.5.1 for a `.ged`,
+/// GEDCOM 7.0 for the `gedcom.ged` of a GEDZIP (see [`ExportTarget`]).
 ///
 /// All records should belong to the same tree.
+///
+/// Both are built as one 5.5.1 dataset. The GEDZIP's is written as 7.0 by
+/// `ged_io`'s writer, which converts it as the FamilySearch migration guide
+/// says (note records become `SNOTE`, `RELA` a `ROLE` with its phrase, file
+/// formats media types, dates and ages 7.0's grammar) and starts the text
+/// with the byte-order mark GEDCOM 7.0 recommends. Its media are those the
+/// archive packs, under their archive entries ([`archive_path`]), and those
+/// named by a web address: GEDZIP permits no other `FILE`, neither a local
+/// `file:` URL nor a relative path the archive does not hold, so a medium
+/// whose bytes OxidGene does not hold is left out of it, with a warning.
 ///
 /// `merge_occupations` collapses every `EventType::Occupation` event for a
 /// person back into a single `OCCU` tag (values joined with `", "`) instead
@@ -147,6 +177,10 @@ pub struct SubmitterSettings<'a> {
 /// `NAME` per individual and packs every other surname it knows into that
 /// `SURN` sub-tag, so this is an opt-in, lossy compatibility option; leave
 /// it `false` to keep the lossless one-`NAME`-per-`PersonName` export.
+///
+/// Both merges are a `.ged`'s: a GEDZIP is the complete export, and the
+/// programs that read one read every `OCCU` and `NAME`, so it applies
+/// neither.
 ///
 /// `include_notes_and_sources` and `include_media` leave the notes and the
 /// sources, or the media, out of the file: see [`ExportRecords::chosen`].
@@ -163,10 +197,23 @@ pub fn export_gedcom(
 ) -> Result<ExportResult, String> {
     let ExportOptions {
         choices,
-        media_paths,
+        target,
         self_person_id,
         submitter,
     } = *options;
+    let chosen = records.chosen(choices);
+    let media_paths = match target {
+        ExportTarget::Gedcom => None,
+        ExportTarget::Gedzip { media_paths } => Some(media_paths),
+    };
+    let archived = media_paths.and_then(|paths| archived_media(&chosen, paths));
+    let mut records = chosen;
+    let mut left_out = 0;
+    if let Some((media, vignettes)) = &archived {
+        left_out = records.media.len() - media.len();
+        records.media = media;
+        records.vignettes = vignettes;
+    }
     let ExportRecords {
         persons,
         person_names,
@@ -184,13 +231,19 @@ pub fn export_gedcom(
         media_links,
         vignettes,
         notes,
-    } = records.chosen(choices);
-    let ExportChoices {
-        merge_occupations,
-        merge_names,
-        ..
-    } = choices;
+    } = records;
+    let (merge_occupations, merge_names) = match target {
+        ExportTarget::Gedcom => (choices.merge_occupations, choices.merge_names),
+        ExportTarget::Gedzip { .. } => (false, false),
+    };
     let mut warnings: Vec<String> = Vec::new();
+    if left_out > 0 {
+        warnings.push(format!(
+            "{left_out} media whose files OxidGene does not hold were left out of the GEDZIP, \
+             which references only the files it carries and web addresses; a GEDCOM export \
+             keeps their paths"
+        ));
+    }
     let build_span = tracing::info_span!(
         "export.build_model",
         export.person_count = persons.len(),
@@ -258,7 +311,10 @@ pub fn export_gedcom(
         media_extensions(data.store_mut(), media, vignettes, &index);
     warnings.extend(extension_warnings);
 
-    data.header = Some(gedcom_header(index.xrefs.submitter));
+    data.header = Some(gedcom_header(
+        index.xrefs.submitter,
+        media_paths.is_some() && !media.is_empty(),
+    ));
     data.submitters = vec![index.submitter(submitter, self_person_id)];
     data.sources = sources.iter().map(|src| index.source(src)).collect();
     data.repositories = repositories
@@ -285,7 +341,7 @@ pub fn export_gedcom(
 
     drop(build_guard);
 
-    let gedcom = write_gedcom(&data)?;
+    let gedcom = write_gedcom(&data, target)?;
     Ok(ExportResult { gedcom, warnings })
 }
 
@@ -441,11 +497,42 @@ fn pages_of(media: &[Media]) -> HashMap<Uuid, Vec<&Media>> {
 /// The xref of the one `SUBM` record an export writes.
 const SUBMITTER_XREF: &str = "@SUBM1@";
 
+/// Where OxidGene's GEDCOM extensions are documented: the anchors of the
+/// API contract's section on them.
+const EXTENSIONS_DOC: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/docs/api.md#");
+
+/// OxidGene's own extension tags, each with the anchor of its
+/// documentation, which a GEDCOM 7.0 header declares (`HEAD.SCHMA`).
+const EXTENSION_TAGS: [(&str, &str); 3] = [
+    (MEDIA_TAG, "_oxidgene_media"),
+    (DOCUMENT_TAG, "_oxidgene_doc"),
+    (VIGNETTE_TAG, "_oxidgene_vignette"),
+];
+
+/// What a page says about itself: see [`MediaMetadataExtension`].
+const MEDIA_TAG: &str = "_OXIDGENE_MEDIA";
+/// The document a page belongs to: see [`DocumentExtension`].
+const DOCUMENT_TAG: &str = "_OXIDGENE_DOC";
+/// A person identified on a page and where.
+const VIGNETTE_TAG: &str = "_OXIDGENE_VIGNETTE";
+
 /// The GEDCOM header naming OxidGene as the producer, and the submitter
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
-/// the version requires: `GEDC` with `VERS 5.5.1` and `FORM LINEAGE-LINKED`,
-/// and the `CHAR` of its output, `UTF-8`.
-fn gedcom_header(submitter: XrefId) -> Header {
+/// the version requires: in 5.5.1 `GEDC` with `VERS 5.5.1` and `FORM
+/// LINEAGE-LINKED`, and the `CHAR` of its output, `UTF-8`; in 7.0 `GEDC`
+/// with `VERS 7.0`.
+///
+/// With `extensions`, the header declares OxidGene's extension tags with
+/// the URIs of their documentation (`SCHMA`, GEDCOM 7.0 only), which makes
+/// them documented extension tags.
+fn gedcom_header(submitter: XrefId, extensions: bool) -> Header {
+    let schema = extensions.then(|| Schema {
+        tags: EXTENSION_TAGS
+            .iter()
+            .map(|(tag, anchor)| Text::from(format!("{tag} {EXTENSIONS_DOC}{anchor}")))
+            .collect(),
+        ..Schema::default()
+    });
     Header {
         submitter: Some(submitter),
         source: Some(HeaderSource {
@@ -454,19 +541,69 @@ fn gedcom_header(submitter: XrefId) -> Header {
             version: Some(Text::from(env!("CARGO_PKG_VERSION"))),
             ..HeaderSource::default()
         }),
+        schema,
         ..Header::default()
     }
 }
 
-/// Serialize the model to GEDCOM text.
-fn write_gedcom(data: &Dataset) -> Result<String, String> {
+/// Serialize the model to GEDCOM text: as the 5.5.1 it is built in for a
+/// `.ged`, converted to 7.0 for a GEDZIP, after a byte-order mark.
+fn write_gedcom(data: &Dataset, target: ExportTarget<'_>) -> Result<String, String> {
     let write_span =
         tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
+    let writer = match target {
+        ExportTarget::Gedcom => GedcomWriter::new(),
+        ExportTarget::Gedzip { .. } => GedcomWriter::new()
+            .gedcom_version(GedcomVersion::V7_0)
+            .bom(Bom::Always),
+    };
     let gedcom = write_span
-        .in_scope(|| GedcomWriter::new().write_to_string(data))
+        .in_scope(|| writer.write_to_string(data))
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", gedcom.len());
     Ok(gedcom)
+}
+
+/// The media and identifications a GEDZIP writes, when it leaves some out:
+/// the documents, the media the archive packs (`media_paths`), and those a
+/// web address names. GEDZIP references no other file: a local `file:` URL
+/// is forbidden in one, and a relative path names an entry of the archive,
+/// which holds no bytes for a medium OxidGene does not hold. `None` when
+/// every medium is written.
+fn archived_media(
+    records: &ExportRecords<'_>,
+    media_paths: &HashMap<Uuid, String>,
+) -> Option<(Vec<Media>, Vec<Vignette>)> {
+    let archived = |m: &Media| {
+        m.is_document() || media_paths.contains_key(&m.id) || is_web_address(&m.file_path)
+    };
+    if records.media.iter().all(archived) {
+        return None;
+    }
+    let media: Vec<Media> = records
+        .media
+        .iter()
+        .filter(|m| archived(m))
+        .cloned()
+        .collect();
+    let kept: std::collections::HashSet<Uuid> = media.iter().map(|m| m.id).collect();
+    let vignettes = records
+        .vignettes
+        .iter()
+        .filter(|v| kept.contains(&v.media_id))
+        .cloned()
+        .collect();
+    Some((media, vignettes))
+}
+
+/// Whether a `FILE` is a web address, which GEDCOM 7.0 permits as an
+/// `ftp`, `http` or `https` URL.
+fn is_web_address(path: &str) -> bool {
+    let path = path.trim();
+    ["http://", "https://", "ftp://"].iter().any(|scheme| {
+        path.get(..scheme.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(scheme))
+    })
 }
 
 /// Every lookup the export reads, built once from the rows it writes.
@@ -582,7 +719,7 @@ impl ExportIndex<'_> {
     fn multimedia(
         &self,
         m: &Media,
-        media_paths: &HashMap<Uuid, String>,
+        media_paths: Option<&HashMap<Uuid, String>>,
         extra: Vec<Node>,
     ) -> GedMultimedia {
         // Title, description, category and medium describe the document, not
@@ -595,9 +732,10 @@ impl ExportIndex<'_> {
         // `file_path` is the producer's own path, preserved so a plain `.ged`
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
         // there the `FILE` must name the entry inside the archive instead —
-        // `media_paths` holds those, and is empty for every other export.
+        // `media_paths` holds those; a GEDZIP's other media are web
+        // addresses (see `archived_media`).
         let path = media_paths
-            .get(&m.id)
+            .and_then(|paths| paths.get(&m.id))
             .cloned()
             .unwrap_or_else(|| m.file_path.clone());
         // A category the user chose is the better answer and implies a
@@ -1059,9 +1197,9 @@ fn media_extensions(
     vignettes: &[Vignette],
     index: &ExportIndex,
 ) -> (HashMap<Uuid, Vec<Node>>, Vec<String>) {
-    let media_tag = store.intern_tag("_OXIDGENE_MEDIA");
-    let document_tag = store.intern_tag("_OXIDGENE_DOC");
-    let vignette_tag = store.intern_tag("_OXIDGENE_VIGNETTE");
+    let media_tag = store.intern_tag(MEDIA_TAG);
+    let document_tag = store.intern_tag(DOCUMENT_TAG);
+    let vignette_tag = store.intern_tag(VIGNETTE_TAG);
     let store: &Store = store;
     let mut warnings = Vec::new();
     let mut by_media = HashMap::<Uuid, Vec<Node>>::new();
@@ -1090,6 +1228,9 @@ fn media_extensions(
     // it: the pages of one document are grouped by it on the way back in.
     let mut document_token = HashMap::<Uuid, String>::new();
     let mut page_count_of = HashMap::<Uuid, i32>::new();
+    // The first page written of each document, which carries what the
+    // document says about itself: page one, unless a GEDZIP left it out.
+    let mut first_page_of = HashMap::<Uuid, (i32, Uuid)>::new();
     for item in media.iter().filter(|item| !item.is_document()) {
         if let Some(document_id) = item.parent_media_id {
             let next = document_token.len() + 1;
@@ -1097,6 +1238,11 @@ fn media_extensions(
                 .entry(document_id)
                 .or_insert_with(|| format!("D{next}"));
             *page_count_of.entry(document_id).or_insert(0) += 1;
+            let page = (item.page_index, item.id);
+            first_page_of
+                .entry(document_id)
+                .and_modify(|first| *first = (*first).min(page))
+                .or_insert(page);
         }
     }
 
@@ -1132,7 +1278,8 @@ fn media_extensions(
         let Some(token) = document_token.get(&document_id) else {
             continue;
         };
-        let meta = (item.page_index == 0)
+        let first_page = first_page_of.get(&document_id).map(|&(_, id)| id);
+        let meta = (first_page == Some(item.id))
             .then(|| media_by_id.get(&document_id))
             .flatten()
             .map(|document| DocumentMetadataExtension {
@@ -1253,10 +1400,12 @@ fn extension_for(mime_type: &str) -> Option<&'static str> {
     })
 }
 
-/// Wrap a GEDCOM string and its media into a GEDZIP archive, per GEDCOM 7.0.
+/// Wrap a GEDCOM text and its media into a GEDZIP archive, per GEDCOM 7.0.
 ///
-/// `files` pairs each archive path — the same value the corresponding `FILE`
-/// line carries, from [`archive_path`] — with the bytes to store there. An
+/// `gedcom` is the archive's `gedcom.ged` as it is stored: the GEDCOM 7.0
+/// [`export_gedcom`] writes for [`ExportTarget::Gedzip`]. `files` pairs each
+/// archive path — the same value the corresponding `FILE` line carries, from
+/// [`archive_path`] — with the bytes to store there. An
 /// empty slice produces the bare `gedcom.ged` archive, which is what this
 /// wrote unconditionally before: the format's entire point is that the media
 /// travel with the data, and a `.gdz` holding only the GEDCOM is a `.ged` in
@@ -1281,7 +1430,8 @@ pub struct GedzipFileWriter<W: std::io::Write + std::io::Seek = std::fs::File> {
 }
 
 impl GedzipFileWriter {
-    /// Create an archive file and write its mandatory `gedcom.ged` entry.
+    /// Create an archive file and write its mandatory `gedcom.ged` entry:
+    /// `gedcom`, as [`export_gedzip`] takes it.
     ///
     /// # Errors
     ///
@@ -2164,7 +2314,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2227,7 +2377,9 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &paths,
+                target: ExportTarget::Gedzip {
+                    media_paths: &paths,
+                },
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2285,7 +2437,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2420,7 +2572,9 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &media_paths,
+                target: ExportTarget::Gedzip {
+                    media_paths: &media_paths,
+                },
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2464,7 +2618,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2490,7 +2644,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2526,7 +2680,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2595,18 +2749,20 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &paths,
+                target: ExportTarget::Gedzip {
+                    media_paths: &paths,
+                },
                 self_person_id: None,
                 submitter: Default::default(),
             },
         )
         .expect("exports");
-        // The value opens with the person's xref, every `@` of which GEDCOM
-        // 5.5.1 doubles, and which the import reads back as one.
+        // The value opens with the person's xref, whose leading `@` GEDCOM
+        // 7.0 doubles, and which the import reads back as one.
         assert!(
             export
                 .gedcom
-                .contains("1 _OXIDGENE_VIGNETTE @@I1@@ 120 45 64 82"),
+                .contains("1 _OXIDGENE_VIGNETTE @@I1@ 120 45 64 82\n"),
             "{}",
             export.gedcom
         );
@@ -2681,7 +2837,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2751,7 +2907,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2822,7 +2978,7 @@ mod tests {
                     merge_occupations: true,
                     ..Default::default()
                 },
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2894,7 +3050,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -2966,7 +3122,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -3045,7 +3201,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -3096,7 +3252,7 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: &HashMap::new(),
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },
@@ -3126,8 +3282,8 @@ mod tests {
             },
             &ExportOptions {
                 choices: ExportChoices::default(),
-                media_paths: // No archive: nothing to point into.
-            &HashMap::new(),
+                // No archive: nothing to point into.
+                target: ExportTarget::Gedcom,
                 self_person_id: None,
                 submitter: Default::default(),
             },

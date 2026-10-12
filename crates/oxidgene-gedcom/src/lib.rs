@@ -99,7 +99,8 @@ impl ImportResult {
 /// The result of exporting domain model entities to a GEDCOM string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportResult {
-    /// The GEDCOM 5.5.1 formatted string.
+    /// The GEDCOM text: 5.5.1 for a `.ged`, 7.0 after a byte-order mark for
+    /// the `gedcom.ged` of a GEDZIP (see [`export::ExportTarget`]).
     pub gedcom: String,
     /// Warnings collected during export.
     pub warnings: Vec<String>,

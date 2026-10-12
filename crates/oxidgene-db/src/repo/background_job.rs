@@ -63,8 +63,6 @@ pub struct NewBackgroundJob {
     pub source_key: Option<String>,
     pub payload_json: Option<String>,
     pub original_filename: Option<String>,
-    pub merge_occupations: bool,
-    pub merge_names: bool,
     pub include_notes_and_sources: bool,
     pub include_media: bool,
 }
@@ -102,8 +100,6 @@ impl BackgroundJobRepo {
             artifact_key: Set(None),
             payload_json: Set(input.payload_json),
             original_filename: Set(input.original_filename),
-            merge_occupations: Set(input.merge_occupations),
-            merge_names: Set(input.merge_names),
             include_notes_and_sources: Set(input.include_notes_and_sources),
             include_media: Set(input.include_media),
             done: Set(0),

@@ -1537,8 +1537,11 @@ fn association_relation(st: &Store, assoc: &Association) -> Option<String> {
 }
 
 /// The associations a record holds: its `ASSO`, and the `_ASSO` a conformant
-/// GEDCOM 5.5.1 writer makes of an association 5.5.1 does not permit — one
-/// pointing at a family, or one beneath an event — as `(pointer, relation)`.
+/// writer makes of an association its version does not permit — one
+/// pointing at a family, or one beneath an event in 5.5.1 — as `(pointer,
+/// relation)`. An `_ASSO`'s relation is read as an `ASSO`'s: its `RELA`,
+/// else the phrase or the value of its `ROLE`, which a GEDCOM 7.0 writer
+/// makes of the `RELA`.
 fn associations_of<'a>(
     st: &'a Store,
     typed: &'a [Association],
@@ -1551,11 +1554,24 @@ fn associations_of<'a>(
         let Value::Pointer(pointer) = node.payload else {
             return None;
         };
-        let relation = node
-            .children
-            .iter()
-            .filter(|child| matches!(st.tag(child.tag), "RELA" | "_RELA"))
-            .find_map(|child| non_blank_str(node_text(st, child).as_deref()));
+        let text_of = |tags: &[&str]| {
+            node.children
+                .iter()
+                .filter(|child| tags.contains(&st.tag(child.tag)))
+                .find_map(|child| non_blank_str(node_text(st, child).as_deref()))
+        };
+        let role = || {
+            let role = node
+                .children
+                .iter()
+                .find(|child| st.tag(child.tag) == "ROLE")?;
+            role.children
+                .iter()
+                .filter(|child| st.tag(child.tag) == "PHRASE")
+                .find_map(|child| non_blank_str(node_text(st, child).as_deref()))
+                .or_else(|| non_blank_str(node_text(st, role).as_deref()))
+        };
+        let relation = text_of(&["RELA", "_RELA"]).or_else(role);
         Some((st.xref(pointer), relation))
     });
     typed.chain(kept)
@@ -2473,8 +2489,11 @@ fn convert_quay(quay: Option<&Certainty>) -> Option<Confidence> {
 /// (`child`, `1 y`) is held in GEDCOM's form; anything else — free text such
 /// as `majeur`, an empty value, a count beyond 999 — is left out, with a
 /// warning naming the record, never the value, which is the person's data. A
-/// GEDCOM 7 age known only in words (an empty `AGE` with a `PHRASE`) is read
-/// from its phrase.
+/// GEDCOM 7 age with a `PHRASE` is read as GEDCOM 5.5.1 writes it: a
+/// duration whose phrase names the keyword it stands for as that keyword
+/// (`< 8y` and `PHRASE CHILD` as `CHILD`, which a GEDZIP writes of a
+/// 5.5.1 keyword), and an age known only in words (an empty `AGE` with a
+/// `PHRASE`) from its phrase.
 fn import_age(
     st: &Store,
     age: Option<&ged_io::model::Age>,
@@ -2482,6 +2501,13 @@ fn import_age(
     warnings: &mut Vec<String>,
 ) -> Option<String> {
     let age = age?;
+    let converted;
+    let age = if age.phrase.is_some() {
+        converted = age.to_version(st, GedcomVersion::V5_5_1);
+        &converted
+    } else {
+        age
+    };
     let written = opt(st, Some(&age.value))
         .or_else(|| opt(st, age.phrase.as_ref()))
         .unwrap_or_default();
@@ -2838,11 +2864,20 @@ fn event_description(st: &Store, event: &GedEvent, event_type: EventType) -> Opt
 }
 
 /// The date of an event split into the domain's columns (see `crate::date`).
-/// A GEDCOM 7 date known only in words — an empty `DATE` with a `PHRASE` —
-/// is that phrase, as GEDCOM 5.5.1 writes one: `(the phrase)`.
+/// A GEDCOM 7 date with a `PHRASE` is read as GEDCOM 5.5.1 writes it: a date
+/// known only in words — an empty `DATE` with a `PHRASE` — as `(the
+/// phrase)`, and a single date with one as the interpreted date `INT date
+/// (the phrase)`, which a GEDZIP writes of a 5.5.1 one.
 fn event_date(st: &Store, date: Option<&ged_io::model::Date>) -> crate::date::ImportedDate {
     let Some(date) = date else {
         return crate::date::ImportedDate::default();
+    };
+    let converted;
+    let date = if date.detail().phrase.is_some() {
+        converted = date.to_version(st, GedcomVersion::V5_5_1);
+        &converted
+    } else {
+        date
     };
     match (
         opt(st, Some(&date.value)),

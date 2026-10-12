@@ -1080,8 +1080,6 @@ mod tests {
                 source_key: Some(source_key),
                 payload_json: None,
                 original_filename: None,
-                merge_occupations: false,
-                merge_names: false,
                 include_notes_and_sources: true,
                 include_media: true,
             },
@@ -1221,8 +1219,6 @@ mod tests {
             artifact_key: None,
             payload_json: None,
             original_filename: None,
-            merge_occupations: false,
-            merge_names: false,
             include_notes_and_sources: true,
             include_media: true,
             done: 0,
@@ -1367,8 +1363,6 @@ pub async fn stage_import(
             source_key: Some(source_key.clone()),
             payload_json: None,
             original_filename: filename,
-            merge_occupations: false,
-            merge_names: false,
             include_notes_and_sources: true,
             include_media: true,
         },
@@ -1463,8 +1457,6 @@ pub async fn stage_geneanet_import(
                 source_key: Some(source_key),
                 payload_json: Some(payload_json),
                 original_filename: Some(file_name),
-                merge_occupations: false,
-                merge_names: false,
                 include_notes_and_sources: true,
                 include_media: true,
             },
@@ -1528,6 +1520,32 @@ pub struct ImportJobStatus {
     pub error: Option<String>,
 }
 
+/// What a GEDZIP export holds. It has no merge: a GEDZIP is the complete
+/// export, and the merges serve the importers of a plain GEDCOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveChoices {
+    /// Write the notes, and the sources with their citations and
+    /// repositories.
+    pub include_notes_and_sources: bool,
+    /// Pack the media, and write their records, links and identifications.
+    pub include_media: bool,
+}
+
+impl ArchiveChoices {
+    /// The choices a request's options make, REST's and GraphQL's alike: an
+    /// option left out keeps the complete export.
+    #[must_use]
+    pub fn from_options(
+        include_notes_and_sources: Option<bool>,
+        include_media: Option<bool>,
+    ) -> Self {
+        Self {
+            include_notes_and_sources: include_notes_and_sources.unwrap_or(true),
+            include_media: include_media.unwrap_or(true),
+        }
+    }
+}
+
 /// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
 /// id. The job keeps the choices until its worker runs it.
 ///
@@ -1536,13 +1554,11 @@ pub struct ImportJobStatus {
 pub async fn start_export_job(
     db: &DatabaseConnection,
     tree_id: Uuid,
-    choices: gedcom::ExportChoices,
+    choices: ArchiveChoices,
 ) -> Result<Uuid, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
     let job_id = Uuid::now_v7();
-    let gedcom::ExportChoices {
-        merge_occupations,
-        merge_names,
+    let ArchiveChoices {
         include_notes_and_sources,
         include_media,
     } = choices;
@@ -1556,8 +1572,6 @@ pub async fn start_export_job(
             source_key: None,
             payload_json: None,
             original_filename: None,
-            merge_occupations,
-            merge_names,
             include_notes_and_sources,
             include_media,
         },
@@ -1569,10 +1583,9 @@ pub async fn start_export_job(
 /// The choices export job `job` was queued with.
 fn choices_of(job: &BackgroundJob) -> gedcom::ExportChoices {
     gedcom::ExportChoices {
-        merge_occupations: job.merge_occupations,
-        merge_names: job.merge_names,
         include_notes_and_sources: job.include_notes_and_sources,
         include_media: job.include_media,
+        ..gedcom::ExportChoices::default()
     }
 }
 

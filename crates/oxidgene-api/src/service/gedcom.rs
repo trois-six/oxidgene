@@ -871,12 +871,14 @@ pub async fn export_gedcom(
     Ok(data)
 }
 
-/// Load all entities from a tree and export them as a GEDCOM string.
+/// Load all entities from a tree and export them as a GEDCOM string: GEDCOM
+/// 5.5.1 for a `.ged`, GEDCOM 7.0 for the `gedcom.ged` of a GEDZIP
+/// (`for_archive`).
 ///
 /// Verifies the tree exists, loads all entities, then calls the GEDCOM
 /// exporter to produce the output string. `choices` says what the file
-/// holds and how it writes it: the occupations or the names merged, the
-/// notes and sources or the media left out (see
+/// holds and how it writes it: the occupations or the names merged (a
+/// `.ged`'s only), the notes and sources or the media left out (see
 /// `oxidgene_gedcom::export::export_gedcom`). An archive without its media
 /// packs no file.
 #[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
@@ -915,7 +917,13 @@ pub async fn load_and_export(
                 &records.export_records(),
                 &oxidgene_gedcom::export::ExportOptions {
                     choices,
-                    media_paths: &media_paths,
+                    target: if for_archive {
+                        oxidgene_gedcom::export::ExportTarget::Gedzip {
+                            media_paths: &media_paths,
+                        }
+                    } else {
+                        oxidgene_gedcom::export::ExportTarget::Gedcom
+                    },
                     self_person_id: tree.self_person_id,
                     submitter: oxidgene_gedcom::export::SubmitterSettings {
                         name: tree.submitter_name.as_deref(),

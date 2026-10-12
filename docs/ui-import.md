@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:25:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 ---
 
 
@@ -104,8 +104,11 @@ imports.
 The association between an event and its media is standard GEDCOM: the event
 carries an `OBJE` reference to the global multimedia record. It therefore
 survives both formats. The difference is only the bytes: a `.ged` keeps the
-`FILE` reference, while a `.gdz` embeds each stored file it names. Remote and
-unheld media remain references in either format.
+`FILE` reference, while a `.gdz` embeds each stored file it names. Remote
+media remain references in either format. Unheld media remain references in
+a `.ged`; a `.gdz` can name no file outside the archive but by a web address,
+so its export leaves them out, with a warning
+([API Contract §4](api.md#gedzip)).
 
 What a GEDZIP round trip does **not** carry back is the structure GEDCOM has no
 tag for: a multi-page document's pages export as separate `OBJE` records, so
@@ -202,11 +205,15 @@ pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 ### GEDCOM version handling
 
-- **Import**: ged_io auto-detects GEDCOM 5.5.1, 7.0 and 7.1
-- **Export**: always produces GEDCOM 5.5.1 (LINEAGE-LINKED format), conformant:
-  `ged_io`'s writer repairs, as extension structures, what 5.5.1 does not
-  permit (an association with a family, Gramps' convention, is `_ASSO`)
-- Files imported from GEDCOM 7.0 will export as 5.5.1 — no data is lost in the conversion for supported tags
+- **Import**: ged_io auto-detects GEDCOM 5.5.1, 7.0 and 7.1, in a `.ged` and
+  in a `.gdz` alike
+- **Export**: a `.ged` is GEDCOM 5.5.1 (LINEAGE-LINKED format), the version
+  every genealogy program reads; a `.gdz` holds GEDCOM 7.0, as GEDZIP
+  requires ([API Contract §4](api.md#gedzip)). Both are conformant:
+  `ged_io`'s writer repairs, as extension structures, what the version does
+  not permit (an association with a family, Gramps' convention, is `_ASSO`)
+- Files imported from GEDCOM 7.0 export as 5.5.1 in a `.ged` — no data is
+  lost in the conversion for supported tags
 
 ---
 

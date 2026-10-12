@@ -1986,7 +1986,8 @@ pub struct ImportJobStarted {
     pub job_id: Uuid,
 }
 
-/// What an export holds and how it writes it, sent as its query options.
+/// What a GEDCOM export holds and how it writes it, sent as its query
+/// options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ExportChoices {
     /// Collapse each person's occupations into one `OCCU`, comma-separated,
@@ -1998,7 +1999,16 @@ pub struct ExportChoices {
     /// Write the notes, and the sources with their citations and
     /// repositories.
     pub include_notes_and_sources: bool,
-    /// Pack the media of a GEDZIP; a plain GEDCOM ignores it.
+}
+
+/// What a GEDZIP export holds, sent as its job's query options. A GEDZIP is
+/// always lossless: it has no merge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ArchiveChoices {
+    /// Write the notes, and the sources with their citations and
+    /// repositories.
+    pub include_notes_and_sources: bool,
+    /// Pack the media, and write their records and links.
     pub include_media: bool,
 }
 
@@ -5004,7 +5014,7 @@ impl ApiClient {
     pub async fn start_export_job(
         &self,
         tree_id: Uuid,
-        choices: ExportChoices,
+        choices: ArchiveChoices,
     ) -> Result<ExportJobStarted, ApiError> {
         let response = self
             .send_request(

@@ -2510,7 +2510,21 @@ async fn export_choices_travel_alike_on_both_surfaces() {
     let job_id = data["startExportJob"]["jobId"].as_str().unwrap();
     let gql_archive = exported_archive(&app, &worker, &tree_id, job_id).await;
     assert_eq!(rest_archive, gql_archive);
-    assert_eq!(rest_archive, rest, "the same GEDCOM as the plain export");
+    // The same records, in the GEDCOM 7.0 a GEDZIP holds.
+    assert!(
+        rest_archive.starts_with("\u{feff}0 HEAD\n1 GEDC\n2 VERS 7.0\n"),
+        "{rest_archive}"
+    );
+    assert!(
+        rest_archive.contains("1 NAME Alder /Sample/\n"),
+        "{rest_archive}"
+    );
+    for absent in ["remark", "Sample register", "folio"] {
+        assert!(
+            !rest_archive.contains(absent),
+            "{absent} in:\n{rest_archive}"
+        );
+    }
 }
 
 /// The tree's export still to download, as both surfaces report it: `null`

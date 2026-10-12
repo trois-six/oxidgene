@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:25:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 ---
 
 
@@ -264,7 +264,10 @@ is a full copy of the tree and its media, so it is kept one hour after
 completion whatever the downloads — long enough to retry a save that went
 wrong — and then refused and deleted.
 
-GEDZIP compresses the textual `gedcom.ged` entry with Deflate. Media formats
+The archive's `gedcom.ged` is GEDCOM 7.0, as GEDZIP requires, written by
+`ged_io` from the records a `.ged` export builds (see
+[API Contract §4](api.md#gedzip)). GEDZIP compresses that textual entry with
+Deflate. Media formats
 that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored
 without recompression; raw or potentially uncompressed formats such as BMP and
 TIFF remain Deflated. This keeps common exports bounded by I/O without inflating
