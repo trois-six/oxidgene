@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T11:13:57Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -213,22 +213,18 @@ Remaining tabs:
 
 ## 6b. Planned: upstream GEDCOM fixes
 
-`ged_io` 0.17 and `geneweb` 0.3 carry every fix proposed so far, and
-OxidGene's pre-parse repairs and post-write additions are gone with them.
-What OxidGene still does in `ged_io`'s place, each to go once its upstream
-fix ships:
+OxidGene reads and writes GEDCOM through the redesigned `ged_io` (a lenient,
+lossless reader and a conformant writer) and `geneweb` ported to it, both
+patched in from their branches. Nothing remains that OxidGene does in their
+place: `ged_io` decodes `CHAR ANSI` and 8-bit bytes under `CHAR ASCII` as
+Windows-1252, counts the whole line against 255 characters, writes every
+line break as `CONT` (extension values included), keeps each date bound's
+wording, keeps an LDS status outside the enumeration with the ordinance's
+extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
+`FILE` of any format (a PNG, a PDF).
 
-- [ ] `ged_io`: read `CHAR ANSI` as Windows-1252 rather than 7-bit ASCII
-  (`import_gedcom_bytes` falls back to Windows-1252 itself).
-- [ ] `ged_io`: count the whole line, level and tag included, against
-  `max_line_length` (the export lowers the limit to fit 255 characters), and
-  write a carriage return inside a value as a line break (the export turns
-  it into one).
-- [ ] `ged_io`: write an extension tag's value holding a line break over
-  `CONT` lines (`geneweb` writes such a value's lines as `CONT`
-  substructures itself).
-- [ ] `ged_io`: keep an LDS ordinance's `STAT` outside the enumeration, and
-  its extension tags.
+- [ ] Depend on the released `ged_io` and `geneweb` and drop the
+  `[patch.crates-io]` entries and the git sources `deny.toml` allows.
 
 ## 7. Planned: dictionary descent
 

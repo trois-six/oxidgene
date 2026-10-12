@@ -755,7 +755,8 @@ fn the_export_names_its_submitter() {
     let (_, record) = header_and_submitter(&set);
     let record = record.unwrap_or_default();
     assert!(record.contains("\n1 NAME Alpha Fixture"), "{record}");
-    assert!(record.contains("\n1 EMAIL alpha@example.org"), "{record}");
+    // GEDCOM 5.5.1 doubles every `@` of a text.
+    assert!(record.contains("\n1 EMAIL alpha@@example.org"), "{record}");
     assert!(
         record.contains("\n1 ADDR 1 Fixture Road\n2 CONT Sampleton"),
         "{record}"
@@ -1562,10 +1563,14 @@ fn test_export_association_is_level_one_not_nested_in_event() {
     assert!(!export.gedcom.contains("\n2 ASSO "));
     assert!(!export.gedcom.contains("\n3 ASSO "));
 
-    // The family witness's ASSO is on their own INDI record (@I3@, the
-    // third person exported), pointing at the family (@F1@).
+    // The family witness's association is on their own INDI record (@I3@,
+    // the third person exported), pointing at the family (@F1@). GEDCOM
+    // 5.5.1 associates individuals only, so the writer keeps it as an
+    // extension, which the import reads back as the witness it is.
     assert!(export.gedcom.contains("0 @I3@ INDI"));
-    assert!(export.gedcom.contains("1 ASSO @F1@"));
+    assert!(export.gedcom.contains("1 _ASSO @F1@"));
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).unwrap();
+    assert_eq!(back.event_witnesses.len(), result.event_witnesses.len());
 
     // The godmother association is on the baby's own INDI record (@I4@),
     // pointing at the godmother (@I5@).
@@ -1940,8 +1945,8 @@ fn test_import_geneanet_birth_events() {
 
 #[test]
 fn test_import_geneanet_individual_attributes() {
-    // OCCU and RESI are GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tags, parsed
-    // by ged_io into `Individual.attributes` (separate from `.events`) —
+    // OCCU and RESI are GEDCOM `INDIVIDUAL_ATTRIBUTE_STRUCTURE` tags, read
+    // as attributes rather than events (their value is what they say) —
     // make sure we still pick them up as `Event`s.
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
@@ -2491,11 +2496,16 @@ const RESTRICTION_GEDCOM: &str = "\
 fn privacy_survives_a_round_trip_as_resn() {
     let imported = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).expect("imports");
     let exported = reexport(&imported);
+    let record = |start: &str| {
+        let at = exported.find(start).expect("the record");
+        let rest = &exported[at + start.len()..];
+        rest[..rest.find("\n0 ").unwrap_or(rest.len())].to_string()
+    };
     assert!(
-        exported.contains("0 @I1@ INDI\n1 RESN confidential\n"),
+        record("0 @I1@ INDI").contains("\n1 RESN confidential"),
         "{exported}"
     );
-    assert!(exported.contains("0 @F1@ FAM\n1 RESN confidential\n"));
+    assert!(record("0 @F1@ FAM").contains("\n1 RESN confidential"));
     assert_eq!(exported.matches("1 RESN").count(), 4, "{exported}");
     let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
     let privacy = |result: &oxidgene_gedcom::ImportResult| {
@@ -3328,4 +3338,139 @@ fn the_complete_export_keeps_every_pointer_resolvable() {
         assert!(tags.contains(&present), "{present} missing:\n{exported}");
     }
     assert_every_pointer_resolves(&exported);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Files read as they are
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `CHAR ASCII` over 8-bit bytes is what Windows software of the GEDCOM 5
+/// era writes for its own code page: the accents are Windows-1252, not lost.
+#[test]
+fn ascii_declared_over_eight_bit_bytes_is_read_as_windows_1252() {
+    let bytes = one_person_in("ASCII", b"Ren\xe9e");
+    let result =
+        oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7()).expect("imports");
+    assert_eq!(result.person_names[0].given_names.as_deref(), Some("Renée"));
+}
+
+/// A GEDCOM 7.0 file: an association's relation is its `ROLE` phrase, else
+/// its role; a date known only in words is that phrase; a calendar keyword
+/// is the date's calendar.
+const GEDCOM_7: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 BAPM
+2 DATE
+3 PHRASE The spring after the flood
+2 ASSO @I2@
+3 ROLE GODP
+2 ASSO @I3@
+3 ROLE OTHER
+4 PHRASE Midwife
+1 DEAT
+2 DATE ABT JULIAN 1700
+0 @I2@ INDI
+1 NAME Beta /Sample/
+0 @I3@ INDI
+1 NAME Gamma /Sample/
+0 TRLR
+";
+
+#[test]
+fn a_gedcom_7_file_keeps_its_roles_phrases_and_calendar_keywords() {
+    let result = import_gedcom(GEDCOM_7, Uuid::now_v7()).expect("imports");
+    let baptism = event_of(&result, EventType::Baptism);
+    assert_eq!(
+        baptism.date_value.as_deref(),
+        Some("(The spring after the flood)")
+    );
+    let relations: Vec<Option<&str>> = result
+        .event_witnesses
+        .iter()
+        .filter(|w| w.event_id == baptism.id)
+        .map(|w| w.relation.as_deref())
+        .collect();
+    assert_eq!(relations, [Some("GODP"), Some("Midwife")]);
+    let death = event_of(&result, EventType::Death);
+    assert_eq!(death.calendar, oxidgene_core::Calendar::Julian);
+    assert_eq!(death.date_qualifier, oxidgene_core::DateQualifier::About);
+    assert_eq!(death.date_value.as_deref(), Some("1700"));
+}
+
+/// Events some software writes on the other kind of record — a marriage on
+/// a person, GeneWeb's `SEP` on a family — are read, and so is an LDS
+/// ordinance's status outside GEDCOM's enumeration.
+const MISPLACED_EVENTS_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 MARR
+2 DATE 1 MAY 1900
+1 BAPL
+2 STAT RECORDED
+0 @F1@ FAM
+1 HUSB @I1@
+1 SEP
+2 DATE 1910
+0 @F2@ FAM
+1 SEP Y
+1 PROP Farm lease
+2 DATE 1923
+0 TRLR
+";
+
+#[test]
+fn misplaced_events_and_an_unlisted_lds_status_are_read() {
+    let result = import_gedcom(MISPLACED_EVENTS_GEDCOM, Uuid::now_v7()).expect("imports");
+    let marriage = event_of(&result, EventType::Marriage);
+    assert_eq!(marriage.date_value.as_deref(), Some("1 MAY 1900"));
+    assert!(marriage.person_id.is_some() && marriage.family_id.is_none());
+    let separations: Vec<_> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == EventType::Separation)
+        .collect();
+    assert_eq!(separations.len(), 2, "a bare `1 SEP` is a separation too");
+    assert_eq!(separations[0].date_value.as_deref(), Some("1910"));
+    assert!(separations.iter().all(|e| e.family_id.is_some()));
+    assert_eq!(separations[1].description, None, "`Y` describes nothing");
+    let lease = event_of(&result, EventType::Property);
+    assert!(lease.family_id.is_some());
+
+    // Written back, each is the generic event its tag names on a record
+    // that does not permit the tag, and reads back the same.
+    let exported = reexport(&result);
+    assert!(
+        exported.contains("1 EVEN\n2 DATE 1 MAY 1900\n2 TYPE MARR\n"),
+        "{exported}"
+    );
+    assert!(
+        exported.contains("1 EVEN Farm lease\n2 DATE 1923\n2 TYPE PROP\n"),
+        "{exported}"
+    );
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    for event_type in [EventType::Marriage, EventType::Property] {
+        let (before, after) = (event_of(&result, event_type), event_of(&back, event_type));
+        assert_eq!(
+            (
+                &after.date_value,
+                &after.description,
+                after.person_id.is_some()
+            ),
+            (
+                &before.date_value,
+                &before.description,
+                before.person_id.is_some()
+            ),
+            "{event_type:?}"
+        );
+    }
+    let baptism = event_of(&result, EventType::LdsBaptism);
+    assert_eq!(baptism.description.as_deref(), Some("STAT RECORDED"));
 }

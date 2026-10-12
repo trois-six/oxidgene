@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:25:43Z }
 ---
 
 
@@ -150,7 +150,10 @@ tiles the gallery shows. Warnings collapse behind a disclosure with a count.
 
 ## 5. Data mapping & fidelity
 
-The import uses `ged_io` 0.17 to parse GEDCOM files. See
+The import uses `ged_io` to read GEDCOM files. It reads any file as it is —
+any character set (decoded by what the bytes hold, then by `HEAD.CHAR`), any
+line terminators, extension and unknown tags, structures out of place — and
+never fails on content: what the import does not map is left out. See
 [API Contract §4](api.md) for the full round-trip fidelity table, which is
 authoritative where this summary is shorter.
 
@@ -193,14 +196,16 @@ pointer, a missing spouse or source, a GEDZIP file it does not hold).
 | GEDCOM tag | Description | Reason |
 |---|---|---|
 | SUBM other than `HEAD.SUBM`'s, `INDI.SUBM`, `FAM.SUBM` | Other submitter records and pointers | The header's submitter fills the tree's empty submitter settings; the others are counted in one warning, the record pointers are not imported |
-| AGE that is not a GEDCOM age | Free text, empty value | Left out with a warning naming its record (a loosely spelt age such as `1y6m` or `child` is read in GEDCOM's form instead) |
+| AGE that is not a GEDCOM age | Free text | Left out with a warning naming its record (a loosely spelt age such as `1y6m` or `child` is read in GEDCOM's form instead); an empty `AGE` says nothing and is ignored |
 | RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
 | `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |
 
 ### GEDCOM version handling
 
-- **Import**: ged_io auto-detects GEDCOM 5.5.1 and 7.0 formats
-- **Export**: always produces GEDCOM 5.5.1 (LINEAGE-LINKED format)
+- **Import**: ged_io auto-detects GEDCOM 5.5.1, 7.0 and 7.1
+- **Export**: always produces GEDCOM 5.5.1 (LINEAGE-LINKED format), conformant:
+  `ged_io`'s writer repairs, as extension structures, what 5.5.1 does not
+  permit (an association with a family, Gramps' convention, is `_ASSO`)
 - Files imported from GEDCOM 7.0 will export as 5.5.1 — no data is lost in the conversion for supported tags
 
 ---

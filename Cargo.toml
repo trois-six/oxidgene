@@ -127,7 +127,7 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 
 # GEDCOM
-ged_io = { version = "0.17.0", features = ["json", "gedzip", "calendar"] }
+ged_io = { version = "0.17.0", features = ["gedzip", "calendar"] }
 
 # GeneWeb .gw reader (converts to the same ged_io model as above)
 geneweb = "0.3.0"
@@ -216,6 +216,14 @@ schemars = { version = "1", default-features = false, features = ["derive", "std
 
 # Native file dialogs
 rfd = "0.17"
+
+# The redesigned ged_io (a new model: reading never fails and keeps every
+# line, writing is conformant) and the geneweb conversion ported to it, from
+# their branches until both are released. The patches go, and the requirements
+# above become the released versions, once ged_io and geneweb publish them.
+[patch.crates-io]
+ged_io = { git = "https://github.com/trois-six/ged_io", branch = "redesign" }
+geneweb = { git = "https://github.com/trois-six/rust-geneweb", branch = "deps/ged-io-redesign" }
 
 [profile.dev]
 debug = "line-tables-only"  # smaller debug info → faster incremental builds

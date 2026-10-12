@@ -2,26 +2,29 @@
 //!
 //! The domain keeps a date in four orthogonal columns — `calendar`,
 //! `date_qualifier`, `date_value` and `date_value2` — where `date_value` is the
-//! bare date alone (`23 FEB 1947`), carrying neither the calendar escape nor the
+//! bare date alone (`23 FEB 1947`), carrying neither the calendar marker nor the
 //! qualifier prefix. A GEDCOM `DATE` line packs all of that into one string, so
 //! importing means splitting it apart and exporting means putting it back
 //! together. Both directions live here so they cannot drift.
 //!
-//! Qualifier parsing and the conversion of non-Gregorian dates for the sortable
-//! date are delegated to `ged_io` (its `calendar` feature). The split into
-//! columns is made here, on the text: `ged_io`'s `DateValue` reads a value
-//! into its bounds, each in its own calendar, but keeps of a bound only the
-//! parts it recognises — `vers 1850` reads as an empty date — while the domain
-//! keeps each bound's wording as the file gives it. GEDCOM 5.5.1 writes a
-//! calendar escape before each date of a value — after the qualifier, `ABT
-//! @#DJULIAN@ 1700`, and before both bounds of `BET @#DJULIAN@ 1700 AND
-//! @#DJULIAN@ 1710` — and some programs write one before the whole value.
-//! Both forms are read; the GEDCOM one is written.
+//! Reading is `ged_io`'s date grammar (`ged_io::value::DateValue`), which reads
+//! either version's syntax and their common deviations — qualifiers, months and
+//! calendars in any case, 5.5.1 escapes (`@#DJULIAN@`) and 7.0 keywords
+//! (`JULIAN`), an escape before the whole value (`@#DJULIAN@ ABT 1700`) as well
+//! as before each date, `B.C.` and `BCE` — and keeps of each date the wording it
+//! does not understand (`vers 1850`). Each bound is stored in GEDCOM 5.5.1's
+//! words without its calendar marker: what the grammar reads is written in its
+//! canonical form (`7 SEP 1830`, `44 B.C.`), what it does not is kept as
+//! written. A value that is no date at all keeps the whole text: a 5.5.1 date
+//! phrase (`(text)`), an interpreted date (`INT 1850 (text)`), a date of a
+//! calendar OxidGene has no column value for (`@#DROMAN@ 1700`). The sortable
+//! date converts other calendars to Gregorian with `ged_io`'s calendar
+//! arithmetic (its `calendar` feature).
 //!
 //! ## Known lossy mappings
 //!
-//! Every GEDCOM qualifier now has its own domain variant, so the import
-//! direction is lossless. Only domain values GEDCOM cannot express are lossy:
+//! Every GEDCOM qualifier has its own domain variant, so the import direction is
+//! lossless. Only domain values GEDCOM cannot express are lossy:
 //!
 //! - [`DateQualifier::Perhaps`] (a GeneWeb reading, "maybe") has no GEDCOM tag
 //!   and is exported as `EST`, so a round trip returns
@@ -30,9 +33,8 @@
 //! - [`DateQualifier::FromAge`] has no date of its own and exports bare.
 
 use chrono::NaiveDate;
-use ged_io::types::date::calendar::{
-    Calendar as GedCalendar, DateQualifier as GedQualifier, ParsedDateTime,
-};
+use ged_io::GedcomVersion;
+use ged_io::value::{Approximation, Calendar as GedCalendar, CalendarDate, DatePeriod, DateValue};
 use oxidgene_core::{Calendar, DateQualifier};
 
 /// A GEDCOM `DATE` split into the columns the domain stores.
@@ -45,12 +47,15 @@ pub struct ImportedDate {
     pub sort: Option<NaiveDate>,
 }
 
-fn from_ged_calendar(c: GedCalendar) -> Calendar {
+/// The domain calendar of a GEDCOM one; `None` for a calendar the domain has
+/// no value for (5.5.1's Roman and unknown calendars, extension calendars).
+fn from_ged_calendar(c: &GedCalendar) -> Option<Calendar> {
     match c {
-        GedCalendar::Gregorian => Calendar::Gregorian,
-        GedCalendar::Julian => Calendar::Julian,
-        GedCalendar::Hebrew => Calendar::Hebrew,
-        GedCalendar::FrenchRepublican => Calendar::FrenchRepublican,
+        GedCalendar::Gregorian => Some(Calendar::Gregorian),
+        GedCalendar::Julian => Some(Calendar::Julian),
+        GedCalendar::Hebrew => Some(Calendar::Hebrew),
+        GedCalendar::FrenchRepublican => Some(Calendar::FrenchRepublican),
+        _ => None,
     }
 }
 
@@ -63,14 +68,11 @@ fn to_ged_calendar(c: Calendar) -> GedCalendar {
     }
 }
 
-fn from_ged_qualifier(q: GedQualifier) -> DateQualifier {
-    match q {
-        GedQualifier::Exact => DateQualifier::Exact,
-        GedQualifier::About => DateQualifier::About,
-        GedQualifier::Calculated => DateQualifier::Calculated,
-        GedQualifier::Estimated => DateQualifier::Estimated,
-        GedQualifier::Before => DateQualifier::Before,
-        GedQualifier::After => DateQualifier::After,
+fn from_ged_approximation(a: Approximation) -> DateQualifier {
+    match a {
+        Approximation::About => DateQualifier::About,
+        Approximation::Calculated => DateQualifier::Calculated,
+        Approximation::Estimated => DateQualifier::Estimated,
     }
 }
 
@@ -89,80 +91,51 @@ fn qualifier_tag(q: DateQualifier) -> Option<&'static str> {
     }
 }
 
-/// Splits a leading calendar escape (`@#DJULIAN@`) off `text`: the calendar
-/// it names, when OxidGene keeps that calendar, and the rest. An escape
-/// naming another calendar (`@#DROMAN@`, `@#DUNKNOWN@`) is dropped.
-fn split_escape(text: &str) -> (Option<Calendar>, &str) {
-    let text = text.trim();
-    let Some(name_end) = text.strip_prefix("@#D").and_then(|rest| rest.find('@')) else {
-        return (None, text);
-    };
-    let (escape, rest) = text.split_at(name_end + 4);
-    (
-        GedCalendar::from_gedcom_escape(escape).map(from_ged_calendar),
-        rest.trim_start(),
-    )
+/// A date in GEDCOM 5.5.1's words, without its calendar marker.
+fn bare(date: &CalendarDate) -> String {
+    CalendarDate {
+        calendar: GedCalendar::Gregorian,
+        ..date.clone()
+    }
+    .to_gedcom(GedcomVersion::V5_5_1)
 }
 
-/// A date value's qualifier and its one or two dates, each still carrying its
-/// own calendar escape, if any.
-fn split_qualifier(body: &str) -> (DateQualifier, &str, Option<&str>) {
-    if let Some(rest) = body.strip_prefix("BET ") {
-        return match split_range(rest, "AND") {
-            Some((a, b)) => (DateQualifier::Between, a, Some(b)),
-            None => (DateQualifier::Between, rest.trim(), None),
-        };
-    }
-    if let Some(rest) = body.strip_prefix("FROM ") {
-        return match split_range(rest, "TO") {
-            Some((a, b)) => (DateQualifier::Between, a, Some(b)),
-            None => (DateQualifier::Exact, rest.trim(), None),
-        };
-    }
-    if let Some(rest) = body.strip_prefix("TO ") {
-        return (DateQualifier::Before, rest.trim(), None);
-    }
-    let (tag, rest) = body.split_once(' ').unwrap_or((body, ""));
-    match GedQualifier::parse(tag) {
-        Some(q) if !rest.trim().is_empty() => (from_ged_qualifier(q), rest.trim(), None),
-        _ => (DateQualifier::Exact, body, None),
-    }
-}
-
-/// Splits `<head> <a> <sep> <b>` on the first top-level `sep`, e.g. `AND`/`TO`.
-fn split_range<'a>(rest: &'a str, sep: &str) -> Option<(&'a str, &'a str)> {
-    let pat = format!(" {sep} ");
-    rest.split_once(&pat)
-        .map(|(a, b)| (a.trim(), b.trim()))
-        .filter(|(a, b)| !a.is_empty() && !b.is_empty())
+/// A date value's qualifier and its one or two dates; `None` for a value that
+/// is no date the columns hold.
+fn split(value: &DateValue) -> Option<(DateQualifier, &CalendarDate, Option<&CalendarDate>)> {
+    Some(match value {
+        DateValue::Date(date) => (DateQualifier::Exact, date, None),
+        DateValue::Approximated(approximation, date) => {
+            (from_ged_approximation(*approximation), date, None)
+        }
+        DateValue::Before(date) => (DateQualifier::Before, date, None),
+        DateValue::After(date) => (DateQualifier::After, date, None),
+        DateValue::Between(from, to) => (DateQualifier::Between, from, Some(to)),
+        // A period is read as the range it spans: from a date alone as that
+        // date, to a date alone as before it.
+        DateValue::Period(DatePeriod { from, to }) => match (from, to) {
+            (Some(from), Some(to)) => (DateQualifier::Between, from, Some(to)),
+            (Some(from), None) => (DateQualifier::Exact, from, None),
+            (None, Some(to)) => (DateQualifier::Before, to, None),
+            (None, None) => return None,
+        },
+        _ => return None,
+    })
 }
 
 /// Sortable date for a bare value, normalised to Gregorian so that Julian,
-/// Hebrew and Republican dates order alongside the rest.
+/// Hebrew and Republican dates order alongside the rest. A missing month or
+/// day is the first of its period, matching how the UI derives `date_sort`
+/// from a partial date: the Republican "an VII" sorts from 1 Vendémiaire, 22
+/// September 1798.
 fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
-    let escaped = match calendar {
-        Calendar::Gregorian => value.to_string(),
-        other => format!("{} {value}", to_ged_calendar(other).gedcom_escape()),
-    };
-    let mut parsed = ParsedDateTime::from_gedcom_date(&escaped).ok()?;
-    let parsed = match parsed.calendar {
-        GedCalendar::Gregorian => parsed,
-        _ => {
-            // A conversion needs a day. A year or a month alone stands for
-            // its first day, as a partial Gregorian date does below: the
-            // Republican "an VII" sorts from 1 Vendémiaire, 22 September 1798.
-            parsed.month = parsed.month.or(Some(1));
-            parsed.day = parsed.day.or(Some(1));
-            parsed.convert_to(GedCalendar::Gregorian).ok()?
-        }
-    };
-    // A missing month or day is the first of its period, matching how the UI
-    // derives `date_sort` from a partial date.
-    NaiveDate::from_ymd_opt(
-        parsed.year?,
-        u32::from(parsed.month.unwrap_or(1)),
-        u32::from(parsed.day.unwrap_or(1)),
-    )
+    let mut date = CalendarDate::parse(value);
+    if date.calendar == GedCalendar::Gregorian {
+        date.calendar = to_ged_calendar(calendar);
+    }
+    // Day 1 of the proleptic Gregorian calendar is 1 January 1 for both.
+    let day = i32::try_from(date.ordering_key()?).ok()?;
+    NaiveDate::from_num_days_from_ce_opt(day)
 }
 
 /// The sortable Gregorian date a stored date value stands for.
@@ -175,7 +148,6 @@ fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
 ///
 /// Returns `None` for a missing, empty or unparseable value — an event whose
 /// date is a free-text phrase simply has no place in a chronological order.
-///
 pub fn sort_key(calendar: Calendar, value: Option<&str>) -> Option<NaiveDate> {
     let value = value.map(str::trim).filter(|v| !v.is_empty())?;
     sort_date(value, calendar)
@@ -183,34 +155,35 @@ pub fn sort_key(calendar: Calendar, value: Option<&str>) -> Option<NaiveDate> {
 
 /// Splits a raw GEDCOM `DATE` value into the domain's date columns.
 ///
-/// Anything that cannot be recognised is preserved verbatim in `value`, so an
+/// Anything that cannot be split is preserved verbatim in `value`, so an
 /// unparseable date is never silently dropped.
 pub fn parse(raw: &str) -> ImportedDate {
     let raw = raw.trim();
     if raw.is_empty() {
         return ImportedDate::default();
     }
-
-    // An escape opening the whole value is the form some programs and
-    // earlier OxidGene exports write (`@#DJULIAN@ ABT 1700`); GEDCOM's own
-    // puts one before each date (`ABT @#DJULIAN@ 1700`). The first escape found is the
-    // calendar; the domain keeps one for both bounds.
-    let (leading, body) = split_escape(raw);
-    let (qualifier, first, second) = split_qualifier(body);
-    let (first_calendar, first) = split_escape(first);
-    let (second_calendar, second) = match second.map(split_escape) {
-        Some((calendar, date)) => (calendar, Some(date)),
-        None => (None, None),
+    let verbatim = || ImportedDate {
+        value: Some(raw.to_string()),
+        ..ImportedDate::default()
     };
-    let calendar = leading
-        .or(first_calendar)
-        .or(second_calendar)
-        .unwrap_or_default();
+    let parsed = DateValue::parse(raw);
+    let Some((qualifier, first, second)) = split(&parsed) else {
+        return verbatim();
+    };
+    // The domain keeps one calendar for both bounds: the first one written.
+    let calendar = [Some(first), second]
+        .into_iter()
+        .flatten()
+        .map(|date| &date.calendar)
+        .find(|calendar| **calendar != GedCalendar::Gregorian)
+        .unwrap_or(&GedCalendar::Gregorian);
+    let Some(calendar) = from_ged_calendar(calendar) else {
+        return verbatim();
+    };
 
-    let value = Some(first.to_string()).filter(|v| !v.is_empty());
-    let value2 = second.map(str::to_string);
+    let value = Some(bare(first)).filter(|v| !v.is_empty());
+    let value2 = second.map(bare).filter(|v| !v.is_empty());
     let sort = value.as_deref().and_then(|v| sort_date(v, calendar));
-
     ImportedDate {
         calendar,
         qualifier,
@@ -233,7 +206,7 @@ pub fn format(
     // GEDCOM 5.5.1 puts the escape before each date, after any qualifier.
     let escaped = |date: &str| match calendar {
         Calendar::Gregorian => date.to_string(),
-        other => format!("{} {date}", to_ged_calendar(other).gedcom_escape()),
+        other => format!("{} {date}", to_ged_calendar(other).gedcom551_escape()),
     };
 
     Some(match qualifier {
@@ -412,8 +385,48 @@ mod tests {
             (d.value.as_deref(), d.value2.as_deref()),
             (Some("1700"), Some("1710"))
         );
-        // A calendar OxidGene does not keep is dropped with its escape.
-        assert_eq!(parse("@#DROMAN@ 1700").value.as_deref(), Some("1700"));
+        // A calendar OxidGene has no column value for keeps its escape: the
+        // value is kept whole, as written.
+        let roman = parse("@#DROMAN@ 1700");
+        assert_eq!(roman.calendar, Calendar::Gregorian);
+        assert_eq!(roman.value.as_deref(), Some("@#DROMAN@ 1700"));
+        assert_eq!(roman.sort, None);
+    }
+
+    /// GEDCOM 7.0 names a calendar with a keyword, which was read as part of
+    /// the date until the grammar of both versions read it.
+    #[test]
+    fn a_gedcom_7_calendar_keyword_is_lifted_out_of_the_value() {
+        let d = parse("ABT JULIAN 1700");
+        assert_eq!(d.calendar, Calendar::Julian);
+        assert_eq!(d.qualifier, DateQualifier::About);
+        assert_eq!(d.value.as_deref(), Some("1700"));
+        let d = parse("BET FRENCH_R 1 VEND 1 AND FRENCH_R 2 BRUM 14");
+        assert_eq!(d.calendar, Calendar::FrenchRepublican);
+        assert_eq!(
+            (d.value.as_deref(), d.value2.as_deref()),
+            (Some("1 VEND 1"), Some("2 BRUM 14"))
+        );
+    }
+
+    /// A date's keywords and months are read in any case, and the date is
+    /// stored in GEDCOM's own spelling; the wording the grammar does not
+    /// understand is kept as written.
+    #[test]
+    fn a_date_is_stored_in_gedcom_spelling_and_unknown_wording_as_written() {
+        let d = parse("abt 07 sep 1830");
+        assert_eq!(d.qualifier, DateQualifier::About);
+        assert_eq!(d.value.as_deref(), Some("7 SEP 1830"));
+        assert_eq!(d.sort, NaiveDate::from_ymd_opt(1830, 9, 7));
+        let d = parse("BEF vers 1850");
+        assert_eq!(d.qualifier, DateQualifier::Before);
+        assert_eq!(d.value.as_deref(), Some("vers 1850"));
+        assert_eq!(d.sort, None);
+        for raw in ["(around midsummer)", "INT 1850 (around midsummer)"] {
+            let d = parse(raw);
+            assert_eq!(d.qualifier, DateQualifier::Exact, "{raw}");
+            assert_eq!(d.value.as_deref(), Some(raw));
+        }
     }
 
     #[test]

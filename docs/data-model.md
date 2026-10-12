@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:21:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T11:13:57Z }
 ---
 
 
@@ -646,21 +646,30 @@ handles dates. They follow these rules:
   French; anything else is `Other`. Its description is the line value and the
   `TYPE` together (`Civic appointment: Appointed chair`), else the one given,
   the `TYPE` counting only when it says more than the type. On a tag of its
-  own the line value is the `Y` asserting the event, never a description.
-  `SEP`, which `ged_io` reads, is still a `Separation`.
+  own the line value is the `Y` asserting the event, never a description; an
+  attribute's value (a family's `NCHI 3`) is its description.
 - **Structures read as generic events.** An LDS ordinance (`BAPL`,
   `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's `INIL`) is read as the `EVEN`
   typed by its tag the export writes for it, so it keeps its date, place,
   notes and citations and imports as its LDS type (`INIL`, which no type
   matches, as `Other`), its temple and status in the description in GEDCOM's
-  words (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`); a status outside GEDCOM's
-  enumeration is not kept. A person's or family's tag that no GEDCOM version
-  defines, which `ged_io` keeps whole as an extension, is read as an `EVEN`
-  typed `Military service` for `MILI` and typed by the tag itself otherwise,
-  a `TYPE` beneath it joining the line value; its date, place, notes,
-  citations and media are the event's. A custom `_` tag, a standard one that
-  is no event (`SUBM`, `CREA`) and a tag with nothing beneath it are left
-  alone.
+  words (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`), a status outside GEDCOM's
+  enumeration as written. A person's or family's tag that no GEDCOM version
+  defines, which `ged_io` keeps whole, untyped, is read as an `EVEN` typed
+  `Military service` for `MILI`, `Separation` for `SEP` (GeneWeb's) and by
+  the tag itself otherwise, a `TYPE` beneath it joining the line value (a
+  `Y` describes nothing); its date, place, notes, citations and media are the
+  event's. An event of the other kind of record (a `MARR` on a person, a
+  `PROP` or `BIRT` on a family), which some software writes, is read as it is
+  on the record that holds it. A custom `_` tag, any other standard tag `ged_io`
+  keeps aside (a second `SEX`) and an undefined tag other than `MILI` and
+  `SEP` with nothing beneath it are left alone.
+- **Events out of their record.** An event whose tag GEDCOM does not permit
+  on its record — a person's `Marriage`, a family's `Property` — is written
+  as the generic `EVEN` its tag names (`1 EVEN Farm lease` / `2 TYPE PROP`),
+  which reads back as the same type and description; so is a count (`NCHI`,
+  `NMR`) that GEDCOM 5.5.1's number cannot hold (`1 EVEN About a dozen` /
+  `2 TYPE NCHI`).
 - **Date qualifiers.** `About` is `ABT`, `Calculated` `CAL`, `Estimated`
   `EST`, `Before` `BEF`, `After` `AFT`, and `Between` `BET … AND …`; on
   import, `FROM … TO …` is a `Between` and a lone `TO` a `Before`. GEDCOM has
@@ -670,20 +679,33 @@ handles dates. They follow these rules:
   dates; the others one.
 - **Calendars.** Each calendar is GEDCOM's escape (`@#DJULIAN@`,
   `@#DHEBREW@`, `@#DFRENCH R@`), written after the qualifier and before each
-  date; a calendar OxidGene does not keep is dropped on import.
+  date; GEDCOM 7.0's keywords (`JULIAN`, `FRENCH_R`) are read too. A date of
+  a calendar OxidGene has no value for (`@#DROMAN@ 1700`) is kept whole, as
+  written, in `date_value`.
+- **Date values.** `ged_io`'s date grammar splits a date into the columns:
+  each bound it reads is stored in GEDCOM 5.5.1's canonical words without its
+  calendar (`7 SEP 1830` for `07 sep 1830`, `44 B.C.`), wording it does not
+  understand as written (`vers 1850`). A 5.5.1 date phrase (`(text)`), an
+  interpreted date (`INT 1850 (text)`) and a GEDCOM 7.0 date known only by
+  its `PHRASE` (stored as `(text)`) keep their whole text.
 - **Name types.** `Birth`, `Married`, `Maiden`, `Religious` and
   `AlsoKnownAs` are GEDCOM's `NAME.TYPE` values (`aka` for the last).
   `GivenName`, `Alias`, `Byname` and `Sobriquet` refine "also known as" for
   the UI and are written `aka` as well, so the refinement does not survive a
-  round trip. `Other` has no type; GEDCOM's `immigrant`, `professional` and
-  free values import as `Other`.
+  round trip. `Religious` is the free 5.5.1 value `religious`. `Other` has no
+  type; GEDCOM's `immigrant`, `professional` and other free values import as
+  `Other`.
 - **Child types.** `Biological`, `Adopted` and `Foster` are `PEDI` `birth`,
-  `adopted` and `foster`; `Step` and `Unknown` write no `PEDI`.
+  `adopted` and `foster`; `Step` and `Unknown` write no `PEDI`. On import a
+  `step` value is `Step`, and `sealing`, 7.0's `OTHER` and any other value
+  `Unknown`.
 - **Confidence.** A citation's `Confidence` is `QUAY` `0` (`VeryLow`) to `3`
   (`High`); `VeryHigh` is written `3` too, as GEDCOM has no higher level, and
   a citation without a confidence is written without `QUAY`.
 - **Media types.** `SourceMediaType` is GEDCOM's source media type vocabulary
   and nothing else ([Media](#media) explains `DocumentCategory` beside it).
+  `Other`, which 5.5.1 does not have, is written as no medium, which reads
+  back as `Other`.
 
 `Privacy` is a per-record override whose `Default` follows the tree, and
 `TreeDefaultPrivacy` the tree's own answer ([Media](#media), "Privacy").
