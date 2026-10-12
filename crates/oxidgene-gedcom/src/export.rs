@@ -8,7 +8,7 @@
 //! break of any kind on a `CONT` line, `@` escaped) and repairs, as extension
 //! structures, what the version does not permit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ged_io::gedzip::GedzipWriter;
 use ged_io::model::{
@@ -22,6 +22,7 @@ use ged_io::model::{
     Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
     XrefId,
 };
+use ged_io::tree::{Payload, Structure, Tag};
 use ged_io::{Bom, GedcomVersion, GedcomWriter};
 use uuid::Uuid;
 
@@ -122,7 +123,8 @@ pub enum ExportTarget<'a> {
     /// The `gedcom.ged` of a `.gdz`: GEDCOM 7.0, which the GEDZIP format
     /// requires, with the extensions it uses declared in `HEAD.SCHMA`.
     /// `media_paths` holds the archive entry each medium packed in the
-    /// archive is written as.
+    /// archive is written as; a medium neither packed nor at a web address
+    /// is kept as an OxidGene extension (see [`export_gedcom`]).
     Gedzip {
         media_paths: &'a HashMap<Uuid, String>,
     },
@@ -158,11 +160,15 @@ pub struct SubmitterSettings<'a> {
 /// `ged_io`'s writer, which converts it as the FamilySearch migration guide
 /// says (note records become `SNOTE`, `RELA` a `ROLE` with its phrase, file
 /// formats media types, dates and ages 7.0's grammar) and starts the text
-/// with the byte-order mark GEDCOM 7.0 recommends. Its media are those the
-/// archive packs, under their archive entries ([`archive_path`]), and those
-/// named by a web address: GEDZIP permits no other `FILE`, neither a local
-/// `file:` URL nor a relative path the archive does not hold, so a medium
-/// whose bytes OxidGene does not hold is left out of it, with a warning.
+/// with the byte-order mark GEDCOM 7.0 recommends. Its `OBJE` records are
+/// the media the archive packs, under their archive entries
+/// ([`archive_path`]), and those named by a web address: GEDZIP permits no
+/// other `FILE`, neither a local `file:` URL nor a relative path the archive
+/// does not hold. A medium whose bytes OxidGene does not hold, which only
+/// its producer's path names, is kept as the OxidGene extension record
+/// `_OXIDGENE_OBJE` instead, its links as `_OXIDGENE_OBJE` pointers (see
+/// [`keep_as_extensions`]): other programs ignore them, and an OxidGene
+/// import restores the medium as a `.ged` would.
 ///
 /// `merge_occupations` collapses every `EventType::Occupation` event for a
 /// person back into a single `OCCU` tag (values joined with `", "`) instead
@@ -201,19 +207,10 @@ pub fn export_gedcom(
         self_person_id,
         submitter,
     } = *options;
-    let chosen = records.chosen(choices);
     let media_paths = match target {
         ExportTarget::Gedcom => None,
         ExportTarget::Gedzip { media_paths } => Some(media_paths),
     };
-    let archived = media_paths.and_then(|paths| archived_media(&chosen, paths));
-    let mut records = chosen;
-    let mut left_out = 0;
-    if let Some((media, vignettes)) = &archived {
-        left_out = records.media.len() - media.len();
-        records.media = media;
-        records.vignettes = vignettes;
-    }
     let ExportRecords {
         persons,
         person_names,
@@ -231,19 +228,12 @@ pub fn export_gedcom(
         media_links,
         vignettes,
         notes,
-    } = records;
+    } = records.chosen(choices);
     let (merge_occupations, merge_names) = match target {
         ExportTarget::Gedcom => (choices.merge_occupations, choices.merge_names),
         ExportTarget::Gedzip { .. } => (false, false),
     };
     let mut warnings: Vec<String> = Vec::new();
-    if left_out > 0 {
-        warnings.push(format!(
-            "{left_out} media whose files OxidGene does not hold were left out of the GEDZIP, \
-             which references only the files it carries and web addresses; a GEDCOM export \
-             keeps their paths"
-        ));
-    }
     let build_span = tracing::info_span!(
         "export.build_model",
         export.person_count = persons.len(),
@@ -339,9 +329,24 @@ pub fn export_gedcom(
         data.families.push(family);
     }
 
+    // The media a GEDZIP keeps as extensions: those it neither packs nor
+    // reaches at a web address.
+    let kept: HashSet<String> = media_paths
+        .map(|paths| {
+            media
+                .iter()
+                .filter(|m| {
+                    !m.is_document() && !paths.contains_key(&m.id) && !is_web_address(&m.file_path)
+                })
+                .filter_map(|m| index.xrefs.media.get(&m.id))
+                .map(|xref| data.store().xref(*xref).to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
     drop(build_guard);
 
-    let gedcom = write_gedcom(&data, target)?;
+    let gedcom = write_gedcom(&data, target, &kept)?;
     Ok(ExportResult { gedcom, warnings })
 }
 
@@ -503,10 +508,12 @@ const EXTENSIONS_DOC: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/d
 
 /// OxidGene's own extension tags, each with the anchor of its
 /// documentation, which a GEDCOM 7.0 header declares (`HEAD.SCHMA`).
-const EXTENSION_TAGS: [(&str, &str); 3] = [
+const EXTENSION_TAGS: [(&str, &str); 5] = [
     (MEDIA_TAG, "_oxidgene_media"),
     (DOCUMENT_TAG, "_oxidgene_doc"),
     (VIGNETTE_TAG, "_oxidgene_vignette"),
+    (KEPT_MEDIA_TAG, "_oxidgene_obje"),
+    (POSITION_TAG, "_oxidgene_pos"),
 ];
 
 /// What a page says about itself: see [`MediaMetadataExtension`].
@@ -515,6 +522,11 @@ const MEDIA_TAG: &str = "_OXIDGENE_MEDIA";
 const DOCUMENT_TAG: &str = "_OXIDGENE_DOC";
 /// A person identified on a page and where.
 const VIGNETTE_TAG: &str = "_OXIDGENE_VIGNETTE";
+/// A medium a GEDZIP cannot name as an `OBJE`, and a link to it.
+pub(crate) const KEPT_MEDIA_TAG: &str = "_OXIDGENE_OBJE";
+/// The position of a kept medium among the `OBJE` records, or of a link to
+/// one among the links beside it.
+pub(crate) const POSITION_TAG: &str = "_OXIDGENE_POS";
 
 /// The GEDCOM header naming OxidGene as the producer, and the submitter
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
@@ -547,8 +559,13 @@ fn gedcom_header(submitter: XrefId, extensions: bool) -> Header {
 }
 
 /// Serialize the model to GEDCOM text: as the 5.5.1 it is built in for a
-/// `.ged`, converted to 7.0 for a GEDZIP, after a byte-order mark.
-fn write_gedcom(data: &Dataset, target: ExportTarget<'_>) -> Result<String, String> {
+/// `.ged`, converted to 7.0 for a GEDZIP, after a byte-order mark, with the
+/// `kept` media records (by xref) and their links as OxidGene extensions.
+fn write_gedcom(
+    data: &Dataset,
+    target: ExportTarget<'_>,
+    kept: &HashSet<String>,
+) -> Result<String, String> {
     let write_span =
         tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
     let writer = match target {
@@ -558,42 +575,76 @@ fn write_gedcom(data: &Dataset, target: ExportTarget<'_>) -> Result<String, Stri
             .bom(Bom::Always),
     };
     let gedcom = write_span
-        .in_scope(|| writer.write_to_string(data))
+        .in_scope(|| {
+            if kept.is_empty() {
+                return writer.write_to_string(data);
+            }
+            let mut records = data.to_structures();
+            keep_as_extensions(&mut records, kept);
+            let mut bytes = Vec::new();
+            writer.write_structures(&mut bytes, &records)?;
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
+        })
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", gedcom.len());
     Ok(gedcom)
 }
 
-/// The media and identifications a GEDZIP writes, when it leaves some out:
-/// the documents, the media the archive packs (`media_paths`), and those a
-/// web address names. GEDZIP references no other file: a local `file:` URL
-/// is forbidden in one, and a relative path names an entry of the archive,
-/// which holds no bytes for a medium OxidGene does not hold. `None` when
-/// every medium is written.
-fn archived_media(
-    records: &ExportRecords<'_>,
-    media_paths: &HashMap<Uuid, String>,
-) -> Option<(Vec<Media>, Vec<Vignette>)> {
-    let archived = |m: &Media| {
-        m.is_document() || media_paths.contains_key(&m.id) || is_web_address(&m.file_path)
-    };
-    if records.media.iter().all(archived) {
-        return None;
+/// Turn the `kept` `OBJE` records (by xref) into OxidGene's
+/// `_OXIDGENE_OBJE` extension records, and every `OBJE` pointer to one of
+/// them into an `_OXIDGENE_OBJE` pointer.
+///
+/// A record keeps its substructures — the producer's `FILE` path as it is,
+/// its format, title, notes and the other OxidGene extensions — which an
+/// extension record may hold as extension-defined substructures. A pointer
+/// becomes an `_OXIDGENE_OBJE` pointer in the same place. Each carries its
+/// position among the `OBJE` records, or among the `OBJE` links of the
+/// structure holding it, as `_OXIDGENE_POS`: a reader keeps extensions
+/// apart from the standard structures, and the order of a person's links
+/// says which picture is their portrait.
+fn keep_as_extensions(records: &mut [Structure], kept: &HashSet<String>) {
+    let mut position = 0usize;
+    for record in records {
+        if record.tag.as_str() == "OBJE" {
+            if record
+                .xref
+                .as_ref()
+                .is_some_and(|x| kept.contains(x.as_str()))
+            {
+                record.tag = Tag::new(KEPT_MEDIA_TAG);
+                record.substructures.insert(0, position_structure(position));
+            }
+            position += 1;
+        } else {
+            keep_links_as_extensions(&mut record.substructures, kept);
+        }
     }
-    let media: Vec<Media> = records
-        .media
-        .iter()
-        .filter(|m| archived(m))
-        .cloned()
-        .collect();
-    let kept: std::collections::HashSet<Uuid> = media.iter().map(|m| m.id).collect();
-    let vignettes = records
-        .vignettes
-        .iter()
-        .filter(|v| kept.contains(&v.media_id))
-        .cloned()
-        .collect();
-    Some((media, vignettes))
+}
+
+/// [`keep_as_extensions`] for the links among `structures`, at any depth.
+fn keep_links_as_extensions(structures: &mut [Structure], kept: &HashSet<String>) {
+    let mut position = 0usize;
+    for structure in structures {
+        if structure.tag.as_str() == "OBJE" {
+            if let Payload::Pointer(xref) = &structure.payload
+                && kept.contains(xref.as_str())
+            {
+                structure.tag = Tag::new(KEPT_MEDIA_TAG);
+                structure.substructures.push(position_structure(position));
+            }
+            position += 1;
+        } else {
+            keep_links_as_extensions(&mut structure.substructures, kept);
+        }
+    }
+}
+
+/// An `_OXIDGENE_POS` structure holding `position`.
+fn position_structure(position: usize) -> Structure {
+    Structure {
+        payload: Payload::Text(position.to_string().into()),
+        ..Structure::new(POSITION_TAG)
+    }
 }
 
 /// Whether a `FILE` is a web address, which GEDCOM 7.0 permits as an
@@ -733,7 +784,7 @@ impl ExportIndex<'_> {
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
         // there the `FILE` must name the entry inside the archive instead —
         // `media_paths` holds those; a GEDZIP's other media are web
-        // addresses (see `archived_media`).
+        // addresses, or kept as extensions (see `keep_as_extensions`).
         let path = media_paths
             .and_then(|paths| paths.get(&m.id))
             .cloned()
@@ -1228,9 +1279,6 @@ fn media_extensions(
     // it: the pages of one document are grouped by it on the way back in.
     let mut document_token = HashMap::<Uuid, String>::new();
     let mut page_count_of = HashMap::<Uuid, i32>::new();
-    // The first page written of each document, which carries what the
-    // document says about itself: page one, unless a GEDZIP left it out.
-    let mut first_page_of = HashMap::<Uuid, (i32, Uuid)>::new();
     for item in media.iter().filter(|item| !item.is_document()) {
         if let Some(document_id) = item.parent_media_id {
             let next = document_token.len() + 1;
@@ -1238,11 +1286,6 @@ fn media_extensions(
                 .entry(document_id)
                 .or_insert_with(|| format!("D{next}"));
             *page_count_of.entry(document_id).or_insert(0) += 1;
-            let page = (item.page_index, item.id);
-            first_page_of
-                .entry(document_id)
-                .and_modify(|first| *first = (*first).min(page))
-                .or_insert(page);
         }
     }
 
@@ -1278,8 +1321,7 @@ fn media_extensions(
         let Some(token) = document_token.get(&document_id) else {
             continue;
         };
-        let first_page = first_page_of.get(&document_id).map(|&(_, id)| id);
-        let meta = (first_page == Some(item.id))
+        let meta = (item.page_index == 0)
             .then(|| media_by_id.get(&document_id))
             .flatten()
             .map(|document| DocumentMetadataExtension {

@@ -56,7 +56,7 @@ const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
 ///
 /// Returns `Err` if the model cannot be converted.
 pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, String> {
-    import_dataset(&Dataset::parse(gedcom_str), tree_id)
+    import_dataset(Dataset::parse(gedcom_str), tree_id)
 }
 
 /// Import a GEDCOM file as stored, whatever character set it was written in.
@@ -72,16 +72,242 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 ///
 /// Returns `Err` if the model cannot be converted.
 pub fn import_gedcom_bytes(bytes: &[u8], tree_id: Uuid) -> Result<ImportResult, String> {
-    import_dataset(&Dataset::from_bytes(bytes), tree_id)
+    import_dataset(Dataset::from_bytes(bytes), tree_id)
 }
 
-/// The full import of a dataset read from a `.ged`: the standard model, the
+/// The full import of a dataset read from a `.ged` or a `.gdz`: the media
+/// an OxidGene GEDZIP keeps as extensions restored, the standard model, the
 /// OxidGene extensions beneath its `OBJE` records, and the portraits.
-fn import_dataset(data: &Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
-    let mut result = import_gedcom_data(data, tree_id)?;
-    import_oxidgene_media_extensions(data, &mut result);
+fn import_dataset(data: Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
+    import_dataset_keeping(data, tree_id).map(|(result, _)| result)
+}
+
+/// [`import_dataset`], with the pages of the media the file kept as
+/// extensions, which name no file of an archive.
+fn import_dataset_keeping(
+    mut data: Dataset,
+    tree_id: Uuid,
+) -> Result<(ImportResult, std::collections::HashSet<Uuid>), String> {
+    let kept = restore_kept_media(&mut data);
+    let mut result = import_gedcom_data(&data, tree_id)?;
+    import_oxidgene_media_extensions(&data, &mut result);
     assign_portraits(&mut result);
-    Ok(result)
+    let kept = kept
+        .iter()
+        .filter_map(|xref| result.media_by_xref.get(xref).copied())
+        .collect();
+    Ok((result, kept))
+}
+
+/// Restore the media an OxidGene GEDZIP keeps as extensions into the
+/// standard model, each where it was written.
+///
+/// GEDZIP names no file outside the archive, so a medium OxidGene holds no
+/// bytes for is written there as an `_OXIDGENE_OBJE` record — an `OBJE`
+/// record by another tag, the producer's path as its `FILE` — and each link
+/// to it as an `_OXIDGENE_OBJE` pointer, both with their position among the
+/// `OBJE` records or the links beside them (`_OXIDGENE_POS`). Each becomes
+/// the `OBJE` record or link it stands for, at that position, so the rest
+/// of the import reads it as it reads the `.ged` of the same tree. The
+/// xrefs of the records restored.
+fn restore_kept_media(data: &mut Dataset) -> Vec<String> {
+    let kept_tag = data.store_mut().intern_tag(crate::export::KEPT_MEDIA_TAG);
+    let position_tag = data.store_mut().intern_tag(crate::export::POSITION_TAG);
+    let (kept, rest): (Vec<Node>, Vec<Node>) = std::mem::take(&mut *data.extra)
+        .into_vec()
+        .into_iter()
+        .partition(|node| node.tag == kept_tag && node.xref.is_some());
+    *data.extra = rest.into();
+    if kept.is_empty() {
+        return Vec::new();
+    }
+    let st = data.store();
+    let xrefs = kept
+        .iter()
+        .filter_map(|node| Some(st.xref(node.xref?).to_string()))
+        .collect();
+    let records: Vec<_> = kept
+        .iter()
+        .map(|node| {
+            (
+                position(st, node, position_tag),
+                kept_multimedia(st, node, position_tag),
+            )
+        })
+        .collect();
+    let links = KeptLinks::of(data, kept_tag, position_tag);
+    insert_at_positions(&mut data.multimedia, records);
+    links.restore(data, kept_tag);
+    xrefs
+}
+
+/// The position an `_OXIDGENE_POS` beneath `node` gives, if any.
+fn position(st: &Store, node: &Node, position_tag: TagId) -> Option<usize> {
+    node.children
+        .iter()
+        .filter(|child| child.tag == position_tag)
+        .find_map(|child| node_text(st, child)?.trim().parse().ok())
+}
+
+/// The `OBJE` record an `_OXIDGENE_OBJE` record stands for: its `FILE`s
+/// with their format, medium and title, its notes, and its other
+/// substructures (OxidGene's extensions) as they are.
+fn kept_multimedia(st: &Store, node: &Node, position_tag: TagId) -> ged_io::model::Multimedia {
+    let text_of = |node: &Node| match &node.payload {
+        Value::Text(text) => text.clone(),
+        _ => Text::default(),
+    };
+    let child = |node: &Node, tag: &str| {
+        node.children
+            .iter()
+            .find(|child| st.tag(child.tag) == tag)
+            .map(text_of)
+    };
+    let mut multimedia = ged_io::model::Multimedia {
+        xref: node.xref,
+        ..Default::default()
+    };
+    let mut extra = Vec::new();
+    for sub in &node.children {
+        match st.tag(sub.tag) {
+            _ if sub.tag == position_tag => {}
+            "FILE" => {
+                let form = sub
+                    .children
+                    .iter()
+                    .find(|child| st.tag(child.tag) == "FORM")
+                    .map(|form| ged_io::model::FileForm {
+                        format: text_of(form),
+                        medium_type: child(form, "MEDI")
+                            .or_else(|| child(form, "TYPE"))
+                            .map(|medium| Box::new(Medium::parse(&medium.to_str(st)))),
+                        ..Default::default()
+                    });
+                multimedia.files.push(File {
+                    path: text_of(sub),
+                    form,
+                    title: child(sub, "TITL"),
+                    ..Default::default()
+                });
+            }
+            "NOTE" => multimedia.notes.push(GedNote::text(text_of(sub))),
+            _ => extra.push(sub.clone()),
+        }
+    }
+    multimedia.extra = extra.into();
+    multimedia
+}
+
+/// Insert each of `kept` into `items` at its position, in ascending order of
+/// positions, so that each lands where it was written; one without a
+/// position goes last.
+fn insert_at_positions<T>(items: &mut Vec<T>, mut kept: Vec<(Option<usize>, T)>) {
+    kept.sort_by_key(|(position, _)| position.unwrap_or(usize::MAX));
+    for (position, item) in kept {
+        let at = position.map_or(items.len(), |p| p.min(items.len()));
+        items.insert(at, item);
+    }
+}
+
+/// The `OBJE` links some `_OXIDGENE_OBJE` links stand for, each with its
+/// position.
+type PlacedLinks = Vec<(Option<usize>, MultimediaLink)>;
+
+/// The links of each record holding some, by its index and the index of its
+/// event (`None` for the record's own).
+type LinksByHolder = HashMap<(usize, Option<usize>), PlacedLinks>;
+
+/// The `_OXIDGENE_OBJE` links of each person, family and event, with their
+/// positions, read before the records holding them are changed.
+#[derive(Default)]
+struct KeptLinks {
+    persons: LinksByHolder,
+    families: LinksByHolder,
+}
+
+impl KeptLinks {
+    fn of(data: &Dataset, kept_tag: TagId, position_tag: TagId) -> Self {
+        let st = data.store();
+        let links = |extra: &Extra| -> PlacedLinks {
+            extra
+                .iter()
+                .filter(|node| node.tag == kept_tag)
+                .filter_map(|node| match node.payload {
+                    Value::Pointer(object) => Some((
+                        position(st, node, position_tag),
+                        MultimediaLink {
+                            object: Some(object),
+                            ..Default::default()
+                        },
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut kept = Self::default();
+        let collect = |map: &mut LinksByHolder, key, extra: &Extra| {
+            let found = links(extra);
+            if !found.is_empty() {
+                map.insert(key, found);
+            }
+        };
+        for (i, person) in data.individuals.iter().enumerate() {
+            collect(&mut kept.persons, (i, None), &person.extra);
+            for (j, event) in person.events.iter().enumerate() {
+                collect(&mut kept.persons, (i, Some(j)), &event.extra);
+            }
+        }
+        for (i, family) in data.families.iter().enumerate() {
+            collect(&mut kept.families, (i, None), &family.extra);
+            for (j, event) in family.events.iter().enumerate() {
+                collect(&mut kept.families, (i, Some(j)), &event.extra);
+            }
+        }
+        kept
+    }
+
+    /// Replace the `_OXIDGENE_OBJE` links by the `OBJE` links they stand
+    /// for.
+    fn restore(self, data: &mut Dataset, kept_tag: TagId) {
+        let unkept = |extra: &mut Extra| {
+            let rest: Vec<Node> = std::mem::take(&mut **extra)
+                .into_vec()
+                .into_iter()
+                .filter(|node| node.tag != kept_tag)
+                .collect();
+            **extra = rest.into();
+        };
+        for ((i, event), links) in self.persons {
+            let Some(person) = data.individuals.get_mut(i) else {
+                continue;
+            };
+            match event.and_then(|j| person.events.get_mut(j)) {
+                Some(event) => {
+                    unkept(&mut event.extra);
+                    insert_at_positions(&mut event.detail_mut().multimedia, links);
+                }
+                None => {
+                    unkept(&mut person.extra);
+                    insert_at_positions(&mut person.detail_mut().multimedia, links);
+                }
+            }
+        }
+        for ((i, event), links) in self.families {
+            let Some(family) = data.families.get_mut(i) else {
+                continue;
+            };
+            match event.and_then(|j| family.events.get_mut(j)) {
+                Some(event) => {
+                    unkept(&mut event.extra);
+                    insert_at_positions(&mut event.detail_mut().multimedia, links);
+                }
+                None => {
+                    unkept(&mut family.extra);
+                    insert_at_positions(&mut family.detail_mut().multimedia, links);
+                }
+            }
+        }
+    }
 }
 
 /// Record each person's first picture as their portrait.
@@ -177,15 +403,16 @@ pub fn prepare_gedzip<R: Read + Seek>(
         .read_dataset(&GedcomBuilder::new())
         .map_err(|error| format!("GEDZIP read error: {error}"))?;
 
-    let mut result = import_dataset(&data, tree_id)?;
-    drop(data);
+    let (mut result, kept) = import_dataset_keeping(data, tree_id)?;
     let reader = reader.max_entry_size(GEDZIP_MEDIA_LIMIT);
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
     for media in &result.media {
         // Only a page names a file. A document holds no bytes, so looking one
         // up for it asks the archive for an entry called nothing at all.
-        if media.is_document() || is_remote_url(&media.file_path) {
+        // Nor does a medium the archive keeps as an extension: GEDZIP names
+        // no file outside it, so it was written without one.
+        if media.is_document() || is_remote_url(&media.file_path) || kept.contains(&media.id) {
             continue;
         }
         match reader.find_entry(&media.file_path) {

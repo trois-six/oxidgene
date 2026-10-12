@@ -3476,17 +3476,21 @@ fn misplaced_events_and_an_unlisted_lds_status_are_read() {
 }
 
 /// `tree` as the GEDCOM 5.5.1 of a `.ged` and as the GEDCOM 7.0 of a
-/// GEDZIP holding every medium it names but a web address, each written
-/// with the default choices; and that GEDZIP.
+/// GEDZIP, each written with the default choices; and that GEDZIP. With
+/// `held`, OxidGene holds every medium the tree names but a web address,
+/// which the GEDZIP packs; without, it holds none, and the GEDZIP keeps them
+/// as extensions.
 fn both_exports(
     tree: &mut oxidgene_gedcom::ImportResult,
+    held: bool,
 ) -> (
     oxidgene_gedcom::ExportResult,
     oxidgene_gedcom::ExportResult,
     Vec<u8>,
 ) {
     for medium in &mut tree.media {
-        if !medium.is_document() && !oxidgene_core::types::is_remote_url(&medium.file_path) {
+        if held && !medium.is_document() && !oxidgene_core::types::is_remote_url(&medium.file_path)
+        {
             medium.storage_key = Some(format!("media/{}", medium.id));
         }
     }
@@ -3620,7 +3624,21 @@ fn a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does() {
         ("VERSION_SENSITIVE", VERSION_SENSITIVE_GEDCOM),
     ] {
         let mut tree = import_gedcom(fixture, Uuid::now_v7()).expect("imports");
-        let (ged, gdz, archive) = both_exports(&mut tree);
+        for held in [false, true] {
+            gedzip_restores_what_a_gedcom_does(name, &mut tree, held);
+        }
+    }
+}
+
+/// [`a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does`]
+/// for one fixture, its media `held` or not.
+fn gedzip_restores_what_a_gedcom_does(
+    name: &str,
+    tree: &mut oxidgene_gedcom::ImportResult,
+    held: bool,
+) {
+    {
+        let (ged, gdz, archive) = both_exports(tree, held);
 
         assert!(ged.gedcom.contains("2 VERS 5.5.1\n"), "{name}");
         assert!(
@@ -3647,11 +3665,19 @@ fn a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does() {
                 .count(),
             "{name}: every packed file comes back"
         );
+        // Packed, a file is named by its archive entry; kept, by its path.
+        let (from_gdz, from_ged) = (reexport(&from_gdz.result), reexport(&from_ged));
+        let (from_gdz, from_ged) = if held {
+            (without_files(&from_gdz), without_files(&from_ged))
+        } else {
+            (from_gdz.lines().collect(), from_ged.lines().collect())
+        };
         assert_eq!(
-            without_files(&reexport(&from_gdz.result)),
-            without_empty_attributes(&without_files(&reexport(&from_ged))),
-            "{name}"
+            from_gdz,
+            without_empty_attributes(&from_ged),
+            "{name}, held: {held}"
         );
+        assert!(gdz.warnings.is_empty(), "{name}: {:?}", gdz.warnings);
     }
 }
 
@@ -3660,8 +3686,14 @@ fn a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does() {
 #[test]
 fn a_gedzip_declares_oxidgenes_extensions() {
     let mut tree = import_gedcom(MULTIMEDIA_GEDCOM, Uuid::now_v7()).expect("imports");
-    let (ged, gdz, _) = both_exports(&mut tree);
-    for tag in ["_OXIDGENE_MEDIA", "_OXIDGENE_DOC", "_OXIDGENE_VIGNETTE"] {
+    let (ged, gdz, _) = both_exports(&mut tree, true);
+    for tag in [
+        "_OXIDGENE_MEDIA",
+        "_OXIDGENE_DOC",
+        "_OXIDGENE_VIGNETTE",
+        "_OXIDGENE_OBJE",
+        "_OXIDGENE_POS",
+    ] {
         let declaration = format!(
             "2 TAG {tag} https://github.com/trois-six/oxidgene/blob/main/docs/api.md#{}\n",
             tag.to_ascii_lowercase()
@@ -3726,17 +3758,14 @@ fn export_as(
     .expect("exports")
 }
 
-/// A medium OxidGene holds no bytes for has no place in a GEDZIP, which
-/// names the files it carries and web addresses only: a `.ged` keeps its
-/// path, the GEDZIP leaves it out, with its links, and says so.
+/// A medium OxidGene holds no bytes for cannot be an `OBJE` of a GEDZIP,
+/// which names the files it carries and web addresses only: the GEDZIP keeps
+/// it, its path and its links as OxidGene extensions, conformant, and an
+/// import restores it as the `.ged` does — the portrait, written first,
+/// included.
 #[test]
-fn a_gedzip_leaves_out_the_media_it_cannot_carry() {
+fn a_gedzip_keeps_the_media_it_cannot_carry_as_extensions() {
     let (tree, held, path) = tree_holding_the_scan();
-
-    let ged = export_as(&tree, ExportTarget::Gedcom);
-    assert!(ged.gedcom.contains("1 FILE C:\\Photos\\portrait 1.jpg\n"));
-    assert!(ged.warnings.is_empty(), "{:?}", ged.warnings);
-
     let media_paths = HashMap::from([(held, path.clone())]);
     let gdz = export_as(
         &tree,
@@ -3744,28 +3773,59 @@ fn a_gedzip_leaves_out_the_media_it_cannot_carry() {
             media_paths: &media_paths,
         },
     );
-    for absent in ["Photos", "file:", ".."] {
+    for written in [
+        "1 _OXIDGENE_OBJE @M1@\n2 _OXIDGENE_POS 0\n1 OBJE @M2@\n1 OBJE @M3@\n",
+        "0 @M1@ _OXIDGENE_OBJE\n1 _OXIDGENE_POS 0\n1 FILE C:\\Photos\\portrait 1.jpg\n",
+        "0 @M3@ OBJE\n1 FILE https://example.org/media/portrait.jpg\n",
+    ] {
+        assert!(gdz.gedcom.contains(written), "{written} in {}", gdz.gedcom);
+    }
+    assert!(gdz.gedcom.contains(&format!("1 FILE {path}\n")));
+    for absent in ["file:", ".."] {
         assert!(!gdz.gedcom.contains(absent), "{absent} in {}", gdz.gedcom);
     }
-    for file in [path.as_str(), "https://example.org/media/portrait.jpg"] {
-        assert!(gdz.gedcom.contains(&format!("1 FILE {file}\n")), "{file}");
-    }
-    assert_eq!(gdz.gedcom.matches("1 OBJE @").count(), 2, "{}", gdz.gedcom);
-    assert_eq!(gdz.warnings.len(), 1, "{:?}", gdz.warnings);
-    assert!(gdz.warnings[0].starts_with("1 media"), "{:?}", gdz.warnings);
+    assert!(gdz.warnings.is_empty(), "{:?}", gdz.warnings);
     assert!(ged_io::spec::validate_bytes(gdz.gedcom.as_bytes()).is_empty());
 
     let archive = oxidgene_gedcom::export::export_gedzip(&gdz.gedcom, &[(path, b"PNG".to_vec())])
         .expect("writes a GEDZIP");
     let back = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports");
-    let pages = back.result.media.iter().filter(|m| !m.is_document());
-    assert_eq!(pages.count(), 2, "the held scan and the web address");
-    assert_eq!(back.result.media_links.len(), 2);
     assert_eq!(back.files.len(), 1);
     assert!(
         back.result.warnings.is_empty(),
         "{:?}",
         back.result.warnings
+    );
+    let from_ged = import_gedcom(
+        &export_as(&tree, ExportTarget::Gedcom).gedcom,
+        Uuid::now_v7(),
+    )
+    .expect("imports the .ged");
+    let pages = |result: &oxidgene_gedcom::ImportResult| -> Vec<String> {
+        let mut paths: Vec<String> = result
+            .media
+            .iter()
+            .filter(|m| !m.is_document())
+            .map(|m| m.file_path.clone())
+            .collect();
+        paths.sort();
+        paths
+    };
+    assert_eq!(pages(&back.result).len(), 3);
+    assert!(pages(&back.result).contains(&"C:\\Photos\\portrait 1.jpg".to_string()));
+    assert_eq!(back.result.media_links.len(), 3);
+    let portrait = |result: &oxidgene_gedcom::ImportResult| {
+        let id = result.persons[0].portrait_media_id.expect("a portrait");
+        result
+            .media
+            .iter()
+            .find(|m| m.parent_media_id == Some(id))
+            .map(|m| m.file_path.clone())
+    };
+    assert_eq!(portrait(&back.result), portrait(&from_ged));
+    assert_eq!(
+        portrait(&back.result).as_deref(),
+        Some("C:\\Photos\\portrait 1.jpg")
     );
 }
 
@@ -3774,7 +3834,7 @@ fn a_gedzip_leaves_out_the_media_it_cannot_carry() {
 #[test]
 fn a_gedzip_applies_no_merge() {
     let mut tree = import_gedcom(MULTI_OCCUPATION_GEDCOM, Uuid::now_v7()).expect("imports");
-    let (_, lossless, _) = both_exports(&mut tree);
+    let (_, lossless, _) = both_exports(&mut tree, true);
     let merged = export_gedcom(
         &tree.records(),
         &ExportOptions {

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
 ---
 
 
@@ -412,7 +412,7 @@ Two export format options, each displayed as a card with icon, name, description
 | Format | Extension | Writes | Description |
 |---|---|---|---|
 | GEDCOM 5.5.1 | `.ged` | GEDCOM 5.5.1 text, its media referenced by their producers' paths | Standard genealogy exchange format, read by Ancestry, Geneanet, MyHeritage, MacFamilyTree and most genealogy software. |
-| GEDCOM 7.0 (GEDZIP) | `.gdz` | A ZIP archive: a GEDCOM 7.0 `gedcom.ged`, as GEDZIP requires, and the media files OxidGene holds | Recent exchange format bundling the media into one archive, read by software supporting GEDCOM 7.0. Ideal for full backups or sharing with attachments. A medium OxidGene holds no file for, which only a path outside the archive names, has no place in it and is left out with a warning; the `.ged` keeps it ([API Contract §4](api.md#gedzip)). |
+| GEDCOM 7.0 (GEDZIP) | `.gdz` | A ZIP archive: a GEDCOM 7.0 `gedcom.ged`, as GEDZIP requires, and the media files OxidGene holds | Recent exchange format bundling the media into one archive, read by software supporting GEDCOM 7.0. Ideal for full backups or sharing with attachments. A medium OxidGene holds no file for, which only a path outside the archive names, cannot be a GEDCOM `OBJE` there: the archive keeps it, with its path and links, as an OxidGene extension that other software ignores and an OxidGene import restores ([API Contract §4](api.md#gedzip)). |
 
 ### Export options (toggles)
 

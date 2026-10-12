@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
 ---
 
 
@@ -1027,8 +1027,10 @@ artifact downloads are HTTP transport concerns and therefore use REST.
 A GEDZIP import stores every medium whose `FILE` names an entry in the archive,
 thumbnails it and writes it as a held medium; one naming an entry the archive
 lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE`
-names. Matching folds separators, percent-encoding and case, so a producer's
-`.\Media\Photo.JPG` still finds `media/photo.jpg`, and a GEDCOM 7.0
+names. A medium an OxidGene GEDZIP keeps as an extension, having no file in
+the archive by design, is restored as an unheld record without a warning (see
+[GEDZIP](#gedzip)). Matching folds separators, percent-encoding and case, so a
+producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`, and a GEDCOM 7.0
 `media/my%20photo.jpg` finds `media/my photo.jpg`. A medium already
 compressed (JPEG, PNG, PDF, …) is stored in an exported archive as it is,
 any other deflated. The `gedcom.ged` entry has a 1 GiB limit and
@@ -1488,7 +1490,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (its redesign — se
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows, the relation being `RELA`, else the 7.0 `ROLE`'s phrase, else the role; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`), with a `RELA`, which 5.5.1 requires (`Unknown` for a witness without a relation). A family-event witness points at the family, Gramps' convention, which 5.5.1 does not permit: the writer keeps it as `_ASSO`, which the import reads, as it reads an `_ASSO` beneath an event. A GEDZIP's GEDCOM 7.0 writes the relation as a `ROLE` with the relation as its `PHRASE` (`ROLE WITN` / `PHRASE Witness`, `ROLE OTHER` for a relation 7.0 has no role for), under `_ASSO` too, whose role the import reads as an `ASSO`'s. Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
-| Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan, and merging them back writes it once. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is left out of it (see [GEDZIP](#gedzip)) |
+| Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan, and merging them back writes it once. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is kept as the OxidGene extension `_OXIDGENE_OBJE`, its path and links with it, which an OxidGene import restores (see [GEDZIP](#gedzip)) |
 | Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`, the person's xref opening the value, every `@` doubled as GEDCOM 5.5.1 writes text (`@@I1@@ 120 45 64 82`), the leading one alone in a GEDZIP's 7.0 (`@@I1@ 120 45 64 82`); `@I1@ …`, which earlier exports wrote, reads the same; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
 | Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `ged_io`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
@@ -1527,9 +1529,13 @@ specification. It is UTF-8 and starts with a byte-order mark.
   (`http`, `https` or `ftp`). GEDZIP permits no other `FILE` — a local
   `file:` URL is forbidden in one, and a relative path names an archive
   entry — so a medium whose bytes OxidGene does not hold, which only its
-  producer's path names, is left out of the archive, with its links and
-  identifications, and the export warns with their count. A `.ged` export
-  keeps their paths.
+  producer's path names, cannot be an `OBJE` there. It is kept as an
+  [`_OXIDGENE_OBJE`](#_oxidgene_obje) extension record instead, with its
+  path, title, notes and OxidGene extensions (its identifications
+  included), and each link to it as an `_OXIDGENE_OBJE` pointer: the text
+  stays conformant, other programs ignore the extension, and an OxidGene
+  import restores the medium, unheld, with its links, as the `.ged` of the
+  same tree does.
 - **Extensions.** The header declares OxidGene's extension tags in
   `HEAD.SCHMA`, each with the URI of its documentation below, which makes
   them documented extension tags.
@@ -1542,15 +1548,17 @@ specification. It is UTF-8 and starts with a byte-order mark.
   and is not written.
 
 An import reads either version, so a GEDZIP OxidGene wrote restores what a
-`.ged` of the same tree restores, its packed media with their bytes besides;
+`.ged` of the same tree restores, its packed media with their bytes besides,
+and does not look in the archive for the files of the media it kept as
+extensions;
 archives earlier versions wrote, whose `gedcom.ged` is 5.5.1, import as
 before.
 
 ### OxidGene extensions
 
 OxidGene writes three extension tags beneath the `OBJE` record of each page
-it exports. Other software may ignore them; an OxidGene import reads them
-back.
+it exports, and a GEDZIP two more for the media it keeps. Other software may
+ignore them; an OxidGene import reads them back.
 
 #### `_OXIDGENE_MEDIA`
 
@@ -1560,8 +1568,8 @@ name, its timestamps and its own notes. See *Extended media metadata* above.
 #### `_OXIDGENE_DOC`
 
 A versioned JSON value: the document a page belongs to, by a token that is
-stable within the file, the page's index and the document's page count; the
-first page written carries what the document says about itself. It is what
+stable within the file, the page's index and the document's page count;
+page one carries what the document says about itself. It is what
 reassembles a multi-page document on import.
 
 #### `_OXIDGENE_VIGNETTE`
@@ -1569,6 +1577,24 @@ reassembles a multi-page document on import.
 A person identified on the page: the person's xref, or `-` for nobody, then
 the pixel rectangle `x y width height`. See *Vignette identifications*
 above.
+
+#### `_OXIDGENE_OBJE`
+
+In a GEDZIP only, a medium whose file OxidGene does not hold (see
+[GEDZIP](#gedzip)). As a record (`0 @M1@ _OXIDGENE_OBJE`), it stands for the
+`OBJE` record a `.ged` writes: its substructures are that record's — `FILE`
+with the producer's path exactly as stored, `FORM` with its media type and
+`MEDI`, `TITL`, `NOTE` — and the extensions above. As a substructure of a
+person, a family or an event, its pointer payload is a link to such a
+record, written where the `OBJE` link stands in a `.ged`.
+
+#### `_OXIDGENE_POS`
+
+Beneath an `_OXIDGENE_OBJE`, its position, from 0: a record's among the
+`OBJE` records, counting the kept ones; a link's among the `OBJE` links of
+the structure holding it. A reader keeps extensions apart from the standard
+structures, and the order says which picture is a person's portrait, so the
+import puts each one back at its position.
 
 ### GeneWeb `.gw`
 

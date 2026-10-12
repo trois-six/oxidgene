@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
 ---
 
 
@@ -107,15 +107,15 @@ survives both formats. The difference is only the bytes: a `.ged` keeps the
 `FILE` reference, while a `.gdz` embeds each stored file it names. Remote
 media remain references in either format. Unheld media remain references in
 a `.ged`; a `.gdz` can name no file outside the archive but by a web address,
-so its export leaves them out, with a warning
-([API Contract §4](api.md#gedzip)).
+so it keeps them, with their paths and links, as an OxidGene extension,
+which other software ignores and an OxidGene import restores as unheld
+records ([API Contract §4](api.md#gedzip)).
 
-What a GEDZIP round trip does **not** carry back is the structure GEDCOM has no
-tag for: a multi-page document's pages export as separate `OBJE` records, so
-re-importing the archive gives back that many separate media rather than one
-document with its pages. The archive path remains `media/{uuid}.{ext}` so two
-scans called `photo.jpg` cannot collide, while the original file name is
-preserved separately in OxidGene's media metadata extension.
+A multi-page document has no GEDCOM tag: its pages export as separate `OBJE`
+records, which OxidGene's `_OXIDGENE_DOC` extension regroups on import (see
+below). The archive path remains `media/{uuid}.{ext}` so two scans called
+`photo.jpg` cannot collide, while the original file name is preserved
+separately in OxidGene's media metadata extension.
 
 ### What this tab does not do
 
@@ -315,23 +315,26 @@ first whole picture, and the crop itself survives as a vignette on the scan.
 
 ## What a GEDZIP round trip does to a multi-page document
 
-Nothing carries it across, and nothing pretends to. GEDCOM has no notion of a
-document assembled from page images, so on export the container **dissolves**:
-each page is written as an ordinary standalone `OBJE`, and everything that was
-linked to the document is linked to every one of its pages, in reading order.
-Re-importing yields *n* one-page media, each attached to the same people the
-document was.
+GEDCOM has no notion of a document assembled from page images, so on export
+the container **dissolves**: each page is written as an ordinary standalone
+`OBJE`, and everything that was linked to the document is linked to every one
+of its pages, in reading order. Other software sees *n* pictures, each
+attached to the people the document was.
 
-The document row itself is not exported at all. It holds no bytes — its
+The document row itself is not written as a record. It holds no bytes — its
 `file_path` is its title — so writing it produced a `FILE` naming something no
-archive could contain, which is where the *"the archive holds no file named
-'Dossier de naturalisation…'"* warnings came from. Writing it as its cover
-instead was worse: the person kept page one and lost the other thirty-seven.
+archive could contain. Instead, each page carries OxidGene's `_OXIDGENE_DOC`
+extension: a token shared by the pages of one document, the page's index and
+the page count, and, on page one, what the document says about itself — its
+title, description, date, category, privacy, tags, place and notes
+([API Contract §4](api.md#_oxidgene_doc)).
 
-So the scans survive a round trip, with their bytes and their owners. The
-grouping does not: a thirty-eight page dossier comes back as thirty-eight
-pictures. Re-assembling them into a document is a manual step, and the pages
-keep their order in the gallery because the links were written in it.
+An OxidGene import reads it back: the pages of one token are regrouped, in
+their order, under one document holding that metadata, and the links each page
+received are one link to the document again. A dossier of thirty-eight scans
+comes back as one document of thirty-eight pages, from a `.gdz` as from a
+`.ged` — with the scans' bytes from a `.gdz`. Software that does not know the
+extension keeps the pages as separate pictures.
 
 ---
 
