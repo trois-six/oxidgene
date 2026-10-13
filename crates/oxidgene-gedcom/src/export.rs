@@ -17,7 +17,7 @@ use ged_io::model::{
     Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, FileForm, Header,
     HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
     MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
-    Note as GedNote, Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail,
+    Note as GedNote, Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail, Record,
     Repository as GedRepository, RepositoryCitation, Restriction, Schema, Sex as GedSex,
     Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
     XrefId,
@@ -301,32 +301,38 @@ pub fn export_gedcom(
         media_extensions(data.store_mut(), media, vignettes, &index);
     warnings.extend(extension_warnings);
 
-    data.header = Some(gedcom_header(
+    data.set_header(Some(gedcom_header(
         index.xrefs.submitter,
         media_paths.is_some() && !media.is_empty(),
-    ));
-    data.submitters = vec![index.submitter(submitter, self_person_id)];
-    data.sources = sources.iter().map(|src| index.source(src)).collect();
-    data.repositories = repositories
-        .iter()
-        .map(|repo| index.repository(repo))
-        .collect();
-    data.multimedia = media
-        .iter()
-        // Dissolved into its pages, which carry the bytes; see `pages_of`.
-        .filter(|m| !m.is_document())
-        .map(|m| {
-            let extra = extensions.remove(&m.id).unwrap_or_default();
-            index.multimedia(m, media_paths, extra)
-        })
-        .collect();
+    )));
+    // Each record is stored in the dataset's tables as it is built; `push`
+    // adds it unchecked, as reading does, since a record points at records
+    // pushed after it.
+    data.push(Record::Submitter(Box::new(
+        index.submitter(submitter, self_person_id),
+    )));
+    for src in sources {
+        data.push(Record::Source(Box::new(index.source(src))));
+    }
+    for repo in repositories {
+        data.push(Record::Repository(Box::new(index.repository(repo))));
+    }
+    // A document is dissolved into its pages, which carry the bytes; see
+    // `pages_of`.
+    for m in media.iter().filter(|m| !m.is_document()) {
+        let extra = extensions.remove(&m.id).unwrap_or_default();
+        data.push(Record::Multimedia(Box::new(index.multimedia(
+            m,
+            media_paths,
+            extra,
+        ))));
+    }
     for person in persons {
         let individual = index.individual(person, merge_names, merge_occupations, &mut warnings);
-        data.individuals.push(individual);
+        data.push(Record::Individual(Box::new(individual)));
     }
     for fam in families {
-        let family = index.family(fam, &mut warnings);
-        data.families.push(family);
+        data.push(Record::Family(Box::new(index.family(fam, &mut warnings))));
     }
 
     // The media a GEDZIP keeps as extensions: those it neither packs nor

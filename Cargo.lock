@@ -2918,7 +2918,7 @@ dependencies = [
 [[package]]
 name = "ged_io"
 version = "0.17.0"
-source = "git+https://github.com/trois-six/ged_io?branch=redesign#aedebfdccd0312f4e23e8638e113df4b43285b32"
+source = "git+https://github.com/trois-six/ged_io?branch=redesign#864c997ab9aa1bf6384e11585dacef0551bd98e1"
 dependencies = [
  "calendrical_calculations",
  "calendrier",
@@ -2948,7 +2948,7 @@ dependencies = [
 [[package]]
 name = "geneweb"
 version = "0.3.0"
-source = "git+https://github.com/trois-six/rust-geneweb?branch=deps%2Fged-io-redesign#1c28c31816ee9833d041e44fe17e2c2f7793cc68"
+source = "git+https://github.com/trois-six/rust-geneweb?branch=deps%2Fged-io-redesign#0e45d2004f3a2dc87c7288ff4467953959ef8cf9"
 dependencies = [
  "ged_io",
 ]

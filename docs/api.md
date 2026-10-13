@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T12:33:15Z }
 ---
 
 
@@ -1520,8 +1520,12 @@ reads. Both are one export: the records are built once, as for a `.ged`, and
 `ged_io`'s writer converts them to 7.0 as the FamilySearch migration guide
 says — note records become `SNOTE`, a `RELA` a `ROLE` with its `PHRASE`,
 file formats media types (`image/jpeg`), dates and ages 7.0's grammar —
-then checks and repairs them for 7.0, so the text conforms to the
-specification. It is UTF-8 and starts with a byte-order mark.
+then checks and repairs them for 7.0 as its 7.0.18 release states it, so the
+text conforms to the specification. The records an export builds already
+keep that release's pointer rules: a source holds no media, a medium no
+citation and every note is written in place, so no cycle of source,
+multimedia and shared note records can form. It is UTF-8 and starts with a
+byte-order mark.
 
 - **Files.** A medium OxidGene holds is packed under `media/{id}.{ext}` and
   its `FILE` names that entry: a relative path with `/` separators, no `..`

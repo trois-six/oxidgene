@@ -3758,6 +3758,28 @@ fn export_as(
     .expect("exports")
 }
 
+/// The file paths of the pages of `result`, sorted.
+fn page_paths(result: &oxidgene_gedcom::ImportResult) -> Vec<String> {
+    let mut paths: Vec<String> = result
+        .media
+        .iter()
+        .filter(|m| !m.is_document())
+        .map(|m| m.file_path.clone())
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// The file names of the pages of `result`, in its order.
+fn page_names(result: &oxidgene_gedcom::ImportResult) -> Vec<String> {
+    result
+        .media
+        .iter()
+        .filter(|m| !m.is_document())
+        .map(|m| m.file_name.clone())
+        .collect()
+}
+
 /// A medium OxidGene holds no bytes for cannot be an `OBJE` of a GEDZIP,
 /// which names the files it carries and web addresses only: the GEDZIP keeps
 /// it, its path and its links as OxidGene extensions, conformant, and an
@@ -3801,19 +3823,21 @@ fn a_gedzip_keeps_the_media_it_cannot_carry_as_extensions() {
         Uuid::now_v7(),
     )
     .expect("imports the .ged");
-    let pages = |result: &oxidgene_gedcom::ImportResult| -> Vec<String> {
-        let mut paths: Vec<String> = result
-            .media
-            .iter()
-            .filter(|m| !m.is_document())
-            .map(|m| m.file_path.clone())
-            .collect();
-        paths.sort();
-        paths
-    };
-    assert_eq!(pages(&back.result).len(), 3);
-    assert!(pages(&back.result).contains(&"C:\\Photos\\portrait 1.jpg".to_string()));
+    assert_eq!(page_paths(&back.result).len(), 3);
+    assert!(page_paths(&back.result).contains(&"C:\\Photos\\portrait 1.jpg".to_string()));
     assert_eq!(back.result.media_links.len(), 3);
+    assert_restored_as_the_ged_reads_them(&back.result, &from_ged);
+}
+
+/// The media a GEDZIP kept as extensions, restored in `back` as `from_ged`,
+/// the import of the `.ged` of the same tree, reads them: each page where it
+/// was written, in the order of the `OBJE` records, and the portrait, written
+/// first, the unheld one.
+fn assert_restored_as_the_ged_reads_them(
+    back: &oxidgene_gedcom::ImportResult,
+    from_ged: &oxidgene_gedcom::ImportResult,
+) {
+    assert_eq!(page_names(back), page_names(from_ged));
     let portrait = |result: &oxidgene_gedcom::ImportResult| {
         let id = result.persons[0].portrait_media_id.expect("a portrait");
         result
@@ -3822,9 +3846,9 @@ fn a_gedzip_keeps_the_media_it_cannot_carry_as_extensions() {
             .find(|m| m.parent_media_id == Some(id))
             .map(|m| m.file_path.clone())
     };
-    assert_eq!(portrait(&back.result), portrait(&from_ged));
+    assert_eq!(portrait(back), portrait(from_ged));
     assert_eq!(
-        portrait(&back.result).as_deref(),
+        portrait(back).as_deref(),
         Some("C:\\Photos\\portrait 1.jpg")
     );
 }

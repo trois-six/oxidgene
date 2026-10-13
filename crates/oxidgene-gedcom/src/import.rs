@@ -20,11 +20,11 @@ use std::io::{Read, Seek};
 use chrono::Utc;
 use ged_io::gedzip::GedzipReader;
 use ged_io::model::{
-    Address, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, EnumList,
-    Event as GedEvent, EventKind, Extra, File, Medium, MultimediaLink, Name as GedName,
-    NamePieceKind, NameType as GedNameType, Node, Note as GedNote, NoteContent, Ordinance,
-    OrdinanceStatus, Pedigree, Place as GedPlace, Restriction, Sex as GedSex, Store, TagId, Text,
-    Value,
+    Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, Date,
+    EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
+    MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
+    Ordinance, OrdinanceStatus, Pedigree, Place as GedPlace, Record, Removal, Restriction,
+    Sex as GedSex, Store, TagId, Text, TextRef, View,
 };
 use ged_io::tree::{Payload, Structure};
 use ged_io::{GedcomBuilder, GedcomVersion};
@@ -113,74 +113,80 @@ fn import_dataset_keeping(
 fn restore_kept_media(data: &mut Dataset) -> Vec<String> {
     let kept_tag = data.store_mut().intern_tag(crate::export::KEPT_MEDIA_TAG);
     let position_tag = data.store_mut().intern_tag(crate::export::POSITION_TAG);
-    let (kept, rest): (Vec<Node>, Vec<Node>) = std::mem::take(&mut *data.extra)
-        .into_vec()
+    let records = data.extra();
+    // The positions of the kept records among the untyped ones.
+    let kept: Vec<usize> = records
         .into_iter()
-        .partition(|node| node.tag == kept_tag && node.xref.is_some());
-    *data.extra = rest.into();
+        .enumerate()
+        .filter(|(_, node)| node.tag_id() == kept_tag && node.xref().is_some())
+        .map(|(at, _)| at)
+        .collect();
     if kept.is_empty() {
         return Vec::new();
     }
     let st = data.store();
-    let xrefs = kept
-        .iter()
-        .filter_map(|node| Some(st.xref(node.xref?).to_string()))
+    let kept_nodes = || kept.iter().filter_map(|&at| records.get(at));
+    let xrefs = kept_nodes()
+        .filter_map(|node| Some(st.xref(node.xref()?).to_string()))
         .collect();
-    let records: Vec<_> = kept
-        .iter()
+    let multimedia: Vec<_> = kept_nodes()
         .map(|node| {
             (
-                position(st, node, position_tag),
-                kept_multimedia(st, node, position_tag),
+                position(node, position_tag),
+                kept_multimedia(node, position_tag),
             )
         })
         .collect();
     let links = KeptLinks::of(data, kept_tag, position_tag);
-    insert_at_positions(&mut data.multimedia, records);
+    // Last first, so that the positions of the others hold. The links to
+    // them become links to the `OBJE` records restored in their place.
+    for &at in kept.iter().rev() {
+        if let Some(handle) = data.handle_at::<Node>(at) {
+            let _ = data.remove(handle, Removal::LeaveDangling);
+        }
+    }
+    insert_multimedia(data, multimedia);
     links.restore(data, kept_tag);
     xrefs
 }
 
 /// The position an `_OXIDGENE_POS` beneath `node` gives, if any.
-fn position(st: &Store, node: &Node, position_tag: TagId) -> Option<usize> {
-    node.children
-        .iter()
-        .filter(|child| child.tag == position_tag)
-        .find_map(|child| node_text(st, child)?.trim().parse().ok())
+fn position(node: View<'_, Node>, position_tag: TagId) -> Option<usize> {
+    node.children()
+        .into_iter()
+        .filter(|child| child.tag_id() == position_tag)
+        .find_map(|child| node_text(child)?.trim().parse().ok())
 }
 
 /// The `OBJE` record an `_OXIDGENE_OBJE` record stands for: its `FILE`s
 /// with their format, medium and title, its notes, and its other
 /// substructures (OxidGene's extensions) as they are.
-fn kept_multimedia(st: &Store, node: &Node, position_tag: TagId) -> ged_io::model::Multimedia {
-    let text_of = |node: &Node| match &node.payload {
-        Value::Text(text) => text.clone(),
-        _ => Text::default(),
-    };
-    let child = |node: &Node, tag: &str| {
-        node.children
-            .iter()
-            .find(|child| st.tag(child.tag) == tag)
+fn kept_multimedia(node: View<'_, Node>, position_tag: TagId) -> Multimedia {
+    let text_of = |node: View<'_, Node>| node.text().map(TextRef::to_text).unwrap_or_default();
+    let child = |node: View<'_, Node>, tag: &str| {
+        node.children()
+            .into_iter()
+            .find(|child| child.tag() == tag)
             .map(text_of)
     };
-    let mut multimedia = ged_io::model::Multimedia {
-        xref: node.xref,
+    let mut multimedia = Multimedia {
+        xref: node.xref(),
         ..Default::default()
     };
     let mut extra = Vec::new();
-    for sub in &node.children {
-        match st.tag(sub.tag) {
-            _ if sub.tag == position_tag => {}
+    for sub in node.children() {
+        match sub.tag() {
+            _ if sub.tag_id() == position_tag => {}
             "FILE" => {
                 let form = sub
-                    .children
-                    .iter()
-                    .find(|child| st.tag(child.tag) == "FORM")
+                    .children()
+                    .into_iter()
+                    .find(|child| child.tag() == "FORM")
                     .map(|form| ged_io::model::FileForm {
                         format: text_of(form),
                         medium_type: child(form, "MEDI")
                             .or_else(|| child(form, "TYPE"))
-                            .map(|medium| Box::new(Medium::parse(&medium.to_str(st)))),
+                            .map(|medium| Box::new(Medium::parse(&medium.to_str(node.store())))),
                         ..Default::default()
                     });
                 multimedia.files.push(File {
@@ -191,7 +197,7 @@ fn kept_multimedia(st: &Store, node: &Node, position_tag: TagId) -> ged_io::mode
                 });
             }
             "NOTE" => multimedia.notes.push(GedNote::text(text_of(sub))),
-            _ => extra.push(sub.clone()),
+            _ => extra.push(sub.into_owned()),
         }
     }
     multimedia.extra = extra.into();
@@ -206,6 +212,39 @@ fn insert_at_positions<T>(items: &mut Vec<T>, mut kept: Vec<(Option<usize>, T)>)
     for (position, item) in kept {
         let at = position.map_or(items.len(), |p| p.min(items.len()));
         items.insert(at, item);
+    }
+}
+
+/// Insert each of `kept` among the `OBJE` records of `data` at its position,
+/// as [`insert_at_positions`] does: the records from the first position on
+/// are copied out, put in their new order with the kept ones, and stored
+/// back.
+fn insert_multimedia(data: &mut Dataset, kept: Vec<(Option<usize>, Multimedia)>) {
+    let len = data.multimedia().len();
+    let from = kept
+        .iter()
+        .map(|(position, _)| position.map_or(len, |p| p.min(len)))
+        .min()
+        .unwrap_or(len);
+    let mut moved: Vec<Multimedia> = data
+        .multimedia()
+        .into_iter()
+        .skip(from)
+        .map(View::into_owned)
+        .collect();
+    let kept = kept
+        .into_iter()
+        .map(|(position, record)| (position.map(|p| p - from.min(p)), record))
+        .collect();
+    insert_at_positions(&mut moved, kept);
+    for (at, record) in (from..).zip(moved) {
+        if at < len {
+            if let Some(mut slot) = data.get_mut_at::<Multimedia>(at) {
+                *slot = record;
+            }
+        } else {
+            data.push(Record::Multimedia(Box::new(record)));
+        }
     }
 }
 
@@ -227,60 +266,52 @@ struct KeptLinks {
 
 impl KeptLinks {
     fn of(data: &Dataset, kept_tag: TagId, position_tag: TagId) -> Self {
-        let st = data.store();
-        let links = |extra: &Extra| -> PlacedLinks {
+        let links = |extra: Items<'_, Node>| -> PlacedLinks {
             extra
-                .iter()
-                .filter(|node| node.tag == kept_tag)
-                .filter_map(|node| match node.payload {
-                    Value::Pointer(object) => Some((
-                        position(st, node, position_tag),
+                .into_iter()
+                .filter(|node| node.tag_id() == kept_tag)
+                .filter_map(|node| {
+                    Some((
+                        position(node, position_tag),
                         MultimediaLink {
-                            object: Some(object),
+                            object: Some(node.pointer()?),
                             ..Default::default()
                         },
-                    )),
-                    _ => None,
+                    ))
                 })
                 .collect()
         };
         let mut kept = Self::default();
-        let collect = |map: &mut LinksByHolder, key, extra: &Extra| {
+        let collect = |map: &mut LinksByHolder, key, extra: Items<'_, Node>| {
             let found = links(extra);
             if !found.is_empty() {
                 map.insert(key, found);
             }
         };
-        for (i, person) in data.individuals.iter().enumerate() {
-            collect(&mut kept.persons, (i, None), &person.extra);
-            for (j, event) in person.events.iter().enumerate() {
-                collect(&mut kept.persons, (i, Some(j)), &event.extra);
+        for (i, person) in data.individuals().into_iter().enumerate() {
+            collect(&mut kept.persons, (i, None), person.extra());
+            for (j, event) in person.events().into_iter().enumerate() {
+                collect(&mut kept.persons, (i, Some(j)), event.extra());
             }
         }
-        for (i, family) in data.families.iter().enumerate() {
-            collect(&mut kept.families, (i, None), &family.extra);
-            for (j, event) in family.events.iter().enumerate() {
-                collect(&mut kept.families, (i, Some(j)), &event.extra);
+        for (i, family) in data.families().into_iter().enumerate() {
+            collect(&mut kept.families, (i, None), family.extra());
+            for (j, event) in family.events().into_iter().enumerate() {
+                collect(&mut kept.families, (i, Some(j)), event.extra());
             }
         }
         kept
     }
 
     /// Replace the `_OXIDGENE_OBJE` links by the `OBJE` links they stand
-    /// for.
+    /// for, in the records `data` lends.
     fn restore(self, data: &mut Dataset, kept_tag: TagId) {
-        let unkept = |extra: &mut Extra| {
-            let rest: Vec<Node> = std::mem::take(&mut **extra)
-                .into_vec()
-                .into_iter()
-                .filter(|node| node.tag != kept_tag)
-                .collect();
-            **extra = rest.into();
-        };
+        let unkept = |extra: &mut ged_io::model::Extra| extra.retain(|node| node.tag != kept_tag);
         for ((i, event), links) in self.persons {
-            let Some(person) = data.individuals.get_mut(i) else {
+            let Some(mut person) = data.get_mut_at::<ged_io::model::Individual>(i) else {
                 continue;
             };
+            let person = &mut *person;
             match event.and_then(|j| person.events.get_mut(j)) {
                 Some(event) => {
                     unkept(&mut event.extra);
@@ -293,9 +324,10 @@ impl KeptLinks {
             }
         }
         for ((i, event), links) in self.families {
-            let Some(family) = data.families.get_mut(i) else {
+            let Some(mut family) = data.get_mut_at::<ged_io::model::Family>(i) else {
                 continue;
             };
+            let family = &mut *family;
             match event.and_then(|j| family.events.get_mut(j)) {
                 Some(event) => {
                     unkept(&mut event.extra);
@@ -484,19 +516,21 @@ pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, Stri
 // Reading texts
 // ═══════════════════════════════════════════════════════════════════════
 
-/// The characters of a text of `st`.
-fn text(st: &Store, text: &Text) -> String {
-    text.to_str(st).into_owned()
+/// A text when it has characters: an empty text stands for no payload.
+fn opt(value: Option<TextRef<'_>>) -> Option<String> {
+    value.filter(|t| !t.is_empty()).map(|t| t.to_string())
 }
 
-/// A text when it has characters: an empty text stands for no payload.
-fn opt(st: &Store, value: Option<&Text>) -> Option<String> {
-    value.filter(|t| !t.is_empty()).map(|t| text(st, t))
+/// An owned text of `st` when it has characters, as [`opt`] reads a text
+/// of a view: what an enumeration value no variant names, or a structure
+/// converted to another version, holds.
+fn opt_owned(st: &Store, value: &Text) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_str(st).into_owned())
 }
 
 /// A text when it says something, trimmed.
-fn non_blank(st: &Store, value: Option<&Text>) -> Option<String> {
-    non_blank_str(value.map(|t| t.to_str(st)).as_deref())
+fn non_blank(value: Option<TextRef<'_>>) -> Option<String> {
+    non_blank_str(value.map(TextRef::to_str).as_deref())
 }
 
 /// `text` when it says something, trimmed.
@@ -507,33 +541,27 @@ fn non_blank_str(text: Option<&str>) -> Option<String> {
 }
 
 /// The first of `values` that says something.
-fn first_non_blank(st: &Store, values: &[Text]) -> Option<String> {
-    values.iter().find_map(|v| non_blank(st, Some(v)))
+fn first_non_blank(values: Items<'_, Text>) -> Option<String> {
+    values.into_iter().find_map(|v| non_blank(Some(v)))
 }
 
 /// The text a structure gave where its type wants a pointer (`REPO Archives
 /// of Somewhere` for `REPO @R1@`): `ged_io` keeps it beside the empty pointer.
-fn aside_text<'s>(st: &'s Store, extra: &'s Extra) -> Option<Cow<'s, str>> {
+fn aside_text(extra: Items<'_, Node>) -> Option<Cow<'_, str>> {
     extra
-        .iter()
-        .filter(|node| node.tag == TagId::ASIDE)
-        .find_map(|node| match &node.payload {
-            Value::Text(t) => Some(t.to_str(st)),
-            _ => None,
-        })
+        .into_iter()
+        .filter(|node| node.tag_id() == TagId::ASIDE)
+        .find_map(node_text)
 }
 
 /// The untyped structures of `extra` with this tag.
-fn tagged<'n>(st: &'n Store, extra: &'n Extra, tag: &'n str) -> impl Iterator<Item = &'n Node> {
-    extra.iter().filter(move |node| st.tag(node.tag) == tag)
+fn tagged<'d>(extra: Items<'d, Node>, tag: &'d str) -> impl Iterator<Item = View<'d, Node>> + 'd {
+    extra.into_iter().filter(move |node| node.tag() == tag)
 }
 
 /// The text payload of an untyped structure.
-fn node_text<'s>(st: &'s Store, node: &'s Node) -> Option<Cow<'s, str>> {
-    match &node.payload {
-        Value::Text(t) => Some(t.to_str(st)),
-        _ => None,
-    }
+fn node_text(node: View<'_, Node>) -> Option<Cow<'_, str>> {
+    node.text().map(TextRef::to_str)
 }
 
 /// Import an already-read GEDCOM dataset into OxidGene domain model entities.
@@ -618,11 +646,11 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
         place: &mut get_or_create_place,
         text_source: &mut get_or_create_text_source,
     };
-    for indi in &data.individuals {
-        import_individual(data.store(), indi, &ctx, &mut lookups, &mut result);
+    for indi in data.individuals() {
+        import_individual(indi, &ctx, &mut lookups, &mut result);
     }
-    for fam in &data.families {
-        import_family(data.store(), fam, &ctx, &mut lookups, &mut result);
+    for fam in data.families() {
+        import_family(fam, &ctx, &mut lookups, &mut result);
     }
     apply_pedigree_linkage(data, &ctx, &mut result);
     import_associations(data, &ctx, &mut result);
@@ -672,14 +700,14 @@ impl<'d> ImportContext<'d> {
         Self {
             tree_id,
             now: Utc::now(),
-            indi_map: ids(&mut data.individuals.iter().map(|r| r.xref)),
-            fam_map: ids(&mut data.families.iter().map(|r| r.xref)),
-            source_map: ids(&mut data.sources.iter().map(|r| r.xref)),
-            media_map: ids(&mut data.multimedia.iter().map(|r| r.xref)),
+            indi_map: ids(&mut data.individuals().into_iter().map(|v| v.xref())),
+            fam_map: ids(&mut data.families().into_iter().map(|v| v.xref())),
+            source_map: ids(&mut data.sources().into_iter().map(|v| v.xref())),
+            media_map: ids(&mut data.multimedia().into_iter().map(|v| v.xref())),
             shared_notes: data
-                .notes
-                .iter()
-                .filter_map(|note| Some((st.xref(note.xref?), note.text.to_str(st))))
+                .notes()
+                .into_iter()
+                .filter_map(|note| Some((st.xref(note.xref()?), note.text().to_str())))
                 .collect(),
         }
     }
@@ -687,11 +715,11 @@ impl<'d> ImportContext<'d> {
     /// The text of a note: its own, or that of the shared note record it
     /// points at. A pointer to a record the file does not hold is a warning,
     /// and no text.
-    fn note_text(&self, st: &Store, note: &GedNote, warnings: &mut Vec<String>) -> Option<String> {
-        let xref = match &note.content {
-            NoteContent::Text(t) => return Some(text(st, t)),
-            NoteContent::Shared(id) => st.xref(*id),
-        };
+    fn note_text(&self, note: View<'_, GedNote>, warnings: &mut Vec<String>) -> Option<String> {
+        if let Some(text) = note.text() {
+            return Some(text.to_string());
+        }
+        let xref = note.store().xref(note.shared()?);
         let text = self.shared_notes.get(xref).map(|text| text.to_string());
         if text.is_none() {
             warnings.push(format!(
@@ -703,23 +731,17 @@ impl<'d> ImportContext<'d> {
 
     /// The texts of `notes` that say something, as written, pointers
     /// resolved.
-    fn note_texts(&self, st: &Store, notes: &[GedNote], warnings: &mut Vec<String>) -> Vec<String> {
+    fn note_texts(&self, notes: Items<'_, GedNote>, warnings: &mut Vec<String>) -> Vec<String> {
         notes
-            .iter()
-            .filter_map(|note| self.note_text(st, note, warnings))
+            .into_iter()
+            .filter_map(|note| self.note_text(note, warnings))
             .filter(|text| !text.trim().is_empty())
             .collect()
     }
 
     /// One note row per note of `notes`, attached to `owner`.
-    fn import_notes(
-        &self,
-        st: &Store,
-        notes: &[GedNote],
-        owner: NoteOwner,
-        result: &mut ImportResult,
-    ) {
-        for text in self.note_texts(st, notes, &mut result.warnings) {
+    fn import_notes(&self, notes: Items<'_, GedNote>, owner: NoteOwner, result: &mut ImportResult) {
+        for text in self.note_texts(notes, &mut result.warnings) {
             result.notes.push(owner.note(self.tree_id, self.now, text));
         }
     }
@@ -802,24 +824,23 @@ const NOT_PROVIDED: &str = "Not Provided";
 /// The submitter `HEAD.SUBM` points at, and a warning counting the other
 /// `SUBM` records, which are not imported.
 fn import_submitter(data: &Dataset, result: &mut ImportResult) {
-    let st = data.store();
-    let pointer = data.header.as_ref().and_then(|h| h.submitter);
-    let submitter =
-        pointer.and_then(|pointer| data.submitters.iter().find(|s| s.xref == Some(pointer)));
+    let pointer = data.header().and_then(|h| h.submitter);
+    let submitter = pointer.and_then(|pointer| {
+        data.submitters()
+            .into_iter()
+            .find(|s| s.xref() == Some(pointer))
+    });
     if let Some(submitter) = submitter {
         let imported = crate::ImportedSubmitter {
-            name: non_blank(st, submitter.name.as_ref()).filter(|n| n != NOT_PROVIDED),
-            email: first_non_blank(st, &submitter.emails),
-            address: submitter
-                .address
-                .as_ref()
-                .and_then(|address| address_text(st, address)),
+            name: non_blank(submitter.name()).filter(|n| n != NOT_PROVIDED),
+            email: first_non_blank(submitter.emails()),
+            address: submitter.address().and_then(address_text),
         };
         if imported != crate::ImportedSubmitter::default() {
             result.submitter = Some(imported);
         }
     }
-    let others = data.submitters.len() - usize::from(submitter.is_some());
+    let others = data.submitters().len() - usize::from(submitter.is_some());
     if others > 0 {
         result.warnings.push(format!(
             "{others} other submitter record(s) (SUBM) were not imported"
@@ -845,8 +866,8 @@ fn import_repositories(
         by_xref: HashMap::new(),
         by_text: HashMap::new(),
     };
-    for repo in &data.repositories {
-        let Some(xref) = repo.xref.map(|id| st.xref(id)) else {
+    for repo in data.repositories() {
+        let Some(xref) = repo.xref().map(|id| st.xref(id)) else {
             result
                 .warnings
                 .push("Skipping repository without xref".into());
@@ -854,8 +875,8 @@ fn import_repositories(
         };
         let id = Uuid::now_v7();
         index.by_xref.insert(xref.to_string(), id);
-        let notes = ctx.note_texts(st, &repo.notes, &mut result.warnings);
-        let name = non_blank(st, repo.name.as_ref())
+        let notes = ctx.note_texts(repo.notes(), &mut result.warnings);
+        let name = non_blank(repo.name())
             .or_else(|| {
                 let first = notes.first()?.trim();
                 Some(first.lines().next().unwrap_or_default().to_string())
@@ -865,13 +886,10 @@ fn import_repositories(
             id,
             tree_id: ctx.tree_id,
             name,
-            address: repo
-                .address
-                .as_ref()
-                .and_then(|address| address_text(st, address)),
-            phone: first_non_blank(st, &repo.phones),
-            email: first_non_blank(st, &repo.emails),
-            website: first_non_blank(st, &repo.websites),
+            address: repo.address().and_then(address_text),
+            phone: first_non_blank(repo.phones()),
+            email: first_non_blank(repo.emails()),
+            website: first_non_blank(repo.websites()),
             created_at: ctx.now,
             updated_at: ctx.now,
             deleted_at: None,
@@ -888,23 +906,23 @@ fn import_repositories(
 
 /// An address as one text over several lines: its free text, else its
 /// structured parts.
-fn address_text<'s>(st: &'s Store, address: &'s Address) -> Option<String> {
-    if let Some(text) = non_blank(st, Some(&address.value)) {
+fn address_text(address: View<'_, Address>) -> Option<String> {
+    if let Some(text) = non_blank(Some(address.value())) {
         return Some(text);
     }
-    let part = |part: &'s Option<Text>| part.as_ref().map(|t| t.to_str(st));
-    let city_line = [part(&address.postal_code), part(&address.city)]
+    let part = |part: Option<TextRef<'_>>| part.map(|t| t.to_string());
+    let city_line = [part(address.postal_code()), part(address.city())]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
         .join(" ");
     let lines: Vec<String> = [
-        part(&address.line1),
-        part(&address.line2),
-        part(&address.line3),
-        Some(Cow::Borrowed(city_line.as_str())),
-        part(&address.state),
-        part(&address.country),
+        part(address.line1()),
+        part(address.line2()),
+        part(address.line3()),
+        Some(city_line),
+        part(address.state()),
+        part(address.country()),
     ]
     .into_iter()
     .filter_map(|line| non_blank_str(line.as_deref()))
@@ -915,7 +933,7 @@ fn address_text<'s>(st: &'s Store, address: &'s Address) -> Option<String> {
 /// The word a medium is written as: the GEDCOM value, or a producer's own.
 fn medium_text(st: &Store, medium: &Medium) -> Option<String> {
     match medium {
-        Medium::Unknown(t) => opt(st, Some(t)),
+        Medium::Unknown(t) => opt_owned(st, t),
         known => known.as_str(GedcomVersion::V7_0).map(str::to_string),
     }
 }
@@ -927,54 +945,52 @@ fn medium_text(st: &Store, medium: &Medium) -> Option<String> {
 /// without a pointer names a repository by its text — the line's own, else
 /// its notes' — created once per distinct text.
 fn import_repository_citations(
-    st: &Store,
-    src: &ged_io::model::Source,
+    src: View<'_, ged_io::model::Source>,
     source_id: Uuid,
     ctx: &ImportContext,
     repositories: &mut RepositoryIndex,
     result: &mut ImportResult,
 ) {
+    let st = src.store();
     let mut order = 0;
-    for citation in &src.repositories {
-        let repository_id = match citation.repository {
+    for citation in src.repositories() {
+        let repository_id = match citation.repository() {
             Some(pointer) => {
                 let pointer = st.xref(pointer);
                 let Some(&id) = repositories.by_xref.get(pointer) else {
                     result.warnings.push(format!(
                         "Source {}: REPO {pointer} not found",
-                        src.xref.map(|x| st.xref(x)).unwrap_or_default()
+                        src.xref().map(|x| st.xref(x)).unwrap_or_default()
                     ));
                     continue;
                 };
                 id
             }
             None => {
-                let text =
-                    non_blank_str(aside_text(st, &citation.extra).as_deref()).or_else(|| {
-                        let notes: Vec<String> = ctx
-                            .note_texts(st, &citation.notes, &mut result.warnings)
-                            .iter()
-                            .map(|text| text.trim().to_string())
-                            .collect();
-                        (!notes.is_empty()).then(|| notes.join("\n"))
-                    });
+                let text = non_blank_str(aside_text(citation.extra()).as_deref()).or_else(|| {
+                    let notes: Vec<String> = ctx
+                        .note_texts(citation.notes(), &mut result.warnings)
+                        .iter()
+                        .map(|text| text.trim().to_string())
+                        .collect();
+                    (!notes.is_empty()).then(|| notes.join("\n"))
+                });
                 let Some(text) = text else { continue };
                 text_repository(&text, ctx, repositories, result)
             }
         };
         let call_numbers: Vec<(Option<String>, Option<String>)> =
-            if citation.call_numbers.is_empty() {
+            if citation.call_numbers().is_empty() {
                 vec![(None, None)]
             } else {
                 citation
-                    .call_numbers
-                    .iter()
+                    .call_numbers()
+                    .into_iter()
                     .map(|call| {
                         (
-                            non_blank(st, Some(&call.value)),
-                            call.medium
-                                .as_ref()
-                                .and_then(|medium| medium_text(st, &medium.value)),
+                            non_blank(Some(call.value())),
+                            call.medium()
+                                .and_then(|medium| medium_text(st, &medium.value())),
                         )
                     })
                     .collect()
@@ -1030,8 +1046,8 @@ fn import_sources(
     result: &mut ImportResult,
 ) {
     let st = data.store();
-    for src in &data.sources {
-        let Some(xref) = src.xref.map(|id| st.xref(id)) else {
+    for src in data.sources() {
+        let Some(xref) = src.xref().map(|id| st.xref(id)) else {
             result.warnings.push("Skipping source without xref".into());
             continue;
         };
@@ -1039,21 +1055,18 @@ fn import_sources(
         result.sources.push(Source {
             id,
             tree_id: ctx.tree_id,
-            title: opt(st, src.title.as_ref()).unwrap_or_else(|| "Untitled".into()),
-            author: opt(st, src.author.as_ref()),
-            publisher: opt(st, src.publication.as_ref()),
-            abbreviation: opt(st, src.abbreviation.as_ref()),
-            agency: src
-                .data
-                .as_ref()
-                .and_then(|data| non_blank(st, data.agency.as_ref())),
+            title: opt(src.title()).unwrap_or_else(|| "Untitled".into()),
+            author: opt(src.author()),
+            publisher: opt(src.publication()),
+            abbreviation: opt(src.abbreviation()),
+            agency: src.data().and_then(|data| non_blank(data.agency())),
             created_at: ctx.now,
             updated_at: ctx.now,
             deleted_at: None,
         });
 
-        ctx.import_notes(st, &src.notes, NoteOwner::Source(id), result);
-        import_repository_citations(st, src, id, ctx, repositories, result);
+        ctx.import_notes(src.notes(), NoteOwner::Source(id), result);
+        import_repository_citations(src, id, ctx, repositories, result);
     }
 }
 
@@ -1073,8 +1086,8 @@ fn import_multimedia(
     // The page each `OBJE` became, as distinct from the document holding it.
     // Links point at the document; crops and page metadata at the page.
     let mut page_map: HashMap<String, Uuid> = HashMap::new();
-    for mm in &data.multimedia {
-        let Some(xref) = mm.xref.map(|id| st.xref(id)) else {
+    for mm in data.multimedia() {
+        let Some(xref) = mm.xref().map(|id| st.xref(id)) else {
             result
                 .warnings
                 .push("Skipping multimedia without xref".into());
@@ -1084,14 +1097,14 @@ fn import_multimedia(
         let id = Uuid::now_v7();
         page_map.insert(xref.to_string(), id);
 
-        let (file_path, mime_type, source_media_type) = media_file(st, &mm.files);
+        let (file_path, mime_type, source_media_type) = media_file(mm.files());
         let file_name = file_name_of(&file_path);
         // The title is the file's (`FILE.TITL`); GEDCOM 5.5 and earlier
         // OxidGene exports wrote it on the record itself.
-        let title = media_title(st, &mm.files).or_else(|| {
-            tagged(st, &mm.extra, "TITL").find_map(|n| non_blank_str(node_text(st, n).as_deref()))
+        let title = media_title(mm.files()).or_else(|| {
+            tagged(mm.extra(), "TITL").find_map(|n| non_blank_str(node_text(n).as_deref()))
         });
-        let description = media_description(st, &mm.notes, ctx, result);
+        let description = media_description(mm.notes(), ctx, result);
         let page = media_page(
             ctx,
             id,
@@ -1180,7 +1193,7 @@ fn media_page(
 /// separate question of 5.5.1's `FORM.TYPE` and 7.0's `FORM.MEDI`. A value
 /// outside GEDCOM's enumeration is a producer writing its own vocabulary, and
 /// is kept as `Other` rather than guessed at.
-fn media_file(st: &Store, files: &[File]) -> (String, String, SourceMediaType) {
+fn media_file(files: Items<'_, File>) -> (String, String, SourceMediaType) {
     let Some(file) = files.first() else {
         return (
             String::new(),
@@ -1188,26 +1201,22 @@ fn media_file(st: &Store, files: &[File]) -> (String, String, SourceMediaType) {
             SourceMediaType::default(),
         );
     };
-    let path = text(st, &file.path);
-    let form = file.form.as_ref();
-    let declared = form.and_then(|f| opt(st, Some(&f.format)));
+    let st = file.store();
+    let path = file.path().to_string();
+    let form = file.form();
+    let declared = form.and_then(|f| opt(Some(f.format())));
     let mime = normalize_mime(declared.as_deref(), &path);
     let medium = form
-        .and_then(|f| {
-            f.medium
-                .as_deref()
-                .map(|m| &m.value)
-                .or(f.medium_type.as_deref())
-        })
-        .and_then(|m| medium_text(st, m))
+        .and_then(|f| f.medium().map(|m| m.value()).or_else(|| f.medium_type()))
+        .and_then(|m| medium_text(st, &m))
         .and_then(|m| SourceMediaType::parse(&m))
         .unwrap_or_default();
     (path, mime, medium)
 }
 
 /// The title of the first `FILE` of an `OBJE` that has one.
-fn media_title(st: &Store, files: &[File]) -> Option<String> {
-    files.iter().find_map(|file| opt(st, file.title.as_ref()))
+fn media_title(files: Items<'_, File>) -> Option<String> {
+    files.into_iter().find_map(|file| opt(file.title()))
 }
 
 /// The last segment of a GEDCOM `FILE` path, a Windows one included.
@@ -1241,13 +1250,13 @@ fn is_individual_attribute(kind: &EventKind) -> bool {
 /// Import an `INDI` record: the person, their names, events, attributes,
 /// citations, note and media links.
 fn import_individual(
-    st: &Store,
-    indi: &ged_io::model::Individual,
+    indi: View<'_, ged_io::model::Individual>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    let Some(xref) = indi.xref.map(|id| st.xref(id)) else {
+    let st = indi.store();
+    let Some(xref) = indi.xref().map(|id| st.xref(id)) else {
         result
             .warnings
             .push("Skipping individual without xref".into());
@@ -1258,8 +1267,8 @@ fn import_individual(
     result.persons.push(Person {
         id: person_id,
         tree_id: ctx.tree_id,
-        sex: indi.sex.as_ref().map_or(Sex::Unknown, convert_gender),
-        privacy: privacy_from_restriction(st, indi.detail().restriction.as_ref()),
+        sex: indi.sex().as_ref().map_or(Sex::Unknown, convert_gender),
+        privacy: privacy_from_restriction(st, indi.restriction().as_ref()),
         // A GEDCOM names a person's media but never says which one
         // represents them: `OBJE` carries no primary flag.
         portrait_media_id: None,
@@ -1272,8 +1281,8 @@ fn import_individual(
     // Names (GEDCOM allows {0:M} NAME structures per individual; the
     // first is primary, the rest import as additional PersonNames).
     let mut primary: Option<PersonName> = None;
-    for (i, name) in indi.names.iter().enumerate() {
-        let (mut person_name, aliases) = convert_name(st, name, person_id, i == 0, ctx.now);
+    for (i, name) in indi.names().into_iter().enumerate() {
+        let (mut person_name, aliases) = convert_name(name, person_id, i == 0, ctx.now);
         match &primary {
             None => primary = Some(person_name.clone()),
             Some(primary) => reduce_to_byname(&mut person_name, primary),
@@ -1292,26 +1301,25 @@ fn import_individual(
         person_id: Some(person_id),
         family_id: None,
     };
-    for event in &indi.events {
-        if is_individual_attribute(&event.kind) {
-            import_attribute_detail(st, event, owner, ctx, lookups, result);
+    for event in indi.events() {
+        if is_individual_attribute(&event.kind()) {
+            import_attribute_detail(EventView::Event(event), owner, ctx, lookups, result);
         } else {
-            import_event_detail(st, event, owner, ctx, lookups, result);
+            import_event_detail(EventView::Event(event), owner, ctx, lookups, result);
         }
     }
-    for ordinance in &indi.detail().ordinances {
-        import_event_detail(st, &lds_event(st, ordinance), owner, ctx, lookups, result);
+    for ordinance in indi.ordinances() {
+        import_event_detail(EventView::Ordinance(ordinance), owner, ctx, lookups, result);
     }
-    for read in undefined_events(st, &indi.extra, "INDI", owner, &mut result.warnings) {
+    for read in undefined_events(indi.extra(), "INDI", owner, &mut result.warnings) {
         for event in events_read(&read) {
-            import_event_detail(read.store(), event, owner, ctx, lookups, result);
+            import_event_detail(EventView::Event(event), owner, ctx, lookups, result);
         }
     }
 
     // Source citations on the individual
-    for cite in &indi.citations {
+    for cite in indi.citations() {
         import_citation(
-            st,
             cite,
             CitationOwner {
                 person_id: Some(person_id),
@@ -1324,26 +1332,20 @@ fn import_individual(
         );
     }
 
-    ctx.import_notes(st, &indi.notes, NoteOwner::Person(person_id), result);
-    import_media_links(
-        st,
-        &indi.detail().multimedia,
-        LinkOwner::Person(person_id),
-        ctx,
-        result,
-    );
+    ctx.import_notes(indi.notes(), NoteOwner::Person(person_id), result);
+    import_media_links(indi.multimedia(), LinkOwner::Person(person_id), ctx, result);
 }
 
 /// Import a `FAM` record: the family, its spouses and children, events,
 /// citations, notes and media links.
 fn import_family(
-    st: &Store,
-    fam: &ged_io::model::Family,
+    fam: View<'_, ged_io::model::Family>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    let Some(xref) = fam.xref.map(|id| st.xref(id)) else {
+    let st = fam.store();
+    let Some(xref) = fam.xref().map(|id| st.xref(id)) else {
         result.warnings.push("Skipping family without xref".into());
         return;
     };
@@ -1352,17 +1354,17 @@ fn import_family(
     result.families.push(Family {
         id: family_id,
         tree_id: ctx.tree_id,
-        privacy: privacy_from_restriction(st, fam.detail().restriction.as_ref()),
+        privacy: privacy_from_restriction(st, fam.restriction().as_ref()),
         created_at: ctx.now,
         updated_at: ctx.now,
         deleted_at: None,
     });
 
-    import_spouses(st, fam, xref, family_id, ctx, result);
+    import_spouses(fam, xref, family_id, ctx, result);
 
     // Children
-    for (idx, child) in fam.children.iter().enumerate() {
-        let child_xref = child.individual.map_or("", |id| st.xref(id));
+    for (idx, child) in fam.children().into_iter().enumerate() {
+        let child_xref = child.individual().map_or("", |id| st.xref(id));
         let Some(&person_id) = ctx.indi_map.get(child_xref) else {
             result
                 .warnings
@@ -1390,23 +1392,36 @@ fn import_family(
         husband: fam.husband_id(),
         wife: fam.wife_id(),
     };
-    for event in &fam.events {
-        import_family_event(st, event, &spouses, owner, ctx, lookups, result);
+    for event in fam.events() {
+        import_family_event(
+            EventView::Event(event),
+            &spouses,
+            owner,
+            ctx,
+            lookups,
+            result,
+        );
     }
-    for ordinance in &fam.detail().ordinances {
-        let event = lds_event(st, ordinance);
-        import_family_event(st, &event, &spouses, owner, ctx, lookups, result);
+    for ordinance in fam.ordinances() {
+        let event = EventView::Ordinance(ordinance);
+        import_family_event(event, &spouses, owner, ctx, lookups, result);
     }
-    for read in undefined_events(st, &fam.extra, "FAM", owner, &mut result.warnings) {
+    for read in undefined_events(fam.extra(), "FAM", owner, &mut result.warnings) {
         for event in events_read(&read) {
-            import_family_event(read.store(), event, &spouses, owner, ctx, lookups, result);
+            import_family_event(
+                EventView::Event(event),
+                &spouses,
+                owner,
+                ctx,
+                lookups,
+                result,
+            );
         }
     }
 
     // Source citations on the family
-    for cite in &fam.citations {
+    for cite in fam.citations() {
         import_citation(
-            st,
             cite,
             CitationOwner {
                 person_id: None,
@@ -1419,14 +1434,8 @@ fn import_family(
         );
     }
 
-    ctx.import_notes(st, &fam.notes, NoteOwner::Family(family_id), result);
-    import_media_links(
-        st,
-        &fam.detail().multimedia,
-        LinkOwner::Family(family_id),
-        ctx,
-        result,
-    );
+    ctx.import_notes(fam.notes(), NoteOwner::Family(family_id), result);
+    import_media_links(fam.multimedia(), LinkOwner::Family(family_id), ctx, result);
 }
 
 /// A family's `HUSB` and `WIFE`, to read the ages its events give them.
@@ -1438,58 +1447,158 @@ struct FamilySpouses<'s> {
 
 /// A family event, with the ages it gives the family's spouses.
 fn import_family_event(
-    st: &Store,
-    event: &GedEvent,
+    event: EventView<'_>,
     spouses: &FamilySpouses<'_>,
     owner: EventOwner<'_>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    import_event_detail(st, event, owner, ctx, lookups, result);
-    let spouse_ages = spouse_ages(st, event, spouses, owner, ctx, &mut result.warnings);
+    import_event_detail(event, owner, ctx, lookups, result);
+    let spouse_ages = spouse_ages(event, spouses, owner, ctx, &mut result.warnings);
     if let Some(event) = result.events.last_mut() {
         event.spouse_ages = spouse_ages;
     }
 }
 
-/// An LDS ordinance (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's
-/// `INIL`) as the generic event OxidGene's export writes for it and the
-/// import reads like any other: typed by its tag, its date, place, notes and
-/// citations the event's, and its temple and status, the date of the status
-/// included, its description in GEDCOM's words (`TEMP SLAKE, STAT COMPLETED 2
-/// JAN 1950`) — a status outside GEDCOM's enumeration as written. It imports
-/// as its LDS type (`INIL`, which no type matches, as `Other`).
-fn lds_event(st: &Store, ordinance: &Ordinance) -> GedEvent {
+/// An event as the import reads it: an event or attribute structure, or an
+/// LDS ordinance (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's `INIL`).
+///
+/// An ordinance reads as the generic event OxidGene's export writes for it
+/// and the import reads like any other: typed by its tag, its date, place,
+/// notes and citations the event's, and its temple and status, the date of
+/// the status included, its description in GEDCOM's words (`TEMP SLAKE, STAT
+/// COMPLETED 2 JAN 1950`) — a status outside GEDCOM's enumeration as
+/// written. It imports as its LDS type (`INIL`, which no type matches, as
+/// `Other`). It has nothing else an event has: no cause, age, agency,
+/// spouses, associations, media or extensions.
+#[derive(Clone, Copy)]
+enum EventView<'d> {
+    Event(View<'d, GedEvent>),
+    Ordinance(View<'d, Ordinance>),
+}
+
+impl<'d> EventView<'d> {
+    /// The store its texts and pointers read from.
+    fn store(self) -> &'d Store {
+        match self {
+            Self::Event(e) => e.store(),
+            Self::Ordinance(o) => o.store(),
+        }
+    }
+
+    fn kind(self) -> EventKind {
+        match self {
+            Self::Event(e) => e.kind(),
+            Self::Ordinance(_) => EventKind::Event,
+        }
+    }
+
+    /// The `TYPE`, when it has characters: an ordinance's tag.
+    fn classification(self) -> Option<String> {
+        match self {
+            Self::Event(e) => opt(e.classification()),
+            Self::Ordinance(o) => Some(o.kind().tag().to_string()),
+        }
+    }
+
+    /// The line value: an ordinance's temple and status, in GEDCOM's words.
+    fn value(self) -> Cow<'d, str> {
+        match self {
+            Self::Event(e) => e.value().to_str(),
+            Self::Ordinance(o) => Cow::Owned(lds_words(o)),
+        }
+    }
+
+    fn date(self) -> Option<View<'d, Date>> {
+        match self {
+            Self::Event(e) => e.date(),
+            Self::Ordinance(o) => o.date(),
+        }
+    }
+
+    fn place(self) -> Option<View<'d, GedPlace>> {
+        match self {
+            Self::Event(e) => e.place(),
+            Self::Ordinance(o) => o.place(),
+        }
+    }
+
+    fn citations(self) -> Items<'d, GedCitation> {
+        match self {
+            Self::Event(e) => e.citations(),
+            Self::Ordinance(o) => o.citations(),
+        }
+    }
+
+    fn notes(self) -> Items<'d, GedNote> {
+        match self {
+            Self::Event(e) => e.notes(),
+            Self::Ordinance(o) => o.notes(),
+        }
+    }
+
+    fn cause(self) -> Option<TextRef<'d>> {
+        self.event().and_then(|v| v.cause())
+    }
+
+    fn agency(self) -> Option<TextRef<'d>> {
+        self.event().and_then(|v| v.agency())
+    }
+
+    fn age(self) -> Option<View<'d, Age>> {
+        self.event().and_then(|v| v.age())
+    }
+
+    fn husband(self) -> Option<View<'d, EventSpouse>> {
+        self.event().and_then(|v| v.husband())
+    }
+
+    fn wife(self) -> Option<View<'d, EventSpouse>> {
+        self.event().and_then(|v| v.wife())
+    }
+
+    fn associations(self) -> Option<Items<'d, Association>> {
+        self.event().map(|v| v.associations())
+    }
+
+    fn multimedia(self) -> Option<Items<'d, MultimediaLink>> {
+        self.event().map(|v| v.multimedia())
+    }
+
+    fn extra(self) -> Option<Items<'d, Node>> {
+        self.event().map(|v| v.extra())
+    }
+
+    /// The event structure, unless an ordinance.
+    fn event(self) -> Option<View<'d, GedEvent>> {
+        match self {
+            Self::Event(e) => Some(e),
+            Self::Ordinance(_) => None,
+        }
+    }
+}
+
+/// An ordinance's temple and status, the date of the status included, in
+/// GEDCOM's words: `TEMP SLAKE, STAT COMPLETED 2 JAN 1950`.
+fn lds_words(ordinance: View<'_, Ordinance>) -> String {
+    let st = ordinance.store();
     let mut words = Vec::new();
-    if let Some(temple) = non_blank(st, ordinance.temple.as_ref()) {
+    if let Some(temple) = non_blank(ordinance.temple()) {
         words.push(format!("TEMP {temple}"));
     }
-    if let Some(status) = &ordinance.status {
-        let value = match &status.value {
-            OrdinanceStatus::Unknown(t) => non_blank(st, Some(t)),
+    if let Some(status) = ordinance.status() {
+        let value = match status.value() {
+            OrdinanceStatus::Unknown(t) => non_blank_str(Some(&t.to_str(st))),
             known => known.as_str(GedcomVersion::V5_5_1).map(str::to_string),
         };
-        let date = status
-            .date
-            .as_ref()
-            .and_then(|date| non_blank(st, Some(&date.value)));
+        let date = status.date().and_then(|date| non_blank(Some(date.value())));
         let words_of = [value, date].into_iter().flatten().collect::<Vec<_>>();
         if !words_of.is_empty() {
             words.push(format!("STAT {}", words_of.join(" ")));
         }
     }
-    let mut event = GedEvent {
-        value: Text::from(words.join(", ")),
-        date: ordinance.date.clone(),
-        place: ordinance.place.clone(),
-        citations: ordinance.citations.clone(),
-        ..GedEvent::new(EventKind::Event)
-    };
-    let detail = event.detail_mut();
-    detail.classification = Some(Text::from(ordinance.kind.tag()));
-    detail.notes = ordinance.notes.iter().cloned().collect();
-    event
+    words.join(", ")
 }
 
 /// The events a person's or a family's record holds outside the structures
@@ -1511,29 +1620,28 @@ fn lds_event(st: &Store, ordinance: &Ordinance) -> GedEvent {
 /// second `SEX`) and an undefined tag other than `MILI` and `SEP` with
 /// nothing beneath it are left alone.
 fn undefined_events(
-    st: &Store,
-    extra: &Extra,
+    extra: Items<'_, Node>,
     record: &str,
     owner: EventOwner<'_>,
     warnings: &mut Vec<String>,
 ) -> Vec<Dataset> {
     let mut read = Vec::new();
-    for node in extra.iter() {
-        let tag = st.tag(node.tag);
+    for node in extra {
+        let tag = node.tag();
         let event = if TagId::standard(tag).is_some() {
             if !EventKind::parse(tag).is_known() || tag == "EVEN" {
                 continue;
             }
             // Where GEDCOM puts an event of this kind.
             let home = if record == "INDI" { "FAM" } else { "INDI" };
-            (home, node.to_structure(st))
+            (home, node.to_structure())
         } else if tag.is_empty()
             || tag.starts_with('_')
-            || (node.children.is_empty() && !matches!(tag, "MILI" | "SEP"))
+            || (node.children().is_empty() && !matches!(tag, "MILI" | "SEP"))
         {
             continue;
         } else {
-            (record, generic_event(st, node, tag))
+            (record, generic_event(node, tag))
         };
         match read_as_event(event) {
             Some(dataset) => read.push(dataset),
@@ -1547,8 +1655,8 @@ fn undefined_events(
 }
 
 /// The generic `EVEN` an undefined tag stands for (see [`undefined_events`]).
-fn generic_event(st: &Store, node: &Node, tag: &str) -> Structure {
-    let structure = node.to_structure(st);
+fn generic_event(node: View<'_, Node>, tag: &str) -> Structure {
+    let structure = node.to_structure();
     let (types, mut children): (Vec<Structure>, Vec<Structure>) = structure
         .substructures
         .into_iter()
@@ -1598,44 +1706,37 @@ fn read_as_event((record, event): (&str, Structure)) -> Option<Dataset> {
         event.to_gedcom(1, GedcomVersion::V5_5_1)
     );
     let dataset = Dataset::parse(gedcom);
-    let events = dataset
-        .individuals
-        .iter()
-        .map(|i| i.events.len())
-        .chain(dataset.families.iter().map(|f| f.events.len()))
-        .sum::<usize>();
-    (events > 0).then_some(dataset)
+    let has_events = events_read(&dataset).next().is_some();
+    has_events.then_some(dataset)
 }
 
 /// The events of a dataset [`undefined_events`] read.
-fn events_read(read: &Dataset) -> impl Iterator<Item = &GedEvent> {
-    read.individuals
-        .iter()
-        .flat_map(|i| &i.events)
-        .chain(read.families.iter().flat_map(|f| &f.events))
+fn events_read(read: &Dataset) -> impl Iterator<Item = View<'_, GedEvent>> {
+    read.individuals()
+        .into_iter()
+        .flat_map(|v| v.events())
+        .chain(read.families().into_iter().flat_map(|v| v.events()))
 }
 
 /// The ages a family event gives for the family's `HUSB` and `WIFE`
 /// (`HUSB.AGE`, `WIFE.AGE`), for the spouses the file holds.
 fn spouse_ages(
-    st: &Store,
-    event: &GedEvent,
+    event: EventView<'_>,
     spouses: &FamilySpouses<'_>,
     owner: EventOwner<'_>,
     ctx: &ImportContext,
     warnings: &mut Vec<String>,
 ) -> Vec<oxidgene_core::types::SpouseAge> {
-    let detail = event.detail();
     [
-        (detail.husband.as_ref(), spouses.husband),
-        (detail.wife.as_ref(), spouses.wife),
+        (event.husband(), spouses.husband),
+        (event.wife(), spouses.wife),
     ]
     .into_iter()
     .filter_map(|(member, spouse)| {
         let xref = spouses.st.xref(spouse?);
         Some(oxidgene_core::types::SpouseAge {
             person_id: *ctx.indi_map.get(xref)?,
-            age: import_age(st, member?.age.as_ref(), owner, warnings)?,
+            age: import_age(member?.age(), owner, warnings)?,
         })
     })
     .collect()
@@ -1644,22 +1745,22 @@ fn spouse_ages(
 /// A family's `HUSB` and `WIFE`, in that order. A spouse the file does not
 /// hold is a warning.
 fn import_spouses(
-    st: &Store,
-    fam: &ged_io::model::Family,
+    fam: View<'_, ged_io::model::Family>,
     xref: &str,
     family_id: Uuid,
     ctx: &ImportContext,
     result: &mut ImportResult,
 ) {
+    let st = fam.store();
     let mut sort_order = 0i32;
     for (spouse, role, tag) in [
-        (&fam.husband, SpouseRole::Husband, "HUSB"),
-        (&fam.wife, SpouseRole::Wife, "WIFE"),
+        (fam.husband(), SpouseRole::Husband, "HUSB"),
+        (fam.wife(), SpouseRole::Wife, "WIFE"),
     ] {
         let Some(spouse) = spouse else {
             continue;
         };
-        let spouse_xref = spouse.individual.map_or("", |id| st.xref(id));
+        let spouse_xref = spouse.individual().map_or("", |id| st.xref(id));
         let Some(&person_id) = ctx.indi_map.get(spouse_xref) else {
             result
                 .warnings
@@ -1692,14 +1793,13 @@ enum LinkOwner {
 /// ids: a person's first picture is the one that represents them when no
 /// portrait is stored, and GEDCOM states a portrait only by writing it first.
 fn import_media_links(
-    st: &Store,
-    multimedia: &[MultimediaLink],
+    multimedia: Items<'_, MultimediaLink>,
     owner: LinkOwner,
     ctx: &ImportContext,
     result: &mut ImportResult,
 ) {
-    for (index, mm) in multimedia.iter().enumerate() {
-        let Some(media_id) = resolve_or_create_media(st, mm, ctx, result) else {
+    for (index, mm) in multimedia.into_iter().enumerate() {
+        let Some(media_id) = resolve_or_create_media(mm, ctx, result) else {
             continue;
         };
         let (person_id, event_id, family_id, sort_order) = match owner {
@@ -1728,18 +1828,18 @@ fn import_media_links(
 /// `FAMC` link on their own record.
 fn apply_pedigree_linkage(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
     let st = data.store();
-    for indi in &data.individuals {
-        let Some(person_id) = indi.xref.and_then(|x| ctx.indi_map.get(st.xref(x))) else {
+    for indi in data.individuals() {
+        let Some(person_id) = indi.xref().and_then(|x| ctx.indi_map.get(st.xref(x))) else {
             continue;
         };
-        for link in &indi.child_of {
-            let Some(family) = link.family else {
+        for link in indi.child_of() {
+            let Some(family) = link.family() else {
                 continue;
             };
-            let Some(pedigree) = &link.detail().pedigree else {
+            let Some(pedigree) = link.pedigree() else {
                 continue;
             };
-            let child_type = convert_pedigree(st, &pedigree.value);
+            let child_type = convert_pedigree(st, &pedigree.value());
             let fam_id = ctx.fam_map.get(st.xref(family));
             // Find and update the matching FamilyChild
             for fc in &mut result.family_children {
@@ -1753,11 +1853,11 @@ fn apply_pedigree_linkage(data: &Dataset, ctx: &ImportContext, result: &mut Impo
 
 /// An association's relation in words: its `RELA` (5.5.1), else the phrase
 /// or the value of its `ROLE` (7.0).
-fn association_relation(st: &Store, assoc: &Association) -> Option<String> {
-    opt(st, assoc.relation.as_ref()).or_else(|| {
-        let role = assoc.role.as_ref()?;
-        opt(st, role.phrase.as_ref()).or_else(|| match &role.value {
-            ged_io::model::Role::Unknown(t) => opt(st, Some(t)),
+fn association_relation(assoc: View<'_, Association>) -> Option<String> {
+    opt(assoc.relation()).or_else(|| {
+        let role = assoc.role()?;
+        opt(role.phrase()).or_else(|| match role.value() {
+            ged_io::model::Role::Unknown(t) => opt_owned(assoc.store(), &t),
             known => known.as_str(GedcomVersion::V7_0).map(str::to_string),
         })
     })
@@ -1771,32 +1871,28 @@ fn association_relation(st: &Store, assoc: &Association) -> Option<String> {
 /// makes of the `RELA`.
 fn associations_of<'a>(
     st: &'a Store,
-    typed: &'a [Association],
-    extra: &'a Extra,
+    typed: Items<'a, Association>,
+    extra: Items<'a, Node>,
 ) -> impl Iterator<Item = (&'a str, Option<String>)> + 'a {
-    let typed = typed.iter().filter_map(move |assoc| {
-        Some((st.xref(assoc.individual?), association_relation(st, assoc)))
-    });
-    let kept = tagged(st, extra, "_ASSO").filter_map(move |node| {
-        let Value::Pointer(pointer) = node.payload else {
-            return None;
-        };
+    let typed = typed
+        .into_iter()
+        .filter_map(move |assoc| Some((st.xref(assoc.individual()?), association_relation(assoc))));
+    let kept = tagged(extra, "_ASSO").filter_map(move |node| {
+        let pointer = node.pointer()?;
         let text_of = |tags: &[&str]| {
-            node.children
-                .iter()
-                .filter(|child| tags.contains(&st.tag(child.tag)))
-                .find_map(|child| non_blank_str(node_text(st, child).as_deref()))
+            node.children()
+                .into_iter()
+                .filter(|child| tags.contains(&child.tag()))
+                .find_map(|child| non_blank_str(node_text(child).as_deref()))
         };
         let role = || {
             let role = node
-                .children
-                .iter()
-                .find(|child| st.tag(child.tag) == "ROLE")?;
-            role.children
-                .iter()
-                .filter(|child| st.tag(child.tag) == "PHRASE")
-                .find_map(|child| non_blank_str(node_text(st, child).as_deref()))
-                .or_else(|| non_blank_str(node_text(st, role).as_deref()))
+                .children()
+                .into_iter()
+                .find(|child| child.tag() == "ROLE")?;
+            tagged(role.children(), "PHRASE")
+                .find_map(|child| non_blank_str(node_text(child).as_deref()))
+                .or_else(|| non_blank_str(node_text(role).as_deref()))
         };
         let relation = text_of(&["RELA", "_RELA"]).or_else(role);
         Some((st.xref(pointer), relation))
@@ -1823,14 +1919,14 @@ fn associations_of<'a>(
 fn import_associations(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
     let st = data.store();
     let mut witnesses = WitnessLog::new(result);
-    for indi in &data.individuals {
-        let Some(owner_xref) = indi.xref.map(|id| st.xref(id)) else {
+    for indi in data.individuals() {
+        let Some(owner_xref) = indi.xref().map(|id| st.xref(id)) else {
             continue;
         };
         let Some(&owner_person_id) = ctx.indi_map.get(owner_xref) else {
             continue;
         };
-        for (target, relation) in associations_of(st, &indi.detail().associations, &indi.extra) {
+        for (target, relation) in associations_of(st, indi.associations(), indi.extra()) {
             let assoc = Associated { target, relation };
             if let Some(&family_id) = ctx.fam_map.get(target) {
                 witness_family_event(
@@ -2024,12 +2120,11 @@ fn import_oxidgene_media_extensions(data: &Dataset, result: &mut ImportResult) {
 /// xref of the record each sits under.
 fn media_extensions<'d>(data: &'d Dataset, tag: &'d str) -> Vec<(&'d str, Cow<'d, str>)> {
     let st = data.store();
-    data.multimedia
-        .iter()
-        .filter_map(|mm| Some((st.xref(mm.xref?), &mm.extra)))
+    data.multimedia()
+        .into_iter()
+        .filter_map(|mm| Some((st.xref(mm.xref()?), mm.extra())))
         .flat_map(|(xref, extensions)| {
-            tagged(st, extensions, tag)
-                .filter_map(move |extension| Some((xref, node_text(st, extension)?)))
+            tagged(extensions, tag).filter_map(move |extension| Some((xref, node_text(extension)?)))
         })
         .collect()
 }
@@ -2395,24 +2490,21 @@ fn convert_gender(sex: &GedSex) -> Sex {
 }
 
 /// The first piece of a kind of a name, as written.
-fn piece(st: &Store, name: &GedName, kind: NamePieceKind) -> Option<String> {
-    name.pieces_of(kind).find_map(|piece| opt(st, Some(piece)))
+fn piece(name: View<'_, GedName>, kind: NamePieceKind) -> Option<String> {
+    name.pieces_of(kind).find_map(|piece| opt(Some(piece)))
 }
 
 /// Converts a GEDCOM `NAME` structure into a `PersonName`, plus any surname
 /// aliases packed into its `SURN` sub-tag (see `surname_aliases_from_surn`).
 fn convert_name(
-    st: &Store,
-    name: &GedName,
+    name: View<'_, GedName>,
     person_id: Uuid,
     is_primary: bool,
     now: chrono::DateTime<Utc>,
 ) -> (PersonName, Vec<PersonName>) {
-    let name_type = name
-        .detail()
-        .kind
-        .as_ref()
-        .map_or(NameType::Birth, |kind| convert_name_type(st, &kind.value));
+    let name_type = name.kind().map_or(NameType::Birth, |kind| {
+        convert_name_type(name.store(), &kind.value())
+    });
 
     // A name has its pieces (GIVN, SURN, …) only when the file writes them;
     // most GEDCOM files have the full name on the NAME line alone (e.g.
@@ -2420,13 +2512,13 @@ fn convert_name(
     // (Geneanet) pack a comma-separated list of surname aliases into SURN
     // instead of matching NAME, so SURN can't be trusted as the primary
     // surname.
-    let value = opt(st, Some(&name.value));
+    let value = opt(Some(name.value()));
     let (parsed_given, parsed_surname) = parse_name_value(value.as_deref());
-    let surn = piece(st, name, NamePieceKind::Surname);
-    let given_names = piece(st, name, NamePieceKind::Given).or(parsed_given);
+    let surn = piece(name, NamePieceKind::Surname);
+    let given_names = piece(name, NamePieceKind::Given).or(parsed_given);
     let surname = parsed_surname.or_else(|| surn.clone());
 
-    let spfx = piece(st, name, NamePieceKind::SurnamePrefix);
+    let spfx = piece(name, NamePieceKind::SurnamePrefix);
     let (surname_prefix, surname) = split_import_surname(surname.as_deref(), spfx.as_deref());
 
     // Compare SURN against the *root*, not the full surname: a file writing
@@ -2462,9 +2554,9 @@ fn convert_name(
         given_names,
         surname,
         surname_prefix,
-        prefix: piece(st, name, NamePieceKind::Prefix),
-        suffix: piece(st, name, NamePieceKind::Suffix),
-        nickname: piece(st, name, NamePieceKind::Nickname),
+        prefix: piece(name, NamePieceKind::Prefix),
+        suffix: piece(name, NamePieceKind::Suffix),
+        nickname: piece(name, NamePieceKind::Nickname),
         is_primary,
         sort_order: 0,
         created_at: now,
@@ -2722,22 +2814,20 @@ fn convert_quay(quay: Option<&Certainty>) -> Option<Confidence> {
 /// 5.5.1 keyword), and an age known only in words (an empty `AGE` with a
 /// `PHRASE`) from its phrase.
 fn import_age(
-    st: &Store,
-    age: Option<&ged_io::model::Age>,
+    age: Option<View<'_, Age>>,
     owner: EventOwner<'_>,
     warnings: &mut Vec<String>,
 ) -> Option<String> {
     let age = age?;
-    let converted;
-    let age = if age.phrase.is_some() {
-        converted = age.to_version(st, GedcomVersion::V5_5_1);
-        &converted
+    let written = if age.phrase().is_some() {
+        let st = age.store();
+        let converted = age.into_owned().to_version(st, GedcomVersion::V5_5_1);
+        opt_owned(st, &converted.value)
+            .or_else(|| converted.phrase.as_ref().and_then(|p| opt_owned(st, p)))
     } else {
-        age
-    };
-    let written = opt(st, Some(&age.value))
-        .or_else(|| opt(st, age.phrase.as_ref()))
-        .unwrap_or_default();
+        opt(Some(age.value()))
+    }
+    .unwrap_or_default();
     match written.parse::<oxidgene_core::types::AgeAtEvent>() {
         Ok(age) => Some(age.to_string()),
         Err(_) => {
@@ -3079,11 +3169,13 @@ fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
 /// Only an `EVEN` line and an attribute's (a family's `NCHI 3`, a `PROP`
 /// some software writes on a family) describe the event: on an event's own
 /// tag the value is the `Y` asserting that it happened.
-fn event_description(st: &Store, event: &GedEvent, event_type: EventType) -> Option<String> {
-    let type_text = opt(st, event.detail().classification.as_ref())
+fn event_description(event: EventView<'_>, event_type: EventType) -> Option<String> {
+    let type_text = event
+        .classification()
         .filter(|t| !type_text_restates_event_type(t, event_type));
-    let descriptor = non_blank(st, Some(&event.value))
-        .filter(|_| event.kind == EventKind::Event || is_individual_attribute(&event.kind));
+    let kind = event.kind();
+    let descriptor = non_blank_str(Some(&event.value()))
+        .filter(|_| kind == EventKind::Event || is_individual_attribute(&kind));
     match (type_text, descriptor) {
         (Some(type_text), Some(descriptor)) => Some(format!("{}: {descriptor}", type_text.trim())),
         (type_text, descriptor) => descriptor.or(type_text),
@@ -3095,21 +3187,22 @@ fn event_description(st: &Store, event: &GedEvent, event_type: EventType) -> Opt
 /// known only in words — an empty `DATE` with a `PHRASE` — as `(the
 /// phrase)`, and a single date with one as the interpreted date `INT date
 /// (the phrase)`, which a GEDZIP writes of a 5.5.1 one.
-fn event_date(st: &Store, date: Option<&ged_io::model::Date>) -> crate::date::ImportedDate {
+fn event_date(date: Option<View<'_, Date>>) -> crate::date::ImportedDate {
     let Some(date) = date else {
         return crate::date::ImportedDate::default();
     };
-    let converted;
-    let date = if date.detail().phrase.is_some() {
-        converted = date.to_version(st, GedcomVersion::V5_5_1);
-        &converted
+    let (value, phrase) = if date.phrase().is_some() {
+        let st = date.store();
+        let converted = date.into_owned().to_version(st, GedcomVersion::V5_5_1);
+        let phrase = converted.detail().phrase.as_ref();
+        (
+            opt_owned(st, &converted.value),
+            phrase.and_then(|p| opt_owned(st, p)),
+        )
     } else {
-        date
+        (opt(Some(date.value())), None)
     };
-    match (
-        opt(st, Some(&date.value)),
-        opt(st, date.detail().phrase.as_ref()),
-    ) {
+    match (value, phrase) {
         (Some(value), _) => crate::date::parse(&value),
         (None, Some(phrase)) => crate::date::parse(&format!("({})", phrase.trim())),
         (None, None) => crate::date::ImportedDate::default(),
@@ -3125,8 +3218,7 @@ struct CitationOwner {
 }
 
 fn import_event_detail(
-    st: &Store,
-    event: &GedEvent,
+    event: EventView<'_>,
     owner: EventOwner<'_>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
@@ -3137,19 +3229,18 @@ fn import_event_detail(
         family_id,
         ..
     } = owner;
-    let detail = event.detail();
-    let type_text = opt(st, detail.classification.as_ref());
-    let event_type = convert_event_type(&event.kind, type_text.as_deref());
-    let date = event_date(st, event.date.as_ref());
-    let place_id = import_place(st, event.place.as_ref(), lookups.place, result);
-    let cause = death_cause(st, event_type, event);
+    let type_text = event.classification();
+    let event_type = convert_event_type(&event.kind(), type_text.as_deref());
+    let date = event_date(event.date());
+    let place_id = import_place(event.place(), lookups.place, result);
+    let cause = death_cause(event_type, event);
 
     // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
     // (e.g. "PACS", "Concubinage") — preserve it as the description so the
     // original wording survives even when several TYPE values map to the
     // same EventType. Unless it only restates the type it was just read as,
     // which is not wording anyone chose.
-    let description = event_description(st, event, event_type);
+    let description = event_description(event, event_type);
 
     // An individual `ADOP` event may carry its own nested `FAMC`, pointing
     // at the adoptive family. It is NOT captured: `Event.family_id` is used
@@ -3163,8 +3254,7 @@ fn import_event_detail(
 
     let event_id = Uuid::now_v7();
     // A family event states each spouse's age instead (`HUSB.AGE`).
-    let age = import_age(st, detail.age.as_ref(), owner, &mut result.warnings)
-        .filter(|_| family_id.is_none());
+    let age = import_age(event.age(), owner, &mut result.warnings).filter(|_| family_id.is_none());
     result.events.push(Event {
         id: event_id,
         tree_id: ctx.tree_id,
@@ -3176,7 +3266,7 @@ fn import_event_detail(
         calendar: date.calendar,
         cause,
         age,
-        agency: non_blank(st, detail.agency.as_ref()),
+        agency: non_blank(event.agency()),
         spouse_ages: Vec::new(),
         place_id,
         person_id,
@@ -3192,37 +3282,35 @@ fn import_event_detail(
     // (an `ASSO` may point at a FAM record per the GEDCOM grammar, which
     // has no home in `EventWitness`). GEDCOM 5.5.1 has no `ASSO` beneath an
     // event: a conformant writer keeps one as `_ASSO`, which is read too.
-    for (idx, (target, relation)) in
-        associations_of(st, &detail.associations, &event.extra).enumerate()
-    {
-        if let Some(&witness_person_id) = ctx.indi_map.get(target) {
-            result.event_witnesses.push(EventWitness {
-                id: Uuid::now_v7(),
-                event_id,
-                person_id: witness_person_id,
-                relation,
-                sort_order: idx as i32,
-            });
+    if let (Some(typed), Some(extra)) = (event.associations(), event.extra()) {
+        for (idx, (target, relation)) in associations_of(event.store(), typed, extra).enumerate() {
+            if let Some(&witness_person_id) = ctx.indi_map.get(target) {
+                result.event_witnesses.push(EventWitness {
+                    id: Uuid::now_v7(),
+                    event_id,
+                    person_id: witness_person_id,
+                    relation,
+                    sort_order: idx as i32,
+                });
+            }
         }
     }
 
-    import_event_parts(st, event, event_id, family_id, ctx, lookups, result);
+    import_event_parts(event, event_id, family_id, ctx, lookups, result);
 }
 
 /// What an event and an attribute import alike: their citations, media and
 /// notes.
 fn import_event_parts(
-    st: &Store,
-    event: &GedEvent,
+    event: EventView<'_>,
     event_id: Uuid,
     family_id: Option<Uuid>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    for cite in &event.citations {
+    for cite in event.citations() {
         import_citation(
-            st,
             cite,
             CitationOwner {
                 person_id: None,
@@ -3234,15 +3322,10 @@ fn import_event_parts(
             result,
         );
     }
-    let detail = event.detail();
-    import_media_links(
-        st,
-        &detail.multimedia,
-        LinkOwner::Event(event_id),
-        ctx,
-        result,
-    );
-    ctx.import_notes(st, &detail.notes, NoteOwner::Event(event_id), result);
+    if let Some(multimedia) = event.multimedia() {
+        import_media_links(multimedia, LinkOwner::Event(event_id), ctx, result);
+    }
+    ctx.import_notes(event.notes(), NoteOwner::Event(event_id), result);
 }
 
 /// The extension the `geneweb` crate writes beneath a death, holding how
@@ -3252,13 +3335,16 @@ const GENEWEB_DEATH_REASON_TAG: &str = "_GWDEATH";
 
 /// An event's cause: the one the file states, then, on a death, the reason
 /// a GeneWeb file gives for it, GEDCOM's word for which is `CAUS` too.
-fn death_cause(st: &Store, event_type: EventType, event: &GedEvent) -> Option<String> {
-    let cause = opt(st, event.detail().cause.as_ref());
+fn death_cause(event_type: EventType, event: EventView<'_>) -> Option<String> {
+    let cause = opt(event.cause());
     if event_type != EventType::Death {
         return cause;
     }
-    let reasons: Vec<String> = tagged(st, &event.extra, GENEWEB_DEATH_REASON_TAG)
-        .filter_map(|tag| non_blank_str(node_text(st, tag).as_deref()))
+    let reasons: Vec<String> = event
+        .extra()
+        .into_iter()
+        .flat_map(|extra| tagged(extra, GENEWEB_DEATH_REASON_TAG))
+        .filter_map(|tag| non_blank_str(node_text(tag).as_deref()))
         .collect();
     if reasons.is_empty() {
         return cause;
@@ -3277,26 +3363,26 @@ fn death_cause(st: &Store, event_type: EventType, event: &GedEvent) -> Option<St
 /// split on common separators and case-normalized into one Occupation event
 /// per profession (see `split_occupations`/`normalize_occupation_case`).
 fn import_attribute_detail(
-    st: &Store,
-    attribute: &GedEvent,
+    attribute: EventView<'_>,
     owner: EventOwner<'_>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    let detail = attribute.detail();
-    let event_type = convert_event_type(&attribute.kind, None);
-    let date = event_date(st, attribute.date.as_ref());
-    let place_id = import_place(st, attribute.place.as_ref(), lookups.place, result);
-    let cause = opt(st, detail.cause.as_ref());
-    let age = import_age(st, detail.age.as_ref(), owner, &mut result.warnings);
-    let agency = non_blank(st, detail.agency.as_ref());
+    let event_type = convert_event_type(&attribute.kind(), None);
+    let date = event_date(attribute.date());
+    let place_id = import_place(attribute.place(), lookups.place, result);
+    let cause = opt(attribute.cause());
+    let age = import_age(attribute.age(), owner, &mut result.warnings);
+    let agency = non_blank(attribute.agency());
 
     // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
     // for OCCU) or, failing that, its TYPE sub-tag — but not either of them
     // when all it says is the name of the tag it sits under.
-    let description = opt(st, Some(&attribute.value))
-        .or_else(|| opt(st, detail.classification.as_ref()))
+    let description = Some(attribute.value())
+        .filter(|value| !value.is_empty())
+        .map(Cow::into_owned)
+        .or_else(|| attribute.classification())
         .filter(|t| !type_text_restates_event_type(t, event_type));
 
     // Some exporters (e.g. Geneanet) pack several professions into a single
@@ -3342,25 +3428,25 @@ fn import_attribute_detail(
         // deed behind a TITL. A value that split into several professions
         // gives each of them the scan, the same way each gets the citations:
         // one line documented them all.
-        import_event_parts(st, attribute, event_id, None, ctx, lookups, result);
+        import_event_parts(attribute, event_id, None, ctx, lookups, result);
     }
 }
 
 /// The place a `PLAC` names, created on first use, with the coordinates of
 /// its `MAP` when it has them.
 fn import_place(
-    st: &Store,
-    plac: Option<&GedPlace>,
+    plac: Option<View<'_, GedPlace>>,
     get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) -> Option<Uuid> {
-    let name = opt(st, Some(&plac?.name))?;
+    let plac = plac?;
+    let name = opt(Some(plac.name()))?;
     let pid = get_or_create_place(&name, result);
-    if let Some(map) = &plac?.detail().map
-        && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
+    if let Some(map) = plac.map()
+        && let (Some(lat_str), Some(lon_str)) = (map.latitude(), map.longitude())
         && let (Ok(lat), Ok(lon)) = (
-            parse_gedcom_coord(&lat_str.to_str(st)),
-            parse_gedcom_coord(&lon_str.to_str(st)),
+            parse_gedcom_coord(&lat_str.to_str()),
+            parse_gedcom_coord(&lon_str.to_str()),
         )
         && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
     {
@@ -3392,16 +3478,16 @@ fn normalize_occupation_case(value: &str) -> String {
 }
 
 fn import_citation(
-    st: &Store,
-    cite: &GedCitation,
+    cite: View<'_, GedCitation>,
     owner: CitationOwner,
     source_map: &HashMap<String, Uuid>,
     get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
     result: &mut ImportResult,
 ) {
-    let source_id = match &cite.source {
+    let st = cite.store();
+    let source_id = match cite.source() {
         CitationSource::Pointer(pointer) => {
-            let xref = st.xref(*pointer);
+            let xref = st.xref(pointer);
             match source_map.get(xref) {
                 Some(&id) => id,
                 None => {
@@ -3419,17 +3505,16 @@ fn import_citation(
             return;
         }
         CitationSource::Description(description) => {
-            get_or_create_text_source(&text(st, description), result)
+            get_or_create_text_source(&description.to_str(st), result)
         }
     };
 
-    let detail = cite.detail();
     // The transcript, `DATA.TEXT`, which may come in several parts.
-    let texts: Vec<String> = detail
-        .data
-        .iter()
-        .flat_map(|data| &data.texts)
-        .filter_map(|source_text| opt(st, Some(&source_text.text)))
+    let texts: Vec<String> = cite
+        .data()
+        .into_iter()
+        .flat_map(|v| v.texts())
+        .filter_map(|source_text| opt(Some(source_text.text())))
         .collect();
     let text = (!texts.is_empty()).then(|| texts.join("\n"));
 
@@ -3439,8 +3524,8 @@ fn import_citation(
         person_id: owner.person_id,
         event_id: owner.event_id,
         family_id: owner.family_id,
-        page: opt(st, cite.page.as_ref()),
-        confidence: convert_quay(detail.quality.as_ref()),
+        page: opt(cite.page()),
+        confidence: convert_quay(cite.quality().as_ref()),
         text,
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -3450,12 +3535,11 @@ fn import_citation(
 /// What an `OBJE` record says of its media: the text of its notes, one after
 /// the other.
 fn media_description(
-    st: &Store,
-    notes: &[GedNote],
+    notes: Items<'_, GedNote>,
     ctx: &ImportContext,
     result: &mut ImportResult,
 ) -> Option<String> {
-    let texts = ctx.note_texts(st, notes, &mut result.warnings);
+    let texts = ctx.note_texts(notes, &mut result.warnings);
     (!texts.is_empty()).then(|| texts.join("\n"))
 }
 
@@ -3466,30 +3550,29 @@ fn media_description(
 /// record), create a document and its page and return the document UUID.
 /// Returns `None` if neither applies.
 fn resolve_or_create_media(
-    st: &Store,
-    mm: &MultimediaLink,
+    mm: View<'_, MultimediaLink>,
     ctx: &ImportContext,
     result: &mut ImportResult,
 ) -> Option<Uuid> {
     // Case 1: cross-reference to a top-level OBJE record
-    if let Some(object) = mm.object
-        && let Some(&media_id) = ctx.media_map.get(st.xref(object))
+    if let Some(object) = mm.object()
+        && let Some(&media_id) = ctx.media_map.get(mm.store().xref(object))
     {
         return Some(media_id);
     }
 
     // Case 2: inline multimedia with file data, read the same way as a
     // top-level OBJE: see `media_file`.
-    let (file_path, mime_type, source_media_type) = media_file(st, &mm.files);
+    let (file_path, mime_type, source_media_type) = media_file(mm.files());
     if file_path.is_empty() {
         return None;
     }
     let file_name = file_name_of(&file_path);
-    let title = opt(st, mm.title.as_ref()).or_else(|| media_title(st, &mm.files));
+    let title = opt(mm.title()).or_else(|| media_title(mm.files()));
     // GEDCOM 5.5 gave a link without a record notes of its own, which 5.5.1
     // and 7.0 do not: they are kept aside, and read.
-    let notes: Vec<String> = tagged(st, &mm.extra, "NOTE")
-        .filter_map(|note| non_blank_str(node_text(st, note).as_deref()))
+    let notes: Vec<String> = tagged(mm.extra(), "NOTE")
+        .filter_map(|note| non_blank_str(node_text(note).as_deref()))
         .collect();
     let description = (!notes.is_empty()).then(|| notes.join("\n"));
     let document_id = Uuid::now_v7();
@@ -3692,7 +3775,8 @@ mod geneweb_death_reason_tests {
         }
         gedcom.push_str("0 TRLR\n");
         let data = Dataset::parse(gedcom);
-        death_cause(data.store(), event_type, &data.individuals[0].events[0])
+        let death = data.individuals().first().and_then(|i| i.events().first());
+        death_cause(event_type, EventView::Event(death.expect("a death")))
     }
 
     #[test]
