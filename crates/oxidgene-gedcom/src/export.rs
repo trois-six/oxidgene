@@ -22,6 +22,8 @@ use ged_io::model::{
     Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
     XrefId,
 };
+pub use ged_io::profile::ExportProfile;
+use ged_io::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
 use ged_io::tree::{Payload, Structure, Tag};
 use ged_io::{Bom, GedcomVersion, GedcomWriter};
 use uuid::Uuid;
@@ -34,8 +36,8 @@ use oxidgene_core::types::{
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
 use crate::{
-    DocumentExtension, DocumentMetadataExtension, ExportResult, MediaMetadataExtension,
-    MediaNoteExtension, MediaPlaceExtension,
+    DestinationReport, DocumentExtension, DocumentMetadataExtension, ExportLimit, ExportLoss,
+    ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension,
 };
 
 /// Every record of one tree an export writes.
@@ -86,14 +88,16 @@ impl ExportRecords<'_> {
     }
 }
 
-/// What the person exporting chose: what the file holds, and how it writes
-/// it. The default is the complete, lossless export.
+/// What the person exporting chose: what the file holds, and the program
+/// it is written for. The default is the complete export, standard GEDCOM
+/// 5.5.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExportChoices {
-    /// Collapse each person's occupations into one `OCCU`.
-    pub merge_occupations: bool,
-    /// Collapse each person's other names into the primary name's `SURN`.
-    pub merge_names: bool,
+    /// The program a `.ged` is written for: `ged_io`'s export profile, which
+    /// chooses the version and the line layout and folds the data into the
+    /// structures that program reads (see [`destination`]). A GEDZIP is
+    /// standard GEDCOM 7.0 and does not read it.
+    pub destination: &'static ExportProfile,
     /// Write the notes, and the sources with their citations and
     /// repositories.
     pub include_notes_and_sources: bool,
@@ -104,21 +108,53 @@ pub struct ExportChoices {
 impl Default for ExportChoices {
     fn default() -> Self {
         Self {
-            merge_occupations: false,
-            merge_names: false,
+            destination: destination(DEFAULT_DESTINATION)
+                .expect("ged_io has a generic GEDCOM 5.5.1 export profile"),
             include_notes_and_sources: true,
             include_media: true,
         }
     }
 }
 
+/// The destination of a `.ged` when none is chosen: any GEDCOM 5.5.1
+/// importer.
+pub const DEFAULT_DESTINATION: &str = "generic-551";
+
+/// The destination `id` names: one of `ged_io`'s export profiles, by its
+/// exact id (`generic-551`, `generic-70`, `geneanet`, `ancestry`, …).
+#[must_use]
+pub fn destination(id: &str) -> Option<&'static ExportProfile> {
+    ged_io::profile::export_profiles()
+        .iter()
+        .copied()
+        .find(|profile| profile.id() == id)
+}
+
+/// Every destination a `.ged` can be written for: the standard GEDCOM
+/// versions (`ged_io`'s tier 0) first, then the programs by name.
+#[must_use]
+pub fn destinations() -> Vec<&'static ExportProfile> {
+    let mut all = ged_io::profile::export_profiles().to_vec();
+    all.sort_by_cached_key(|profile| (profile.tier() != 0, profile.label().to_lowercase()));
+    all
+}
+
+/// Whether `profile`'s facts come from the programs' published and observed
+/// behaviour, much of it dated, and are to be re-verified against their
+/// recent versions: `ged_io`'s tier-1 profiles.
+#[must_use]
+pub fn to_be_verified(profile: &ExportProfile) -> bool {
+    profile.tier() == 1
+}
+
 /// What an export writes: a plain GEDCOM file, or the `gedcom.ged` of a
 /// GEDZIP archive.
 #[derive(Debug, Clone, Copy)]
 pub enum ExportTarget<'a> {
-    /// A `.ged`: GEDCOM 5.5.1, the version every genealogy program and
-    /// site reads. Its media keep their producers' paths, since no archive
-    /// carries their bytes.
+    /// A `.ged`, written for the chosen destination
+    /// ([`ExportChoices::destination`]): GEDCOM 5.5.1 by default, the version
+    /// every genealogy program and site reads. Its media keep their
+    /// producers' paths, since no archive carries their bytes.
     Gedcom,
     /// The `gedcom.ged` of a `.gdz`: GEDCOM 7.0, which the GEDZIP format
     /// requires, with the extensions it uses declared in `HEAD.SCHMA`.
@@ -151,12 +187,23 @@ pub struct SubmitterSettings<'a> {
     pub address: Option<&'a str>,
 }
 
-/// Export domain model entities to GEDCOM text: GEDCOM 5.5.1 for a `.ged`,
-/// GEDCOM 7.0 for the `gedcom.ged` of a GEDZIP (see [`ExportTarget`]).
+/// Export domain model entities to GEDCOM text: a `.ged` written for the
+/// chosen destination, or the GEDCOM 7.0 `gedcom.ged` of a GEDZIP (see
+/// [`ExportTarget`]).
 ///
 /// All records should belong to the same tree.
 ///
-/// Both are built as one 5.5.1 dataset. The GEDZIP's is written as 7.0 by
+/// Both are built as one 5.5.1 dataset. The `.ged` is written by `ged_io`'s
+/// [`Exporter`] with the destination's export profile, which chooses the
+/// version, the character set and the line layout the program reads best,
+/// folds the data into the standard structures it reads (Geneanet's single
+/// occupation and single name, for one) and reports every fold that lost
+/// something, and every limit of the program the file exceeds, in the
+/// result's [`DestinationReport`]. The standard destinations fold nothing.
+/// The credentials a dataset may hold are left out, as `ged_io` does by
+/// default; OxidGene writes none.
+///
+/// The GEDZIP's is written as 7.0 by
 /// `ged_io`'s writer, which converts it as the FamilySearch migration guide
 /// says (note records become `SNOTE`, `RELA` a `ROLE` with its phrase, file
 /// formats media types, dates and ages 7.0's grammar) and starts the text
@@ -170,23 +217,8 @@ pub struct SubmitterSettings<'a> {
 /// [`keep_as_extensions`]): other programs ignore them, and an OxidGene
 /// import restores the medium as a `.ged` would.
 ///
-/// `merge_occupations` collapses every `EventType::Occupation` event for a
-/// person back into a single `OCCU` tag (values joined with `", "`) instead
-/// of one `OCCU` tag per event. Some importers — Geneanet in particular —
-/// only support a single profession field per individual, so this is an
-/// opt-in, lossy compatibility option; leave it `false` to keep the
-/// lossless one-`OCCU`-per-profession export.
-///
-/// `merge_names` collapses every non-primary `PersonName` for a person into
-/// the primary name's `SURN` tag (surnames joined with `,`) instead of one
-/// `NAME`/`SURN` structure per name. Geneanet's own exporter only emits one
-/// `NAME` per individual and packs every other surname it knows into that
-/// `SURN` sub-tag, so this is an opt-in, lossy compatibility option; leave
-/// it `false` to keep the lossless one-`NAME`-per-`PersonName` export.
-///
-/// Both merges are a `.ged`'s: a GEDZIP is the complete export, and the
-/// programs that read one read every `OCCU` and `NAME`, so it applies
-/// neither.
+/// The destination is a `.ged`'s: no export profile writes a GEDZIP, which
+/// stays the complete, standard GEDCOM 7.0 export.
 ///
 /// `include_notes_and_sources` and `include_media` leave the notes and the
 /// sources, or the media, out of the file: see [`ExportRecords::chosen`].
@@ -229,10 +261,6 @@ pub fn export_gedcom(
         vignettes,
         notes,
     } = records.chosen(choices);
-    let (merge_occupations, merge_names) = match target {
-        ExportTarget::Gedcom => (choices.merge_occupations, choices.merge_names),
-        ExportTarget::Gedzip { .. } => (false, false),
-    };
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
         "export.build_model",
@@ -328,7 +356,7 @@ pub fn export_gedcom(
         ))));
     }
     for person in persons {
-        let individual = index.individual(person, merge_names, merge_occupations, &mut warnings);
+        let individual = index.individual(person, &mut warnings);
         data.push(Record::Individual(Box::new(individual)));
     }
     for fam in families {
@@ -352,8 +380,12 @@ pub fn export_gedcom(
 
     drop(build_guard);
 
-    let gedcom = write_gedcom(&data, target, &kept)?;
-    Ok(ExportResult { gedcom, warnings })
+    let (gedcom, report) = write_gedcom(&data, target, choices.destination, &kept)?;
+    Ok(ExportResult {
+        gedcom,
+        warnings,
+        report,
+    })
 }
 
 /// The GEDCOM cross-reference of every record the export writes, by id,
@@ -538,7 +570,8 @@ pub(crate) const POSITION_TAG: &str = "_OXIDGENE_POS";
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
 /// the version requires: in 5.5.1 `GEDC` with `VERS 5.5.1` and `FORM
 /// LINEAGE-LINKED`, and the `CHAR` of its output, `UTF-8`; in 7.0 `GEDC`
-/// with `VERS 7.0`.
+/// with `VERS 7.0`. A `.ged`'s export profile writes `ged_io` as the
+/// producer instead, as every profile writes its own (see [`write_gedcom`]).
 ///
 /// With `extensions`, the header declares OxidGene's extension tags with
 /// the URIs of their documentation (`SCHMA`, GEDCOM 7.0 only), which makes
@@ -564,36 +597,95 @@ fn gedcom_header(submitter: XrefId, extensions: bool) -> Header {
     }
 }
 
-/// Serialize the model to GEDCOM text: as the 5.5.1 it is built in for a
-/// `.ged`, converted to 7.0 for a GEDZIP, after a byte-order mark, with the
-/// `kept` media records (by xref) and their links as OxidGene extensions.
+/// Serialize the model to GEDCOM text: for a `.ged`, as `destination`'s
+/// export profile writes it, with what it lost; for a GEDZIP, converted to
+/// 7.0 after a byte-order mark, with the `kept` media records (by xref) and
+/// their links as OxidGene extensions.
 fn write_gedcom(
     data: &Dataset,
     target: ExportTarget<'_>,
+    destination: &'static ExportProfile,
     kept: &HashSet<String>,
-) -> Result<String, String> {
-    let write_span =
-        tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
-    let writer = match target {
-        ExportTarget::Gedcom => GedcomWriter::new(),
-        ExportTarget::Gedzip { .. } => GedcomWriter::new()
-            .gedcom_version(GedcomVersion::V7_0)
-            .bom(Bom::Always),
-    };
-    let gedcom = write_span
-        .in_scope(|| {
-            if kept.is_empty() {
-                return writer.write_to_string(data);
+) -> Result<(String, Option<DestinationReport>), String> {
+    let write_span = tracing::info_span!(
+        "export.write",
+        export.destination = destination.id(),
+        export.output_bytes = tracing::field::Empty,
+        export.lossy_folds = tracing::field::Empty,
+    );
+    let written = write_span
+        .in_scope(|| match target {
+            ExportTarget::Gedcom => {
+                // The credentials are left out, as `ged_io` does by default.
+                let exporter = Exporter::new(destination).options(ProfileOptions::default());
+                let (gedcom, report) = exporter.write_to_string(data)?;
+                Ok((gedcom, Some(destination_report(destination, &report))))
             }
-            let mut records = data.to_structures();
-            keep_as_extensions(&mut records, kept);
-            let mut bytes = Vec::new();
-            writer.write_structures(&mut bytes, &records)?;
-            Ok(String::from_utf8_lossy(&bytes).into_owned())
+            ExportTarget::Gedzip { .. } => {
+                let writer = GedcomWriter::new()
+                    .gedcom_version(GedcomVersion::V7_0)
+                    .bom(Bom::Always);
+                if kept.is_empty() {
+                    return Ok((writer.write_to_string(data)?, None));
+                }
+                let mut records = data.to_structures();
+                keep_as_extensions(&mut records, kept);
+                let mut bytes = Vec::new();
+                writer.write_structures(&mut bytes, &records)?;
+                Ok((String::from_utf8_lossy(&bytes).into_owned(), None))
+            }
         })
-        .map_err(|e| format!("GEDCOM write error: {e}"))?;
-    write_span.record("export.output_bytes", gedcom.len());
-    Ok(gedcom)
+        .map_err(|e: ged_io::WriteError| format!("GEDCOM write error: {e}"))?;
+    write_span.record("export.output_bytes", written.0.len());
+    if let Some(report) = &written.1 {
+        write_span.record("export.lossy_folds", report.losses.len());
+    }
+    Ok(written)
+}
+
+/// What writing for `destination` lost, as `ged_io`'s export `report` says
+/// it: the folds that lost something, and the program's limits the file
+/// exceeds. The folds that lost nothing (a value escaped, the records
+/// reordered) and the writer's conformance repairs are left out.
+fn destination_report(
+    destination: &ExportProfile,
+    report: &ged_io::profile::ExportReport,
+) -> DestinationReport {
+    DestinationReport {
+        destination: destination.id().to_string(),
+        losses: report
+            .lossy()
+            .map(|fold| ExportLoss {
+                kind: fold_kind(fold.kind).to_string(),
+                record: fold.record.as_ref().map(|x| x.as_str().to_string()),
+                detail: fold.detail.clone(),
+            })
+            .collect(),
+        limits: report
+            .limits
+            .iter()
+            .map(|limit| ExportLimit {
+                record: limit.record.as_ref().map(|x| x.as_str().to_string()),
+                detail: limit.detail.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// The stable name of a fold's kind, which the interface translates.
+fn fold_kind(kind: FoldKind) -> &'static str {
+    match kind {
+        FoldKind::Merged => "merged",
+        FoldKind::Moved => "moved",
+        FoldKind::Relabelled => "relabelled",
+        FoldKind::Added => "added",
+        FoldKind::AsText => "as_text",
+        FoldKind::Omitted => "omitted",
+        FoldKind::Reordered => "reordered",
+        FoldKind::Recoded => "recoded",
+        // A kind a later `ged_io` adds.
+        _ => "other",
+    }
 }
 
 /// Turn the `kept` `OBJE` records (by xref) into OxidGene's
@@ -836,16 +928,10 @@ impl ExportIndex<'_> {
     }
 
     /// An `INDI` record.
-    fn individual(
-        &self,
-        person: &Person,
-        merge_names: bool,
-        merge_occupations: bool,
-        warnings: &mut Vec<String>,
-    ) -> Individual {
+    fn individual(&self, person: &Person, warnings: &mut Vec<String>) -> Individual {
         // Names (GEDCOM allows {0:M} NAME structures; primary goes first
         // so `names.first()` on the way back in matches what we exported).
-        let mut names: Vec<GedName> = self
+        let names: Vec<GedName> = self
             .names_by_person
             .get(&person.id)
             .map(|names| {
@@ -854,14 +940,8 @@ impl ExportIndex<'_> {
                 ordered.into_iter().map(|pn| to_ged_name(pn)).collect()
             })
             .unwrap_or_default();
-        if merge_names {
-            names = merge_name_aliases_into_surn(names);
-        }
 
-        let mut events = self.individual_events(person.id, warnings);
-        if merge_occupations {
-            events = merge_occupation_attributes(events);
-        }
+        let events = self.individual_events(person.id, warnings);
 
         let (spouse_of, child_of) = to_ged_family_links(
             person.id,
@@ -1949,119 +2029,6 @@ fn event_type_to_attribute(et: EventType) -> Option<EventKind> {
     }
 }
 
-/// Collapses every `OCCU` attribute in a person's events into one, for the
-/// `merge_occupations` export option (see `export_gedcom`), where the first
-/// stood. Values are joined with `", "`; the first occupation's
-/// date/place/cause/etc. are kept, and every occupation's source citations,
-/// media and notes are preserved on the merged entry, once each. A no-op if
-/// the person has 0 or 1 `OCCU`.
-fn merge_occupation_attributes(events: Vec<GedEvent>) -> Vec<GedEvent> {
-    let occupation_count = events
-        .iter()
-        .filter(|a| a.kind == EventKind::Occupation)
-        .count();
-    if occupation_count <= 1 {
-        return events;
-    }
-
-    let mut result: Vec<GedEvent> = Vec::with_capacity(events.len() - occupation_count + 1);
-    let mut merged_at: Option<usize> = None;
-    for attr in events {
-        if attr.kind != EventKind::Occupation {
-            result.push(attr);
-            continue;
-        }
-        let Some(at) = merged_at else {
-            merged_at = Some(result.len());
-            result.push(attr);
-            continue;
-        };
-        merge_occupation(&mut result[at], attr);
-    }
-    result
-}
-
-/// Adds one occupation to the one the others are merged into.
-fn merge_occupation(merged: &mut GedEvent, attr: GedEvent) {
-    // Texts of an export own their characters.
-    if let Some(value) = attr.value.as_owned().filter(|value| !value.is_empty()) {
-        merged.value = match merged.value.as_owned().filter(|value| !value.is_empty()) {
-            Some(existing) => Text::from(format!("{existing}, {value}")),
-            None => Text::from(value),
-        };
-    }
-    for citation in attr.citations {
-        merged.citations.push(citation);
-    }
-    let Some(detail) = attr.detail else {
-        return;
-    };
-    let target = merged.detail_mut();
-    // One OCCU line became several professions on import, each carrying the
-    // same scan. Merging them back must not write that scan once per
-    // profession.
-    for media in detail.multimedia {
-        if !target
-            .multimedia
-            .iter()
-            .any(|kept| kept.object == media.object)
-        {
-            target.multimedia.push(media);
-        }
-    }
-    // The same goes for its notes.
-    for note in detail.notes {
-        if !target.notes.contains(&note) {
-            target.notes.push(note);
-        }
-    }
-}
-
-/// Collapses a person's non-primary `PersonName`s into the primary name's
-/// `SURN` tag, for the `merge_names` export option (see `export_gedcom`).
-/// Geneanet only reads the first `NAME` structure, so it packs every other
-/// surname it knows about into that `NAME`'s `SURN` sub-tag as a
-/// comma-separated list instead of emitting one `NAME`/`SURN` per alias
-/// (mirrors what its own exporter produces). `names` must have the primary
-/// name first (see `export_gedcom`'s ordering). A no-op if the person has 0
-/// or 1 names.
-fn merge_name_aliases_into_surn(mut names: Vec<GedName>) -> Vec<GedName> {
-    if names.len() <= 1 {
-        return names;
-    }
-    let mut primary = names.remove(0);
-    // Texts of an export own their characters.
-    let alias_surnames: Vec<String> = names
-        .iter()
-        .filter_map(|n| n.surname()?.as_owned().map(str::to_string))
-        .collect();
-    if !alias_surnames.is_empty() {
-        let surname = Text::from(alias_surnames.join(","));
-        let mut pieces = std::mem::take(&mut primary.pieces).into_vec();
-        match pieces
-            .iter_mut()
-            .find(|piece| piece.kind == NamePieceKind::Surname)
-        {
-            Some(piece) => piece.value = surname,
-            None => {
-                let at = pieces
-                    .iter()
-                    .position(|piece| piece.kind == NamePieceKind::Suffix)
-                    .unwrap_or(pieces.len());
-                pieces.insert(
-                    at,
-                    NamePiece {
-                        kind: NamePieceKind::Surname,
-                        value: surname,
-                    },
-                );
-            }
-        }
-        primary.pieces = pieces.into();
-    }
-    vec![primary]
-}
-
 /// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM
 /// `OCCU`) under its own tag instead of a generic `EVEN`: the description is
 /// its line value.
@@ -2909,8 +2876,7 @@ mod tests {
     fn an_attributes_media_link_survives_a_round_trip_once_per_profession() {
         // An attribute documents itself as readily as an event: the trade card
         // behind an OCCU. The value splits into one event per profession on
-        // import and merges back into one line on export, and the scan must
-        // come through that once, not once per profession.
+        // import, and the scan must document each of them.
         let person = person_row();
         let occupation = Event {
             id: Uuid::now_v7(),
@@ -2985,65 +2951,6 @@ mod tests {
             back.media_links
                 .iter()
                 .all(|link| link.media_id == document.id)
-        );
-
-        // And back out again, from the shape the import produced: two
-        // Occupation events on one person, both naming the same scan. The
-        // merge writes one OCCU line, and must write the scan once.
-        let events: Vec<Event> = back
-            .events
-            .iter()
-            .map(|event| Event {
-                person_id: Some(person.id),
-                tree_id: person.tree_id,
-                ..event.clone()
-            })
-            .collect();
-        let links: Vec<MediaLink> = events
-            .iter()
-            .map(|event| MediaLink {
-                id: Uuid::now_v7(),
-                media_id: medium.id,
-                person_id: None,
-                event_id: Some(event.id),
-                source_id: None,
-                family_id: None,
-                sort_order: 0,
-            })
-            .collect();
-        let again = export_gedcom(
-            &ExportRecords {
-                persons: std::slice::from_ref(&person),
-                events: &events,
-                media: &rows,
-                media_links: &links,
-                ..Default::default()
-            },
-            &ExportOptions {
-                choices: ExportChoices {
-                    // Merging the professions back into one OCCU is the case
-                    // under test: it is what has to not multiply the scan.
-                    merge_occupations: true,
-                    ..Default::default()
-                },
-                target: ExportTarget::Gedcom,
-                self_person_id: None,
-                submitter: Default::default(),
-            },
-        )
-        .expect("exports");
-
-        assert_eq!(
-            again.gedcom.matches("1 OCCU").count(),
-            1,
-            "{}",
-            again.gedcom
-        );
-        assert_eq!(
-            again.gedcom.matches("2 OBJE @M1@").count(),
-            1,
-            "{}",
-            again.gedcom
         );
     }
 

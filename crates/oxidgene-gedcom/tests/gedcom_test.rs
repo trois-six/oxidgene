@@ -7,7 +7,8 @@ use uuid::Uuid;
 use oxidgene_core::types::{Note, Person, PersonName};
 use oxidgene_core::{EventType, NameType, Privacy, Sex};
 use oxidgene_gedcom::export::{
-    ExportChoices, ExportOptions, ExportRecords, ExportTarget, SubmitterSettings, export_gedcom,
+    DEFAULT_DESTINATION, ExportChoices, ExportOptions, ExportRecords, ExportTarget,
+    SubmitterSettings, destination, destinations, export_gedcom,
 };
 use oxidgene_gedcom::import::import_gedcom;
 
@@ -2085,8 +2086,8 @@ fn test_import_single_occupation_is_case_normalized_and_not_split() {
 }
 
 /// A person with two distinct `OCCU` tags (as produced by our own export,
-/// or hand-authored GEDCOM), used to exercise the `merge_occupations`
-/// export option.
+/// or hand-authored GEDCOM), used to exercise the destinations that read a
+/// single profession field.
 const TWO_OCCUPATIONS_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
@@ -2130,16 +2131,13 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
     assert!(!exported.gedcom.contains("Farmer, Carpenter"));
 }
 
-#[test]
-fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
-    let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
-
-    let exported = export_gedcom(
+/// `imported` written as a `.ged` for the destination `id`.
+fn export_for(imported: &oxidgene_gedcom::ImportResult, id: &str) -> oxidgene_gedcom::ExportResult {
+    export_gedcom(
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices {
-                merge_occupations: true,
+                destination: destination(id).expect("a ged_io export profile"),
                 ..Default::default()
             },
             target: ExportTarget::Gedcom,
@@ -2147,19 +2145,88 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
             submitter: Default::default(),
         },
     )
-    .unwrap();
+    .unwrap()
+}
 
-    let occu_lines = exported
+#[test]
+fn test_export_for_geneanet_merges_occupations_and_reports_the_loss() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+
+    let exported = export_for(&imported, "geneanet");
+
+    let occu_lines: Vec<&str> = exported
         .gedcom
         .lines()
-        .filter(|l| l.trim_start() == "1 OCCU Farmer, Carpenter" || l.starts_with("1 OCCU"))
-        .count();
+        .filter(|l| l.starts_with("1 OCCU"))
+        .collect();
     assert_eq!(
-        occu_lines, 1,
-        "expected exactly one merged OCCU line, got:\n{}",
+        occu_lines,
+        ["1 OCCU Farmer, Carpenter"],
+        "{}",
         exported.gedcom
     );
-    assert!(exported.gedcom.contains("1 OCCU Farmer, Carpenter"));
+    let report = exported.report.expect("a .ged reports its destination");
+    assert_eq!(report.destination, "geneanet");
+    assert!(
+        report
+            .losses
+            .iter()
+            .any(|loss| loss.kind == "merged" && loss.record.as_deref() == Some("@I1@")),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn test_export_for_a_standard_destination_reports_no_loss() {
+    let tree_id = Uuid::now_v7();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+
+    for (id, version) in [
+        ("generic-551", "2 VERS 5.5.1"),
+        ("generic-70", "2 VERS 7.0"),
+    ] {
+        let exported = export_for(&imported, id);
+        assert!(exported.gedcom.contains(version), "{}", exported.gedcom);
+        assert!(
+            exported.gedcom.contains("1 OCCU Farmer\n"),
+            "{}",
+            exported.gedcom
+        );
+        assert!(
+            exported.gedcom.contains("1 OCCU Carpenter\n"),
+            "{}",
+            exported.gedcom
+        );
+        let report = exported.report.expect("a .ged reports its destination");
+        assert_eq!(report.destination, id);
+        assert!(report.losses.is_empty(), "{report:?}");
+        assert!(report.limits.is_empty(), "{report:?}");
+    }
+}
+
+#[test]
+fn test_destinations_list_the_standard_versions_first() {
+    let all = destinations();
+    let ids: Vec<&str> = all.iter().map(|p| p.id()).collect();
+    assert_eq!(&ids[..2], ["generic-551", "generic-70"]);
+    for id in [
+        "geneanet",
+        "geneweb",
+        "ancestry",
+        "myheritage",
+        "familysearch",
+        "heredis",
+    ] {
+        assert!(ids.contains(&id), "{id} missing from {ids:?}");
+    }
+    assert_eq!(
+        ExportChoices::default().destination.id(),
+        DEFAULT_DESTINATION
+    );
+    assert!(destination("no-such-program").is_none());
+    // Ids are exact: the API validates them as given.
+    assert!(destination("GENEANET").is_none());
 }
 
 /// Geneanet's export puts the resolved surname on the NAME line but packs
@@ -2244,36 +2311,30 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
 }
 
 #[test]
-fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
+fn test_export_for_geneanet_packs_alias_surnames_into_the_primary_name() {
     let tree_id = Uuid::now_v7();
     let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
 
-    let exported = export_gedcom(
-        &imported.records(),
-        &ExportOptions {
-            choices: ExportChoices {
-                merge_names: true,
-                ..Default::default()
-            },
-            target: ExportTarget::Gedcom,
-            self_person_id: None,
-            submitter: Default::default(),
-        },
-    )
-    .unwrap();
+    let exported = export_for(&imported, "geneanet");
 
     let name_lines = exported
         .gedcom
         .lines()
-        .filter(|l| l.trim_start().starts_with("1 NAME") && *l != "1 NAME Not Provided")
+        .filter(|l| l.starts_with("1 NAME") && *l != "1 NAME Not Provided")
         .count();
-    assert_eq!(
-        name_lines, 1,
-        "expected exactly one merged '1 NAME' line, got:\n{}",
+    assert_eq!(name_lines, 1, "{}", exported.gedcom);
+    assert!(
+        exported.gedcom.contains("1 NAME Anna /BRANCH_A/"),
+        "{}",
         exported.gedcom
     );
-    assert!(exported.gedcom.contains("1 NAME Anna /BRANCH_A/"));
-    assert!(exported.gedcom.contains("2 SURN BRANCH_B,BRANCH_C"));
+    assert!(
+        exported
+            .gedcom
+            .contains("2 SURN BRANCH_A,BRANCH_B,BRANCH_C"),
+        "{}",
+        exported.gedcom
+    );
 }
 
 #[test]
@@ -3853,18 +3914,18 @@ fn assert_restored_as_the_ged_reads_them(
     );
 }
 
-/// The merges serve a `.ged`'s importers; a GEDZIP, always lossless, keeps
-/// every profession and every name however they are set.
+/// The destination shapes a `.ged` only: a GEDZIP is standard GEDCOM 7.0,
+/// keeps every profession and every name whatever the destination, and
+/// reports nothing.
 #[test]
-fn a_gedzip_applies_no_merge() {
+fn a_gedzip_reads_no_destination() {
     let mut tree = import_gedcom(MULTI_OCCUPATION_GEDCOM, Uuid::now_v7()).expect("imports");
     let (_, lossless, _) = both_exports(&mut tree, true);
     let merged = export_gedcom(
         &tree.records(),
         &ExportOptions {
             choices: ExportChoices {
-                merge_occupations: true,
-                merge_names: true,
+                destination: destination("geneanet").expect("a ged_io export profile"),
                 ..ExportChoices::default()
             },
             target: ExportTarget::Gedzip {
@@ -3876,6 +3937,7 @@ fn a_gedzip_applies_no_merge() {
     )
     .expect("exports");
     assert_eq!(merged.gedcom, lossless.gedcom);
+    assert!(merged.report.is_none());
     assert!(
         merged.gedcom.matches("1 OCCU ").count() > 1,
         "{}",

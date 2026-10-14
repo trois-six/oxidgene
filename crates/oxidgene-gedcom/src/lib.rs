@@ -99,11 +99,51 @@ impl ImportResult {
 /// The result of exporting domain model entities to a GEDCOM string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportResult {
-    /// The GEDCOM text: 5.5.1 for a `.ged`, 7.0 after a byte-order mark for
-    /// the `gedcom.ged` of a GEDZIP (see [`export::ExportTarget`]).
+    /// The GEDCOM text: a `.ged` as its destination reads it (5.5.1 unless
+    /// the destination reads 7.0), 7.0 after a byte-order mark for the
+    /// `gedcom.ged` of a GEDZIP (see [`export::ExportTarget`]).
     pub gedcom: String,
     /// Warnings collected during export.
     pub warnings: Vec<String>,
+    /// What writing a `.ged` for its destination lost; `None` for a GEDZIP,
+    /// which no destination shapes.
+    pub report: Option<DestinationReport>,
+}
+
+/// What writing a `.ged` for its destination lost: the folds of the
+/// destination's export profile that lost something, and the limits of the
+/// destination program the file exceeds. Empty for the standard
+/// destinations, which fold nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DestinationReport {
+    /// The destination's export profile id (`generic-551`, `geneanet`, …).
+    pub destination: String,
+    /// The folds that lost something, in the order made.
+    pub losses: Vec<ExportLoss>,
+    /// The destination's limits the file exceeds.
+    pub limits: Vec<ExportLimit>,
+}
+
+/// A fold that lost something: several occupations made one, a structure
+/// written as a note, a link left out, ….
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportLoss {
+    /// What kind of change: `merged`, `moved`, `relabelled`, `added`,
+    /// `as_text`, `omitted`, `reordered`, `recoded`, or `other`.
+    pub kind: String,
+    /// The cross-reference of the record it was in (`@I12@`), if one.
+    pub record: Option<String>,
+    /// What was changed, in `ged_io`'s words (English).
+    pub detail: String,
+}
+
+/// A limit of the destination program the file exceeds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportLimit {
+    /// The cross-reference of the record concerned, if one.
+    pub record: Option<String>,
+    /// The limit and what exceeds it, in `ged_io`'s words (English).
+    pub detail: String,
 }
 
 /// Page-level metadata GEDCOM 5.5.1 cannot represent on an `OBJE` record.

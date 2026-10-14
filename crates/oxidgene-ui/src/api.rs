@@ -1986,23 +1986,69 @@ pub struct ImportJobStarted {
     pub job_id: Uuid,
 }
 
-/// What a GEDCOM export holds and how it writes it, sent as its query
-/// options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// What a GEDCOM export holds and the program it is written for, sent as
+/// its query options.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExportChoices {
-    /// Collapse each person's occupations into one `OCCU`, comma-separated,
-    /// for importers (e.g. Geneanet) that read a single profession field.
-    pub merge_occupations: bool,
-    /// Collapse each person's other names into the primary name's `SURN`,
-    /// for importers (e.g. Geneanet) that read the first `NAME` only.
-    pub merge_names: bool,
+    /// The export destination's id ([`ApiClient::export_destinations`]).
+    pub destination: String,
     /// Write the notes, and the sources with their citations and
     /// repositories.
     pub include_notes_and_sources: bool,
 }
 
+/// A program a GEDCOM export can be written for.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ExportDestination {
+    /// The id an export's `destination` takes.
+    pub id: String,
+    /// The program's name, as the server gives it (not translated).
+    pub label: String,
+    /// The GEDCOM version written: `5.5.1` or `7.0`.
+    pub version: String,
+    /// Whether it writes standard GEDCOM for any program.
+    pub standard: bool,
+    /// Whether its facts are still to be verified against the program's
+    /// recent versions.
+    pub to_be_verified: bool,
+}
+
+/// What writing a GEDCOM file for its destination lost.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DestinationReport {
+    /// The destination's id.
+    pub destination: String,
+    /// The changes that lost something.
+    #[serde(default)]
+    pub losses: Vec<ExportLoss>,
+    /// The destination's limits the file exceeds.
+    #[serde(default)]
+    pub limits: Vec<ExportLimit>,
+}
+
+/// A change an export made for its destination that lost something.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ExportLoss {
+    /// `merged`, `moved`, `relabelled`, `added`, `as_text`, `omitted`,
+    /// `reordered`, `recoded` or `other`.
+    pub kind: String,
+    /// The cross-reference of the record it was in, if one.
+    pub record: Option<String>,
+    /// What was changed (English, technical).
+    pub detail: String,
+}
+
+/// A limit of the destination program an export exceeds.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ExportLimit {
+    /// The cross-reference of the record concerned, if one.
+    pub record: Option<String>,
+    /// The limit and what exceeds it (English, technical).
+    pub detail: String,
+}
+
 /// What a GEDZIP export holds, sent as its job's query options. A GEDZIP is
-/// always lossless: it has no merge.
+/// standard GEDCOM 7.0: it has no destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ArchiveChoices {
     /// Write the notes, and the sources with their citations and
@@ -2051,6 +2097,9 @@ pub struct DownloadableExport {
 pub struct ExportGedcomResult {
     pub gedcom: String,
     pub warnings: Vec<String>,
+    /// What writing the file for its destination lost.
+    #[serde(default)]
+    pub report: DestinationReport,
 }
 
 /// Everything one person page renders. Its pictures are addresses: the page
@@ -5003,10 +5052,16 @@ impl ApiClient {
     pub async fn export_gedcom(
         &self,
         tree_id: Uuid,
-        choices: ExportChoices,
+        choices: &ExportChoices,
     ) -> Result<ExportGedcomResult, ApiError> {
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &choices)
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), choices)
             .await
+    }
+
+    /// The programs a GEDCOM export can be written for: the standard
+    /// versions first, then the programs by name.
+    pub async fn export_destinations(&self) -> Result<Vec<ExportDestination>, ApiError> {
+        self.get("/api/v1/gedcom/export-destinations").await
     }
 
     /// Queue a GEDZIP export made as `choices` say, without holding the HTTP

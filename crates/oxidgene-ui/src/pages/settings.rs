@@ -11,7 +11,8 @@ use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, ArchiveChoices, DownloadableExport, ExportChoices, UpdateTreeBody,
+    ApiClient, ApiError, ArchiveChoices, DestinationReport, DownloadableExport, ExportChoices,
+    ExportDestination, UpdateTreeBody,
 };
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
@@ -31,7 +32,7 @@ use crate::pages::app_settings::{
 use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::ui_observability::{
     UiAction, UiActionStep, UiLoadTrace, UiPage, trace_ui_action, trace_ui_action_step,
-    use_traced_resource, use_ui_load_trace,
+    use_traced_resource, use_ui_load_trace, use_ui_resource,
 };
 
 /// Whether a completed GEDZIP export can still be downloaded.
@@ -253,19 +254,54 @@ async fn save_gedzip(
     )))
 }
 
-/// Exports the tree as a GEDCOM file.
+/// Exports the tree as a GEDCOM file written for the chosen destination,
+/// and keeps in `report` what writing for it lost once the file is saved.
 async fn export_gedcom(
     api: &ApiClient,
     tid: Uuid,
-    choices: ExportChoices,
+    choices: &ExportChoices,
     file_name: &str,
     i18n: &I18n,
+    mut report: Signal<Option<DestinationReport>>,
 ) -> ExportOutcome {
     let exported =
         trace_ui_action_step(UiActionStep::ExportRequest, api.export_gedcom(tid, choices))
             .await
             .map_err(|error| error.to_string())?;
-    save_gedcom(exported.gedcom.into_bytes(), file_name, i18n).await
+    let outcome = save_gedcom(exported.gedcom.into_bytes(), file_name, i18n).await;
+    if matches!(outcome, Ok(Some(_))) {
+        report.set(Some(exported.report));
+    }
+    outcome
+}
+
+/// The destination a GEDCOM export is written for unless one is chosen:
+/// standard GEDCOM 5.5.1.
+const DEFAULT_DESTINATION: &str = "generic-551";
+
+/// The part of a destination's translation keys its id makes.
+fn destination_key(id: &str) -> String {
+    id.replace('-', "_")
+}
+
+/// A destination as the select names it: a standard version in the
+/// reader's language, a program by its own name.
+fn destination_name(i18n: &I18n, destination: &ExportDestination) -> String {
+    let key = format!(
+        "export_destination.name.{}",
+        destination_key(&destination.id)
+    );
+    destination
+        .standard
+        .then(|| i18n.try_t(&key))
+        .flatten()
+        .unwrap_or_else(|| destination.label.clone())
+}
+
+/// What writing for a destination does, in one line; `None` for a
+/// destination this version of the interface does not describe yet.
+fn destination_description(i18n: &I18n, id: &str) -> Option<String> {
+    i18n.try_t(&format!("export_destination.desc.{}", destination_key(id)))
 }
 
 /// Hands the GEDCOM to the browser as a download.
@@ -397,8 +433,8 @@ pub fn Settings(tree_id: String) -> Element {
     let mut export_error = use_signal(|| None::<String>);
     let mut export_success = use_signal(|| None::<String>);
     let export_format = use_signal(|| "gedcom".to_string());
-    let export_merge_occupations = use_signal(|| false);
-    let export_merge_names = use_signal(|| false);
+    let export_destination = use_signal(|| DEFAULT_DESTINATION.to_string());
+    let mut export_report = use_signal(|| None::<DestinationReport>);
     let export_notes_and_sources = use_signal(|| true);
     let export_media = use_signal(|| true);
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
@@ -418,10 +454,9 @@ pub fn Settings(tree_id: String) -> Element {
         };
         let api = api_export.clone();
         let is_gedzip = export_format() == "gedzip";
-        // The merges are a plain GEDCOM's, the media a GEDZIP's.
+        // The destination is a plain GEDCOM's, the media a GEDZIP's.
         let choices = ExportChoices {
-            merge_occupations: export_merge_occupations(),
-            merge_names: export_merge_names(),
+            destination: export_destination(),
             include_notes_and_sources: export_notes_and_sources(),
         };
         let archive_choices = ArchiveChoices {
@@ -433,6 +468,7 @@ pub fn Settings(tree_id: String) -> Element {
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
+        export_report.set(None);
         // Opened during the click, before any network await.
         let target = save_target(&file_name, is_gedzip);
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
@@ -449,7 +485,7 @@ pub fn Settings(tree_id: String) -> Element {
                 )
                 .await
             } else {
-                export_gedcom(&api, tid, choices, &file_name, &i18n).await
+                export_gedcom(&api, tid, &choices, &file_name, &i18n, export_report).await
             };
             match outcome {
                 Ok(Some(message)) => export_success.set(Some(message)),
@@ -469,6 +505,7 @@ pub fn Settings(tree_id: String) -> Element {
         };
         export_error.set(None);
         export_success.set(None);
+        export_report.set(None);
         if !is_live(&export) {
             last_export.set(None);
             export_error.set(Some(i18n.t("settings.export_expired")));
@@ -547,8 +584,8 @@ pub fn Settings(tree_id: String) -> Element {
                             error: export_error(),
                             success: export_success(),
                             format: export_format,
-                            merge_occupations: export_merge_occupations,
-                            merge_names: export_merge_names,
+                            destination: export_destination,
+                            report: export_report(),
                             notes_and_sources: export_notes_and_sources,
                             media: export_media,
                         }
@@ -1302,13 +1339,22 @@ fn ExportSection(
     error: Option<String>,
     success: Option<String>,
     format: Signal<String>,
-    merge_occupations: Signal<bool>,
-    merge_names: Signal<bool>,
+    /// The destination a plain GEDCOM is written for.
+    destination: Signal<String>,
+    /// What the last GEDCOM export lost writing for its destination.
+    report: Option<DestinationReport>,
     notes_and_sources: Signal<bool>,
     media: Signal<bool>,
 ) -> Element {
     let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
     let is_gedzip = format() == "gedzip";
+    // Without the list (still loading, or unreachable), the default alone.
+    let listed = use_ui_resource("export_destinations", move || {
+        let api = api.clone();
+        async move { api.export_destinations().await.unwrap_or_default() }
+    });
+    let destinations = listed_or_default(listed.read().clone());
     let download_label = if is_gedzip {
         i18n.t("settings.download_gedzip")
     } else {
@@ -1356,28 +1402,20 @@ fn ExportSection(
                         if loading { {i18n.t("common.exporting")} } else { {download_label} }
                     }
                 }
+                if !is_gedzip {
+                    DestinationPicker { destination, destinations: destinations.clone() }
+                }
                 ExportToggle {
                     value: notes_and_sources,
                     label: "settings.export_notes_and_sources",
                     description: "settings.export_notes_and_sources_desc",
-                    first: true,
+                    first: is_gedzip,
                 }
                 if is_gedzip {
                     ExportToggle {
                         value: media,
                         label: "settings.export_media",
                         description: "settings.export_media_desc",
-                    }
-                } else {
-                    ExportToggle {
-                        value: merge_occupations,
-                        label: "settings.export_merge_occupations",
-                        description: "settings.export_merge_occupations_desc",
-                    }
-                    ExportToggle {
-                        value: merge_names,
-                        label: "settings.export_merge_names",
-                        description: "settings.export_merge_names_desc",
                     }
                 }
                 if let Some(description) = &downloadable {
@@ -1401,10 +1439,152 @@ fn ExportSection(
                         "{message}"
                     }
                 }
+                if let Some(report) = &report {
+                    ExportReport { report: report.clone(), destinations: destinations.clone() }
+                }
             }
 
             if let (Ok(tid), Some(Some(Ok(tree)))) = (tree_id.parse::<Uuid>(), &*tree_resource.read()) {
                 SubmitterCard { key: "{tid}", tree_id: tid, tree: tree.clone() }
+            }
+        }
+    }
+}
+
+/// The destinations the server listed; without them (still loading, or
+/// unreachable), the default alone.
+fn listed_or_default(listed: Option<Vec<ExportDestination>>) -> Vec<ExportDestination> {
+    listed.filter(|list| !list.is_empty()).unwrap_or_else(|| {
+        vec![ExportDestination {
+            id: DEFAULT_DESTINATION.to_string(),
+            label: String::new(),
+            version: "5.5.1".to_string(),
+            standard: true,
+            to_be_verified: false,
+        }]
+    })
+}
+
+/// The destination program a GEDCOM export is written for: a select of the
+/// `destinations`, the chosen one's description beneath it and, for a
+/// program whose profile is still to be verified, a hint saying so.
+#[component]
+fn DestinationPicker(
+    mut destination: Signal<String>,
+    destinations: Vec<ExportDestination>,
+) -> Element {
+    let i18n = use_i18n();
+    let chosen = destinations
+        .iter()
+        .find(|candidate| candidate.id == destination())
+        .cloned();
+    let description = chosen
+        .as_ref()
+        .and_then(|chosen| destination_description(&i18n, &chosen.id));
+    let to_be_verified = chosen.is_some_and(|chosen| chosen.to_be_verified);
+    rsx! {
+        div { class: "settings-check-first",
+            label { class: "settings-check-label", r#for: "export-destination",
+                {i18n.t("settings.export_destination")}
+            }
+            select {
+                id: "export-destination",
+                class: "settings-date-select settings-destination-select",
+                onchange: move |e: Event<FormData>| destination.set(e.value()),
+                for candidate in destinations.iter() {
+                    option {
+                        key: "{candidate.id}",
+                        value: "{candidate.id}",
+                        selected: candidate.id == destination(),
+                        {destination_name(&i18n, candidate)}
+                    }
+                }
+            }
+            if let Some(description) = description {
+                p { class: "settings-check-desc", "{description}" }
+            }
+            if to_be_verified {
+                p { class: "field-hint field-hint-warn",
+                    {i18n.t("settings.export_destination_to_verify")}
+                }
+            }
+        }
+    }
+}
+
+/// What a GEDCOM export lost writing for its destination: the count of the
+/// changes that lost something and of the destination's limits the file
+/// exceeds, each behind a disclosure listing them. A program's export that
+/// lost nothing says so; a standard one, which reshapes nothing, says
+/// nothing.
+#[component]
+fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>) -> Element {
+    let i18n = use_i18n();
+    let listed = destinations
+        .iter()
+        .find(|candidate| candidate.id == report.destination);
+    let standard = listed.is_some_and(|listed| listed.standard);
+    let destination = listed.map_or_else(
+        || report.destination.clone(),
+        |listed| destination_name(&i18n, listed),
+    );
+    if report.losses.is_empty() && report.limits.is_empty() {
+        if standard {
+            return rsx! {};
+        }
+        return rsx! {
+            p { class: "settings-card-desc settings-feedback",
+                {i18n.t_args("settings.export_report_lossless", &[("destination", &destination)])}
+            }
+        };
+    }
+    let counted = |key: &str, count: usize| {
+        i18n.t_args(
+            &i18n.plural_key(key, count),
+            &[("count", &count.to_string()), ("destination", &destination)],
+        )
+    };
+    let loss = |kind: &str, record: Option<&str>, detail: &str| {
+        let kind = i18n
+            .try_t(&format!("export_report.kind.{kind}"))
+            .unwrap_or_else(|| kind.to_string());
+        match record {
+            Some(record) => i18n.t_args(
+                "settings.export_report_item_record",
+                &[("kind", &kind), ("record", record), ("detail", detail)],
+            ),
+            None => i18n.t_args(
+                "settings.export_report_item",
+                &[("kind", &kind), ("detail", detail)],
+            ),
+        }
+    };
+    let limit = |record: Option<&str>, detail: &str| match record {
+        Some(record) => i18n.t_args(
+            "settings.export_report_limit_record",
+            &[("record", record), ("detail", detail)],
+        ),
+        None => detail.to_string(),
+    };
+    rsx! {
+        if !report.limits.is_empty() {
+            details { class: "import-warnings",
+                summary { {counted("settings.export_report_limits", report.limits.len())} }
+                ul {
+                    for item in report.limits.iter() {
+                        li { {limit(item.record.as_deref(), &item.detail)} }
+                    }
+                }
+            }
+        }
+        if !report.losses.is_empty() {
+            details { class: "import-warnings",
+                summary { {counted("settings.export_report_losses", report.losses.len())} }
+                ul {
+                    for item in report.losses.iter().take(500) {
+                        li { {loss(&item.kind, item.record.as_deref(), &item.detail)} }
+                    }
+                }
             }
         }
     }
@@ -1611,6 +1791,10 @@ const SETTINGS_STYLES: &str = r#"
     .settings-export-format {
         width: auto;
         flex-shrink: 0;
+    }
+    .settings-destination-select {
+        display: block;
+        margin-top: var(--space-3);
     }
     .settings-date-select { width: auto; max-width: 100%; }
     .settings-date-preview {

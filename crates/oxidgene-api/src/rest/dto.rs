@@ -517,6 +517,8 @@ pub struct ExportJobStartedResponse {
 pub struct ExportGedcomResponse {
     pub gedcom: String,
     pub warnings: Vec<String>,
+    /// What writing the file for its destination lost.
+    pub report: oxidgene_gedcom::DestinationReport,
 }
 
 /// Query parameters for GET /api/v1/trees/:tree_id/gedcom/export.
@@ -524,16 +526,11 @@ pub struct ExportGedcomResponse {
 pub struct ExportGedcomQuery {
     /// Export format: `gedcom` (default) or `gedzip`.
     pub format: Option<String>,
-    /// Collapse each person's multiple `OCCU` tags back into one
-    /// (comma-separated), for importers such as Geneanet that only support
-    /// a single profession field, in a plain GEDCOM only: a GEDZIP is
-    /// always lossless. Defaults to `false` (one `OCCU` per profession).
-    pub merge_occupations: Option<bool>,
-    /// Collapse each person's non-primary names into the primary name's
-    /// `SURN` tag (comma-separated), for importers such as Geneanet that
-    /// only read the first `NAME` structure, in a plain GEDCOM only.
-    /// Defaults to `false` (one `NAME` per name).
-    pub merge_names: Option<bool>,
+    /// The program a plain GEDCOM is written for: an export destination's
+    /// id (`GET /api/v1/gedcom/export-destinations`). Defaults to
+    /// `generic-551`, standard GEDCOM 5.5.1. A GEDZIP, standard GEDCOM 7.0,
+    /// takes none.
+    pub destination: Option<String>,
     /// Write the notes, and the sources with their citations and
     /// repositories. Defaults to `true`.
     pub include_notes_and_sources: Option<bool>,
@@ -545,11 +542,16 @@ pub struct ExportGedcomQuery {
 
 impl ExportGedcomQuery {
     /// The choices these options make; an option left out keeps the
-    /// complete, lossless export.
-    pub fn choices(&self) -> crate::service::gedcom::ExportChoices {
+    /// complete export, standard GEDCOM 5.5.1.
+    ///
+    /// # Errors
+    ///
+    /// A validation error for an unknown destination.
+    pub fn choices(
+        &self,
+    ) -> Result<crate::service::gedcom::ExportChoices, oxidgene_core::OxidGeneError> {
         crate::service::gedcom::export_choices(
-            self.merge_occupations,
-            self.merge_names,
+            self.destination.as_deref(),
             self.include_notes_and_sources,
             self.include_media,
         )

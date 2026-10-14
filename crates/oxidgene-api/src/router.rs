@@ -602,6 +602,12 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/api/v1/geneanet", geneanet_routes)
         .nest("/api/v1/geneweb", geneweb_routes)
         .nest("/api/v1/reference", reference_routes)
+        // The programs a GEDCOM export can be written for: not tied to a
+        // tree, so kept out of the `/trees` nest.
+        .route(
+            "/api/v1/gedcom/export-destinations",
+            get(gedcom::export_destinations),
+        )
         .route("/api/v1/openapi.json", get(openapi::spec))
         .fallback(crate::rest::error::unknown_route)
         // Inside the compression layer, so it reads the response as written.

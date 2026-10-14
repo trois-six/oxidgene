@@ -1584,40 +1584,45 @@ impl QueryRoot {
 
     // ── GEDCOM ────────────────────────────────────────────────────────
 
-    /// Export all entities in a tree as a GEDCOM 5.5.1 string, recording
-    /// the export in the tree's audit log. Pass `merge_occupations: true` to
-    /// collapse each person's multiple `OCCU` tags back into one,
-    /// comma-separated (for importers, e.g. Geneanet, that only support a
-    /// single profession field). Pass `merge_names: true` to collapse each
-    /// person's non-primary names into the primary name's `SURN` tag,
-    /// comma-separated. Pass `include_notes_and_sources: false` to leave the
-    /// notes and the sources out. A plain GEDCOM always writes its media's
-    /// references: only a GEDZIP (`startExportJob`) leaves the media out.
+    /// The programs a GEDCOM export can be written for, as REST's `GET
+    /// /gedcom/export-destinations` lists them: the standard versions first,
+    /// then the programs by name.
+    async fn export_destinations(&self) -> Vec<crate::service::gedcom::ExportDestination> {
+        boxed(async move { crate::service::gedcom::export_destinations() }).await
+    }
+
+    /// Export all entities in a tree as a GEDCOM string written for
+    /// `destination` (an `exportDestinations` id; standard GEDCOM 5.5.1 by
+    /// default), with what writing for it lost (`report`), recording the
+    /// export in the tree's audit log. Pass `include_notes_and_sources:
+    /// false` to leave the notes and the sources out. A plain GEDCOM always
+    /// writes its media's references: only a GEDZIP (`startExportJob`),
+    /// standard GEDCOM 7.0, leaves the media out.
     async fn export_gedcom(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        merge_occupations: Option<bool>,
-        merge_names: Option<bool>,
+        destination: Option<String>,
         include_notes_and_sources: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
+            let choices = crate::service::gedcom::export_choices(
+                destination.as_deref(),
+                include_notes_and_sources,
+                None,
+            )?;
             let data = crate::service::gedcom::export_gedcom(
                 // Writes the export's audit entry.
                 db_from_ctx(ctx),
                 tree_id,
-                crate::service::gedcom::export_choices(
-                    merge_occupations,
-                    merge_names,
-                    include_notes_and_sources,
-                    None,
-                ),
+                choices,
             )
             .await?;
             Ok(GqlExportGedcomResult {
                 gedcom: data.gedcom,
                 warnings: data.warnings,
+                report: data.report.unwrap_or_default().into(),
             })
         })
         .await

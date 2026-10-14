@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
 ---
 
 
@@ -407,32 +407,70 @@ restore at its top.
 
 ## 12. Section: Export
 
-Two export format options, each displayed as a card with icon, name, description and an action button:
+A card with the format's name and description, a format select and the
+download button. Two formats:
 
 | Format | Extension | Writes | Description |
 |---|---|---|---|
-| GEDCOM 5.5.1 | `.ged` | GEDCOM 5.5.1 text, its media referenced by their producers' paths | Standard genealogy exchange format, read by Ancestry, Geneanet, MyHeritage, MacFamilyTree and most genealogy software. |
-| GEDCOM 7.0 (GEDZIP) | `.gdz` | A ZIP archive: a GEDCOM 7.0 `gedcom.ged`, as GEDZIP requires, and the media files OxidGene holds | Recent exchange format bundling the media into one archive, read by software supporting GEDCOM 7.0. Ideal for full backups or sharing with attachments. A medium OxidGene holds no file for, which only a path outside the archive names, cannot be a GEDCOM `OBJE` there: the archive keeps it, with its path and links, as an OxidGene extension that other software ignores and an OxidGene import restores ([API Contract §4](api.md#gedzip)). |
+| GEDCOM | `.ged` | GEDCOM text written for the chosen destination program, its media referenced by their producers' paths | Genealogy exchange format, written for the program that will import it. |
+| GEDCOM 7.0 (GEDZIP) | `.gdz` | A ZIP archive: a standard GEDCOM 7.0 `gedcom.ged`, as GEDZIP requires, and the media files OxidGene holds | Recent exchange format bundling the media into one archive, read by software supporting GEDCOM 7.0. Ideal for full backups or sharing with attachments. A medium OxidGene holds no file for, which only a path outside the archive names, cannot be a GEDCOM `OBJE` there: the archive keeps it, with its path and links, as an OxidGene extension that other software ignores and an OxidGene import restores ([API Contract §4](api.md#gedzip)). It takes no destination. |
+
+### Destination program (GEDCOM only)
+
+Under the format row, set off by a rule, a **Destination program** select
+chooses what the `.ged` is written for. Its options are the [export
+destinations](api.md#export-destinations) the server lists (`GET
+/gedcom/export-destinations`), in its order:
+
+| Destination | Option label | Writes |
+|---|---|---|
+| Standard GEDCOM 5.5.1 (default) | Translated ("Standard GEDCOM 5.5.1") | GEDCOM 5.5.1 as OxidGene builds it, nothing reshaped: the version every program and site reads |
+| Standard GEDCOM 7.0 | Translated ("Standard GEDCOM 7.0") | The same records as GEDCOM 7.0, nothing reshaped |
+| A program (Geneanet, Ancestry, Heredis, Gramps, …) | The program's name, never translated | The version, layout and structures that program reads, as `ged_io`'s export profile for it writes them; what it cannot read is folded into what it reads, and the folds that lose something are reported after the export |
+
+Beneath the select, one translated line describes what writing for the
+chosen destination does (`export_destination.desc.<id>`); a program whose
+profile is still to be verified against its latest version
+(`to_be_verified`) adds a warning hint saying so. Until the list has loaded,
+or if it cannot be read, the select offers the default alone. The choice
+applies to the next export only and is not stored; a GEDZIP has no
+destination and the select is not shown for it.
+
+After a `.ged` export to a program is saved, the section reports what
+writing for it lost, under the success message:
+
+- nothing lost: "Written for Geneanet without losing anything.";
+- otherwise, a disclosure per kind, each with its translated count as its
+  summary — "3 limits of Geneanet exceeded", then "1,204 changes lost
+  information for Geneanet" — listing the items: a change as its translated
+  kind (Merged, Moved, Relabelled, Added, Written as text, Left out,
+  Reordered, Rewritten, Changed), the record's cross-reference and
+  `ged_io`'s technical description, in English, as import warnings are
+  shown (the first 500 listed); a limit as its record and description.
+
+A standard destination reshapes nothing and reports nothing. The report
+goes away when another export starts.
 
 ### Export options (toggles)
 
-Checkboxes under the format row. Each applies to the next export only: none
-is stored, on the tree or elsewhere, and a reload restores the defaults. The
-section shows only the options of the chosen format.
+Checkboxes under the destination (under the format row for a GEDZIP). Each
+applies to the next export only: none is stored, on the tree or elsewhere,
+and a reload restores the defaults. The section shows only the options of
+the chosen format.
 
 | Toggle | Description |
 |---|---|
 | Include notes and sources | On by default. When disabled, the export leaves out every note (of a person, a family, an event, a source, a repository or a medium), every source with its citations, and every repository, which only sources reach. Nothing written points at a record left out, so the file still imports cleanly. A medium's own description stays: it describes the medium, it is not a note |
 | Include media (GEDZIP only) | On by default: the archive carries the photos and documents. When disabled, the archive holds `gedcom.ged` alone, and that GEDCOM has no `OBJE` record, no link to one and no identification (vignette) — not even a `FILE` reference to a file left behind, which an import would keep as a medium without its bytes. A plain GEDCOM never carries file bytes and always writes its media's references, so the option is not shown for it |
-| Merge occupations into a single field (GEDCOM only) | Off by default (one `OCCU` tag per profession, lossless). When enabled, collapses a person's multiple `OCCU` tags back into one, comma-separated, for compatibility with importers such as Geneanet that only support a single profession field. A GEDZIP is always the complete export and has no such option. See [API Contract](api.md) (GEDCOM) |
-| Merge name aliases into a single field (GEDCOM only) | Off by default (one `NAME`/`SURN` structure per name, lossless). When enabled, collapses a person's non-primary names into the primary name's `SURN` tag, comma-separated, for compatibility with importers such as Geneanet that only read the first `NAME` structure. A GEDZIP has no such option either. See [API Contract](api.md) (GEDCOM) |
 | Include contemporary persons (planned) | Leaves out the persons the contemporary-person rules hide. It waits for those rules ([§8](#contemporary-persons-planned)) and is not shown |
 
-The options travel with the export request — the GEDCOM request, or the
-GEDZIP export job, which keeps them until a worker packs the archive
-([API Contract](api.md)). The export's audit entry records its format only.
+The options and the destination travel with the export request — the
+GEDCOM request, or the GEDZIP export job, which keeps its options until a
+worker packs the archive ([API Contract](api.md)). The export's audit entry
+records its format only.
 
-Export is triggered directly by the format buttons.
+Export is triggered by the download button beside the format select
+("Download .ged" or "Download .gdz").
 
 ### Submitter
 

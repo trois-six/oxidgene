@@ -42,6 +42,11 @@ const BINARY: &str = "direct media read: an HTTP representation with its cache v
 /// Every REST operation, as the router declares it, with its twin.
 const PARITY: &[(&str, &str, Twin)] = &[
     (
+        "GET",
+        "/api/v1/gedcom/export-destinations",
+        Gql(&["Query.exportDestinations"]),
+    ),
+    (
         "POST",
         "/api/v1/geneanet/archives",
         Gql(&["Query.indexGeneanetArchives"]),

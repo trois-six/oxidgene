@@ -130,6 +130,10 @@ const WHOLE_LISTS: &[(&str, &str)] = &[
         "static reference data, the same for every tree",
     ),
     (
+        "/api/v1/gedcom/export-destinations",
+        "static reference data, the same for every tree",
+    ),
+    (
         "/api/v1/trees/{tree_id}/unlocated-places",
         "a tool's report, bounded by the tree's places",
     ),

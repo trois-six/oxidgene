@@ -181,6 +181,8 @@ impl FileImportProgress {
 pub struct ExportData {
     pub gedcom: String,
     pub warnings: Vec<String>,
+    /// What writing a `.ged` for its destination lost; `None` for a GEDZIP.
+    pub report: Option<oxidgene_gedcom::DestinationReport>,
     /// What a GEDZIP of this export must contain, as (storage key, path inside
     /// the archive). Empty unless the export asked for archive paths: a plain
     /// `.ged` references the producer's own paths and carries no files.
@@ -834,21 +836,65 @@ async fn insert_spouse_ages(
 }
 
 /// The export choices a request's options make, REST's and GraphQL's alike:
-/// an option left out keeps the complete, lossless export.
+/// an option left out keeps the complete export, standard GEDCOM 5.5.1.
+///
+/// # Errors
+///
+/// [`OxidGeneError::Validation`] when `destination` names none of
+/// [`export_destinations`].
 pub fn export_choices(
-    merge_occupations: Option<bool>,
-    merge_names: Option<bool>,
+    destination: Option<&str>,
     include_notes_and_sources: Option<bool>,
     include_media: Option<bool>,
-) -> ExportChoices {
+) -> Result<ExportChoices, OxidGeneError> {
     let default = ExportChoices::default();
-    ExportChoices {
-        merge_occupations: merge_occupations.unwrap_or(default.merge_occupations),
-        merge_names: merge_names.unwrap_or(default.merge_names),
+    let destination = match destination {
+        None => default.destination,
+        Some(id) => oxidgene_gedcom::export::destination(id).ok_or_else(|| {
+            OxidGeneError::Validation(format!("`{id}` is not an export destination"))
+        })?,
+    };
+    Ok(ExportChoices {
+        destination,
         include_notes_and_sources: include_notes_and_sources
             .unwrap_or(default.include_notes_and_sources),
         include_media: include_media.unwrap_or(default.include_media),
-    }
+    })
+}
+
+/// A program a `.ged` can be written for: one of `ged_io`'s export
+/// profiles.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
+pub struct ExportDestination {
+    /// The profile id the export's `destination` takes.
+    pub id: String,
+    /// The program's name, as `ged_io` gives it (not translated).
+    pub label: String,
+    /// The GEDCOM version written: `5.5.1` or `7.0`.
+    pub version: String,
+    /// Whether it writes standard GEDCOM for any program (`generic-551`,
+    /// `generic-70`) rather than for one.
+    pub standard: bool,
+    /// Whether its facts are to be re-verified against the program's recent
+    /// versions (`ged_io`'s tier 1).
+    pub to_be_verified: bool,
+}
+
+/// Every destination a `.ged` can be written for: the standard versions
+/// first, then the programs by name.
+#[must_use]
+pub fn export_destinations() -> Vec<ExportDestination> {
+    oxidgene_gedcom::export::destinations()
+        .into_iter()
+        .map(|profile| ExportDestination {
+            id: profile.id().to_string(),
+            label: profile.label().to_string(),
+            version: profile.target().version().to_string(),
+            standard: profile.tier() == 0,
+            to_be_verified: oxidgene_gedcom::export::to_be_verified(profile),
+        })
+        .collect()
 }
 
 /// Tree `tree_id` as GEDCOM text, the export recorded in its audit log.
@@ -871,14 +917,14 @@ pub async fn export_gedcom(
     Ok(data)
 }
 
-/// Load all entities from a tree and export them as a GEDCOM string: GEDCOM
-/// 5.5.1 for a `.ged`, GEDCOM 7.0 for the `gedcom.ged` of a GEDZIP
-/// (`for_archive`).
+/// Load all entities from a tree and export them as a GEDCOM string: a
+/// `.ged` written for the chosen destination, GEDCOM 7.0 for the
+/// `gedcom.ged` of a GEDZIP (`for_archive`).
 ///
 /// Verifies the tree exists, loads all entities, then calls the GEDCOM
 /// exporter to produce the output string. `choices` says what the file
-/// holds and how it writes it: the occupations or the names merged (a
-/// `.ged`'s only), the notes and sources or the media left out (see
+/// holds and how it writes it: the destination program (a `.ged`'s only),
+/// the notes and sources or the media left out (see
 /// `oxidgene_gedcom::export::export_gedcom`). An archive without its media
 /// packs no file.
 #[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
@@ -938,6 +984,7 @@ pub async fn load_and_export(
     Ok(ExportData {
         gedcom: export_result.gedcom,
         warnings: export_result.warnings,
+        report: export_result.report,
         media_files,
     })
 }

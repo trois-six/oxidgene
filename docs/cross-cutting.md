@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -380,9 +380,9 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
   operational boundary.
 - GEDCOM generation divides its `export.serialize` service span into
   `export.build_model` and `export.write`. These
-  spans record aggregate entity counts and
-  input/output byte lengths only; genealogical values and identifiers remain
-  excluded.
+  spans record aggregate entity counts, input/output byte lengths, the
+  destination's profile id and the count of folds that lost something
+  only; genealogical values and identifiers remain excluded.
 - Every routed UI screen owns one root load span named `ui.<page>.load`. Each
   Dioxus resource started by the screen or one of its nested components is a
   `ui.resource.load` child with a bounded, stable `ui.resource.name`. Resources

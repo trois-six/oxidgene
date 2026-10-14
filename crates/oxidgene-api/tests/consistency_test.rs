@@ -2527,6 +2527,170 @@ async fn export_choices_travel_alike_on_both_surfaces() {
     }
 }
 
+/// A person with two occupations, which Geneanet reads as one field.
+const TWO_OCCUPATIONS_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alder /Sample/
+1 OCCU Weaver
+1 OCCU Miller
+0 TRLR
+";
+
+#[tokio::test]
+async fn the_export_destinations_are_listed_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        "/api/v1/gedcom/export-destinations",
+        None,
+    )
+    .await;
+    let data = common::gql_ok(
+        &app,
+        "{ exportDestinations { id label version standard toBeVerified } }",
+        json!({}),
+    )
+    .await;
+    let rest = rest.as_array().expect("a list");
+    let gql = data["exportDestinations"].as_array().expect("a list");
+    assert_eq!(rest.len(), gql.len());
+    for (rest, gql) in rest.iter().zip(gql) {
+        assert_eq!(rest["id"], gql["id"]);
+        assert_eq!(rest["label"], gql["label"]);
+        assert_eq!(rest["version"], gql["version"]);
+        assert_eq!(rest["standard"], gql["standard"]);
+        assert_eq!(rest["to_be_verified"], gql["toBeVerified"]);
+    }
+    // The standard versions first, then the programs.
+    assert_eq!(rest[0]["id"], "generic-551");
+    assert_eq!(rest[0]["version"], "5.5.1");
+    assert_eq!(rest[1]["id"], "generic-70");
+    assert_eq!(rest[1]["version"], "7.0");
+    assert!(
+        rest[..2]
+            .iter()
+            .all(|d| d["standard"] == true && d["to_be_verified"] == false)
+    );
+    let geneanet = rest
+        .iter()
+        .find(|d| d["id"] == "geneanet")
+        .expect("Geneanet is a destination");
+    assert_eq!(geneanet["label"], "Geneanet");
+    assert_eq!(geneanet["standard"], false);
+    assert_eq!(geneanet["to_be_verified"], true);
+}
+
+/// The interface describes every destination it lists in one translated
+/// line, and names the standard versions in the reader's language: a
+/// destination a later `ged_io` adds fails here until it is described
+/// (`assets/i18n/*.json`, `export_destination.desc.<id>`, `-` as `_`).
+#[test]
+fn every_export_destination_is_described() {
+    let tables = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/i18n/en.json");
+    let english: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tables).expect("reads en.json")).unwrap();
+    let translations = english["translations"].as_object().expect("translations");
+    let mut missing = Vec::new();
+    for destination in oxidgene_api::service::gedcom::export_destinations() {
+        let key = destination.id.replace('-', "_");
+        let mut wanted = vec![format!("export_destination.desc.{key}")];
+        if destination.standard {
+            wanted.push(format!("export_destination.name.{key}"));
+        }
+        missing.extend(wanted.into_iter().filter(|k| !translations.contains_key(k)));
+    }
+    assert!(missing.is_empty(), "undescribed destinations: {missing:?}");
+}
+
+#[tokio::test]
+async fn an_export_destination_travels_alike_on_both_surfaces() {
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = common::new_tree(&app, "Destinations").await;
+    common::import_gedcom(&app, &db, &tree_id, TWO_OCCUPATIONS_GEDCOM).await;
+    let export = format!("/api/v1/trees/{tree_id}/gedcom/export");
+    let query = "query($t: ID!, $d: String) { exportGedcom(treeId: $t, destination: $d) { \
+                 gedcom report { destination losses { kind record detail } limits { record detail } } } }";
+
+    // Standard GEDCOM 5.5.1 by default: every occupation, nothing lost.
+    let standard = common::ok(&app, Method::GET, &export, None).await;
+    let text = standard["gedcom"].as_str().unwrap();
+    assert!(text.contains("2 VERS 5.5.1\n"), "{text}");
+    assert!(
+        text.contains("1 OCCU Weaver\n") && text.contains("1 OCCU Miller\n"),
+        "{text}"
+    );
+    assert_eq!(standard["report"]["destination"], "generic-551");
+    assert_eq!(standard["report"]["losses"], json!([]));
+    assert_eq!(standard["report"]["limits"], json!([]));
+
+    // Written for Geneanet: one occupation field, and the loss reported.
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        &format!("{export}?destination=geneanet"),
+        None,
+    )
+    .await;
+    let data = common::gql_ok(&app, query, json!({ "t": tree_id, "d": "geneanet" })).await;
+    let graphql = &data["exportGedcom"];
+    assert_eq!(graphql["gedcom"], rest["gedcom"]);
+    let text = rest["gedcom"].as_str().unwrap();
+    assert!(text.contains("1 OCCU Weaver, Miller\n"), "{text}");
+    assert_eq!(rest["report"]["destination"], "geneanet");
+    assert_eq!(graphql["report"]["destination"], "geneanet");
+    assert_eq!(graphql["report"]["losses"], rest["report"]["losses"]);
+    assert_eq!(graphql["report"]["limits"], rest["report"]["limits"]);
+    let losses = rest["report"]["losses"].as_array().unwrap();
+    assert!(
+        losses
+            .iter()
+            .any(|loss| loss["kind"] == "merged" && loss["record"] == "@I1@"),
+        "{losses:?}"
+    );
+
+    // Standard GEDCOM 7.0, as a `.ged`.
+    let seven = common::ok(
+        &app,
+        Method::GET,
+        &format!("{export}?destination=generic-70"),
+        None,
+    )
+    .await;
+    assert!(
+        seven["gedcom"].as_str().unwrap().contains("2 VERS 7.0\n"),
+        "{seven}"
+    );
+
+    // An unknown destination is refused on both surfaces.
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("{export}?destination=nowhere"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error", "{body}");
+    let response = gql(&app, query, json!({ "t": tree_id, "d": "nowhere" })).await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+
+    // A GEDZIP is standard GEDCOM 7.0: it takes no destination.
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("{export}?format=gedzip&destination=geneanet"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error", "{body}");
+}
+
 /// The tree's export still to download, as both surfaces report it: `null`
 /// or the same fields.
 async fn downloadable_export_on_both(app: &axum::Router, tree_id: &str) -> serde_json::Value {

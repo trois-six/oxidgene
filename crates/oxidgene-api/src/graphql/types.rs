@@ -2233,6 +2233,65 @@ pub struct GqlImportResult {
 pub struct GqlExportGedcomResult {
     pub gedcom: String,
     pub warnings: Vec<String>,
+    /// What writing the file for its destination lost.
+    pub report: GqlDestinationReport,
+}
+
+/// What writing a GEDCOM file for its destination lost: REST's `report`.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDestinationReport {
+    /// The destination's export profile id.
+    pub destination: String,
+    /// The folds that lost something, in the order made.
+    pub losses: Vec<GqlExportLoss>,
+    /// The destination's limits the file exceeds.
+    pub limits: Vec<GqlExportLimit>,
+}
+
+/// A fold of an export that lost something.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlExportLoss {
+    /// `merged`, `moved`, `relabelled`, `added`, `as_text`, `omitted`,
+    /// `reordered`, `recoded` or `other`.
+    pub kind: String,
+    /// The cross-reference of the record it was in, if one.
+    pub record: Option<String>,
+    /// What was changed (English, from ged_io).
+    pub detail: String,
+}
+
+/// A limit of the destination program an export exceeds.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlExportLimit {
+    /// The cross-reference of the record concerned, if one.
+    pub record: Option<String>,
+    /// The limit and what exceeds it (English, from ged_io).
+    pub detail: String,
+}
+
+impl From<oxidgene_gedcom::DestinationReport> for GqlDestinationReport {
+    fn from(report: oxidgene_gedcom::DestinationReport) -> Self {
+        Self {
+            destination: report.destination,
+            losses: report
+                .losses
+                .into_iter()
+                .map(|loss| GqlExportLoss {
+                    kind: loss.kind,
+                    record: loss.record,
+                    detail: loss.detail,
+                })
+                .collect(),
+            limits: report
+                .limits
+                .into_iter()
+                .map(|limit| GqlExportLimit {
+                    record: limit.record,
+                    detail: limit.detail,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Identifier returned after queuing a background job.

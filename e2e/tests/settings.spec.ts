@@ -156,3 +156,28 @@ test("a GEDZIP export can be downloaded again after the page is reloaded", async
     expect(saved.suggestedFilename()).toMatch(/\.gdz$/);
     expect(await saved.failure()).toBeNull();
 });
+
+test("a GEDCOM export is written for the chosen destination program and says what it lost", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/settings`);
+    await page.getByRole("button", { name: "Export Tree", exact: true }).click();
+    const destination = page.getByLabel("Destination program");
+    // Standard GEDCOM 5.5.1 first, and chosen.
+    await expect(destination).toHaveValue("generic-551");
+    await expect(destination.locator("option").first()).toHaveText("Standard GEDCOM 5.5.1");
+    await expect(page.getByText("still to be verified")).toBeHidden();
+
+    // A program: its description, and the hint its profile still needs checking.
+    await destination.selectOption("geneanet");
+    await expect(page.getByText("Geneanet’s online import")).toBeVisible();
+    await expect(page.getByText("still to be verified against its latest version")).toBeVisible();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download .ged" }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.ged$/);
+    await expect(
+        page.getByText(/Written for Geneanet without losing anything|lost information for Geneanet/),
+    ).toBeVisible();
+
+    // A GEDZIP is standard GEDCOM 7.0: no destination to choose.
+    await page.locator(".settings-export-format").selectOption("gedzip");
+    await expect(destination).toBeHidden();
+});

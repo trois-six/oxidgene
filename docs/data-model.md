@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
 ---
 
 
@@ -776,8 +776,8 @@ consumer span; retries retain the original context.
 An export job keeps the options it was queued with in
 `include_notes_and_sources` and `include_media` (both `true` by default), for
 the worker that packs the archive; an import job leaves them at their
-defaults. A GEDZIP has no merge option to keep: it is always the complete
-export ([API Contract §4](api.md#gedzip)).
+defaults. A GEDZIP has no destination to keep: it is always the complete,
+standard GEDCOM 7.0 export ([API Contract §4](api.md#gedzip)).
 
 A job's `payload_json` is cleared when it ends; its `result_json` stays for
 the status poll. Workers delete the rows of jobs ended more than a day ago,

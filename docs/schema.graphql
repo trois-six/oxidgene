@@ -385,6 +385,35 @@ The input/output is a string in RFC3339 format.
 """
 scalar DateTime
 
+"""
+A program a `.ged` can be written for: one of `ged_io`'s export
+profiles.
+"""
+type ExportDestination {
+	"""
+	The profile id the export's `destination` takes.
+	"""
+	id: String!
+	"""
+	The program's name, as `ged_io` gives it (not translated).
+	"""
+	label: String!
+	"""
+	The GEDCOM version written: `5.5.1` or `7.0`.
+	"""
+	version: String!
+	"""
+	Whether it writes standard GEDCOM for any program (`generic-551`,
+	`generic-70`) rather than for one.
+	"""
+	standard: Boolean!
+	"""
+	Whether its facts are to be re-verified against the program's recent
+	versions (`ged_io`'s tier 1).
+	"""
+	toBeVerified: Boolean!
+}
+
 type FamilyRecord {
 	familyId: String!
 	spouses: [PersonRef!]!
@@ -797,6 +826,24 @@ enum GqlDateQualifier {
 }
 
 """
+What writing a GEDCOM file for its destination lost: REST's `report`.
+"""
+type GqlDestinationReport {
+	"""
+	The destination's export profile id.
+	"""
+	destination: String!
+	"""
+	The folds that lost something, in the order made.
+	"""
+	losses: [GqlExportLoss!]!
+	"""
+	The destination's limits the file exceeds.
+	"""
+	limits: [GqlExportLimit!]!
+}
+
+"""
 A distinct dictionary value with the number of people who use it.
 """
 type GqlDictionaryEntry {
@@ -1073,6 +1120,10 @@ Result of a GEDCOM export operation.
 type GqlExportGedcomResult {
 	gedcom: String!
 	warnings: [String!]!
+	"""
+	What writing the file for its destination lost.
+	"""
+	report: GqlDestinationReport!
 }
 
 """
@@ -1094,6 +1145,39 @@ type GqlExportJobStatus {
 	sizeBytes: Int
 	warnings: [String!]!
 	error: String
+}
+
+"""
+A limit of the destination program an export exceeds.
+"""
+type GqlExportLimit {
+	"""
+	The cross-reference of the record concerned, if one.
+	"""
+	record: String
+	"""
+	The limit and what exceeds it (English, from ged_io).
+	"""
+	detail: String!
+}
+
+"""
+A fold of an export that lost something.
+"""
+type GqlExportLoss {
+	"""
+	`merged`, `moved`, `relabelled`, `added`, `as_text`, `omitted`,
+	`reordered`, `recoded` or `other`.
+	"""
+	kind: String!
+	"""
+	The cross-reference of the record it was in, if one.
+	"""
+	record: String
+	"""
+	What was changed (English, from ged_io).
+	"""
+	detail: String!
 }
 
 """
@@ -3756,17 +3840,21 @@ type QueryRoot {
 	"""
 	vignette(treeId: ID!, id: ID!): GqlVignette
 	"""
-	Export all entities in a tree as a GEDCOM 5.5.1 string, recording
-	the export in the tree's audit log. Pass `merge_occupations: true` to
-	collapse each person's multiple `OCCU` tags back into one,
-	comma-separated (for importers, e.g. Geneanet, that only support a
-	single profession field). Pass `merge_names: true` to collapse each
-	person's non-primary names into the primary name's `SURN` tag,
-	comma-separated. Pass `include_notes_and_sources: false` to leave the
-	notes and the sources out. A plain GEDCOM always writes its media's
-	references: only a GEDZIP (`startExportJob`) leaves the media out.
+	The programs a GEDCOM export can be written for, as REST's `GET
+	/gedcom/export-destinations` lists them: the standard versions first,
+	then the programs by name.
 	"""
-	exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean, includeNotesAndSources: Boolean): GqlExportGedcomResult!
+	exportDestinations: [ExportDestination!]!
+	"""
+	Export all entities in a tree as a GEDCOM string written for
+	`destination` (an `exportDestinations` id; standard GEDCOM 5.5.1 by
+	default), with what writing for it lost (`report`), recording the
+	export in the tree's audit log. Pass `include_notes_and_sources:
+	false` to leave the notes and the sources out. A plain GEDCOM always
+	writes its media's references: only a GEDZIP (`startExportJob`),
+	standard GEDCOM 7.0, leaves the media out.
+	"""
+	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean): GqlExportGedcomResult!
 	"""
 	Poll a durable GEDZIP export created by `startExportJob`.
 	"""

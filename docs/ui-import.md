@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
 ---
 
 
@@ -207,13 +207,15 @@ pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 - **Import**: ged_io auto-detects GEDCOM 5.5.1, 7.0 and 7.1, in a `.ged` and
   in a `.gdz` alike
-- **Export**: a `.ged` is GEDCOM 5.5.1 (LINEAGE-LINKED format), the version
-  every genealogy program reads; a `.gdz` holds GEDCOM 7.0, as GEDZIP
-  requires ([API Contract §4](api.md#gedzip)). Both are conformant:
-  `ged_io`'s writer repairs, as extension structures, what the version does
-  not permit (an association with a family, Gramps' convention, is `_ASSO`)
-- Files imported from GEDCOM 7.0 export as 5.5.1 in a `.ged` — no data is
-  lost in the conversion for supported tags
+- **Export**: a `.ged` is written for its destination program, standard
+  GEDCOM 5.5.1 (LINEAGE-LINKED format) by default, the version every
+  genealogy program reads ([API Contract §4](api.md#export-destinations));
+  a `.gdz` holds standard GEDCOM 7.0, as GEDZIP requires
+  ([API Contract §4](api.md#gedzip)). Both are conformant: `ged_io`'s
+  writer repairs, as extension structures, what the version does not permit
+  (an association with a family, Gramps' convention, is `_ASSO`)
+- Files imported from GEDCOM 7.0 export as 5.5.1 in a standard `.ged` — no
+  data is lost in the conversion for supported tags
 
 ---
 

@@ -17,32 +17,46 @@ use super::state::AppState;
 use crate::service::gedcom;
 use crate::service::history;
 
+/// GET /api/v1/gedcom/export-destinations
+///
+/// The programs a plain GEDCOM can be written for, as GraphQL's
+/// `exportDestinations` lists them: the standard versions first, then the
+/// programs by name.
+pub async fn export_destinations() -> Json<Vec<gedcom::ExportDestination>> {
+    Json(gedcom::export_destinations())
+}
+
 /// GET /api/v1/trees/:tree_id/gedcom/export
 ///
-/// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
+/// Export all entities in a tree as a GEDCOM string written for
+/// `?destination=` (an export destination's id; standard GEDCOM 5.5.1 by
+/// default), with what writing for it lost (`report`). Pass
 /// `?format=gedzip` to instead receive a GEDZIP archive (`application/zip`):
-/// the same records as GEDCOM 7.0, which GEDZIP requires, with the media.
-/// Pass `?merge_occupations=true` to collapse each person's multiple `OCCU`
-/// tags back into one, comma-separated, and `?merge_names=true` to collapse
-/// each person's non-primary names into the primary name's `SURN` tag,
-/// comma-separated: both are a plain GEDCOM's, which a GEDZIP, always
-/// lossless, does not read. Pass `?include_notes_and_sources=false` to leave
-/// the notes and the sources out, and `?format=gedzip&include_media=false`
-/// to leave the media out of an archive. Either way the export is recorded
-/// in the tree's audit log, as GraphQL's `exportGedcom` records it.
+/// the same records as standard GEDCOM 7.0, which GEDZIP requires, with the
+/// media; it takes no destination. Pass `?include_notes_and_sources=false`
+/// to leave the notes and the sources out, and
+/// `?format=gedzip&include_media=false` to leave the media out of an
+/// archive. Either way the export is recorded in the tree's audit log, as
+/// GraphQL's `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
-    let choices = query.choices();
+    let choices = query.choices()?;
     if query.format.as_deref() != Some("gedzip") {
         let data = gedcom::export_gedcom(&state.db, tree_id, choices).await?;
         return Ok(Json(ExportGedcomResponse {
             gedcom: data.gedcom,
             warnings: data.warnings,
+            report: data.report.unwrap_or_default(),
         })
         .into_response());
+    }
+    if query.destination.is_some() {
+        return Err(ApiError(OxidGeneError::Validation(
+            "a GEDZIP is standard GEDCOM 7.0 and takes no destination".to_string(),
+        )));
     }
 
     let data = gedcom::load_and_export(&state.db, tree_id, choices, true).await?;
