@@ -189,7 +189,8 @@ dependencies = [
 [[package]]
 name = "geneweb"
 version = "0.4.0"
-source = "git+https://github.com/trois-six/rust-geneweb?branch=main#b2b5a4bdb80f21507705af383cfc5c126e92f80a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f58b9c2b48b9d1b76371b9bc982571efb68c6288727cb93eaf3eb80fcef4d1c6"
 dependencies = [
  "oxidged",
 ]
@@ -404,7 +405,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "oxidged"
 version = "0.1.0"
-source = "git+https://github.com/trois-six/oxidged?branch=main#4490dec48d95438d0bb6aab6e3bceabe6809b719"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05feb2933c6dd01892c5fc6761fa99c1acd32669dcc921281c6f5e28c6dd17c8"
 
 [[package]]
 name = "oxidgene-core"

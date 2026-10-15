@@ -127,10 +127,8 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 
 # GEDCOM, and the GeneWeb .gw reader that converts to the same oxidged model.
-# Neither release is on crates.io yet: their main branches stand in for them,
-# and dropping each `git`/`branch` pair switches to the published crate.
-oxidged = { version = "0.1.0", git = "https://github.com/trois-six/oxidged", branch = "main", features = ["gedzip", "calendar"] }
-geneweb = { version = "0.4.0", git = "https://github.com/trois-six/rust-geneweb", branch = "main" }
+oxidged = { version = "0.1.0", features = ["gedzip", "calendar"] }
+geneweb = "0.4.0"
 
 # Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
 unicode-normalization = "0.1"
