@@ -170,7 +170,7 @@ fn one_register_opens_on_the_cited_view() {
         "%5Bq%5D%5B%5D=Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3%5D%5D&",
         "%5Bq%5D%5B%5D=1660%7C1660&",
         "--resultSize=100&",
-        "--contenuIds%5B%5D=1289790&",
+        "--contenuIds%5B%5D=1289985&",
         "--modeRestit=arko_default_6a6b4d95b8dc8",
     ] {
         assert!(search.contains(expected), "{expected} in {search}");

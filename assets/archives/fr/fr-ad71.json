@@ -17,7 +17,7 @@
         "transport": "browser",
         "search_path": "/consulter/en-ligne/familles-et-individus/etat-civil",
         "engine": "arko_default_61b1ccdceb9a7",
-        "content_ids": ["15057090"],
+        "content_ids": ["15079187"],
         "display_mode": "arko_default_61b1cd85eef9b",
         "fields": {
           "locality": "arko_default_61b1cd7726c84",

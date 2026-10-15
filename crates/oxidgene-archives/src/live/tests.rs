@@ -168,12 +168,12 @@ fn discovers_with_a_handful_of_sequential_requests() {
 #[test]
 fn reports_what_the_portal_lacks_as_drift() {
     let mut transport = Scripted::new();
-    transport.page = SEARCH_PAGE.replace("data-contenu=\"1289790\"", "data-contenu=\"1\"");
+    transport.page = SEARCH_PAGE.replace("data-contenu=\"1289985\"", "data-contenu=\"1\"");
     let report = check(&transport);
     assert_eq!(report.outcome, Outcome::Drift);
     let failure = report.failure.unwrap();
     assert_eq!(failure.step, Step::SearchPage);
-    assert_eq!(failure.received, "missing: content 1289790");
+    assert_eq!(failure.received, "missing: content 1289985");
     assert_eq!(report.opening, None);
 
     let mut transport = Scripted::new();

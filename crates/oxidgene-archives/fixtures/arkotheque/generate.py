@@ -187,8 +187,8 @@ write('ad44-info.json', {
 # the act values are the catalogue's.
 (OUT / 'ad44-search-page.html').write_text(
     '<!DOCTYPE html>\n<html lang="fr">\n<head><title>Recherche</title></head>\n<body>\n'
-    f'<div class="arko-recherche filtres_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289790" data-component="filtres"></div>\n'
-    f'<div class="arko-recherche resultats" data-moteur="{AD44["engine"]}" data-contenu="1289789" data-component="resultats"></div>\n'
+    f'<div class="arko-recherche resultats_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289984" data-component="resultats"></div>\n'
+    f'<div class="arko-recherche filtres_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289985" data-component="filtres"></div>\n'
     '</body>\n</html>\n')
 
 def terms(field, keys):
