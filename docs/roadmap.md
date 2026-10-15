@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-15T19:18:04Z }
+generated: { by: human:maintainer, at: 2026-10-15T20:56:16Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -236,7 +236,7 @@ Remaining tabs:
 
 OxidGene reads and writes GEDCOM through `oxidged` (a lenient, lossless reader
 and a conformant writer) and `geneweb` ported to it, both used from their
-crates.io releases (`oxidged` 0.1, `geneweb` 0.4). Nothing remains that OxidGene does in
+crates.io releases (`oxidged` 0.2, `geneweb` 0.5). Nothing remains that OxidGene does in
 their place: `oxidged` decodes `CHAR ANSI` and 8-bit bytes under `CHAR ASCII`
 as Windows-1252, counts the whole line against 255 characters, writes every
 line break as `CONT` (extension values included), keeps each date bound's

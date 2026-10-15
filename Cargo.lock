@@ -2937,9 +2937,9 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f58b9c2b48b9d1b76371b9bc982571efb68c6288727cb93eaf3eb80fcef4d1c6"
+checksum = "441bf3cbf81d953d01f2dd1b30b22efd8b656c336e069cd565eae41986d66e95"
 dependencies = [
  "oxidged",
 ]
@@ -5011,9 +5011,9 @@ dependencies = [
 
 [[package]]
 name = "oxidged"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05feb2933c6dd01892c5fc6761fa99c1acd32669dcc921281c6f5e28c6dd17c8"
+checksum = "a13976ae5c5f2f1060a119ede0a109c617ce62ab21447c816acc94c21504c2e1"
 dependencies = [
  "calendrical_calculations",
  "calendrier",
@@ -7752,7 +7752,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
