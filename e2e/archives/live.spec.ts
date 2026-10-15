@@ -95,10 +95,15 @@ async function open(page: Page, opening: Opening): Promise<Failure | null> {
 // The anti-bot page, if any, that answered one of the viewer's own requests
 // in place of its data (a manifest, a page list): an F5 script challenging
 // a request of a headless browser leaves the viewer with no view to show.
-function watchViewerRequests(page: Page): { guard: () => Signature | null; stop: () => void } {
+// Also the status of the page last loaded: a check that clears itself loads
+// the target once more, which may answer a server error.
+function watchViewerRequests(page: Page): { guard: () => Signature | null; status: () => number; stop: () => void } {
     let found: Signature | null = null;
+    let status = 0;
     const listener = (response: Response) => {
-        const type = response.request().resourceType();
+        const request = response.request();
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) status = response.status();
+        const type = request.resourceType();
         if (found || (type !== "xhr" && type !== "fetch")) return;
         response
             .text()
@@ -108,19 +113,24 @@ function watchViewerRequests(page: Page): { guard: () => Signature | null; stop:
             .catch(() => undefined);
     };
     page.on("response", listener);
-    return { guard: () => found, stop: () => page.off("response", listener) };
+    return { guard: () => found, status: () => status, stop: () => page.off("response", listener) };
 }
 
 async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise<Failure | null> {
     const requests = watchViewerRequests(page);
     try {
-        return await showView(page, opening, viewer, requests.guard);
+        return await showView(page, opening, viewer, requests.guard, requests.status);
     } finally {
         requests.stop();
     }
 }
 
-async function showView(page: Page, opening: Opening, viewer: Viewer, answered: () => Signature | null): Promise<Failure | null> {
+// A page the server answered with an error status in place of the target.
+function serverError(status: number): Failure {
+    return { step: "opening", outcome: "unreachable", expected: "the target page", received: `status ${status}` };
+}
+
+async function showView(page: Page, opening: Opening, viewer: Viewer, answered: () => Signature | null, loaded: () => number): Promise<Failure | null> {
     // A target behind a reuse licence: its entry first, where the licence
     // is accepted as a reader accepts it, then the target, as the desktop
     // window goes on to it (docs/archives.md §6.1).
@@ -135,7 +145,7 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
         // DOM ready only: a portal's third-party resource may hold `load`
         // back long after the viewer shows, and the loop below waits for it.
         const response = await page.goto(opening.url, { waitUntil: "domcontentloaded", timeout: VIEWER_TIMEOUT_MS });
-        if ((response?.status() ?? 0) >= 500) return unreachable("opening", "the target page", new Error("status"));
+        if ((response?.status() ?? 0) >= 500) return serverError(response?.status() ?? 0);
         // Sent to another site: the portal refuses the identified agent.
         if (new URL(page.url()).origin !== new URL(opening.url).origin) {
             await page.goto("about:blank").catch(() => undefined);
@@ -167,6 +177,8 @@ async function showView(page: Page, opening: Opening, viewer: Viewer, answered: 
         const guard = antiBotPage(await page.content().catch(() => ""));
         if (guard) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: `an anti-bot page in place of the viewer: ${antiBotName(guard)}` };
         if (blank) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a blank page in place of the viewer" };
+        // The target loaded again once a check cleared itself, and failed.
+        if (loaded() >= 500) return serverError(loaded());
         return drift("opening", `the viewer showing view ${opening.view}`, "no view number shown");
     }
     if (shown !== opening.view) {

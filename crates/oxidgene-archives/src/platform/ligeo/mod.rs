@@ -29,7 +29,7 @@ use super::select::{Candidate, Selection, parish_key, select};
 use super::view::{cited_views, view_target};
 use super::{BoxFuture, Platform, PortalEndpoint};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
-use crate::citation::{CitationParts, CitedPerson};
+use crate::citation::{Act, CitationParts, CitedPerson, Series};
 use crate::transport::PortalFetch;
 use crate::{ArchiveImage, ArchiveTarget, ArchiveView, ResolveError};
 use page::Row;
@@ -303,14 +303,26 @@ fn search_again(
     locality::search_again(citation)
 }
 
-/// A row as the citation reads it: when one of its places is the cited
-/// locality, or lies within it, the row's locality is the cited one, with
-/// the place within it as its parish; failing that, when one of its places
-/// names the cited locality under another name ([`OtherNames`]), the row's
-/// locality is that place's name, which selection weighs. When one of the
-/// parishes it names is the cited parish, its parish is the cited one.
+/// The act of a row as a citation of `act` reads it: a table named alone,
+/// of no kind (`Tables du 1er janvier 1730 au 31 août 1768`), that a search
+/// of the tables of successions lists is one of them; any other act as read.
+fn act_as_cited(row: &Candidate<Row>, act: &Act) -> Option<String> {
+    match act {
+        Act::Series(Series::SuccessionTables) if row.payload.bare_table => Some(act.to_string()),
+        _ => row.act.clone(),
+    }
+}
+
+/// A row as the citation reads it: its act as [`act_as_cited`] reads it;
+/// when one of its places is the cited locality, or lies within it, the
+/// row's locality is the cited one, with the place within it as its parish;
+/// failing that, when one of its places names the cited locality under
+/// another name ([`OtherNames`]), the row's locality is that place's name,
+/// which selection weighs. When one of the parishes it names is the cited
+/// parish, its parish is the cited one.
 fn as_cited(
     row: &Candidate<Row>,
+    act: &Act,
     wanted: &str,
     others: &OtherNames,
     parish: Option<&str>,
@@ -318,7 +330,7 @@ fn as_cited(
     let mut read = Candidate {
         locality: row.locality.clone(),
         call_number: row.call_number.clone(),
-        act: row.act.clone(),
+        act: act_as_cited(row, act),
         parish: row.parish.clone(),
         period: row.period.clone(),
         images: row.images,
@@ -382,7 +394,7 @@ fn choose<'r>(
     let others = OtherNames::new(&cited, &localities);
     let read: Vec<Candidate<()>> = viewable
         .iter()
-        .map(|row| as_cited(row, &wanted, &others, parish.as_deref()))
+        .map(|row| as_cited(row, &citation.act, &wanted, &others, parish.as_deref()))
         .collect();
     let index = |chosen: &Candidate<()>| {
         read.iter()

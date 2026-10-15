@@ -6,7 +6,8 @@ Ardèche and Haute-Garonne portals, of the other Ligeo shapes recorded on
 departmental portals since (notice lists, qualified and composite locality
 cells, indexes of persons searched by matricule or by name, a search
 within a finding aid, a year's table bound apart, a locality cell
-shortened to fit), and a
+shortened to fit, volumes of military registers described by their
+numbers, tables of successions named by their dates alone), and a
 military-register table built in the same markup, with fictitious
 persons, localities, parishes, sections, call numbers, internal references,
 ARK names and image paths; no recorded value is copied. Only what the adapter reads is
@@ -535,3 +536,43 @@ write("persons-closed.html", page("", table(PERSON_HEADERS, [
     person_row(156, "NOMEXEMPLE, Jean", 7, 1930, viewable=False),
     person_row(157, "AUTRENOM, Paul", 7, 1930, viewable=False),
 ])))
+
+# A military-register search whose rows describe each volume by the numbers
+# it spans, `N°` first, what is bound with it after them (a table, a list),
+# and the class's own alphabetical table; no call number. The links' titles
+# repeat the description.
+VOLUME_HEADERS = ["Année de la classe", "Lieu / bureau de recrutement", "Description", "Voir", "Action(s)"]
+
+
+def volume_row(n, year, description, count):
+    bureau = "Exampleville (bureau de recrutement militaire)"
+    return [str(year), esc(bureau), esc(description), viewer_link(n, count, description), actions(n, 11)]
+
+
+write("volumes.html", page(
+    '<span class="arc_nbr_reponses">6 réponses dans 1 inventaire</span>',
+    '<VTISREP>' + table(VOLUME_HEADERS, [
+        volume_row(161, 1879, "N° 1-500, table alphabétique.", 16),
+        volume_row(162, 1879, "Table alphabétique.", 54),
+        volume_row(163, 1880, "N° 1-494. Dispensés : liste nominative.", 507),
+        volume_row(164, 1880, "N° 495-990", 505),
+        volume_row(165, 1880, "N° 991-1486", 510),
+        volume_row(166, 1880, "Table alphabétique.", 54),
+    ], thead=False)))
+
+# A search of the tables of successions by registration office, whose rows
+# show no act: the links' titles name each volume a table by its dates
+# alone.
+SUCCESSION_HEADERS = ["Bureau", "Dates", "Vues", "Cote", "Action(s)"]
+
+
+def succession_row(n, dates, label, count, cote):
+    return ["Exampleville [bureau]", dates, viewer_link(n, count, label), cote, actions(n, 219)]
+
+
+write("successions.html", page(
+    '<p class="nb_reponses"><span>2</span> réponses à votre recherche</p>',
+    table(SUCCESSION_HEADERS, [
+        succession_row(171, "1730-1768", "Tables du 1er janvier 1730 au 31 août 1768.", 29, "9 Q 901"),
+        succession_row(172, "1768-1793", "Tables de 1768 à 1793.", 57, "9 Q 902"),
+    ])))

@@ -431,10 +431,10 @@ async fn registers(
     // register its year index leaves undated, which no cited year finds).
     // A search by act also lists the decennial tables of that act, and a
     // series search other series the portal files with it (the lists of the
-    // contingent among military registers): only the registers of the act
-    // are cited by it.
+    // contingent among military registers): only the registers of the act,
+    // read as its citation reads them, are cited by it.
     let mut rows = found.rows;
-    rows.retain(|row| is_of_act(row.act.as_deref(), act));
+    rows.retain(|row| is_of_act(super::act_as_cited(row, act).as_deref(), act));
     rows.sort_by_key(|row| {
         row.period
             .as_deref()

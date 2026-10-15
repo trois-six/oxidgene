@@ -589,6 +589,13 @@ fn reads_the_acts_a_text_names() {
         ("Acte ; Baptême", true, Some("B")),
         ("Tables annuelles des naissances", false, Some("TA")),
         ("Table des successions collatérales", true, Some("TSA")),
+        // The `N°` of a number is no birth, and a text naming the numbers a
+        // volume spans first names that volume, whatever is bound with it.
+        ("N° 495-990", true, None),
+        ("N°\u{a0}991-1486", true, None),
+        ("N° 1-500, table alphabétique.", true, None),
+        ("N° 1-494. Dispensés : liste nominative.", true, None),
+        ("N° 3 : naissances", true, Some("N")),
         // A title's initial is not an act, and an unrelated word is none.
         ("Exampleville (MQ S. 1762)", false, None),
         ("Saint-Jean-Baptiste", false, None),
@@ -1983,5 +1990,158 @@ fn validates_the_settings_of_an_index_searched_by_name() {
     ] {
         let error = Ligeo.validate(&collection).unwrap_err().to_string();
         assert!(error.contains(expected), "{expected}: {error}");
+    }
+}
+
+const VOLUMES: &str = include_str!("../../../fixtures/ligeo/volumes.html");
+const SUCCESSIONS: &str = include_str!("../../../fixtures/ligeo/successions.html");
+
+/// The registers the live check's discovery lists for `act` over `search`.
+fn discovered(
+    registry: &ArchiveRegistry,
+    act: &str,
+    search: &'static str,
+) -> Vec<crate::live::Register> {
+    use crate::live::Probe;
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    let act = crate::Act::from_code(act).unwrap();
+    block_on(Ligeo.registers(collection, "Exampleville", &act, &Fixtures::new(search))).unwrap()
+}
+
+/// A fictitious archive whose military registers describe each volume by
+/// the numbers it spans: the shape of the Morbihan search.
+fn volumes_registry() -> ArchiveRegistry {
+    registry_with(
+        serde_json::json!(["RM"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "recrutement",
+            "node": 11,
+            "fields": {
+                "locality": "RECH_bureaurct[]",
+                "year_from": "Rech_classe_debut",
+                "year_to": "Rech_classe_fin"
+            },
+            "params": { "RECH_type[]": "registre" },
+            "columns": {
+                "locality": "Lieu / bureau de recrutement",
+                "period": "Année de la classe",
+                "numbers": "Description"
+            }
+        }),
+    )
+}
+
+#[test]
+fn a_volume_described_by_its_numbers_is_a_register_whatever_is_bound_with_it() {
+    let registry = volumes_registry();
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    let settings = Settings::read(collection).unwrap();
+    // `N°` is no birth, and a table or a list bound after the numbers does
+    // not make the volume one; the class's own table is a table.
+    let found = page::results(VOLUMES, &settings.columns).unwrap();
+    let acts: Vec<Option<&str>> = found.rows.iter().map(|row| row.act.as_deref()).collect();
+    assert_eq!(acts, [None, Some("TD"), None, None, None, Some("TD")]);
+    let numbers: Vec<Option<(u32, u32)>> = found.rows.iter().map(|row| row.numbers).collect();
+    assert_eq!(
+        numbers,
+        [
+            Some((1, 500)),
+            None,
+            Some((1, 494)),
+            Some((495, 990)),
+            Some((991, 1486)),
+            None
+        ]
+    );
+    for (title, register) in [
+        (
+            "AD00 - Exampleville - Registres matricules - 1880 - matricule 600",
+            "vtaexample0164",
+        ),
+        (
+            "AD00 - Exampleville - Registres matricules - 1880 - matricule 12",
+            "vtaexample0163",
+        ),
+        (
+            "AD00 - Exampleville - Registres matricules - 1879 - matricule 12",
+            "vtaexample0161",
+        ),
+    ] {
+        assert_eq!(
+            chosen(&registry, title, VOLUMES).as_deref(),
+            Ok(register),
+            "{title}"
+        );
+    }
+    // The live check's discovery lists the volumes, not the tables.
+    let registers = discovered(&registry, "RM", VOLUMES);
+    let listed: Vec<Option<(u32, u32)>> =
+        registers.iter().map(|register| register.numbers).collect();
+    assert_eq!(
+        listed,
+        [
+            Some((1, 500)),
+            Some((1, 494)),
+            Some((495, 990)),
+            Some((991, 1486))
+        ]
+    );
+}
+
+#[test]
+fn a_table_named_by_its_dates_alone_is_one_of_the_tables_of_successions() {
+    let registry = registry_with(
+        serde_json::json!(["TSA"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "sucession",
+            "node": 219,
+            "fields": {
+                "locality": "rech_burea",
+                "year_from": "RECH_unitdate_debut",
+                "year_to": "RECH_unitdate_fin"
+            },
+            "columns": {
+                "locality": "Bureau",
+                "period": "Dates",
+                "call_number": "Cote"
+            }
+        }),
+    );
+    for (title, register) in [
+        (
+            "AD00 - Exampleville - (aucun) - TSA - 1740",
+            "vtaexample0171",
+        ),
+        (
+            "AD00 - Exampleville - (aucun) - TSA - 1770 - 9 Q 902 - vue 5/57",
+            "vtaexample0172",
+        ),
+    ] {
+        assert_eq!(
+            chosen(&registry, title, SUCCESSIONS).as_deref(),
+            Ok(register),
+            "{title}"
+        );
+    }
+    let registers = discovered(&registry, "TSA", SUCCESSIONS);
+    let calls: Vec<Option<&str>> = registers
+        .iter()
+        .map(|register| register.call_number.as_deref())
+        .collect();
+    assert_eq!(calls, [Some("9 Q 901"), Some("9 Q 902")]);
+    // A table naming what it indexes stays a table of those acts.
+    use crate::platform::select::names_a_table_alone;
+    assert!(names_a_table_alone(
+        "Tables du 1er janvier 1730 au 31 août 1768."
+    ));
+    for text in [
+        "Table des extraits de sépulture",
+        "Tables décennales",
+        "Table des successions et absences",
+        "N° 1-500, table alphabétique.",
+    ] {
+        assert!(!names_a_table_alone(text), "{text}");
     }
 }

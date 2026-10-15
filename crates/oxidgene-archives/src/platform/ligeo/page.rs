@@ -18,7 +18,7 @@ use crate::citation::CallNumber;
 use crate::platform::markup::{
     attribute, attributes, first_number, fold, split_after, strip_tags, text_after, unreadable,
 };
-use crate::platform::select::{Candidate, act_code, number_range};
+use crate::platform::select::{Candidate, act_code, names_a_table_alone, number_range};
 
 fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("ligeo: {detail}"))
@@ -91,6 +91,9 @@ pub(super) struct Row {
     pub(super) parishes: Vec<String>,
     /// The person a row of an index of persons names, as written.
     pub(super) person: Option<String>,
+    /// Whether the row's act is a table named alone, of no kind or series
+    /// (`Tables du 1er janvier 1730 au 31 août 1768`), read as `TD`.
+    pub(super) bare_table: bool,
 }
 
 /// The rows of a results page, and the count the page announces.
@@ -285,13 +288,18 @@ fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
         (None, None) => (Vec::new(), Vec::new()),
     };
 
-    let act = cells
+    // The act, and whether the text naming it names a table alone.
+    let read = |text: &str, codes: bool| {
+        act_code(text, codes).map(|code| (code, names_a_table_alone(text)))
+    };
+    let (act, bare_table) = cells
         .get(columns.acts.as_ref())
-        .and_then(|acts| act_code(&acts, true))
-        .or_else(|| title.as_deref().and_then(|title| act_code(title, false)))
+        .and_then(|acts| read(&acts, true))
+        .or_else(|| title.as_deref().and_then(|title| read(title, false)))
         // The link's own title names the register where nothing else does
         // (`BMS` on parish registers).
-        .or_else(|| label.and_then(|label| act_code(label, true)));
+        .or_else(|| label.and_then(|label| read(label, true)))
+        .map_or((None, false), |(code, bare)| (Some(code), bare));
     let call_number = cells
         .get(columns.call_number.as_ref())
         .map(|text| call_number_of(&text))
@@ -330,6 +338,7 @@ fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
             places,
             parishes,
             person: cells.get(columns.person.as_ref()),
+            bare_table,
         },
     }
 }

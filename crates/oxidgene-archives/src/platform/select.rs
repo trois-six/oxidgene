@@ -413,40 +413,38 @@ pub(crate) fn holds_act(displayed: Option<&str>, act: &Act) -> bool {
 /// the kinds its text names (`BMS`), or a table: `TD` for decennial tables,
 /// and for any text naming a table first, whose kinds are those it indexes
 /// (`Table ; Naissance`, `Tables des mariages`). With `codes`, a word made
-/// of act letters (`N`, `B, M, S`, `BMS`) names kinds too; a title would
-/// take an initial for one.
+/// of act letters (`N`, `B, M, S`, `BMS`) names kinds too, but not the `N°`
+/// of a number (`N° 1-494`); a title would take an initial for one. A text
+/// naming first the numbers a register spans names that register, whatever
+/// is bound with it (`N° 1-500, table alphabétique`, `N° 1-494. Dispensés :
+/// liste nominative`): only the kinds of act it names are read.
 pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
+    let folded = fold(text);
+    let words: Vec<&str> = folded.split(' ').collect();
+    if numbers_first(text) {
+        let kinds = word_kinds(&words);
+        return (!kinds.is_empty()).then_some(kinds);
+    }
     if let Some(series) = CitationGrammar::default().series_of(text) {
         return Some(series.code().to_owned());
     }
-    let folded = fold(text);
-    let words: Vec<&str> = folded.split(' ').collect();
     if words.iter().any(|word| word.starts_with("decennal")) {
         return Some("TD".to_owned());
     }
     if words.first().is_some_and(|word| word.starts_with("tabl")) {
         return Some(table_code(&words));
     }
-    let mut kinds = String::new();
-    let mut add = |letter: char| {
-        if !kinds.contains(letter) {
-            kinds.push(letter);
-        }
-    };
-    for word in &words {
-        match *word {
-            word if word.starts_with("baptem") => add('B'),
-            word if word.starts_with("mariage") => add('M'),
-            word if word.starts_with("naissance") => add('N'),
-            "deces" => add('D'),
-            word if word.starts_with("sepultur") => add('S'),
-            _ => {}
-        }
-    }
+    let mut kinds = word_kinds(&words);
     if codes {
+        // `N°` abbreviates « numéro »: read as the word `No`, no act letter.
+        let text = text.replace(['°', 'º'], "o");
         for token in text.split(|c: char| !c.is_alphanumeric()) {
             if !token.is_empty() && token.chars().all(|c| "NBMDS".contains(c)) {
-                token.chars().for_each(&mut add);
+                for letter in token.chars() {
+                    if !kinds.contains(letter) {
+                        kinds.push(letter);
+                    }
+                }
             }
         }
     }
@@ -457,6 +455,42 @@ pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
         .iter()
         .any(|word| word.starts_with("tabl"))
         .then(|| table_code(&words))
+}
+
+/// The kinds of act the folded `words` name, each once, in the order named.
+fn word_kinds(words: &[&str]) -> String {
+    let mut kinds = String::new();
+    for word in words {
+        let letter = match *word {
+            word if word.starts_with("baptem") => 'B',
+            word if word.starts_with("mariage") => 'M',
+            word if word.starts_with("naissance") => 'N',
+            "deces" => 'D',
+            word if word.starts_with("sepultur") => 'S',
+            _ => continue,
+        };
+        if !kinds.contains(letter) {
+            kinds.push(letter);
+        }
+    }
+    kinds
+}
+
+/// Whether `text` names a table and nothing of what it indexes: no kind of
+/// act, no series, neither decennial nor annual (`Tables du 1er janvier 1730
+/// au 31 août 1768`). [`act_code`] reads it as `TD`; a search of a series of
+/// tables lists such tables as its own.
+pub(crate) fn names_a_table_alone(text: &str) -> bool {
+    if numbers_first(text) || CitationGrammar::default().series_of(text).is_some() {
+        return false;
+    }
+    let folded = fold(text);
+    let words: Vec<&str> = folded.split(' ').collect();
+    words.iter().any(|word| word.starts_with("tabl"))
+        && !words
+            .iter()
+            .any(|word| word.starts_with("decennal") || word.starts_with("annuel"))
+        && word_kinds(&words).is_empty()
 }
 
 /// The code of a table: `TA` for annual tables, `TD` otherwise.
@@ -471,6 +505,17 @@ fn table_code(words: &[&str]) -> String {
 /// The words, folded, that introduce the numbers a register spans in a
 /// title: `n° 1 à 1586` (read as `no`), `nos 1 à 500`, `matricules 1 à 1586`.
 const RANGE_WORDS: [&str; 6] = ["no", "nos", "numero", "numeros", "matricule", "matricules"];
+
+/// Whether `text` starts with the numbers a register spans: one of the
+/// [`RANGE_WORDS`], then a number (`N° 1-494`, `nos 1 à 500`).
+fn numbers_first(text: &str) -> bool {
+    let folded = fold(&text.replace(['°', 'º'], "o"));
+    let mut words = folded.split(' ');
+    words.next().is_some_and(|word| RANGE_WORDS.contains(&word))
+        && words
+            .next()
+            .is_some_and(|word| word.starts_with(|c: char| c.is_ascii_digit()))
+}
 
 /// The first and last numbers a register spans: `1 à 1586` or `1-1586`
 /// after one of the [`RANGE_WORDS`] in a title or label, or anywhere in a
