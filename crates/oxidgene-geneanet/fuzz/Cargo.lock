@@ -187,18 +187,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ged_io"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c52d91a78332ce0dfb60e2f53227ecdb58f99afe624c8e69506dc225a39caf"
-
-[[package]]
 name = "geneweb"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d904298a1424faf7699d6c33193e0253aa39990e89e837cbea0208006f99beb6"
+version = "0.4.0"
+source = "git+https://github.com/trois-six/rust-geneweb?branch=main#b2b5a4bdb80f21507705af383cfc5c126e92f80a"
 dependencies = [
- "ged_io",
+ "oxidged",
 ]
 
 [[package]]
@@ -407,6 +400,11 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "oxidged"
+version = "0.1.0"
+source = "git+https://github.com/trois-six/oxidged?branch=main#4490dec48d95438d0bb6aab6e3bceabe6809b719"
 
 [[package]]
 name = "oxidgene-core"

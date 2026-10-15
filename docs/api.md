@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -1383,7 +1383,7 @@ Every other list is one of these documented exceptions:
 | Usage lists (`/dictionary/…/usage`) | The persons behind one value, shown as one list under its row |
 | Tree-wide media links (`/media-links` without a filter, `treeMediaLinks`) | One short row per attachment, for an export or an external client's own index |
 | `/portraits` | One short row per person with a portrait |
-| `/gedcom/export-destinations` | The programs an export can be written for, which `ged_io` compiles in: a fixed list the export section draws as one select |
+| `/gedcom/export-destinations` | The programs an export can be written for, which `oxidged` compiles in: a fixed list the export section draws as one select |
 
 Batch reads (`/pedigrees`, `/portrait-images`, `/image-data`,
 `/gallery-bundle`, `/relation-labels`, the reference bundles) take a list of
@@ -1474,7 +1474,7 @@ data plane also protects these GraphQL fields. A caller polls
 
 ## 4. GEDCOM Compatibility Reference
 
-The API handles GEDCOM import/export via the `ged_io` crate (its redesign — see [Architecture](architecture.md) §1), which reads any file as it is and writes conformant GEDCOM. See [Data Model §2](data-model.md#2-enums) for the rules mapping the enums onto GEDCOM.
+The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture](architecture.md) §1), which reads any file as it is and writes conformant GEDCOM. See [Data Model §2](data-model.md#2-enums) for the rules mapping the enums onto GEDCOM.
 
 ### Round-trip fidelity
 
@@ -1489,14 +1489,14 @@ The API handles GEDCOM import/export via the `ged_io` crate (its redesign — se
 | Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
 | Event types without a tag | `EVEN` + `TYPE`; a `MILI` as a military service | As `EVEN` + `TYPE` | Military service, civil union, separation (`SEP`, which GeneWeb writes, and the `MILI` extension are in no GEDCOM version), GeneWeb's vocabulary and `Other`. The `TYPE` is the type's label, or the description when it reads back as the same type (`PACS`); any other description is the `EVEN` line value. On import, the `TYPE` gives the type and the line value joins it in the description. Every type keeps its type, date, place and description through a 5.5.1, 7.0 or GEDZIP round trip |
 | LDS ordinances (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) | Full, place included | As `EVEN` + `TYPE` | Imported as `LdsBaptism`, `LdsConfirmation`, `Endowment`, `SealingChild` and `SealingSpouse` with their date, place, notes and citations; the temple and status join the description (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`; a status outside GEDCOM's enumeration as written). Each is read as the generic event the export writes for it (`2 TYPE BAPL`), which round-trips: GEDCOM's ordinance structure has no room for an event's description, media, age or agency |
-| Event tags no version defines (`MILI`, `SEP`, …), events out of their record | As events | As `EVEN` + `TYPE` | `ged_io` keeps such a tag whole, untyped, under the person or family; one that has substructures is read as a generic event: `MILI` as a military service, `SEP` (GeneWeb's, read even bare) as a separation, any other as an `Other` event described by its tag and value. Its date, place, notes, citations and media are the event's. An event of the other kind of record (a `MARR` on a person, a `PROP` on a family) is read as it is, and written as the generic event its tag names (`1 EVEN Farm lease` / `2 TYPE PROP`). Custom `_` tags and other standard tags kept aside (a second `SEX`) are left alone |
+| Event tags no version defines (`MILI`, `SEP`, …), events out of their record | As events | As `EVEN` + `TYPE` | `oxidged` keeps such a tag whole, untyped, under the person or family; one that has substructures is read as a generic event: `MILI` as a military service, `SEP` (GeneWeb's, read even bare) as a separation, any other as an `Other` event described by its tag and value. Its date, place, notes, citations and media are the event's. An event of the other kind of record (a `MARR` on a person, a `PROP` on a family) is read as it is, and written as the generic event its tag names (`1 EVEN Farm lease` / `2 TYPE PROP`). Custom `_` tags and other standard tags kept aside (a second `SEX`) are left alone |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows, the relation being `RELA`, else the 7.0 `ROLE`'s phrase, else the role; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`), with a `RELA`, which 5.5.1 requires (`Unknown` for a witness without a relation). A family-event witness points at the family, Gramps' convention, which 5.5.1 does not permit: the writer keeps it as `_ASSO`, which the import reads, as it reads an `_ASSO` beneath an event. A GEDZIP's GEDCOM 7.0 writes the relation as a `ROLE` with the relation as its `PHRASE` (`ROLE WITN` / `PHRASE Witness`, `ROLE OTHER` for a relation 7.0 has no role for), under `_ASSO` too, whose role the import reads as an `ASSO`'s. Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is kept as the OxidGene extension `_OXIDGENE_OBJE`, its path and links with it, which an OxidGene import restores (see [GEDZIP](#gedzip)) |
 | Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`, the person's xref opening the value, every `@` doubled as GEDCOM 5.5.1 writes text (`@@I1@@ 120 45 64 82`), the leading one alone in a GEDZIP's 7.0 (`@@I1@ 120 45 64 82`); `@I1@ …`, which earlier exports wrote, reads the same; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
-| Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `ged_io`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
+| Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `oxidged`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes, as many per person, event or attribute as the file holds, each written back. In a `.ged`, any text too long for one GEDCOM line, the OxidGene extensions' included, continues on `CONC` lines, never split beside a space or before a combining mark (readers trim a `CONC` value), so that no line, level and tag included, exceeds GEDCOM 5.5.1's 255 characters. A GEDZIP's GEDCOM 7.0 has neither the limit nor `CONC`. A line break of any kind (`CR LF`, `CR`, `LF`) is a `CONT` line. On import, a value continued on `CONC` or `CONT` lines is read whole wherever it stands, and the spaces opening a `CONC` value are kept, so files whose writer split beside a space read back word for word. A `NOTE @N1@` pointer to a 5.5.1 note record, or a 7.0 `SNOTE`, imports the text of the record it points at; a pointer to a record the file does not hold is left out with a warning naming it |
 | Cause (CAUS) | Full | Full | On any event |
@@ -1510,12 +1510,12 @@ The API handles GEDCOM import/export via the `ged_io` crate (its redesign — se
 | Restriction (`RESN`) | Person and family privacy | Person and family privacy | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. A `Private` person or family is exported with `RESN confidential`; `Public` has no `RESN` value and comes back as `Default` |
 | Submitter (`SUBM`) | The record `HEAD.SUBM` points at fills the tree's submitter settings that are empty — never one already set; `Not Provided` is no name. Other `SUBM` records are a warning with their count | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the tree's submitter name, else the display name of its "Who am I?" person (`self_person_id`), else `Not Provided` (Gramps' wording). `EMAIL` and the multi-line `ADDR` are written only when set. A duplicated tree carries the settings over |
 | Header charset | Declared `CHAR` decoded | `CHAR UTF-8`; UTF-8 with a byte-order mark in a GEDZIP | A `.ged` is decoded by what its bytes hold first — a byte-order mark, a UTF-16 pattern, valid UTF-8 — then by the character set `HEAD.CHAR` declares: ANSEL, ASCII, ISO-8859-1 or -15, IBM PC, Macintosh, and `ANSI` as Windows-1252, which also stands in for a declaration the bytes contradict (8-bit bytes under `CHAR ASCII`) — so files from GEDCOM 5 software keep their accents and decoding never fails. A `.ged` export is UTF-8 and declares it, a byte-order mark first only for a destination that wants one (PAF, Ancestral Quest); GEDCOM 7.0, always UTF-8, has no `CHAR`, and a GEDZIP's starts with the byte-order mark it recommends |
-| GEDCOM version | 5.5.1 + 7.0 + 7.1 | 5.5.1 in a `.ged` (7.0 for a destination that reads it), 7.0 in a GEDZIP | ged_io auto-detects on import; the export is conformant, `ged_io`'s writer repairing as extension structures (`_TAG`) what the version does not permit. See [Export destinations](#export-destinations) and [GEDZIP](#gedzip) |
+| GEDCOM version | 5.5.1 + 7.0 + 7.1 | 5.5.1 in a `.ged` (7.0 for a destination that reads it), 7.0 in a GEDZIP | oxidged auto-detects on import; the export is conformant, `oxidged`'s writer repairing as extension structures (`_TAG`) what the version does not permit. See [Export destinations](#export-destinations) and [GEDZIP](#gedzip) |
 
 ### Export destinations
 
 A plain GEDCOM is written for the program that will import it, its
-*destination*: one of the export profiles `ged_io` compiles in, which `GET
+*destination*: one of the export profiles `oxidged` compiles in, which `GET
 /gedcom/export-destinations` (GraphQL `exportDestinations`) lists — the
 authoritative list, in the order a client shows it:
 
@@ -1532,23 +1532,24 @@ authoritative list, in the order a client shows it:
   one. The file stays conformant GEDCOM.
 - `to_be_verified` marks the programs whose profile follows published and
   observed behaviour, much of it dated, and is to be re-verified against
-  their recent versions (`ged_io`'s tier 1); `version` is the version
+  their recent versions (`oxidged`'s tier 1); `version` is the version
   written.
 
 The OxidGene export builds its records as for any `.ged` (GEDCOM 5.5.1),
-then `ged_io`'s `Exporter` writes them with the destination's profile.
+then `oxidged`'s `Exporter` writes them with the destination's profile.
 Every fold that loses something — a type, a structure, a link made text —
 and every limit of the program the file exceeds (a size, a number of
 persons) is returned in the export's `report`: its `losses`, each with its
 `kind` (`merged`, `moved`, `relabelled`, `added`, `as_text`, `omitted`,
-`reordered`, `recoded`, or `other` for a kind a later `ged_io` adds), the
-cross-reference of the record it was in (`@I12@`) and `ged_io`'s
+`reordered`, `recoded`, or `other` for a kind a later `oxidged` adds), the
+cross-reference of the record it was in (`@I12@`) and `oxidged`'s
 description, in English; and its `limits`. The folds that lose nothing (a
 value escaped, records reordered) and the writer's conformance repairs are
 not reported. A standard destination reports nothing. The credentials a
-dataset may hold are left out, as `ged_io` does by default; OxidGene holds
-none. The header names `ged_io` as the file's producer (`HEAD.SOUR`), as
-every export profile writes its own.
+dataset may hold are left out, as `oxidged` does by default; OxidGene holds
+none. The header names OxidGene as the file's producer (`HEAD.SOUR
+OXIDGENE`, with its version and its name), and `oxidged`, which wrote the
+file, beneath it (`HEAD.SOUR._OXIDGED`, declared in `HEAD.SCHMA` in 7.0).
 
 The destination is a request option: nothing stores it, and the audit entry
 of the export records its format only.
@@ -1561,7 +1562,7 @@ GEDCOM 7.x, so OxidGene writes the archive's `gedcom.ged` as GEDCOM 7.0, the
 latest released version and the one GEDZIP readers read, while a plain
 `.ged` stays GEDCOM 5.5.1, the version every genealogy program and site
 reads. Both are one export: the records are built once, as for a `.ged`, and
-`ged_io`'s writer converts them to 7.0 as the FamilySearch migration guide
+`oxidged`'s writer converts them to 7.0 as the FamilySearch migration guide
 says — note records become `SNOTE`, a `RELA` a `ROLE` with its `PHRASE`,
 file formats media types (`image/jpeg`), dates and ages 7.0's grammar —
 then checks and repairs them for 7.0 as its 7.0.18 release states it, so the
@@ -1588,7 +1589,7 @@ byte-order mark.
   `HEAD.SCHMA`, each with the URI of its documentation below, which makes
   them documented extension tags.
 - **No destination.** A GEDZIP is the complete, standard GEDCOM 7.0 export:
-  no export profile of `ged_io` writes a GEDZIP, so it takes no
+  no export profile of `oxidged` writes a GEDZIP, so it takes no
   [destination](#export-destinations), which shapes a plain GEDCOM.
 - **Nothing to say.** An attribute with no value and nothing beneath it (a
   GeneWeb `#occu` alone) has no GEDCOM 7.0 form, which requires its value,
@@ -1645,7 +1646,7 @@ import puts each one back at its position.
 
 ### GeneWeb `.gw`
 
-A `.gw` is read by the `geneweb` crate, which converts it to the same `ged_io`
+A `.gw` is read by the `geneweb` crate, which converts it to the same `oxidged`
 model a `.ged` is read into; the mapping above then applies unchanged. What the
 conversion produces, and so what a `.gw` imports as:
 

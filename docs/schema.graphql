@@ -386,7 +386,7 @@ The input/output is a string in RFC3339 format.
 scalar DateTime
 
 """
-A program a `.ged` can be written for: one of `ged_io`'s export
+A program a `.ged` can be written for: one of `oxidged`'s export
 profiles.
 """
 type ExportDestination {
@@ -395,7 +395,7 @@ type ExportDestination {
 	"""
 	id: String!
 	"""
-	The program's name, as `ged_io` gives it (not translated).
+	The program's name, as `oxidged` gives it (not translated).
 	"""
 	label: String!
 	"""
@@ -409,7 +409,7 @@ type ExportDestination {
 	standard: Boolean!
 	"""
 	Whether its facts are to be re-verified against the program's recent
-	versions (`ged_io`'s tier 1).
+	versions (`oxidged`'s tier 1).
 	"""
 	toBeVerified: Boolean!
 }
@@ -1156,7 +1156,7 @@ type GqlExportLimit {
 	"""
 	record: String
 	"""
-	The limit and what exceeds it (English, from ged_io).
+	The limit and what exceeds it (English, from oxidged).
 	"""
 	detail: String!
 }
@@ -1175,7 +1175,7 @@ type GqlExportLoss {
 	"""
 	record: String
 	"""
-	What was changed (English, from ged_io).
+	What was changed (English, from oxidged).
 	"""
 	detail: String!
 }

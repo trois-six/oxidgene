@@ -6,7 +6,7 @@
 //! calendar, is normalized the same way.
 //!
 //! A client cannot do that. Converting a Julian, Hebrew or French Republican
-//! date to Gregorian needs `ged_io`'s calendar support, which lives behind
+//! date to Gregorian needs `oxidged`'s calendar support, which lives behind
 //! `oxidgene-gedcom` and is not reachable from the WASM frontend. When the
 //! frontend tried anyway it simply read the month number as if it were
 //! Gregorian, so a Republican `2 BRUM 14` sorted as the 2nd of a second month

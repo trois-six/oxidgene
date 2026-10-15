@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -26,8 +26,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T16:13:21Z }
 | ORM | SeaORM | 2.0+ | Async, supports PostgreSQL + SQLite |
 | Web database | PostgreSQL | 16+ | Production web deployment |
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
-| GEDCOM | ged_io | redesign branch (0.18) | Lenient lossless reading of any file (any encoding, extensions, misplaced structures kept), conformant writing of GEDCOM 5.5.1, 7.0 and 7.1, date grammars and calendars, GEDZIP; patched in from its branch until released |
-| GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.3, ported to the redesigned `ged_io` | Read only, incl. `gwplus`; converts to the same `ged_io` model, so one domain mapping serves both formats; patched in from its branch until released |
+| GEDCOM | [oxidged](https://github.com/trois-six/oxidged) | 0.1 | Lenient lossless reading of any file (any encoding, extensions, misplaced structures kept), conformant writing of GEDCOM 5.5.1, 7.0 and 7.1, date grammars and calendars, GEDZIP; taken from its main branch until released |
+| GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.4, ported to `oxidged` | Read only, incl. `gwplus`; converts to the same `oxidged` model, so one domain mapping serves both formats; taken from its main branch until released |
 | Read projections | Same database | — | `person_denorm` and `person_search_fts`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |
@@ -81,7 +81,7 @@ For full entity definitions, see [Data Model](data-model.md).
   the stack guard runs every REST route, GraphQL root field and background
   job on half a worker's stack
   ([Development §2.8](development.md#28-guards)).
-- GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
+- GEDCOM crate (`oxidgene-gedcom`) wrapping `oxidged` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `oxidged` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database and maintained by
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).
 - Application crates provide the web server, its background-job worker, the
@@ -265,7 +265,7 @@ completion whatever the downloads — long enough to retry a save that went
 wrong — and then refused and deleted.
 
 The archive's `gedcom.ged` is GEDCOM 7.0, as GEDZIP requires, written by
-`ged_io` from the records a `.ged` export builds (see
+`oxidged` from the records a `.ged` export builds (see
 [API Contract §4](api.md#gedzip)). GEDZIP compresses that textual entry with
 Deflate. Media formats
 that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored

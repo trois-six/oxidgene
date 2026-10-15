@@ -2916,16 +2916,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ged_io"
-version = "0.17.0"
-source = "git+https://github.com/trois-six/ged_io?branch=redesign#68179dc7c95ba2bfb703a4989856d0ba50b48e5e"
-dependencies = [
- "calendrical_calculations",
- "calendrier",
- "zip",
-]
-
-[[package]]
 name = "generational-box"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2947,10 +2937,10 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.3.0"
-source = "git+https://github.com/trois-six/rust-geneweb?branch=deps%2Fged-io-redesign#0e45d2004f3a2dc87c7288ff4467953959ef8cf9"
+version = "0.4.0"
+source = "git+https://github.com/trois-six/rust-geneweb?branch=main#b2b5a4bdb80f21507705af383cfc5c126e92f80a"
 dependencies = [
- "ged_io",
+ "oxidged",
 ]
 
 [[package]]
@@ -5019,6 +5009,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidged"
+version = "0.1.0"
+source = "git+https://github.com/trois-six/oxidged?branch=main#4490dec48d95438d0bb6aab6e3bceabe6809b719"
+dependencies = [
+ "calendrical_calculations",
+ "calendrier",
+ "zip",
+]
+
+[[package]]
 name = "oxidgene-api"
 version = "0.1.0"
 dependencies = [
@@ -5145,8 +5145,8 @@ name = "oxidgene-gedcom"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "ged_io",
  "geneweb",
+ "oxidged",
  "oxidgene-core",
  "serde",
  "serde_json",

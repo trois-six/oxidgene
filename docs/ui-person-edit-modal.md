@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:30:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -364,7 +364,7 @@ The calendar governs how the rest of the date row behaves:
 
 Conversion lives in `oxidgene_core::calendar` (every calendar mapped onto the
 Julian Day Number), not in `oxidgene-gedcom`: the editor runs in WASM, where
-`ged_io` — which the server uses to derive `date_sort` — cannot be reached.
+`oxidged` — which the server uses to derive `date_sort` — cannot be reached.
 Both are pinned to the same documented Republican dates so they agree.
 
 **Witnesses** — dynamic list of text inputs (free text, one per witness). An **"+ Add a witness"** button appends a new entry.
@@ -383,7 +383,7 @@ An **"+ Add an event"** button opens a small inline picker listing available eve
 
 ### Available event types
 
-Event types are organized by category. Types marked with **⟷** have a direct GEDCOM tag mapping (lossless round-trip via `ged_io`). Types without the marker have no GEDCOM tag and export as a generic `EVEN` whose `TYPE` names the type (see [Data Model](data-model.md) §2).
+Event types are organized by category. Types marked with **⟷** have a direct GEDCOM tag mapping (lossless round-trip via `oxidged`). Types without the marker have no GEDCOM tag and export as a generic `EVEN` whose `TYPE` names the type (see [Data Model](data-model.md) §2).
 
 **Sacraments & religious**
 - Baptism ⟷ `BAPM`
@@ -659,7 +659,7 @@ union's own fields are the first thing open — and before the children block.
 
 **Union events** — dynamic list of event blocks. Each event has the same structure as the "Other events" blocks in the individual edit modal (date qualifier + place + note + source + optional calendar + optional witnesses).
 
-**Core union event types** (always available). Types marked with **⟷** have a direct GEDCOM tag mapping via `ged_io`:
+**Core union event types** (always available). Types marked with **⟷** have a direct GEDCOM tag mapping via `oxidged`:
 
 - Marriage ⟷ `MARR`
 - Divorce / Separation ⟷ `DIV`

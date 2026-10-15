@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -153,7 +153,7 @@ tiles the gallery shows. Warnings collapse behind a disclosure with a count.
 
 ## 5. Data mapping & fidelity
 
-The import uses `ged_io` to read GEDCOM files. It reads any file as it is —
+The import uses `oxidged` to read GEDCOM files. It reads any file as it is —
 any character set (decoded by what the bytes hold, then by `HEAD.CHAR`), any
 line terminators, extension and unknown tags, structures out of place — and
 never fails on content: what the import does not map is left out. See
@@ -191,7 +191,7 @@ can ignore that extension while retaining all standard fields.
 
 ### What is skipped (not imported)
 
-These GEDCOM tags are parsed by `ged_io` but not mapped to the OxidGene data
+These GEDCOM tags are parsed by `oxidged` but not mapped to the OxidGene data
 model. They are skipped silently: the import warnings name only what the
 import could not read or resolve (an unreadable `AGE`, a dangling note
 pointer, a missing spouse or source, a GEDZIP file it does not hold).
@@ -205,13 +205,13 @@ pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 ### GEDCOM version handling
 
-- **Import**: ged_io auto-detects GEDCOM 5.5.1, 7.0 and 7.1, in a `.ged` and
+- **Import**: oxidged auto-detects GEDCOM 5.5.1, 7.0 and 7.1, in a `.ged` and
   in a `.gdz` alike
 - **Export**: a `.ged` is written for its destination program, standard
   GEDCOM 5.5.1 (LINEAGE-LINKED format) by default, the version every
   genealogy program reads ([API Contract §4](api.md#export-destinations));
   a `.gdz` holds standard GEDCOM 7.0, as GEDZIP requires
-  ([API Contract §4](api.md#gedzip)). Both are conformant: `ged_io`'s
+  ([API Contract §4](api.md#gedzip)). Both are conformant: `oxidged`'s
   writer repairs, as extension structures, what the version does not permit
   (an association with a family, Gramps' convention, is `_ASSO`)
 - Files imported from GEDCOM 7.0 export as 5.5.1 in a standard `.ged` — no

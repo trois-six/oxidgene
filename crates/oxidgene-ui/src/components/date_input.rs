@@ -785,7 +785,7 @@ fn validate_triplet(
 ///
 /// Deliberately *not* the event's `date_sort` column, which the API derives
 /// for itself — normalising a Julian or Republican date onto the Gregorian
-/// calendar needs `ged_io`, which a WASM frontend cannot reach. Ordering the
+/// calendar needs `oxidged`, which a WASM frontend cannot reach. Ordering the
 /// two ends of one range is a weaker question: both are in the same calendar,
 /// so reading their components at face value ranks them correctly with no
 /// conversion at all.

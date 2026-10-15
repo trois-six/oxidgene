@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -234,18 +234,18 @@ Remaining tabs:
 
 ## 6b. Planned: upstream GEDCOM fixes
 
-OxidGene reads and writes GEDCOM through the redesigned `ged_io` (a lenient,
-lossless reader and a conformant writer) and `geneweb` ported to it, both
-patched in from their branches. Nothing remains that OxidGene does in their
-place: `ged_io` decodes `CHAR ANSI` and 8-bit bytes under `CHAR ASCII` as
-Windows-1252, counts the whole line against 255 characters, writes every
+OxidGene reads and writes GEDCOM through `oxidged` (a lenient, lossless reader
+and a conformant writer) and `geneweb` ported to it, both taken from their
+main branches until they are released. Nothing remains that OxidGene does in
+their place: `oxidged` decodes `CHAR ANSI` and 8-bit bytes under `CHAR ASCII`
+as Windows-1252, counts the whole line against 255 characters, writes every
 line break as `CONT` (extension values included), keeps each date bound's
 wording, keeps an LDS status outside the enumeration with the ordinance's
 extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 `FILE` of any format (a PNG, a PDF).
 
-- [ ] Depend on the released `ged_io` and `geneweb` and drop the
-  `[patch.crates-io]` entries and the git sources `deny.toml` allows.
+- [ ] Use the published `oxidged` and `geneweb` releases: drop the `git` and
+  `branch` keys of both dependencies and the git sources `deny.toml` allows.
 
 ## 7. Planned: dictionary descent
 

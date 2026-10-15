@@ -11,9 +11,9 @@
 //! to and from that one axis rather than to each of the others.
 //!
 //! This lives in `core`, not in `oxidgene-gedcom`: the editor is the main
-//! caller and runs in WASM, where `ged_io` (which the server uses to derive
+//! caller and runs in WASM, where `oxidged` (which the server uses to derive
 //! `date_sort`) cannot be reached. The two agree — the Republican anchors below
-//! are the same documented dates `oxidgene-gedcom`'s tests pin `ged_io` to.
+//! are the same documented dates `oxidgene-gedcom`'s tests pin `oxidged` to.
 //!
 //! Years follow the historical convention the rest of the app uses: there is no
 //! year 0, and a year before the common era is negative (`-44` is 44 BCE).
@@ -438,7 +438,7 @@ mod tests {
         );
     }
 
-    /// The same anchors `oxidgene-gedcom` pins `ged_io` to, so the editor's
+    /// The same anchors `oxidgene-gedcom` pins `oxidged` to, so the editor's
     /// conversion and the server's `date_sort` cannot disagree.
     #[test]
     fn republican_dates_land_on_their_documented_gregorian_day() {

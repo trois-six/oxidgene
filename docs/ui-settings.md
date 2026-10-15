@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -426,7 +426,7 @@ destinations](api.md#export-destinations) the server lists (`GET
 |---|---|---|
 | Standard GEDCOM 5.5.1 (default) | Translated ("Standard GEDCOM 5.5.1") | GEDCOM 5.5.1 as OxidGene builds it, nothing reshaped: the version every program and site reads |
 | Standard GEDCOM 7.0 | Translated ("Standard GEDCOM 7.0") | The same records as GEDCOM 7.0, nothing reshaped |
-| A program (Geneanet, Ancestry, Heredis, Gramps, …) | The program's name, never translated | The version, layout and structures that program reads, as `ged_io`'s export profile for it writes them; what it cannot read is folded into what it reads, and the folds that lose something are reported after the export |
+| A program (Geneanet, Ancestry, Heredis, Gramps, …) | The program's name, never translated | The version, layout and structures that program reads, as `oxidged`'s export profile for it writes them; what it cannot read is folded into what it reads, and the folds that lose something are reported after the export |
 
 Beneath the select, one translated line describes what writing for the
 chosen destination does (`export_destination.desc.<id>`); a program whose
@@ -445,7 +445,7 @@ writing for it lost, under the success message:
   information for Geneanet" — listing the items: a change as its translated
   kind (Merged, Moved, Relabelled, Added, Written as text, Left out,
   Reordered, Rewritten, Changed), the record's cross-reference and
-  `ged_io`'s technical description, in English, as import warnings are
+  `oxidged`'s technical description, in English, as import warnings are
   shown (the first 500 listed); a limit as its record and description.
 
 A standard destination reshapes nothing and reports nothing. The report

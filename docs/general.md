@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -104,9 +104,9 @@ access control.
 ### 3.2 GEDCOM Import/Export
 
 - Import GEDCOM 5.5.1 and 7.0 with automatic version detection through
-    `ged_io`; export the whole tree (a selected subtree is planned, see
+    `oxidged`; export the whole tree (a selected subtree is planned, see
     [Roadmap](roadmap.md)), written for the program that will import it:
-    standard GEDCOM 5.5.1 or 7.0, or a program `ged_io` has an export
+    standard GEDCOM 5.5.1 or 7.0, or a program `oxidged` has an export
     profile for, reporting what writing for it lost.
 - Import GeneWeb `.gw` files through `geneweb`, converted into the same domain
     mapping as GEDCOM.

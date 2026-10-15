@@ -1225,7 +1225,7 @@ fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
     // Empty string — should still succeed (empty data)
     let result = import_gedcom("", tree_id);
-    // ged_io may or may not error on empty input; either is fine
+    // oxidged may or may not error on empty input; either is fine
     if let Ok(r) = result {
         assert_eq!(r.persons.len(), 0);
     }
@@ -1475,6 +1475,54 @@ fn test_export_empty() {
     assert!(export.warnings.is_empty());
 }
 
+/// Every export names OxidGene as the file's producer in `HEAD.SOUR`: a
+/// `.ged` for any destination, with oxidged noted beneath it, and the
+/// `gedcom.ged` of a GEDZIP.
+#[test]
+fn exports_name_oxidgene_as_the_producer() {
+    let export = |destination: &'static oxidged::profile::ExportProfile, target| {
+        export_gedcom(
+            &ExportRecords::default(),
+            &ExportOptions {
+                choices: ExportChoices {
+                    destination,
+                    ..ExportChoices::default()
+                },
+                target,
+                self_person_id: None,
+                submitter: Default::default(),
+            },
+        )
+        .unwrap()
+        .gedcom
+    };
+    let names_oxidgene = |gedcom: &str| {
+        let head: Vec<&str> = gedcom
+            .lines()
+            .map(|line| line.trim_start_matches('\u{feff}'))
+            .take_while(|line| *line == "0 HEAD" || !line.starts_with("0 "))
+            .collect();
+        head.contains(&"1 SOUR OXIDGENE") && head.contains(&"2 NAME OxidGene")
+    };
+    for profile in destinations() {
+        let gedcom = export(profile, ExportTarget::Gedcom);
+        assert!(names_oxidgene(&gedcom), "{}:\n{gedcom}", profile.id());
+        assert!(
+            gedcom.contains("\n2 _OXIDGED "),
+            "{}:\n{gedcom}",
+            profile.id()
+        );
+    }
+    let paths = HashMap::new();
+    let gedcom = export(
+        destination(DEFAULT_DESTINATION).unwrap(),
+        ExportTarget::Gedzip {
+            media_paths: &paths,
+        },
+    );
+    assert!(names_oxidgene(&gedcom), "{gedcom}");
+}
+
 #[test]
 fn test_export_long_utf8_note_does_not_panic() {
     let tree_id = Uuid::now_v7();
@@ -1716,7 +1764,7 @@ fn test_roundtrip_preserves_surname_particle() {
 }
 
 /// Splitting the particle must not make a person look like an alias of
-/// themselves: `ged_io` fills SURN with the full "de la Cruz" parsed from the
+/// themselves: `oxidged` fills SURN with the full "de la Cruz" parsed from the
 /// NAME slashes, while the stored root is "Cruz", and comparing those verbatim
 /// used to synthesize a spurious second AKA name.
 #[test]
@@ -2137,7 +2185,7 @@ fn export_for(imported: &oxidgene_gedcom::ImportResult, id: &str) -> oxidgene_ge
         &imported.records(),
         &ExportOptions {
             choices: ExportChoices {
-                destination: destination(id).expect("a ged_io export profile"),
+                destination: destination(id).expect("a oxidged export profile"),
                 ..Default::default()
             },
             target: ExportTarget::Gedcom,
@@ -3090,7 +3138,7 @@ const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
 0 TRLR
 ";
 
-/// A `MILI` — an extension no GEDCOM version defines, which `ged_io` keeps
+/// A `MILI` — an extension no GEDCOM version defines, which `oxidged` keeps
 /// whole as an extension of the person — imports as a military service
 /// holding its date, place, note, citation and media; any other such tag as
 /// a described event of its own. Such a tag with nothing beneath it, a
@@ -3708,7 +3756,7 @@ fn gedzip_restores_what_a_gedcom_does(
             "{name}: {}",
             gdz.gedcom
         );
-        let deviations = ged_io::spec::validate_bytes(gdz.gedcom.as_bytes());
+        let deviations = oxidged::spec::validate_bytes(gdz.gedcom.as_bytes());
         assert!(
             deviations.is_empty(),
             "{name}: {deviations:?}\n{}",
@@ -3868,7 +3916,7 @@ fn a_gedzip_keeps_the_media_it_cannot_carry_as_extensions() {
         assert!(!gdz.gedcom.contains(absent), "{absent} in {}", gdz.gedcom);
     }
     assert!(gdz.warnings.is_empty(), "{:?}", gdz.warnings);
-    assert!(ged_io::spec::validate_bytes(gdz.gedcom.as_bytes()).is_empty());
+    assert!(oxidged::spec::validate_bytes(gdz.gedcom.as_bytes()).is_empty());
 
     let archive = oxidgene_gedcom::export::export_gedzip(&gdz.gedcom, &[(path, b"PNG".to_vec())])
         .expect("writes a GEDZIP");
@@ -3925,7 +3973,7 @@ fn a_gedzip_reads_no_destination() {
         &tree.records(),
         &ExportOptions {
             choices: ExportChoices {
-                destination: destination("geneanet").expect("a ged_io export profile"),
+                destination: destination("geneanet").expect("a oxidged export profile"),
                 ..ExportChoices::default()
             },
             target: ExportTarget::Gedzip {

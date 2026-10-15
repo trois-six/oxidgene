@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
 ---
 
 
@@ -655,13 +655,13 @@ handles dates. They follow these rules:
   matches, as `Other`), its temple and status in the description in GEDCOM's
   words (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`), a status outside GEDCOM's
   enumeration as written. A person's or family's tag that no GEDCOM version
-  defines, which `ged_io` keeps whole, untyped, is read as an `EVEN` typed
+  defines, which `oxidged` keeps whole, untyped, is read as an `EVEN` typed
   `Military service` for `MILI`, `Separation` for `SEP` (GeneWeb's) and by
   the tag itself otherwise, a `TYPE` beneath it joining the line value (a
   `Y` describes nothing); its date, place, notes, citations and media are the
   event's. An event of the other kind of record (a `MARR` on a person, a
   `PROP` or `BIRT` on a family), which some software writes, is read as it is
-  on the record that holds it. A custom `_` tag, any other standard tag `ged_io`
+  on the record that holds it. A custom `_` tag, any other standard tag `oxidged`
   keeps aside (a second `SEX`) and an undefined tag other than `MILI` and
   `SEP` with nothing beneath it are left alone.
 - **Events out of their record.** An event whose tag GEDCOM does not permit
@@ -682,7 +682,7 @@ handles dates. They follow these rules:
   date; GEDCOM 7.0's keywords (`JULIAN`, `FRENCH_R`) are read too. A date of
   a calendar OxidGene has no value for (`@#DROMAN@ 1700`) is kept whole, as
   written, in `date_value`.
-- **Date values.** `ged_io`'s date grammar splits a date into the columns:
+- **Date values.** `oxidged`'s date grammar splits a date into the columns:
   each bound it reads is stored in GEDCOM 5.5.1's canonical words without its
   calendar (`7 SEP 1830` for `07 sep 1830`, `44 B.C.`), wording it does not
   understand as written (`vers 1850`). A 5.5.1 date phrase (`(text)`), an

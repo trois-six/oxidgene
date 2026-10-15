@@ -7,7 +7,7 @@
 //! importing means splitting it apart and exporting means putting it back
 //! together. Both directions live here so they cannot drift.
 //!
-//! Reading is `ged_io`'s date grammar (`ged_io::value::DateValue`), which reads
+//! Reading is `oxidged`'s date grammar (`oxidged::value::DateValue`), which reads
 //! either version's syntax and their common deviations — qualifiers, months and
 //! calendars in any case, 5.5.1 escapes (`@#DJULIAN@`) and 7.0 keywords
 //! (`JULIAN`), an escape before the whole value (`@#DJULIAN@ ABT 1700`) as well
@@ -18,7 +18,7 @@
 //! written. A value that is no date at all keeps the whole text: a 5.5.1 date
 //! phrase (`(text)`), an interpreted date (`INT 1850 (text)`), a date of a
 //! calendar OxidGene has no column value for (`@#DROMAN@ 1700`). The sortable
-//! date converts other calendars to Gregorian with `ged_io`'s calendar
+//! date converts other calendars to Gregorian with `oxidged`'s calendar
 //! arithmetic (its `calendar` feature).
 //!
 //! ## Known lossy mappings
@@ -33,8 +33,8 @@
 //! - [`DateQualifier::FromAge`] has no date of its own and exports bare.
 
 use chrono::NaiveDate;
-use ged_io::GedcomVersion;
-use ged_io::value::{Approximation, Calendar as GedCalendar, CalendarDate, DatePeriod, DateValue};
+use oxidged::GedcomVersion;
+use oxidged::value::{Approximation, Calendar as GedCalendar, CalendarDate, DatePeriod, DateValue};
 use oxidgene_core::{Calendar, DateQualifier};
 
 /// A GEDCOM `DATE` split into the columns the domain stores.
@@ -143,7 +143,7 @@ fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
 /// `date_sort` is what orders events against one another, so it has to be
 /// Gregorian whatever calendar the date was *written* in: a Republican
 /// `2 BRUM 14` sorts as 24 October 1805, not as the second day of a second
-/// month in year 14. Doing that conversion needs `ged_io`'s calendar support,
+/// month in year 14. Doing that conversion needs `oxidged`'s calendar support,
 /// which is why this lives here rather than anywhere a client could reach.
 ///
 /// Returns `None` for a missing, empty or unparseable value — an event whose

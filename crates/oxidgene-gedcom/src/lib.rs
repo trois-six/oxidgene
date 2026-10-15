@@ -1,8 +1,8 @@
 //! GEDCOM and GeneWeb import/export for OxidGene.
 //!
-//! Wraps the [`ged_io`] crate to convert between GEDCOM files and OxidGene
+//! Wraps the [`oxidged`] crate to convert between GEDCOM files and OxidGene
 //! domain model types, and the [`geneweb`] crate to read GeneWeb `.gw` files —
-//! which it converts to the same `ged_io` model, so both formats share one
+//! which it converts to the same `oxidged` model, so both formats share one
 //! mapping into the domain model.
 
 pub mod date;
@@ -133,7 +133,7 @@ pub struct ExportLoss {
     pub kind: String,
     /// The cross-reference of the record it was in (`@I12@`), if one.
     pub record: Option<String>,
-    /// What was changed, in `ged_io`'s words (English).
+    /// What was changed, in `oxidged`'s words (English).
     pub detail: String,
 }
 
@@ -142,7 +142,7 @@ pub struct ExportLoss {
 pub struct ExportLimit {
     /// The cross-reference of the record concerned, if one.
     pub record: Option<String>,
-    /// The limit and what exceeds it, in `ged_io`'s words (English).
+    /// The limit and what exceeds it, in `oxidged`'s words (English).
     pub detail: String,
 }
 

@@ -4,7 +4,7 @@
 
 OxidGene is a multiplatform genealogy application written entirely in Rust. It
 uses Dioxus for the WASM and desktop frontend, Axum for the REST and GraphQL
-backend, SeaORM with PostgreSQL on the web and SQLite on desktop, `ged_io` for
+backend, SeaORM with PostgreSQL on the web and SQLite on desktop, `oxidged` for
 GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 
 ## Development Principles

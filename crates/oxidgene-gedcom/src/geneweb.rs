@@ -2,7 +2,7 @@
 //!
 //! `.gw` is the textual interchange format of the [GeneWeb] genealogy software
 //! — what `gwu` writes and `gwc` reads. The [`geneweb`] crate reads it into a
-//! lossless syntax tree and converts that tree into `ged_io`'s GEDCOM model, so
+//! lossless syntax tree and converts that tree into `oxidged`'s GEDCOM model, so
 //! the whole GEDCOM → domain mapping in [`crate::import`] is reused as-is here.
 //!
 //! Two things are worth knowing about the format:

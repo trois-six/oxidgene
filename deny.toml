@@ -52,13 +52,13 @@ allow-wildcard-paths = true
 
 [sources]
 # Dependencies come from crates.io only, no other registry. The one exception
-# is the redesigned ged_io and the geneweb release ported to it, patched in
-# from their branches (`[patch.crates-io]` in Cargo.toml) until they are
-# published; both entries go with the patches.
+# is oxidged and the geneweb release ported to it, taken from their main
+# branches (Cargo.toml) until they are published; both entries go with the
+# `git` keys.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/trois-six/ged_io",
+    "https://github.com/trois-six/oxidged",
     "https://github.com/trois-six/rust-geneweb",
 ]

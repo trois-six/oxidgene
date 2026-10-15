@@ -1,8 +1,8 @@
 //! OxidGene domain model → GEDCOM export.
 //!
-//! Converts domain model entities into `ged_io`'s model and writes it as
+//! Converts domain model entities into `oxidged`'s model and writes it as
 //! GEDCOM 5.5.1 for a `.ged`, or as GEDCOM 7.0 for the `gedcom.ged` of a
-//! GEDZIP. `ged_io`'s writer is conformant: it converts the model to the
+//! GEDZIP. `oxidged`'s writer is conformant: it converts the model to the
 //! version written, writes every line by the version's line rules (in 5.5.1,
 //! 255 characters at most and a long text continued on `CONC` lines; a line
 //! break of any kind on a `CONT` line, `@` escaped) and repairs, as extension
@@ -10,8 +10,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ged_io::gedzip::GedzipWriter;
-use ged_io::model::{
+use oxidged::gedzip::GedzipWriter;
+use oxidged::model::{
     Address as GedAddress, Age as GedAge, Association as GedAssociation, CallNumber, Certainty,
     ChildLink, Citation as GedCitation, CitationData, CitationSource, Dataset, Date, EnumList,
     Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, FileForm, Header,
@@ -22,10 +22,10 @@ use ged_io::model::{
     Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
     XrefId,
 };
-pub use ged_io::profile::ExportProfile;
-use ged_io::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
-use ged_io::tree::{Payload, Structure, Tag};
-use ged_io::{Bom, GedcomVersion, GedcomWriter};
+pub use oxidged::profile::ExportProfile;
+use oxidged::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
+use oxidged::tree::{Payload, Structure, Tag};
+use oxidged::{Bom, GedcomVersion, GedcomWriter};
 use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
@@ -93,7 +93,7 @@ impl ExportRecords<'_> {
 /// 5.5.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExportChoices {
-    /// The program a `.ged` is written for: `ged_io`'s export profile, which
+    /// The program a `.ged` is written for: `oxidged`'s export profile, which
     /// chooses the version and the line layout and folds the data into the
     /// structures that program reads (see [`destination`]). A GEDZIP is
     /// standard GEDCOM 7.0 and does not read it.
@@ -109,7 +109,7 @@ impl Default for ExportChoices {
     fn default() -> Self {
         Self {
             destination: destination(DEFAULT_DESTINATION)
-                .expect("ged_io has a generic GEDCOM 5.5.1 export profile"),
+                .expect("oxidged has a generic GEDCOM 5.5.1 export profile"),
             include_notes_and_sources: true,
             include_media: true,
         }
@@ -120,28 +120,28 @@ impl Default for ExportChoices {
 /// importer.
 pub const DEFAULT_DESTINATION: &str = "generic-551";
 
-/// The destination `id` names: one of `ged_io`'s export profiles, by its
+/// The destination `id` names: one of `oxidged`'s export profiles, by its
 /// exact id (`generic-551`, `generic-70`, `geneanet`, `ancestry`, …).
 #[must_use]
 pub fn destination(id: &str) -> Option<&'static ExportProfile> {
-    ged_io::profile::export_profiles()
+    oxidged::profile::export_profiles()
         .iter()
         .copied()
         .find(|profile| profile.id() == id)
 }
 
 /// Every destination a `.ged` can be written for: the standard GEDCOM
-/// versions (`ged_io`'s tier 0) first, then the programs by name.
+/// versions (`oxidged`'s tier 0) first, then the programs by name.
 #[must_use]
 pub fn destinations() -> Vec<&'static ExportProfile> {
-    let mut all = ged_io::profile::export_profiles().to_vec();
+    let mut all = oxidged::profile::export_profiles().to_vec();
     all.sort_by_cached_key(|profile| (profile.tier() != 0, profile.label().to_lowercase()));
     all
 }
 
 /// Whether `profile`'s facts come from the programs' published and observed
 /// behaviour, much of it dated, and are to be re-verified against their
-/// recent versions: `ged_io`'s tier-1 profiles.
+/// recent versions: `oxidged`'s tier-1 profiles.
 #[must_use]
 pub fn to_be_verified(profile: &ExportProfile) -> bool {
     profile.tier() == 1
@@ -193,18 +193,18 @@ pub struct SubmitterSettings<'a> {
 ///
 /// All records should belong to the same tree.
 ///
-/// Both are built as one 5.5.1 dataset. The `.ged` is written by `ged_io`'s
+/// Both are built as one 5.5.1 dataset. The `.ged` is written by `oxidged`'s
 /// [`Exporter`] with the destination's export profile, which chooses the
 /// version, the character set and the line layout the program reads best,
 /// folds the data into the standard structures it reads (Geneanet's single
 /// occupation and single name, for one) and reports every fold that lost
 /// something, and every limit of the program the file exceeds, in the
 /// result's [`DestinationReport`]. The standard destinations fold nothing.
-/// The credentials a dataset may hold are left out, as `ged_io` does by
+/// The credentials a dataset may hold are left out, as `oxidged` does by
 /// default; OxidGene writes none.
 ///
 /// The GEDZIP's is written as 7.0 by
-/// `ged_io`'s writer, which converts it as the FamilySearch migration guide
+/// `oxidged`'s writer, which converts it as the FamilySearch migration guide
 /// says (note records become `SNOTE`, `RELA` a `ROLE` with its phrase, file
 /// formats media types, dates and ages 7.0's grammar) and starts the text
 /// with the byte-order mark GEDCOM 7.0 recommends. Its `OBJE` records are
@@ -570,8 +570,9 @@ pub(crate) const POSITION_TAG: &str = "_OXIDGENE_POS";
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
 /// the version requires: in 5.5.1 `GEDC` with `VERS 5.5.1` and `FORM
 /// LINEAGE-LINKED`, and the `CHAR` of its output, `UTF-8`; in 7.0 `GEDC`
-/// with `VERS 7.0`. A `.ged`'s export profile writes `ged_io` as the
-/// producer instead, as every profile writes its own (see [`write_gedcom`]).
+/// with `VERS 7.0`. A `.ged`'s export profile keeps OxidGene as the
+/// producer and notes oxidged, which wrote the file, beneath it
+/// (`HEAD.SOUR._OXIDGED`; see [`write_gedcom`]).
 ///
 /// With `extensions`, the header declares OxidGene's extension tags with
 /// the URIs of their documentation (`SCHMA`, GEDCOM 7.0 only), which makes
@@ -616,7 +617,7 @@ fn write_gedcom(
     let written = write_span
         .in_scope(|| match target {
             ExportTarget::Gedcom => {
-                // The credentials are left out, as `ged_io` does by default.
+                // The credentials are left out, as `oxidged` does by default.
                 let exporter = Exporter::new(destination).options(ProfileOptions::default());
                 let (gedcom, report) = exporter.write_to_string(data)?;
                 Ok((gedcom, Some(destination_report(destination, &report))))
@@ -635,7 +636,7 @@ fn write_gedcom(
                 Ok((String::from_utf8_lossy(&bytes).into_owned(), None))
             }
         })
-        .map_err(|e: ged_io::WriteError| format!("GEDCOM write error: {e}"))?;
+        .map_err(|e: oxidged::WriteError| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", written.0.len());
     if let Some(report) = &written.1 {
         write_span.record("export.lossy_folds", report.losses.len());
@@ -643,13 +644,13 @@ fn write_gedcom(
     Ok(written)
 }
 
-/// What writing for `destination` lost, as `ged_io`'s export `report` says
+/// What writing for `destination` lost, as `oxidged`'s export `report` says
 /// it: the folds that lost something, and the program's limits the file
 /// exceeds. The folds that lost nothing (a value escaped, the records
 /// reordered) and the writer's conformance repairs are left out.
 fn destination_report(
     destination: &ExportProfile,
-    report: &ged_io::profile::ExportReport,
+    report: &oxidged::profile::ExportReport,
 ) -> DestinationReport {
     DestinationReport {
         destination: destination.id().to_string(),
@@ -683,7 +684,7 @@ fn fold_kind(kind: FoldKind) -> &'static str {
         FoldKind::Omitted => "omitted",
         FoldKind::Reordered => "reordered",
         FoldKind::Recoded => "recoded",
-        // A kind a later `ged_io` adds.
+        // A kind a later `oxidged` adds.
         _ => "other",
     }
 }
@@ -1025,7 +1026,7 @@ impl ExportIndex<'_> {
     /// A source's `REPO` citations: one per repository link, with its call
     /// number and medium. GEDCOM 5.5.1 puts `MEDI` under `CALN`: a medium
     /// without a call number is written under an empty one.
-    fn repository_citations(&self, source_id: Uuid) -> ged_io::model::ThinVec<RepositoryCitation> {
+    fn repository_citations(&self, source_id: Uuid) -> oxidged::model::ThinVec<RepositoryCitation> {
         self.repos_by_source
             .get(&source_id)
             .into_iter()
@@ -1672,7 +1673,7 @@ fn convert_child_type_to_pedigree(child_type: ChildType) -> Option<GedPedigree> 
 }
 
 /// The pieces of a name, in GEDCOM's order, each written when it is set.
-fn name_pieces(pn: &PersonName) -> ged_io::model::ThinVec<NamePiece> {
+fn name_pieces(pn: &PersonName) -> oxidged::model::ThinVec<NamePiece> {
     [
         (NamePieceKind::Prefix, pn.prefix.as_deref()),
         (NamePieceKind::Given, pn.given_names.as_deref()),
@@ -2414,7 +2415,7 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("reads back");
         assert_eq!(
             archive
-                .by_name(ged_io::gedzip::GEDCOM_FILENAME)
+                .by_name(oxidged::gedzip::GEDCOM_FILENAME)
                 .expect("GEDCOM entry")
                 .compression(),
             zip::CompressionMethod::Deflated

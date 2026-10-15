@@ -2586,7 +2586,7 @@ async fn the_export_destinations_are_listed_alike_on_both_surfaces() {
 
 /// The interface describes every destination it lists in one translated
 /// line, and names the standard versions in the reader's language: a
-/// destination a later `ged_io` adds fails here until it is described
+/// destination a later `oxidged` adds fails here until it is described
 /// (`assets/i18n/*.json`, `export_destination.desc.<id>`, `-` as `_`).
 #[test]
 fn every_export_destination_is_described() {

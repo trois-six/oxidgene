@@ -862,14 +862,14 @@ pub fn export_choices(
     })
 }
 
-/// A program a `.ged` can be written for: one of `ged_io`'s export
+/// A program a `.ged` can be written for: one of `oxidged`'s export
 /// profiles.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
 pub struct ExportDestination {
     /// The profile id the export's `destination` takes.
     pub id: String,
-    /// The program's name, as `ged_io` gives it (not translated).
+    /// The program's name, as `oxidged` gives it (not translated).
     pub label: String,
     /// The GEDCOM version written: `5.5.1` or `7.0`.
     pub version: String,
@@ -877,7 +877,7 @@ pub struct ExportDestination {
     /// `generic-70`) rather than for one.
     pub standard: bool,
     /// Whether its facts are to be re-verified against the program's recent
-    /// versions (`ged_io`'s tier 1).
+    /// versions (`oxidged`'s tier 1).
     pub to_be_verified: bool,
 }
 

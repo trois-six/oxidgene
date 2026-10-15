@@ -2256,7 +2256,7 @@ pub struct GqlExportLoss {
     pub kind: String,
     /// The cross-reference of the record it was in, if one.
     pub record: Option<String>,
-    /// What was changed (English, from ged_io).
+    /// What was changed (English, from oxidged).
     pub detail: String,
 }
 
@@ -2265,7 +2265,7 @@ pub struct GqlExportLoss {
 pub struct GqlExportLimit {
     /// The cross-reference of the record concerned, if one.
     pub record: Option<String>,
-    /// The limit and what exceeds it (English, from ged_io).
+    /// The limit and what exceeds it (English, from oxidged).
     pub detail: String,
 }
 

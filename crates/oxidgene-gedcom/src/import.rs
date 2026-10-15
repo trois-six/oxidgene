@@ -4,7 +4,7 @@
 //! Tracks xref → UUID mappings so that cross-references between GEDCOM records
 //! are correctly translated into foreign-key relationships.
 //!
-//! `ged_io` reads any file as it is — any encoding, any line terminators,
+//! `oxidged` reads any file as it is — any encoding, any line terminators,
 //! extensions and structures out of place — and keeps every line: what its
 //! model has no field for stays, as an untyped structure, where it was. The
 //! import reads the typed model, and the few untyped structures it knows.
@@ -18,16 +18,16 @@ use std::collections::HashMap;
 use std::io::{Read, Seek};
 
 use chrono::Utc;
-use ged_io::gedzip::GedzipReader;
-use ged_io::model::{
+use oxidged::gedzip::GedzipReader;
+use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, Date,
     EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
     MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
     Ordinance, OrdinanceStatus, Pedigree, Place as GedPlace, Record, Removal, Restriction,
     Sex as GedSex, Store, TagId, Text, TextRef, View,
 };
-use ged_io::tree::{Payload, Structure};
-use ged_io::{GedcomBuilder, GedcomVersion};
+use oxidged::tree::{Payload, Structure};
+use oxidged::{GedcomBuilder, GedcomVersion};
 use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
@@ -62,7 +62,7 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 /// Import a GEDCOM file as stored, whatever character set it was written in.
 ///
 /// A `.ged` declares its character set in `HEAD.CHAR`, and software of the
-/// GEDCOM 5 era writes ANSEL or ANSI (Windows-1252) as often as UTF-8. `ged_io`
+/// GEDCOM 5 era writes ANSEL or ANSI (Windows-1252) as often as UTF-8. `oxidged`
 /// decodes the bytes by what they hold first — a byte-order mark, a UTF-16
 /// pattern, valid UTF-8 — and by `CHAR` after that, Windows-1252 standing in
 /// for a declaration the bytes contradict (8-bit bytes under `CHAR ASCII`),
@@ -182,7 +182,7 @@ fn kept_multimedia(node: View<'_, Node>, position_tag: TagId) -> Multimedia {
                     .children()
                     .into_iter()
                     .find(|child| child.tag() == "FORM")
-                    .map(|form| ged_io::model::FileForm {
+                    .map(|form| oxidged::model::FileForm {
                         format: text_of(form),
                         medium_type: child(form, "MEDI")
                             .or_else(|| child(form, "TYPE"))
@@ -306,9 +306,9 @@ impl KeptLinks {
     /// Replace the `_OXIDGENE_OBJE` links by the `OBJE` links they stand
     /// for, in the records `data` lends.
     fn restore(self, data: &mut Dataset, kept_tag: TagId) {
-        let unkept = |extra: &mut ged_io::model::Extra| extra.retain(|node| node.tag != kept_tag);
+        let unkept = |extra: &mut oxidged::model::Extra| extra.retain(|node| node.tag != kept_tag);
         for ((i, event), links) in self.persons {
-            let Some(mut person) = data.get_mut_at::<ged_io::model::Individual>(i) else {
+            let Some(mut person) = data.get_mut_at::<oxidged::model::Individual>(i) else {
                 continue;
             };
             let person = &mut *person;
@@ -324,7 +324,7 @@ impl KeptLinks {
             }
         }
         for ((i, event), links) in self.families {
-            let Some(mut family) = data.get_mut_at::<ged_io::model::Family>(i) else {
+            let Some(mut family) = data.get_mut_at::<oxidged::model::Family>(i) else {
                 continue;
             };
             let family = &mut *family;
@@ -417,7 +417,7 @@ pub struct GedzipImportPlan {
 /// of a single file, checked against the size the archive declares and
 /// enforced while reading; `gedcom.ged` itself is read within a larger one.
 /// A `FILE` names its entry the way its producer wrote it — backslashes, a
-/// leading `./`, percent-encoding, another letter case — and `ged_io` matches
+/// leading `./`, percent-encoding, another letter case — and `oxidged` matches
 /// it to the archive's own spelling.
 ///
 /// # Errors
@@ -546,7 +546,7 @@ fn first_non_blank(values: Items<'_, Text>) -> Option<String> {
 }
 
 /// The text a structure gave where its type wants a pointer (`REPO Archives
-/// of Somewhere` for `REPO @R1@`): `ged_io` keeps it beside the empty pointer.
+/// of Somewhere` for `REPO @R1@`): `oxidged` keeps it beside the empty pointer.
 fn aside_text(extra: Items<'_, Node>) -> Option<Cow<'_, str>> {
     extra
         .into_iter()
@@ -694,7 +694,7 @@ impl<'d> ImportContext<'d> {
     /// Pass 1: allocate UUIDs for all top-level records.
     fn allocate(data: &'d Dataset, tree_id: Uuid) -> Self {
         let st = data.store();
-        let ids = |xrefs: &mut dyn Iterator<Item = Option<ged_io::model::XrefId>>| {
+        let ids = |xrefs: &mut dyn Iterator<Item = Option<oxidged::model::XrefId>>| {
             allocate_ids(st, xrefs)
         };
         Self {
@@ -810,7 +810,7 @@ impl EventOwner<'_> {
 /// A new UUID for each xref, in record order. A record without one gets none.
 fn allocate_ids(
     st: &Store,
-    xrefs: &mut dyn Iterator<Item = Option<ged_io::model::XrefId>>,
+    xrefs: &mut dyn Iterator<Item = Option<oxidged::model::XrefId>>,
 ) -> HashMap<String, Uuid> {
     xrefs
         .flatten()
@@ -945,7 +945,7 @@ fn medium_text(st: &Store, medium: &Medium) -> Option<String> {
 /// without a pointer names a repository by its text — the line's own, else
 /// its notes' — created once per distinct text.
 fn import_repository_citations(
-    src: View<'_, ged_io::model::Source>,
+    src: View<'_, oxidged::model::Source>,
     source_id: Uuid,
     ctx: &ImportContext,
     repositories: &mut RepositoryIndex,
@@ -1250,7 +1250,7 @@ fn is_individual_attribute(kind: &EventKind) -> bool {
 /// Import an `INDI` record: the person, their names, events, attributes,
 /// citations, note and media links.
 fn import_individual(
-    indi: View<'_, ged_io::model::Individual>,
+    indi: View<'_, oxidged::model::Individual>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
@@ -1339,7 +1339,7 @@ fn import_individual(
 /// Import a `FAM` record: the family, its spouses and children, events,
 /// citations, notes and media links.
 fn import_family(
-    fam: View<'_, ged_io::model::Family>,
+    fam: View<'_, oxidged::model::Family>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
@@ -1441,8 +1441,8 @@ fn import_family(
 /// A family's `HUSB` and `WIFE`, to read the ages its events give them.
 struct FamilySpouses<'s> {
     st: &'s Store,
-    husband: Option<ged_io::model::XrefId>,
-    wife: Option<ged_io::model::XrefId>,
+    husband: Option<oxidged::model::XrefId>,
+    wife: Option<oxidged::model::XrefId>,
 }
 
 /// A family event, with the ages it gives the family's spouses.
@@ -1602,7 +1602,7 @@ fn lds_words(ordinance: View<'_, Ordinance>) -> String {
 }
 
 /// The events a person's or a family's record holds outside the structures
-/// `ged_io` types there, each as a dataset of its own record holding it,
+/// `oxidged` types there, each as a dataset of its own record holding it,
 /// whose texts and pointers resolve against its own store (see
 /// [`read_as_event`]):
 ///
@@ -1615,7 +1615,7 @@ fn lds_words(ordinance: View<'_, Ordinance>) -> String {
 ///   and everything else beneath it — date, place, notes, citations, media —
 ///   the event's.
 ///
-/// `ged_io` keeps such a structure whole, untyped, where it was. A custom `_`
+/// `oxidged` keeps such a structure whole, untyped, where it was. A custom `_`
 /// tag, any other tag of GEDCOM's own (one its model keeps aside, such as a
 /// second `SEX`) and an undefined tag other than `MILI` and `SEP` with
 /// nothing beneath it are left alone.
@@ -1697,7 +1697,7 @@ fn generic_event(node: View<'_, Node>, tag: &str) -> Structure {
     }
 }
 
-/// An event structure, read by `ged_io`'s reader under a record of `record`
+/// An event structure, read by `oxidged`'s reader under a record of `record`
 /// (`INDI` or `FAM`), so that it is read like any other event: the dataset
 /// of that one record, or `None` when the reader typed no event of it.
 fn read_as_event((record, event): (&str, Structure)) -> Option<Dataset> {
@@ -1745,7 +1745,7 @@ fn spouse_ages(
 /// A family's `HUSB` and `WIFE`, in that order. A spouse the file does not
 /// hold is a warning.
 fn import_spouses(
-    fam: View<'_, ged_io::model::Family>,
+    fam: View<'_, oxidged::model::Family>,
     xref: &str,
     family_id: Uuid,
     ctx: &ImportContext,
@@ -1857,7 +1857,7 @@ fn association_relation(assoc: View<'_, Association>) -> Option<String> {
     opt(assoc.relation()).or_else(|| {
         let role = assoc.role()?;
         opt(role.phrase()).or_else(|| match role.value() {
-            ged_io::model::Role::Unknown(t) => opt_owned(assoc.store(), &t),
+            oxidged::model::Role::Unknown(t) => opt_owned(assoc.store(), &t),
             known => known.as_str(GedcomVersion::V7_0).map(str::to_string),
         })
     })
@@ -2107,7 +2107,7 @@ fn witness_individual_event(
 }
 
 /// Restore OxidGene metadata and crop annotations beneath top-level `OBJE`
-/// records. `ged_io` keeps them as extension structures of the records; the
+/// records. `oxidged` keeps them as extension structures of the records; the
 /// standard model is imported first and they are resolved against the xref
 /// maps it produced.
 fn import_oxidgene_media_extensions(data: &Dataset, result: &mut ImportResult) {
@@ -2804,7 +2804,7 @@ fn convert_quay(quay: Option<&Certainty>) -> Option<Confidence> {
 
 /// The canonical form of an age.
 ///
-/// `ged_io` keeps an `AGE` as written. What OxidGene reads as an age
+/// `oxidged` keeps an `AGE` as written. What OxidGene reads as an age
 /// (`child`, `1 y`) is held in GEDCOM's form; anything else — free text such
 /// as `majeur`, an empty value, a count beyond 999 — is left out, with a
 /// warning naming the record, never the value, which is the person's data. A
@@ -3763,7 +3763,7 @@ mod geneweb_death_reason_tests {
     use super::*;
 
     /// The cause `death_cause` gives an event of `event_type` read by
-    /// `ged_io` as a death with this cause and these `_GWDEATH` reasons
+    /// `oxidged` as a death with this cause and these `_GWDEATH` reasons
     /// beneath it.
     fn cause_of(event_type: EventType, cause: Option<&str>, reasons: &[&str]) -> Option<String> {
         let mut gedcom = String::from("0 HEAD\n0 @I1@ INDI\n1 DEAT\n");
@@ -4162,7 +4162,7 @@ mod gedzip_tests {
 
     /// Exports have written the person's xref leading the value without an
     /// escape, with GEDCOM 7's escape of a leading `@` (`@@I1@`) and with
-    /// GEDCOM 5.5.1's of every `@` (`@@I1@@`), which `ged_io` writes now:
+    /// GEDCOM 5.5.1's of every `@` (`@@I1@@`), which `oxidged` writes now:
     /// all read as the same identification.
     #[test]
     fn a_vignette_reads_with_or_without_the_escape_of_its_leading_at_sign() {
