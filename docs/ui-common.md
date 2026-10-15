@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:22:33Z }
+generated: { by: human:maintainer, at: 2026-10-08T07:22:33Z }
 ---
 
 # Visual & Functional Specifications — Common UI

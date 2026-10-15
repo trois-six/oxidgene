@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T20:49:26Z }
+generated: { by: human:maintainer, at: 2026-10-12T20:49:26Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"

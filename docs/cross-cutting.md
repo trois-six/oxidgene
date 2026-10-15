@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T04:28:17Z }
+generated: { by: human:maintainer, at: 2026-10-15T19:12:05Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -732,10 +732,9 @@ Every specification except `index.md` starts with a YAML frontmatter block:
 | `tags` | A YAML list starting with `oxidgene`. |
 | `generated` | `{ by: <actor>, at: <ISO 8601 UTC datetime> }` for the last meaningful content change; updated whenever the body changes in substance. |
 
-- Actors follow OKF §7: `human:maintainer` for human-written content and
-  `<tool>/<model>` for agent-written content, for example
-  `claude-code/claude-opus-5-5`. An actor never contains a personal or account
-  name.
+- Actors follow OKF §7. Every specification uses `human:maintainer`, whoever
+  or whatever wrote the change: the repository names no tool or model. An
+  actor never contains a personal or account name.
 - The retired v0.1 forms are not used: no `timestamp` key and no body
   `# Citations` list.
 - A specification derived from external material, such as a reverse-engineered

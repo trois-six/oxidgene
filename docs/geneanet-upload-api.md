@@ -3,7 +3,7 @@ type: "API Reference"
 title: "Geneanet Upload — API Specification"
 description: "Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login."
 tags: [oxidgene, reference, geneanet, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: human:maintainer, at: 2026-10-02T02:06:56Z }
 sources:
   - id: geneweb-plugin-api
     title: "geneanet/geneweb-plugin-api — server-side source of the GeneWeb plugin API"

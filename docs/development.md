@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:18:56Z }
+generated: { by: human:maintainer, at: 2026-10-08T12:18:56Z }
 ---
 
 # Development Environment and Workflows

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
 ---
 
 # Features — What OxidGene Does Today

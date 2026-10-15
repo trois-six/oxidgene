@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person History"
 description: "Every state the history kept of a person, and their current one, compared field by field side by side, with the restore of an earlier one."
 tags: [oxidgene, specification, ui, ux, history]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
+generated: { by: human:maintainer, at: 2026-10-01T18:02:57Z }
 ---
 
 

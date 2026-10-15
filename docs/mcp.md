@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
+generated: { by: human:maintainer, at: 2026-10-02T00:50:47Z }
 ---
 
 # Assistant Access (MCP)

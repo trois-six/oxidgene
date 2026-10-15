@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "DNA Kits"
 description: "Planned import of consumer DNA raw data attached to persons, processed locally only: supported kit formats, haplogroups, matching between the kits of one tree cross-checked with its kinship paths, continental ancestry estimates, storage and encryption, consent and deletion, reference data and licences, API, and delivery phases."
 tags: [oxidgene, specification, dna, genetics, privacy, api, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:16:00Z }
+generated: { by: human:maintainer, at: 2026-09-28T20:16:00Z }
 sources:
   - id: snps
     title: "snps — Python library reading every consumer raw-data format (BSD-3-Clause)"

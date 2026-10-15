@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
+generated: { by: human:maintainer, at: 2026-10-02T18:38:37Z }
 ---
 
 # Visual & Functional Specifications — Tools

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
+generated: { by: human:maintainer, at: 2026-10-02T04:08:01Z }
 ---
 
 

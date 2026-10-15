@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:10:27Z }
+generated: { by: human:maintainer, at: 2026-10-08T07:10:27Z }
 ---
 
 

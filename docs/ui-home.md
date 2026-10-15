@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
+generated: { by: human:maintainer, at: 2026-10-02T04:08:01Z }
 ---
 
 

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "AI Features (Bring Your Own LLM)"
 description: "Planned AI features on media — transcript, record and photo analysis, enhancement, colorization — run with LLM providers and keys each user brings, never the host's: provider presets and protocols, where keys live, the backend relay, privacy and consent, API contract, and delivery phases."
 tags: [oxidgene, specification, ai, llm, privacy, api, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-09-28T16:00:00Z }
 ---
 
 # AI Features (Bring Your Own LLM)

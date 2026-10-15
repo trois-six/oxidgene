@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Kinship"
 description: "Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none."
 tags: [oxidgene, specification, ui, ux, kinship]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
+generated: { by: human:maintainer, at: 2026-10-02T04:20:16Z }
 ---
 
 # Visual & Functional Specifications — Kinship

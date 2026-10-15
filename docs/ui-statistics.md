@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: human:maintainer, at: 2026-10-01T23:57:17Z }
 ---
 
 # Visual & Functional Specifications — Statistics

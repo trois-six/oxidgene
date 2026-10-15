@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: human:maintainer, at: 2026-10-01T23:57:17Z }
 ---
 
 
