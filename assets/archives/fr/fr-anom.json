@@ -7,7 +7,7 @@
   "areas": ["outre-mer"],
   "aliases": ["CAOM", "Centre des archives d'outre-mer"],
   "citation_codes": ["ANOM", "ANOM973", "ANOM974", "ANOM976"],
-  "website": "https://www.archivesnationales.culture.gouv.fr/anom/fr/",
+  "website": "https://archives-nationales-outre-mer.culture.gouv.fr/",
   "collections": [
     {
       "id": "guyane",

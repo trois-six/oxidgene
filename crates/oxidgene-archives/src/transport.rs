@@ -701,6 +701,19 @@ mod tests {
             request_url(&marked, &PortalRequest::get("/search?q=1")).as_deref(),
             Ok("http://archives.example.org/search?q=1")
         );
+        // A redirect to the same host over `https` leaves the declared
+        // origin: a host answered by another server, which upgrades every
+        // request, is not followed there (Archive Portals §11.3, overseas).
+        assert_eq!(
+            request_url(
+                &marked,
+                &PortalRequest::get(redirect_url(
+                    "http://archives.example.org/search?q=1",
+                    "https://archives.example.org/search?q=1"
+                ))
+            ),
+            Err(FetchError::NotSameOrigin)
+        );
         // A start page on another scheme is refused all the same.
         let mixed = PortalEndpoint {
             start: "ftp://archives.example.org/".to_owned(),

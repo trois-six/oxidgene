@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-10-12T20:49:26Z }
+generated: { by: human:maintainer, at: 2026-10-15T20:12:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -209,7 +209,7 @@ catalogue refuses `insecure_http` for any other (`PLAIN_HTTP_ARCHIVES` in
 
 | Archive | Why plain `http` |
 |---|---|
-| `fr-anom`, Archives nationales d'outre-mer | Its `https` port offers TLS 1.0 alone, with a self-signed certificate of another host that expired in 2019 (2026-10-06), which no client accepts. The portal is reached only for public registers' listings, and a request names nothing but a territory, a commune and a year (§4.15). |
+| `fr-anom`, Archives nationales d'outre-mer | Its `https` port offers TLS 1.0 alone, with a self-signed certificate of another host that expired in 2019 (2026-10-06; TLS 1.0 alone still on 2026-10-15), which no client accepts. The portal is reached only for public registers' listings, and a request names nothing but a territory, a commune and a year (§4.15). |
 
 A collection marked `insecure_http` gives its endpoint the mark (§4.2), and
 the transports reach plain `http` for that endpoint alone.
@@ -3462,6 +3462,18 @@ Cases the catalogue model must express:
   archive is the catalogue's one named exception to `https` (§3.1). The
   territories' own services keep their codes (`AD974`): a citation of their
   copies is not one of the national copy.
+  The archive's own site has moved to
+  `archives-nationales-outre-mer.culture.gouv.fr` and its finding aids to a
+  Ligeo instance (`recherche-anom.culture.gouv.fr`, on the Ligeo hosting's
+  shared address), while its civil status stays on CAOMEC2 at the former
+  host, over plain `http`, where the new site links (2026-10-15). On
+  2026-10-12 the former host resolved for a while to that Ligeo hosting,
+  which answers a plain `http` request with a redirect to `https` and serves
+  the host on neither: the live check ended in drift, its first request
+  having left the portal's origin (§9.1), and the scheduled run grouped the
+  archive with the Ligeo portals (§9.2). CAOMEC2 has moved only once the
+  host resolves there for good and its search answers elsewhere; until
+  then, the catalogue entry stands.
 
 ### 11.4 Cataloguing order
 
