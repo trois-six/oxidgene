@@ -46,9 +46,9 @@ photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credit
 - **Never lose a change**: an audit log of every write, and every version of a
 	person compared side by side and restorable, even after a deletion.
 - **Go back to the registers**: a cited source opens its register at the cited
-	view on the archive's own site, for every French département but one,
-	overseas included, however the citation is written, and a dialog completes
-	a partial one.
+	view on the archive's own site, for every French département, overseas
+	included, however the citation is written, and a dialog completes a
+	partial one.
 - **Understand the records**: a built-in place dictionary of twelve countries,
 	explanatory sheets for thousands of occupations and given names, four
 	calendars, and dates written out in nine languages.
