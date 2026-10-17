@@ -23,6 +23,7 @@ pub struct Model {
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
+    pub related_family_id: Option<Uuid>,
     pub description: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

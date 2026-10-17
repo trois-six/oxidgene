@@ -772,6 +772,7 @@ impl PersonRows {
             age: e.age.clone(),
             agency: e.agency.clone(),
             classification: e.classification.clone(),
+            related_family_id: e.related_family_id,
             place_id: e.place_id,
             description: e.description.clone(),
             witnesses: sorted(
@@ -1379,6 +1380,18 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 Some(place_id) if self.ensure_place(place_id).await? => Some(place_id),
                 _ => None,
             };
+            // The family an individual event names is kept only while the
+            // tree still has it, deleted or not: the snapshot's family may
+            // belong to another person's record.
+            let related_family_id = match snapshot.related_family_id {
+                Some(family_id) => family::Entity::find_by_id(family_id)
+                    .filter(family::Column::TreeId.eq(self.tree_id))
+                    .one(self.db)
+                    .await
+                    .map_err(db_err)?
+                    .map(|family| family.id),
+                None => None,
+            };
             let (person_id, family_id) = match owner {
                 EventOwner::Person(id) => (Some(id), None),
                 EventOwner::Family(id) => (None, Some(id)),
@@ -1396,6 +1409,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 age: Set(snapshot.age.clone()),
                 agency: Set(snapshot.agency.clone()),
                 classification: Set(snapshot.classification.clone()),
+                related_family_id: Set(related_family_id),
                 place_id: Set(place_id),
                 person_id: Set(person_id),
                 family_id: Set(family_id),

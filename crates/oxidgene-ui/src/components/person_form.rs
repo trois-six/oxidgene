@@ -2130,6 +2130,7 @@ const EVENT_TYPE_GROUPS: [(&str, &[EventType]); 6] = [
             EventType::Confirmation,
             EventType::FirstCommunion,
             EventType::BarBatMitzvah,
+            EventType::BasMitzvah,
             EventType::Burial,
             EventType::Cremation,
         ],

@@ -5172,3 +5172,91 @@ async fn graphql_source_usage_resolves_family_and_event_citations() {
     .await;
     usage(vec![direct, lone]).await;
 }
+
+/// The GraphQL twin of `test_event_related_family` in `rest_test.rs`: an
+/// individual event names a related family, and a family event is refused
+/// with the same validation error REST gives.
+#[tokio::test]
+async fn test_event_related_family() {
+    let app = setup_app().await;
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "R" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let person_id = data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: MALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let family_id = data(
+        &graphql(
+            app.clone(),
+            &format!(r#"mutation {{ createFamily(treeId: "{tree_id}") {{ id }} }}"#),
+            None,
+        )
+        .await,
+    )["createFamily"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let created = data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: ADOPTION, personId: "{person_id}", relatedFamilyId: "{family_id}" }}) {{ id relatedFamilyId familyId }} }}"#
+        ),
+        None,
+    )
+    .await)["createEvent"]
+        .clone();
+    assert_eq!(created["relatedFamilyId"], family_id);
+    assert!(created["familyId"].is_null());
+    let event_id = created["id"].as_str().unwrap().to_string();
+
+    let cleared = data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateEvent(treeId: "{tree_id}", id: "{event_id}", input: {{ relatedFamilyId: null }}) {{ relatedFamilyId }} }}"#
+        ),
+        None,
+    )
+    .await)["updateEvent"]
+        .clone();
+    assert!(cleared["relatedFamilyId"].is_null());
+
+    let refused = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: MARRIAGE, familyId: "{family_id}", relatedFamilyId: "{family_id}" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        refused["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+        "{refused}"
+    );
+
+    // The same family event without the related family is accepted.
+    data(&graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: MARRIAGE, familyId: "{family_id}" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await);
+}

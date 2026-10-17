@@ -39,7 +39,7 @@ Pendant l’import, la carte de l’arbre sur la page d’accueil affiche **Impo
 
 OxidGene lit les versions 5.5.1, 7.0 et 7.1 de GEDCOM, dans n’importe quel jeu de caractères, et reconnaît la version tout seul. Il importe les personnes et leurs noms, les familles avec leurs conjoints et leurs enfants (enfants adoptés et placés compris), les événements et attributs avec leurs dates, lieux, âges, causes et autorités, les sources et citations avec leur qualité, les dépôts d’archives, les notes, les témoins et associations, ainsi que les médias.
 
-Quelques éléments sont laissés de côté : les balises propres à un seul logiciel, et une religion indiquée à l’intérieur d’un événement plutôt que sur la personne.
+Ce qu’OxidGene ne sait pas représenter — une balise propre à un logiciel, une religion notée dans un événement plutôt que sur la personne, le temple d’une ordonnance LDS — n’est pas affiché, mais reste conservé avec la fiche à laquelle il appartient et réécrit à chaque export : un fichier importé puis exporté de nouveau ne perd rien d’autre que son en-tête.
 
 Un fichier GeneWeb `.gw` est converti de la même façon. Un bloc abîmé est ignoré et signalé par un avertissement, et le reste du fichier est tout de même importé.
 

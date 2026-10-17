@@ -48,6 +48,10 @@ pub struct NewEvent {
     /// value (its `TYPE`); blank for none.
     #[serde(default)]
     pub classification: Option<String>,
+    /// For an individual event, a family it names without belonging to it
+    /// (an adoptive family, the family a child is sealed to).
+    #[serde(default)]
+    pub related_family_id: Option<Uuid>,
     /// For a family event, the age its record gives for each spouse named.
     #[serde(default)]
     pub spouse_ages: Vec<SpouseAge>,
@@ -76,6 +80,9 @@ pub struct EventPatch {
     pub agency: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub classification: Option<Option<String>>,
+    /// The family an individual event names without belonging to it.
+    #[serde(default, deserialize_with = "double_option")]
+    pub related_family_id: Option<Option<Uuid>>,
     /// Replaces a family event's spouse ages when given; an empty list
     /// clears them.
     #[serde(default)]
@@ -129,6 +136,7 @@ pub async fn create_event(
         (TreeResource::Place, new.place_id),
         (TreeResource::Person, new.person_id),
         (TreeResource::Family, new.family_id),
+        (TreeResource::Family, details.related_family_id),
     ] {
         if let Some(id) = id {
             require_tree_resource(&txn, tree_id, resource, id).await?;
@@ -185,13 +193,12 @@ pub async fn update_event(
 ) -> Result<Event, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
-    if let Some(Some(place_id)) = patch.place_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Place, place_id).await?;
-    }
+    require_patched_records(&txn, tree_id, &patch).await?;
     // Derived from the patched state, reading whichever half the patch leaves
     // alone off the stored event — see `service::event_date`.
     let stored = EventRepo::get(&txn, id).await?;
-    let (details, spouse_ages) = patch_details(&mut patch, stored.family_id.is_some())?;
+    let individual = stored.person_id.is_some() && stored.family_id.is_none();
+    let (details, spouse_ages) = patch_details(&mut patch, stored.family_id.is_some(), individual)?;
     let pending = Change::update(tree_id, AuditEntity::Event, id)
         .event(id)
         .prepare(&txn)
@@ -227,6 +234,22 @@ pub async fn update_event(
     Ok(event)
 }
 
+/// The records an update names by id must belong to the tree: its place and
+/// its related family, when the patch sets them.
+async fn require_patched_records(
+    txn: &impl oxidgene_db::sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    patch: &EventPatch,
+) -> Result<(), OxidGeneError> {
+    if let Some(Some(place_id)) = patch.place_id {
+        require_tree_resource(txn, tree_id, TreeResource::Place, place_id).await?;
+    }
+    if let Some(Some(family_id)) = patch.related_family_id {
+        require_tree_resource(txn, tree_id, TreeResource::Family, family_id).await?;
+    }
+    Ok(())
+}
+
 /// Delete event `id` of `tree_id` (a soft delete).
 pub async fn delete_event(
     db: &DatabaseConnection,
@@ -255,11 +278,14 @@ pub async fn delete_event(
 /// taken out of it.
 fn new_details(new: &mut NewEvent) -> Result<(EventDetails, Vec<SpouseAge>), OxidGeneError> {
     let family_event = new.family_id.is_some();
+    let individual = new.person_id.is_some() && new.family_id.is_none();
+    check_related_family(new.related_family_id, individual)?;
     let details = EventDetails {
         cause: new.cause.take(),
         age: canonical_age(new.age.as_deref(), family_event)?,
         agency: blank_to_none(new.agency.take()),
         classification: blank_to_none(new.classification.take()),
+        related_family_id: new.related_family_id,
     };
     let ages = canonical_spouse_ages(std::mem::take(&mut new.spouse_ages), family_event)?;
     Ok((details, ages))
@@ -270,7 +296,10 @@ fn new_details(new: &mut NewEvent) -> Result<(EventDetails, Vec<SpouseAge>), Oxi
 fn patch_details(
     patch: &mut EventPatch,
     family_event: bool,
+    individual: bool,
 ) -> Result<(EventDetailsPatch, Option<Vec<SpouseAge>>), OxidGeneError> {
+    // A clearing patch (`Some(None)`) is always allowed.
+    check_related_family(patch.related_family_id.flatten(), individual)?;
     let details = EventDetailsPatch {
         cause: patch.cause.take(),
         age: patch
@@ -280,6 +309,7 @@ fn patch_details(
             .transpose()?,
         agency: patch.agency.take().map(blank_to_none),
         classification: patch.classification.take().map(blank_to_none),
+        related_family_id: patch.related_family_id.take(),
     };
     let ages = patch
         .spouse_ages
@@ -287,6 +317,21 @@ fn patch_details(
         .map(|ages| canonical_spouse_ages(ages, family_event))
         .transpose()?;
     Ok((details, ages))
+}
+
+/// A related family is allowed only on an individual event: a family event's
+/// family is its own (`family_id`), so a related family must never make it so.
+fn check_related_family(
+    related_family: Option<Uuid>,
+    individual: bool,
+) -> Result<(), OxidGeneError> {
+    if related_family.is_some() && !individual {
+        return Err(OxidGeneError::Validation(
+            "related_family_id: only an individual event names a family it does not belong to"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// `event` once `ages`, when given, replace its spouse ages — a family

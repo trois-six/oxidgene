@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T18:17:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T20:30:00Z }
 ---
 
 
@@ -214,6 +214,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `place_id` | UUID v7? | FK → Place |
 | `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |
+| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it: the adoptive family of an adoption (GEDCOM `ADOP.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner |
 | `description` | String? | Free text; also holds occupation title for `Occupation` events |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -257,7 +258,7 @@ Join table mirroring GEDCOM's `ASSO`/`RELA` associations — a witness, godparen
 | `relation` | String? | Free text (e.g. "Godmother", "Witness") |
 | `sort_order` | i32 | For ordering |
 
-Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`removeEventWitness` (GraphQL). Round-trips through GEDCOM import/export as a top-level `ASSO` on the INDI record (see [API Contract §4](api.md#4-gedcom-compatibility-reference)).
+Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`removeEventWitness` (GraphQL). Round-trips through GEDCOM import/export beneath the event it witnesses in GEDCOM 7.x, and as a top-level `ASSO` on the INDI record in GEDCOM 5.5.1 (see [API Contract §4](api.md#4-gedcom-compatibility-reference)).
 
 ### Place
 
@@ -654,12 +655,13 @@ handles dates. They follow these rules:
 - **Event types.** A type GEDCOM 5.5.1 and 7.0 give a tag is written and
   read with it, in a `.ged` of either version and in a GEDZIP alike: events
   (`BIRT`, `CHR`, `CONF`, `FCOM`, `MARR`, `DIVF`, `ADOP`, …) as events —
-  `BarBatMitzvah` as `BARM`, or `BASM` for a woman — with the description as
+  `BarBatMitzvah` as `BARM` and `BasMitzvah` as `BASM`, whatever the sex — with the description as
   the `TYPE` refining the tag (`1 GRAD` / `2 TYPE College`), and the
   individual attributes (`CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`,
   `NMR`, `OCCU`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT`) as attributes, the
   description in their value. `Adoption` is an individual event, never a
-  family one: `ADOP` may name the adoptive family through a nested `FAMC`.
+  family one: its nested `FAMC`, the adoptive family, is the event's
+  `related_family_id`, never its `family_id`.
 - **Generic events.** Every other type is a generic `EVEN`, classified by a
   `TYPE`, which 7.0 requires: a fixed label naming the type — `Military
   service`, `Civil union`, `Separation`, `Other`, and the labels GeneWeb uses
@@ -677,8 +679,11 @@ handles dates. They follow these rules:
   `SealingChild`, `SealingSpouse`). GEDCOM's ordinance structure has no room
   for an event's description, media, age, agency or cause, nor for an event
   with no date, place, note or citation: such an event is written as `EVEN` +
-  `TYPE` instead. 5.5.1 has no `INIL` and requires a child sealing's `FAMC`,
-  so those are written as `_INIL` and `_SLGC`.
+  `TYPE` instead. A child sealing names the family it is sealed to through
+  `related_family_id`, which is written as its `FAMC`. 5.5.1 has no `INIL`
+  and requires a child sealing's `FAMC`: `oxidged` writes an initiatory, and
+  a child sealing naming no family, under the extension tags `_INIL` and
+  `_SLGC`, and reads them back as the ordinances they stand for.
 - **Reading a generic event.** Its `TYPE` gives its type: a tag name
   (`CONF`, `MILI`), a label above, or a phrase naming a type in English or
   French; anything else is `Other`. Its description is the line value and the
@@ -689,10 +694,8 @@ handles dates. They follow these rules:
 - **Structures read as generic events.** An LDS ordinance (`BAPL`,
   `CONL`, `ENDL`, `INIL`, `SLGC`, `SLGS`) is read as its LDS type, typed by
   its tag as a generic `EVEN` with that `TYPE` is, so it keeps its date, place,
-  notes and citations. Its temple, its status and a child sealing's family are
-  not in the description: they are kept GEDCOM beside the event. The
-  extension tags `_INIL` and `_SLGC` that 5.5.1 files hold for them are read
-  as the same types. A person's or family's tag that no GEDCOM version
+  notes and citations. Its temple and its status are not in the description:
+  they are kept GEDCOM beside the event. A person's or family's tag that no GEDCOM version
   defines, which `oxidged` keeps whole, untyped, is read as an `EVEN` typed
   `Military service` for `MILI`, `Separation` for `SEP` (GeneWeb's) and by
   the tag itself otherwise, a `TYPE` beneath it joining the line value (a

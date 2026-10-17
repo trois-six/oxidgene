@@ -1146,6 +1146,7 @@ mod tests {
     fn birth(place: Option<Uuid>) -> EventSnapshot {
         EventSnapshot {
             classification: None,
+            related_family_id: None,
             id: Uuid::from_u128(10),
             event_type: EventType::Birth,
             date_value: Some("1900".to_string()),

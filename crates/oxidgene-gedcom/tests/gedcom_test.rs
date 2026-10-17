@@ -2829,7 +2829,14 @@ fn privacy_survives_a_round_trip_as_resn() {
         "{exported}"
     );
     assert!(record("0 @F1@ FAM").contains("\n1 RESN confidential"));
-    assert_eq!(exported.matches("1 RESN").count(), 4, "{exported}");
+    // `RESN locked` is no privacy OxidGene models: it is kept GEDCOM, written
+    // back beneath its person, while the restrictions it does model map as
+    // above, one `RESN` each.
+    assert!(
+        record("0 @I3@ INDI").contains("\n1 RESN locked"),
+        "{exported}"
+    );
+    assert_eq!(exported.matches("1 RESN").count(), 5, "{exported}");
     let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
     let privacy = |result: &oxidgene_gedcom::ImportResult| {
         let mut persons: Vec<Privacy> = result.persons.iter().map(|p| p.privacy).collect();
@@ -2973,6 +2980,7 @@ fn is_family_event(event_type: EventType) -> bool {
         | EventType::Confirmation
         | EventType::FirstCommunion
         | EventType::BarBatMitzvah
+        | EventType::BasMitzvah
         | EventType::MilitaryService
         | EventType::Burial
         | EventType::Cremation
@@ -3119,6 +3127,7 @@ fn add_event(
         place_id: Some(place.id),
         person_id,
         family_id,
+        related_family_id: None,
         description: description.map(str::to_owned),
         created_at: now,
         updated_at: now,
@@ -3152,9 +3161,24 @@ fn untyped_generic_events(gedcom: &str) -> Vec<&str> {
     untyped
 }
 
+/// The dates of the events `gedcom` writes under an extension tag (`1 _INIL`).
+fn extension_event_dates(gedcom: &str) -> Vec<String> {
+    let mut dates = Vec::new();
+    let mut in_extension = false;
+    for line in gedcom.lines() {
+        if line.starts_with("1 ") {
+            in_extension = line.starts_with("1 _");
+        } else if let Some(date) = line.strip_prefix("2 DATE ").filter(|_| in_extension) {
+            dates.push(date.to_owned());
+        }
+    }
+    dates
+}
+
 /// Every event type survives an export and a re-import under its own type,
 /// with its date, place and description — as GEDCOM 5.5.1, read as GEDCOM
-/// 7.0, and inside a GEDZIP. Each type travels twice, described and not; a
+/// 7.0 (but for the ordinances 5.5.1 writes under extension tags), and inside
+/// a GEDZIP. Each type travels twice, described and not; a
 /// civil union, an untyped event and a military service also with a
 /// description that names what they are or something else.
 #[test]
@@ -3233,10 +3257,23 @@ fn every_event_type_survives_a_round_trip() {
                 .result,
         ),
     ] {
-        assert_eq!(back.events.len(), tree.events.len(), "{format}");
+        // GEDCOM 5.5.1 has no structure for some ordinances, written under
+        // extension tags that a GEDCOM 7.0 file does not define.
+        let left_out = if format == "GEDCOM 7.0" {
+            extension_event_dates(&gedcom)
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            back.events.len(),
+            tree.events.len() - left_out.len(),
+            "{format}"
+        );
         let actual = events_by_date(&back);
         for (date, want) in &expected {
-            assert_eq!(actual.get(date), Some(want), "{format}, event dated {date}");
+            if !left_out.contains(date) {
+                assert_eq!(actual.get(date), Some(want), "{format}, event dated {date}");
+            }
         }
     }
 }
@@ -3269,7 +3306,7 @@ fn standard_religious_event_tags_import_as_their_types() {
             EventType::Confirmation,
             EventType::FirstCommunion,
             EventType::BarBatMitzvah,
-            EventType::BarBatMitzvah,
+            EventType::BasMitzvah,
         ]
     );
 }
@@ -3918,9 +3955,9 @@ fn misplaced_events_and_an_unlisted_lds_status_are_read() {
     // kept as GEDCOM beside the event).
     let baptism = event_of(&result, EventType::LdsBaptism);
     assert_eq!(baptism.description, None);
-    // Holding nothing of its own, the ordinance is the generic event its type
-    // names, which GEDCOM 7 does not drop as it would an empty structure.
-    assert!(exported.contains("1 EVEN\n2 TYPE BAPL\n"), "{exported}");
+    // An LDS ordinance is written as its own tag even when it holds nothing.
+    assert!(exported.contains("\n1 BAPL\n"), "{exported}");
+    assert!(!exported.contains("2 TYPE BAPL"), "{exported}");
 }
 
 /// `tree` as the GEDCOM 5.5.1 of a `.ged` and as the GEDCOM 7.0 of a
@@ -3971,13 +4008,13 @@ fn without_files(gedcom: &str) -> Vec<&str> {
         .collect()
 }
 
-/// `lines` without the attributes that say nothing — no value and nothing
-/// beneath (a GeneWeb `#occu` alone): GEDCOM 7.0 requires an attribute's
-/// value and has no form for one without, so a GEDZIP cannot carry it.
+/// `lines` without the attributes and LDS ordinances that say nothing — no
+/// value, or nothing beneath (a GeneWeb `#occu` alone, a bare `BAPL`): GEDCOM
+/// 7.0 has no form for a structure without one, so a GEDZIP cannot carry it.
 fn without_empty_attributes<'l>(lines: &[&'l str]) -> Vec<&'l str> {
-    const ATTRIBUTES: [&str; 13] = [
+    const ATTRIBUTES: [&str; 19] = [
         "CAST", "DSCR", "EDUC", "IDNO", "NATI", "NCHI", "NMR", "OCCU", "PROP", "RELI", "SSN",
-        "TITL", "FACT",
+        "TITL", "FACT", "BAPL", "CONL", "ENDL", "INIL", "SLGC", "SLGS",
     ];
     lines
         .iter()
@@ -4664,5 +4701,78 @@ fn kept_7_0_structures_are_written_by_a_gedzip() {
         lines_of(&as_551.gedcom)
             .iter()
             .any(|line| line.starts_with("0 TRLR"))
+    );
+}
+
+#[test]
+fn a_record_without_xref_is_kept_whole_and_written_without_one() {
+    const GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+0 _CUSTOMREC
+1 _SUB value
+0 TRLR
+";
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let export = export_as(&imported, ExportTarget::Gedcom);
+    let lines = lines_of(&export.gedcom);
+    let at = lines
+        .iter()
+        .position(|line| *line == "0 _CUSTOMREC")
+        .unwrap_or_else(|| panic!("_CUSTOMREC written without an xref:\n{}", export.gedcom));
+    assert_eq!(lines[at + 1], "1 _SUB value");
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.starts_with("0 @K") && line.ends_with(" _CUSTOMREC")),
+        "a record without an xref must not gain one:\n{}",
+        export.gedcom
+    );
+}
+
+#[test]
+fn a_shared_note_nobody_points_at_is_kept_as_a_record() {
+    const GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+0 @N1@ NOTE Shared text
+0 TRLR
+";
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let export = export_as(&imported, ExportTarget::Gedcom);
+    let lines = lines_of(&export.gedcom);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("0 @K") && line.ends_with(" NOTE Shared text")),
+        "the unreferenced note is written back as a record:\n{}",
+        export.gedcom
+    );
+    let without_notes = ExportChoices {
+        include_notes_and_sources: false,
+        ..ExportChoices::default()
+    };
+    let export = export_gedcom(
+        &imported.records(),
+        &ExportOptions {
+            choices: without_notes,
+            target: ExportTarget::Gedcom,
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports");
+    assert!(
+        !export.gedcom.contains("Shared text"),
+        "a note the choices leave out is not written:\n{}",
+        export.gedcom
     );
 }

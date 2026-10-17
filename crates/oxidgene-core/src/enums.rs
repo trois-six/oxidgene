@@ -666,6 +666,7 @@ pub enum EventType {
     Confirmation,
     FirstCommunion,
     BarBatMitzvah,
+    BasMitzvah,
     MilitaryService,
     Burial,
     Cremation,
@@ -680,7 +681,7 @@ pub enum EventType {
     Will,
     Probate,
     /// Adoption (GEDCOM `ADOP`) — an individual-level event, not a family
-    /// event: it may reference the adoptive family via a nested `FAMC`.
+    /// event: its adoptive family, a nested `FAMC`, is its `related_family_id`.
     Adoption,
     /// Caste name (GEDCOM `CAST`).
     CasteName,
@@ -831,6 +832,7 @@ impl std::fmt::Display for EventType {
             Self::Confirmation => write!(f, "confirmation"),
             Self::FirstCommunion => write!(f, "first_communion"),
             Self::BarBatMitzvah => write!(f, "bar_bat_mitzvah"),
+            Self::BasMitzvah => write!(f, "bas_mitzvah"),
             Self::MilitaryService => write!(f, "military_service"),
             Self::Burial => write!(f, "burial"),
             Self::Cremation => write!(f, "cremation"),

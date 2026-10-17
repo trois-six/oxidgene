@@ -280,6 +280,11 @@ input CreateEventInput {
 	"""
 	classification: String
 	"""
+	For an individual event, a family it names without belonging to it
+	(an adoptive family, the family a child is sealed to).
+	"""
+	relatedFamilyId: String
+	"""
 	For a family event, the age its record gives for each spouse named.
 	"""
 	spouseAges: [SpouseAgeInput!]
@@ -949,6 +954,10 @@ type GqlEvent {
 	"""
 	classification: String
 	"""
+	For an individual event, the family it names without belonging to it.
+	"""
+	relatedFamilyId: ID
+	"""
 	For a family event, the ages its record gives for the spouses.
 	"""
 	spouseAges: [GqlSpouseAge!]!
@@ -1018,6 +1027,7 @@ type GqlEventSnapshot {
 	age: String
 	agency: String
 	classification: String
+	relatedFamilyId: ID
 	placeId: ID
 	description: String
 	witnesses: [GqlWitnessSnapshot!]!
@@ -1036,6 +1046,7 @@ enum GqlEventType {
 	CONFIRMATION
 	FIRST_COMMUNION
 	BAR_BAT_MITZVAH
+	BAS_MITZVAH
 	MILITARY_SERVICE
 	BURIAL
 	CREMATION
@@ -4317,6 +4328,10 @@ input UpdateEventInput {
 	age: String
 	agency: String
 	classification: String
+	"""
+	The family an individual event names without belonging to it.
+	"""
+	relatedFamilyId: String
 	"""
 	Replaces a family event's spouse ages when given; an empty list
 	clears them.

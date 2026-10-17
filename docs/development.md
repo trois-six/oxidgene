@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-17T16:18:22Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:30:42Z }
 ---
 
 # Development Environment and Workflows
@@ -322,6 +322,16 @@ runs it (`just bench`, `just test-postgres`, `just test-s3`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
 `just real-import`, `just scaling`, `just import-memory`,
 `just archives-live`), and a guard fails on a reason that names none.
+
+The GEDCOM round trip of oxidged's "every structure" conformance files
+(`crates/oxidgene-gedcom/tests/conformance_round_trip.rs`, fixtures and their
+licence in `fixtures/conformance/`) imports each file, exports it for its own
+version, and checks that the export is conformant and that what it loses is
+exactly the list in `fixtures/conformance/known_gaps.tsv`: a new loss fails,
+and so does a listed loss that no longer happens, so fixing a gap means
+deleting its row. Idempotence (importing the export and exporting it again
+gives the same text, header aside) has its own test per fixture. The list records accepted
+losses, not a goal, and it is not empty.
 
 The opt-in tests and the golden checks read these variables:
 

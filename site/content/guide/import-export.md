@@ -39,7 +39,7 @@ While the import runs, the tree's card on the home page shows **Import in progre
 
 OxidGene reads GEDCOM 5.5.1, 7.0 and 7.1, in any character set, and recognises the version on its own. It imports persons and their names, families with their spouses and children (adopted and foster children included), events and attributes with their dates, places, ages, causes and agencies, sources and citations with their quality, repositories, notes, witnesses and associations, and media records.
 
-A few things are left out: tags specific to one program, and a religion recorded inside an event rather than on the person.
+What OxidGene has no place for — a tag specific to one program, a religion recorded inside an event rather than on the person, the temple of an LDS ordinance — is not shown, but it is kept with the record it belongs to and written back on every export: a file imported and exported again loses nothing but its header.
 
 A GeneWeb `.gw` file is converted the same way. A damaged block in it is skipped and reported as one warning, so the rest of the file still imports.
 

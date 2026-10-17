@@ -386,6 +386,9 @@ pub struct EventSnapshot {
     pub agency: Option<String>,
     #[serde(default)]
     pub classification: Option<String>,
+    /// The family an individual event names without belonging to it.
+    #[serde(default)]
+    pub related_family_id: Option<Uuid>,
     pub place_id: Option<Uuid>,
     pub description: Option<String>,
     #[serde(default)]

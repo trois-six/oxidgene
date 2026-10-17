@@ -23,8 +23,8 @@ use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, Date,
     EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
     MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
-    Ordinance, Pedigree, Place as GedPlace, Record, Removal, Restriction, Sex as GedSex, Store,
-    TagId, Text, TextRef, View,
+    Ordinance, OrdinanceKind, Pedigree, Place as GedPlace, Record, Removal, Restriction,
+    Sex as GedSex, Store, TagId, Text, TextRef, View,
 };
 use oxidged::tree::{Payload, Structure};
 use oxidged::{GedcomBuilder, GedcomVersion};
@@ -1477,7 +1477,14 @@ fn import_family_event(
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
 ) {
-    import_event_detail(event, owner, ctx, lookups, result);
+    // An attribute of a family (its `NCHI`, `FACT`, `RESI`) reads as an
+    // individual's does: its value is its line value, its `TYPE` the
+    // classification beside it, not one text.
+    if is_individual_attribute(&event.kind()) {
+        import_attribute_detail(event, owner, ctx, lookups, result);
+    } else {
+        import_event_detail(event, owner, ctx, lookups, result);
+    }
     let spouse_ages = spouse_ages(event, spouses, owner, ctx, &mut result.warnings);
     if let Some(event) = result.events.last_mut() {
         event.spouse_ages = spouse_ages;
@@ -1614,11 +1621,6 @@ impl<'d> EventView<'d> {
 ///   and everything else beneath it — date, place, notes, citations, media —
 ///   the event's.
 ///
-/// - an ordinance a GEDCOM 5.5.1 file holds under an extension tag, as the
-///   export writes the ones 5.5.1 has no structure for (`_INIL`, and a child
-///   sealing `_SLGC`, whose `FAMC` 5.5.1 requires), read as the generic
-///   event of the tag it stands for.
-///
 /// `oxidged` keeps such a structure whole, untyped, where it was. A custom `_`
 /// tag, any other tag of GEDCOM's own (one its model keeps aside, such as a
 /// second `SEX`) and an undefined tag other than `MILI` and `SEP` with
@@ -1639,8 +1641,6 @@ fn undefined_events(
             // Where GEDCOM puts an event of this kind.
             let home = if record == "INDI" { "FAM" } else { "INDI" };
             (home, node.to_structure())
-        } else if let Some(ordinance) = extension_ordinance(tag) {
-            (record, generic_event(node, ordinance))
         } else if tag.is_empty()
             || tag.starts_with('_')
             || (node.children().is_empty() && !matches!(tag, "MILI" | "SEP"))
@@ -1658,16 +1658,6 @@ fn undefined_events(
         }
     }
     read
-}
-
-/// The ordinance an extension tag stands for, for the ordinances GEDCOM 5.5.1
-/// has no structure for (see [`undefined_events`]).
-fn extension_ordinance(tag: &str) -> Option<&'static str> {
-    match tag {
-        "_INIL" => Some("INIL"),
-        "_SLGC" => Some("SLGC"),
-        _ => None,
-    }
 }
 
 /// The generic `EVEN` an undefined tag stands for (see [`undefined_events`]).
@@ -2084,16 +2074,26 @@ struct Associated<'a> {
     relation: Option<String>,
 }
 
+/// The key an association's relation is compared by when two of them name the
+/// same person at one event: its text trimmed and without case, an absent
+/// relation as the empty text.
+fn relation_key(relation: Option<&str>) -> String {
+    relation
+        .map(|r| r.trim().to_lowercase())
+        .unwrap_or_default()
+}
+
 /// The witnesses recorded so far, and the next sort order of each event's.
 ///
 /// Some exporters (Gramps included) redundantly *also* nest an ASSO inside
 /// the witnessed event's own detail (caught by `import_event_detail`'s
 /// `detail.associations` loop) for the same fact the association pass would
-/// otherwise reconstruct — an (event, person) pair already present in
-/// `result.event_witnesses` is not recorded twice, and a witness the pass
-/// adds to an event comes after the ones nested in it.
+/// otherwise reconstruct — an (event, person, relation) triple already present
+/// in `result.event_witnesses` is not recorded twice, and a witness the pass
+/// adds to an event comes after the ones nested in it. The same person in
+/// another role at that event is another witness.
 struct WitnessLog {
-    seen: std::collections::HashSet<(Uuid, Uuid)>,
+    seen: std::collections::HashSet<(Uuid, Uuid, String)>,
     next_sort: HashMap<Uuid, i32>,
 }
 
@@ -2108,14 +2108,15 @@ impl WitnessLog {
             seen: result
                 .event_witnesses
                 .iter()
-                .map(|w| (w.event_id, w.person_id))
+                .map(|w| (w.event_id, w.person_id, relation_key(w.relation.as_deref())))
                 .collect(),
             next_sort,
         }
     }
 
-    fn contains(&self, event_id: Uuid, person_id: Uuid) -> bool {
-        self.seen.contains(&(event_id, person_id))
+    fn contains(&self, event_id: Uuid, person_id: Uuid, relation: Option<&str>) -> bool {
+        self.seen
+            .contains(&(event_id, person_id, relation_key(relation)))
     }
 
     /// Record `person_id` as a witness of `event_id`, after the others.
@@ -2126,7 +2127,8 @@ impl WitnessLog {
         person_id: Uuid,
         relation: Option<String>,
     ) {
-        self.seen.insert((event_id, person_id));
+        self.seen
+            .insert((event_id, person_id, relation_key(relation.as_deref())));
         let sort_order = self.next_sort.entry(event_id).or_insert(0);
         result.event_witnesses.push(EventWitness {
             id: Uuid::now_v7(),
@@ -2160,7 +2162,8 @@ fn witness_family_event(
         .or_else(|| family_events().next())
         .map(|e| e.id);
     match target_event {
-        Some(event_id) if witnesses.contains(event_id, owner_person_id) => {}
+        Some(event_id)
+            if witnesses.contains(event_id, owner_person_id, assoc.relation.as_deref()) => {}
         Some(event_id) => witnesses.record(result, event_id, owner_person_id, assoc.relation),
         None => result.warnings.push(format!(
             "Individual {owner_xref}: ASSO {} (family) has no event to attach the witness to — skipped",
@@ -2210,7 +2213,8 @@ fn witness_individual_event(
         .map(|e| (e.id, e.event_type));
 
     match target_event {
-        Some((event_id, _)) if witnesses.contains(event_id, role_holder_id) => {}
+        Some((event_id, _))
+            if witnesses.contains(event_id, role_holder_id, assoc.relation.as_deref()) => {}
         Some((event_id, event_type)) => {
             if guessed {
                 result.warnings.push(format!(
@@ -2819,7 +2823,8 @@ fn convert_event_type(kind: &EventKind, type_text: Option<&str>) -> EventType {
         EventKind::Baptism => EventType::Baptism,
         EventKind::Confirmation => EventType::Confirmation,
         EventKind::FirstCommunion => EventType::FirstCommunion,
-        EventKind::BarMitzvah | EventKind::BasMitzvah => EventType::BarBatMitzvah,
+        EventKind::BarMitzvah => EventType::BarBatMitzvah,
+        EventKind::BasMitzvah => EventType::BasMitzvah,
         EventKind::Burial => EventType::Burial,
         EventKind::Cremation => EventType::Cremation,
         EventKind::Graduation => EventType::Graduation,
@@ -2938,6 +2943,30 @@ fn convert_quay(quay: Option<&Certainty>) -> Option<Confidence> {
 /// (`< 8y` and `PHRASE CHILD` as `CHILD`, which a GEDZIP writes of a
 /// 5.5.1 keyword), and an age known only in words (an empty `AGE` with a
 /// `PHRASE`) from its phrase.
+/// The family an individual event names without belonging to it: the
+/// adoptive family of an `ADOP` (its nested `FAMC`) and the family a child
+/// is sealed to by an `SLGC` (its `FAMC`). A pointer to a family the file
+/// does not hold is a warning, and the event names none.
+fn related_family(
+    event: EventView<'_>,
+    ctx: &ImportContext,
+    warnings: &mut Vec<String>,
+) -> Option<Uuid> {
+    let family = match event {
+        EventView::Event(e) if e.kind() == EventKind::Adoption => e.family()?.family()?,
+        EventView::Ordinance(o) if matches!(o.kind(), OrdinanceKind::ChildSealing) => o.family()?,
+        _ => return None,
+    };
+    let family_xref = event.store().xref(family);
+    let found = ctx.fam_map.get(family_xref).copied();
+    if found.is_none() {
+        warnings.push(format!(
+            "family {family_xref} named by an individual event is not in the file; the event names no family"
+        ));
+    }
+    found
+}
+
 fn import_age(
     age: Option<View<'_, Age>>,
     owner: EventOwner<'_>,
@@ -2990,7 +3019,8 @@ fn event_type_from_gedcom_tag(t: &str) -> Option<EventType> {
         "mars" => Some(EventType::MarriageSettlement),
         "ordn" => Some(EventType::Ordination),
         "bapm" => Some(EventType::Baptism),
-        "barm" | "basm" => Some(EventType::BarBatMitzvah),
+        "barm" => Some(EventType::BarBatMitzvah),
+        "basm" => Some(EventType::BasMitzvah),
         "buri" => Some(EventType::Burial),
         "cast" => Some(EventType::CasteName),
         "cens" => Some(EventType::Census),
@@ -3095,7 +3125,7 @@ fn type_name_phrase(t: &str) -> Option<EventType> {
         ("première communion", EventType::FirstCommunion),
         ("premiere communion", EventType::FirstCommunion),
         ("bar mitzvah", EventType::BarBatMitzvah),
-        ("bat mitzvah", EventType::BarBatMitzvah),
+        ("bat mitzvah", EventType::BasMitzvah),
         ("confirmation", EventType::Confirmation),
         ("naturalization", EventType::Naturalization),
         ("naturalisation", EventType::Naturalization),
@@ -3237,7 +3267,7 @@ fn event_type_from_type_text(type_text: Option<&str>) -> Option<EventType> {
         ("première communion", EventType::FirstCommunion),
         ("premiere communion", EventType::FirstCommunion),
         ("bar mitzvah", EventType::BarBatMitzvah),
-        ("bat mitzvah", EventType::BarBatMitzvah),
+        ("bat mitzvah", EventType::BasMitzvah),
         ("confirmation", EventType::Confirmation),
         ("naturalisation", EventType::Naturalization),
         ("naturalization", EventType::Naturalization),
@@ -3368,15 +3398,13 @@ fn import_event_detail(
     // which is not wording anyone chose.
     let description = event_description(event, event_type);
 
-    // An individual `ADOP` event may carry its own nested `FAMC`, pointing
-    // at the adoptive family. It is NOT captured: `Event.family_id` is used
-    // throughout the codebase (cache builder, REST, GraphQL, export) as the
-    // discriminant for "this is a family-level event" whenever it's set,
-    // regardless of `person_id` — reusing it here would make this
-    // individual event masquerade as belonging to the adoptive family
-    // everywhere. Nothing is lost when the file links the child to that
-    // family, as the `geneweb` crate and OxidGene's export both do: the
-    // child's own `FAMC` with `PEDI adopted` makes them an adopted child of it.
+    // A family the individual event names without belonging to it (the
+    // adoptive family, the family a child is sealed to). Never `family_id`,
+    // which makes an event a family's own.
+    let related_family_id = match owner.family_id {
+        None => related_family(event, ctx, &mut result.warnings),
+        Some(_) => None,
+    };
 
     let event_id = Uuid::now_v7();
     // A family event states each spouse's age instead (`HUSB.AGE`).
@@ -3398,6 +3426,7 @@ fn import_event_detail(
         place_id,
         person_id,
         family_id,
+        related_family_id,
         description,
         created_at: ctx.now,
         updated_at: ctx.now,
@@ -3410,14 +3439,22 @@ fn import_event_detail(
     // has no home in `EventWitness`). GEDCOM 5.5.1 has no `ASSO` beneath an
     // event: a conformant writer keeps one as `_ASSO`, which is read too.
     if let (Some(typed), Some(extra)) = (event.associations(), event.extra()) {
-        for (idx, (target, relation)) in associations_of(event.store(), typed, extra).enumerate() {
-            if let Some(&witness_person_id) = ctx.indi_map.get(target) {
+        // A person is one witness of an event per relation: two `ASSO` naming
+        // the same person with the same relation (compared trimmed and without
+        // case) are one witness, and with different relations they are two,
+        // as a godparent who is also a witness of the same baptism.
+        let mut witnesses: std::collections::HashSet<(Uuid, String)> =
+            std::collections::HashSet::new();
+        for (target, relation) in associations_of(event.store(), typed, extra) {
+            if let Some(&witness_person_id) = ctx.indi_map.get(target)
+                && witnesses.insert((witness_person_id, relation_key(relation.as_deref())))
+            {
                 result.event_witnesses.push(EventWitness {
                     id: Uuid::now_v7(),
                     event_id,
                     person_id: witness_person_id,
                     relation,
-                    sort_order: idx as i32,
+                    sort_order: witnesses.len() as i32 - 1,
                 });
             }
         }
@@ -3553,7 +3590,8 @@ fn import_attribute_detail(
             spouse_ages: Vec::new(),
             place_id,
             person_id: owner.person_id,
-            family_id: None,
+            family_id: owner.family_id,
+            related_family_id: None,
             description,
             created_at: ctx.now,
             updated_at: ctx.now,
@@ -3564,7 +3602,7 @@ fn import_attribute_detail(
         // deed behind a TITL. A value that split into several professions
         // gives each of them the scan, the same way each gets the citations:
         // one line documented them all.
-        import_event_parts(attribute, event_id, None, ctx, lookups, result);
+        import_event_parts(attribute, event_id, owner.family_id, ctx, lookups, result);
     }
 }
 
@@ -3645,14 +3683,16 @@ fn import_citation(
         }
     };
 
-    // The transcript, `DATA.TEXT`, which may come in several parts.
-    let texts: Vec<String> = cite
+    // The transcript: the first `DATA.TEXT`, else the first `TEXT` of the
+    // citation itself (5.5.1's text of a described source, which the import
+    // gives a source record of its own, where a pointer cannot carry it). A
+    // citation may hold several `TEXT` lines; the others are kept GEDCOM.
+    let text = cite
         .data()
         .into_iter()
         .flat_map(|v| v.texts())
-        .filter_map(|source_text| opt(Some(source_text.text())))
-        .collect();
-    let text = (!texts.is_empty()).then(|| texts.join("\n"));
+        .chain(cite.texts())
+        .find_map(|source_text| opt(Some(source_text.text())));
 
     result.citations.push(Citation {
         id: Uuid::now_v7(),

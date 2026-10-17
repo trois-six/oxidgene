@@ -363,6 +363,7 @@ fn profile_event_to_domain(
 ) -> DomainEvent {
     DomainEvent {
         classification: None,
+        related_family_id: None,
         id: pe.event_id,
         tree_id,
         event_type: pe.event_type,
@@ -6423,6 +6424,7 @@ mod geometry_golden_tests {
                         place_id: None,
                         person_id: Some(pid),
                         family_id: None,
+                        related_family_id: None,
                         description: None,
                         created_at: epoch(),
                         updated_at: epoch(),
@@ -6582,6 +6584,7 @@ mod geometry_golden_tests {
                 place_id: None,
                 person_id: None,
                 family_id: Some(family),
+                related_family_id: None,
                 description: None,
                 created_at: epoch(),
                 updated_at: epoch(),

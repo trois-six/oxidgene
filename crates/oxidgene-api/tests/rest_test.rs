@@ -5025,3 +5025,63 @@ async fn kept_gedcom_structures_survive_import_export_and_duplication() {
     assert!(copied.contains("1 REFN 42\n"), "{copied}");
     assert!(copied.contains("1 _SUB value\n"), "{copied}");
 }
+
+/// An individual event names a family it does not belong to (its adoptive
+/// family); a family event may not, and the refusal reads the same over GraphQL.
+#[tokio::test]
+async fn test_event_related_family() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+    let family_id = create_family_via_api(&app, &tree_id, &[], &[]).await;
+
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "adoption",
+            "person_id": person_id,
+            "related_family_id": family_id,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["related_family_id"], family_id);
+    assert!(body["family_id"].is_null());
+    let event_id = body["id"].as_str().unwrap().to_string();
+
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        Some(serde_json::json!({ "related_family_id": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["related_family_id"].is_null());
+
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "marriage",
+            "family_id": family_id,
+            "related_family_id": family_id,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error", "{body}");
+
+    // The same family event without the related family is accepted.
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({ "event_type": "marriage", "family_id": family_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+}

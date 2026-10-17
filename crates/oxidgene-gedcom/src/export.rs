@@ -14,8 +14,8 @@ use oxidged::gedzip::GedzipWriter;
 use oxidged::model::{
     Address as GedAddress, Age as GedAge, Association as GedAssociation, CallNumber, Certainty,
     ChildLink, Citation as GedCitation, CitationData, CitationSource, Dataset, Date, EnumList,
-    Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, FileForm, Header,
-    HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
+    Event as GedEvent, EventFamily, EventKind, EventSpouse, Family as GedFamily, File, FileForm,
+    Header, HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
     MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
     Note as GedNote, Ordinance, OrdinanceKind, Pedigree as GedPedigree, Phrased, Place as GedPlace,
     PlaceDetail, Record, Repository as GedRepository, RepositoryCitation, Restriction, Schema,
@@ -289,7 +289,20 @@ pub fn export_gedcom(
         media,
         notes,
     );
-    let assoc_by_person = associations(events, event_witnesses, &xrefs);
+    // GEDCOM 7.x writes a witness beneath its event; a 5.5.1 file beneath
+    // an individual record. A GEDZIP's `gedcom.ged` is 7.0 whatever the
+    // destination.
+    let under_events = match target {
+        ExportTarget::Gedzip { .. } => true,
+        ExportTarget::Gedcom => choices.destination.target().version().is_v7(),
+    };
+    let linked: HashSet<Uuid> = media_links.iter().filter_map(|ml| ml.event_id).collect();
+    let ordinances: HashSet<Uuid> = events
+        .iter()
+        .filter(|evt| ordinance_written_as(evt, linked.contains(&evt.id)).is_some())
+        .map(|evt| evt.id)
+        .collect();
+    let witnessed = associations(events, event_witnesses, &ordinances, under_events, &xrefs);
     let index = ExportIndex {
         place_map: places.iter().map(|p| (p.id, p)).collect(),
         media_by_id: media.iter().map(|m| (m.id, m)).collect(),
@@ -297,7 +310,8 @@ pub fn export_gedcom(
         names_by_person: group_by(person_names, |pn| Some(pn.person_id)),
         events_by_person: group_by(events, |evt| evt.person_id),
         events_by_family: group_by(events, |evt| evt.family_id),
-        assoc_by_person,
+        assoc_by_person: witnessed.by_person,
+        assoc_by_event: witnessed.by_event,
         cites_by_person: group_by(citations, |cite| cite.person_id),
         cites_by_event: group_by(citations, |cite| cite.event_id),
         // A family's own citations: those on its events are written there.
@@ -552,7 +566,26 @@ fn group_by<T>(rows: &[T], key: impl Fn(&T) -> Option<Uuid>) -> HashMap<Uuid, Ve
     grouped
 }
 
-/// The `ASSO` structures each individual record carries for the witnesses.
+/// The `ASSO` structures the witnesses are written as, by where each is
+/// written: beneath its own individual record, or beneath the event it
+/// witnesses.
+#[derive(Default)]
+struct Associations {
+    /// The `ASSO` of each individual record (see [`associations`]).
+    by_person: HashMap<Uuid, Vec<GedAssociation>>,
+    /// The `ASSO` beneath each event, which GEDCOM 7.x permits of an
+    /// individual's and a family's events alike.
+    by_event: HashMap<Uuid, Vec<GedAssociation>>,
+}
+
+/// The `ASSO` structures the witnesses are written as.
+///
+/// GEDCOM 7.x permits `ASSO` beneath any event of an individual or a family,
+/// pointing at the witness: under `under_events`, each witness of an event
+/// that is not written as an ordinance is written there, with its relation
+/// (the writer makes the 7.0 `ROLE` of it). An ordinance has no `ASSO` in
+/// any version, so its witnesses, and every witness under a 5.5.1 file,
+/// are written beneath an individual record, as described below.
 ///
 /// GEDCOM 5.5.1 only allows `ASSO` as a level-1 substructure of an INDI
 /// record, pointing at an individual (confirmed against real-world Gramps
@@ -578,26 +611,44 @@ fn group_by<T>(rows: &[T], key: impl Fn(&T) -> Option<Uuid>) -> HashMap<Uuid, Ve
 fn associations(
     events: &[Event],
     event_witnesses: &[EventWitness],
+    ordinances: &HashSet<Uuid>,
+    under_events: bool,
     xrefs: &Xrefs,
-) -> HashMap<Uuid, Vec<GedAssociation>> {
+) -> Associations {
     let witnesses_by_event = group_by(event_witnesses, |w| Some(w.event_id));
-    let mut assoc_by_person: HashMap<Uuid, Vec<GedAssociation>> = HashMap::new();
+    let mut associations = Associations::default();
     for evt in events {
         for w in witnesses_by_event.get(&evt.id).into_iter().flatten() {
+            let relation = w.relation.as_deref().map(Text::from);
+            if under_events && !ordinances.contains(&evt.id) {
+                if let Some(witness) = xrefs.person.get(&w.person_id) {
+                    associations
+                        .by_event
+                        .entry(evt.id)
+                        .or_default()
+                        .push(GedAssociation {
+                            individual: Some(*witness),
+                            relation,
+                            ..GedAssociation::default()
+                        });
+                }
+                continue;
+            }
             let Some((owner, target)) = association_target(evt, w, xrefs) else {
                 continue;
             };
-            assoc_by_person
+            associations
+                .by_person
                 .entry(owner)
                 .or_default()
                 .push(GedAssociation {
                     individual: Some(target),
-                    relation: w.relation.as_deref().map(Text::from),
+                    relation,
                     ..GedAssociation::default()
                 });
         }
     }
-    assoc_by_person
+    associations
 }
 
 /// The person whose record carries a witness's `ASSO`, and the xref it points
@@ -860,6 +911,7 @@ struct ExportIndex<'a> {
     events_by_person: HashMap<Uuid, Vec<&'a Event>>,
     events_by_family: HashMap<Uuid, Vec<&'a Event>>,
     assoc_by_person: HashMap<Uuid, Vec<GedAssociation>>,
+    assoc_by_event: HashMap<Uuid, Vec<GedAssociation>>,
     cites_by_person: HashMap<Uuid, Vec<&'a Citation>>,
     cites_by_event: HashMap<Uuid, Vec<&'a Citation>>,
     cites_by_family: HashMap<Uuid, Vec<&'a Citation>>,
@@ -1210,12 +1262,20 @@ impl ExportIndex<'_> {
             .children_by_family
             .get(&fam.id)
             .map(|cs| {
-                let mut sorted: Vec<&&FamilyChild> = cs.iter().collect();
-                sorted.sort_by_key(|fc| fc.sort_order);
-                sorted
+                // Ties in `sort_order` fall back to the children's xrefs.
+                let mut sorted: Vec<(i32, XrefId)> = cs
                     .iter()
-                    .filter_map(|fc| self.xrefs.person.get(&fc.person_id).copied())
-                    .map(IndividualRef::new)
+                    .filter_map(|fc| {
+                        Some((
+                            fc.sort_order,
+                            self.xrefs.person.get(&fc.person_id).copied()?,
+                        ))
+                    })
+                    .collect();
+                sorted.sort_by_key(|(order, xref)| (*order, *xref));
+                sorted
+                    .into_iter()
+                    .map(|(_, xref)| IndividualRef::new(xref))
                     .collect()
             })
             .unwrap_or_default();
@@ -1226,7 +1286,16 @@ impl ExportIndex<'_> {
                 ordinances.push(ordinance);
                 continue;
             }
-            let mut event = to_ged_detail(evt, self, warnings);
+            // A family's count (NCHI) and fact (FACT) are attributes, written as
+            // their line value with their TYPE beside it, as an individual's
+            // are, not as a generic event. A family's other attributes (PROP)
+            // are not permitted on its record and stay generic events.
+            let mut event = match event_type_to_attribute(evt.event_type) {
+                Some(attribute @ (EventKind::ChildrenCount | EventKind::Fact)) => {
+                    to_ged_attribute_detail(evt, attribute, self, warnings)
+                }
+                _ => to_ged_detail(evt, self, warnings),
+            };
             self.spouse_ages(&mut event, evt, [husband, wife], warnings);
             events.push(event);
         }
@@ -1393,48 +1462,29 @@ impl ExportIndex<'_> {
     /// writes. `None` for an event that is not an ordinance, or is one on the
     /// other record.
     fn ordinance_of(&self, evt: &Event, warnings: &mut Vec<String>) -> Option<Ordinance> {
-        let kind = ordinance_kind(evt.event_type)?;
-        if evt.family_id.is_some() != (kind == OrdinanceKind::SpouseSealing) {
-            return None;
-        }
         let has_media = self
             .mlinks_by_event
             .get(&evt.id)
             .is_some_and(|links| !links.is_empty());
-        if non_blank(evt.description.as_deref()).is_some()
-            || evt.age.is_some()
-            || evt.agency.is_some()
-            || evt.cause.is_some()
-            || evt.classification.is_some()
-            || !evt.spouse_ages.is_empty()
-            || has_media
-        {
-            return None;
-        }
-        let date = event_date(evt);
-        let place = self.event_place(evt);
-        let has_notes = self
-            .notes_by_event
-            .get(&evt.id)
-            .is_some_and(|notes| !notes.is_empty());
-        let has_citations = self
-            .cites_by_event
-            .get(&evt.id)
-            .is_some_and(|cites| !cites.is_empty());
-        // An ordinance holding nothing of its own is a structure with neither
-        // payload nor substructure, which GEDCOM 7 leaves out: the event is
-        // kept as the generic event its type names.
-        if date.is_none() && place.is_none() && !has_notes && !has_citations {
-            return None;
-        }
+        let kind = ordinance_written_as(evt, has_media)?;
         let mut ordinance = Ordinance::new(kind);
-        ordinance.date = date;
-        ordinance.place = place;
+        ordinance.date = event_date(evt);
+        ordinance.place = self.event_place(evt);
+        if kind == OrdinanceKind::ChildSealing {
+            ordinance.family = self.related_family_xref(evt);
+        }
         ordinance.citations = self
             .citations(self.cites_by_event.get(&evt.id), warnings)
             .into();
         ordinance.notes = self.all_notes(self.notes_by_event.get(&evt.id));
         Some(ordinance)
+    }
+
+    /// The `FAMC` an individual event names without belonging to it is
+    /// written with: the export xref of its related family. `None` when that
+    /// family is not exported, which leaves the pointer out.
+    fn related_family_xref(&self, evt: &Event) -> Option<XrefId> {
+        self.xrefs.family.get(&evt.related_family_id?).copied()
     }
 
     /// What an event and an attribute write alike: its date, place,
@@ -1456,10 +1506,16 @@ impl ExportIndex<'_> {
                 .flatten()
                 .copied(),
         );
-        if !notes.is_empty() || !multimedia.is_empty() {
+        let associations = self
+            .assoc_by_event
+            .get(&evt.id)
+            .cloned()
+            .unwrap_or_default();
+        if !notes.is_empty() || !multimedia.is_empty() || !associations.is_empty() {
             let detail = event.detail_mut();
             detail.notes = notes;
             detail.multimedia = multimedia;
+            detail.associations = associations;
         }
         event
     }
@@ -1828,26 +1884,35 @@ fn to_ged_family_links(
         }
         xref
     };
-    let spouse_links = fams_by_person
+    // Links are written in the order of the families' own xrefs (`F1`,
+    // `F2`, ...), which is the order the families were numbered in. Their
+    // rows were created in no fixed order, so without this a re-import would
+    // reorder them.
+    let mut spouse_links: Vec<(XrefId, SpouseLink)> = fams_by_person
         .get(&person_id)
         .into_iter()
         .flatten()
-        .filter_map(|fs| found(fs.family_id, "spouse"))
-        .map(SpouseLink::new)
+        .filter_map(|fs| found(fs.family_id, "spouse").map(|x| (x, SpouseLink::new(x))))
         .collect();
-    let child_links = famc_by_person
+    spouse_links.sort_by_key(|(xref, _)| *xref);
+    let mut child_links: Vec<(XrefId, ChildLink)> = famc_by_person
         .get(&person_id)
         .into_iter()
         .flatten()
         .filter_map(|fc| {
-            let mut link = ChildLink::new(found(fc.family_id, "parental")?);
+            let xref = found(fc.family_id, "parental")?;
+            let mut link = ChildLink::new(xref);
             if let Some(pedigree) = convert_child_type_to_pedigree(fc.child_type) {
                 link.detail_mut().pedigree = Some(Phrased::new(pedigree));
             }
-            Some(link)
+            Some((xref, link))
         })
         .collect();
-    (spouse_links, child_links)
+    child_links.sort_by_key(|(xref, _)| *xref);
+    (
+        spouse_links.into_iter().map(|(_, link)| link).collect(),
+        child_links.into_iter().map(|(_, link)| link).collect(),
+    )
 }
 
 /// The inverse of `import`'s `convert_pedigree`. `ChildType::Step` and
@@ -1952,21 +2017,22 @@ fn event_date(evt: &Event) -> Option<Date> {
 
 /// The GEDCOM tag an event type is written under: its own wherever GEDCOM
 /// 5.5.1 and 7.0 define one, else the generic `EVEN`, which
-/// [`even_type_label`] names. `sex` picks between `BARM` and `BASM`, the one
-/// pair of tags a single OxidGene type covers.
+/// [`even_type_label`] names. A bar or bat mitzvah is written under the tag
+/// it was read from (`BARM` or `BASM`), so it does not depend on the sex of
+/// the person.
 ///
 /// Neither version defines `MILI` (an extension some software writes) nor
 /// `SEP` (which GeneWeb writes), so a military service and a separation are
 /// an `EVEN` any reader understands.
-fn convert_event_type(et: EventType, sex: Option<Sex>) -> EventKind {
+fn convert_event_type(et: EventType) -> EventKind {
     match et {
         EventType::Birth => EventKind::Birth,
         EventType::Death => EventKind::Death,
         EventType::Baptism => EventKind::Baptism,
         EventType::Confirmation => EventKind::Confirmation,
         EventType::FirstCommunion => EventKind::FirstCommunion,
-        EventType::BarBatMitzvah if sex == Some(Sex::Female) => EventKind::BasMitzvah,
         EventType::BarBatMitzvah => EventKind::BarMitzvah,
+        EventType::BasMitzvah => EventKind::BasMitzvah,
         EventType::Burial => EventKind::Burial,
         EventType::Cremation => EventKind::Cremation,
         EventType::Graduation => EventKind::Graduation,
@@ -2139,10 +2205,7 @@ fn to_ged_note(text: &str) -> GedNote {
 }
 
 fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -> GedEvent {
-    let sex = evt
-        .person_id
-        .and_then(|id| index.sex_by_person.get(&id).copied());
-    let mut kind = convert_event_type(evt.event_type, sex);
+    let mut kind = convert_event_type(evt.event_type);
     // A tag of its own says what the event is, and its `TYPE` refines it
     // with the description ("College" under a `GRAD`); a generic `EVEN`
     // needs its `TYPE` to say what it is. An event whose tag GEDCOM does not
@@ -2166,10 +2229,7 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
     // GEDCOM 5.5.1 only allows `ASSO` directly under an INDIVIDUAL_RECORD,
     // and readers (Gramps included) reject it as a substructure of an event.
     //
-    // An adoption event's adoptive family is not captured on import (see
-    // `import_event_detail`'s comment: `Event.family_id` can't be reused
-    // for it without the event masquerading as a family-level event
-    // elsewhere), so there's nothing to round-trip into its `FAMC` here.
+    let adoption = kind == EventKind::Adoption;
     let mut event = GedEvent {
         kind,
         value: value.map(Text::from).unwrap_or_default(),
@@ -2180,14 +2240,50 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
     // A family event's ages are its spouses' own.
     let age = to_ged_age(evt.age.as_deref()).filter(|_| evt.family_id.is_none());
     let agency = evt.agency.as_deref().map(Text::from);
-    if classification.is_some() || cause.is_some() || age.is_some() || agency.is_some() {
+    // An adoption names the adoptive family beneath it (`FAMC`).
+    let adoptive_family = adoption
+        .then(|| index.related_family_xref(evt))
+        .flatten()
+        .map(|family| EventFamily {
+            family: Some(family),
+            ..EventFamily::default()
+        });
+    if classification.is_some()
+        || cause.is_some()
+        || age.is_some()
+        || agency.is_some()
+        || adoptive_family.is_some()
+    {
         let detail = event.detail_mut();
         detail.classification = classification;
         detail.cause = cause;
         detail.age = age;
         detail.agency = agency;
+        detail.family = adoptive_family;
     }
     event
+}
+
+/// The ordinance `evt` is written as, when it is one: a `BAPL`, `CONL`,
+/// `ENDL`, `INIL` or `SLGC` of a person, or an `SLGS` of a family, holding
+/// nothing an ordinance has no room for. `has_media` says whether it links
+/// media.
+fn ordinance_written_as(evt: &Event, has_media: bool) -> Option<OrdinanceKind> {
+    let kind = ordinance_kind(evt.event_type)?;
+    if evt.family_id.is_some() != (kind == OrdinanceKind::SpouseSealing) {
+        return None;
+    }
+    if non_blank(evt.description.as_deref()).is_some()
+        || evt.age.is_some()
+        || evt.agency.is_some()
+        || evt.cause.is_some()
+        || evt.classification.is_some()
+        || !evt.spouse_ages.is_empty()
+        || has_media
+    {
+        return None;
+    }
+    Some(kind)
 }
 
 /// Whether GEDCOM puts an event or an attribute of this kind on a family's
@@ -3063,6 +3159,7 @@ mod tests {
             place_id: None,
             person_id: Some(person.id),
             family_id: None,
+            related_family_id: None,
             description: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -3134,6 +3231,7 @@ mod tests {
             place_id: None,
             person_id: Some(person.id),
             family_id: None,
+            related_family_id: None,
             description: Some("Baker, Miller".to_string()),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

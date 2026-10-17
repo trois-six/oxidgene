@@ -155,7 +155,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ("family", "privacy"),
         (
             "event",
-            "date_qualifier, date_value2, calendar, cause, age, agency, classification",
+            "date_qualifier, date_value2, calendar, cause, age, agency, classification, related_family_id",
         ),
         ("source", "agency"),
         ("note", "repository_id"),

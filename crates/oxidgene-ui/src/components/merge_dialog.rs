@@ -1031,6 +1031,7 @@ mod tests {
             place_id: place,
             person_id: None,
             family_id: None,
+            related_family_id: None,
             description: None,
             created_at: now,
             updated_at: now,

@@ -188,6 +188,8 @@ pub enum EventType {
     FirstCommunion,
     #[sea_orm(string_value = "bar_bat_mitzvah")]
     BarBatMitzvah,
+    #[sea_orm(string_value = "bas_mitzvah")]
+    BasMitzvah,
     #[sea_orm(string_value = "military_service")]
     MilitaryService,
     #[sea_orm(string_value = "burial")]
@@ -345,6 +347,7 @@ impl From<enums::EventType> for EventType {
             enums::EventType::Confirmation => Self::Confirmation,
             enums::EventType::FirstCommunion => Self::FirstCommunion,
             enums::EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            enums::EventType::BasMitzvah => Self::BasMitzvah,
             enums::EventType::MilitaryService => Self::MilitaryService,
             enums::EventType::Burial => Self::Burial,
             enums::EventType::Cremation => Self::Cremation,
@@ -430,6 +433,7 @@ impl From<EventType> for enums::EventType {
             EventType::Confirmation => Self::Confirmation,
             EventType::FirstCommunion => Self::FirstCommunion,
             EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            EventType::BasMitzvah => Self::BasMitzvah,
             EventType::MilitaryService => Self::MilitaryService,
             EventType::Burial => Self::Burial,
             EventType::Cremation => Self::Cremation,

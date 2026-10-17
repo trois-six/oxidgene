@@ -44,6 +44,12 @@ pub struct Event {
     pub person_id: Option<Uuid>,
     /// Set for family events.
     pub family_id: Option<Uuid>,
+    /// For an individual event, a family it names without belonging to it:
+    /// the adoptive family of an adoption (GEDCOM `ADOP.FAMC`), the family a
+    /// child is sealed to (`SLGC.FAMC`). Never set with `family_id`, which
+    /// makes an event a family's own.
+    #[serde(default)]
+    pub related_family_id: Option<Uuid>,
     pub description: Option<String>,
     /// What an attribute's value is, when the record says it apart from the
     /// value: GEDCOM's `TYPE` beneath a `FACT`, an `IDNO`, an `OCCU` and the
@@ -238,6 +244,7 @@ mod tests {
             place_id: None,
             person_id: None,
             family_id: None,
+            related_family_id: None,
             description: None,
             classification: None,
             created_at: now,

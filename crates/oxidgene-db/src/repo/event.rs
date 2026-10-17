@@ -25,13 +25,15 @@ pub struct EventFilter {
 
 /// An event's less common details, GEDCOM's event detail structure: the
 /// cause, the age the record gives (already in canonical form), the
-/// responsible agency and the classification an attribute's value carries.
+/// responsible agency, the classification an attribute's value carries and
+/// the family an individual event names without belonging to it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventDetails {
     pub cause: Option<String>,
     pub age: Option<String>,
     pub agency: Option<String>,
     pub classification: Option<String>,
+    pub related_family_id: Option<Uuid>,
 }
 
 /// The [`EventDetails`] an update changes: `None` keeps a field and
@@ -42,6 +44,7 @@ pub struct EventDetailsPatch {
     pub age: Option<Option<String>>,
     pub agency: Option<Option<String>>,
     pub classification: Option<Option<String>>,
+    pub related_family_id: Option<Option<Uuid>>,
 }
 
 /// Writes the detail fields `details` changes into `active`; a field it
@@ -58,6 +61,9 @@ fn apply_details(active: &mut ActiveModel, details: EventDetailsPatch) {
     }
     if let Some(classification) = details.classification {
         active.classification = Set(classification);
+    }
+    if let Some(related_family_id) = details.related_family_id {
+        active.related_family_id = Set(related_family_id);
     }
 }
 
@@ -188,6 +194,7 @@ impl EventRepo {
             age: Set(details.age),
             agency: Set(details.agency),
             classification: Set(details.classification),
+            related_family_id: Set(details.related_family_id),
             place_id: Set(place_id),
             person_id: Set(person_id),
             family_id: Set(family_id),
@@ -281,6 +288,7 @@ fn into_domain(m: event::Model) -> Event {
         place_id: m.place_id,
         person_id: m.person_id,
         family_id: m.family_id,
+        related_family_id: m.related_family_id,
         description: m.description,
         created_at: m.created_at,
         updated_at: m.updated_at,

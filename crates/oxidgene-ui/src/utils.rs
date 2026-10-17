@@ -137,6 +137,7 @@ event_types! {
     Confirmation => "confirmation",
     FirstCommunion => "first_communion",
     BarBatMitzvah => "bar_bat_mitzvah",
+    BasMitzvah => "bas_mitzvah",
     Burial => "burial",
     Cremation => "cremation",
     Graduation => "graduation",

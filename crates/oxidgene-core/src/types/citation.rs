@@ -81,6 +81,7 @@ mod tests {
             place_id: None,
             person_id: person,
             family_id: family,
+            related_family_id: None,
             description: None,
             created_at: now,
             updated_at: now,

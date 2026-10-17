@@ -397,6 +397,9 @@ pub struct CreateEventInput {
     /// What an attribute's value is, when the record says it apart from the
     /// value (its `TYPE`); blank for none.
     pub classification: Option<String>,
+    /// For an individual event, a family it names without belonging to it
+    /// (an adoptive family, the family a child is sealed to).
+    pub related_family_id: Option<String>,
     /// For a family event, the age its record gives for each spouse named.
     pub spouse_ages: Option<Vec<SpouseAgeInput>>,
     pub place_id: Option<String>,
@@ -417,6 +420,8 @@ pub struct UpdateEventInput {
     pub age: MaybeUndefined<String>,
     pub agency: MaybeUndefined<String>,
     pub classification: MaybeUndefined<String>,
+    /// The family an individual event names without belonging to it.
+    pub related_family_id: MaybeUndefined<String>,
     /// Replaces a family event's spouse ages when given; an empty list
     /// clears them.
     pub spouse_ages: Option<Vec<SpouseAgeInput>>,
@@ -468,6 +473,7 @@ impl TryFrom<CreateEventInput> for crate::service::event::NewEvent {
             age: input.age,
             agency: input.agency,
             classification: input.classification,
+            related_family_id: opt_uuid(input.related_family_id)?,
             spouse_ages: spouse_ages(input.spouse_ages.unwrap_or_default())?,
             place_id: opt_uuid(input.place_id)?,
             person_id: opt_uuid(input.person_id)?,
@@ -491,6 +497,7 @@ impl TryFrom<UpdateEventInput> for crate::service::event::EventPatch {
             age: patch(input.age),
             agency: patch(input.agency),
             classification: patch(input.classification),
+            related_family_id: patch_id(input.related_family_id)?,
             spouse_ages: input.spouse_ages.map(spouse_ages).transpose()?,
             place_id: patch_id(input.place_id)?,
             description: patch(input.description),

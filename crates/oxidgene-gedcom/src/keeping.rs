@@ -4,7 +4,7 @@
 //! module decides what the identifiers mean on each side. See `docs/api.md`,
 //! "Kept GEDCOM".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use oxidged::model::Dataset;
@@ -127,10 +127,10 @@ fn header_submitter(original: &[Structure]) -> Option<String> {
     submitter.pointer().map(|x| x.as_str().to_owned())
 }
 
-/// Whether a structure is a record the comparison covers: one with an xref,
-/// other than the header and the trailer.
+/// Whether a structure is a record the comparison covers: any record other
+/// than the header and the trailer, with an xref or without one.
 fn is_compared(record: &Structure) -> bool {
-    record.xref.is_some() && !matches!(record.tag.as_str(), "HEAD" | "TRLR")
+    !matches!(record.tag.as_str(), "HEAD" | "TRLR")
 }
 
 /// The kept rows of each original record against its exported counterpart.
@@ -154,26 +154,45 @@ fn compare(
         };
         exported_by_id.entry(id).or_insert(record);
     }
+    let witnessed = witnesses_by_family(exported, &resolve_exported);
     let mut rows = Vec::new();
     for record in original.iter().filter(|r| is_compared(r)) {
-        let Some(&(kind, id)) = record.xref.as_ref().and_then(|x| ids.get(x.as_str())) else {
-            continue;
+        // A record without an xref has no entity and no pointer names it: it
+        // is kept whole under a fresh id, and written without an xref.
+        let (kind, id) = match record.xref.as_ref().and_then(|x| ids.get(x.as_str())) {
+            Some(&entity) => entity,
+            None => (KeptEntityKind::Record, Uuid::now_v7()),
         };
-        let nodes = if kind == KeptEntityKind::Record {
-            kept::keep_whole(record, &resolve_original)
-                .into_iter()
-                .collect::<Vec<_>>()
-        } else {
-            let Some(partner) = exported_by_id.get(&id) else {
-                continue;
-            };
-            kept::diff(
-                record,
-                partner,
-                &resolve_original,
-                &resolve_exported,
-                record.tag.as_str(),
-            )
+        let partner = match kind {
+            KeptEntityKind::Record => None,
+            _ => exported_by_id.get(&id),
+        };
+        let (kind, nodes) = match partner {
+            Some(partner) => (
+                kind,
+                kept::diff_witnessed(
+                    record,
+                    partner,
+                    &resolve_original,
+                    &resolve_exported,
+                    record.tag.as_str(),
+                    witnessed.get(&id).unwrap_or(&HashSet::new()),
+                ),
+            ),
+            // A record the export writes nothing for (a shared note nobody
+            // points at, a record OxidGene has no entity for) is kept whole.
+            // Its row keeps the record's entity id, so pointers to it resolve,
+            // and its own tag, which is what the choices of an export act on.
+            None => (
+                KeptEntityKind::Record,
+                kept::keep_whole(record, &resolve_original)
+                    .map(|mut node| {
+                        node.xref = record.xref.is_some();
+                        node
+                    })
+                    .into_iter()
+                    .collect(),
+            ),
         };
         // The submitter's row is kept even empty: a pointer to the tree's
         // submitter, kept anywhere in the file, finds the submitter through it.
@@ -190,6 +209,36 @@ fn compare(
         });
     }
     rows
+}
+
+/// The witnesses each family holds in the export, by the family's entity id:
+/// the individuals whose record carries an `ASSO` or `_ASSO` to the family.
+/// GEDCOM 5.5.1 writes a family event's witness beneath the witness's own
+/// record, not beneath the family, so the family's record alone does not show
+/// them.
+fn witnesses_by_family(
+    exported: &[Structure],
+    resolve_exported: &dyn Fn(&str) -> Option<Uuid>,
+) -> HashMap<Uuid, HashSet<Uuid>> {
+    let mut witnesses: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
+    for record in exported.iter().filter(|r| r.tag.as_str() == "INDI") {
+        let Some(person) = record
+            .xref
+            .as_ref()
+            .and_then(|x| resolve_exported(x.as_str()))
+        else {
+            continue;
+        };
+        for child in &record.substructures {
+            if !matches!(child.tag.as_str(), "ASSO" | "_ASSO") {
+                continue;
+            }
+            if let Some(family) = child.pointer().and_then(|p| resolve_exported(p.as_str())) {
+                witnesses.entry(family).or_default().insert(person);
+            }
+        }
+    }
+    witnesses
 }
 
 /// A kept row an export writes, its nodes parsed.
@@ -228,13 +277,24 @@ pub(crate) fn put_back(
         .iter()
         .filter(|row| row.kind == KeptEntityKind::Record)
     {
-        let (Some(node), Some(xref)) = (row.nodes.first(), xref_of(row.id)) else {
-            left_out += row.nodes.len();
+        let Some(node) = row.nodes.first() else {
             continue;
+        };
+        // A record the file gave no xref is written without one.
+        let xref = if node.xref {
+            match xref_of(row.id) {
+                Some(xref) => Some(xref),
+                None => {
+                    left_out += 1;
+                    continue;
+                }
+            }
+        } else {
+            None
         };
         match kept::to_structure(node, &xref_of) {
             Some(mut record) => {
-                record.xref = Some(Xref::from(xref));
+                record.xref = xref.map(Xref::from);
                 insert_before_trailer(structures, record);
             }
             None => left_out += 1,
@@ -362,9 +422,9 @@ impl Table {
             let id = if id.is_nil() { submitter } else { *id };
             table.insert(xref.clone(), id);
         }
-        let records = chosen
-            .iter()
-            .filter(|row| row.kind == KeptEntityKind::Record);
+        let records = chosen.iter().filter(|row| {
+            row.kind == KeptEntityKind::Record && row.nodes.first().is_some_and(|node| node.xref)
+        });
         for (n, row) in records.enumerate() {
             table.insert(format!("@K{}@", n + 1), row.id);
         }

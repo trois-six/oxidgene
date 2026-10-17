@@ -207,6 +207,7 @@ enum Event {
     PlaceId,
     PersonId,
     FamilyId,
+    RelatedFamilyId,
     Description,
     CreatedAt,
     UpdatedAt,
@@ -802,6 +803,7 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(Event::PlaceId))
                 .col(uuid_null(Event::PersonId))
                 .col(uuid_null(Event::FamilyId))
+                .col(uuid_null(Event::RelatedFamilyId))
                 .col(string_null(Event::Description))
                 .col(timestamp_with_time_zone(Event::CreatedAt))
                 .col(timestamp_with_time_zone(Event::UpdatedAt))
@@ -834,6 +836,13 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .to(Family::Table, Family::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_event_related_family")
+                        .from(Event::Table, Event::RelatedFamilyId)
+                        .to(Family::Table, Family::Id)
+                        .on_delete(ForeignKeyAction::SetNull),
+                )
                 .to_owned(),
         )
         .await?;
@@ -852,6 +861,15 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .name("idx_event_family_id")
                 .table(Event::Table)
                 .col(Event::FamilyId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_event_related_family_id")
+                .table(Event::Table)
+                .col(Event::RelatedFamilyId)
                 .to_owned(),
         )
         .await?;

@@ -521,6 +521,7 @@ pub enum GqlEventType {
     Confirmation,
     FirstCommunion,
     BarBatMitzvah,
+    BasMitzvah,
     MilitaryService,
     Burial,
     Cremation,
@@ -604,6 +605,7 @@ impl From<oxidgene_core::EventType> for GqlEventType {
             oxidgene_core::EventType::Confirmation => Self::Confirmation,
             oxidgene_core::EventType::FirstCommunion => Self::FirstCommunion,
             oxidgene_core::EventType::BarBatMitzvah => Self::BarBatMitzvah,
+            oxidgene_core::EventType::BasMitzvah => Self::BasMitzvah,
             oxidgene_core::EventType::MilitaryService => Self::MilitaryService,
             oxidgene_core::EventType::Burial => Self::Burial,
             oxidgene_core::EventType::Cremation => Self::Cremation,
@@ -689,6 +691,7 @@ impl From<GqlEventType> for oxidgene_core::EventType {
             GqlEventType::Confirmation => Self::Confirmation,
             GqlEventType::FirstCommunion => Self::FirstCommunion,
             GqlEventType::BarBatMitzvah => Self::BarBatMitzvah,
+            GqlEventType::BasMitzvah => Self::BasMitzvah,
             GqlEventType::MilitaryService => Self::MilitaryService,
             GqlEventType::Burial => Self::Burial,
             GqlEventType::Cremation => Self::Cremation,
@@ -1265,6 +1268,8 @@ pub struct GqlEvent {
     /// What an attribute's value is, when the record says it apart from the
     /// value (its `TYPE`).
     pub classification: Option<String>,
+    /// For an individual event, the family it names without belonging to it.
+    pub related_family_id: Option<ID>,
     /// For a family event, the ages its record gives for the spouses.
     pub spouse_ages: Vec<GqlSpouseAge>,
     pub place_id: Option<ID>,
@@ -1345,6 +1350,7 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             age: e.age,
             agency: e.agency,
             classification: e.classification,
+            related_family_id: e.related_family_id.map(|id| ID(id.to_string())),
             spouse_ages: e.spouse_ages.into_iter().map(GqlSpouseAge::from).collect(),
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),
