@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:00:00Z }
 ---
 
 
@@ -112,6 +112,7 @@ moving everything it carried onto the kept person:
 | Media links | Re-pointed; dropped when the kept person is already linked to that media |
 | Tree SOSA root and "self" person | Follow the duplicate onto the kept person |
 | Distinct confirmations | The duplicate's move to the kept person — whoever differs from one differs from the other — and the pair joining the two is dropped |
+| Kept GEDCOM | The duplicate's rows move to the kept person (see [GedcomKept](#gedcomkept)) |
 
 A merge is refused when both are the same person, when they are spouses of the
 same family, or when one is an ancestor of the other: each would leave somebody
@@ -575,6 +576,35 @@ every relative URL and every image (see [Cross-cutting Rules
 §7](cross-cutting.md#7-privacy-and-anonymization)), and stores every line
 break as `\n`.
 
+### GedcomKept
+
+The GEDCOM structures an import found that the model has no place for,
+kept per entity so that an export writes them back (see [API Contract,
+Kept GEDCOM](api.md#kept-gedcom)). One row holds the kept nodes of one
+entity; it is not a domain record a user edits.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `entity_kind` | String | `person`, `family`, `source`, `repository`, `media`, `submitter` or `record` |
+| `entity_id` | UUID v7 | The person, family, source, repository or medium; the tree's id for its submitter; for a `record`, an id of its own, which the pointers to that record name. No foreign key: one column names several tables |
+| `nodes` | Text | The kept nodes, as `oxidgene_gedcom::kept::to_json` writes them |
+| `created_at` | DateTime | Set at import |
+
+Indexes: `tree_id`, and `(entity_kind, entity_id)`.
+
+Lifecycle:
+
+- **Import** inserts the rows in the import's transaction, after the entities
+  they name.
+- **Tree duplication** carries them to the copy.
+- **Person merge** moves the duplicate's rows onto the kept person, in the
+  merge's transaction.
+- **Purge** removes them with their tree (cascade).
+
+Editing an entity leaves its rows in place.
+
 ### Ancestry traversal (no table)
 
 There is no closure table. Ancestor and descendant traversal is a recursive
@@ -758,6 +788,13 @@ erDiagram
     Media ||--o{ Vignette : "cropped into"
     Person ||--o{ Vignette : "shown in"
     Event ||--o{ Vignette : "illustrated by"
+
+    Tree ||--o{ GedcomKept : "kept GEDCOM"
+    Person ||--o{ GedcomKept : "kept GEDCOM"
+    Family ||--o{ GedcomKept : "kept GEDCOM"
+    Source ||--o{ GedcomKept : "kept GEDCOM"
+    Repository ||--o{ GedcomKept : "kept GEDCOM"
+    Media ||--o{ GedcomKept : "kept GEDCOM"
 
 ```
 

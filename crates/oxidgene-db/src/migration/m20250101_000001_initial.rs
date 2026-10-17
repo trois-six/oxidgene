@@ -21,6 +21,7 @@ impl MigrationTrait for Migration {
         create_sources(manager).await?;
         create_media(manager).await?;
         create_notes_and_vignettes(manager).await?;
+        create_gedcom_kept(manager).await?;
         create_jobs_and_search(manager).await?;
         create_traversal_indexes(manager).await?;
         create_projections(manager).await?;
@@ -50,6 +51,7 @@ impl MigrationTrait for Migration {
             BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
             MediaTag::Table.into_table_ref(),
+            GedcomKept::Table.into_table_ref(),
             Vignette::Table.into_table_ref(),
             Note::Table.into_table_ref(),
             MediaLink::Table.into_table_ref(),
@@ -357,6 +359,17 @@ enum PersonDenorm {
     Payload,
     SchemaVersion,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum GedcomKept {
+    Table,
+    Id,
+    TreeId,
+    EntityKind,
+    EntityId,
+    Nodes,
+    CreatedAt,
 }
 
 #[derive(DeriveIden)]
@@ -1451,6 +1464,53 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                         .to(Media::Table, Media::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
+}
+
+/// GEDCOM structures kept per entity, written back on export (docs/api.md,
+/// "Kept GEDCOM"). The entity is named by its kind and id, with no foreign
+/// key: one column names several tables.
+async fn create_gedcom_kept(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(GedcomKept::Table)
+                .if_not_exists()
+                .col(uuid(GedcomKept::Id).primary_key())
+                .col(uuid(GedcomKept::TreeId))
+                .col(string(GedcomKept::EntityKind))
+                .col(uuid(GedcomKept::EntityId))
+                .col(text(GedcomKept::Nodes))
+                .col(timestamp_with_time_zone(GedcomKept::CreatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_gedcom_kept_tree")
+                        .from(GedcomKept::Table, GedcomKept::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_gedcom_kept_tree_id")
+                .table(GedcomKept::Table)
+                .col(GedcomKept::TreeId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_gedcom_kept_entity")
+                .table(GedcomKept::Table)
+                .col(GedcomKept::EntityKind)
+                .col(GedcomKept::EntityId)
                 .to_owned(),
         )
         .await?;

@@ -31,6 +31,7 @@ const TABLES: &[&str] = &[
     "person_distinct",
     "audit_entry",
     "record_version",
+    "gedcom_kept",
 ];
 
 #[tokio::test]
@@ -171,6 +172,10 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
             "id, media_id, x, y, width, height, person_id, event_id, created_at, updated_at",
         ),
         ("media_tag", "media_id, normalized_tag, tag, created_at"),
+        (
+            "gedcom_kept",
+            "id, tree_id, entity_kind, entity_id, nodes, created_at",
+        ),
         ("note", "media_id"),
         (
             "background_job",

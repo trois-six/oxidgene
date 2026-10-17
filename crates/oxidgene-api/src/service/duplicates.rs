@@ -17,11 +17,11 @@ use serde::Serialize;
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
-use oxidgene_core::types::{Person, PersonName};
+use oxidgene_core::types::{KeptEntityKind, Person, PersonName};
 use oxidgene_db::repo::{
-    AncestryRepo, EventRepo, EventWitnessRepo, FamilySpouseRepo, MediaLinkRepo, PersonDistinctRepo,
-    PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
-    display_names,
+    AncestryRepo, EventRepo, EventWitnessRepo, FamilySpouseRepo, GedcomKeptRepo, MediaLinkRepo,
+    PersonDistinctRepo, PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
+    PersonRepo, display_names,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
@@ -191,6 +191,8 @@ async fn merge_persons_in(
     let pending = change.prepare(conn).await?;
 
     write_merge(conn, tree_id, kept, duplicate, choices).await?;
+    // What the duplicate kept from its GEDCOM file follows it onto the kept person.
+    GedcomKeptRepo::repoint(conn, KeptEntityKind::Person, duplicate, kept).await?;
     profiles
         .invalidate_for_person_delete(conn, tree_id, duplicate)
         .await?;

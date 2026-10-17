@@ -7,6 +7,7 @@ pub mod age;
 mod citation;
 mod event;
 mod family;
+mod gedcom_kept;
 mod kinship;
 mod media;
 mod note;
@@ -22,6 +23,7 @@ pub use age::AgeAtEvent;
 pub use citation::Citation;
 pub use event::{Event, EventWitness, QualifiedYear, SpouseAge, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
+pub use gedcom_kept::{GedcomKept, KeptEntityKind};
 pub use kinship::{Kinship, KinshipPath, KinshipSegment};
 pub use media::{
     DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, PortraitRef, Vignette,

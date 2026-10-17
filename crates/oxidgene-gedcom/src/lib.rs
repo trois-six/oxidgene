@@ -63,6 +63,9 @@ pub struct ImportResult {
     /// OxidGene's vignette extension uses the record xref to attach each crop
     /// to its source image after the standard GEDCOM model has been imported.
     pub media_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The GEDCOM structures the model has no place for, per entity (see
+    /// `kept`).
+    pub kept: Vec<oxidgene_core::types::GedcomKept>,
 }
 
 /// The submitter a file says it is from: each field when the file states it.

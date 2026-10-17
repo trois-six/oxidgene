@@ -9,6 +9,7 @@ pub mod event_witness;
 pub mod family;
 pub mod family_child;
 pub mod family_spouse;
+pub mod gedcom_kept;
 pub mod media;
 pub mod media_link;
 pub mod media_tag;

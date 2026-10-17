@@ -15,8 +15,8 @@ use oxidgene_db::entities::{
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo,
-    SourceRepo, SourceRepositoryRepo, TreeRepo, VignetteRepo, db_err,
+    GedcomKeptRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo,
+    RepositoryRepo, SourceRepo, SourceRepositoryRepo, TreeRepo, VignetteRepo, db_err,
 };
 pub use oxidgene_gedcom::export::ExportChoices;
 use oxidgene_gedcom::import::import_gedcom;
@@ -385,6 +385,7 @@ async fn persist_import_result_in_with_progress(
     insert_standalone_records(db, &result, now, on_inserted).await?;
     insert_persons_and_families(db, &result, now, on_inserted).await?;
     insert_attached_records(db, &result, now, on_inserted).await?;
+    GedcomKeptRepo::insert_many(db, &result.kept).await?;
 
     Ok(ImportSummary {
         persons_count: result.persons.len(),
