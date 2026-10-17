@@ -46,7 +46,7 @@ La section **État civil** regroupe l’identité de la personne :
 - **Sexe** : **Masculin**, **Féminin** ou **Inconnu**.
 - **Source** : la source de l’identité dans son ensemble (voir [Sources](#sources) plus bas).
 
-Une fois la personne créée, la section propose aussi :
+La section propose aussi les listes ci-dessous. Pour une personne en cours de création, leurs boutons d’ajout — comme **Ajouter un événement** et **Ajouter un média** plus bas — créent d’abord la personne avec ce que contient le formulaire, puis le formulaire devient sa fiche de modification, avec cette partie ouverte : la personne existe dès lors, même si vous annulez ensuite.
 
 - **Profession(s)** : cliquez sur **Ajouter une profession**, tapez le métier tel que l’acte le nomme, ajoutez une date si vous en avez une, puis **Créer la profession**. Chaque profession est enregistrée comme un événement, elle apparaît donc dans la chronologie et suit les exports GEDCOM.
 - **Autres informations** : cliquez sur **Ajouter une information** pour enregistrer un autre nom : nom marital, nom de jeune fille, alias, surnom ou sobriquet, nom religieux, préfixe ou suffixe, entre autres.
@@ -64,11 +64,11 @@ Sous **Témoins**, liez les personnes présentes à la naissance ou au décès :
 2. Indiquez son rôle dans le champ de relation, par exemple « Marraine ».
 3. Recherchez la personne dans l’arbre et choisissez-la.
 
-Le témoin doit déjà être une personne de l’arbre, et l’événement doit déjà être enregistré : pour une nouvelle personne, la section indique « Enregistrez d'abord cet événement pour ajouter des témoins. » Cliquez sur × à côté d’un témoin pour le retirer.
+Le témoin doit déjà être une personne de l’arbre, et l’événement doit déjà être enregistré : pour une nouvelle personne, la section indique « Enregistrez d'abord cet événement pour ajouter des témoins. » Cliquez sur × à côté d’un témoin pour le retirer. Tout autre événement lie ses témoins de la même façon, dans son panneau (voir plus bas).
 
 ## Les autres événements
 
-Une fois la personne créée, **Autres événements** liste son baptême, son inhumation, ses recensements, ses résidences, son service militaire, son testament et tous ses autres événements. Pour en ajouter un :
+**Autres événements** liste son baptême, son inhumation, ses recensements, ses résidences, son service militaire, son testament et tous ses autres événements. Pour en ajouter un :
 
 1. Cliquez sur **Ajouter un événement**.
 2. Choisissez son **Type**. Les types sont regroupés par nature : sacrements, vie civile, actes légaux, attributs et autres.
@@ -77,7 +77,7 @@ Une fois la personne créée, **Autres événements** liste son baptême, son in
 5. Ajoutez des **Notes** et une **Source**. **Plus de détails** fait apparaître l’**Organisme responsable**.
 6. Cliquez sur **Créer l’événement**.
 
-Un événement enregistré affiche sur une ligne son type, sa description, sa date et son lieu. Cliquez sur **Modifier** pour ouvrir son panneau : les mêmes champs avec leur propre bouton **Enregistrer**, la **Fiabilité de la source** de sa citation (de **Peu fiable** à **Certain**, ou **Non évalué**) sous **Plus de détails** dès qu’une source est saisie, et **Preuves**, les documents qui prouvent l’événement. Cliquez sur **Supprimer** pour retirer l’événement.
+Un événement enregistré affiche sur une ligne son type, sa description, sa date et son lieu. Cliquez sur **Modifier** pour ouvrir son panneau : les mêmes champs avec leur propre bouton **Enregistrer**, la **Fiabilité de la source** de sa citation (de **Peu fiable** à **Certain**, ou **Non évalué**) sous **Plus de détails** dès qu’une source est saisie, les **Témoins**, liés comme pour la naissance (une profession n’en a pas), et **Preuves**, les documents qui prouvent l’événement. Cliquez sur **Supprimer** pour retirer l’événement.
 
 ## Les dates
 

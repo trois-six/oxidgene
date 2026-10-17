@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:30:00Z }
 ---
 
 
@@ -26,6 +26,15 @@ A single modal is used for both **creating** and **editing** a person. The form 
 | **Pre-filled fields** | Depends on context (see §3) | Current person data |
 
 The modal opens in **edit mode** when the user selects "Edit individual" from the action picker. It opens in **create mode** when the user triggers any "Add person" action (see §3).
+
+**Adding to a person being created.** An occupation, a piece of
+information, a note, an event or a medium hangs off the person's id, which a
+person being created does not have yet. Create mode shows those sections as
+edit mode does, and their add buttons first create the person from what the
+form holds — after the same checks as **Create** (§13), with the link of the
+context (§3) — then the form becomes the edit form of that person, with the
+part that was asked for open. The person exists from then on: cancelling the
+form keeps them, and the homonym check runs at the next **Save**.
 
 ---
 
@@ -177,6 +186,10 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 
 Displayed as the first block in the scrollable body, with a section divider label "Civil Status".
 
+The family name and the given names are required: both labels carry an
+asterisk, and **Create** / **Save** refuses an empty one with "Birth name and
+given names are required." (§13).
+
 ### Family Name
 
 Single text input. Converted to uppercase on input unless the tree's
@@ -282,11 +295,23 @@ Multi-line textarea, persisted as a `Note` carrying `event_id`.
 
 Free-text input (see §4 — Source), persisted as a `Citation` carrying `event_id`. Both fields are saved with the modal's footer button; if no birth event exists yet, they are attached to the event that same save creates.
 
+### Witnesses
+
+The persons of the tree the record names beside the event's subject — the
+witnesses, the godparents, an informant — each linked as an
+[`EventWitness`](data-model.md#eventwitness) with the role the record gives
+them, in free text ("Godmother", "Witness"). The list shows each one's name
+and role with a `×` that unlinks them. **Add a witness** offers a role field
+and the search of the tree's persons: choosing a person links them at once.
+These are writes of their own, outside the footer button, so the event must
+exist first: until it does, the block reads "Save this event first to add
+witnesses."
+
 ---
 
 ## 6. Section: Death
 
-Identical structure to the Birth section. Same date qualifier options, same place / description / notes / source fields.
+Identical structure to the Birth section. Same date qualifier options, same place / description / notes / source fields, same witnesses.
 
 Section divider label: "Death".
 
@@ -367,11 +392,11 @@ Julian Day Number), not in `oxidgene-gedcom`: the editor runs in WASM, where
 `oxidged` — which the server uses to derive `date_sort` — cannot be reached.
 Both are pinned to the same documented Republican dates so they agree.
 
-**Witnesses** — dynamic list of text inputs (free text, one per witness). An **"+ Add a witness"** button appends a new entry.
+The birth's witnesses are in the Birth section itself (§5).
 
 ### Death supplements
 
-Same structure as Birth supplements: calendar selector + witnesses dynamic list.
+Same structure as Birth supplements: calendar selector.
 
 ---
 
@@ -430,7 +455,7 @@ Each added event appears as a collapsible block with:
 - **Age** — single-line text input beside the cause: the age the record gives (GEDCOM `AGE`), typed as GEDCOM writes it — `34` or `34y`, `1y 6m`, `< 1y`, `> 80y`, `CHILD`, `INFANT`, `STILLBORN` (`y` years, `m` months, `w` weeks, `d` days). Checked as it is saved, with a localized message for a value that is not an age; stored in canonical form, cleared when emptied. A family event has no age of its own: there each spouse's age is entered.
 - **More details** — a quiet disclosure link under the notes and source that reveals the rare fields, so the event block does not grow a field per GEDCOM tag. It holds the **Responsible agency** (GEDCOM `AGNC`) and, in a saved event's panel once a source is entered, the **Source reliability** of its citation: *Not assessed* (the default) or one of the five levels, *Unreliable* to *Certain*. It starts open when the event already has an agency or an assessed citation, so nothing stored is hidden.
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
-- **Witnesses** (supplementary, collapsed by default) — same dynamic list
+- **Witnesses** — in a saved event's panel, linked as for the birth (§5). An occupation has none: it is a state, not an act anybody witnessed.
 
 Blocks can be reordered via drag handle. They are collapsed by default after creation; a collapsed row reads its event's type, description, date and place (« @ place »), so an event known only by its place — a residence — says what it holds without being opened.
 
@@ -444,6 +469,10 @@ The person form and the couple form each end in a **Media** section, above the
 delete action, holding the shared gallery scoped to that person or family. Both
 forms present it the same way: a couple's papers are the same kind of thing as
 a person's.
+
+In create mode the section reads "No media recorded." under an **Add Media**
+button, which creates the person first (§1) and opens the edit form, whose
+gallery then receives the media.
 
 Media writes are not part of the form's Save. They land as they are made, which
 the section states, and every host treats the form's `on_saved` callback as
@@ -528,7 +557,7 @@ Civil Status section lists the matching persons:
 
 ## 13. Validation & Save Behavior
 
-- No field is strictly required — a person can be saved with only a name, or even completely empty
+- The family name and the given names are required; every other field is optional. Dates must be valid (§5). A failed check shows its message above the footer and saves nothing
 - The **Create / Save** button is always active
 - On save:
   1. The person is created (create mode) or updated (edit mode) via the API
@@ -657,7 +686,7 @@ The scrollable body is divided into blocks:
 Displayed after the two person blocks — which are collapsed by default, so the
 union's own fields are the first thing open — and before the children block.
 
-**Union events** — dynamic list of event blocks. Each event has the same structure as the "Other events" blocks in the individual edit modal (date qualifier + place + note + source + optional calendar + optional witnesses).
+**Union events** — dynamic list of event blocks. Each event has the same structure as the "Other events" blocks in the individual edit modal (date qualifier + place + note + source + optional calendar); a saved union event's panel links its witnesses as the birth does (§5).
 
 **Core union event types** (always available). Types marked with **⟷** have a direct GEDCOM tag mapping via `oxidged`:
 
@@ -763,7 +792,7 @@ Confirmation prompt appears inline:
 
 ### Validation
 
-Same rules as the individual modal: no field is required, save is always available. On save, both person cards and all connectors in the tree update simultaneously.
+No field of the union is required and save is always available; each person block follows the individual modal's rules (§13). On save, both person cards and all connectors in the tree update simultaneously.
 
 ---
 

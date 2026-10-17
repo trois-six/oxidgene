@@ -46,7 +46,7 @@ The **Civil Status** section holds the person's identity:
 - **Sex**: **Male**, **Female** or **Unknown**.
 - **Source**: the source of the identity as a whole (see [Sources](#sources) below).
 
-Once the person exists, the section also offers:
+The section also offers the lists below. On a person you are creating, their add buttons — like **Add Event** and **Add Media** further down — first create the person from what the form holds, then the form goes on as their edit form with that part open: the person exists from then on, even if you then cancel.
 
 - **Profession(s)**: click **Add Profession**, type the trade as the record names it, add a date if you have one, then **Create Profession**. Each profession is stored as an occupation event, so it appears in the timeline and travels with GEDCOM exports.
 - **More information**: click **Add Information** to record another name: a married name, a maiden name, an alias, a byname or sobriquet, a religious name, a prefix or a suffix, among others.
@@ -64,11 +64,11 @@ Under **Witnesses**, link the persons who attended the birth or the death: witne
 2. Type their role in the relation field, for example "Godmother".
 3. Search for the person in the tree and pick them.
 
-The witness must already be a person of the tree, and the event must already be saved: on a new person, the section reads "Save this event first to add witnesses." Click × beside a witness to remove them.
+The witness must already be a person of the tree, and the event must already be saved: on a new person, the section reads "Save this event first to add witnesses." Click × beside a witness to remove them. Every other event links its witnesses the same way, in its panel (see below).
 
 ## Other events
 
-Once the person exists, **Other Events** lists their baptism, burial, census, residence, military service, will and every other event. To add one:
+**Other Events** lists their baptism, burial, census, residence, military service, will and every other event. To add one:
 
 1. Click **Add Event**.
 2. Choose its **Type**. Types are grouped by kind: sacraments, civil life, legal acts, attributes and others.
@@ -77,7 +77,7 @@ Once the person exists, **Other Events** lists their baptism, burial, census, re
 5. Add **Notes** and a **Source**. **More details** reveals the **Responsible agency**.
 6. Click **Create Event**.
 
-A saved event shows its type, description, date and place on one line. Click **Edit** on the line to open its panel: the same fields with their own **Save** button, the **Source reliability** of its citation (from **Unreliable** to **Certain**, or **Not assessed**) under **More details** once a source is entered, and **Evidence**, the documents that prove the event. Click **Delete** to remove the event.
+A saved event shows its type, description, date and place on one line. Click **Edit** on the line to open its panel: the same fields with their own **Save** button, the **Source reliability** of its citation (from **Unreliable** to **Certain**, or **Not assessed**) under **More details** once a source is entered, **Witnesses**, linked as for the birth (an occupation has none), and **Evidence**, the documents that prove the event. Click **Delete** to remove the event.
 
 ## Dates
 

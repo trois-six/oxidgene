@@ -4,6 +4,13 @@
 //! A single footer Save button persists sex + privacy + birth event + death event
 //! and closes the modal. Name, event, and note CRUD use inline per-item saves.
 //!
+//! The form shows the same sections whether it creates a person or edits
+//! one. A person being created has no id yet for an occupation, a piece of
+//! information, a note, an event or a medium to hang off, so asking to add
+//! one creates the person first, from what the form already holds, and goes
+//! on as the edit form of that person with the requested part open
+//! ([`PersonForm`] swaps one for the other).
+//!
 //! Every date in the form — birth, death, professions, other events — is edited
 //! through the one [`DateInput`] widget, so calendar and qualifier sit with the
 //! date they qualify rather than in a panel of their own. Witnesses likewise
@@ -166,10 +173,55 @@ struct HomonymCheck {
     homonyms: Vec<oxidgene_core::projection::SearchEntry>,
 }
 
+/// What the user asked to add to a person the create form had not created
+/// yet. The form creates the person, then opens this part of the edit form.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FormOpening {
+    Profession,
+    Information,
+    Note,
+    Event,
+    Media,
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
+/// The person form. In create mode it holds the form until the person
+/// exists — on Create, or as soon as the user adds something that needs the
+/// person's id — then the edit form of the created person takes its place.
 #[component]
 pub fn PersonForm(props: PersonFormProps) -> Element {
+    let mut created = use_signal(|| None::<(Uuid, FormOpening)>);
+    match created() {
+        Some((person_id, opening)) => rsx! {
+            PersonFormBody {
+                key: "{person_id}",
+                form: PersonFormProps {
+                    person_id: Some(person_id),
+                    create_context: None,
+                    ..props
+                },
+                opening,
+            }
+        },
+        None => rsx! {
+            PersonFormBody {
+                form: props,
+                on_created: move |created_as: (Uuid, FormOpening)| created.set(Some(created_as)),
+            }
+        },
+    }
+}
+
+#[component]
+fn PersonFormBody(
+    form: PersonFormProps,
+    /// The part to open on mount: what the user asked to add while creating.
+    opening: Option<FormOpening>,
+    /// Create mode: the person was created to receive `FormOpening`.
+    on_created: Option<EventHandler<(Uuid, FormOpening)>>,
+) -> Element {
+    let props = form;
     let api = use_context::<ApiClient>();
     let i18n = use_i18n();
     let mut refresh = use_signal(|| 0u32);
@@ -284,6 +336,15 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut editing_note_id = use_signal(|| None::<Uuid>);
     let mut edit_note_text = use_signal(String::new);
     let mut edit_note_error = use_signal(|| None::<String>);
+
+    // The part the user asked to add while the person was being created.
+    use_hook(move || match opening {
+        Some(FormOpening::Profession) => show_profession_form.set(true),
+        Some(FormOpening::Information) => show_name_form.set(true),
+        Some(FormOpening::Note) => show_note_form.set(true),
+        Some(FormOpening::Event) => show_event_form.set(true),
+        Some(FormOpening::Media) | None => {}
+    });
 
     // ── Section fold state ──
     // Every section opens with the form; folding one is a way to get it out of
@@ -870,6 +931,61 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let api_edit_note = api.clone();
     let on_saved_note_edit = props.on_saved;
 
+    // What the create form holds, read when it is used.
+    let new_person = move || NewPerson {
+        sex: sex_val(),
+        given: birth_given().trim().to_string(),
+        surname: birth_surname().trim().to_string(),
+        particle_override: birth_particle_override(),
+        birth: (
+            birth_parts(),
+            birth_place_id(),
+            birth_notes(),
+            birth_source(),
+        ),
+        death: (
+            death_parts(),
+            death_place_id(),
+            death_notes(),
+            death_source(),
+        ),
+        source: person_source(),
+    };
+
+    // Create mode: what the user adds needs the person's id, so the person
+    // is created first, from what the form holds, then the edit form opens
+    // with that part (see `PersonForm`).
+    let api_promote = api.clone();
+    let promote = use_callback({
+        let context = props.create_context.clone();
+        let on_saved = props.on_saved;
+        move |opening: FormOpening| {
+            let (Some(context), Some(on_created)) = (context.clone(), on_created) else {
+                return;
+            };
+            let api = api_promote.clone();
+            let new = new_person();
+            spawn(async move {
+                if let Some(key) = new.invalid() {
+                    save_error.set(Some(i18n.t(key)));
+                    return;
+                }
+                saving.set(true);
+                save_error.set(None);
+                match create_person(&api, tid, &i18n, &context, &new).await {
+                    Ok(person_id) => {
+                        on_saved.call(());
+                        on_created.call((person_id, opening));
+                    }
+                    Err(error) => {
+                        save_error.set(Some(error));
+                        saving.set(false);
+                    }
+                }
+            });
+        }
+    });
+
     // ── Unified footer Save / Create ──
     let api_save = api.clone();
     let on_save = {
@@ -909,12 +1025,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 note_id: None,
                 ..person_ns()
             };
+            let new = new_person();
             spawn(async move {
-                if bn_given.is_empty() || bn_surname.is_empty() {
-                    save_error.set(Some(i18n.t("person_form.birth_identity_required")));
-                    return;
-                }
-                if let Some(key) = b_parts.validate().or_else(|| d_parts.validate()) {
+                if let Some(key) = new.invalid() {
                     save_error.set(Some(i18n.t(key)));
                     return;
                 }
@@ -924,88 +1037,14 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
                 let saved_pid = if let Some(context) = ctx {
                     // ── Create mode ──
-
-                    // 1. Create person with sex.
-                    let Ok(new_person) = api
-                        .create_person(
-                            tid,
-                            &CreatePersonBody {
-                                sex: parse_sex(&sex_str),
-                            },
-                        )
-                        .await
-                    else {
-                        save_error.set(Some(i18n.t("person_form.create_failed")));
-                        saving.set(false);
-                        return;
-                    };
-                    let new_pid = new_person.id;
-
-                    // 2. Create the mandatory birth name.
-                    let bn_split = resolve_particle(&bn_surname, bn_particle_override.as_deref());
-                    let (bn_particle, bn_root) = (bn_split.particle, bn_split.root);
-                    let body = CreatePersonNameBody {
-                        name_type: NameType::Birth,
-                        given_names: Some(bn_given.clone()),
-                        surname: Some(bn_root),
-                        surname_prefix: bn_particle,
-                        prefix: None,
-                        suffix: None,
-                        nickname: None,
-                        is_primary: true,
-                        sort_order: 0,
-                    };
-                    if let Err(e) = api.create_person_name(tid, new_pid, &body).await {
-                        save_error.set(Some(format!("{e}")));
-                        saving.set(false);
-                        return;
-                    }
-
-                    // 3. Birth and death events, each with its notes + source.
-                    for (event_type, parts, place, notes, source) in [
-                        (EventType::Birth, &b_parts, &b_place, &b_notes, &b_source),
-                        (EventType::Death, &d_parts, &d_place, &d_notes, &d_source),
-                    ] {
-                        let event = VitalEvent {
-                            event_type,
-                            existing_id: None,
-                            parts,
-                            place,
-                            notes,
-                            source,
-                            current: &NotesSource::default(),
-                        };
-                        if let Err(e) =
-                            save_vital_event(&api, tid, new_pid, i18n.0.reference_code(), event)
-                                .await
-                        {
-                            save_error.set(Some(format!("{e}")));
+                    match create_person(&api, tid, &i18n, &context, &new).await {
+                        Ok(new_pid) => new_pid,
+                        Err(error) => {
+                            save_error.set(Some(error));
                             saving.set(false);
                             return;
                         }
                     }
-
-                    // 4. Person-level source.
-                    let _ = save_notes_source(
-                        &api,
-                        tid,
-                        Some(new_pid),
-                        None,
-                        "",
-                        &p_source,
-                        &NotesSource::default(),
-                    )
-                    .await;
-
-                    // 5. Wire relationship.
-                    if let Some(link) = ParentLink::of(&context)
-                        && let Err(e) = link.link(&api, tid, new_pid, &i18n).await
-                    {
-                        save_error.set(Some(e));
-                        saving.set(false);
-                        return;
-                    }
-                    new_pid
                 } else {
                     // ── Edit mode ──
 
@@ -1240,16 +1279,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             )}
                         }
 
-                        // ── Profession(s) (edit mode only) ──
-                        if !is_create {
-                            div { class: "pf-subblock",
+                        // ── Profession(s) ──
+                        div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.professions")}
-                                    {render_add_toggle(
-                                        i18n.t("person_form.add_profession"),
-                                        i18n.t("common.cancel"),
-                                        show_profession_form,
-                                    )}
+                                    if is_create {
+                                        {render_add_creating(i18n.t("person_form.add_profession"), promote, FormOpening::Profession)}
+                                    } else {
+                                        {render_add_toggle(
+                                            i18n.t("person_form.add_profession"),
+                                            i18n.t("common.cancel"),
+                                            show_profession_form,
+                                        )}
+                                    }
                                 }
 
                                 if show_profession_form() {
@@ -1342,19 +1384,21 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         }
                                     }
                                 }
-                            }
                         }
 
-                        // ── Additional information (edit mode only) ──
-                        if !is_create {
+                        // ── Additional information ──
                         div { class: "pf-subblock",
                             div { class: "pf-block-label",
                                 {i18n.t("person_form.tab_more_information")}
-                                {render_add_toggle(
-                                    i18n.t("person_form.add_information"),
-                                    i18n.t("common.cancel"),
-                                    show_name_form,
-                                )}
+                                if is_create {
+                                    {render_add_creating(i18n.t("person_form.add_information"), promote, FormOpening::Information)}
+                                } else {
+                                    {render_add_toggle(
+                                        i18n.t("person_form.add_information"),
+                                        i18n.t("common.cancel"),
+                                        show_name_form,
+                                    )}
+                                }
                             }
 
                             if show_name_form() {
@@ -1583,20 +1627,22 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 None => rsx! { div { class: "loading", {i18n.t("person_form.loading_names")} } },
                             }
                         }
-                        } // end Additional information if !is_create
 
-                        // ── Notes (edit mode only) ──
+                        // ── Notes ──
                         // Notes about the person as such — the ones tied to a
                         // single event live in that event's own panel.
-                        if !is_create {
-                            div { class: "pf-subblock",
+                        div { class: "pf-subblock",
                                 div { class: "pf-block-label",
                                     {i18n.t("person_form.notes")}
-                                    {render_add_toggle(
-                                        i18n.t("person_form.add_note"),
-                                        i18n.t("common.cancel"),
-                                        show_note_form,
-                                    )}
+                                    if is_create {
+                                        {render_add_creating(i18n.t("person_form.add_note"), promote, FormOpening::Note)}
+                                    } else {
+                                        {render_add_toggle(
+                                            i18n.t("person_form.add_note"),
+                                            i18n.t("common.cancel"),
+                                            show_note_form,
+                                        )}
+                                    }
                                 }
 
                                 if show_note_form() {
@@ -1735,7 +1781,6 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                 }
                             }
-                        }
                     }
 
                     // ── Birth ──
@@ -1787,16 +1832,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         )}
                     }
 
-                    // ── Other Events (edit mode only) ──
-                    if !is_create {
+                    // ── Other Events ──
                         FormSection {
                             title: i18n.t("person_form.other_events"),
                             open: open_events,
-                            action: render_add_toggle(
-                                i18n.t("person_form.add_event"),
-                                i18n.t("common.cancel"),
-                                show_event_form,
-                            ),
+                            action: if is_create {
+                                render_add_creating(i18n.t("person_form.add_event"), promote, FormOpening::Event)
+                            } else {
+                                render_add_toggle(
+                                    i18n.t("person_form.add_event"),
+                                    i18n.t("common.cancel"),
+                                    show_event_form,
+                                )
+                            },
                         if show_event_form() {
                             div { class: "pf-subform",
                                 if let Some(err) = event_form_error() {
@@ -1919,13 +1967,19 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
                         }
-                    } // end Other Events if !is_create
 
-                    // ── Media (edit mode only) ──
-                    // Create mode has no person id yet, and therefore nothing
-                    // a media link could point at. The section appears on the
-                    // first save.
-                    if !is_create {
+                    // ── Media ──
+                    // A person being created has no id for a medium to hang
+                    // off yet: its button creates the person, and the gallery
+                    // of the edit form takes over.
+                    if is_create {
+                        FormSection {
+                            title: i18n.t("media.section"),
+                            open: open_media,
+                            action: render_add_creating(i18n.t("person_form.add_media"), promote, FormOpening::Media),
+                            div { class: "pf-empty-item", p { {i18n.t("person_form.no_media")} } }
+                        }
+                    } else {
                         FormSection {
                             title: i18n.t("media.section"),
                             open: open_media,
@@ -2222,6 +2276,23 @@ pub(crate) fn render_add_toggle(
             r#type: "button",
             onclick: move |_| open.toggle(),
             if open() { "{cancel_label}" } else { "{label}" }
+        }
+    }
+}
+
+/// The add button of a part the person must exist for, in create mode: it
+/// creates the person, then opens that part of the edit form.
+fn render_add_creating(
+    label: String,
+    promote: Callback<FormOpening>,
+    opening: FormOpening,
+) -> Element {
+    rsx! {
+        button {
+            class: "pf-add-btn",
+            r#type: "button",
+            onclick: move |_| promote.call(opening),
+            "{label}"
         }
     }
 }
@@ -2570,6 +2641,102 @@ pub(crate) fn update_event_body(
 
 /// A birth or death as the form holds it: the stored event, if any, the
 /// date, place, notes and source typed, and the notes and source stored.
+/// What the create form holds for the person it creates. Each event is
+/// its date, place, notes and source.
+#[derive(Clone)]
+struct NewPerson {
+    sex: String,
+    given: String,
+    surname: String,
+    particle_override: Option<String>,
+    birth: (DateParts, String, String, String),
+    death: (DateParts, String, String, String),
+    source: String,
+}
+
+impl NewPerson {
+    /// The translation key of what keeps the person from being created: the
+    /// birth name and given names are required, and the dates must be valid.
+    fn invalid(&self) -> Option<&'static str> {
+        if self.given.is_empty() || self.surname.is_empty() {
+            return Some("person_form.birth_identity_required");
+        }
+        self.birth.0.validate().or_else(|| self.death.0.validate())
+    }
+}
+
+/// Creates the person the create form holds: the person, its birth name, its
+/// birth and death with their notes and source, its own source, and the link
+/// the form was opened for. Returns the new person's id.
+async fn create_person(
+    api: &ApiClient,
+    tree_id: Uuid,
+    i18n: &crate::i18n::I18n,
+    context: &PersonFormCreateContext,
+    new: &NewPerson,
+) -> Result<Uuid, String> {
+    let person = api
+        .create_person(
+            tree_id,
+            &CreatePersonBody {
+                sex: parse_sex(&new.sex),
+            },
+        )
+        .await
+        .map_err(|_| i18n.t("person_form.create_failed"))?;
+    let person_id = person.id;
+
+    let split = resolve_particle(&new.surname, new.particle_override.as_deref());
+    let name = CreatePersonNameBody {
+        name_type: NameType::Birth,
+        given_names: Some(new.given.clone()),
+        surname: Some(split.root),
+        surname_prefix: split.particle,
+        prefix: None,
+        suffix: None,
+        nickname: None,
+        is_primary: true,
+        sort_order: 0,
+    };
+    api.create_person_name(tree_id, person_id, &name)
+        .await
+        .map_err(|e| format!("{e}"))?;
+
+    for (event_type, (parts, place, notes, source)) in [
+        (EventType::Birth, &new.birth),
+        (EventType::Death, &new.death),
+    ] {
+        let event = VitalEvent {
+            event_type,
+            existing_id: None,
+            parts,
+            place,
+            notes,
+            source,
+            current: &NotesSource::default(),
+        };
+        save_vital_event(api, tree_id, person_id, i18n.0.reference_code(), event)
+            .await
+            .map_err(|e| format!("{e}"))?;
+    }
+
+    let _ = save_notes_source(
+        api,
+        tree_id,
+        Some(person_id),
+        None,
+        "",
+        &new.source,
+        &NotesSource::default(),
+    )
+    .await;
+
+    if let Some(link) = ParentLink::of(context) {
+        link.link(api, tree_id, person_id, i18n).await?;
+    }
+    Ok(person_id)
+}
+
 struct VitalEvent<'a> {
     event_type: EventType,
     existing_id: Option<Uuid>,
@@ -3097,6 +3264,23 @@ pub(crate) fn render_notes_source_fields(
     }
 }
 
+/// The witnesses block of a saved event's editor: the persons of the tree
+/// the record names beside the event's subject — witnesses, godparents, the
+/// informant — each with the role it gives them. Their own writes, like the
+/// evidence: a witness is linked the moment it is chosen. An occupation has
+/// none, being a state rather than an act anybody witnessed.
+fn render_event_witnesses(i18n: &crate::i18n::I18n, tree_id: Uuid, event: &CoreEvent) -> Element {
+    if event.event_type == EventType::Occupation {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "pf-ns-block",
+            label { class: "pf-ns-label", {i18n.t("person_form.witnesses")} }
+            EventWitnesses { tree_id, event_id: Some(event.id) }
+        }
+    }
+}
+
 /// Full editor for an already-saved event: its description, date, place, notes
 /// and source, with its own Save button — the surrounding lists (professions,
 /// other events) have no footer of their own.
@@ -3294,6 +3478,8 @@ pub fn EventEditor(
                         if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                     }
                 }
+
+                {render_event_witnesses(&i18n, tree_id, &event)}
 
                 // ── Evidence ──
                 // The documents that prove this event, hung off the event

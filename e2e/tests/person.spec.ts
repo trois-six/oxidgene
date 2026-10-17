@@ -40,3 +40,48 @@ test("the history page compares a person's recorded versions", async ({ page, re
     // The latest version, compared with the one before it.
     await expect(page.getByRole("row", { name: "Given names Anchor Keystone" })).toBeVisible();
 });
+
+test("adding a note to a person being created creates them and goes on as their edit form", async ({ page, request, tree }) => {
+    const count = async () =>
+        (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/persons?first=100`)).json()).edges.length;
+    const before = await count();
+
+    await page.goto(`/trees/${tree.treeId}`);
+    await page.locator("svg text.no-print").filter({ hasText: /^\+$/ }).first().click();
+    const form = page.locator(".person-form-modal");
+    await expect(form.locator(".pf-subtitle")).toHaveText("New person");
+    await form.locator(".form-group", { hasText: "Birth name *" }).locator("input").fill("EXAMPLE");
+    await form.locator(".form-group", { hasText: "Given Names *" }).locator("input").fill("Ondine");
+
+    // The sections of the edit form are there; their add buttons need the person.
+    await form.getByRole("button", { name: "+ Add Note", exact: true }).click();
+    await expect(form.locator(".pf-subtitle")).toHaveText("Edit individual");
+    await expect(form.getByPlaceholder("Enter note text...")).toBeVisible();
+    expect(await count()).toBe(before + 1);
+
+    await form.getByPlaceholder("Enter note text...").fill("Recorded while she was being created.");
+    await form.getByRole("button", { name: "Create Note", exact: true }).click();
+    await expect(form.getByText("Recorded while she was being created.")).toBeVisible();
+
+    // A saved event offers its witnesses in its panel.
+    await form.getByRole("button", { name: "+ Add Event", exact: true }).click();
+    await form.getByRole("button", { name: "Create Event", exact: true }).click();
+    const eventRow = form.locator(".person-form-item", { hasText: "Baptism" });
+    await eventRow.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(form.getByRole("button", { name: "Add a witness" })).toBeVisible();
+});
+
+test("the person form refuses a person without a name", async ({ page, request, tree }) => {
+    const count = async () =>
+        (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/persons?first=100`)).json()).edges.length;
+    const before = await count();
+    await page.goto(`/trees/${tree.treeId}`);
+    await page.locator("svg text.no-print").filter({ hasText: /^\+$/ }).first().click();
+    const form = page.locator(".person-form-modal");
+    await form.locator(".form-group", { hasText: "Birth name *" }).locator("input").fill("");
+    await form.getByRole("button", { name: "+ Add Note", exact: true }).click();
+    await expect(form.getByText("Birth name and given names are required.")).toBeVisible();
+    await form.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(form.getByText("Birth name and given names are required.")).toBeVisible();
+    expect(await count()).toBe(before);
+});
