@@ -1,0 +1,89 @@
+# The documentation site, published on GitHub Pages by
+# .github/workflows/pages.yml. `just site-serve` previews it;
+# docs/development.md §7 describes how it is built.
+base_url = "https://trois-six.github.io/oxidgene"
+title = "OxidGene"
+description = "A genealogy application for the desktop and the web, written in Rust."
+default_language = "en"
+build_search_index = true
+generate_feeds = false
+# The specifications are copied as they are: their text is never a template.
+skip_content_templating = ["tech/**"]
+
+[markdown]
+insert_anchor_links = "right"
+external_links_target_blank = false
+lazy_async_image = true
+bottom_footnotes = true
+github_alerts = true
+
+[markdown.highlighting]
+light_theme = "github-light"
+dark_theme = "github-dark"
+style = "inline"
+
+[link_checker]
+internal_level = "error"
+
+[search]
+include_title = true
+include_description = true
+include_content = true
+truncate_content_length = 2000
+index_format = "elasticlunr_javascript"
+
+[extra]
+repository = "https://github.com/trois-six/oxidgene"
+releases = "https://github.com/trois-six/oxidgene/releases"
+
+[translations]
+guide = "User guide"
+workflows = "Workflows"
+tech = "Technical"
+rust_api = "Rust API"
+download = "Download"
+get_started = "Get started"
+search = "Search the documentation"
+no_results = "No result"
+on_this_page = "On this page"
+previous = "Previous"
+next = "Next"
+edit_source = "Source of this page:"
+english_only = ""
+menu = "Menu"
+skip = "Skip to the content"
+tagline = "Bring your trees in from GEDCOM, GEDZIP, GeneWeb or Geneanet, then explore, edit and question them — on your desktop, offline, or on your own server."
+home_guide = "Every feature of the application, page by page, with screenshots."
+home_workflows = "Step-by-step walkthroughs of the tasks genealogists do most."
+home_tech = "Architecture, data model, REST and GraphQL contract, and the Rust API."
+license = "OxidGene is free software under the GNU Affero General Public License v3.0."
+code_signing = "Code signing policy"
+
+[languages.fr]
+title = "OxidGene"
+description = "Une application de généalogie pour le bureau et le web, écrite en Rust."
+build_search_index = true
+generate_feeds = false
+
+[languages.fr.translations]
+guide = "Guide utilisateur"
+workflows = "Parcours"
+tech = "Technique"
+rust_api = "API Rust"
+download = "Télécharger"
+get_started = "Commencer"
+search = "Rechercher dans la documentation"
+no_results = "Aucun résultat"
+on_this_page = "Sur cette page"
+previous = "Précédent"
+next = "Suivant"
+edit_source = "Source de cette page :"
+english_only = "en anglais"
+menu = "Menu"
+skip = "Aller au contenu"
+tagline = "Importez vos arbres depuis GEDCOM, GEDZIP, GeneWeb ou Geneanet, puis explorez-les, modifiez-les et interrogez-les — sur votre ordinateur, hors ligne, ou sur votre propre serveur."
+home_guide = "Chaque fonctionnalité de l’application, page par page, avec des captures d’écran."
+home_workflows = "Les tâches les plus courantes du généalogiste, pas à pas."
+home_tech = "Architecture, modèle de données, contrat REST et GraphQL, et API Rust (en anglais)."
+license = "OxidGene est un logiciel libre sous licence GNU Affero General Public License v3.0."
+code_signing = "Politique de signature du code"

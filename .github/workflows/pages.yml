@@ -1,0 +1,77 @@
+name: Pages
+
+# Publishes the documentation site (site/, docs/development.md §7) on GitHub
+# Pages: the user guide, the specifications, the REST and GraphQL
+# references and the rustdoc, built from main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "assets/screenshots/**"
+      - "assets/fonts/**"
+      - "assets/brand/**"
+      - "crates/**"
+      - "Cargo.lock"
+      - "scripts/site.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  ZOLA_VERSION: "0.23.6"
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain of rust-toolchain.toml.
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pages
+
+      - uses: astral-sh/setup-uv@v10.2.0
+
+      # The version of mise.toml.
+      - name: Install Zola
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -LsSf "https://github.com/getzola/zola/releases/download/v${ZOLA_VERSION}/zola-v${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" zola
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build the site
+        run: uv run --quiet scripts/site.py build
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/public
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

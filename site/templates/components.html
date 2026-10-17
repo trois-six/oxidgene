@@ -1,0 +1,62 @@
+{#- The site's components, registered globally by Tera. -#}
+
+{#- The language switch of a page or section: its translations, the current
+    one marked. A page without translation (the specifications, in English
+    only) leads the other language to its home page. -#}
+{% component languages(translations, lang) %}
+{%- if translations | length > 1 %}
+    {%- for t in translations | sort(attribute="lang") %}
+        {%- if t.lang == lang %}<span>{{ t.lang | upper }}</span>
+        {%- else %}<a href="{{ t.permalink | safe }}" hreflang="{{ t.lang }}" lang="{{ t.lang }}">{{ t.lang | upper }}</a>{% endif %}
+    {%- endfor %}
+{%- elif lang == "en" %}<span>EN</span><a href="{{ get_url(path='@/_index.md', lang='fr') }}" hreflang="fr" lang="fr">FR</a>
+{%- else %}<a href="{{ get_url(path='@/_index.md', lang='en') }}" hreflang="en" lang="en">EN</a><span>FR</span>
+{%- endif %}
+{% endcomponent languages %}
+
+{#- The pages of a section, the current one marked. -#}
+{% component sidebar(section, current) %}
+<aside class="sidebar">
+    <details open>
+        <summary>{{ section.title }}</summary>
+        <h2><a href="{{ section.permalink | safe }}">{{ section.title }}</a></h2>
+        <ul>
+        {%- for p in section.pages %}
+            <li><a href="{{ p.permalink | safe }}"{% if p.permalink == current %} aria-current="page"{% endif %}>{{ p.title }}</a></li>
+        {%- endfor %}
+        </ul>
+    </details>
+</aside>
+{% endcomponent sidebar %}
+
+{#- The headings of a page, two levels deep. -#}
+{% component toc(toc, lang) %}
+{%- if toc | length > 1 %}
+<nav class="toc" aria-label="{{ trans(key='on_this_page', lang=lang) }}">
+    <h2>{{ trans(key="on_this_page", lang=lang) }}</h2>
+    <ul>
+    {%- for h in toc %}
+        <li><a href="#{{ h.id }}">{{ h.title }}</a>
+        {%- if h.children | length > 0 %}
+            <ul>{% for c in h.children %}<li><a href="#{{ c.id }}">{{ c.title }}</a></li>{% endfor %}</ul>
+        {%- endif %}
+        </li>
+    {%- endfor %}
+    </ul>
+</nav>
+{%- else %}<div class="toc"></div>
+{%- endif %}
+{% endcomponent toc %}
+
+{#- A screenshot of the application: the language's capture when there is
+    one (screenshots/<lang>/<name>.webp), the English one otherwise. Pages
+    call it as {{ <screenshot name="pedigree" alt="…" lang={lang} /> }}. -#}
+{% component screenshot(name, alt, lang, caption = "", class = "shot") %}
+{%- set localized = "screenshots/" ~ lang ~ "/" ~ name ~ ".webp" -%}
+{%- set file = localized if get_image_metadata(path=localized, allow_missing=true) else "screenshots/" ~ name ~ ".webp" -%}
+{%- set meta = get_image_metadata(path=file) -%}
+<figure class="{{ class }}">
+    <a href="{{ get_url(path=file) }}"><img src="{{ get_url(path=file) }}" alt="{{ alt }}" width="{{ meta.width }}" height="{{ meta.height }}" loading="lazy" decoding="async"></a>
+    {%- if caption %}<figcaption>{{ caption }}</figcaption>{% endif %}
+</figure>
+{% endcomponent screenshot %}

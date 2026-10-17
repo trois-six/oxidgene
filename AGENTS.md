@@ -21,6 +21,10 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
   specifications.
 - Update `docs/index.md` whenever a specification is added,
   removed, renamed, or superseded.
+- Keep the user guide of the documentation site (`site/content/`) current
+  in the same change as a user-visible behavior: update the pages that
+  describe it in English and French, and retake the screenshots it changes
+  with `just screenshots` (`development.md` §7).
 - Keep `docs/` a conformant
   [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
   bundle: every specification needs YAML frontmatter with a `type`, and
@@ -122,6 +126,7 @@ All specifications live in `docs/`. Start with
 | i18n, errors, logs, privacy, and spec format | `cross-cutting.md` |
 | Shared UI behavior and styling | `ui-common.md` |
 | Pages and major workflows | `ui-*.md` |
+| User guide and documentation site | `development.md` §7 |
 
 ## Workspace and Dependency Flow
 

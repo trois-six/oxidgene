@@ -1,6 +1,7 @@
 [tools]
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "aqua:boyter/scc" = "4.1.0"
+"aqua:getzola/zola" = "0.23.6"
 "aqua:rhysd/actionlint" = "1.7.12"
 "cargo:cargo-audit" = "0.22.2"
 "cargo:cargo-fuzz" = "0.13.2"

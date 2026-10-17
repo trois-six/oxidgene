@@ -302,3 +302,13 @@ build-desktop-macos-app:
 # Generate documentation
 doc:
     cargo doc --workspace --no-deps --open
+
+# Build the documentation site into site/public: the user guide, the
+# specifications, the REST and GraphQL references and the rustdoc
+# (scripts/site.py, docs/development.md §7)
+site:
+    uv run --quiet scripts/site.py build
+
+# Preview the documentation site with live reload
+site-serve:
+    uv run --quiet scripts/site.py serve

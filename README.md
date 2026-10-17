@@ -72,6 +72,10 @@ Requirements and every installation path are in the
 
 ## Documentation
 
+The [documentation site](https://trois-six.github.io/oxidgene/) gathers the
+user guide and workflows, in English and French, and the technical
+documentation built from this repository.
+
 The specifications in [`docs/`](docs/index.md) describe the product as it is:
 architecture, data model, API contract, and one specification per page and
 workflow. Delivery status and planned work are in the

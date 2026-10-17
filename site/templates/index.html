@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{#- The home page. Its text lives in content/_index.md and _index.fr.md
+    (front matter `extra`), so that both languages share this layout. -#}
+
+{% block languages %}{{<languages translations={section.translations} lang={lang} />}}{% endblock languages %}
+
+{% block main %}
+{%- set x = section.extra %}
+<section class="hero">
+    <img class="logo" src="{{ get_url(path='logo.svg') }}" alt="" width="112" height="112">
+    <h1>{{ x.headline }}</h1>
+    <p>{{ trans(key="tagline", lang=lang) }}</p>
+    <div class="actions">
+        <a class="button primary" href="#download">{{ trans(key="download", lang=lang) }}</a>
+        <a class="button secondary" href="{{ get_url(path=x.start, lang=lang) }}">{{ trans(key="get_started", lang=lang) }}</a>
+    </div>
+    <p class="platforms">{{ x.platforms }}</p>
+</section>
+
+<div class="tour">
+    <img src="{{ get_url(path='screenshots/readme-carousel.webp') }}" alt="{{ x.tour_alt }}" width="1200" height="750">
+</div>
+
+<div class="home-sections">
+    <section class="band">
+        <h2>{{ x.steps_title }}</h2>
+        <ol class="steps">
+        {%- for s in x.steps %}
+            <li><a href="{{ get_url(path=s.link, lang=lang) }}"><strong>{{ s.title }}</strong><span>{{ s.text }}</span></a></li>
+        {%- endfor %}
+        </ol>
+    </section>
+
+    <section class="band">
+        <h2>{{ x.features_title }}</h2>
+        <ul class="cards features">
+        {%- for f in x.features %}
+            <li><a href="{{ get_url(path=f.link, lang=lang) }}"><strong>{{ f.title }}</strong><span>{{ f.text }}</span></a></li>
+        {%- endfor %}
+        </ul>
+    </section>
+
+    <section class="band values">
+        <h2>{{ x.values_title }}</h2>
+        <ul class="value-list">
+        {%- for v in x.values %}
+            <li><strong>{{ v.title }}</strong> {{ v.text }}</li>
+        {%- endfor %}
+        </ul>
+    </section>
+
+    <section class="band">
+        <h2>{{ x.gallery_title }}</h2>
+        <ul class="gallery">
+        {%- for g in x.gallery %}
+            <li><a href="{{ get_url(path=g.link, lang=lang) }}">{{<screenshot name={g.name} alt={g.caption} lang={lang} class="thumb" />}}<span>{{ g.caption }}</span></a></li>
+        {%- endfor %}
+        </ul>
+    </section>
+
+    <section class="band" id="download">
+        <h2>{{ x.download_title }}</h2>
+        <ul class="cards downloads">
+        {%- for d in x.downloads %}
+            <li><a href="{% if "://" in d.link %}{{ d.link }}{% else %}{{ get_url(path=d.link, lang=lang) }}{% endif %}"><strong>{{ d.title }}</strong><span>{{ d.text }}</span></a></li>
+        {%- endfor %}
+        </ul>
+        <p class="note">{{ x.download_note }} <a href="{{ get_url(path=x.switching, lang=lang) }}">{{ x.switching_label }}</a></p>
+    </section>
+
+    <section class="band">
+        <h2>{{ x.docs_title }}</h2>
+        <ul class="cards">
+            <li><a href="{{ get_url(path='@/guide/_index.md', lang=lang) }}"><strong>{{ trans(key="guide", lang=lang) }}</strong><span>{{ trans(key="home_guide", lang=lang) }}</span></a></li>
+            <li><a href="{{ get_url(path='@/workflows/_index.md', lang=lang) }}"><strong>{{ trans(key="workflows", lang=lang) }}</strong><span>{{ trans(key="home_workflows", lang=lang) }}</span></a></li>
+            <li><a href="{{ get_url(path='@/tech/_index.md', lang='en') }}"><strong>{{ trans(key="tech", lang=lang) }}</strong><span>{{ trans(key="home_tech", lang=lang) }}</span></a></li>
+        </ul>
+    </section>
+</div>
+{% endblock main %}

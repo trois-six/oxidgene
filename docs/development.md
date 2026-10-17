@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
+generated: { by: human:maintainer, at: 2026-10-17T15:10:00Z }
 ---
 
 # Development Environment and Workflows
@@ -62,7 +62,9 @@ the repository root.
 | `just test-verbose` | Run the workspace tests while preserving test output. |
 | `just ui-js` | Run the browser JavaScript unit tests on Node.js (§2.7). |
 | `just e2e [args]` | Build the web bundle and server, then run the Playwright end-to-end suite (§2.7). |
-| `just screenshots` | Build the web bundle and server, take the README and [Features](features.md) screenshots of the fictitious screenshot tree, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
+| `just screenshots` | Build the web bundle and server, take the README, [Features](features.md) and documentation site screenshots of the fictitious screenshot tree in English and French, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
+| `just site` | Build the documentation site into `site/public/`: rustdoc, the specifications, the REST and GraphQL references and the user guide (§7). |
+| `just site-serve` | Build the documentation site and preview it with live reload (§7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings, then for `oxidgene-archives` with its `live` checks, a feature no workspace member enables. |
@@ -419,8 +421,9 @@ A test that documents a known defect is marked `test.fail()` with a comment
 naming it: it passes while the defect stands and fails once it is fixed,
 which is the signal to remove the mark.
 
-**Screenshots.** `just screenshots` takes the images of the README and of
-[Features](features.md) with the suite's servers and browser, through its own
+**Screenshots.** `just screenshots` takes the images of the README, of
+[Features](features.md) and of the documentation site (§7) with the suite's
+servers and browser, through its own
 Playwright configuration (`e2e/playwright.screenshots.config.ts`), so
 `just e2e` never runs it. `e2e/screenshots/family.ts` builds the fictitious
 Landrevel family from a seeded generator — some 400 persons over eight
@@ -431,10 +434,13 @@ public-domain portraits and document scans of `e2e/fixtures/media/`, whose
 sources and licences `e2e/fixtures/media/CREDITS.md` lists. A handful of
 edits through REST then give the home page its recently modified persons and
 the root a history. `e2e/screenshots/screenshots.spec.ts` opens each page at
-1440 × 900 pixels, in English, in the light or dark theme it names, with the
-browser clock and every timestamp the API returns pinned to fixed instants,
-and saves the captures under `target/screenshots/raw/`.
-`scripts/screenshots.py` then writes each one to `assets/screenshots/` as a
+1440 × 900 pixels, once in English and once in French, the site's two
+languages, finding the controls by their text in `assets/i18n/`, in the
+light or dark theme it names, with the browser clock and every timestamp the
+API returns pinned to fixed instants, and saves the captures under
+`target/screenshots/raw/`, the French ones in its `fr/` folder.
+`scripts/screenshots.py` then writes each one to `assets/screenshots/` (the
+French ones to `assets/screenshots/fr/`) as a
 lossless WebP, about half the size of the same PNG, and assembles the README
 carousel, `readme-carousel.webp`: an animated WebP of ten frames, three
 seconds each, 1200 pixels wide, lossy. A capture that differs from the
@@ -993,3 +999,47 @@ packaging it. The SignPath side needs:
 
 The SignPath Foundation's terms also require the code signing policy that
 the README publishes, linked from each release's notes.
+
+## 7. Documentation Site
+
+The documentation site, published on GitHub Pages at
+<https://trois-six.github.io/oxidgene/>, gathers in English and French the
+user guide, the workflows and a FAQ, and in English the technical
+documentation: these specifications, a REST reference, the GraphQL schema
+and the rustdoc of the library crates. [Zola](https://www.getzola.org/)
+builds it from `site/`; its version is pinned in `mise.toml` and in
+`.github/workflows/pages.yml`.
+
+| Path | Contents |
+|---|---|
+| `site/content/guide/`, `site/content/workflows/` | The user guide and the workflows, one Markdown page per subject, `name.md` in English and `name.fr.md` in French |
+| `site/content/_index.md`, `_index.fr.md` | The home page's text, in its front matter |
+| `site/templates/` | The layout, and the components the pages call, such as the screenshot (`{{ <screenshot name="pedigree" alt="…" lang={lang} /> }}`) |
+| `site/static/` | The stylesheet, in the application's colours and typefaces, and the search script |
+| `site/config.toml` | The site, its two languages and the template texts in each |
+
+`uv run scripts/site.py build` (`just site`) documents the library crates
+with rustdoc, which also builds the API crate and so writes its OpenAPI
+document, then generates the technical section into `site/content/tech/`:
+each specification with its OKF front matter turned into Zola's, its links
+to other specifications turned into internal links that Zola checks, its
+links to other files of the repository pointed at GitHub, and its headings
+given their GitHub anchors; the section index from [the index](index.md);
+the REST reference from the OpenAPI document; the GraphQL schema from
+`docs/schema.graphql`. It copies the screenshots, fonts and logo from
+`assets/` and the rustdoc into `site/static/`, then runs Zola. The
+generated files are ignored by Git, so a specification has one source.
+`just site-serve` does the same and previews the site with live reload.
+
+The site shows the product as it is, so a change keeps it current like the
+specifications: a change to what a user sees or does updates the guide pages
+that describe it, in both languages, quoting the interface's labels from
+`assets/i18n/en.json` and `fr.json`, and `just screenshots` retakes the
+images it changes. A page shows the French capture of a screenshot when there
+is one, the English one otherwise. Zola fails on a broken internal link or
+anchor, so `just site` checks the pages' links.
+
+`.github/workflows/pages.yml` builds the site and deploys it on every push to
+`main` that touches the site, the specifications, the screenshots or the
+crates, and on demand. The repository's Pages source must be **GitHub
+Actions** (Settings → Pages).

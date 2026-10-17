@@ -7,7 +7,9 @@
 `just screenshots` runs the Playwright screenshot script, which saves raw
 captures under target/screenshots/raw/, then this script:
 
-- writes each capture to assets/screenshots/<name>.webp as a lossless WebP:
+- writes each capture to assets/screenshots/<name>.webp as a lossless WebP,
+  the French ones to assets/screenshots/fr/<name>.webp for the
+  documentation site:
   the very pixels of the capture, at about half the size of the same image
   as an optimised PNG (measured on these captures: 1.3 MB against 2.7 MB).
   A capture that differs from the committed image only by the rounding
@@ -73,6 +75,7 @@ def same_picture(capture: Image.Image, target: Path) -> bool:
 
 def still(name: str) -> Path:
     target = OUT / f"{name}.webp"
+    target.parent.mkdir(parents=True, exist_ok=True)
     image = Image.open(RAW / f"{name}.png").convert("RGB")
     if not same_picture(image, target):
         image.save(target, format="WEBP", lossless=True, quality=100, method=6)
@@ -101,7 +104,8 @@ def carousel() -> Path:
 
 
 def main() -> int:
-    captures = sorted(path.stem for path in RAW.glob("*.png"))
+    # `name`, or `fr/name` for a French capture.
+    captures = sorted(path.relative_to(RAW).with_suffix("").as_posix() for path in RAW.rglob("*.png"))
     missing = [name for name in CAROUSEL if name not in captures]
     if missing:
         print(f"missing captures for the carousel: {', '.join(missing)}", file=sys.stderr)
@@ -109,9 +113,9 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     written = [still(name) for name in captures]
     written.append(carousel())
-    kept = {path.name for path in written}
-    for stale in sorted(OUT.iterdir()):
-        if stale.name not in kept:
+    kept = set(written)
+    for stale in sorted(OUT.rglob("*.webp")):
+        if stale not in kept:
             stale.unlink()
             print(f"removed {stale.relative_to(ROOT)}")
     total = 0

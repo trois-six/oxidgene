@@ -1,5 +1,7 @@
-// The screenshots of the README and of docs/features.md, taken from the
-// fictitious Landrevel family (family.ts) on a throwaway server.
+// The screenshots of the README, of docs/features.md and of the
+// documentation site (site/), taken from the fictitious Landrevel family
+// (family.ts) on a throwaway server, in English and in French: the site's
+// two languages. The French captures land in target/screenshots/raw/fr/.
 //
 // Run by `just screenshots`, never by `just e2e`: it lives outside the
 // suite's test directory and has its own configuration. Each capture lands in
@@ -21,6 +23,33 @@ import { cast, familyArchive, firstCousin } from "./family";
 
 const repository = resolve(import.meta.dirname, "..", "..");
 const raw = join(repository, "target", "screenshots", "raw");
+
+/// The languages of the captures: English, the README's and the default,
+/// and French, the documentation site's other language.
+const LANGUAGES = ["en", "fr"] as const;
+type Language = (typeof LANGUAGES)[number];
+
+const tables = Object.fromEntries(
+    LANGUAGES.map((language) => [
+        language,
+        (JSON.parse(readFileSync(join(repository, "assets", "i18n", `${language}.json`), "utf8")) as { translations: Record<string, string> })
+            .translations,
+    ]),
+) as Record<Language, Record<string, string>>;
+
+/// The interface's text of `key` in `language`, its `{name}` placeholders
+/// filled in from `values`.
+function t(language: Language, key: string, values: Record<string, string | number> = {}): string {
+    const text = tables[language][key];
+    expect(text, `${language}: ${key}`).toBeDefined();
+    return Object.entries(values).reduce((filled, [name, value]) => filled.replaceAll(`{${name}}`, String(value)), text);
+}
+
+/// A pattern matching the text of `key`, any number standing for `{count}`.
+function counted(language: Language, key: string): RegExp {
+    const text = t(language, key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\{count\\}", "\\d+");
+    return new RegExp(text);
+}
 
 /// The instant every API timestamp is rewritten to, and the browser's clock
 /// two hours later: "Modified 2 hours ago" on every run.
@@ -125,13 +154,14 @@ async function seed(request: APIRequestContext): Promise<Ids> {
     return { treeId: tree.id, root, weddingGroom: groom, cousin };
 }
 
-/// Pin the browser's clock and every timestamp the API returns.
-async function pin(page: Page, theme: string): Promise<void> {
+/// Pin the browser's clock, the language, the theme and every timestamp the
+/// API returns.
+async function pin(page: Page, language: Language, theme: string): Promise<void> {
     await page.clock.setFixedTime(NOW);
-    await page.addInitScript((value) => {
-        localStorage.setItem("oxidgene-lang", "en");
+    await page.addInitScript(([lang, value]) => {
+        localStorage.setItem("oxidgene-lang", lang);
         localStorage.setItem("oxidgene-theme", value);
-    }, theme);
+    }, [language, theme]);
     await page.route(`${apiUrl}/api/**`, async (route) => {
         const response = await route.fetch();
         if (!(response.headers()["content-type"] ?? "").includes("json")) {
@@ -144,15 +174,17 @@ async function pin(page: Page, theme: string): Promise<void> {
 }
 
 /// Wait until the page has settled — no request in flight, fonts loaded,
-/// transitions over — and save it under `name`.
-async function shoot(page: Page, name: string): Promise<void> {
+/// transitions over — and save it under `name`, in the language's folder.
+async function shoot(page: Page, language: Language, name: string): Promise<void> {
     await page.waitForLoadState("networkidle");
     await page.evaluate(() => document.fonts.ready);
     await page.waitForFunction(() => [...document.images].every((image) => image.complete));
     // The charts fit their viewport in an animation of their own.
     await page.waitForTimeout(1200);
     await page.waitForLoadState("networkidle");
-    await page.screenshot({ path: join(raw, `${name}.png`), animations: "disabled", caret: "hide" });
+    const folder = language === "en" ? raw : join(raw, language);
+    mkdirSync(folder, { recursive: true });
+    await page.screenshot({ path: join(folder, `${name}.png`), animations: "disabled", caret: "hide" });
 }
 
 test.describe.configure({ mode: "serial" });
@@ -166,125 +198,160 @@ test.beforeAll(async ({ playwright }) => {
     await request.dispose();
 });
 
-test("home", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto("/");
-    await expect(page.getByText("Landrevel family", { exact: true })).toBeVisible();
-    await expect(page.getByText("Étienne Marie", { exact: true }).first()).toBeVisible();
-    await shoot(page, "home");
-});
-
-test("pedigree", async ({ page }) => {
-    await pin(page, "light");
-    await page.addInitScript(() => {
-        localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 3, descendant_levels: 2 }));
+for (const language of LANGUAGES) {
+    test(`home (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto("/");
+        await expect(page.getByText("Landrevel family", { exact: true })).toBeVisible();
+        await expect(page.getByText("Étienne Marie", { exact: true }).first()).toBeVisible();
+        await shoot(page, language, "home");
     });
-    await page.goto(`/trees/${ids.treeId}`);
-    // The SOSA root opens selected, its events in the side panel.
-    await expect(page.locator("g.ped-card-focus").filter({ hasText: /Étienne Marie\s*LANDREVEL/ }).first()).toBeVisible();
-    await shoot(page, "pedigree");
-});
 
-test("fan chart, dark", async ({ page }) => {
-    await pin(page, "dark");
-    await page.addInitScript(() => {
-        localStorage.setItem("oxidgene-pedigree-view", JSON.stringify("fan"));
-        localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 6, descendant_levels: 2 }));
+    test(`import (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto("/");
+        const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: "Landrevel family" }) });
+        await card.getByTitle(t(language, "home.tree_actions")).click();
+        // The menu keeps measuring its place under the pinned clock, which
+        // Playwright reads as never stable: the click is dispatched.
+        await page.getByRole("button", { name: t(language, "common.import"), exact: true }).dispatchEvent("click");
+        await expect(page.getByText(t(language, "import.tab_geneanet"))).toBeVisible();
+        await shoot(page, language, "import");
     });
-    await page.goto(`/trees/${ids.treeId}`);
-    await expect(page.locator(".fan-seg").first()).toBeVisible();
-    await shoot(page, "fan-chart-dark");
-});
 
-test("hourglass, medieval", async ({ page }) => {
-    await pin(page, "light");
-    await page.addInitScript(() => {
-        localStorage.setItem("oxidgene-pedigree-view", JSON.stringify("hourglass"));
-        localStorage.setItem("oxidgene-pedigree-theme", JSON.stringify("medieval"));
-        localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 3, descendant_levels: 2 }));
+    test(`pedigree (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.addInitScript(() => {
+            localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 3, descendant_levels: 2 }));
+        });
+        await page.goto(`/trees/${ids.treeId}`);
+        // The SOSA root opens selected, its events in the side panel.
+        await expect(page.locator("g.ped-card-focus").filter({ hasText: /Étienne Marie\s*LANDREVEL/ }).first()).toBeVisible();
+        await shoot(page, language, "pedigree");
     });
-    await page.goto(`/trees/${ids.treeId}`);
-    await expect(page.getByText("LANDREVEL").first()).toBeVisible();
-    await shoot(page, "hourglass-medieval");
-});
 
-test("person", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/persons/${ids.root}`);
-    await expect(page.getByRole("heading", { level: 1, name: "Étienne Marie Landrevel" })).toBeVisible();
-    await shoot(page, "person");
-    await page.getByRole("heading", { name: "Family Connections" }).evaluate((heading) => heading.scrollIntoView({ block: "start" }));
-    await shoot(page, "person-timeline");
-});
+    test(`fan chart, dark (${language})`, async ({ page }) => {
+        await pin(page, language, "dark");
+        await page.addInitScript(() => {
+            localStorage.setItem("oxidgene-pedigree-view", JSON.stringify("fan"));
+            localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 6, descendant_levels: 2 }));
+        });
+        await page.goto(`/trees/${ids.treeId}`);
+        await expect(page.locator(".fan-seg").first()).toBeVisible();
+        await shoot(page, language, "fan-chart-dark");
+    });
 
-test("couple", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/persons/${ids.weddingGroom}`);
-    await page.getByRole("button", { name: "Couple view" }).click();
-    await expect(page).toHaveURL(/\/couples\//);
-    await shoot(page, "couple");
-});
+    test(`hourglass, medieval (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.addInitScript(() => {
+            localStorage.setItem("oxidgene-pedigree-view", JSON.stringify("hourglass"));
+            localStorage.setItem("oxidgene-pedigree-theme", JSON.stringify("medieval"));
+            localStorage.setItem("oxidgene-pedigree-defaults", JSON.stringify({ ancestor_levels: 3, descendant_levels: 2 }));
+        });
+        await page.goto(`/trees/${ids.treeId}`);
+        await expect(page.getByText("LANDREVEL").first()).toBeVisible();
+        await shoot(page, language, "hourglass-medieval");
+    });
 
-test("search", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/search?last=LANDREVEL&first=&origin=`);
-    await expect(page.getByText(/\d+ results/).first()).toBeVisible();
-    await page.getByRole("button", { name: "Filters", exact: false }).first().click();
-    await page.getByText("With media", { exact: true }).click();
-    await expect(page.getByText("8 results")).toBeVisible();
-    await page.getByRole("button", { name: "Filters", exact: false }).first().click();
-    await shoot(page, "search");
-});
+    test(`person (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.root}`);
+        await expect(page.getByRole("heading", { level: 1, name: "Étienne Marie Landrevel" })).toBeVisible();
+        await shoot(page, language, "person");
+        await page.getByRole("heading", { name: t(language, "person.family_connections") }).evaluate((heading) => heading.scrollIntoView({ block: "start" }));
+        await shoot(page, language, "person-timeline");
+    });
 
-test("statistics", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/statistics`);
-    await page.getByRole("tab", { name: "Overview" }).click();
-    await shoot(page, "statistics-overview");
-    await page.getByRole("tab", { name: "Places" }).click();
-    await shoot(page, "statistics-map");
-    await page.getByRole("tab", { name: "Names and occupations" }).click();
-    await shoot(page, "statistics-charts");
-});
+    test(`person form (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.root}`);
+        await expect(page.getByRole("heading", { level: 1, name: "Étienne Marie Landrevel" })).toBeVisible();
+        await page.getByRole("button", { name: t(language, "common.edit"), exact: true }).click();
+        await expect(page.getByText(t(language, "person_form.subtitle_edit")).first()).toBeVisible();
+        await shoot(page, language, "person-edit");
+    });
 
-test("tools", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/tools`);
-    await page.getByRole("tab", { name: "Anomalies" }).click();
-    await shoot(page, "tools-anomalies");
-    await page.getByRole("tab", { name: /duplicates/i }).click();
-    await shoot(page, "tools-duplicates");
-});
+    test(`couple (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.weddingGroom}`);
+        await page.getByRole("button", { name: t(language, "pedigree.couple_view") }).click();
+        await expect(page).toHaveURL(/\/couples\//);
+        await shoot(page, language, "couple");
+    });
 
-test("kinship", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/kinship?from=${ids.root}&to=${ids.cousin}`);
-    await expect(page.getByText(/relationships? found/)).toBeVisible();
-    await shoot(page, "kinship");
-});
+    test(`search (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/search?last=LANDREVEL&first=&origin=`);
+        await expect(page.getByText(counted(language, "search.results_count_other")).first()).toBeVisible();
+        const filters = page.getByRole("button", { name: t(language, "search.filters"), exact: false }).first();
+        await filters.click();
+        await page.getByText(t(language, "search.has_media"), { exact: true }).click();
+        await expect(page.getByText(t(language, "search.results_count_other", { count: 8 }))).toBeVisible();
+        await filters.click();
+        await shoot(page, language, "search");
+    });
 
-test("dictionary and media library", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/dictionary`);
-    await expect(page.getByText("LANDREVEL").first()).toBeVisible();
-    await page.getByPlaceholder("Filter...").fill("LANDREVEL");
-    await page.getByRole("button", { name: "▼" }).first().click();
-    await shoot(page, "dictionary");
-    await page.getByRole("tab", { name: "Media" }).click();
-    await shoot(page, "media-library");
-});
+    test(`statistics (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/statistics`);
+        await page.getByRole("tab", { name: t(language, "stats.tab.overview") }).click();
+        await shoot(page, language, "statistics-overview");
+        await page.getByRole("tab", { name: t(language, "stats.tab.places") }).click();
+        await shoot(page, language, "statistics-map");
+        await page.getByRole("tab", { name: t(language, "stats.tab.names") }).click();
+        await shoot(page, language, "statistics-charts");
+    });
 
-test("history", async ({ page }) => {
-    await pin(page, "light");
-    await page.goto(`/trees/${ids.treeId}/persons/${ids.root}/history`);
-    await expect(page.getByRole("heading", { level: 1, name: /History of/ })).toBeVisible();
-    // The current version against the imported one: both edits at once.
-    await page.getByRole("combobox").selectOption({ label: "Version 1" });
-    await shoot(page, "history");
-});
+    test(`tools (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/tools`);
+        await page.getByRole("tab", { name: t(language, "tools.tab.anomalies") }).click();
+        await shoot(page, language, "tools-anomalies");
+        await page.getByRole("tab", { name: t(language, "tools.tab.duplicates") }).click();
+        await shoot(page, language, "tools-duplicates");
+        // The first pair, compared in the merge wizard.
+        await page.getByRole("button", { name: t(language, "tools.duplicates.compare"), exact: true }).first().click();
+        await expect(page.getByText(t(language, "merge.title"))).toBeVisible();
+        await shoot(page, language, "merge");
+    });
 
-test("settings", async ({ page }) => {
-    await pin(page, "dark");
-    await page.goto("/settings");
-    await shoot(page, "app-settings-dark");
-});
+    test(`kinship (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/kinship?from=${ids.root}&to=${ids.cousin}`);
+        await expect(page.getByText(counted(language, "kinship.found_other")).or(page.getByText(counted(language, "kinship.found_one")))).toBeVisible();
+        await shoot(page, language, "kinship");
+    });
+
+    test(`dictionary and media library (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/dictionary`);
+        await expect(page.getByText("LANDREVEL").first()).toBeVisible();
+        await page.getByPlaceholder(t(language, "dictionary.filter_placeholder")).fill("LANDREVEL");
+        await page.getByRole("button", { name: "▼" }).first().click();
+        await shoot(page, language, "dictionary");
+        await page.getByRole("tab", { name: t(language, "dictionary.tab.media") }).click();
+        await shoot(page, language, "media-library");
+    });
+
+    test(`history (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.root}/history`);
+        await expect(page.getByRole("heading", { level: 1, name: t(language, "history.title", { name: "Étienne Marie Landrevel" }) })).toBeVisible();
+        // The current version against the imported one: both edits at once.
+        await page.getByRole("combobox").selectOption({ label: t(language, "history.version_n", { version: 1 }) });
+        await shoot(page, language, "history");
+    });
+
+    test(`tree settings (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/settings`);
+        await expect(page.getByText("Landrevel family").first()).toBeVisible();
+        await shoot(page, language, "tree-settings");
+    });
+
+    test(`settings (${language})`, async ({ page }) => {
+        await pin(page, language, "dark");
+        await page.goto("/settings");
+        await shoot(page, language, "app-settings-dark");
+    });
+}

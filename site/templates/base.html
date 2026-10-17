@@ -1,0 +1,56 @@
+{%- set home = get_url(path="@/_index.md", lang=lang) -%}
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ config.title }}{% endblock title %}</title>
+    <meta name="description" content="{% block description %}{{ config.description }}{% endblock description %}">
+    <link rel="icon" type="image/png" href="{{ get_url(path='favicon.png') }}">
+    <link rel="stylesheet" href="{{ get_url(path='style.css', cachebust=true) }}">
+    {%- block alternates %}{% endblock alternates %}
+</head>
+<body>
+    <a class="skip" href="#main">{{ trans(key="skip", lang=lang) }}</a>
+    <header class="site-header">
+        <a class="brand" href="{{ home }}"><img src="{{ get_url(path='logo.svg') }}" alt="" width="30" height="30"><span>OxidGene</span></a>
+        {%- block nav %}
+        <nav class="site-nav" aria-label="{{ trans(key='menu', lang=lang) }}">
+            {%- set current = current_path or "/" %}
+            <a href="{{ get_url(path='@/guide/_index.md', lang=lang) }}"{% if "/guide/" in current %} aria-current="true"{% endif %}>{{ trans(key="guide", lang=lang) }}</a>
+            <a href="{{ get_url(path='@/workflows/_index.md', lang=lang) }}"{% if "/workflows/" in current %} aria-current="true"{% endif %}>{{ trans(key="workflows", lang=lang) }}</a>
+            <a href="{{ get_url(path='@/tech/_index.md', lang='en') }}"{% if "/tech/" in current %} aria-current="true"{% endif %}>{{ trans(key="tech", lang=lang) }}</a>
+            <a href="{{ get_url(path='api/oxidgene_core/index.html') }}">{{ trans(key="rust_api", lang=lang) }}</a>
+        </nav>
+        {%- endblock nav %}
+        <div class="header-tools">
+            <div class="search" data-index="{{ get_url(path='search_index.' ~ lang ~ '.js') }}" data-lunr="{{ get_url(path='elasticlunr.min.js') }}" data-empty="{{ trans(key='no_results', lang=lang) }}">
+                <input type="search" placeholder="{{ trans(key='search', lang=lang) }}…" aria-label="{{ trans(key='search', lang=lang) }}" autocomplete="off">
+                <ul class="search-results" hidden></ul>
+            </div>
+            <div class="lang-switch">{% block languages %}
+                {%- if lang == "en" %}<span>EN</span><a href="{{ get_url(path='@/_index.md', lang='fr') }}" hreflang="fr" lang="fr">FR</a>
+                {%- else %}<a href="{{ get_url(path='@/_index.md', lang='en') }}" hreflang="en" lang="en">EN</a><span>FR</span>{% endif %}
+            {%- endblock languages %}</div>
+            <a class="icon-link" href="{{ config.extra.repository }}" aria-label="GitHub"><svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+        </div>
+    </header>
+    <nav class="mobile-nav" aria-label="{{ trans(key='menu', lang=lang) }}">
+        <a href="{{ get_url(path='@/guide/_index.md', lang=lang) }}">{{ trans(key="guide", lang=lang) }}</a>
+        <a href="{{ get_url(path='@/workflows/_index.md', lang=lang) }}">{{ trans(key="workflows", lang=lang) }}</a>
+        <a href="{{ get_url(path='@/tech/_index.md', lang='en') }}">{{ trans(key="tech", lang=lang) }}</a>
+        <a href="{{ get_url(path='api/oxidgene_core/index.html') }}">{{ trans(key="rust_api", lang=lang) }}</a>
+    </nav>
+    <main id="main">{% block main %}{% endblock main %}</main>
+    <footer class="site-footer">
+        <p>{{ trans(key="license", lang=lang) }} <a href="{{ config.extra.repository }}">GitHub</a> · <a href="{{ config.extra.releases }}">{{ trans(key="download", lang=lang) }}</a> · <a href="{{ config.extra.repository }}#code-signing-policy">{{ trans(key="code_signing", lang=lang) }}</a></p>
+    </footer>
+    <script>
+        // On a phone the section's page list starts folded above the page.
+        if (matchMedia("(max-width: 860px)").matches) {
+            for (const list of document.querySelectorAll(".sidebar details")) list.open = false;
+        }
+    </script>
+    <script src="{{ get_url(path='search.js', cachebust=true) }}" defer></script>
+</body>
+</html>

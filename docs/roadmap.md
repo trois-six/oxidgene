@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
+generated: { by: human:maintainer, at: 2026-10-17T15:10:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -284,6 +284,9 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [ ] Sign the macOS application with an Apple Developer ID and notarize it,
   in place of its ad hoc signature, once the project has an Apple developer
   account.
+- [x] Publish a documentation site on GitHub Pages: the user guide, workflows
+  and FAQ in English and French, the specifications, the REST and GraphQL
+  references and the rustdoc ([Development §7](development.md#7-documentation-site)).
 - [x] Build and publish versioned OCI images for the static WASM frontend and
   the Axum backend, with immutable tags and documented configuration.
 - [x] Provide a development Docker Compose stack for the frontend, backend, and
