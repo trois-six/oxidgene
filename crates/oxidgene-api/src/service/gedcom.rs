@@ -1011,6 +1011,7 @@ struct TreeRecords {
     media_links: Vec<oxidgene_core::types::MediaLink>,
     vignettes: Vec<oxidgene_core::types::Vignette>,
     notes: Vec<oxidgene_core::types::Note>,
+    gedcom_kept: Vec<oxidgene_core::types::GedcomKept>,
 }
 
 impl TreeRecords {
@@ -1033,6 +1034,7 @@ impl TreeRecords {
             media_links: &self.media_links,
             vignettes: &self.vignettes,
             notes: &self.notes,
+            gedcom_kept: &self.gedcom_kept,
         }
     }
 
@@ -1041,6 +1043,7 @@ impl TreeRecords {
         records.load_lineage(db, tree_id).await?;
         records.load_events(db, tree_id).await?;
         records.load_documentation(db, tree_id).await?;
+        records.gedcom_kept = GedcomKeptRepo::list_by_tree(db, tree_id).await?;
         Ok(records)
     }
 

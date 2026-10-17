@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-17T19:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:17:00Z }
 ---
 
 
@@ -1490,7 +1490,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
 | Event types without a tag | `EVEN` + `TYPE`; a `MILI` as a military service | As `EVEN` + `TYPE` | Military service, civil union, separation (`SEP`, which GeneWeb writes, and the `MILI` extension are in no GEDCOM version), GeneWeb's vocabulary and `Other`. The `TYPE` is the type's label, or the description when it reads back as the same type (`PACS`); any other description is the `EVEN` line value. On import, the `TYPE` gives the type and the line value joins it in the description. Every type keeps its type, date, place and description through a 5.5.1, 7.0 or GEDZIP round trip |
 | LDS ordinances (`BAPL`, `CONL`, `ENDL`, `INIL`, `SLGC`, `SLGS`) | Full, place included | As ordinance structures: `BAPL`, `CONL`, `ENDL`, `INIL` and `SLGC` under the individual, `SLGS` under the family. An event holding a description, media, an age, an agency or a cause, which an ordinance has no room for, is written as `EVEN` + `TYPE`, as is one holding no date, place, note or citation | Imported as `LdsBaptism`, `LdsConfirmation`, `Endowment`, `LdsInitiatory` (7.x `INIL`), `SealingChild` and `SealingSpouse` with their date, place, notes and citations, and no description: the temple, the status and a child sealing's family are kept GEDCOM beside the event ([Kept GEDCOM](#kept-gedcom)). A generic `EVEN` typed `BAPL`, `INIL` and the like imports as its type. GEDCOM 5.5.1 has no `INIL` and requires a child sealing's `FAMC`, so those are written as the extension tags `_INIL` and `_SLGC`, which the import reads back as their types |
-| Event tags no version defines (`MILI`, `SEP`, …), events out of their record | As events | As `EVEN` + `TYPE` | `oxidged` keeps such a tag whole, untyped, under the person or family; one that has substructures is read as a generic event: `MILI` as a military service, `SEP` (GeneWeb's, read even bare) as a separation, any other as an `Other` event described by its tag and value. Its date, place, notes, citations and media are the event's. An event of the other kind of record (a `MARR` on a person, a `PROP` on a family) is read as it is, and written as the generic event its tag names (`1 EVEN Farm lease` / `2 TYPE PROP`). Custom `_` tags and other standard tags kept aside (a second `SEX`) are left alone |
+| Event tags no version defines (`MILI`, `SEP`, …), events out of their record | As events | As `EVEN` + `TYPE` | `oxidged` keeps such a tag whole, untyped, under the person or family; one that has substructures is read as a generic event: `MILI` as a military service, `SEP` (GeneWeb's, read even bare) as a separation, any other as an `Other` event described by its tag and value. Its date, place, notes, citations and media are the event's. An event of the other kind of record (a `MARR` on a person, a `PROP` on a family) is read as it is, and written as the generic event its tag names (`1 EVEN Farm lease` / `2 TYPE PROP`). Custom `_` tags and other standard tags kept aside (a second `SEX`) are kept GEDCOM ([Kept GEDCOM](#kept-gedcom)) |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows, the relation being `RELA`, else the 7.0 `ROLE`'s phrase, else the role; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`), with a `RELA`, which 5.5.1 requires (`Unknown` for a witness without a relation). A family-event witness points at the family, Gramps' convention, which 5.5.1 does not permit: the writer keeps it as `_ASSO`, which the import reads, as it reads an `_ASSO` beneath an event. A GEDZIP's GEDCOM 7.0 writes the relation as a `ROLE` with the relation as its `PHRASE` (`ROLE WITN` / `PHRASE Witness`, `ROLE OTHER` for a relation 7.0 has no role for), under `_ASSO` too, whose role the import reads as an `ASSO`'s. Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
@@ -1503,13 +1503,13 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Cause (CAUS) | Full | Full | On any event |
 | Age at event (`AGE`) | Full | Full | On an individual event or attribute (each profession a split `OCCU` becomes keeps it), stored in canonical form (`34y`, `< 1y 6m`, `CHILD`). A value outside GEDCOM's age grammar costs that age, not the file: one OxidGene reads as an age (`1y6m`, `child`) is stored in GEDCOM's form, and anything else — free text such as `2 AGE majeur` — is left out and reported as one warning naming its record (never its value); an empty `AGE` says nothing and is ignored. Written in GEDCOM 5.5.1's form in a `.ged`, in 7.0's in a GEDZIP, whose keyword ages are durations with the keyword as their `PHRASE` (`< 8y` / `PHRASE CHILD`); the import reads such an age back as its keyword |
 | Repositories (`REPO`) | Full | Full | Name, address (several lines), first phone, email and website, notes |
-| Source repository citations (`SOUR.REPO`) | Full | Full | Each becomes a link with its call number (`CALN`) and medium (`MEDI`, written in 5.5.1's lower case; a medium without a call number goes under an empty `CALN`). A citation without a pointer names a repository by its text — the line's, else its notes' — created once per distinct text; a pointer to a record the file does not hold is a warning. Several `CALN` under one citation are one link each, every one with its own `MEDI`; a citation's own `NOTE` is not kept |
+| Source repository citations (`SOUR.REPO`) | Full | Full | Each becomes a link with its call number (`CALN`) and medium (`MEDI`, written in 5.5.1's lower case; a medium without a call number goes under an empty `CALN`). A citation without a pointer names a repository by its text — the line's, else its notes' — created once per distinct text; a pointer to a record the file does not hold is a warning. Several `CALN` under one citation are one link each, every one with its own `MEDI`; a citation's own `NOTE` is kept GEDCOM |
 | Spouse ages (`HUSB.AGE`, `WIFE.AGE`) | Full | Full | On a family event, the age of the family's `HUSB` and `WIFE`; written back under the slot each spouse is exported in, a spouse without a slot being a warning |
 | Agency (`AGNC`) | Full | Full | On an individual event or attribute, and a source's `DATA.AGNC` |
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster. A `FAMC` or `FAMS` that the family does not list back (written on the individual's record only) still links the individual to the family, with a warning: a child becomes a `FamilyChild` (its `PEDI` kept), a spouse a `FamilySpouse` with the role of their sex |
 | Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
 | Restriction (`RESN`) | Person and family privacy | Person and family privacy | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. A `Private` person or family is exported with `RESN confidential`; `Public` has no `RESN` value and comes back as `Default` |
-| Submitter (`SUBM`) | The record `HEAD.SUBM` points at fills the tree's submitter settings that are empty — never one already set; `Not Provided` is no name. Other `SUBM` records are a warning with their count | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the tree's submitter name, else the display name of its "Who am I?" person (`self_person_id`), else `Not Provided` (Gramps' wording). `EMAIL` and the multi-line `ADDR` are written only when set. A duplicated tree carries the settings over |
+| Submitter (`SUBM`) | The record `HEAD.SUBM` points at fills the tree's submitter settings that are empty — never one already set; `Not Provided` is no name. The other `SUBM` records are kept, as records of the tree ([Kept GEDCOM](#kept-gedcom)) | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the tree's submitter name, else the display name of its "Who am I?" person (`self_person_id`), else `Not Provided` (Gramps' wording). `EMAIL` and the multi-line `ADDR` are written only when set. A duplicated tree carries the settings over |
 | Header charset | Declared `CHAR` decoded | `CHAR UTF-8`; UTF-8 with a byte-order mark in a GEDZIP | A `.ged` is decoded by what its bytes hold first — a byte-order mark, a UTF-16 pattern, valid UTF-8 — then by the character set `HEAD.CHAR` declares: ANSEL, ASCII, ISO-8859-1 or -15, IBM PC, Macintosh, and `ANSI` as Windows-1252, which also stands in for a declaration the bytes contradict (8-bit bytes under `CHAR ASCII`) — so files from GEDCOM 5 software keep their accents and decoding never fails. A `.ged` export is UTF-8 and declares it, a byte-order mark first only for a destination that wants one (PAF, Ancestral Quest); GEDCOM 7.0, always UTF-8, has no `CHAR`, and a GEDZIP's starts with the byte-order mark it recommends |
 | GEDCOM version | 5.5.1 + 7.0 + 7.1 | 5.5.1 in a `.ged` (7.0 for a destination that reads it), 7.0 in a GEDZIP | oxidged auto-detects on import; the export is conformant, `oxidged`'s writer repairing as extension structures (`_TAG`) what the version does not permit. See [Export destinations](#export-destinations) and [GEDZIP](#gedzip) |
 
@@ -1673,11 +1673,20 @@ substructures:
 - Paired substructures are compared in turn; what an understood structure
   holds that its partner does not is kept beneath it.
 - A substructure with no partner is kept whole, its substructures with it.
-- The structures the import reads under another tag are understood
-  whatever the export holds: every association (`ASSO`, `_ASSO`), which
-  becomes an event witness, and the event tags the import reads as generic
-  events (`MILI`, `SEP`, an undefined tag with substructures, an event of
-  the other kind of record).
+- The structures the import reads as something else are understood whatever
+  the export holds, and never kept: every association (`ASSO`, `_ASSO`),
+  which becomes an event witness, and the `TYPE` beneath one, which names the
+  kind of record its pointer names; the event tags the import reads as
+  generic events (`MILI`, `SEP`, an undefined tag with substructures, an
+  event of the other kind of record); the LDS ordinances (`BAPL`, `CONL`,
+  `INIL`, `ENDL`, `SLGC`, `SLGS`, and the extension tags `_INIL` and
+  `_SLGC`); an `AGE`, which is stored or left out with a warning, an empty
+  one saying nothing; the `RESN` of a person or family, which is its
+  privacy; the `_GWDEATH` a GeneWeb death reason is read from; each `CALN`
+  beneath a repository citation (`REPO`), which is one link per call number,
+  whichever link the export pairs it with; and an inline `OBJE`, which the
+  import reads as a medium of its own, written as an `OBJE` pointer with
+  nothing beneath the link.
 - The header is not compared.
 
 What is kept is stored per entity — a person (`INDI`), a family (`FAM`), a
@@ -1688,7 +1697,9 @@ it, each named by its tag, the entity its pointer names, and its position
 among the exported substructures with that tag. A record OxidGene has no
 entity for is kept whole, for the tree. A pointer is stored as the entity
 it names, never as the file's identifier, which an export does not reuse;
-a pointer to a record the file does not hold is dropped.
+a pointer to a record the file does not hold is dropped. The tree's
+submitter is kept as a row even when nothing beneath it is, so that a pointer
+to it kept elsewhere in the file finds the submitter on export.
 
 **Export.** Every export, `.ged` and GEDCOM inside a GEDZIP alike, puts
 what is kept back before it is written: beneath each record, each kept
@@ -1697,11 +1708,14 @@ entity it names, another by its position among the substructures with its
 tag — and the records kept for the tree are added, given identifiers of
 their own. A kept substructure whose anchor is no longer exported (an
 event deleted since) or whose pointer names an entity no longer in the tree
-is left out, and the export's warnings count what was left out. The
-records then go through `oxidged`'s writer like the rest, so a structure
-the destination version does not permit — a 7.0 `EXID` exported as 5.5.1 —
-is converted or kept as an extension structure, and the file stays
-conformant.
+is left out, and the export's warnings count what was left out. What an
+export's choices leave out goes with it, without a warning: a kept row of a
+note, a source, a repository or a medium the export does not write, and each
+kept node tagged `NOTE`, `SNOTE`, `SOUR` or `REPO` when the notes and sources
+are left out, or `OBJE` when the media are. The records then go through
+`oxidged`'s writer like the rest, so a structure the destination version does
+not permit — a 7.0 `EXID` exported as 5.5.1, a note beneath a `REFN` — is
+converted or kept as an extension structure, and the file stays conformant.
 
 What is kept follows its entity: a duplicated tree carries it; a merge
 keeps the merged record's beneath the record kept; a purged tree leaves
@@ -1710,7 +1724,9 @@ none. Editing an entity in OxidGene leaves what is kept beneath it.
 ### GeneWeb `.gw`
 
 A `.gw` is read by the `geneweb` crate, which converts it to the same `oxidged`
-model a `.ged` is read into; the mapping above then applies unchanged. What the
+model a `.ged` is read into; the mapping above then applies unchanged. A `.gw`
+holds no GEDCOM structures of its own, so nothing is kept from it: the GEDCOM
+the conversion produces is the model's, not the file's. What the
 conversion produces, and so what a `.gw` imports as:
 
 | GeneWeb | Imported as |
@@ -1731,16 +1747,14 @@ the next block for a `fam`, and reported as one warning naming its line.
 
 ### Not currently imported
 
-- Submitter records other than the one `HEAD.SUBM` points at, and the `SUBM`
-  pointers of individual and family records (`INDI.SUBM`, `FAM.SUBM`): a
-  record has no submitter of its own in OxidGene
-- A note on a source's repository citation (`SOUR.REPO.NOTE`) that has a
-  pointer: the link keeps its call number and medium only
-- Religion of a single event (`RELI` under an event; `RELI` as an individual
-  attribute is imported, see above)
-- Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media
-  extensions excepted
+Nothing else a GEDCOM file holds is dropped: what the model has no place for
+is [kept](#kept-gedcom) and written back on export — among it the submitter
+records other than the one `HEAD.SUBM` points at, the `SUBM` pointers of
+individual and family records (`INDI.SUBM`, `FAM.SUBM`), a note on a
+repository citation, the religion of a single event and custom tags. What is
+not read is what the export replaces: the header, which every export writes
+anew, an `AGE` that is not an age (left out with a warning naming its record)
+and an empty `AGE`, which says nothing.
 
-Skipping them emits no warning, except one counting the other submitter
-records: the import warnings name only what the import repaired, could not
-resolve, or left of the file's own description of itself.
+The import warnings name only what the import repaired, could not resolve, or
+left out.

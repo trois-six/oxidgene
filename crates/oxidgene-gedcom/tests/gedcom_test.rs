@@ -839,6 +839,7 @@ fn the_export_names_its_submitter() {
     let export_with = |self_person_id: Option<Uuid>, submitter: SubmitterSettings<'_>| {
         export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: &imported.persons,
                 person_names: &imported.person_names,
                 ..Default::default()
@@ -1359,6 +1360,7 @@ fn partners_are_exported_as_husband_and_wife() {
     imported.family_spouses.push(third);
     let export = export_gedcom(
         &ExportRecords {
+            gedcom_kept: &[],
             persons: &imported.persons,
             person_names: &imported.person_names,
             families: &imported.families,
@@ -1666,6 +1668,7 @@ fn test_export_source() {
 fn test_export_empty() {
     let export = export_gedcom(
         &ExportRecords {
+            gedcom_kept: &[],
             ..Default::default()
         },
         &ExportOptions {
@@ -1780,6 +1783,7 @@ fn test_export_long_utf8_note_does_not_panic() {
 
     let export = export_gedcom(
         &ExportRecords {
+            gedcom_kept: &[],
             persons: &[person],
             person_names: &[name],
             notes: &[note],
@@ -2705,6 +2709,7 @@ fn test_import_result_serialization() {
 fn test_export_result_serialization() {
     let export = export_gedcom(
         &ExportRecords {
+            gedcom_kept: &[],
             ..Default::default()
         },
         &ExportOptions {
@@ -3339,7 +3344,7 @@ const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
 1 CREA
 2 DATE 1 JAN 2000
 1 SUBM @U1@
-1 _MILT Custom
+1 _MILX Custom
 2 DATE 1902
 0 @S1@ SOUR
 1 TITL Sample register
@@ -3510,7 +3515,7 @@ fn lds_ordinances_are_written_as_their_gedcom_structures() {
 
     let exported = reexport(&imported);
     assert!(
-        exported.contains("1 BAPL\n2 DATE 1 JAN 1950\n2 PLAC Town\n"),
+        exported.contains("1 BAPL\n2 DATE 1 JAN 1950\n2 TEMP SLAKE\n2 PLAC Town\n"),
         "{exported}"
     );
     let family = exported
@@ -4469,4 +4474,195 @@ fn a_two_sided_family_link_is_one_row_without_a_warning() {
         .filter(|warning| warning.contains("FAMC") || warning.contains("FAMS"))
         .collect();
     assert!(linked.is_empty(), "{linked:?}");
+}
+
+/// A 5.5.1 file whose structures OxidGene's model has no place for, on an
+/// individual, a family, a second submitter and an extension record.
+const KEPT_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+1 SUBM @U1@
+0 @U1@ SUBM
+1 NAME Sample Submitter
+0 @U9@ SUBM
+1 NAME Other
+0 @X1@ _CUSTOM
+1 _SUB value
+0 @I1@ INDI
+1 NAME Ann /Example/
+2 FONE An
+3 TYPE kana
+1 REFN 42
+1 CHAN
+2 DATE 1 JAN 2000
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 ADDR 1 Main Street
+2 PLAC Town
+3 FONE Taun
+4 TYPE kana
+1 BAPL
+2 DATE 1 JAN 1950
+2 TEMP SLAKE
+2 STAT COMPLETED
+3 DATE 2 JAN 1950
+1 FAMC @F1@
+2 STAT proven
+0 @F1@ FAM
+1 CHIL @I1@
+0 TRLR
+";
+
+/// The structures of `gedcom` that are not records, as their lines.
+fn lines_of(gedcom: &str) -> Vec<&str> {
+    gedcom.lines().collect()
+}
+
+#[test]
+fn kept_structures_are_written_back_on_export() {
+    let imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports");
+    let kinds: Vec<_> = imported.kept.iter().map(|row| row.entity_kind).collect();
+    assert!(kinds.contains(&oxidgene_core::types::KeptEntityKind::Person));
+    assert!(kinds.contains(&oxidgene_core::types::KeptEntityKind::Record));
+
+    let export = export_as(&imported, ExportTarget::Gedcom);
+    let gedcom = export.gedcom.as_str();
+    for expected in [
+        "1 REFN 42\n",
+        "2 FONE An\n",
+        "2 ADDR 1 Main Street\n",
+        "3 FONE Taun\n",
+        "2 STAT proven\n",
+        "2 TEMP SLAKE\n",
+        "2 STAT COMPLETED\n",
+        "1 _SUB value\n",
+    ] {
+        assert!(gedcom.contains(expected), "{expected} missing:\n{gedcom}");
+    }
+    let other = records_containing(gedcom, "1 NAME Other");
+    assert_eq!(other.len(), 1, "{gedcom}");
+    assert!(
+        other[0].starts_with("@K") && other[0].contains(" SUBM"),
+        "{other:?}"
+    );
+    assert!(
+        records_containing(gedcom, "1 _SUB value")
+            .iter()
+            .any(|record| record.contains("_CUSTOM")),
+        "{gedcom}"
+    );
+    assert!(
+        export.warnings.iter().all(|w| !w.contains("left out")),
+        "{:?}",
+        export.warnings
+    );
+}
+
+#[test]
+fn kept_structures_survive_a_second_round_trip() {
+    let first = export_as(
+        &import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports"),
+        ExportTarget::Gedcom,
+    );
+    let imported_again = import_gedcom(&first.gedcom, Uuid::now_v7()).expect("imports");
+    let second = export_as(&imported_again, ExportTarget::Gedcom);
+    assert_eq!(first.gedcom, second.gedcom);
+}
+
+#[test]
+fn a_kept_structure_whose_entity_is_left_out_is_warned_about() {
+    let mut imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports");
+    imported
+        .events
+        .retain(|event| event.event_type != oxidgene_core::EventType::Birth);
+    let export = export_as(&imported, ExportTarget::Gedcom);
+    assert!(!export.gedcom.contains("3 FONE Taun"), "{}", export.gedcom);
+    assert!(
+        export
+            .warnings
+            .iter()
+            .any(|w| w.contains("kept GEDCOM structures had no place left")),
+        "{:?}",
+        export.warnings
+    );
+}
+
+#[test]
+fn kept_notes_are_left_out_with_the_notes() {
+    let gedcom = KEPT_GEDCOM.replace("1 REFN 42\n", "1 REFN 42\n2 NOTE On the reference\n");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let with_notes = export_as(&imported, ExportTarget::Gedcom);
+    // 5.5.1 has no note under a `REFN`, so the writer keeps it as an extension.
+    assert!(
+        with_notes
+            .gedcom
+            .contains("1 REFN 42\n2 _NOTE On the reference\n")
+    );
+
+    let without_notes = export_gedcom(
+        &imported.records(),
+        &ExportOptions {
+            choices: ExportChoices {
+                include_notes_and_sources: false,
+                ..ExportChoices::default()
+            },
+            target: ExportTarget::Gedcom,
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports");
+    assert!(without_notes.gedcom.contains("1 REFN 42\n"));
+    assert!(!without_notes.gedcom.contains("On the reference"));
+}
+
+#[test]
+fn kept_7_0_structures_are_written_by_a_gedzip() {
+    const GEDCOM_70: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 UID 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+1 EXID 123
+2 TYPE http://example.org
+1 NO MARR
+0 TRLR
+";
+    let imported = import_gedcom(GEDCOM_70, Uuid::now_v7()).expect("imports");
+    assert!(!imported.kept.is_empty());
+    let archive = export_as(
+        &imported,
+        ExportTarget::Gedzip {
+            media_paths: &HashMap::new(),
+        },
+    );
+    for expected in [
+        "1 UID 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "1 EXID 123",
+        "2 TYPE http://example.org",
+        "1 NO MARR",
+    ] {
+        assert!(
+            archive.gedcom.contains(expected),
+            "{expected} missing:\n{}",
+            archive.gedcom
+        );
+    }
+    let as_551 = export_as(&imported, ExportTarget::Gedcom);
+    let back = import_gedcom(&as_551.gedcom, Uuid::now_v7()).expect("parses back");
+    assert_eq!(back.persons.len(), 1);
+    assert!(
+        lines_of(&as_551.gedcom)
+            .iter()
+            .any(|line| line.starts_with("0 TRLR"))
+    );
 }

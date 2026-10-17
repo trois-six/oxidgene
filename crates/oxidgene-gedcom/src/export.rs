@@ -30,11 +30,12 @@ use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
-    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
+    Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, GedcomKept, Media, MediaLink,
+    Note, Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
+use crate::keeping;
 use crate::{
     DestinationReport, DocumentExtension, DocumentMetadataExtension, ExportLimit, ExportLoss,
     ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension,
@@ -59,6 +60,10 @@ pub struct ExportRecords<'a> {
     pub media_links: &'a [MediaLink],
     pub vignettes: &'a [Vignette],
     pub notes: &'a [Note],
+    /// What GEDCOM the import kept beside these records (see `docs/api.md`,
+    /// "Kept GEDCOM"): put back beneath the records written, the rows of the
+    /// notes, sources, repositories or media left out with them dropped.
+    pub gedcom_kept: &'a [GedcomKept],
 }
 
 impl ExportRecords<'_> {
@@ -260,6 +265,7 @@ pub fn export_gedcom(
         media_links,
         vignettes,
         notes,
+        gedcom_kept,
     } = records.chosen(choices);
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
@@ -389,6 +395,9 @@ pub fn export_gedcom(
     drop(build_guard);
 
     let xrefs = index.exported_xrefs(data.store());
+    if !gedcom_kept.is_empty() {
+        data = with_kept(&data, gedcom_kept, choices, &xrefs, &mut warnings);
+    }
     let (gedcom, report) = write_gedcom(&data, target, choices.destination, &kept)?;
     Ok(ExportResult {
         gedcom,
@@ -396,6 +405,30 @@ pub fn export_gedcom(
         report,
         xrefs,
     })
+}
+
+/// `data` with what the import kept put back beneath its records (see
+/// [`keeping::put_back`]), rebuilt from its text so that the writer sees the
+/// records as they are written. The header is written anew by the writer.
+fn with_kept(
+    data: &Dataset,
+    gedcom_kept: &[GedcomKept],
+    choices: ExportChoices,
+    xrefs: &HashMap<String, Uuid>,
+    warnings: &mut Vec<String>,
+) -> Dataset {
+    let mut structures = data.to_structures();
+    let left_out = keeping::put_back(&mut structures, gedcom_kept, choices, xrefs, warnings);
+    if left_out > 0 {
+        warnings.push(format!(
+            "{left_out} kept GEDCOM structures had no place left in the tree and were left out"
+        ));
+    }
+    let text: String = structures
+        .iter()
+        .map(|structure| structure.to_gedcom(0, GedcomVersion::V5_5_1))
+        .collect();
+    Dataset::parse(text)
 }
 
 /// The GEDCOM cross-reference of every record the export writes, by id,
@@ -2517,6 +2550,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 families: std::slice::from_ref(&family),
                 sources: std::slice::from_ref(&source),
                 citations: std::slice::from_ref(&citation),
@@ -2582,6 +2616,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &rows,
                 ..Default::default()
             },
@@ -2642,6 +2677,7 @@ mod tests {
         let m = [document, page];
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &m,
                 ..Default::default()
             },
@@ -2776,6 +2812,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 places: std::slice::from_ref(&place),
                 media: &rows,
                 notes: std::slice::from_ref(&note),
@@ -2824,6 +2861,7 @@ mod tests {
         let m = [document, page];
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &m,
                 ..Default::default()
             },
@@ -2850,6 +2888,7 @@ mod tests {
         document.source_media_type = SourceMediaType::Fiche;
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &[document, page],
                 ..Default::default()
             },
@@ -2884,6 +2923,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 media: &rows,
                 media_links: std::slice::from_ref(&link),
@@ -2952,6 +2992,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 media: &rows,
                 media_links: std::slice::from_ref(&link),
@@ -3041,6 +3082,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 events: std::slice::from_ref(&event),
                 media: &rows,
@@ -3111,6 +3153,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 events: std::slice::from_ref(&occupation),
                 media: &rows,
@@ -3199,6 +3242,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &rows,
                 notes: &notes,
                 ..Default::default()
@@ -3265,6 +3309,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 media: &[
                     other.clone(),
@@ -3349,6 +3394,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 persons: std::slice::from_ref(&person),
                 media: &rows,
                 media_links: std::slice::from_ref(&link),
@@ -3402,6 +3448,7 @@ mod tests {
 
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &[document, cover],
                 ..Default::default()
             },
@@ -3432,6 +3479,7 @@ mod tests {
         let (document, page) = document_with_page("photo.jpg", "image/jpeg", true);
         let export = export_gedcom(
             &ExportRecords {
+                gedcom_kept: &[],
                 media: &[document, page],
                 ..Default::default()
             },

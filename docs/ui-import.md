@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:17:00Z }
 ---
 
 
@@ -190,19 +190,23 @@ can ignore that extension while retaining all standard fields.
 | FAMC PEDI (pedigree type) | → FamilyChild.child_type (Biological / Adopted / Foster) |
 | FAMC or FAMS on the individual's record that the family does not list back | → FamilyChild or FamilySpouse, linked all the same, with a warning naming the individual and the family |
 
-### What is skipped (not imported)
+### What is kept (not imported)
 
-These GEDCOM tags are parsed by `oxidged` but not mapped to the OxidGene data
-model. They are skipped silently: the import warnings name only what the
-import could not read or resolve (an unreadable `AGE`, a dangling note
-pointer, a missing spouse or source, a GEDZIP file it does not hold).
+GEDCOM structures the model has no place for are not skipped: an import keeps
+them, and the export writes them back beneath the records they belong to, with
+the records OxidGene has no entity for. The mechanism is described in
+[API Contract, Kept GEDCOM](api.md#kept-gedcom). Only the header is regenerated
+on export.
 
-| GEDCOM tag | Description | Reason |
-|---|---|---|
-| SUBM other than `HEAD.SUBM`'s, `INDI.SUBM`, `FAM.SUBM` | Other submitter records and pointers | The header's submitter fills the tree's empty submitter settings; the others are counted in one warning, the record pointers are not imported |
-| AGE that is not a GEDCOM age | Free text | Left out with a warning naming its record (a loosely spelt age such as `1y6m` or `child` is read in GEDCOM's form instead); an empty `AGE` says nothing and is ignored |
-| RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
-| `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |
+The import warnings name only what the import could not read or resolve (an
+unreadable `AGE`, a dangling note pointer, a missing spouse or source, a GEDZIP
+file it does not hold).
+
+| GEDCOM structure | Treatment |
+|---|---|
+| Structures the model has no field for: identifiers (`REFN`, `RIN`, `UID`, `EXID`), `CHAN` and `CREA`, `FONE` and `ROMN`, an event's `ADDR`, `SUBN` and other `SUBM` records, `RELI` under an event, custom and extension tags | Kept, and written back on export |
+| AGE that is not a GEDCOM age | Left out with a warning naming its record (a loosely spelt age such as `1y6m` or `child` is read in GEDCOM's form instead); an empty `AGE` says nothing and is ignored |
+| Anything a GeneWeb `.gw` file holds beyond what its conversion maps | Nothing is kept: a `.gw` holds no GEDCOM structures of its own |
 
 ### GEDCOM version handling
 

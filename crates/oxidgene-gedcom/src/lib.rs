@@ -9,6 +9,7 @@ pub mod date;
 pub mod export;
 pub mod geneweb;
 pub mod import;
+mod keeping;
 pub mod kept;
 
 use serde::{Deserialize, Serialize};
@@ -105,6 +106,7 @@ impl ImportResult {
             media_links: &self.media_links,
             vignettes: &self.vignettes,
             notes: &self.notes,
+            gedcom_kept: &self.kept,
         }
     }
 }

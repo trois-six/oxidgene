@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T19:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:17:00Z }
 ---
 
 
@@ -588,8 +588,8 @@ entity; it is not a domain record a user edits.
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
-| `entity_kind` | String | `person`, `family`, `source`, `repository`, `media`, `submitter` or `record` |
-| `entity_id` | UUID v7 | The person, family, source, repository or medium; the tree's id for its submitter; for a `record`, an id of its own, which the pointers to that record name. No foreign key: one column names several tables |
+| `entity_kind` | String | `person`, `family`, `source`, `repository`, `media`, `submitter`, `record` or `note` (a shared note record, by its group) |
+| `entity_id` | UUID v7 | The person, family, source, repository or medium, or the group of a shared note record; the tree's id for its submitter; for a `record`, an id of its own, which the pointers to that record name. No foreign key: one column names several tables |
 | `nodes` | Text | The kept nodes, as `oxidgene_gedcom::kept::to_json` writes them |
 | `created_at` | DateTime | Set at import |
 

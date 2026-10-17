@@ -173,6 +173,41 @@ fn is_association(structure: &Structure) -> bool {
     matches!(structure.tag.as_str(), "ASSO" | "_ASSO")
 }
 
+/// An inline `OBJE` (one holding its `FILE`, not a pointer) is a medium the
+/// import reads as a record of its own, and the export writes as one: what it
+/// holds is that record's, compared with nothing beneath the link.
+fn is_inline_medium(structure: &Structure) -> bool {
+    structure.tag.as_str() == "OBJE" && structure.pointer().is_none()
+}
+
+/// Whether an unpaired child of `parent` is understood as the structure it
+/// belongs to. Each call number of a repository citation is one link the
+/// export writes beside the citation, whichever link the pairing chose. A
+/// `TYPE` under an association names the kind of record its pointer names,
+/// which the pointer itself says, and the export writes none.
+fn is_understood_beneath(parent: &Structure, child: &Structure) -> bool {
+    matches!(
+        (parent.tag.as_str(), child.tag.as_str()),
+        ("REPO", "CALN") | ("ASSO" | "_ASSO", "TYPE")
+    )
+}
+
+/// Whether an unpaired child is one the import reads, so that the export
+/// writes it or is right to leave it out: an association, an age, an event
+/// the import reads (direct children of `INDI` and `FAM` only), the
+/// restriction of a person or family, which is its privacy, and the death
+/// reason the `geneweb` crate writes beneath a death (`_GWDEATH`), which the
+/// import reads as the cause.
+fn is_understood(child: &Structure, depth: usize, record_tag: &str) -> bool {
+    // An age is stored, or left out with a warning, and an empty one says
+    // nothing: none is kept.
+    is_association(child)
+        || child.tag.as_str() == "AGE"
+        || child.tag.as_str() == "_GWDEATH"
+        || (depth == 0 && is_understood_event(child, record_tag))
+        || (depth == 0 && child.tag.as_str() == "RESN" && matches!(record_tag, "INDI" | "FAM"))
+}
+
 /// Whether an unpaired direct child of an `INDI` or `FAM` record is one the
 /// import reads as a generic or standard event, so that the export writes it.
 fn is_understood_event(child: &Structure, record_tag: &str) -> bool {
@@ -180,7 +215,12 @@ fn is_understood_event(child: &Structure, record_tag: &str) -> bool {
         return false;
     }
     let tag = child.tag.as_str();
-    if matches!(tag, "MILI" | "SEP") {
+    // The LDS ordinances, under GEDCOM's tags or the extension tags 5.5.1
+    // writes them under, are events the import reads whatever the export holds.
+    if matches!(
+        tag,
+        "MILI" | "SEP" | "BAPL" | "CONL" | "INIL" | "ENDL" | "SLGC" | "SLGS" | "_INIL" | "_SLGC"
+    ) {
         return true;
     }
     if TagId::standard(tag).is_some() {
@@ -285,7 +325,11 @@ fn diff_children(
     record_tag: &str,
     depth: usize,
 ) -> Vec<KeptNode> {
-    let children: Vec<&Structure> = original.substructures.iter().collect();
+    let children: Vec<&Structure> = original
+        .substructures
+        .iter()
+        .filter(|child| !is_inline_medium(child))
+        .collect();
     let partners = pair(
         &children,
         &exported.substructures,
@@ -309,7 +353,8 @@ fn diff_children(
                 }
             }
             None => {
-                if is_association(child) || (depth == 0 && is_understood_event(child, record_tag)) {
+                if is_understood_beneath(original, child) || is_understood(child, depth, record_tag)
+                {
                     continue;
                 }
                 kept.extend(keep_whole(child, resolve_original));

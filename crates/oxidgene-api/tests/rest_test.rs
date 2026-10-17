@@ -2923,15 +2923,7 @@ async fn an_import_fills_only_the_empty_submitter_settings() {
                   0 @U1@ SUBM\n1 NAME Imported Fixture\n1 EMAIL imported@example.org\n\
                   0 @U2@ SUBM\n1 NAME Other Fixture\n\
                   0 @I1@ INDI\n1 NAME Alpha /Fixture/\n0 TRLR\n";
-    let summary = common::import_gedcom(&app, &db, &tree_id, gedcom).await;
-    assert!(
-        summary["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| w.as_str().unwrap().contains("1 other submitter")),
-        "{summary}"
-    );
+    common::import_gedcom(&app, &db, &tree_id, gedcom).await;
     let tree = common::ok(&app, Method::GET, &uri, None).await;
     assert_eq!(tree["submitter_name"], "Kept Fixture");
     assert_eq!(tree["submitter_email"], "imported@example.org");
@@ -2945,6 +2937,9 @@ async fn an_import_fills_only_the_empty_submitter_settings() {
     .await;
     assert_eq!(copy["submitter_name"], "Kept Fixture");
     assert_eq!(copy["submitter_email"], "imported@example.org");
+    // The other submitter is kept, not imported: it is written back.
+    let copied = export_gedcom_text(&app, copy["id"].as_str().expect("copy id")).await;
+    assert!(copied.contains("1 NAME Other Fixture\n"), "{copied}");
 }
 
 #[tokio::test]
@@ -4984,4 +4979,49 @@ async fn source_usage_resolves_family_and_event_citations() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     usage(vec![&direct, &lone]).await;
+}
+
+// ── Kept GEDCOM ──────────────────────────────────────────────────────
+
+/// The GEDCOM export of `tree_id` over REST.
+async fn export_gedcom_text(app: &axum::Router, tree_id: &str) -> String {
+    let (status, body) = send(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    body["gedcom"].as_str().expect("gedcom").to_string()
+}
+
+/// A structure OxidGene has no place for (`REFN`) is imported, kept, written
+/// back by the export, and carried by a duplicate of the tree.
+#[tokio::test]
+async fn kept_gedcom_structures_survive_import_export_and_duplication() {
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n\
+        0 @I1@ INDI\n1 NAME Ann /Example/\n1 SEX F\n1 REFN 42\n\
+        0 @X1@ _CUSTOM\n1 _SUB value\n0 TRLR\n";
+    common::import_gedcom(&app, &db, &tree_id, gedcom).await;
+
+    let exported = export_gedcom_text(&app, &tree_id).await;
+    assert!(exported.contains("1 REFN 42\n"), "{exported}");
+    assert!(exported.contains("1 _SUB value\n"), "{exported}");
+
+    let (status, copy) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/duplicate"),
+        Some(serde_json::json!({ "name": "Copy" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let copy_id = copy["id"].as_str().expect("copy id");
+    let copied = export_gedcom_text(&app, copy_id).await;
+    assert!(copied.contains("1 REFN 42\n"), "{copied}");
+    assert!(copied.contains("1 _SUB value\n"), "{copied}");
 }

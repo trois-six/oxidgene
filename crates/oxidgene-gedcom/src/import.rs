@@ -92,6 +92,7 @@ fn import_dataset_keeping(
     let mut result = import_gedcom_data(&data, tree_id)?;
     import_oxidgene_media_extensions(&data, &mut result);
     assign_portraits(&mut result);
+    crate::keeping::compute(&data, &mut result);
     let kept = kept
         .iter()
         .filter_map(|xref| result.media_by_xref.get(xref).copied())
@@ -849,8 +850,8 @@ fn allocate_ids(
 /// What `export` names the submitter when nobody is: not a name to keep.
 const NOT_PROVIDED: &str = "Not Provided";
 
-/// The submitter `HEAD.SUBM` points at, and a warning counting the other
-/// `SUBM` records, which are not imported.
+/// The submitter `HEAD.SUBM` points at. The other `SUBM` records are kept
+/// (see `kept`), not imported.
 fn import_submitter(data: &Dataset, result: &mut ImportResult) {
     let pointer = data.header().and_then(|h| h.submitter);
     let submitter = pointer.and_then(|pointer| {
@@ -867,12 +868,6 @@ fn import_submitter(data: &Dataset, result: &mut ImportResult) {
         if imported != crate::ImportedSubmitter::default() {
             result.submitter = Some(imported);
         }
-    }
-    let others = data.submitters().len() - usize::from(submitter.is_some());
-    if others > 0 {
-        result.warnings.push(format!(
-            "{others} other submitter record(s) (SUBM) were not imported"
-        ));
     }
 }
 
