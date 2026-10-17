@@ -34,7 +34,7 @@
 //! text the author meant identically.
 //!
 //! [`sanitize_note_html`] therefore canonicalises every break to a single `\n`
-//! (see [`normalize_line_breaks`]) and the display layer turns `\n` back into
+//! (see `normalize_line_breaks`) and the display layer turns `\n` back into
 //! `<br>`. Storing the plain-text form rather than the markup one is what keeps
 //! GEDCOM export writing real `CONT` lines instead of a literal `<br>`, keeps
 //! the note textarea showing text instead of tags, and gives previews and any

@@ -113,7 +113,7 @@ pub trait PortalFetch: Send + Sync {
     /// element matching `ready` — a CSS selector naming what the portal's
     /// own scripts render once they have loaded their data — and returns the
     /// document's markup as rendered. For a portal whose access is
-    /// [`Access::Page`](crate::Access::Page), which refuses the requests a
+    /// [`Access::Page`], which refuses the requests a
     /// script sends. Only a browser transport loads pages; any other refuses
     /// with [`FetchError::NotAllowed`].
     fn page<'a>(

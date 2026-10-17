@@ -1,7 +1,7 @@
 //! Where media bytes live.
 //!
 //! [`MediaStore`] is the seam between the API and whatever durably holds media
-//! bytes. [`FsStore`] writes to a directory tree on local disk and [`S3Store`]
+//! bytes. [`FsStore`] writes to a directory tree on local disk and `S3Store`
 //! uses an S3-compatible bucket when the `s3` feature is enabled.
 //!
 //! # Content addressing

@@ -1,5 +1,5 @@
 //! The one text field with suggestions every form uses: free text, with a
-//! list opening under it as the user types. [`SuggestInput`] draws the field
+//! list opening under it as the user types. `SuggestInput` draws the field
 //! and its list and handles the keyboard; [`ValueInput`] feeds it the values
 //! the tree already holds and the reference sheets' terms. Place fields feed
 //! it their own way (see `place_input.rs`). See `docs/ui-common.md` §4.4.

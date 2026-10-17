@@ -396,7 +396,7 @@ async fn choose_primary_name(
 // ── Potential duplicates ─────────────────────────────────────────────────
 
 /// The fewest points a pair needs to be listed: the same name alone
-/// ([`SAME_NAME_POINTS`]) is not enough, a tree holds many namesakes; a
+/// (`SAME_NAME_POINTS`) is not enough, a tree holds many namesakes; a
 /// second clue is needed.
 pub const MIN_DUPLICATE_SCORE: i64 = 40;
 /// The most pairs one answer lists, best first; `count` says how many

@@ -133,7 +133,7 @@ impl AncestryRepo {
 
     /// Every descendant of `person_id`, each at its shortest distance.
     ///
-    /// Walks spouse → family → children, the mirror of [`ancestors`].
+    /// Walks spouse → family → children, the mirror of [`Self::ancestors`].
     #[tracing::instrument(name = "pedigree.descendants", skip_all, fields(max_depth))]
     pub async fn descendants(
         db: &impl ConnectionTrait,

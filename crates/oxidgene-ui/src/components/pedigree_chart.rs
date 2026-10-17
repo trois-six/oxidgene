@@ -3350,7 +3350,7 @@ fn MiniPedigreeTooltip(hovered: Signal<Option<MiniPedigreeTooltipValue>>) -> Ele
 /// Props for [`MiniPedigree`] — a small pedigree fragment, focused and
 /// centered on `root_person_id`, for embedding outside the main tree canvas
 /// (e.g. on the person detail page). Its viewport is static and its scale is
-/// fitted up to the preferred maximum (see [`MINI_PEDIGREE_SCALE`]).
+/// fitted up to the preferred maximum (see `MINI_PEDIGREE_SCALE`).
 #[derive(Props, Clone, PartialEq)]
 pub struct MiniPedigreeProps {
     pub root_person_id: Uuid,
@@ -3360,7 +3360,7 @@ pub struct MiniPedigreeProps {
     /// Called when the user clicks a person card (navigate to their page).
     /// Empty ancestor/descendant slots are not clickable.
     pub on_person_navigate: EventHandler<Uuid>,
-    /// Preferred maximum scale; defaults to [`MINI_PEDIGREE_SCALE`]. The
+    /// Preferred maximum scale; defaults to `MINI_PEDIGREE_SCALE`. The
     /// fragment reduces it as needed to fit, and embedders can request a
     /// denser maximum (e.g. search-result grid cells).
     #[props(default = MINI_PEDIGREE_SCALE)]

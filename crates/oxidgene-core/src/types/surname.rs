@@ -65,7 +65,7 @@ const APOSTROPHES: [char; 2] = ['\'', '\u{2019}'];
 /// unsplit, since filing it under nothing would be worse than filing it under
 /// its own first letter.
 ///
-/// A leading article is not a particle — see [`TAIL_PARTICLES`] — so a
+/// A leading article is not a particle — see `TAIL_PARTICLES` — so a
 /// "Le …" surname stays whole while "de la Cruz" still yields "de la".
 ///
 /// The original casing and apostrophe characters are preserved in both parts —

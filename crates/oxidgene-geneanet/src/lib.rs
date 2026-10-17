@@ -82,7 +82,7 @@ pub fn parse_gw(bytes: &[u8], name: &str) -> Result<(geneweb::database::GwDataba
 ///
 /// # Errors
 ///
-/// Returns `Err` if the JSON is not the shape [`script::COLLECTION`] emits.
+/// Returns `Err` if the JSON is not the shape [`script::ipc_collection`] emits.
 pub fn manifest_from_collection(json: &str) -> Result<Manifest> {
     let collection: model::BrowserCollection = serde_json::from_str(json)?;
     let (deposits, references) = collection.into_references();

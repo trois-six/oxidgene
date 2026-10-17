@@ -187,9 +187,10 @@ impl TreeRepo {
     /// Mark a tree as deleted, without touching the rows it owns.
     ///
     /// This is what a delete request does: it is a single-row UPDATE, so it
-    /// returns in about a millisecond however large the tree is. [`list_purgeable`]
-    /// then finds the tree again and [`purge`] does the expensive part in the
-    /// background. The tree is already invisible to [`list`] and [`get`].
+    /// returns in about a millisecond however large the tree is.
+    /// [`Self::list_purgeable`] then finds the tree again and [`Self::purge`]
+    /// does the expensive part in the background. The tree is already
+    /// invisible to [`Self::list`] and [`Self::get`].
     pub async fn soft_delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
         let result = Entity::update_many()
             .col_expr(Column::DeletedAt, Expr::value(Utc::now()))

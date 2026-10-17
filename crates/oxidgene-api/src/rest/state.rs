@@ -119,7 +119,7 @@ impl AppState {
     ///
     /// That is also what lets this backend stage a Geneanet session's media
     /// in working files, so it starts what bounds their life (see
-    /// [`crate::service::session_media`]).
+    /// `crate::service::session_media`).
     pub fn with_local_file_access(mut self) -> Self {
         self.local_file_access = LocalFileAccess(true);
         crate::service::session_media::start_janitor();

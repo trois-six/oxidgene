@@ -149,7 +149,7 @@ impl TreeCache {
     }
 
     /// Current generation — include this in `use_resource` dependencies
-    /// so the resource re-runs after [`invalidate`].
+    /// so the resource re-runs after [`Self::invalidate`].
     pub fn generation(&self) -> u64 {
         *self.generation.read()
     }
@@ -208,7 +208,7 @@ impl ViewStateCache {
         })
     }
 
-    /// Same as [`get`] but does **not** subscribe the caller to changes.
+    /// Same as [`Self::get`] but does **not** subscribe the caller to changes.
     pub fn get_untracked(&self, tid: Uuid) -> Option<PedigreeViewState> {
         self.state.peek().as_ref().and_then(|s| {
             if s.tree_id == tid {

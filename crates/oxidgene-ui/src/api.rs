@@ -612,7 +612,7 @@ pub struct PersonUsageEntry {
 
 impl PersonUsageEntry {
     /// The birth/death years with their precision, ready for
-    /// [`format_lifespan`](crate::components::pedigree_chart::format_lifespan).
+    /// `format_lifespan`.
     pub fn lifespan_years(&self) -> (Option<QualifiedYear>, Option<QualifiedYear>) {
         (
             self.birth_year

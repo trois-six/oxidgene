@@ -61,7 +61,7 @@ impl std::fmt::Debug for LocalToken {
 }
 
 /// Refuse every request to `router` that does not present `token` as
-/// `Authorization: Bearer <token>`, except the [`PUBLIC_PATHS`].
+/// `Authorization: Bearer <token>`, except the `PUBLIC_PATHS`.
 pub fn require_local_token(router: Router, token: LocalToken) -> Router {
     router.layer(middleware::from_fn_with_state(token, check_local_token))
 }

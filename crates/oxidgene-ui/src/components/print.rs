@@ -241,7 +241,7 @@ fn print_scale(chart: ChartMeasure) -> f64 {
         .min(fitting(chart.height, fewer_rows, TILE_H_MM))
 }
 
-/// Plans the sheets for `chart` at its zoom (see [`print_scale`]),
+/// Plans the sheets for `chart` at its zoom (see `print_scale`),
 /// captioning each with `caption(n, total, row, col)`. Only the counts are
 /// computed while there would be more than [`MAX_SHEETS`]: the sheets are
 /// then not offered.

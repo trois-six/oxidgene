@@ -42,7 +42,7 @@ use crate::{ArchiveTarget, ArchiveView, ResolveError};
 
 /// The Archinoë adapter. It keeps, for as long as it serves — the
 /// application's session —, the commune index of each `ead` finding aid it
-/// has read ([`ead::Communes`]).
+/// has read (`ead::Communes`).
 #[derive(Default)]
 pub struct Archinoe {
     communes: ead::Communes,

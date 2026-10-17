@@ -4,7 +4,7 @@
 //! The field's signal holds either the id of the place the record already
 //! sits on, or text — a tree place or a dictionary label picked from the
 //! suggestions, or anything typed. Nothing is written while the form is open:
-//! on save, [`resolve_place`] turns text into a place, reusing the tree's
+//! on save, `resolve_place` turns text into a place, reusing the tree's
 //! place of that name or creating it. The server answers both the
 //! suggestions and the lookup, so no form reads the tree's whole place list.
 //! See `docs/ui-common.md` §4.4.

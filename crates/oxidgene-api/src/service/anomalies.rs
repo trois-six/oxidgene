@@ -4,7 +4,7 @@
 //!
 //! Computed on each request from the person projections and the tree's
 //! witness links; nothing is stored. A rule fires only when it holds for
-//! every day its dates may stand for (see [`Span`]), so an imprecise date
+//! every day its dates may stand for (see `Span`), so an imprecise date
 //! never raises an anomaly its precision could explain.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -197,7 +197,7 @@ pub async fn load(
 
 /// Loads a tree's used places and returns those that cannot be located, most
 /// used first: the places the statistics count as not located, by the same
-/// rule ([`crate::service::statistics::locate_used`]).
+/// rule (`crate::service::statistics::locate_used`).
 #[tracing::instrument(name = "anomalies.unlocated_places", skip_all)]
 pub async fn load_unlocated_places(
     db: &sea_orm::DatabaseConnection,

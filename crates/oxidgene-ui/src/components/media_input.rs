@@ -1,7 +1,7 @@
 //! The upload cell that ends every media gallery.
 //!
 //! One control, two ways in: click it to open the platform's file dialog, or
-//! drop files onto it. Both land in the same [`upload_files`] loop, so a photo
+//! drop files onto it. Both land in the same `BatchUpload::run` loop, so a photo
 //! dropped from a file manager and one picked from the dialog are the same
 //! request.
 //!

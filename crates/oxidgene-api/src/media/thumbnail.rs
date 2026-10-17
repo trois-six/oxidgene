@@ -161,7 +161,7 @@ pub struct TooLargeToCrop;
 /// Decode and crop one image region, returning standalone JPEG bytes.
 ///
 /// The rectangle is in the image's own pixels, as it is displayed (EXIF
-/// orientation applied). At most [`MAX_CROP_DECODED_BYTES`] are decoded: a
+/// orientation applied). At most `MAX_CROP_DECODED_BYTES` are decoded: a
 /// larger JPEG is decoded at a reduced scale and the rectangle scaled with
 /// it, so the vignette is smaller but sharp. A larger image of any other
 /// kind answers `Ok(Err(TooLargeToCrop))`, for the caller to cut the

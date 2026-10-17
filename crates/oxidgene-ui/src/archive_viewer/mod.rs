@@ -6,13 +6,13 @@
 //! by `oxidgene-archives` (docs/archives.md §5.1) — and offers such a source
 //! as [`ArchiveSourceLink`]: a register to look up, a portal address to
 //! open as it is, or, when the archive is known but the act or the locality
-//! is not, the "Find in the archives" dialog ([`find`]). Every archive opens
+//! is not, the "Find in the archives" dialog (`find`). Every archive opens
 //! on its portal: on the desktop the binary injects an
 //! [`ArchiveViewerOpener`] that resolves the citation in an archive window;
 //! the web client, which has none, asks the backend for the target and opens
 //! it in a new browser tab. For an archive whose images OxidGene may use
 //! (`display: "iiif"`), the cited views can be attached as a document
-//! ([`attach`]): from the archive window on the desktop, from beside the
+//! (`attach`): from the archive window on the desktop, from beside the
 //! source on the web — an offer disabled for now by [`ATTACH_OFFERED`].
 
 mod attach;

@@ -212,7 +212,7 @@ impl ProfileService {
     /// Rebuild the projections of a bounded set of persons.
     ///
     /// Does not touch the search rows — callers that need them refreshed go
-    /// through [`Self::rebuild_affected`].
+    /// through `Self::rebuild_affected`.
     #[instrument(skip_all, fields(count = person_ids.len()))]
     pub async fn rebuild_persons(
         &self,

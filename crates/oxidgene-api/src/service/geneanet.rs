@@ -401,7 +401,7 @@ pub struct NeededMedia {
 /// nothing smaller is fetched to match with.
 ///
 /// Under [`MediaFidelity::Originals`] the rule per medium, in the order
-/// [`resolve_bytes`] applies it:
+/// `resolve_bytes` applies it:
 ///
 /// - resolvable from the archives by **exact byte length** → nothing needed
 /// - otherwise, a **single-page** deposit → its original, which is exact
@@ -514,7 +514,7 @@ pub struct GeneanetImportSummary {
 /// Imports the tree, then attaches every photo that joins onto it.
 ///
 /// Order matters. The `.gw` goes in first through the shared
-/// [`persist_import_result`] path, which is what assigns the person ids the
+/// `persist_import_result` path, which is what assigns the person ids the
 /// photo links need; the media pass then resolves each photo's bytes — from
 /// the archives when a size matches, over the network when it does not — and
 /// writes one `media` row per photo with one `media_link` per person on it.

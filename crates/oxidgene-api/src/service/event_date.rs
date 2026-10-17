@@ -13,7 +13,7 @@
 //! in year 14 — in antiquity, thirteen centuries adrift — and a thirteenth
 //! month produced no sort key at all.
 //!
-//! So both write surfaces call [`derive`] and ignore whatever the request
+//! So both write surfaces call [`derive()`] and ignore whatever the request
 //! carried. Import does not go through here: it gets its sort date from
 //! `oxidgene_gedcom::date::parse`, which uses the same conversion.
 

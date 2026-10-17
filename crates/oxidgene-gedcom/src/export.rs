@@ -214,7 +214,7 @@ pub struct SubmitterSettings<'a> {
 /// does not hold. A medium whose bytes OxidGene does not hold, which only
 /// its producer's path names, is kept as the OxidGene extension record
 /// `_OXIDGENE_OBJE` instead, its links as `_OXIDGENE_OBJE` pointers (see
-/// [`keep_as_extensions`]): other programs ignore them, and an OxidGene
+/// `keep_as_extensions`): other programs ignore them, and an OxidGene
 /// import restores the medium as a `.ged` would.
 ///
 /// The destination is a `.ged`'s: no export profile writes a GEDZIP, which

@@ -1,7 +1,7 @@
 //! How long the standalone server lets a request run.
 //!
 //! Three limits, so that a slow or stalled client cannot hold a connection,
-//! an intake slot (see [`crate::service::intake`]) or a database transaction
+//! an intake slot (see `crate::service::intake`) or a database transaction
 //! forever:
 //!
 //! - a request must produce its response within [`TimeLimits::request`];

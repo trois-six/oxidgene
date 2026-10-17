@@ -49,7 +49,7 @@ const MAX_ASPECT_RATIO_DIFFERENCE_PERCENT: u64 = 2;
 /// Originals a run can reuse instead of downloading.
 ///
 /// Implemented by both an unzipped directory (the CLI's `--local-media`) and a
-/// set of archives read in place (the wizard's step 2), so [`crate::media`]
+/// set of archives read in place (the wizard's step 2), so the media import
 /// need not care which the user supplied.
 pub trait LocalOriginals {
     /// Bytes of the file of exactly this length, if one can be named safely.

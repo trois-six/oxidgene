@@ -26,6 +26,10 @@ use uuid::Uuid;
 ///    [`ProfileFamilyLink::children_ids`] references this person.
 ///
 /// The result is de-duplicated but not otherwise ordered.
+///
+/// [`PersonProfile`]: oxidgene_core::projection::PersonProfile
+/// [`ProfileFamilyLink`]: oxidgene_core::projection::ProfileFamilyLink
+/// [`ProfileFamilyLink::children_ids`]: oxidgene_core::projection::ProfileFamilyLink::children_ids
 pub async fn affected_persons(
     db: &impl ConnectionTrait,
     person_id: Uuid,

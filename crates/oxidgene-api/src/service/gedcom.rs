@@ -2,7 +2,7 @@
 //!
 //! Extracted so the import jobs, tree duplication and the exports share the
 //! same persist-all-entities and load-all-entities workflows. The persist
-//! half — [`persist_import_result_in`] — is format-agnostic: it takes the
+//! half — `persist_import_result_in` — is format-agnostic: it takes the
 //! output of the GEDCOM, GEDZIP and GeneWeb readers alike.
 
 use chrono::{DateTime, Utc};
@@ -215,7 +215,7 @@ where
 
 /// Parse a GEDCOM string and persist all extracted entities into the database.
 ///
-/// See [`persist_import_result`] for the persistence guarantees.
+/// See `persist_import_result` for the persistence guarantees.
 #[tracing::instrument(name = "import.gedcom", skip_all)]
 pub async fn import_and_persist(
     db: &DatabaseConnection,

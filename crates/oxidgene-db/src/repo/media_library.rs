@@ -53,7 +53,7 @@ pub struct MediaFilter {
     /// pages' file names; case- and accent-insensitive.
     pub name: Option<String>,
     /// Substring of the name of a person connected to the document; case-
-    /// and accent-insensitive. See [`MediaLibraryRepo::connected_to_named`].
+    /// and accent-insensitive. See `MediaLibraryRepo::connected_to_named`.
     pub linked_name: Option<String>,
     /// Earliest year, inclusive, of an event the document is linked to.
     pub event_from: Option<i32>,

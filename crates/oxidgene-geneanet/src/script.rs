@@ -246,8 +246,8 @@ pub const PROBE: &str = r"
 /// The collection, reporting progress and its result over the WebView's IPC
 /// channel instead of downloading a file.
 ///
-/// Same requests as [`collection_script`] — this is the desktop wizard's step 3,
-/// and the two stages it reports are the two bars the spec draws.
+/// This is the desktop wizard's step 3, and the two stages it reports are the
+/// two bars the spec draws.
 pub fn ipc_collection() -> String {
     format!(
         r"

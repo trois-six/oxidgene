@@ -1,7 +1,7 @@
 //! The sections of a person's profile, shared by the person page and the
 //! couple page.
 //!
-//! [`build_profile`] turns one person's detail bundle into everything the
+//! `build_profile` turns one person's detail bundle into everything the
 //! sections draw, once per load; the `*_section` functions render one card
 //! each from it. The person page stacks every section of one profile. The
 //! couple page lays the same sections of two profiles side by side, leaves the

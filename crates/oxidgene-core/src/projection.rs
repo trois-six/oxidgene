@@ -264,7 +264,7 @@ pub struct PedigreeNode {
     /// The complete birth event, retaining date precision, calendar and place.
     ///
     /// Falls back to baptism when there is no birth, the way GeneWeb's
-    /// `get_birth_death_date` does — see [`birth_or_baptism`].
+    /// `get_birth_death_date` does — see [`PersonProfile::birth_or_baptism`].
     #[serde(default)]
     pub birth: Option<ProfileEvent>,
     /// The whole death event, falling back to burial. See [`Self::birth`].

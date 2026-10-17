@@ -7,10 +7,10 @@
 //! to the adapter.
 //!
 //! What does not depend on a platform is shared by every adapter:
-//! [`query`] percent-encodes query strings, [`markup`] scans portal markup,
-//! [`select`] chooses the cited register among a search's results,
-//! [`locality`] writes a cited locality as a portal's list may,
-//! [`iiif`] reads an image service and builds a view's image, [`view`]
+//! `query` percent-encodes query strings, `markup` scans portal markup,
+//! `select` chooses the cited register among a search's results,
+//! `locality` writes a cited locality as a portal's list may,
+//! `iiif` reads an image service and builds a view's image, `view`
 //! assembles the `View` target of the chosen register, and [`viewer`]
 //! describes each platform's viewer for the reader's page.
 
