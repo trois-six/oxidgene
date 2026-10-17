@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-08T06:47:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
 ---
 
 
@@ -444,6 +444,8 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
   wrapping at either end; **Enter** completes the field with the highlighted
   name or opens the highlighted person; **Escape** or a click outside closes
   the panel
+- A person picked in the panel opens where the search was started from: the
+  pedigree view centred on them here, their profile on a person or couple page
 
 The panel keeps one width whatever it lists, so it does not jump as the names
 and persons change under the typing; long lines are truncated. It is a fixed
@@ -451,16 +453,27 @@ overlay, because the topbar clips its overflow. It reuses
 the shared contextual-surface component, whose backdrop also handles dismissal
 — a blur handler would close the panel before a click on a row could register.
 
-**On Enter with nothing highlighted** (or click magnifying glass):
-- Navigation to a dedicated **results page** (`/trees/{id}/search`)
+**On Enter with nothing highlighted** (or click magnifying glass, or the panel's footer):
+- A bare number in **Last name(s)**, with **First name(s)** empty, jumps
+  straight to the person at that SOSA number, opened as a picked person is;
+  when the tree has no SOSA root or nobody at that number, the search goes to
+  the results page instead
+- Otherwise, navigation to a dedicated **results page** (`/trees/{id}/search`)
 - All matching persons displayed as a list
 - Additional filters available (dates, location, gender...)
-- Each result is clickable and returns to the tree centered on that person
+- Each result opens the kind of view the search was started from — here, the
+  pedigree view centred on that person
+  ([Search Results §8](ui-search-results.md#8-result-interactions))
 
-The same component serves the person profile and the results page itself. On
-the results page it searches in place rather than navigating, and shares its
-field state with the duplicate surname and given-name inputs in the filter
-panel, so typing in either updates both.
+The same component serves the [Person Profile](ui-person-profile.md), the
+[Couple Profile](ui-couple-profile.md) and the results page itself. On a person
+or couple page, a picked person, a SOSA jump and every result of the results
+page open that person's profile instead of the pedigree; the results page
+records where the search came from in its `origin` parameter. On the results
+page the component searches in place rather than navigating, keeps that
+origin for the persons picked in its panel, and shares its field state with
+the duplicate surname and given-name inputs in the filter panel, so typing in
+either updates both.
 
 ### Left Sidebar (ISB)
 
@@ -609,7 +622,10 @@ Each event type has a colored circle icon (`.ev-ic-*`):
 | `ev-ic-marry` | Orange | Marriage |
 | `ev-ic-other` | Grey | Other events |
 
-Each event is clickable to display full details (complete location, source, notes).
+Each event is clickable: a click opens the [Person Profile](ui-person-profile.md)
+of the person the panel is about — the selected person, even when the event is
+a relative's shown for context — where the event appears in full in the
+profile's events.
 
 ---
 

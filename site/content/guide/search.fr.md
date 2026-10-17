@@ -16,7 +16,7 @@ Pendant la saisie, un panneau s'ouvre sous les champs :
 - ensuite, jusqu'à six personnes correspondantes, chacune avec son portrait, son nom, ses années et une ligne qui dit qui elle est (« marié avec … », « fils de … »), de quoi distinguer deux homonymes ;
 - lorsqu'il y a plus de résultats que le panneau n'en affiche, un lien **Voir les … résultats** en bas mène à la page complète des résultats.
 
-Les flèches **Bas** et **Haut** parcourent les noms puis les personnes, **Entrée** choisit l'élément en surbrillance et **Échap** ferme le panneau. Choisir une personne ouvre l'arbre centré sur elle ; depuis la fiche d'une personne, c'est sa fiche qui s'ouvre.
+Les flèches **Bas** et **Haut** parcourent les noms puis les personnes, **Entrée** choisit l'élément en surbrillance et **Échap** ferme le panneau. Choisir une personne ouvre l'arbre centré sur elle ; depuis la fiche d'une personne ou d'un couple, c'est la fiche de la personne qui s'ouvre.
 
 Aucune recherche n'est lancée tant que les deux champs réunis comptent moins de deux caractères. Si les suggestions de saisie de l'arbre sont désactivées dans les [paramètres de l'arbre](@/guide/settings.fr.md), le panneau ne liste que des personnes, sans les noms.
 
@@ -40,7 +40,7 @@ La ligne au-dessus des résultats donne le nombre exact de personnes trouvées. 
 - qui est la personne : ses conjoints s'il y en a, sinon ses parents, suivis du nombre d'enfants ;
 - le lieu de naissance, s'il est connu.
 
-Cliquez sur un résultat pour ouvrir la fiche de la personne.
+Cliquez sur un résultat pour retrouver la personne dans la vue d'où vous avez lancé la recherche : l'arbre, centré sur elle, si vous cherchiez depuis l'arbre ; sa fiche si vous cherchiez depuis la fiche d'une personne ou d'un couple.
 
 ## Filtrer les résultats
 
@@ -73,7 +73,7 @@ Le sélecteur de tri au-dessus des résultats propose :
 - **Nom A → Z** (par défaut) et **Nom Z → A**, par nom de famille puis prénoms ;
 - **Date de naissance ↑** (les plus anciens d'abord) et **Date de naissance ↓** (les plus récents d'abord).
 
-Les deux boutons à droite basculent entre la **Vue liste** et la **Vue grille d'ascendances**. Dans la grille, chaque personne est une carte avec son nom, ses années et une petite ascendance de ses parents et grands-parents. Cliquez sur l'en-tête de la carte pour ouvrir la fiche de la personne, ou sur une personne de la petite ascendance pour vous y rendre.
+Les deux boutons à droite basculent entre la **Vue liste** et la **Vue grille d'ascendances**. Dans la grille, chaque personne est une carte avec son nom, ses années et une petite ascendance de ses parents et grands-parents. Cliquez sur l'en-tête de la carte, ou sur une personne de la petite ascendance, pour vous rendre à cette personne de la même façon.
 
 La liste affiche 25 personnes par page et la grille 20. Les boutons de page en bas permettent de passer d'une page à l'autre ; changer de présentation ramène à la première page.
 

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-12T20:49:26Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: human:maintainer, at: 2026-10-12T20:49:26Z }
 
 ## 1. Overview
 
-The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](ui-genealogy-tree.md) left sidebar, or by clicking a search result on the [Search Results](ui-search-results.md) page. It displays the currently selected person's complete information: identity, life events timeline, family connections, media gallery, notes, and sources.
+The person profile is a full-page detailed view of a single individual. It is accessed via the **profile icon** (person silhouette) in the [Tree View](ui-genealogy-tree.md) left sidebar, by clicking an event in the tree's events panel, or by a search result when the search was started from a person or couple page ([Search Results §8](ui-search-results.md#8-result-interactions)). It displays the currently selected person's complete information: identity, notes, media gallery, family connections, events timeline with their sources, and ancestors.
 
 The core profile read is bounded to the selected person's relevant family
 neighborhood. It includes direct parents, partners, children, full siblings,
@@ -55,23 +55,28 @@ The sections below are shared with the [Couple Profile](ui-couple-profile.md), w
 |   +-------------------------------------------------------------+    |
 |   |  IDENTITY HEADER                                            |    |
 |   |  [avatar]  Name - Dates - Gender                            |    |
-|   |            [Edit] [View in tree]                            |    |
+|   |                [Delete] [Edit] [Merge with…] [History]      |    |
 |   +-------------------------------------------------------------+    |
-|                                                                       |
-|   +----------------------+  +-----------------------------------+    |
-|   |  FAMILY CONNECTIONS  |  |  TIMELINE                         |    |
-|   |  Parents             |  |  Events chronological list        |    |
-|   |  Spouses & children  |  |                                   |    |
-|   |  Siblings            |  |                                   |    |
-|   +----------------------+  +-----------------------------------+    |
-|                                                                       |
-|   +----------------------+  +-----------------------------------+    |
-|   |  MEDIA               |  |  NOTES & SOURCES                  |    |
-|   +----------------------+  +-----------------------------------+    |
+|   +-------------------------------------------------------------+    |
+|   |  NOTES (only when the person has any)                       |    |
+|   +-------------------------------------------------------------+    |
+|   +-------------------------------------------------------------+    |
+|   |  MEDIA                                                      |    |
+|   +-------------------------------------------------------------+    |
+|   +-------------------------------------------------------------+    |
+|   |  FAMILY CONNECTIONS                                         |    |
+|   +-------------------------------------------------------------+    |
+|   +-------------------------------------------------------------+    |
+|   |  EVENTS (timeline, each event with its sources)             |    |
+|   +-------------------------------------------------------------+    |
+|   +-------------------------------------------------------------+    |
+|   |  ANCESTORS (mini pedigree, two generations)                 |    |
+|   +-------------------------------------------------------------+    |
 |                                                                       |
 +----------------------------------------------------------------------+
 ```
 
+The sections are full-width cards stacked in a single column, in this order.
 Content: `max-width: 1200px`, centered, scrollable.
 
 ---
@@ -106,7 +111,7 @@ Full-width card at the top of the content area.
 |  |          |  Male - 76 years old                           |
 |  +----------+                                                |
 |                                                               |
-|  [Edit]   [View in tree]   [Export]                          |
+|                [Delete] [Edit] [Merge with…] [History]       |
 +-------------------------------------------------------------+
 ```
 
@@ -136,20 +141,23 @@ the user can change or clear that cosmetic identity preference directly from the
 person it identifies.
 
 **Action buttons** — compact icon-only buttons at the header's trailing edge,
-at every width, each named by its tooltip and accessible label:
+at every width, each named by its tooltip and accessible label, in this order:
+- **Delete** (danger style) — asks for confirmation in the shared dialog
+  (**Delete Person**, naming the person); once the person is deleted, the page
+  goes to the tree view. A failure is shown in the dialog, which stays open
 - **Edit** — opens the [Person Edit Modal](ui-person-edit-modal.md)
 - **Merge with…** — opens the [merge wizard](ui-merge.md) on its search for the
   other record of this person; after the merge the page shows the record kept
 - **History** — opens the person's [history](ui-person-history.md): every
   recorded version, compared side by side, and the restore of an earlier one
-- **View in tree** — returns to the tree view, centered on this person
-- **Export** — downloads a mini GEDCOM of this person and their immediate family
+- **Refresh** — web build only: reloads the page's data. The desktop reloads
+  on its own and does not show it
 
 ---
 
 ## 5. Family Connections
 
-Displayed as a card in the left column of the two-column layout.
+Displayed as a card below the media gallery.
 
 ### Parents
 
@@ -206,7 +214,7 @@ Each sibling is clickable. If no siblings are known, this section is hidden.
 
 ## 6. Timeline
 
-Displayed as a card in the right column. A vertical chronological list of all events associated with this person (individual events + family events where this person is involved).
+Displayed as the **Events** card below the family connections. A vertical chronological list of the events associated with this person: their own events, the events of their unions and their children's life events, and the events of the family they were born into — their parents' deaths and burials, their siblings' life events.
 
 ### Structure
 
@@ -215,32 +223,46 @@ Displayed as a card in the right column. A vertical chronological list of all ev
 |  TIMELINE                               |
 +-----------------------------------------+
 |                                         |
-|  1842  *  Birth                         |
-|           <place A, region, country>    |
-|           (clip) <source A>             |
+|  12 Mar 1842  [Birth] — <place A>      |
+|               Individual                |
+|               Sources: <source A> —     |
+|                 <page A>; <source B>    |
 |                                         |
-|  1842  (cross)  Baptism                 |
-|           <place B>                     |
+|  1860  [Occupation] — <place B> —       |
+|        <label A>                        |
+|        Individual                       |
 |                                         |
-|  1860  (tool)  Occupation: <label A>    |
+|  1865  [Marriage] — <place C>           |
+|        Conjugal family (<person B>)     |
 |                                         |
-|  1865  (ring) Marriage with <person B>  |
-|           <place C>                     |
-|           Witnesses: <person C>, ...    |
-|                                         |
-|  1918  +  Death                         |
-|           <place D, region>             |
+|  1918  [Death] — <place D>              |
+|        Individual                       |
 |                                         |
 +-----------------------------------------+
 ```
 
 Each event shows:
-- **Year** on the left, bold
-- **Icon** — colored circle matching event type (same as [Tree View](ui-genealogy-tree.md) events sidebar)
-- **Event type** label, bold
-- **Place** if known, in muted text
-- **Source reference** if attached, with clip icon, clickable
-- **Note excerpt** if present, truncated to 2 lines with "Show more" expansion
+- **Date** on the left, written out through `format_date` with its qualifier;
+  `--` when the event has none
+- **Event type** as a badge, followed on the same line by the place, the
+  description and the recorded age when known, each after a dash
+- **Origin** — *Individual*, *Conjugal family*, *Child* or *Parental family* —
+  with the spouse or relative concerned in parentheses when there is one
+- **Responsible agency** on a light meta line, when recorded
+- **Sources** — when citations are attached to the event, one line
+  `Sources: <title> — <page>; …`, one entry per citation, the page omitted
+  when the citation has none. A citation that names a catalogued archive's
+  register is a button that opens it (below); the others are plain text. The
+  citation's confidence is not shown
+- **Documents** — the event's attached media as compact thumbnails (below)
+
+The person's own events and those of their unions are marked as direct; the
+others give family context.
+
+An event's recorded age — at a family event, this
+person's own — follows its place and description in words — "aged 34 years", "aged under 1 year 6 months",
+"infant", "stillborn" (every language with its own plural forms) — and its
+responsible agency is a light meta line under the event's origin.
 
 #### Opening a cited register
 
@@ -369,7 +391,8 @@ embedding their pages in an OxidGene frame, in a web profile of its own that
 keeps the portals' cookies, so a reuse licence or an anti-bot challenge is
 passed once.
 
-Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
+Events are ordered by `date_sort`; events without one come first, with no
+separate heading. An event reached through several relations is listed once.
 
 Attached event media appear inline as compact `44 x 44 px` thumbnails without
 titles. Clicking a thumbnail opens the media viewer; its context menu remains
@@ -379,7 +402,7 @@ available on right-click for media and event-link actions.
 
 ## 7. Media Gallery
 
-Displayed as a full-width card below the two-column layout.
+Displayed as a full-width card below the notes, above the family connections.
 
 ```
 +--------------------------------------------------------------+
@@ -556,59 +579,34 @@ in the footer.
 
 ---
 
-## 8. Notes & Sources
+## 8. Notes
 
-Displayed as a card alongside or below the media gallery.
-
-### Notes
-
-All notes associated with this person, displayed as expandable blocks:
+The **Notes** card sits directly below the identity header, and only when the
+person has notes; while they load, or when there are none, nothing is drawn.
+A failed read shows its error in place of the card.
 
 ```
 +--------------------------------------+
-|  NOTES (2)                           |
+|  NOTES                               |
 +--------------------------------------+
 |  Personal notes, anecdotes...        |
-|  (first 3 lines visible)            |
-|  [Show more]                         |
 |                                      |
 |  Research notes on birth date...     |
-|  (first 3 lines visible)            |
-|  [Show more]                         |
 +--------------------------------------+
 ```
 
-### Sources
+Each note attached to the person is shown in full, with its formatting and
+line breaks; the markup was sanitized when the note was written.
 
-All citations linked to this person, grouped by source:
-
-```
-+--------------------------------------+
-|  SOURCES (3)                         |
-+--------------------------------------+
-|  (clip) <source A>                   |
-|     Page: <reference A>              |
-|     Confidence: High                |
-|                                      |
-|  (clip) <source B>                   |
-|     Page: <reference B>              |
-|     Confidence: High                |
-+--------------------------------------+
-```
-
-Each citation shows the source title, page reference, confidence level, and extracted text if any.
-
-In the events timeline, an event's recorded age — at a family event, this
-person's own — follows its place and description in words — "aged 34 years", "aged under 1 year 6 months",
-"infant", "stillborn" (every language with its own plural forms) — and its
-responsible agency is a light meta line under the event's origin.
+There is no separate sources card. Sources appear only in the events timeline,
+as the **Sources** line of each event they are cited for (§6), without their
+confidence.
 
 ---
 
 ## 9. Responsive
 
 - Content max-width: 1200px, responsive padding
-- Below **1080px**: the two-column layout (family connections + timeline) collapses to a single column, with family connections above timeline
 - Below **900px**: the identity header actions move to a separate horizontal
      row. The SOSA and **Me** badges stay at its leading edge, the icon-only
      buttons at its trailing edge.
@@ -622,11 +620,10 @@ responsible agency is a light meta line under the event's origin.
 
 ## 10. Keyboard & Accessibility
 
-| Key | Behavior |
-|---|---|
-| `Escape` | Returns to the tree view |
-| `E` | Opens the edit modal for the current person |
-| `Left` / `Right` | Navigate between persons (previous/next sibling or chronological order) |
+The page defines no keyboard shortcuts of its own. Each icon-only header
+button carries its tooltip as its accessible label. Returning to the tree is
+done through the left icon sidebar's pedigree button or the breadcrumb's tree
+name.
 
 ---
 
@@ -642,9 +639,9 @@ Tree View (canvas)
        +- Person Profile (this page)
             |
             +- Click family member -> navigates to their profile
-            +- "View in tree" button -> returns to tree view, centered on person
+            +- "Delete" button -> confirmation, then tree view
             +- "Edit" button -> opens Person Edit Modal
             +- "Merge with…" button -> Person Merge wizard
             +- "History" button -> Person History (versions, compare, restore)
-            +- Escape -> returns to tree view
+            +- Pedigree button in left sidebar -> tree view, centered on person
 ```

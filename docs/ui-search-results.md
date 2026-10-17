@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-02T04:08:01Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: human:maintainer, at: 2026-10-02T04:08:01Z }
 
 ## 1. Overview
 
-The search results page (`/trees/{id}/search`) is a dedicated full-page view for browsing persons matching a search query. It is reached by pressing **Enter** in the [Tree View](ui-genealogy-tree.md) topbar search fields or clicking the magnifying glass button. It provides a filterable, sortable list of matching persons with the ability to navigate back to the tree or to a person's profile.
+The search results page (`/trees/{id}/search`) is a dedicated full-page view for browsing persons matching a search query. It is reached by pressing **Enter** in the topbar search fields, clicking their magnifying glass button, or the suggestion panel's footer, on the [Tree View](ui-genealogy-tree.md#search), a [Person Profile](ui-person-profile.md) or a [Couple Profile](ui-couple-profile.md). It provides a filterable, sortable list of matching persons, and a result leads back to the kind of view the search was started from (§8).
 
 This page uses the standard tree `sub-page` layout pattern (see [General](general.md) section 8), including the same left icon sidebar as the person profile.
 
@@ -178,8 +178,8 @@ Results displayed as a responsive grid of cards
 available content width so cards and their mini-pedigrees never extend beyond
 the viewport. Each card contains:
 
-- **Header** (clickable, same navigation target as a list row): full name (surname + first name) and birth/death years
-- **Mini-pedigree**: a small static pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section. Its preferred maximum scale is 0.5 and is reduced as needed so all available generations fit in the grid cell in every theme. Clicking any person card inside the fragment navigates to that person. Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
+- **Header** (clickable, same navigation target as a list row, §8): full name (surname + first name) and birth/death years
+- **Mini-pedigree**: a small static pedigree fragment (self + parents + grandparents, `GET /cache/pedigree/{id}?ancestor_depth=2`) rendered with the same `MiniPedigree` component as the person profile's Ancestors section. Its preferred maximum scale is 0.5 and is reduced as needed so all available generations fit in the grid cell in every theme. Clicking any person card inside the fragment opens that person by the same rule (§8). Its cards draw the same date precision marks as the main canvas (`ca 1849-< 1917`) — same renderer, so they cannot drift apart; see [Tree View](ui-genealogy-tree.md)
 - **Sex indicator**: colored top border (blue/pink)
 
 Pedigrees are assembled lazily per card from family links and durable person
@@ -191,8 +191,33 @@ projections; loading cells show a placeholder message.
 
 | Action | Behavior |
 |---|---|
-| **Click a result** | Navigates to the [Person Profile](ui-person-profile.md) for that person |
+| **Click a result** | Opens that person in the kind of view the search was started from (below) |
 | **Hover** | Subtle highlight, pointer cursor |
+
+A result leads back to the kind of view the search was started from. The
+results page records it in the `origin` query parameter of its address
+(`/trees/{id}/search?last=…&first=…&origin=…`), which the topbar search sets
+when it navigates here:
+
+| Search started from | `origin` | A result opens |
+|---|---|---|
+| The pedigree view | empty | The pedigree view centred on that person (`/trees/{id}?person=…`) |
+| A [Person Profile](ui-person-profile.md) | `person` | That person's profile |
+| A [Couple Profile](ui-couple-profile.md) | `person` | That person's profile — a result is one person, not a couple |
+
+Any other value, or none — an address typed or bookmarked without it — counts
+as the pedigree view. The rule is the same for a list row, a card's header, a
+person of a card's mini-pedigree, and a person picked in the suggestion panel
+of this page's own topbar search, which keeps the origin. Searching again from
+this page searches in place, so the origin stays the one the page was opened
+with.
+
+The topbar's suggestion panel applies the same rule on every page that carries
+it, without going through this page: a person picked in it — or a bare SOSA
+number submitted with **Enter** or the magnifying glass, which jumps straight
+to that person when the tree has one at that number — opens the pedigree on
+them from the pedigree view, and their profile from a person or couple page
+([Tree View — Search](ui-genealogy-tree.md#search)).
 
 ---
 
@@ -258,6 +283,6 @@ If the user navigates to the search page directly without a query, both search f
 
 | Key | Behavior |
 |---|---|
-| `Enter` in either topbar search field | Applies the surname and given-name criteria |
+| `Enter` in either topbar search field | Applies the surname and given-name criteria in place, a bare number included; with a row of the suggestion panel highlighted, completes the field with its name or opens its person (§8) |
 | `Enter` on a focused result | Opens the result through its link |
 | `Tab` | Moves focus between filter fields and results |

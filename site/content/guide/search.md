@@ -16,7 +16,7 @@ As you type, a panel opens under the fields:
 - Then up to six matching persons, each with portrait, name, years and a line saying who they are ("married to …", "son of …"), which tells two persons of the same name apart.
 - When there are more matches than the panel shows, a **See all … results** link at the bottom leads to the full results page.
 
-Use the **Down** and **Up** arrow keys to move through the names and persons, **Enter** to pick the highlighted one, and **Escape** to close the panel. Picking a person opens the pedigree centred on them; from a person's profile, it opens their profile instead.
+Use the **Down** and **Up** arrow keys to move through the names and persons, **Enter** to pick the highlighted one, and **Escape** to close the panel. Picking a person opens the pedigree centred on them; from a person's or a couple's page, it opens the person's profile instead.
 
 Nothing is searched until you have typed at least two characters across the two fields. If the tree's entry suggestions are turned off in the [tree settings](@/guide/settings.md), the panel lists persons only, without names.
 
@@ -40,7 +40,7 @@ The line above the results gives the exact number of persons found. Each result 
 - who the person is: their spouses if they have any, otherwise their parents, followed by the number of children;
 - the birth place, when known.
 
-Click a result to open the person's profile.
+Click a result to go to that person in the kind of view you searched from: the pedigree, centred on them, when you searched from the tree; their profile when you searched from a person's or a couple's page.
 
 ## Filter the results
 
@@ -73,7 +73,7 @@ The sort selector above the results offers:
 - **Name A → Z** (the default) and **Name Z → A**, by family name then given names;
 - **Birth date ↑** (oldest first) and **Birth date ↓** (most recent first).
 
-The two buttons on the right switch between the **List view** and the **Pedigree grid view**. In the grid, each person is a card with their name, years and a small pedigree of their parents and grandparents. Click the card's header to open the person's profile, or any person in the small pedigree to go to them.
+The two buttons on the right switch between the **List view** and the **Pedigree grid view**. In the grid, each person is a card with their name, years and a small pedigree of their parents and grandparents. Click the card's header, or any person in the small pedigree, to go to that person the same way.
 
 The list shows 25 persons per page and the grid 20. The page buttons at the bottom move between pages; switching layout returns to the first page.
 

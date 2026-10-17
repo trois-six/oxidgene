@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
 ---
 
 
@@ -20,9 +20,9 @@ generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
 ## 1. Overview
 
 Everything that brings data *into* a tree arrives through one modal, opened
-from a tree card's `⋮` → **Import** on the [Homepage](ui-home.md) or from
-[Settings](ui-settings.md) → Tools. It never creates a tree: it is opened from
-a tree's own menu, so the destination is already chosen.
+from a tree card's `⋮` → **Import** on the [Homepage](ui-home.md), and from
+nowhere else. It never creates a tree: it is opened from a tree's own menu, so
+the destination is already chosen.
 
 Two tabs, because there are two genuinely different jobs:
 
@@ -566,10 +566,16 @@ the UI and embedded backend to share a filesystem.
 - A multi-page deposit imports as one document plus ordered page media.
 - Missing pages are reported by page number.
 
-The receipt is the import receipt of the file tab (§3), with the media links
-written (**attachments**) beside its counts, then the findings, the
-skipped-item summaries and the warnings, followed by **Open the tree** and
-**Import another**. It never displays an account name.
+The receipt replaces step 5 in the modal, scrolled back to its top. It is the
+import receipt of the file tab (§3) — a check mark, **Import complete** and the
+counts — with the media links written (**attachments**) beside its counts.
+Below them come, in this order: the findings, one line each when not zero (the
+people created for someone identified on a photo but not in the tree, and the
+identification boxes kept); the homonym review below; the media that could not
+be imported, collapsed behind a disclosure with their count (the first 200
+listed); and the warnings. It offers no button of its own: the modal stays open
+on it, the [Homepage](ui-home.md) re-reads the tree list behind it, and the
+modal's ✕ closes it. It never displays an account name.
 
 When the import created people for identifications outside the tree
 ([Geneanet Media Import §9](geneanet-media-import.md)), the receipt reads each

@@ -500,8 +500,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     });
 
     // Submitting from the topbar searches in place rather than navigating:
-    // this *is* the results page. `TopbarSearch` owns the SOSA shortcut, so
-    // reaching a person by number still jumps straight there.
+    // this *is* the results page. A bare SOSA number is searched like a name
+    // here; the panel's SOSA preview, which `TopbarSearch` owns, still
+    // reaches the person.
     let commit_search = use_callback(move |(last, first): (String, String)| {
         if !(last.trim().is_empty() && first.trim().is_empty()) {
             filters.search_names(last, first);
