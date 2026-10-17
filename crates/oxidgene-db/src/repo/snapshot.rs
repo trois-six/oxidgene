@@ -1019,6 +1019,7 @@ fn note_snapshot(n: &note::Model) -> NoteSnapshot {
     NoteSnapshot {
         id: n.id,
         text: n.text.clone(),
+        shared_group: n.shared_group,
     }
 }
 
@@ -1547,6 +1548,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 source_id: Set(target.source_id),
                 media_id: Set(None),
                 repository_id: Set(target.repository_id),
+                shared_group: Set(snapshot.shared_group),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),

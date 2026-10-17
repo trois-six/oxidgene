@@ -186,6 +186,7 @@ impl From<NameSnapshot> for GqlNameSnapshot {
 pub struct GqlNoteSnapshot {
     pub id: ID,
     pub text: String,
+    pub shared_group: Option<ID>,
 }
 
 impl From<NoteSnapshot> for GqlNoteSnapshot {
@@ -193,6 +194,7 @@ impl From<NoteSnapshot> for GqlNoteSnapshot {
         Self {
             id: id(n.id),
             text: n.text,
+            shared_group: n.shared_group.map(id),
         }
     }
 }

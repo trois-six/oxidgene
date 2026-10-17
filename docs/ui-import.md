@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T19:00:00Z }
 ---
 
 
@@ -177,7 +177,7 @@ can ignore that extension while retaining all standard fields.
 | All standard event tags (BIRT, DEAT, BAPM, MARR, etc.) | → Event with matching EventType |
 | SOUR (sources) | → Source (title, author, publisher, abbreviation) |
 | Citation references with QUAY | → Citation with Confidence mapping |
-| NOTE (notes), inline or pointing at a note record | → Note linked to the parent record, one per `NOTE` |
+| NOTE (notes), inline or pointing at a note record | → Note linked to the parent record, one per `NOTE`; a pointer's notes share the record's group, so an export writes the shared record again |
 | ASSO / RELA (associations) | → EventWitness on the witnessed event |
 | RELI as an individual attribute | → Event of type Religion |
 | OBJE (multimedia) | → Media (file path, MIME type, title, description, physical medium, and OxidGene extended metadata) |

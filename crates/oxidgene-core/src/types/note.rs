@@ -19,6 +19,12 @@ pub struct Note {
     /// The repository this note is about (GEDCOM `REPO.NOTE`).
     #[serde(default)]
     pub repository_id: Option<Uuid>,
+    /// The shared note record (5.5.1 `NOTE`, 7.x `SNOTE`) this note was read
+    /// from, the same for every note read from it; `None` for a note of its
+    /// own. An export writes the notes of one group that say the same thing
+    /// as one shared record again.
+    #[serde(default)]
+    pub shared_group: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

@@ -3484,6 +3484,7 @@ async fn restoring_a_version_sanitizes_its_notes() {
         notes: vec![NoteSnapshot {
             id: note_id,
             text: r#"<p onclick="steal()">kept</p><script>alert(1)</script>"#.into(),
+            shared_group: None,
         }],
     };
 

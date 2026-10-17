@@ -536,6 +536,140 @@ fn a_shared_note_pointer_of_either_version_resolves_or_is_reported() {
     assert!(result.warnings[0].contains("@N9@"), "{:?}", result.warnings);
 }
 
+/// Two people citing one shared note record, and one inline note of their
+/// own.
+const SHARED_NOTE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @N1@ NOTE Shared text
+0 @I1@ INDI
+1 NAME Branch /Alpha/
+1 NOTE @N1@
+1 NOTE Inline note
+0 @I2@ INDI
+1 NAME Branch /Beta/
+1 NOTE @N1@
+0 TRLR
+";
+
+/// The `NOTE` or `SNOTE` record lines of `gedcom`, and the pointers to them.
+fn shared_note_lines(gedcom: &str) -> (Vec<&str>, Vec<&str>) {
+    let records = gedcom
+        .lines()
+        .filter(|l| l.starts_with("0 @N") && (l.contains(" NOTE ") || l.contains(" SNOTE ")))
+        .collect();
+    let pointers = gedcom
+        .lines()
+        .filter(|l| l.starts_with("1 NOTE @N") || l.starts_with("1 SNOTE @N"))
+        .collect();
+    (records, pointers)
+}
+
+/// The notes read from one shared note record carry its group; an inline
+/// note carries none.
+#[test]
+fn notes_read_from_a_shared_note_record_share_its_group() {
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let shared: Vec<&Note> = imported
+        .notes
+        .iter()
+        .filter(|n| n.text == "Shared text")
+        .collect();
+    assert_eq!(shared.len(), 2, "{:?}", imported.notes);
+    let group = shared[0].shared_group.expect("a shared note has a group");
+    assert_eq!(shared[1].shared_group, Some(group));
+    assert_eq!(imported.note_by_xref.get("@N1@"), Some(&group));
+    let inline = imported
+        .notes
+        .iter()
+        .find(|n| n.text == "Inline note")
+        .expect("the inline note");
+    assert_eq!(inline.shared_group, None);
+    assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
+}
+
+/// An export writes the notes of one group that say the same thing as one
+/// `NOTE` record, which they point at; the inline note stays inline.
+#[test]
+fn a_shared_note_is_exported_as_one_record_and_pointers_in_551() {
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    let (records, pointers) = shared_note_lines(&exported);
+    assert_eq!(records, ["0 @N1@ NOTE Shared text"], "{exported}");
+    assert_eq!(pointers, ["1 NOTE @N1@", "1 NOTE @N1@"], "{exported}");
+    assert!(exported.contains("1 NOTE Inline note\n"), "{exported}");
+}
+
+/// The GEDZIP's `gedcom.ged` is GEDCOM 7.0, so its shared note is an `SNOTE`
+/// record and its notes point at it with `SNOTE`.
+#[test]
+fn a_shared_note_is_exported_as_an_snote_record_in_a_gedzip() {
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let paths = HashMap::new();
+    let exported = export_as(
+        &imported,
+        ExportTarget::Gedzip {
+            media_paths: &paths,
+        },
+    );
+    let (records, pointers) = shared_note_lines(&exported.gedcom);
+    assert_eq!(records, ["0 @N1@ SNOTE Shared text"], "{}", exported.gedcom);
+    assert_eq!(pointers.len(), 2, "{}", exported.gedcom);
+    assert!(
+        pointers.iter().all(|l| l.starts_with("1 SNOTE @N1@")),
+        "{}",
+        exported.gedcom
+    );
+}
+
+/// Notes of one group that say different things become one record per text,
+/// and a note whose text is changed before the export follows its new text.
+#[test]
+fn a_changed_shared_note_is_exported_as_its_own_record() {
+    let mut imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let person_two = imported.persons[1].id;
+    let changed = imported
+        .notes
+        .iter_mut()
+        .find(|n| n.person_id == Some(person_two))
+        .expect("the second person's shared note");
+    changed.text = "Other text".to_string();
+
+    let exported = reexport(&imported);
+    let (records, pointers) = shared_note_lines(&exported);
+    // Numbered by group, then text: "Other text" sorts before "Shared text".
+    assert_eq!(
+        records,
+        ["0 @N1@ NOTE Other text", "0 @N2@ NOTE Shared text"],
+        "{exported}"
+    );
+    assert_eq!(pointers, ["1 NOTE @N2@", "1 NOTE @N1@"], "{exported}");
+}
+
+/// The export says which entity each of its records was written for: the
+/// first person is `@I1@`, and a shared note record is its group.
+#[test]
+fn the_export_reports_the_entity_behind_each_xref() {
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let exported = export_as(&imported, ExportTarget::Gedcom);
+    assert_eq!(
+        exported.xrefs.get("@I1@"),
+        Some(&imported.persons[0].id),
+        "{:?}",
+        exported.xrefs
+    );
+    assert_eq!(exported.xrefs.get("@I2@"), Some(&imported.persons[1].id));
+    let group = imported
+        .notes
+        .iter()
+        .find_map(|n| n.shared_group)
+        .expect("a shared note");
+    assert_eq!(exported.xrefs.get("@N1@"), Some(&group));
+    assert_eq!(exported.xrefs.get("@SUBM1@"), Some(&Uuid::nil()));
+}
+
 /// A person, an event and an attribute with several notes each, as GEDCOM
 /// 5.5.1 allows.
 const SEVERAL_NOTES_GEDCOM: &str = "\
@@ -1638,6 +1772,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         source_id: None,
         media_id: None,
         repository_id: None,
+        shared_group: None,
         created_at: now,
         updated_at: now,
         deleted_at: None,

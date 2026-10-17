@@ -658,6 +658,10 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     // Handed back so a caller holding links keyed by something outside the
     // domain model can resolve them to person ids — see the field's docs.
     result.person_by_xref = ctx.indi_map;
+    result.family_by_xref = ctx.fam_map;
+    result.source_by_xref = ctx.source_map;
+    result.repository_by_xref = repositories.by_xref;
+    result.note_by_xref = ctx.note_map;
     result.media_by_xref = page_map;
 
     Ok(result)
@@ -682,11 +686,14 @@ struct ImportContext<'d> {
     indi_map: HashMap<String, Uuid>,
     fam_map: HashMap<String, Uuid>,
     source_map: HashMap<String, Uuid>,
+    /// The shared note record each `NOTE` record (`0 @N1@ NOTE` in 5.5.1,
+    /// `0 @N1@ SNOTE` in 7.0) becomes a group of; the notes pointing at it
+    /// carry its UUID as `Note::shared_group`.
+    note_map: HashMap<String, Uuid>,
     /// The document each `OBJE` record becomes; links point at it.
     media_map: HashMap<String, Uuid>,
-    /// The text of each shared note record (`0 @N1@ NOTE` in 5.5.1,
-    /// `0 @N1@ SNOTE` in 7.0), by xref: a file can point at one from every
-    /// person, so they are looked up rather than searched.
+    /// The text of each shared note record, by xref: a file can point at one
+    /// from every person, so they are looked up rather than searched.
     shared_notes: HashMap<&'d str, Cow<'d, str>>,
 }
 
@@ -703,6 +710,7 @@ impl<'d> ImportContext<'d> {
             indi_map: ids(&mut data.individuals().into_iter().map(|v| v.xref())),
             fam_map: ids(&mut data.families().into_iter().map(|v| v.xref())),
             source_map: ids(&mut data.sources().into_iter().map(|v| v.xref())),
+            note_map: ids(&mut data.notes().into_iter().map(|v| v.xref())),
             media_map: ids(&mut data.multimedia().into_iter().map(|v| v.xref())),
             shared_notes: data
                 .notes()
@@ -715,9 +723,13 @@ impl<'d> ImportContext<'d> {
     /// The text of a note: its own, or that of the shared note record it
     /// points at. A pointer to a record the file does not hold is a warning,
     /// and no text.
-    fn note_text(&self, note: View<'_, GedNote>, warnings: &mut Vec<String>) -> Option<String> {
+    fn note_text(
+        &self,
+        note: View<'_, GedNote>,
+        warnings: &mut Vec<String>,
+    ) -> Option<(String, Option<Uuid>)> {
         if let Some(text) = note.text() {
-            return Some(text.to_string());
+            return Some((text.to_string(), None));
         }
         let xref = note.store().xref(note.shared()?);
         let text = self.shared_notes.get(xref).map(|text| text.to_string());
@@ -726,23 +738,38 @@ impl<'d> ImportContext<'d> {
                 "A NOTE points at {xref}, which the file does not hold; it was left out"
             ));
         }
-        text
+        text.map(|text| (text, self.note_map.get(xref).copied()))
     }
 
     /// The texts of `notes` that say something, as written, pointers
     /// resolved.
     fn note_texts(&self, notes: Items<'_, GedNote>, warnings: &mut Vec<String>) -> Vec<String> {
+        self.note_pieces(notes, warnings)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
+    }
+
+    /// The texts of `notes` that say something, each with the shared note
+    /// record it was read from, if any.
+    fn note_pieces(
+        &self,
+        notes: Items<'_, GedNote>,
+        warnings: &mut Vec<String>,
+    ) -> Vec<(String, Option<Uuid>)> {
         notes
             .into_iter()
             .filter_map(|note| self.note_text(note, warnings))
-            .filter(|text| !text.trim().is_empty())
+            .filter(|(text, _)| !text.trim().is_empty())
             .collect()
     }
 
     /// One note row per note of `notes`, attached to `owner`.
     fn import_notes(&self, notes: Items<'_, GedNote>, owner: NoteOwner, result: &mut ImportResult) {
-        for text in self.note_texts(notes, &mut result.warnings) {
-            result.notes.push(owner.note(self.tree_id, self.now, text));
+        for (text, shared_group) in self.note_pieces(notes, &mut result.warnings) {
+            let mut note = owner.note(self.tree_id, self.now, text);
+            note.shared_group = shared_group;
+            result.notes.push(note);
         }
     }
 }
@@ -771,6 +798,7 @@ impl NoteOwner {
             // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
             media_id: None,
             repository_id: None,
+            shared_group: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -2280,6 +2308,7 @@ fn import_media_metadata_extensions(data: &Dataset, result: &mut ImportResult) {
                 source_id: None,
                 media_id: Some(media_id),
                 repository_id: None,
+                shared_group: None,
                 created_at,
                 updated_at: note.updated_at.unwrap_or(created_at),
                 deleted_at: None,
@@ -2514,6 +2543,7 @@ fn apply_document_metadata(
             source_id: None,
             media_id: Some(document_id),
             repository_id: None,
+            shared_group: None,
             created_at,
             updated_at: note.updated_at.unwrap_or(created_at),
             deleted_at: None,

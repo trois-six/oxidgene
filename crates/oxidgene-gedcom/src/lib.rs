@@ -58,6 +58,15 @@ pub struct ImportResult {
     /// position, and `GwDatabase::persons[i]` becomes the individual with xref
     /// `@I{i+1}@`.
     pub person_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The `@F…@` xref each imported family was given a UUID for.
+    pub family_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The `@S…@` xref each imported source was given a UUID for.
+    pub source_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The `@R…@` xref each imported repository was given a UUID for.
+    pub repository_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+    /// The `@N…@` xref of each shared note record, and the group UUID that
+    /// the notes read from it carry as `Note::shared_group`.
+    pub note_by_xref: std::collections::HashMap<String, uuid::Uuid>,
     /// The `@M…@` xref each imported media record was given a UUID for.
     ///
     /// OxidGene's vignette extension uses the record xref to attach each crop
@@ -112,6 +121,11 @@ pub struct ExportResult {
     /// What writing a `.ged` for its destination lost; `None` for a GEDZIP,
     /// which no destination shapes.
     pub report: Option<DestinationReport>,
+    /// Every record the file holds, by its xref text (`"@I1@"`, `"@F1@"`,
+    /// `"@S1@"`, `"@R1@"`, `"@M1@"`, `"@N1@"`, and the submitter's), mapped to
+    /// the entity id it was written for: the submitter to `Uuid::nil()`, a
+    /// shared note record to its `Note::shared_group`.
+    pub xrefs: std::collections::HashMap<String, uuid::Uuid>,
 }
 
 /// What writing a `.ged` for its destination lost: the folds of the

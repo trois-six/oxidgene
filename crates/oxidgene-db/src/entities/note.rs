@@ -16,6 +16,7 @@ pub struct Model {
     pub source_id: Option<Uuid>,
     pub media_id: Option<Uuid>,
     pub repository_id: Option<Uuid>,
+    pub shared_group: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

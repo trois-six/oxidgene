@@ -346,6 +346,7 @@ enum Note {
     SourceId,
     MediaId,
     RepositoryId,
+    SharedGroup,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1310,6 +1311,7 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .col(uuid_null(Note::SourceId))
                 .col(uuid_null(Note::MediaId))
                 .col(uuid_null(Note::RepositoryId))
+                .col(uuid_null(Note::SharedGroup))
                 .col(timestamp_with_time_zone(Note::CreatedAt))
                 .col(timestamp_with_time_zone(Note::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Note::DeletedAt))
@@ -1382,6 +1384,15 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .name("idx_note_repository_id")
                 .table(Note::Table)
                 .col(Note::RepositoryId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_note_shared_group")
+                .table(Note::Table)
+                .col(Note::SharedGroup)
                 .to_owned(),
         )
         .await?;

@@ -1832,6 +1832,11 @@ type GqlNote {
 	familyId: ID
 	sourceId: ID
 	mediaId: ID
+	"""
+	The shared GEDCOM note record this note was read from; set by imports
+	only, so it is never an input.
+	"""
+	sharedGroup: ID
 	createdAt: DateTime!
 	updatedAt: DateTime!
 }
@@ -1850,6 +1855,7 @@ type GqlNoteEdge {
 type GqlNoteSnapshot {
 	id: ID!
 	text: String!
+	sharedGroup: ID
 }
 
 """

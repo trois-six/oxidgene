@@ -795,6 +795,7 @@ async fn insert_attached_records(
                 source_id: Set(n.source_id),
                 media_id: Set(n.media_id),
                 repository_id: Set(n.repository_id),
+                shared_group: Set(n.shared_group),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),

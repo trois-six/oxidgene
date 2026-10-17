@@ -19,8 +19,8 @@ use oxidged::model::{
     MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
     Note as GedNote, Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail, Record,
     Repository as GedRepository, RepositoryCitation, Restriction, Schema, Sex as GedSex,
-    Source as GedSource, SourceData, SourceText, SpouseLink, Store, Submitter, TagId, Text, Value,
-    XrefId,
+    SharedNote as GedSharedNote, Source as GedSource, SourceData, SourceText, SpouseLink, Store,
+    Submitter, TagId, Text, Value, XrefId,
 };
 pub use oxidged::profile::ExportProfile;
 use oxidged::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
@@ -281,6 +281,7 @@ pub fn export_gedcom(
         sources,
         repositories,
         media,
+        notes,
     );
     let assoc_by_person = associations(events, event_witnesses, &xrefs);
     let index = ExportIndex {
@@ -339,6 +340,13 @@ pub fn export_gedcom(
     data.push(Record::Submitter(Box::new(
         index.submitter(submitter, self_person_id),
     )));
+    for shared in &index.xrefs.shared_notes {
+        data.push(Record::Note(Box::new(GedSharedNote {
+            xref: Some(shared.xref),
+            text: Text::from(shared.text.as_str()),
+            ..GedSharedNote::default()
+        })));
+    }
     for src in sources {
         data.push(Record::Source(Box::new(index.source(src))));
     }
@@ -380,11 +388,13 @@ pub fn export_gedcom(
 
     drop(build_guard);
 
+    let xrefs = index.exported_xrefs(data.store());
     let (gedcom, report) = write_gedcom(&data, target, choices.destination, &kept)?;
     Ok(ExportResult {
         gedcom,
         warnings,
         report,
+        xrefs,
     })
 }
 
@@ -396,8 +406,20 @@ struct Xrefs {
     source: HashMap<Uuid, XrefId>,
     repository: HashMap<Uuid, XrefId>,
     media: HashMap<Uuid, XrefId>,
+    /// The shared note record (`NOTE` in 5.5.1, `SNOTE` in 7.x) each group
+    /// and text a note is written as points at. A group whose notes say
+    /// different things has one record per text.
+    note_text: HashMap<(Uuid, String), XrefId>,
+    /// Every shared note record the export writes, in xref order.
+    shared_notes: Vec<SharedNoteRecord>,
     /// The one `SUBM` record an export writes.
     submitter: XrefId,
+}
+
+/// A shared note record the export writes: its xref and the text it holds.
+struct SharedNoteRecord {
+    xref: XrefId,
+    text: String,
 }
 
 impl Xrefs {
@@ -408,7 +430,27 @@ impl Xrefs {
         sources: &[Source],
         repositories: &[Repository],
         media: &[Media],
+        notes: &[Note],
     ) -> Self {
+        // Each distinct (group, text) of the notes the export writes as
+        // pointers is one shared record, numbered in group then text order.
+        let mut shared: Vec<(Uuid, &str)> = notes
+            .iter()
+            .filter(|note| is_written_as_pointer(note))
+            .filter_map(|note| note.shared_group.map(|group| (group, note.text.as_str())))
+            .collect();
+        shared.sort_unstable();
+        shared.dedup();
+        let mut note_text = HashMap::new();
+        let mut shared_notes = Vec::with_capacity(shared.len());
+        for (i, (group, text)) in shared.into_iter().enumerate() {
+            let xref = intern(store, &format!("@N{}@", i + 1));
+            note_text.insert((group, text.to_string()), xref);
+            shared_notes.push(SharedNoteRecord {
+                xref,
+                text: text.to_string(),
+            });
+        }
         Self {
             person: numbered(store, "I", persons.iter().map(|p| p.id)),
             family: numbered(store, "F", families.iter().map(|f| f.id)),
@@ -423,9 +465,27 @@ impl Xrefs {
                 "M",
                 media.iter().filter(|m| !m.is_document()).map(|m| m.id),
             ),
+            note_text,
+            shared_notes,
             submitter: intern(store, SUBMITTER_XREF),
         }
     }
+}
+
+/// Whether the export writes `note` as a record's note, rather than as a
+/// media transcript or not at all: it hangs off a record the export writes
+/// as a `NOTE` structure.
+fn is_written_as_pointer(note: &Note) -> bool {
+    note.media_id.is_none()
+        && [
+            note.person_id,
+            note.family_id,
+            note.source_id,
+            note.event_id,
+            note.repository_id,
+        ]
+        .iter()
+        .any(Option::is_some)
 }
 
 /// Interns an identifier. A store holds four billion of them; a tree never
@@ -803,6 +863,52 @@ impl ExportIndex<'_> {
     /// person; else `Not Provided` — Gramps' wording for the same gap — when
     /// the tree names nobody, or somebody nameless. Its email and its
     /// address, over several lines, when the settings hold them.
+    /// The shared note record `note` is written as, when it was read from
+    /// one; its own text otherwise.
+    fn note_for(&self, note: &Note) -> GedNote {
+        match note
+            .shared_group
+            .and_then(|group| self.xrefs.note_text.get(&(group, note.text.clone())))
+        {
+            Some(&xref) => GedNote::shared(xref),
+            None => to_ged_note(&note.text),
+        }
+    }
+
+    /// Every note of a record, each as its own text or as a pointer to the
+    /// shared note record it was read from.
+    fn all_notes<C: FromIterator<GedNote>>(&self, notes: Option<&Vec<&Note>>) -> C {
+        notes
+            .into_iter()
+            .flatten()
+            .map(|n| self.note_for(n))
+            .collect()
+    }
+
+    /// The xref text of every record the export writes, mapped to the entity
+    /// it was written for: the submitter to the nil UUID, a shared note
+    /// record to its group.
+    fn exported_xrefs(&self, store: &Store) -> HashMap<String, Uuid> {
+        let text = |xref: XrefId| store.xref(xref).to_string();
+        let mut xrefs = HashMap::new();
+        for map in [
+            &self.xrefs.person,
+            &self.xrefs.family,
+            &self.xrefs.source,
+            &self.xrefs.repository,
+            &self.xrefs.media,
+        ] {
+            for (&id, &xref) in map {
+                xrefs.insert(text(xref), id);
+            }
+        }
+        for (&(group, _), &xref) in &self.xrefs.note_text {
+            xrefs.insert(text(xref), group);
+        }
+        xrefs.insert(text(self.xrefs.submitter), Uuid::nil());
+        xrefs
+    }
+
     fn submitter(
         &self,
         settings: SubmitterSettings<'_>,
@@ -840,7 +946,7 @@ impl ExportIndex<'_> {
             phones: texts(repo.phone.as_deref()),
             emails: texts(repo.email.as_deref()),
             websites: texts(repo.website.as_deref()),
-            notes: all_notes(self.notes_by_repository.get(&repo.id)),
+            notes: self.all_notes(self.notes_by_repository.get(&repo.id)),
             ..Default::default()
         }
     }
@@ -858,7 +964,7 @@ impl ExportIndex<'_> {
                 agency: Some(agency),
                 ..SourceData::default()
             }),
-            notes: all_notes(self.notes_by_source.get(&src.id)),
+            notes: self.all_notes(self.notes_by_source.get(&src.id)),
             repositories: self.repository_citations(src.id),
             ..Default::default()
         }
@@ -962,7 +1068,7 @@ impl ExportIndex<'_> {
             citations: self
                 .citations(self.cites_by_person.get(&person.id), warnings)
                 .into(),
-            notes: all_notes(self.notes_by_person.get(&person.id)),
+            notes: self.all_notes(self.notes_by_person.get(&person.id)),
             ..Default::default()
         };
         let restriction = restriction(person.privacy);
@@ -1092,7 +1198,7 @@ impl ExportIndex<'_> {
             citations: self
                 .citations(self.cites_by_family.get(&fam.id), warnings)
                 .into(),
-            notes: all_notes(self.notes_by_family.get(&fam.id)),
+            notes: self.all_notes(self.notes_by_family.get(&fam.id)),
             ..Default::default()
         };
         let restriction = restriction(fam.privacy);
@@ -1249,7 +1355,7 @@ impl ExportIndex<'_> {
                 .into(),
             ..GedEvent::default()
         };
-        let notes: Vec<GedNote> = all_notes(self.notes_by_event.get(&evt.id));
+        let notes: Vec<GedNote> = self.all_notes(self.notes_by_event.get(&evt.id));
         let multimedia = self.multimedia_refs(
             self.mlinks_by_event
                 .get(&evt.id)
@@ -1283,15 +1389,6 @@ fn to_ged_place(p: &Place) -> GedPlace {
         }));
     }
     place
-}
-
-/// Every note of a record.
-fn all_notes<C: FromIterator<GedNote>>(notes: Option<&Vec<&Note>>) -> C {
-    notes
-        .into_iter()
-        .flatten()
-        .map(|n| to_ged_note(&n.text))
-        .collect()
 }
 
 /// `text` when it says something.
@@ -2581,6 +2678,7 @@ mod tests {
             source_id: None,
             media_id: Some(document.id),
             repository_id: None,
+            shared_group: None,
             created_at: document.created_at,
             updated_at: document.updated_at,
             deleted_at: None,
@@ -2990,6 +3088,7 @@ mod tests {
                 source_id: None,
                 media_id: Some(first_page.id),
                 repository_id: None,
+                shared_group: None,
                 created_at: first_page.created_at,
                 updated_at: first_page.updated_at,
                 deleted_at: None,
@@ -3004,6 +3103,7 @@ mod tests {
                 source_id: None,
                 media_id: Some(second_page.id),
                 repository_id: None,
+                shared_group: None,
                 created_at: second_page.created_at,
                 updated_at: second_page.updated_at,
                 deleted_at: None,

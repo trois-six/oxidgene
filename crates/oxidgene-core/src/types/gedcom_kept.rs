@@ -29,6 +29,8 @@ pub enum KeptEntityKind {
     Media,
     Submitter,
     Record,
+    /// A shared note record, by its `Note::shared_group`.
+    Note,
 }
 
 impl KeptEntityKind {
@@ -42,6 +44,7 @@ impl KeptEntityKind {
             Self::Media => "media",
             Self::Submitter => "submitter",
             Self::Record => "record",
+            Self::Note => "note",
         }
     }
 
@@ -55,6 +58,7 @@ impl KeptEntityKind {
             "media" => Some(Self::Media),
             "submitter" => Some(Self::Submitter),
             "record" => Some(Self::Record),
+            "note" => Some(Self::Note),
             _ => None,
         }
     }

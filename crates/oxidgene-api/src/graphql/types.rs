@@ -2184,6 +2184,9 @@ pub struct GqlNote {
     pub family_id: Option<ID>,
     pub source_id: Option<ID>,
     pub media_id: Option<ID>,
+    /// The shared GEDCOM note record this note was read from; set by imports
+    /// only, so it is never an input.
+    pub shared_group: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -2199,6 +2202,7 @@ impl From<oxidgene_core::types::Note> for GqlNote {
             family_id: n.family_id.map(|id| ID(id.to_string())),
             source_id: n.source_id.map(|id| ID(id.to_string())),
             media_id: n.media_id.map(|id| ID(id.to_string())),
+            shared_group: n.shared_group.map(|id| ID(id.to_string())),
             created_at: n.created_at,
             updated_at: n.updated_at,
         }

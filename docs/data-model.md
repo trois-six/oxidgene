@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T19:00:00Z }
 ---
 
 
@@ -562,6 +562,7 @@ page number of its own: the page it belongs to is the media it points at.
 | `source_id` | UUID v7? | FK → Source |
 | `media_id` | UUID v7? | FK → Media — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
 | `repository_id` | UUID v7? | FK → Repository (cascade) — a note about a repository |
+| `shared_group` | UUID v7? | The shared GEDCOM note record (`NOTE` in 5.5.1, `SNOTE` in 7.x) this note was read from; the same for every note read from that record, `null` for a note of its own. Set by a GEDCOM import only: no write API accepts it, and a history restore writes back the stored value. An export writes the notes of one group that say the same thing as one shared record again (see [Round-trip fidelity](api.md#round-trip-fidelity)). Indexed (`idx_note_shared_group`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

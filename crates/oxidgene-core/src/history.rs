@@ -421,6 +421,9 @@ pub struct WitnessSnapshot {
 pub struct NoteSnapshot {
     pub id: Uuid,
     pub text: String,
+    /// The shared note record the note was read from, if any.
+    #[serde(default)]
+    pub shared_group: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -617,6 +620,7 @@ mod tests {
         NoteSnapshot {
             id: Uuid::from_u128(n),
             text: text.to_string(),
+            shared_group: None,
         }
     }
 
