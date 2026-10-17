@@ -4067,3 +4067,147 @@ fn a_gedzip_reads_no_destination() {
         merged.gedcom
     );
 }
+
+/// The family `@F2@` lists only one spouse and no child; the child `@I3@`
+/// names it on their own record, `FAMC` with `PEDI adopted`.
+const ONE_SIDED_CHILD_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I2@ INDI
+1 NAME Beth /Example/
+2 GIVN Beth
+2 SURN Example
+1 SEX F
+1 FAMS @F2@
+0 @I3@ INDI
+1 NAME Cy /Example/
+2 GIVN Cy
+2 SURN Example
+1 SEX M
+1 FAMC @F2@
+2 PEDI adopted
+0 @F2@ FAM
+1 WIFE @I2@
+0 TRLR
+";
+
+/// The family `@F3@` lists no spouse; the individual `@I1@` names it on their
+/// own record, `FAMS` only.
+const ONE_SIDED_SPOUSE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Dan /Example/
+2 GIVN Dan
+2 SURN Example
+1 SEX M
+1 FAMS @F3@
+0 @F3@ FAM
+0 TRLR
+";
+
+/// The records of an export with a line equal to `needle`, each without its leading
+/// `0 ` (the split keeps the xref and tag at the start of the record).
+fn records_containing<'a>(gedcom: &'a str, needle: &str) -> Vec<&'a str> {
+    gedcom
+        .split("\n0 ")
+        .filter(|record| record.lines().any(|line| line == needle))
+        .collect()
+}
+
+/// The xref a record opens with, such as `@I3@`.
+fn record_xref(record: &str) -> &str {
+    record
+        .split_whitespace()
+        .next()
+        .expect("a record opens with its xref")
+}
+
+/// A child the family does not list is linked as its child, with the `PEDI`
+/// of their `FAMC` link, and the export writes both sides of the link.
+#[test]
+fn a_child_named_only_by_their_famc_is_linked_with_its_pedi() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(ONE_SIDED_CHILD_GEDCOM, tree_id).expect("imports");
+
+    let cy = result.person_by_xref["@I3@"];
+    let family = result.families[0].id;
+    let links: Vec<_> = result
+        .family_children
+        .iter()
+        .filter(|fc| fc.person_id == cy && fc.family_id == family)
+        .collect();
+    assert_eq!(links.len(), 1, "{:?}", result.family_children.len());
+    assert_eq!(links[0].child_type, oxidgene_core::ChildType::Adopted);
+
+    let mentions: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|warning| warning.contains("FAMC"))
+        .collect();
+    assert_eq!(mentions.len(), 1, "{:?}", result.warnings);
+
+    let exported = reexport(&result);
+    let person = records_containing(&exported, "1 NAME Cy /Example/");
+    assert_eq!(person.len(), 1, "{exported}");
+    let person_xref = record_xref(person[0]);
+    let child_of = records_containing(&exported, &format!("1 CHIL {person_xref}"));
+    assert_eq!(child_of.len(), 1, "{exported}");
+    assert!(
+        child_of[0].starts_with('@') && child_of[0].contains(" FAM"),
+        "{exported}"
+    );
+    let family_xref = record_xref(child_of[0]);
+    assert!(
+        person[0].contains(&format!("1 FAMC {family_xref}\n2 PEDI adopted")),
+        "{exported}"
+    );
+}
+
+/// An individual naming a family that does not list them as a spouse is
+/// linked as its husband, with a warning.
+#[test]
+fn a_spouse_named_only_by_their_fams_is_linked() {
+    let tree_id = Uuid::now_v7();
+    let result = import_gedcom(ONE_SIDED_SPOUSE_GEDCOM, tree_id).expect("imports");
+
+    let dan = result.person_by_xref["@I1@"];
+    let family = result.families[0].id;
+    let spouses: Vec<_> = result
+        .family_spouses
+        .iter()
+        .filter(|fs| fs.person_id == dan && fs.family_id == family)
+        .collect();
+    assert_eq!(spouses.len(), 1, "{:?}", result.family_spouses);
+    assert_eq!(spouses[0].role, oxidgene_core::SpouseRole::Husband);
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("FAMS")),
+        "{:?}",
+        result.warnings
+    );
+}
+
+/// A two-sided file keeps one row per link: a child the family lists and the
+/// individual names is one `FamilyChild`, and no link raises a warning.
+#[test]
+fn a_two_sided_family_link_is_one_row_without_a_warning() {
+    let result = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+
+    assert_eq!(result.family_children.len(), 1);
+    assert_eq!(result.family_spouses.len(), 2);
+    let linked: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|warning| warning.contains("FAMC") || warning.contains("FAMS"))
+        .collect();
+    assert!(linked.is_empty(), "{linked:?}");
+}

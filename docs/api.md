@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:00:00Z }
 ---
 
 
@@ -1506,7 +1506,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Source repository citations (`SOUR.REPO`) | Full | Full | Each becomes a link with its call number (`CALN`) and medium (`MEDI`, written in 5.5.1's lower case; a medium without a call number goes under an empty `CALN`). A citation without a pointer names a repository by its text — the line's, else its notes' — created once per distinct text; a pointer to a record the file does not hold is a warning. Several `CALN` under one citation are one link each, every one with its own `MEDI`; a citation's own `NOTE` is not kept |
 | Spouse ages (`HUSB.AGE`, `WIFE.AGE`) | Full | Full | On a family event, the age of the family's `HUSB` and `WIFE`; written back under the slot each spouse is exported in, a spouse without a slot being a warning |
 | Agency (`AGNC`) | Full | Full | On an individual event or attribute, and a source's `DATA.AGNC` |
-| Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
+| Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster. A `FAMC` or `FAMS` that the family does not list back (written on the individual's record only) still links the individual to the family, with a warning: a child becomes a `FamilyChild` (its `PEDI` kept), a spouse a `FamilySpouse` with the role of their sex |
 | Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
 | Restriction (`RESN`) | Person and family privacy | Person and family privacy | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. A `Private` person or family is exported with `RESN confidential`; `Public` has no `RESN` value and comes back as `Default` |
 | Submitter (`SUBM`) | The record `HEAD.SUBM` points at fills the tree's submitter settings that are empty — never one already set; `Not Provided` is no name. Other `SUBM` records are a warning with their count | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the tree's submitter name, else the display name of its "Who am I?" person (`self_person_id`), else `Not Provided` (Gramps' wording). `EMAIL` and the multi-line `ADDR` are written only when set. A duplicated tree carries the settings over |

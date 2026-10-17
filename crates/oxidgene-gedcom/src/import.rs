@@ -14,7 +14,7 @@
 //! that format has which a bare `.ged` does not.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 
 use chrono::Utc;
@@ -652,7 +652,7 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     for fam in data.families() {
         import_family(fam, &ctx, &mut lookups, &mut result);
     }
-    apply_pedigree_linkage(data, &ctx, &mut result);
+    apply_individual_family_links(data, &ctx, &mut result);
     import_associations(data, &ctx, &mut result);
 
     // Handed back so a caller holding links keyed by something outside the
@@ -1824,31 +1824,138 @@ fn import_media_links(
     }
 }
 
-/// Pedigree linkage: update each child's `child_type` from the `PEDI` of the
-/// `FAMC` link on their own record.
-fn apply_pedigree_linkage(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
+/// Individual-side family links. A family and its member can each name the
+/// other, and a file may write only one side: an individual's `FAMC` or `FAMS`
+/// whose family does not list them is linked all the same, with a warning, so
+/// that the link and its `PEDI` are not lost.
+fn apply_individual_family_links(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
+    link_children(data, ctx, result);
+    link_spouses(data, ctx, result);
+}
+
+/// The `FAMC` links: a child the family lists keeps its row and takes the
+/// `PEDI` of the link; a child only the link names gets a row.
+fn link_children(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
     let st = data.store();
+    let mut rows: HashMap<(Uuid, Uuid), Vec<usize>> = HashMap::new();
+    for (index, fc) in result.family_children.iter().enumerate() {
+        rows.entry((fc.person_id, fc.family_id))
+            .or_default()
+            .push(index);
+    }
+    let mut next_order = rows_per_family(result.family_children.iter().map(|fc| fc.family_id));
+
     for indi in data.individuals() {
-        let Some(person_id) = indi.xref().and_then(|x| ctx.indi_map.get(st.xref(x))) else {
+        let Some(xref) = indi.xref().map(|x| st.xref(x)) else {
+            continue;
+        };
+        let Some(&person_id) = ctx.indi_map.get(xref) else {
             continue;
         };
         for link in indi.child_of() {
             let Some(family) = link.family() else {
                 continue;
             };
-            let Some(pedigree) = link.pedigree() else {
+            let family_xref = st.xref(family);
+            let Some(&family_id) = ctx.fam_map.get(family_xref) else {
                 continue;
             };
-            let child_type = convert_pedigree(st, &pedigree.value());
-            let fam_id = ctx.fam_map.get(st.xref(family));
-            // Find and update the matching FamilyChild
-            for fc in &mut result.family_children {
-                if fc.person_id == *person_id && Some(&fc.family_id) == fam_id {
-                    fc.child_type = child_type;
+            let pedigree = link
+                .pedigree()
+                .map(|pedigree| convert_pedigree(st, &pedigree.value()));
+            let key = (person_id, family_id);
+            if let Some(indexes) = rows.get(&key) {
+                if let Some(child_type) = pedigree {
+                    for &index in indexes {
+                        result.family_children[index].child_type = child_type;
+                    }
                 }
+                continue;
             }
+            let sort_order = next_order_of(&mut next_order, family_id);
+            rows.entry(key)
+                .or_default()
+                .push(result.family_children.len());
+            result.family_children.push(FamilyChild {
+                id: Uuid::now_v7(),
+                family_id,
+                person_id,
+                child_type: pedigree.unwrap_or(ChildType::Biological),
+                sort_order,
+            });
+            result.warnings.push(format!(
+                "Individual {xref}: FAMC {family_xref} names a family that does not list them as a child; linked as its child"
+            ));
         }
     }
+}
+
+/// The `FAMS` links: a spouse the family does not list gets a `FamilySpouse`
+/// row, its role taken from their sex.
+fn link_spouses(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
+    let st = data.store();
+    let sexes: HashMap<Uuid, Sex> = result.persons.iter().map(|p| (p.id, p.sex)).collect();
+    let mut rows: HashSet<(Uuid, Uuid)> = result
+        .family_spouses
+        .iter()
+        .map(|fs| (fs.person_id, fs.family_id))
+        .collect();
+    let mut next_order = rows_per_family(result.family_spouses.iter().map(|fs| fs.family_id));
+
+    for indi in data.individuals() {
+        let Some(xref) = indi.xref().map(|x| st.xref(x)) else {
+            continue;
+        };
+        let Some(&person_id) = ctx.indi_map.get(xref) else {
+            continue;
+        };
+        for link in indi.spouse_of() {
+            let Some(family) = link.family() else {
+                continue;
+            };
+            let family_xref = st.xref(family);
+            let Some(&family_id) = ctx.fam_map.get(family_xref) else {
+                continue;
+            };
+            if !rows.insert((person_id, family_id)) {
+                continue;
+            }
+            let role = match sexes.get(&person_id) {
+                Some(Sex::Male) => SpouseRole::Husband,
+                Some(Sex::Female) => SpouseRole::Wife,
+                _ => SpouseRole::Partner,
+            };
+            let sort_order = next_order_of(&mut next_order, family_id);
+            result.family_spouses.push(FamilySpouse {
+                id: Uuid::now_v7(),
+                family_id,
+                person_id,
+                role,
+                sort_order,
+            });
+            result.warnings.push(format!(
+                "Individual {xref}: FAMS {family_xref} names a family that does not list them as a spouse; linked as its spouse"
+            ));
+        }
+    }
+}
+
+/// How many rows each family already holds, keyed by family: the next
+/// `sort_order` of a family is its count.
+fn rows_per_family(families: impl Iterator<Item = Uuid>) -> HashMap<Uuid, i32> {
+    let mut counts = HashMap::new();
+    for family_id in families {
+        *counts.entry(family_id).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// The `sort_order` for the next row of a family, which then counts that row.
+fn next_order_of(counts: &mut HashMap<Uuid, i32>, family_id: Uuid) -> i32 {
+    let count = counts.entry(family_id).or_insert(0);
+    let order = *count;
+    *count += 1;
+    order
 }
 
 /// An association's relation in words: its `RELA` (5.5.1), else the phrase

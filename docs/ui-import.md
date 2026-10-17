@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
+generated: { by: human:maintainer, at: 2026-10-17T18:00:00Z }
 ---
 
 
@@ -188,6 +188,7 @@ can ignore that extension while retaining all standard fields.
 | Event and attribute AGE | → Event.age, in canonical form |
 | Event and attribute AGNC, source DATA.AGNC | → Event.agency, Source.agency |
 | FAMC PEDI (pedigree type) | → FamilyChild.child_type (Biological / Adopted / Foster) |
+| FAMC or FAMS on the individual's record that the family does not list back | → FamilyChild or FamilySpouse, linked all the same, with a warning naming the individual and the family |
 
 ### What is skipped (not imported)
 
