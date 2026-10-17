@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:18:22Z }
 ---
 
 # Development Environment and Workflows
@@ -1024,8 +1024,9 @@ builds it from `site/`; its version is pinned in `mise.toml` and in
 | `site/config.toml` | The site, its two languages and the template texts in each |
 
 `uv run scripts/site.py build` (`just site`) documents the library crates
-with rustdoc, which also builds the API crate and so writes its OpenAPI
-document, then generates the technical section into `site/content/tech/`:
+with rustdoc — which also builds the API crate and so writes its OpenAPI
+document — and fails on any rustdoc warning, a broken intra-doc link first
+among them, since the site would publish it as a dead link. It then generates the technical section into `site/content/tech/`:
 each specification with its OKF front matter turned into Zola's, its links
 to other specifications turned into internal links that Zola checks, its
 links to other files of the repository pointed at GitHub, and its headings

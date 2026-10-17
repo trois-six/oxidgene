@@ -31,6 +31,7 @@ live reload.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -339,7 +340,9 @@ def rustdoc() -> None:
     # rustdoc adds to target/doc and keeps what earlier runs left there,
     # dependencies' pages and search entries among them.
     shutil.rmtree(ROOT / "target" / "doc", ignore_errors=True)
-    subprocess.run(["cargo", "doc", "--locked", "--no-deps", *packages], cwd=ROOT, check=True)
+    # A broken intra-doc link would publish a dead link: warnings fail.
+    env = {**os.environ, "RUSTDOCFLAGS": "-D warnings"}
+    subprocess.run(["cargo", "doc", "--locked", "--no-deps", *packages], cwd=ROOT, env=env, check=True)
     destination = STATIC / "api"
     shutil.rmtree(destination, ignore_errors=True)
     shutil.copytree(ROOT / "target" / "doc", destination)
