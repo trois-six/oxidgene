@@ -19,6 +19,7 @@ pub struct Model {
     pub cause: Option<String>,
     pub age: Option<String>,
     pub agency: Option<String>,
+    pub classification: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,

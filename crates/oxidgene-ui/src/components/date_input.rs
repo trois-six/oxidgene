@@ -1483,6 +1483,7 @@ mod tests {
     fn republican_event(value: &str, qualifier: DateQualifier) -> DomainEvent {
         let now = chrono::Utc::now();
         DomainEvent {
+            classification: None,
             id: uuid::Uuid::nil(),
             tree_id: uuid::Uuid::nil(),
             event_type: oxidgene_core::EventType::Marriage,

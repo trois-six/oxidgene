@@ -24,13 +24,14 @@ pub struct EventFilter {
 }
 
 /// An event's less common details, GEDCOM's event detail structure: the
-/// cause, the age the record gives (already in canonical form) and the
-/// responsible agency.
+/// cause, the age the record gives (already in canonical form), the
+/// responsible agency and the classification an attribute's value carries.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventDetails {
     pub cause: Option<String>,
     pub age: Option<String>,
     pub agency: Option<String>,
+    pub classification: Option<String>,
 }
 
 /// The [`EventDetails`] an update changes: `None` keeps a field and
@@ -40,6 +41,24 @@ pub struct EventDetailsPatch {
     pub cause: Option<Option<String>>,
     pub age: Option<Option<String>>,
     pub agency: Option<Option<String>>,
+    pub classification: Option<Option<String>>,
+}
+
+/// Writes the detail fields `details` changes into `active`; a field it
+/// leaves `None` keeps its stored value.
+fn apply_details(active: &mut ActiveModel, details: EventDetailsPatch) {
+    if let Some(cause) = details.cause {
+        active.cause = Set(cause);
+    }
+    if let Some(age) = details.age {
+        active.age = Set(age);
+    }
+    if let Some(agency) = details.agency {
+        active.agency = Set(agency);
+    }
+    if let Some(classification) = details.classification {
+        active.classification = Set(classification);
+    }
 }
 
 /// Repository for event CRUD operations.
@@ -168,6 +187,7 @@ impl EventRepo {
             cause: Set(details.cause),
             age: Set(details.age),
             agency: Set(details.agency),
+            classification: Set(details.classification),
             place_id: Set(place_id),
             person_id: Set(person_id),
             family_id: Set(family_id),
@@ -225,15 +245,7 @@ impl EventRepo {
         if let Some(cal) = calendar {
             active.calendar = Set(sea_enums::Calendar::from(cal));
         }
-        if let Some(cause) = details.cause {
-            active.cause = Set(cause);
-        }
-        if let Some(age) = details.age {
-            active.age = Set(age);
-        }
-        if let Some(agency) = details.agency {
-            active.agency = Set(agency);
-        }
+        apply_details(&mut active, details);
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
@@ -264,6 +276,7 @@ fn into_domain(m: event::Model) -> Event {
         cause: m.cause,
         age: m.age,
         agency: m.agency,
+        classification: m.classification,
         spouse_ages: Vec::new(),
         place_id: m.place_id,
         person_id: m.person_id,

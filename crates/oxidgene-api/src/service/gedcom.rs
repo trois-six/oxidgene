@@ -684,6 +684,7 @@ async fn insert_attached_records(
                 cause: Set(e.cause.clone()),
                 age: Set(e.age.clone()),
                 agency: Set(e.agency.clone()),
+                classification: Set(e.classification.clone()),
                 place_id: Set(e.place_id),
                 person_id: Set(e.person_id),
                 family_id: Set(e.family_id),

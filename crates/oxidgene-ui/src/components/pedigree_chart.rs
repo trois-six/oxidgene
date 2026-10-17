@@ -362,6 +362,7 @@ fn profile_event_to_domain(
     now: chrono::DateTime<chrono::Utc>,
 ) -> DomainEvent {
     DomainEvent {
+        classification: None,
         id: pe.event_id,
         tree_id,
         event_type: pe.event_type,
@@ -6406,6 +6407,7 @@ mod geometry_golden_tests {
             ] {
                 if let Some((value, qualifier)) = dated {
                     events.push(DomainEvent {
+                        classification: None,
                         id: id(n + offset),
                         tree_id: id(0),
                         event_type,
@@ -6564,6 +6566,7 @@ mod geometry_golden_tests {
         data.events_by_family.insert(
             family,
             vec![DomainEvent {
+                classification: None,
                 id: id(90_000),
                 tree_id: id(0),
                 event_type: EventType::Marriage,

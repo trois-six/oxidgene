@@ -2070,8 +2070,19 @@ fn to_ged_attribute_detail(
     let cause = evt.cause.as_deref().map(Text::from);
     let age = to_ged_age(evt.age.as_deref());
     let agency = evt.agency.as_deref().map(Text::from);
-    if cause.is_some() || age.is_some() || agency.is_some() {
+    // The `TYPE` beside the value, kept as it was read. A generic event's
+    // `TYPE` is its tag, which is what reads it back, so it has no room for
+    // one.
+    let classification = if as_generic {
+        None
+    } else {
+        non_blank(evt.classification.as_deref()).map(Text::from)
+    };
+    if classification.is_some() || cause.is_some() || age.is_some() || agency.is_some() {
         let detail = event.detail_mut();
+        if classification.is_some() {
+            detail.classification = classification;
+        }
         detail.cause = cause;
         detail.age = age;
         detail.agency = agency;
@@ -2811,6 +2822,7 @@ mod tests {
     fn an_events_media_link_survives_a_round_trip() {
         let person = person_row();
         let event = Event {
+            classification: None,
             id: Uuid::now_v7(),
             tree_id: person.tree_id,
             event_type: EventType::Birth,
@@ -2880,6 +2892,7 @@ mod tests {
         // import, and the scan must document each of them.
         let person = person_row();
         let occupation = Event {
+            classification: None,
             id: Uuid::now_v7(),
             tree_id: person.tree_id,
             event_type: EventType::Occupation,

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 
@@ -209,6 +209,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `cause` | String? | Cause of event (GEDCOM `CAUS`), e.g. cause of death |
 | `age` | String? | The age the record gives for the person at an individual event (GEDCOM `AGE`), stored in the canonical GEDCOM form `oxidgene_core::types::AgeAtEvent` writes: `34y`, `< 1y 6m`, `> 80y`, `3m 2w 5d`, `CHILD`, `INFANT`, `STILLBORN` (at most 999 years and 255 months, weeks or days). Always NULL on a family event, whose spouses' ages are kept per spouse |
 | `agency` | String? | The authority responsible for the event's record (GEDCOM `AGNC`), e.g. a parish or a registry office |
+| `classification` | String? | What an attribute's value is, when the record says it apart from the value: GEDCOM's `TYPE` beneath a `FACT`, an `IDNO`, an `OCCU` and the other attributes (`Hobby` for `FACT Sample fact`). Kept only beside a non-empty value; `NULL` for an event, whose `TYPE` is its description. Written back as that attribute's `TYPE` |
 | `place_id` | UUID v7? | FK → Place |
 | `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |

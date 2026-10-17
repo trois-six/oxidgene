@@ -275,6 +275,11 @@ input CreateEventInput {
 	"""
 	agency: String
 	"""
+	What an attribute's value is, when the record says it apart from the
+	value (its `TYPE`); blank for none.
+	"""
+	classification: String
+	"""
 	For a family event, the age its record gives for each spouse named.
 	"""
 	spouseAges: [SpouseAgeInput!]
@@ -939,6 +944,11 @@ type GqlEvent {
 	"""
 	agency: String
 	"""
+	What an attribute's value is, when the record says it apart from the
+	value (its `TYPE`).
+	"""
+	classification: String
+	"""
 	For a family event, the ages its record gives for the spouses.
 	"""
 	spouseAges: [GqlSpouseAge!]!
@@ -1007,6 +1017,7 @@ type GqlEventSnapshot {
 	cause: String
 	age: String
 	agency: String
+	classification: String
 	placeId: ID
 	description: String
 	witnesses: [GqlWitnessSnapshot!]!
@@ -4298,6 +4309,7 @@ input UpdateEventInput {
 	cause: String
 	age: String
 	agency: String
+	classification: String
 	"""
 	Replaces a family event's spouse ages when given; an empty list
 	clears them.

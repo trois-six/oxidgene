@@ -65,6 +65,7 @@ mod tests {
     fn event(id: Uuid, person: Option<Uuid>, family: Option<Uuid>) -> Event {
         let now = Utc::now();
         Event {
+            classification: None,
             id,
             tree_id: Uuid::nil(),
             event_type: EventType::Birth,

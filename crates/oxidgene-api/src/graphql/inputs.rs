@@ -394,6 +394,9 @@ pub struct CreateEventInput {
     pub age: Option<String>,
     /// The authority responsible for the event's record.
     pub agency: Option<String>,
+    /// What an attribute's value is, when the record says it apart from the
+    /// value (its `TYPE`); blank for none.
+    pub classification: Option<String>,
     /// For a family event, the age its record gives for each spouse named.
     pub spouse_ages: Option<Vec<SpouseAgeInput>>,
     pub place_id: Option<String>,
@@ -413,6 +416,7 @@ pub struct UpdateEventInput {
     pub cause: MaybeUndefined<String>,
     pub age: MaybeUndefined<String>,
     pub agency: MaybeUndefined<String>,
+    pub classification: MaybeUndefined<String>,
     /// Replaces a family event's spouse ages when given; an empty list
     /// clears them.
     pub spouse_ages: Option<Vec<SpouseAgeInput>>,
@@ -463,6 +467,7 @@ impl TryFrom<CreateEventInput> for crate::service::event::NewEvent {
             cause: input.cause,
             age: input.age,
             agency: input.agency,
+            classification: input.classification,
             spouse_ages: spouse_ages(input.spouse_ages.unwrap_or_default())?,
             place_id: opt_uuid(input.place_id)?,
             person_id: opt_uuid(input.person_id)?,
@@ -485,6 +490,7 @@ impl TryFrom<UpdateEventInput> for crate::service::event::EventPatch {
             cause: patch(input.cause),
             age: patch(input.age),
             agency: patch(input.agency),
+            classification: patch(input.classification),
             spouse_ages: input.spouse_ages.map(spouse_ages).transpose()?,
             place_id: patch_id(input.place_id)?,
             description: patch(input.description),

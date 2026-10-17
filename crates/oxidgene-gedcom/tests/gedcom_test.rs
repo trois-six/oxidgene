@@ -844,6 +844,80 @@ fn ages_and_agencies_survive_a_round_trip() {
     check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
 }
 
+/// The `TYPE` beside an attribute's value says what the value is: it is kept
+/// as the event's classification and written back beside the value, as
+/// GEDCOM 5.5.1 and as GEDCOM 7.0 inside a GEDZIP, where it never turns into
+/// `TYPE Unknown`.
+#[test]
+fn an_attribute_type_beside_its_value_survives_a_round_trip() {
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+        0 @I1@ INDI\n1 NAME Branch /Alpha/\n\
+        1 FACT Sample fact\n2 TYPE Hobby\n\
+        1 IDNO 123-45\n2 TYPE National register\n\
+        1 OCCU Weaver\n2 TYPE Main trade\n0 TRLR\n";
+    let classified = |result: &oxidgene_gedcom::ImportResult| {
+        let of = |event_type| {
+            result
+                .events
+                .iter()
+                .filter(|e| e.event_type == event_type)
+                .map(|e| (e.description.as_deref(), e.classification.as_deref()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            of(oxidgene_core::EventType::Fact),
+            [(Some("Sample fact"), Some("Hobby"))]
+        );
+        assert_eq!(
+            of(oxidgene_core::EventType::NationalId),
+            [(Some("123-45"), Some("National register"))]
+        );
+        assert_eq!(
+            of(oxidgene_core::EventType::Occupation),
+            [(Some("Weaver"), Some("Main trade"))]
+        );
+    };
+    let imported = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    classified(&imported);
+
+    let exported = reexport(&imported);
+    for line in [
+        "1 FACT Sample fact\n2 TYPE Hobby\n",
+        "1 IDNO 123-45\n2 TYPE National register\n",
+        "1 OCCU Weaver\n2 TYPE Main trade\n",
+    ] {
+        assert!(exported.contains(line), "{line:?} missing from\n{exported}");
+    }
+    assert!(!exported.contains("TYPE Unknown"), "{exported}");
+    classified(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+
+    let gedzip_text = export_gedcom(
+        &imported.records(),
+        &ExportOptions {
+            choices: ExportChoices::default(),
+            target: ExportTarget::Gedzip {
+                media_paths: &HashMap::new(),
+            },
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports")
+    .gedcom;
+    assert!(gedzip_text.contains("VERS 7.0"), "{gedzip_text}");
+    for line in [
+        "2 TYPE Hobby\n",
+        "2 TYPE National register\n",
+        "2 TYPE Main trade\n",
+    ] {
+        assert!(
+            gedzip_text.contains(line),
+            "{line:?} missing from\n{gedzip_text}"
+        );
+    }
+    assert!(!gedzip_text.contains("TYPE Unknown"), "{gedzip_text}");
+}
+
 /// A family event's `HUSB.AGE` and `WIFE.AGE` become the ages of the
 /// husband and the wife, and are written back under the same spouse.
 #[test]
@@ -2888,6 +2962,7 @@ fn add_event(
     };
     let (person_id, family_id) = owner;
     tree.events.push(oxidgene_core::types::Event {
+        classification: None,
         id: Uuid::now_v7(),
         tree_id: tree.tree_id,
         event_type,

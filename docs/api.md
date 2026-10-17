@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 
@@ -353,9 +353,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 An event's `age` (GEDCOM `AGE`) is accepted in GEDCOM's syntax, read
 leniently (`1y6m`, `34 Y`, a bare `34`), and returned in canonical form
 (`1y 6m`, `34y`); a value that is not an age, or any age on a family event
-(whose spouses' ages are recorded per spouse), is a `validation_error`. `age`
-and `agency` follow the update convention: omitted keeps, `null` clears — on
-both surfaces. A source's `agency` (`SOUR.DATA.AGNC`) likewise.
+(whose spouses' ages are recorded per spouse), is a `validation_error`. `age`,
+`agency` and `classification` follow the update convention: omitted keeps,
+`null` clears — on both surfaces. A source's `agency` (`SOUR.DATA.AGNC`)
+likewise.
 
 A family event carries `spouse_ages`, a list of `{ person_id, age }` (GraphQL
 `spouseAges { personId age }`, input `SpouseAgeInput`): the age its record
@@ -1483,7 +1484,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Persons (INDI) | Full | Full | All names (multiple `NAME` records), sex, events |
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links. GEDCOM 5.5.1 has two spouse slots, `HUSB` and `WIFE`: a husband and a wife take their own, a partner (or a second husband or wife) the one their sex points to, else the free one, and import reads them back as husband and wife. A third spouse cannot be written and is an export warning |
 | Events with native tags | Lossless | Lossless | Every type GEDCOM 5.5.1 and 7.0 give a tag is written under it — `CONF`, `FCOM`, `BARM` (`BASM` for a woman) included — and read from it; [Data Model](data-model.md) §2 states the rules |
-| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` keeps its text as the event's description, its `DATE` (a `FROM … TO …` period as a range), its `PLAC` and its `NOTE` |
+| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` keeps its text as the event's description, its `DATE` (a `FROM … TO …` period as a range), its `PLAC` and its `NOTE`. An attribute's `TYPE` beside its value (`FACT Sample fact` / `TYPE Hobby`) is kept as the event's classification and written back beside the value |
 | Occupation (`OCCU`) | Split | One tag per profession, or merged for the destination | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event; a destination that reads a single profession field (Geneanet, GeneWeb) collapses them back into one comma-separated tag and reports it (see [Export destinations](#export-destinations)) |
 | Name aliases (`SURN`) | Split | One `NAME` per alias, or packed for the destination | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name; a destination that reads the first `NAME` only (Geneanet, GeneWeb) packs the other names' surnames into the primary name's comma-separated `SURN` tag and reports it |
 | Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
@@ -1643,6 +1644,68 @@ Beneath an `_OXIDGENE_OBJE`, its position, from 0: a record's among the
 the structure holding it. A reader keeps extensions apart from the standard
 structures, and the order says which picture is a person's portrait, so the
 import puts each one back at its position.
+
+### Kept GEDCOM
+
+OxidGene models the genealogy, not every structure GEDCOM can hold. What a
+file holds that the model has no place for — identifiers (`REFN`, `RIN`,
+`UID`, `EXID`, `AFN`, `RFN`), change and creation dates (`CHAN`, `CREA`),
+name variants (`FONE`, `ROMN`, `TRAN`), an event's address and contacts, a
+place's format, variants and notes, a citation's `EVEN`/`ROLE` and
+`DATA.DATE`, a source's `TEXT` and `DATA.EVEN`, `SDATE`, `NO`, `RESN` on an
+event, the records OxidGene has no entity for (`SUBN`, the submitters other
+than the header's, extension records), and every extension tag — is kept as
+it was read and written back on export, so that an import followed by an
+export loses nothing but the header, which every export writes anew.
+
+**What is kept.** At import, OxidGene writes back what it understood — the
+records it built, exported for the file's own version (`generic-551` for a
+5.5.1 file, `generic-70` for a 7.x one) — and compares each record of the
+file with the record exported for the same entity. The comparison walks the
+substructures:
+
+- A substructure is *understood* when the exported record holds a
+  substructure with the same tag at the same place, paired first by the
+  record its pointer names (resolved to the entity's id on both sides),
+  then, for the ones left, in order. Its value is not compared: OxidGene
+  normalises values (a date in GEDCOM's words, a name's pieces), and a
+  value it maps wrongly is a defect of the mapping, fixed there.
+- Paired substructures are compared in turn; what an understood structure
+  holds that its partner does not is kept beneath it.
+- A substructure with no partner is kept whole, its substructures with it.
+- The structures the import reads under another tag are understood
+  whatever the export holds: every association (`ASSO`, `_ASSO`), which
+  becomes an event witness, and the event tags the import reads as generic
+  events (`MILI`, `SEP`, an undefined tag with substructures, an event of
+  the other kind of record).
+- The header is not compared.
+
+What is kept is stored per entity — a person (`INDI`), a family (`FAM`), a
+source (`SOUR`), a repository (`REPO`), a medium (`OBJE`), the tree's
+submitter (`HEAD.SUBM`'s `SUBM`) — as the kept substructures, each with
+the path that leads to it: the *anchors*, the understood structures above
+it, each named by its tag, the entity its pointer names, and its position
+among the exported substructures with that tag. A record OxidGene has no
+entity for is kept whole, for the tree. A pointer is stored as the entity
+it names, never as the file's identifier, which an export does not reuse;
+a pointer to a record the file does not hold is dropped.
+
+**Export.** Every export, `.ged` and GEDCOM inside a GEDZIP alike, puts
+what is kept back before it is written: beneath each record, each kept
+substructure is placed under its anchors — a pointer anchor found by the
+entity it names, another by its position among the substructures with its
+tag — and the records kept for the tree are added, given identifiers of
+their own. A kept substructure whose anchor is no longer exported (an
+event deleted since) or whose pointer names an entity no longer in the tree
+is left out, and the export's warnings count what was left out. The
+records then go through `oxidged`'s writer like the rest, so a structure
+the destination version does not permit — a 7.0 `EXID` exported as 5.5.1 —
+is converted or kept as an extension structure, and the file stays
+conformant.
+
+What is kept follows its entity: a duplicated tree carries it; a merge
+keeps the merged record's beneath the record kept; a purged tree leaves
+none. Editing an entity in OxidGene leaves what is kept beneath it.
 
 ### GeneWeb `.gw`
 

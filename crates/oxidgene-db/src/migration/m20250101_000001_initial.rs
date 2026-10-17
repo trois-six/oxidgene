@@ -201,6 +201,7 @@ enum Event {
     Cause,
     Age,
     Agency,
+    Classification,
     PlaceId,
     PersonId,
     FamilyId,
@@ -783,6 +784,7 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Event::Cause))
                 .col(string_null(Event::Age))
                 .col(string_null(Event::Agency))
+                .col(string_null(Event::Classification))
                 .col(uuid_null(Event::PlaceId))
                 .col(uuid_null(Event::PersonId))
                 .col(uuid_null(Event::FamilyId))

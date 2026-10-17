@@ -1015,6 +1015,7 @@ mod tests {
     fn event(event_type: EventType, date: &str, place: Option<Uuid>) -> DomainEvent {
         let now = chrono::Utc::now();
         DomainEvent {
+            classification: None,
             id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
             event_type,

@@ -1259,6 +1259,9 @@ pub struct GqlEvent {
     pub age: Option<String>,
     /// The authority responsible for the event's record.
     pub agency: Option<String>,
+    /// What an attribute's value is, when the record says it apart from the
+    /// value (its `TYPE`).
+    pub classification: Option<String>,
     /// For a family event, the ages its record gives for the spouses.
     pub spouse_ages: Vec<GqlSpouseAge>,
     pub place_id: Option<ID>,
@@ -1338,6 +1341,7 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             cause: e.cause,
             age: e.age,
             agency: e.agency,
+            classification: e.classification,
             spouse_ages: e.spouse_ages.into_iter().map(GqlSpouseAge::from).collect(),
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),

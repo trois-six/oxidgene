@@ -3267,6 +3267,7 @@ fn import_event_detail(
         cause,
         age,
         agency: non_blank(event.agency()),
+        classification: None,
         spouse_ages: Vec::new(),
         place_id,
         person_id,
@@ -3379,9 +3380,17 @@ fn import_attribute_detail(
     // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
     // for OCCU) or, failing that, its TYPE sub-tag — but not either of them
     // when all it says is the name of the tag it sits under.
-    let description = Some(attribute.value())
+    let value = Some(attribute.value())
         .filter(|value| !value.is_empty())
-        .map(Cow::into_owned)
+        .map(Cow::into_owned);
+    // Beside a value, the TYPE says what the value is (`FACT Sample fact` /
+    // `TYPE Hobby`): it is kept as the classification, so it survives an
+    // export. Without a value it is the description itself, as above.
+    let classification = value
+        .as_ref()
+        .and_then(|_| attribute.classification())
+        .filter(|t| !type_text_restates_event_type(t, event_type));
+    let description = value
         .or_else(|| attribute.classification())
         .filter(|t| !type_text_restates_event_type(t, event_type));
 
@@ -3414,6 +3423,7 @@ fn import_attribute_detail(
             cause: cause.clone(),
             age: age.clone(),
             agency: agency.clone(),
+            classification: classification.clone(),
             spouse_ages: Vec::new(),
             place_id,
             person_id: owner.person_id,

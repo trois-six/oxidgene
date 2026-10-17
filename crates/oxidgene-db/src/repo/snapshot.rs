@@ -771,6 +771,7 @@ impl PersonRows {
             cause: e.cause.clone(),
             age: e.age.clone(),
             agency: e.agency.clone(),
+            classification: e.classification.clone(),
             place_id: e.place_id,
             description: e.description.clone(),
             witnesses: sorted(
@@ -1393,6 +1394,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 cause: Set(snapshot.cause.clone()),
                 age: Set(snapshot.age.clone()),
                 agency: Set(snapshot.agency.clone()),
+                classification: Set(snapshot.classification.clone()),
                 place_id: Set(place_id),
                 person_id: Set(person_id),
                 family_id: Set(family_id),

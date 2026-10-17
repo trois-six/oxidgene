@@ -384,6 +384,8 @@ pub struct EventSnapshot {
     pub age: Option<String>,
     #[serde(default)]
     pub agency: Option<String>,
+    #[serde(default)]
+    pub classification: Option<String>,
     pub place_id: Option<Uuid>,
     pub description: Option<String>,
     #[serde(default)]

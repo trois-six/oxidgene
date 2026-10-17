@@ -44,6 +44,10 @@ pub struct NewEvent {
     /// The authority responsible for the event's record.
     #[serde(default)]
     pub agency: Option<String>,
+    /// What an attribute's value is, when the record says it apart from the
+    /// value (its `TYPE`); blank for none.
+    #[serde(default)]
+    pub classification: Option<String>,
     /// For a family event, the age its record gives for each spouse named.
     #[serde(default)]
     pub spouse_ages: Vec<SpouseAge>,
@@ -70,6 +74,8 @@ pub struct EventPatch {
     pub age: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub agency: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub classification: Option<Option<String>>,
     /// Replaces a family event's spouse ages when given; an empty list
     /// clears them.
     #[serde(default)]
@@ -253,6 +259,7 @@ fn new_details(new: &mut NewEvent) -> Result<(EventDetails, Vec<SpouseAge>), Oxi
         cause: new.cause.take(),
         age: canonical_age(new.age.as_deref(), family_event)?,
         agency: blank_to_none(new.agency.take()),
+        classification: blank_to_none(new.classification.take()),
     };
     let ages = canonical_spouse_ages(std::mem::take(&mut new.spouse_ages), family_event)?;
     Ok((details, ages))
@@ -272,6 +279,7 @@ fn patch_details(
             .map(|age| canonical_age(age.as_deref(), family_event))
             .transpose()?,
         agency: patch.agency.take().map(blank_to_none),
+        classification: patch.classification.take().map(blank_to_none),
     };
     let ages = patch
         .spouse_ages

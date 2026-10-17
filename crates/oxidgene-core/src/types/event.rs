@@ -45,6 +45,12 @@ pub struct Event {
     /// Set for family events.
     pub family_id: Option<Uuid>,
     pub description: Option<String>,
+    /// What an attribute's value is, when the record says it apart from the
+    /// value: GEDCOM's `TYPE` beneath a `FACT`, an `IDNO`, an `OCCU` and the
+    /// other attributes ("Hobby" for `FACT Sample fact`). `None` for an event,
+    /// whose `TYPE` is its description.
+    #[serde(default)]
+    pub classification: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -233,6 +239,7 @@ mod tests {
             person_id: None,
             family_id: None,
             description: None,
+            classification: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
