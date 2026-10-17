@@ -102,7 +102,9 @@ fn load() -> Vec<(String, Vec<u8>)> {
             if entry.is_dir() {
                 continue;
             }
-            let name = entry.name().to_string();
+            let Ok(name) = entry.name().map(std::borrow::Cow::into_owned) else {
+                continue;
+            };
             let mut bytes = Vec::new();
             if entry.read_to_end(&mut bytes).is_ok() {
                 entries.push((name, bytes));

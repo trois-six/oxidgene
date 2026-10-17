@@ -2937,9 +2937,9 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "441bf3cbf81d953d01f2dd1b30b22efd8b656c336e069cd565eae41986d66e95"
+checksum = "36751b5b3822efd1e0dc805d2393bfbabb2a9d8b07294c5abd522a4be2e2b7cd"
 dependencies = [
  "oxidged",
 ]
@@ -5011,9 +5011,9 @@ dependencies = [
 
 [[package]]
 name = "oxidged"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13976ae5c5f2f1060a119ede0a109c617ce62ab21447c816acc94c21504c2e1"
+checksum = "a64dbbc52d0b998267ae0df8d675062a97c05dc257931453bd16dc0dc8d73bf4"
 dependencies = [
  "calendrical_calculations",
  "calendrier",
@@ -9568,14 +9568,15 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.6.0"
+version = "9.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+checksum = "a954114b47a54df49f83d2722814e86b23d4bb1b54a1b90fb7d92b41619ddc22"
 dependencies = [
  "crc32fast",
  "flate2",
  "indexmap",
  "memchr",
+ "nix",
  "typed-path",
  "zopfli",
 ]

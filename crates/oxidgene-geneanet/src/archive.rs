@@ -141,7 +141,10 @@ impl ArchiveSet {
             }
 
             file_count += 1;
-            if looks_like_media(entry.name()) {
+            let entry_name = entry.name().with_context(|| {
+                format!("decoding the name of entry {index} of {}", path.display())
+            })?;
+            if looks_like_media(&entry_name) {
                 image_count += 1;
             }
 
@@ -848,7 +851,7 @@ mod tests {
             let path = self.0.path().join(name);
             let file = std::fs::File::create(&path).expect("creates");
             let mut writer = zip::ZipWriter::new(file);
-            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+            let options = zip::write::SimpleFileOptions::default();
             for (entry, bytes) in entries {
                 writer.start_file(*entry, options).expect("starts");
                 writer.write_all(bytes).expect("writes");

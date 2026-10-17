@@ -258,11 +258,12 @@ fn column_starting(table: &Table, prefix: &str) -> Result<usize> {
 async fn zipped_csv(fetcher: &Fetcher, name: &str) -> Result<Table> {
     let bytes = fetcher.bytes(name, &format!("{ISTAT_URL}/{name}")).await?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
-    let entry = archive
-        .file_names()
+    let names = archive.file_names().collect::<Result<Vec<_>, _>>()?;
+    let entry = names
+        .into_iter()
         .find(|n| n.ends_with(".csv"))
         .with_context(|| format!("{name} holds no CSV"))?
-        .to_string();
+        .into_owned();
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut archive.by_name(&entry)?, &mut bytes)?;
     Table::parse(&decode_mixed(&bytes), ';').with_context(|| format!("cannot read {entry}"))

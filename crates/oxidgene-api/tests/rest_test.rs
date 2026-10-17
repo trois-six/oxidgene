@@ -3083,7 +3083,7 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     let archive_path = input_root.join("originals.zip");
     let archive = std::fs::File::create(&archive_path).expect("create archive");
     let mut archive = zip::ZipWriter::new(archive);
-    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     archive
         .start_file("unused.txt", options)
         .expect("start archive entry");
@@ -3187,7 +3187,7 @@ async fn a_renditions_geneanet_import_stages_no_archive() {
     let archive_path = input_root.join("originals.zip");
     let archive = std::fs::File::create(&archive_path).expect("create archive");
     let mut archive = zip::ZipWriter::new(archive);
-    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     archive
         .start_file("unused.txt", options)
         .expect("start archive entry");

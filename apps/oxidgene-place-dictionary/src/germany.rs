@@ -344,11 +344,12 @@ fn parse_edition(archive: &[u8]) -> Result<Edition> {
     let mut entry = None;
     for index in 0..archive.len() {
         let file = archive.by_index(index)?;
-        let name = file.name().to_lowercase();
-        if (name.ends_with(".txt") || name.ends_with(".asc"))
+        let name = file.name()?;
+        let lowercase = name.to_lowercase();
+        if (lowercase.ends_with(".txt") || lowercase.ends_with(".asc"))
             && entry.as_ref().is_none_or(|(_, size)| file.size() > *size)
         {
-            entry = Some((file.name().to_string(), file.size()));
+            entry = Some((name.into_owned(), file.size()));
         }
     }
     let (entry, _) = entry.context("the archive holds no register file")?;

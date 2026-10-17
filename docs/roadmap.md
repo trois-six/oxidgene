@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:18:10Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -236,7 +236,7 @@ Remaining tabs:
 
 OxidGene reads and writes GEDCOM through `oxidged` (a lenient, lossless reader
 and a conformant writer) and `geneweb` ported to it, both used from their
-crates.io releases (`oxidged` 0.2, `geneweb` 0.5). Nothing remains that OxidGene does in
+crates.io releases (`oxidged` 0.3, `geneweb` 0.6). Nothing remains that OxidGene does in
 their place: `oxidged` decodes `CHAR ANSI` and 8-bit bytes under `CHAR ASCII`
 as Windows-1252, counts the whole line against 255 characters, writes every
 line break as `CONT` (extension values included), keeps each date bound's
@@ -259,7 +259,10 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 
 - [ ] Export a selected subtree — a person's ancestors, descendants, or both,
   to a chosen depth — as GEDCOM or GEDZIP, on REST and GraphQL alike, from
-  the export section of [Settings](ui-settings.md).
+  the export section of [Settings](ui-settings.md). `oxidged` 0.3 can cut
+  it from the exported dataset: `Dataset::ancestors` and `descendants` walk
+  the generations, and `Dataset::subset` keeps the chosen persons with the
+  families and records they need, dropping the pointers to the rest.
 
 ## 8. Planned: security, release, and deployment
 

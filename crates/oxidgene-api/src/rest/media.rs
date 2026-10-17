@@ -428,7 +428,7 @@ fn write_page_archive(
     let entry_failed = |_| OxidGeneError::Internal("archive entry creation failed".into());
     for (index, page) in pages.iter().enumerate() {
         let position = index + 1;
-        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+        let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .large_file(true);
         if oxidgene_core::types::is_remote_url(&page.file_path) {

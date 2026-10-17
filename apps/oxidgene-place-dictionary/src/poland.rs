@@ -92,11 +92,12 @@ async fn terc(fetcher: &Fetcher) -> Result<Table> {
         .await?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(archive))
         .context("the TERYT form did not answer with an archive")?;
-    let entry = archive
-        .file_names()
+    let names = archive.file_names().collect::<Result<Vec<_>, _>>()?;
+    let entry = names
+        .into_iter()
         .find(|n| n.ends_with(".csv"))
         .context("the TERC archive holds no CSV")?
-        .to_string();
+        .into_owned();
     let mut text = String::new();
     archive.by_name(&entry)?.read_to_string(&mut text)?;
     Table::parse(&text, ';').with_context(|| format!("cannot read {entry}"))

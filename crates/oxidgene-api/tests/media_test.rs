@@ -367,7 +367,7 @@ async fn document_downloads_are_complete_stored_zips_in_reading_order() {
     for (index, expected) in contents.iter().rev().enumerate() {
         let mut entry = archive.by_index(index).unwrap();
         assert_eq!(entry.compression(), zip::CompressionMethod::Stored);
-        assert_eq!(entry.name(), format!("{:03}_same.bin", index + 1));
+        assert_eq!(entry.name().unwrap(), format!("{:03}_same.bin", index + 1));
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes).unwrap();
         assert_eq!(&bytes, expected);
@@ -485,7 +485,10 @@ async fn a_remote_page_travels_in_the_archive_as_a_shortcut() {
 
     let (_, bytes) = download_access(&h, h.tree_id, &doc, true, StatusCode::OK).await;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
-    let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+    let names = archive
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect::<Vec<_>>();
     assert_eq!(names.len(), 2, "both pages are in the archive: {names:?}");
     let shortcut = names
         .iter()
@@ -3122,7 +3125,10 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
 fn gedzip_entries(archive: &[u8]) -> (Vec<String>, String) {
     use std::io::Read as _;
     let mut zip = zip::ZipArchive::new(Cursor::new(archive)).expect("a ZIP archive");
-    let names = zip.file_names().map(str::to_string).collect();
+    let names = zip
+        .file_names()
+        .map(|name| name.expect("a decodable entry name").into_owned())
+        .collect();
     let mut gedcom = String::new();
     zip.by_name("gedcom.ged")
         .expect("the GEDCOM entry")

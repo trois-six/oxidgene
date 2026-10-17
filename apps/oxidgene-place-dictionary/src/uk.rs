@@ -140,11 +140,12 @@ async fn ipn_table(fetcher: &Fetcher, item: &str) -> Result<Table> {
         )
         .await?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(archive))?;
-    let name = archive
-        .file_names()
+    let names = archive.file_names().collect::<Result<Vec<_>, _>>()?;
+    let name = names
+        .into_iter()
         .find(|n| n.ends_with(".csv"))
         .context("the IPN archive holds no CSV")?
-        .to_string();
+        .into_owned();
     let mut bytes = Vec::new();
     archive.by_name(&name)?.read_to_end(&mut bytes)?;
     Table::parse(&decode_mixed(&bytes), ',')

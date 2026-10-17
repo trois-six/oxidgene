@@ -131,7 +131,7 @@ pub fn encode(session: &Session) -> Result<Vec<u8>> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut buffer);
-        let deflated: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        let deflated = zip::write::SimpleFileOptions::default();
         let stored = deflated.compression_method(zip::CompressionMethod::Stored);
 
         zip.start_file(MANIFEST_ENTRY, deflated)
@@ -289,7 +289,10 @@ fn store_media<R: Read + Seek>(
     let mut total = 0u64;
     for index in 0..zip.len() {
         let entry = zip.by_index(index).context("reading session media entry")?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .context("decoding a session media entry name")?
+            .into_owned();
         if name == MANIFEST_ENTRY || entry.is_dir() {
             continue;
         }
@@ -401,8 +404,7 @@ mod tests {
         let mut buffer = std::io::Cursor::new(Vec::new());
         {
             let mut zip = zip::ZipWriter::new(&mut buffer);
-            let options: zip::write::FileOptions<'_, ()> =
-                zip::write::FileOptions::default().compression_method(compression);
+            let options = zip::write::SimpleFileOptions::default().compression_method(compression);
             for (name, bytes) in entries {
                 zip.start_file(*name, options).expect("starts entry");
                 zip.write_all(bytes).expect("writes entry");
