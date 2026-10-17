@@ -746,14 +746,15 @@ pub const LAYOUT_STYLES: &str = r#"
        GTK theme of the desktop's WebKitGTK makes one markedly taller than
        a text field — and every page that placed one had to rediscover and
        undo that. With appearance:none it is an ordinary box that obeys its
-       padding and line-height, 38px tall like a text field, and the arrow
-       is ours to place. A compact select changes its padding but keeps the
-       arrow's room on the right. 20px = 38px − 2×8px padding − 2×1px
-       border. */
+       padding and line-height, and the arrow is ours to place. Its line is a
+       text field's, `normal` rather than the 1.6 the body passes down, so
+       the two are exactly as tall side by side and the selected option sits
+       centred. A compact select changes its padding but keeps the arrow's
+       room on the right. */
     select {
         appearance: none;
         -webkit-appearance: none;
-        line-height: 20px;
+        line-height: normal;
         padding-right: var(--space-15);
         /* The arrow is baked into a data URI, which cannot read a custom
            property, so the theme emits the whole URL with its own secondary

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T16:17:28Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -345,7 +345,7 @@ density scales both together.
 - Text inputs, selects and textareas use card background and border, orange
   focus, red validation state, and `0.5` opacity while disabled.
 - Every select is drawn by the page, never by the engine: one global rule
-  drops its native appearance, gives it a text field's 38px box and paints
+  drops its native appearance, gives it a text field's box and line, and paints
   the arrow in its right padding. Drawn natively, a select takes the
   engine's own metrics whatever its padding says, and the desktop's
   WebKitGTK made it markedly taller than the fields beside it. A rule
