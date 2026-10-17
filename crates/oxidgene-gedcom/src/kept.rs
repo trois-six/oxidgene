@@ -77,7 +77,6 @@ pub fn keep_whole(
     let children = structure
         .substructures
         .iter()
-        .filter(|child| !is_always_understood(child))
         .filter_map(|child| keep_whole(child, resolve))
         .collect();
     Some(KeptNode {
@@ -165,9 +164,12 @@ fn canonical(tag: &str) -> &str {
     if tag == "SNOTE" { "NOTE" } else { tag }
 }
 
-/// Associations are always understood: the import turns them into event
-/// witnesses, written elsewhere.
-fn is_always_understood(structure: &Structure) -> bool {
+/// Associations are understood: the import turns them into event witnesses,
+/// which the export writes where the version permits — an association it
+/// writes at the same place pairs as any structure does, so that what it
+/// holds beneath (a witness's note, a citation) is kept; one it writes
+/// elsewhere is never kept whole, which would name the witness twice.
+fn is_association(structure: &Structure) -> bool {
     matches!(structure.tag.as_str(), "ASSO" | "_ASSO")
 }
 
@@ -283,11 +285,7 @@ fn diff_children(
     record_tag: &str,
     depth: usize,
 ) -> Vec<KeptNode> {
-    let children: Vec<&Structure> = original
-        .substructures
-        .iter()
-        .filter(|child| !is_always_understood(child))
-        .collect();
+    let children: Vec<&Structure> = original.substructures.iter().collect();
     let partners = pair(
         &children,
         &exported.substructures,
@@ -311,7 +309,7 @@ fn diff_children(
                 }
             }
             None => {
-                if depth == 0 && is_understood_event(child, record_tag) {
+                if is_association(child) || (depth == 0 && is_understood_event(child, record_tag)) {
                     continue;
                 }
                 kept.extend(keep_whole(child, resolve_original));
@@ -492,10 +490,37 @@ mod tests {
         let re = resolver(&[("@I1@", 1)]);
         let kept = diff(&original, &exported, &ro, &re, "INDI");
 
-        // Only the REFN is kept, and its ASSO child is dropped with the rest.
+        // Only the REFN is kept, whole: an association the export does not
+        // write at the same place is understood, unless what holds it is
+        // kept whole, which keeps it with it.
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].tag, "REFN");
-        assert_eq!(kept[0].children.len(), 1);
+        let tags: Vec<&str> = kept[0].children.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(tags, ["NOTE", "ASSO"]);
+    }
+
+    #[test]
+    fn an_association_written_at_the_same_place_keeps_what_it_holds() {
+        let original = record(
+            "0 @I1@ INDI
+1 ASSO @I2@
+2 RELA Godfather
+2 NOTE Stood in for his brother
+",
+            "@I1@",
+        );
+        let exported = record(
+            "0 @I1@ INDI
+1 ASSO @I20@
+2 RELA Godfather
+",
+            "@I1@",
+        );
+        let ro = resolver(&[("@I1@", 1), ("@I2@", 2)]);
+        let re = resolver(&[("@I1@", 1), ("@I20@", 2)]);
+        let kept = diff(&original, &exported, &ro, &re, "INDI");
+        assert_eq!(kept.len(), 1);
+        assert!(!kept[0].whole);
         assert_eq!(kept[0].children[0].tag, "NOTE");
     }
 
