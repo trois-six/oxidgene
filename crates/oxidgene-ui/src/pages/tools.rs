@@ -146,11 +146,13 @@ fn anomaly_person(i18n: &I18n, tree_route: &str, person: &StatPersonRef) -> Elem
     let pedigree = i18n.t("tools.anomalies.open_pedigree");
     rsx! {
         span { class: "tools-person",
+            // Each link is its own target, not a click on the row.
             Link {
                 to: Route::PersonDetail {
                     tree_id: tree_route.to_string(),
                     person_id: person.person_id.to_string(),
                 },
+                onclick: move |e: MouseEvent| e.stop_propagation(),
                 "{name}"
             }
             Link {
@@ -158,6 +160,7 @@ fn anomaly_person(i18n: &I18n, tree_route: &str, person: &StatPersonRef) -> Elem
                     tree_id: tree_route.to_string(),
                     person: Some(person.person_id.to_string()),
                 },
+                onclick: move |e: MouseEvent| e.stop_propagation(),
                 class: "tools-person-pedigree",
                 title: "{pedigree}",
                 "aria-label": "{pedigree}",
@@ -218,8 +221,30 @@ fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
     parts.join(" · ")
 }
 
-/// One rule and what it found, folded under its title.
-fn render_rule(i18n: &I18n, tree_route: &str, rule: &AnomalyRule) -> Element {
+/// Where a click on an anomaly's row leads: the profile of its subject, the
+/// first person it names, or the couple of a union's anomaly naming nobody.
+fn anomaly_target(tree_route: &str, anomaly: &Anomaly) -> Option<Route> {
+    match (anomaly.persons.first(), anomaly.family_id) {
+        (Some(subject), _) => Some(Route::PersonDetail {
+            tree_id: tree_route.to_string(),
+            person_id: subject.person_id.to_string(),
+        }),
+        (None, Some(family_id)) => Some(Route::CoupleDetail {
+            tree_id: tree_route.to_string(),
+            family_id: family_id.to_string(),
+        }),
+        (None, None) => None,
+    }
+}
+
+/// One rule and what it found, folded under its title. A row opens its
+/// subject's profile when clicked, or on Enter.
+fn render_rule(
+    i18n: &I18n,
+    nav: dioxus::router::Navigator,
+    tree_route: &str,
+    rule: &AnomalyRule,
+) -> Element {
     let severity = i18n.t(&format!("tools.anomalies.severity.{}", rule.severity));
     let more = rule.count - rule.items.len() as i64;
     rsx! {
@@ -233,7 +258,28 @@ fn render_rule(i18n: &I18n, tree_route: &str, rule: &AnomalyRule) -> Element {
             table { class: "stats-table",
                 tbody {
                     for (k, anomaly) in rule.items.iter().enumerate() {
-                        tr { key: "{k}",
+                        tr {
+                            key: "{k}",
+                            class: "tools-anomaly-row",
+                            tabindex: "0",
+                            onclick: {
+                                let target = anomaly_target(tree_route, anomaly);
+                                move |_| {
+                                    if let Some(route) = target.clone() {
+                                        nav.push(route);
+                                    }
+                                }
+                            },
+                            onkeydown: {
+                                let target = anomaly_target(tree_route, anomaly);
+                                move |e: KeyboardEvent| {
+                                    if e.key() == Key::Enter
+                                        && let Some(route) = target.clone()
+                                    {
+                                        nav.push(route);
+                                    }
+                                }
+                            },
                             td { class: "tools-persons",
                                 for (j, person) in anomaly.persons.iter().enumerate() {
                                     if j > 0 {
@@ -247,6 +293,7 @@ fn render_rule(i18n: &I18n, tree_route: &str, rule: &AnomalyRule) -> Element {
                                             tree_id: tree_route.to_string(),
                                             family_id: family_id.to_string(),
                                         },
+                                        onclick: move |e: MouseEvent| e.stop_propagation(),
                                         class: "tools-couple-link",
                                         {i18n.t("tools.anomalies.open_couple")}
                                     }
@@ -270,6 +317,7 @@ fn render_rule(i18n: &I18n, tree_route: &str, rule: &AnomalyRule) -> Element {
 fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let nav = use_navigator();
     let mut category = use_signal(|| None::<&'static str>);
     let anomalies = use_ui_resource("tools_anomalies", move || {
         let api = api.clone();
@@ -311,7 +359,7 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
                         section { key: "{cat}", class: "tools-category-section",
                             h3 { class: "stats-card-title", {i18n.t(&format!("tools.anomalies.category.{cat}"))} }
                             for rule in result.rules.iter().filter(|r| r.category == cat) {
-                                {render_rule(&i18n, &tree_route, rule)}
+                                {render_rule(&i18n, nav, &tree_route, rule)}
                             }
                         }
                     }

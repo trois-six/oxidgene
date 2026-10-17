@@ -20,6 +20,7 @@ The **Anomalies** tab checks the whole tree for dates, filiations, unions, witne
 2. Click a tile to show only that category; click it again to show them all.
 3. Under each category, every rule that found something is a folded block with its severity, title and count. Open a block to read what the rule checks and see one row per anomaly.
 4. Each row names the persons concerned, each linked to their profile, with **Open in the tree** to centre the pedigree on them, and **Couple** for a union's anomaly. Beside them is what the rule measured: an age, a gap, the recorded text.
+5. Click anywhere else on a row, or press **Enter** on it, to open the profile of its first person, where you correct the anomaly.
 5. Correct the record, then come back to the tab: the list is computed again.
 
 A rule lists at most 500 anomalies and says how many more it found. A tree without any anomaly says so, with the number of persons checked.

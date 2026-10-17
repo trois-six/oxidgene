@@ -7485,6 +7485,12 @@ pub const LAYOUT_STYLES: &str = r#"
     .tools-severity-error { color: var(--red); border: 1px solid var(--red); }
     .tools-severity-warning { color: var(--orange); border: 1px solid var(--orange); }
 
+    /* A row opens its subject's profile; its links keep their own targets. */
+    .tools-anomaly-row { cursor: pointer; }
+    .tools-anomaly-row:hover,
+    .tools-anomaly-row:focus-visible { background: var(--bg-card-hover); }
+    .tools-anomaly-row:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+
     .tools-persons { overflow-wrap: anywhere; }
 
     .tools-person { white-space: nowrap; }

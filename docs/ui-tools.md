@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-02T18:38:37Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:30:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -88,6 +88,9 @@ on each request; nothing is stored.
   profile with a small link centring the pedigree on them; a union's
   anomalies also link to the couple. Beside them, what the rule measured: an
   age, a gap, the event concerned, the text recorded.
+- A click anywhere else on a row opens the profile of its subject, where the
+  anomaly is corrected — the couple of a union's anomaly that names nobody.
+  A row takes the keyboard focus, and Enter opens it the same way.
 - A rule lists at most 500 anomalies and says how many more it found.
 - A tree with none says so, with the number of persons checked.
 

@@ -20,6 +20,7 @@ L'onglet **Anomalies** passe tout l'arbre au crible à la recherche de dates, fi
 2. Cliquez sur une tuile pour n'afficher que cette catégorie ; cliquez à nouveau pour tout revoir.
 3. Dans chaque catégorie, chaque règle qui a trouvé quelque chose forme un bloc replié avec sa gravité, son titre et son nombre. Dépliez un bloc pour lire ce que vérifie la règle et voir une ligne par anomalie.
 4. Chaque ligne nomme les personnes concernées, chacune liée à sa fiche, avec **Ouvrir dans l'arbre** pour centrer le pedigree sur elle, et **Couple** pour une anomalie d'union. À côté figure ce que la règle a mesuré : un âge, un écart, le texte saisi.
+5. Cliquez n’importe où ailleurs sur une ligne, ou appuyez sur **Entrée** dessus, pour ouvrir la fiche de sa première personne, où vous corrigez l’anomalie.
 5. Corrigez la fiche, puis revenez sur l'onglet : la liste est recalculée.
 
 Une règle liste au plus 500 anomalies et indique combien d'autres elle a trouvées. Un arbre sans anomalie l'annonce, avec le nombre de personnes vérifiées.
