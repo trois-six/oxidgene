@@ -165,6 +165,7 @@ event_types! {
     Fact => "fact",
     LdsBaptism => "lds_baptism",
     LdsConfirmation => "lds_confirmation",
+    LdsInitiatory => "lds_initiatory",
     Blessing => "blessing",
     Ordination => "ordination",
     Christening => "christening",

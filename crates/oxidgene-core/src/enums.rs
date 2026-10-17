@@ -792,6 +792,9 @@ pub enum EventType {
     LdsBaptism,
     /// GeneWeb generic `EVEN` labelled `CONL`.
     LdsConfirmation,
+    /// GEDCOM 7.x `INIL` ordinance: the initiatory performed for the living
+    /// or the dead.
+    LdsInitiatory,
     // Generic
     Other,
 }
@@ -898,6 +901,7 @@ impl std::fmt::Display for EventType {
             Self::NoMention => write!(f, "no_mention"),
             Self::LdsBaptism => write!(f, "lds_baptism"),
             Self::LdsConfirmation => write!(f, "lds_confirmation"),
+            Self::LdsInitiatory => write!(f, "lds_initiatory"),
             Self::Other => write!(f, "other"),
         }
     }

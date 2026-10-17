@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T19:30:00Z }
 ---
 
 
@@ -669,10 +669,16 @@ handles dates. They follow these rules:
   written as the `TYPE` itself, as other software writes it; any other
   description goes on the `EVEN` line, GEDCOM's event descriptor (`1 EVEN
   Sample detail` / `2 TYPE Military service`). So every type keeps its type
-  and description through a round trip. The LDS ordinances have tags
-  (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) but are written as generic events:
-  GEDCOM's ordinance structure has no room for the description, media, age or
-  agency an event can hold.
+  and description through a round trip. The LDS ordinances are the exception:
+  see the next bullet.
+- **LDS ordinances.** `BAPL`, `CONL`, `ENDL`, `INIL` (7.x) and `SLGC` under an
+  individual, and `SLGS` under a family, are written as GEDCOM's ordinance
+  structures (`LdsBaptism`, `LdsConfirmation`, `Endowment`, `LdsInitiatory`,
+  `SealingChild`, `SealingSpouse`). GEDCOM's ordinance structure has no room
+  for an event's description, media, age, agency or cause, nor for an event
+  with no date, place, note or citation: such an event is written as `EVEN` +
+  `TYPE` instead. 5.5.1 has no `INIL` and requires a child sealing's `FAMC`,
+  so those are written as `_INIL` and `_SLGC`.
 - **Reading a generic event.** Its `TYPE` gives its type: a tag name
   (`CONF`, `MILI`), a label above, or a phrase naming a type in English or
   French; anything else is `Other`. Its description is the line value and the
@@ -681,12 +687,12 @@ handles dates. They follow these rules:
   own the line value is the `Y` asserting the event, never a description; an
   attribute's value (a family's `NCHI 3`) is its description.
 - **Structures read as generic events.** An LDS ordinance (`BAPL`,
-  `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's `INIL`) is read as the `EVEN`
-  typed by its tag the export writes for it, so it keeps its date, place,
-  notes and citations and imports as its LDS type (`INIL`, which no type
-  matches, as `Other`), its temple and status in the description in GEDCOM's
-  words (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`), a status outside GEDCOM's
-  enumeration as written. A person's or family's tag that no GEDCOM version
+  `CONL`, `ENDL`, `INIL`, `SLGC`, `SLGS`) is read as its LDS type, typed by
+  its tag as a generic `EVEN` with that `TYPE` is, so it keeps its date, place,
+  notes and citations. Its temple, its status and a child sealing's family are
+  not in the description: they are kept GEDCOM beside the event. The
+  extension tags `_INIL` and `_SLGC` that 5.5.1 files hold for them are read
+  as the same types. A person's or family's tag that no GEDCOM version
   defines, which `oxidged` keeps whole, untyped, is read as an `EVEN` typed
   `Military service` for `MILI`, `Separation` for `SEP` (GeneWeb's) and by
   the tag itself otherwise, a `TYPE` beneath it joining the line value (a

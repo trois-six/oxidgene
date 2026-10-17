@@ -2183,6 +2183,7 @@ const EVENT_TYPE_GROUPS: [(&str, &[EventType]); 6] = [
             EventType::NoMarriage,
             EventType::LdsBaptism,
             EventType::LdsConfirmation,
+            EventType::LdsInitiatory,
             EventType::NoMention,
         ],
     ),

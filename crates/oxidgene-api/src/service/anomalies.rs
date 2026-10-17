@@ -375,6 +375,7 @@ fn after_death_allowed(event_type: EventType) -> bool {
             | EventType::LdsConfirmation
             | EventType::Endowment
             | EventType::LdsDotation
+            | EventType::LdsInitiatory
             | EventType::SealingChild
             | EventType::SealingSpouse
             | EventType::SealingParent

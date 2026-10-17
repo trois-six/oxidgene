@@ -7082,6 +7082,7 @@
     "event.type.lds_baptism": "LDS-Taufe",
     "event.type.lds_confirmation": "LDS-Konfirmierung",
     "event.type.lds_dotation": "LDS-Endowment",
+    "event.type.lds_initiatory": "HLT-Initiatorische Verordnung",
     "event.type.marriage": "Heirat",
     "event.type.marriage_bann": "Aufgebot",
     "event.type.marriage_contract": "Ehevertrag",

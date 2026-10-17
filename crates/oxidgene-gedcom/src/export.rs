@@ -17,10 +17,10 @@ use oxidged::model::{
     Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, FileForm, Header,
     HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
     MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
-    Note as GedNote, Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail, Record,
-    Repository as GedRepository, RepositoryCitation, Restriction, Schema, Sex as GedSex,
-    SharedNote as GedSharedNote, Source as GedSource, SourceData, SourceText, SpouseLink, Store,
-    Submitter, TagId, Text, Value, XrefId,
+    Note as GedNote, Ordinance, OrdinanceKind, Pedigree as GedPedigree, Phrased, Place as GedPlace,
+    PlaceDetail, Record, Repository as GedRepository, RepositoryCitation, Restriction, Schema,
+    Sex as GedSex, SharedNote as GedSharedNote, Source as GedSource, SourceData, SourceText,
+    SpouseLink, Store, Submitter, TagId, Text, Value, XrefId,
 };
 pub use oxidged::profile::ExportProfile;
 use oxidged::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
@@ -1048,7 +1048,7 @@ impl ExportIndex<'_> {
             })
             .unwrap_or_default();
 
-        let events = self.individual_events(person.id, warnings);
+        let (events, ordinances) = self.individual_events(person.id, warnings);
 
         let (spouse_of, child_of) = to_ged_family_links(
             person.id,
@@ -1084,22 +1084,34 @@ impl ExportIndex<'_> {
             detail.associations = associations;
             detail.multimedia = multimedia;
         }
+        if !ordinances.is_empty() {
+            individual.detail_mut().ordinances = ordinances;
+        }
         individual
     }
 
     /// A person's events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
     /// (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU), in order, each under its
-    /// own tag rather than a generic EVEN.
-    fn individual_events(&self, person_id: Uuid, warnings: &mut Vec<String>) -> Vec<GedEvent> {
-        self.events_by_person
-            .get(&person_id)
-            .into_iter()
-            .flatten()
-            .map(|evt| match event_type_to_attribute(evt.event_type) {
+    /// own tag rather than a generic EVEN, and the LDS ordinances the record
+    /// holds (`BAPL`, `CONL`, `ENDL`, `INIL`, `SLGC`) apart from them.
+    fn individual_events(
+        &self,
+        person_id: Uuid,
+        warnings: &mut Vec<String>,
+    ) -> (Vec<GedEvent>, Vec<Ordinance>) {
+        let mut events = Vec::new();
+        let mut ordinances = Vec::new();
+        for evt in self.events_by_person.get(&person_id).into_iter().flatten() {
+            if let Some(ordinance) = self.ordinance_of(evt, warnings) {
+                ordinances.push(ordinance);
+                continue;
+            }
+            events.push(match event_type_to_attribute(evt.event_type) {
                 Some(attribute) => to_ged_attribute_detail(evt, attribute, self, warnings),
                 None => to_ged_detail(evt, self, warnings),
-            })
-            .collect()
+            });
+        }
+        (events, ordinances)
     }
 
     /// A person's multimedia links, portrait first.
@@ -1174,19 +1186,17 @@ impl ExportIndex<'_> {
                     .collect()
             })
             .unwrap_or_default();
-        let events: Vec<GedEvent> = self
-            .events_by_family
-            .get(&fam.id)
-            .map(|evts| {
-                evts.iter()
-                    .map(|evt| {
-                        let mut event = to_ged_detail(evt, self, warnings);
-                        self.spouse_ages(&mut event, evt, [husband, wife], warnings);
-                        event
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut events: Vec<GedEvent> = Vec::new();
+        let mut ordinances: Vec<Ordinance> = Vec::new();
+        for evt in self.events_by_family.get(&fam.id).into_iter().flatten() {
+            if let Some(ordinance) = self.ordinance_of(evt, warnings) {
+                ordinances.push(ordinance);
+                continue;
+            }
+            let mut event = to_ged_detail(evt, self, warnings);
+            self.spouse_ages(&mut event, evt, [husband, wife], warnings);
+            events.push(event);
+        }
 
         let mut family = GedFamily {
             xref: self.xrefs.family.get(&fam.id).copied(),
@@ -1213,6 +1223,9 @@ impl ExportIndex<'_> {
             let detail = family.detail_mut();
             detail.restriction = restriction;
             detail.multimedia = multimedia;
+        }
+        if !ordinances.is_empty() {
+            family.detail_mut().ordinances = ordinances;
         }
         family
     }
@@ -1332,24 +1345,71 @@ impl ExportIndex<'_> {
             .collect()
     }
 
+    /// The `PLAC` of an event, when it has a place the export writes.
+    fn event_place(&self, evt: &Event) -> Option<GedPlace> {
+        evt.place_id
+            .and_then(|pid| self.place_map.get(&pid))
+            .map(|p| to_ged_place(p))
+    }
+
+    /// The LDS ordinance an event is written as, when GEDCOM's ordinance
+    /// structure has room for all of it: the kind's own tag, on the individual
+    /// (or, for a couple's sealing, the family). Its description, media, age,
+    /// agency, cause, classification and spouses' ages have no room in it, so
+    /// an event holding any of them stays a generic event `to_ged_detail`
+    /// writes. `None` for an event that is not an ordinance, or is one on the
+    /// other record.
+    fn ordinance_of(&self, evt: &Event, warnings: &mut Vec<String>) -> Option<Ordinance> {
+        let kind = ordinance_kind(evt.event_type)?;
+        if evt.family_id.is_some() != (kind == OrdinanceKind::SpouseSealing) {
+            return None;
+        }
+        let has_media = self
+            .mlinks_by_event
+            .get(&evt.id)
+            .is_some_and(|links| !links.is_empty());
+        if non_blank(evt.description.as_deref()).is_some()
+            || evt.age.is_some()
+            || evt.agency.is_some()
+            || evt.cause.is_some()
+            || evt.classification.is_some()
+            || !evt.spouse_ages.is_empty()
+            || has_media
+        {
+            return None;
+        }
+        let date = event_date(evt);
+        let place = self.event_place(evt);
+        let has_notes = self
+            .notes_by_event
+            .get(&evt.id)
+            .is_some_and(|notes| !notes.is_empty());
+        let has_citations = self
+            .cites_by_event
+            .get(&evt.id)
+            .is_some_and(|cites| !cites.is_empty());
+        // An ordinance holding nothing of its own is a structure with neither
+        // payload nor substructure, which GEDCOM 7 leaves out: the event is
+        // kept as the generic event its type names.
+        if date.is_none() && place.is_none() && !has_notes && !has_citations {
+            return None;
+        }
+        let mut ordinance = Ordinance::new(kind);
+        ordinance.date = date;
+        ordinance.place = place;
+        ordinance.citations = self
+            .citations(self.cites_by_event.get(&evt.id), warnings)
+            .into();
+        ordinance.notes = self.all_notes(self.notes_by_event.get(&evt.id));
+        Some(ordinance)
+    }
+
     /// What an event and an attribute write alike: its date, place,
     /// citations, notes and media.
     fn event_parts(&self, evt: &Event, warnings: &mut Vec<String>) -> GedEvent {
-        // Recompose the calendar escape and qualifier tag the columns were
-        // split from on import — see `crate::date`.
-        let date = crate::date::format(
-            evt.calendar,
-            evt.date_qualifier,
-            evt.date_value.as_deref(),
-            evt.date_value2.as_deref(),
-        )
-        .map(Date::new);
         let mut event = GedEvent {
-            date,
-            place: evt
-                .place_id
-                .and_then(|pid| self.place_map.get(&pid))
-                .map(|p| to_ged_place(p)),
+            date: event_date(evt),
+            place: self.event_place(evt),
             citations: self
                 .citations(self.cites_by_event.get(&evt.id), warnings)
                 .into(),
@@ -1832,6 +1892,31 @@ fn to_ged_name(pn: &PersonName) -> GedName {
     name
 }
 
+/// The LDS ordinance an event type is written as, when it has one.
+fn ordinance_kind(et: EventType) -> Option<OrdinanceKind> {
+    match et {
+        EventType::LdsBaptism => Some(OrdinanceKind::Baptism),
+        EventType::LdsConfirmation => Some(OrdinanceKind::Confirmation),
+        EventType::Endowment => Some(OrdinanceKind::Endowment),
+        EventType::LdsInitiatory => Some(OrdinanceKind::Initiatory),
+        EventType::SealingChild => Some(OrdinanceKind::ChildSealing),
+        EventType::SealingSpouse => Some(OrdinanceKind::SpouseSealing),
+        _ => None,
+    }
+}
+
+/// The `DATE` of an event: its date, recomposed with the calendar escape and
+/// qualifier tag the columns were split from on import (see `crate::date`).
+fn event_date(evt: &Event) -> Option<Date> {
+    crate::date::format(
+        evt.calendar,
+        evt.date_qualifier,
+        evt.date_value.as_deref(),
+        evt.date_value2.as_deref(),
+    )
+    .map(Date::new)
+}
+
 /// The GEDCOM tag an event type is written under: its own wherever GEDCOM
 /// 5.5.1 and 7.0 define one, else the generic `EVEN`, which
 /// [`even_type_label`] names. `sex` picks between `BARM` and `BASM`, the one
@@ -1891,12 +1976,11 @@ fn convert_event_type(et: EventType, sex: Option<Sex>) -> EventKind {
         EventType::SocialSecurityNumber => EventKind::SocialSecurityNumber,
         EventType::NobilityTitle => EventKind::Title,
         EventType::Fact => EventKind::Fact,
-        // No tag in either version: a generic `EVEN` that `even_type_label`
-        // names. The LDS ordinances do have tags (`BAPL`, `CONL`, `ENDL`,
-        // `SLGC`, `SLGS`), but GEDCOM's ordinance structure has no room for
-        // an event's description, media, age or agency, which an OxidGene
-        // event can hold: written as generic events, GEDCOM readers and
-        // OxidGene both read them whole.
+        // The LDS ordinances have tags of their own (`BAPL`, `CONL`, `ENDL`,
+        // `INIL`, `SLGC`, `SLGS`), written as ordinance structures by
+        // `ordinance_of`. An event that holds a description, media, age,
+        // agency or cause, which an ordinance has no room for, is the generic
+        // `EVEN` that `even_type_label` names, so that it is written whole.
         EventType::MilitaryService
         | EventType::CivilUnion
         | EventType::Separation
@@ -1928,6 +2012,7 @@ fn convert_event_type(et: EventType, sex: Option<Sex>) -> EventKind {
         | EventType::NoMarriage
         | EventType::LdsBaptism
         | EventType::LdsConfirmation
+        | EventType::LdsInitiatory
         | EventType::NoMention
         | EventType::Other => EventKind::Event,
     }
@@ -1971,6 +2056,7 @@ pub(crate) fn even_type_label(et: EventType) -> Option<&'static str> {
         EventType::NoMarriage => Some("unmarried"),
         EventType::LdsBaptism => Some("BAPL"),
         EventType::LdsConfirmation => Some("CONL"),
+        EventType::LdsInitiatory => Some("INIL"),
         EventType::NoMention => Some("nomen"),
         EventType::Other => Some("Other"),
         _ => None,

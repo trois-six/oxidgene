@@ -244,6 +244,8 @@ pub enum EventType {
     LdsBaptism,
     #[sea_orm(string_value = "lds_confirmation")]
     LdsConfirmation,
+    #[sea_orm(string_value = "lds_initiatory")]
+    LdsInitiatory,
     #[sea_orm(string_value = "blessing")]
     Blessing,
     #[sea_orm(string_value = "ordination")]
@@ -371,6 +373,7 @@ impl From<enums::EventType> for EventType {
             enums::EventType::Fact => Self::Fact,
             enums::EventType::LdsBaptism => Self::LdsBaptism,
             enums::EventType::LdsConfirmation => Self::LdsConfirmation,
+            enums::EventType::LdsInitiatory => Self::LdsInitiatory,
             enums::EventType::Blessing => Self::Blessing,
             enums::EventType::Ordination => Self::Ordination,
             enums::EventType::Christening => Self::Christening,
@@ -455,6 +458,7 @@ impl From<EventType> for enums::EventType {
             EventType::Fact => Self::Fact,
             EventType::LdsBaptism => Self::LdsBaptism,
             EventType::LdsConfirmation => Self::LdsConfirmation,
+            EventType::LdsInitiatory => Self::LdsInitiatory,
             EventType::Blessing => Self::Blessing,
             EventType::Ordination => Self::Ordination,
             EventType::Christening => Self::Christening,

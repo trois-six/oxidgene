@@ -7125,6 +7125,7 @@
     "event.type.lds_baptism": "Chrzest LDS",
     "event.type.lds_confirmation": "Konfirmacja LDS",
     "event.type.lds_dotation": "Obdarowanie LDS",
+    "event.type.lds_initiatory": "Obrzęd inicjacyjny ŚDD",
     "event.type.marriage": "Ślub",
     "event.type.marriage_bann": "Zapowiedzi przedślubne",
     "event.type.marriage_contract": "Intercyza",

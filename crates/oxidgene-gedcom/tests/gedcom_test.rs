@@ -3024,6 +3024,7 @@ fn is_family_event(event_type: EventType) -> bool {
         | EventType::FamilyLinkLds
         | EventType::LdsBaptism
         | EventType::LdsConfirmation
+        | EventType::LdsInitiatory
         | EventType::Other => false,
     }
 }
@@ -3430,37 +3431,23 @@ const LDS_ORDINANCES_GEDCOM: &str = "\
 ";
 
 /// The LDS ordinances other software writes as GEDCOM's own structures
-/// import as their types, with their date, place, temple and status, and
-/// survive an export and a re-import as they came.
+/// import as their types, with their date, place, notes and citations, and
+/// with no description: the temple and status are not read into the event.
+/// They survive an export and a re-import as they came.
 #[test]
-fn lds_ordinances_import_with_their_place() {
-    let expected: [(EventType, &str, &str, Option<&str>); 5] = [
-        (
-            EventType::LdsBaptism,
-            "1 JAN 1900",
-            "Sampletown 1",
-            Some("TEMP SLAKE"),
-        ),
-        (
-            EventType::LdsConfirmation,
-            "2 JAN 1900",
-            "Sampletown 2",
-            Some("STAT COMPLETED 3 FEB 1950"),
-        ),
-        (EventType::Endowment, "3 JAN 1900", "Sampletown 3", None),
-        (EventType::SealingChild, "4 JAN 1900", "Sampletown 4", None),
-        (
-            EventType::SealingSpouse,
-            "5 JAN 1900",
-            "Sampletown 5",
-            Some("TEMP SLAKE"),
-        ),
+fn lds_ordinances_import_as_their_types_without_a_description() {
+    let expected: [(EventType, &str, &str); 5] = [
+        (EventType::LdsBaptism, "1 JAN 1900", "Sampletown 1"),
+        (EventType::LdsConfirmation, "2 JAN 1900", "Sampletown 2"),
+        (EventType::Endowment, "3 JAN 1900", "Sampletown 3"),
+        (EventType::SealingChild, "4 JAN 1900", "Sampletown 4"),
+        (EventType::SealingSpouse, "5 JAN 1900", "Sampletown 5"),
     ];
     let imported = import_gedcom(LDS_ORDINANCES_GEDCOM, Uuid::now_v7()).expect("imports");
     let reimported = import_gedcom(&reexport(&imported), Uuid::now_v7()).expect("re-imports");
     for (pass, result) in [("import", &imported), ("round trip", &reimported)] {
         assert_eq!(result.events.len(), expected.len(), "{pass}");
-        for (event_type, date, place, description) in expected {
+        for (event_type, date, place) in expected {
             let event = event_of(result, event_type);
             assert_eq!(
                 event.date_value.as_deref(),
@@ -3472,11 +3459,7 @@ fn lds_ordinances_import_with_their_place() {
                 Some(place),
                 "{pass} {event_type:?}"
             );
-            assert_eq!(
-                event.description.as_deref(),
-                description,
-                "{pass} {event_type:?}"
-            );
+            assert_eq!(event.description, None, "{pass} {event_type:?}");
             assert_eq!(
                 event.family_id.is_some(),
                 event_type == EventType::SealingSpouse,
@@ -3490,6 +3473,142 @@ fn lds_ordinances_import_with_their_place() {
             "{pass}"
         );
     }
+}
+
+/// An ordinance is written back as GEDCOM's own structure: `BAPL` under its
+/// individual and `SLGS` under its family, with its date and place, and no
+/// `TYPE` to say what it is.
+#[test]
+fn lds_ordinances_are_written_as_their_gedcom_structures() {
+    const GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 BAPL
+2 DATE 1 JAN 1950
+2 TEMP SLAKE
+2 PLAC Town
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Beta /Sample/
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 SLGS
+2 DATE 2 JAN 1960
+0 TRLR
+";
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    assert_eq!(event_of(&imported, EventType::LdsBaptism).description, None);
+    assert_eq!(
+        event_of(&imported, EventType::SealingSpouse).description,
+        None
+    );
+
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("1 BAPL\n2 DATE 1 JAN 1950\n2 PLAC Town\n"),
+        "{exported}"
+    );
+    let family = exported
+        .find(" FAM\n")
+        .unwrap_or_else(|| panic!("a family record: {exported}"));
+    assert!(
+        exported[family..].contains("1 SLGS\n2 DATE 2 JAN 1960\n"),
+        "{exported}"
+    );
+    assert!(!exported.contains("TYPE BAPL"), "{exported}");
+    assert!(!exported.contains("TYPE SLGS"), "{exported}");
+}
+
+/// An ordinance with a description has no room for it in GEDCOM's structure,
+/// so it is written as the generic `EVEN` its type names, and reads back as
+/// its type with the description.
+#[test]
+fn an_lds_ordinance_with_a_description_stays_a_generic_event() {
+    const GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 EVEN
+2 DATE 4 JAN 1951
+2 TYPE BAPL
+0 TRLR
+";
+    let mut imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    assert_eq!(
+        event_of(&imported, EventType::LdsBaptism)
+            .date_value
+            .as_deref(),
+        Some("4 JAN 1951"),
+        "a generic EVEN typed BAPL imports as its type"
+    );
+    let baptism = imported
+        .events
+        .iter_mut()
+        .find(|e| e.event_type == EventType::LdsBaptism)
+        .expect("a baptism");
+    baptism.description = Some("Sample proxy font".to_string());
+
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("1 EVEN Sample proxy font\n"),
+        "{exported}"
+    );
+    assert!(exported.contains("2 TYPE BAPL\n"), "{exported}");
+    assert!(!exported.contains("1 BAPL\n"), "{exported}");
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let baptism = event_of(&back, EventType::LdsBaptism);
+    assert_eq!(baptism.description.as_deref(), Some("Sample proxy font"));
+    assert_eq!(baptism.date_value.as_deref(), Some("4 JAN 1951"));
+}
+
+/// GEDCOM 7.0's `INIL` imports as the initiatory ordinance, and is written back
+/// as one. A generic `EVEN` typed `INIL` (what an export with a description
+/// writes) reads as the same type.
+#[test]
+fn an_initiatory_ordinance_is_read_and_written_in_gedcom_7() {
+    const GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 INIL
+2 DATE 3 JAN 1950
+0 TRLR
+";
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let initiatory = event_of(&imported, EventType::LdsInitiatory);
+    assert_eq!(initiatory.date_value.as_deref(), Some("3 JAN 1950"));
+    assert_eq!(initiatory.description, None);
+
+    let gedzip = export_as(
+        &imported,
+        ExportTarget::Gedzip {
+            media_paths: &HashMap::new(),
+        },
+    )
+    .gedcom;
+    assert!(gedzip.contains("VERS 7.0"), "{gedzip}");
+    assert!(gedzip.contains("1 INIL\n2 DATE 3 JAN 1950\n"), "{gedzip}");
+
+    // GEDCOM 5.5.1 has no `INIL`; whatever form the writer gives it reads
+    // back as the same type.
+    let ged = reexport(&imported);
+    let back = import_gedcom(&ged, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(
+        event_of(&back, EventType::LdsInitiatory)
+            .date_value
+            .as_deref(),
+        Some("3 JAN 1950"),
+        "{ged}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3722,7 +3841,7 @@ fn a_gedcom_7_file_keeps_its_roles_phrases_and_calendar_keywords() {
 
 /// Events some software writes on the other kind of record — a marriage on
 /// a person, GeneWeb's `SEP` on a family — are read, and so is an LDS
-/// ordinance's status outside GEDCOM's enumeration.
+/// ordinance whose status is outside GEDCOM's enumeration.
 const MISPLACED_EVENTS_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
@@ -3790,8 +3909,13 @@ fn misplaced_events_and_an_unlisted_lds_status_are_read() {
             "{event_type:?}"
         );
     }
+    // An ordinance's status is not its description (the temple and status are
+    // kept as GEDCOM beside the event).
     let baptism = event_of(&result, EventType::LdsBaptism);
-    assert_eq!(baptism.description.as_deref(), Some("STAT RECORDED"));
+    assert_eq!(baptism.description, None);
+    // Holding nothing of its own, the ordinance is the generic event its type
+    // names, which GEDCOM 7 does not drop as it would an empty structure.
+    assert!(exported.contains("1 EVEN\n2 TYPE BAPL\n"), "{exported}");
 }
 
 /// `tree` as the GEDCOM 5.5.1 of a `.ged` and as the GEDCOM 7.0 of a

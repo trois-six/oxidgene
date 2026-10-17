@@ -23,8 +23,8 @@ use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, Date,
     EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
     MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
-    Ordinance, OrdinanceStatus, Pedigree, Place as GedPlace, Record, Removal, Restriction,
-    Sex as GedSex, Store, TagId, Text, TextRef, View,
+    Ordinance, Pedigree, Place as GedPlace, Record, Removal, Restriction, Sex as GedSex, Store,
+    TagId, Text, TextRef, View,
 };
 use oxidged::tree::{Payload, Structure};
 use oxidged::{GedcomBuilder, GedcomVersion};
@@ -1490,16 +1490,14 @@ fn import_family_event(
 }
 
 /// An event as the import reads it: an event or attribute structure, or an
-/// LDS ordinance (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's `INIL`).
+/// LDS ordinance (`BAPL`, `CONL`, `ENDL`, `INIL`, `SLGC`, `SLGS`).
 ///
-/// An ordinance reads as the generic event OxidGene's export writes for it
-/// and the import reads like any other: typed by its tag, its date, place,
-/// notes and citations the event's, and its temple and status, the date of
-/// the status included, its description in GEDCOM's words (`TEMP SLAKE, STAT
-/// COMPLETED 2 JAN 1950`) — a status outside GEDCOM's enumeration as
-/// written. It imports as its LDS type (`INIL`, which no type matches, as
-/// `Other`). It has nothing else an event has: no cause, age, agency,
-/// spouses, associations, media or extensions.
+/// An ordinance imports as its LDS type, typed by its tag the way a generic
+/// `EVEN` with that `TYPE` is, with its date, place, notes and citations as
+/// the event's. Its temple and status are not read into the event's
+/// description; they are left for the kept GEDCOM to hold beside it. It has
+/// nothing else an event has: no cause, age, agency, spouses, associations,
+/// media or extensions.
 #[derive(Clone, Copy)]
 enum EventView<'d> {
     Event(View<'d, GedEvent>),
@@ -1530,11 +1528,11 @@ impl<'d> EventView<'d> {
         }
     }
 
-    /// The line value: an ordinance's temple and status, in GEDCOM's words.
+    /// The line value: an ordinance has none, its type being its tag.
     fn value(self) -> Cow<'d, str> {
         match self {
             Self::Event(e) => e.value().to_str(),
-            Self::Ordinance(o) => Cow::Owned(lds_words(o)),
+            Self::Ordinance(_) => Cow::Borrowed(""),
         }
     }
 
@@ -1607,28 +1605,6 @@ impl<'d> EventView<'d> {
     }
 }
 
-/// An ordinance's temple and status, the date of the status included, in
-/// GEDCOM's words: `TEMP SLAKE, STAT COMPLETED 2 JAN 1950`.
-fn lds_words(ordinance: View<'_, Ordinance>) -> String {
-    let st = ordinance.store();
-    let mut words = Vec::new();
-    if let Some(temple) = non_blank(ordinance.temple()) {
-        words.push(format!("TEMP {temple}"));
-    }
-    if let Some(status) = ordinance.status() {
-        let value = match status.value() {
-            OrdinanceStatus::Unknown(t) => non_blank_str(Some(&t.to_str(st))),
-            known => known.as_str(GedcomVersion::V5_5_1).map(str::to_string),
-        };
-        let date = status.date().and_then(|date| non_blank(Some(date.value())));
-        let words_of = [value, date].into_iter().flatten().collect::<Vec<_>>();
-        if !words_of.is_empty() {
-            words.push(format!("STAT {}", words_of.join(" ")));
-        }
-    }
-    words.join(", ")
-}
-
 /// The events a person's or a family's record holds outside the structures
 /// `oxidged` types there, each as a dataset of its own record holding it,
 /// whose texts and pointers resolve against its own store (see
@@ -1642,6 +1618,11 @@ fn lds_words(ordinance: View<'_, Ordinance>) -> String {
 ///   it joining its line value in the descriptor (`1 EVEN Army: Sergeant`),
 ///   and everything else beneath it — date, place, notes, citations, media —
 ///   the event's.
+///
+/// - an ordinance a GEDCOM 5.5.1 file holds under an extension tag, as the
+///   export writes the ones 5.5.1 has no structure for (`_INIL`, and a child
+///   sealing `_SLGC`, whose `FAMC` 5.5.1 requires), read as the generic
+///   event of the tag it stands for.
 ///
 /// `oxidged` keeps such a structure whole, untyped, where it was. A custom `_`
 /// tag, any other tag of GEDCOM's own (one its model keeps aside, such as a
@@ -1663,6 +1644,8 @@ fn undefined_events(
             // Where GEDCOM puts an event of this kind.
             let home = if record == "INDI" { "FAM" } else { "INDI" };
             (home, node.to_structure())
+        } else if let Some(ordinance) = extension_ordinance(tag) {
+            (record, generic_event(node, ordinance))
         } else if tag.is_empty()
             || tag.starts_with('_')
             || (node.children().is_empty() && !matches!(tag, "MILI" | "SEP"))
@@ -1680,6 +1663,16 @@ fn undefined_events(
         }
     }
     read
+}
+
+/// The ordinance an extension tag stands for, for the ordinances GEDCOM 5.5.1
+/// has no structure for (see [`undefined_events`]).
+fn extension_ordinance(tag: &str) -> Option<&'static str> {
+    match tag {
+        "_INIL" => Some("INIL"),
+        "_SLGC" => Some("SLGC"),
+        _ => None,
+    }
 }
 
 /// The generic `EVEN` an undefined tag stands for (see [`undefined_events`]).
@@ -3073,6 +3066,7 @@ fn type_name_phrase(t: &str) -> Option<EventType> {
         ("family link lds", EventType::FamilyLinkLds),
         ("bapl", EventType::LdsBaptism),
         ("conl", EventType::LdsConfirmation),
+        ("inil", EventType::LdsInitiatory),
         ("unmarried", EventType::NoMarriage),
         ("nomen", EventType::NoMention),
     ];
@@ -4039,6 +4033,7 @@ mod event_type_text_tests {
             ("Property sale", EventType::PropertySale),
             ("BAPL", EventType::LdsBaptism),
             ("CONL", EventType::LdsConfirmation),
+            ("INIL", EventType::LdsInitiatory),
             ("ENDL", EventType::Endowment),
             ("DotationLDS", EventType::LdsDotation),
             ("SLGC", EventType::SealingChild),

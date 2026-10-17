@@ -7082,6 +7082,7 @@
     "event.type.lds_baptism": "LDS-doop",
     "event.type.lds_confirmation": "LDS-bevestiging",
     "event.type.lds_dotation": "LDS-begiftiging",
+    "event.type.lds_initiatory": "HLD-initiatoire verordening",
     "event.type.marriage": "Huwelijk",
     "event.type.marriage_bann": "Huwelijksafkondiging",
     "event.type.marriage_contract": "Huwelijkscontract",
