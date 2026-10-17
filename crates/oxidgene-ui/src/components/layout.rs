@@ -741,6 +741,29 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
+    /* A select is drawn by the page, never by the engine. Drawn natively,
+       it takes the engine's own metrics whatever its padding says — the
+       GTK theme of the desktop's WebKitGTK makes one markedly taller than
+       a text field — and every page that placed one had to rediscover and
+       undo that. With appearance:none it is an ordinary box that obeys its
+       padding and line-height, 38px tall like a text field, and the arrow
+       is ours to place. A compact select changes its padding but keeps the
+       arrow's room on the right. 20px = 38px − 2×8px padding − 2×1px
+       border. */
+    select {
+        appearance: none;
+        -webkit-appearance: none;
+        line-height: 20px;
+        padding-right: var(--space-15);
+        /* The arrow is baked into a data URI, which cannot read a custom
+           property, so the theme emits the whole URL with its own secondary
+           text colour already substituted in. */
+        background-image: var(--select-arrow);
+        background-repeat: no-repeat;
+        background-position: right 11px center;
+        background-size: 10px 6px;
+    }
+
     /* What they are instead, in one place. Sized rather than left to the
        engine's default so a row can reserve a column for one. */
     input[type="checkbox"],
@@ -2921,7 +2944,7 @@ pub const LAYOUT_STYLES: &str = r#"
        than its fields outside the forms. */
     .pf-date-widget input:not([type="checkbox"]):not([type="radio"]),
     .pf-date-widget select {
-        background: var(--bg-card);
+        background-color: var(--bg-card);
     }
 
     /* A note copied off a parish register is routinely longer than the three
@@ -2994,31 +3017,6 @@ pub const LAYOUT_STYLES: &str = r#"
     .pf-date-widget select {
         height: 38px;
         line-height: 20px;
-    }
-
-    /* Dropping the native appearance is what actually settles the text:
-       while the engine draws the control, it positions the selected option
-       with its own metrics — the padding and line-height above are advisory
-       at best, which is why "Exact" kept sitting off-centre next to the date
-       field. With appearance:none the select is an ordinary box that obeys
-       both, and the arrow becomes ours to place. */
-    .person-form-modal select,
-    .union-form-modal select,
-    .pf-embedded select,
-    .document-form-modal select,
-    .media-panel select,
-    .pf-date-widget select {
-        appearance: none;
-        -webkit-appearance: none;
-        padding-right: var(--space-15);
-        background-color: var(--bg-card);
-        /* The arrow is baked into a data URI, which cannot read a custom
-           property, so the theme emits the whole URL with its own secondary
-           text colour already substituted in. */
-        background-image: var(--select-arrow);
-        background-repeat: no-repeat;
-        background-position: right 11px center;
-        background-size: 10px 6px;
     }
 
     .person-form-item.editing {
@@ -3858,11 +3856,11 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .sr-sort select {
-        padding: var(--space-2) var(--space-4);
+        padding: var(--space-2) var(--space-15) var(--space-2) var(--space-4);
         font-size: var(--text-80);
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
-        background: var(--bg-deep);
+        background-color: var(--bg-deep);
         color: var(--text-primary);
     }
 
@@ -4346,11 +4344,11 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .dict-page-size select {
         height: 32px;
-        padding: 0 var(--space-4);
+        padding: 0 var(--space-15) 0 var(--space-4);
         font-size: var(--text-80);
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
-        background: var(--bg-deep);
+        background-color: var(--bg-deep);
         color: var(--text-primary);
     }
 
@@ -6714,7 +6712,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Compact in the ruler bar: the app-wide form field is sized for forms. */
     .stats-interval select {
         width: auto;
-        padding: 3px var(--space-4);
+        padding: 3px var(--space-15) 3px var(--space-4);
         font-size: var(--text-80);
     }
 
@@ -7364,7 +7362,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Compact beside the tool, like the statistics interval. */
     .tools-controls select {
         width: auto;
-        padding: 3px var(--space-4);
+        padding: 3px var(--space-15) 3px var(--space-4);
         font-size: var(--text-80);
     }
 

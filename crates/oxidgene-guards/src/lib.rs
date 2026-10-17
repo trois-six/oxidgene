@@ -123,6 +123,52 @@ pub fn just_recipes() -> Vec<String> {
         .collect()
 }
 
+/// The offset of the next `const …_STYLES: &str = r#"` in `source`: the
+/// stylesheets of `oxidgene-ui` are those constants.
+#[must_use]
+pub fn find_styles_const(source: &str) -> Option<usize> {
+    let mut search = 0;
+    while let Some(found) = source[search..].find("_STYLES: &str = r#\"") {
+        let at = search + found;
+        let start = source[..at].rfind("const ")?;
+        if !source[start..at].contains('\n') {
+            return Some(start);
+        }
+        search = at + 1;
+    }
+    None
+}
+
+/// The CSS of the stylesheet constant starting at `source[at..]`, and the
+/// offset just past it.
+///
+/// # Panics
+///
+/// When the constant is not a raw string: the guards read the sheets as
+/// written, so another form must be taught to them.
+#[must_use]
+pub fn styles_at(source: &str, at: usize) -> (&str, usize) {
+    let raw = &source[at..];
+    let open = raw.find("r#\"").expect("a raw string") + 3;
+    let close = open + raw[open..].find("\"#").expect("the raw string ends");
+    (&raw[open..close], at + close + 2)
+}
+
+/// The CSS without comments.
+#[must_use]
+pub fn uncommented(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(open) = rest.find("/*") {
+        out.push_str(&rest[..open]);
+        rest = rest[open..]
+            .find("*/")
+            .map_or("", |close| &rest[open + close + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

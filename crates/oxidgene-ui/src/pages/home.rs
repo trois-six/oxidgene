@@ -1130,10 +1130,10 @@ const HOME_STYLES: &str = r#"
     }
 
     .home-sort-select {
-        background: var(--bg-card);
+        background-color: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: var(--space-4) var(--space-6);
+        padding: var(--space-4) var(--space-15) var(--space-4) var(--space-6);
         color: var(--text-secondary);
         font-size: var(--text-80);
         font-family: var(--font-sans);

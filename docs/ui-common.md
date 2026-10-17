@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-08T07:22:33Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -344,6 +344,14 @@ density scales both together.
   accent for primary actions, and danger tokens for destructive actions.
 - Text inputs, selects and textareas use card background and border, orange
   focus, red validation state, and `0.5` opacity while disabled.
+- Every select is drawn by the page, never by the engine: one global rule
+  drops its native appearance, gives it a text field's 38px box and paints
+  the arrow in its right padding. Drawn natively, a select takes the
+  engine's own metrics whatever its padding says, and the desktop's
+  WebKitGTK made it markedly taller than the fields beside it. A rule
+  restyling one select sets `background-color`, never the `background`
+  shorthand that erases the arrow, and keeps the arrow's room on the right;
+  the select guard checks both ([Development §2.8](development.md#28-guards)).
 - Checkboxes and radios are excluded from that styling and are sized once,
   centrally, with the orange accent colour. They keep their native appearance:
   a control given a text field's full width, padding, border and background

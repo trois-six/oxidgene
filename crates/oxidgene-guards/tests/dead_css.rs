@@ -20,7 +20,7 @@
 
 use std::collections::BTreeSet;
 
-use oxidgene_guards::{files, read, relative};
+use oxidgene_guards::{files, find_styles_const, read, relative, styles_at, uncommented};
 
 /// Class prefixes the code builds without a `prefix-{…}` literal.
 const DYNAMIC_FAMILIES: &[&str] = &[];
@@ -49,14 +49,12 @@ fn sheets_and_code() -> (Vec<Sheet>, String) {
         let mut rest = source.as_str();
         while let Some(at) = find_styles_const(rest) {
             code.push_str(&rest[..at]);
-            let raw = &rest[at..];
-            let open = raw.find("r#\"").expect("a raw string") + 3;
-            let close = open + raw[open..].find("\"#").expect("the raw string ends");
+            let (css, end) = styles_at(rest, at);
             sheets.push(Sheet {
                 place: relative(&path),
-                css: raw[open..close].to_string(),
+                css: css.to_string(),
             });
-            rest = &raw[close + 2..];
+            rest = &rest[end..];
         }
         code.push_str(rest);
     }
@@ -64,34 +62,6 @@ fn sheets_and_code() -> (Vec<Sheet>, String) {
         code.push_str(&std::fs::read_to_string(path).unwrap());
     }
     (sheets, code)
-}
-
-/// The offset of the next `const …_STYLES: &str = r#"` in `source`.
-fn find_styles_const(source: &str) -> Option<usize> {
-    let mut search = 0;
-    while let Some(found) = source[search..].find("_STYLES: &str = r#\"") {
-        let at = search + found;
-        let start = source[..at].rfind("const ")?;
-        if !source[start..at].contains('\n') {
-            return Some(start);
-        }
-        search = at + 1;
-    }
-    None
-}
-
-/// The CSS without comments.
-fn uncommented(css: &str) -> String {
-    let mut out = String::new();
-    let mut rest = css;
-    while let Some(open) = rest.find("/*") {
-        out.push_str(&rest[..open]);
-        rest = rest[open..]
-            .find("*/")
-            .map_or("", |close| &rest[open + close + 2..]);
-    }
-    out.push_str(rest);
-    out
 }
 
 /// The class names a stylesheet's selectors name.

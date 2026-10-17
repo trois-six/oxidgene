@@ -485,6 +485,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Lint discipline | 1 | `just test` (`oxidgene-guards`), `just clippy` | Repository guards, Clippy | Every crate takes the workspace lints; no `#[allow]` (Clippy's `allow_attributes`), no crate-wide allow or cap; every `#[ignore]` names an existing `just` recipe |
 | Specification format | 1 | `just test` (`oxidgene-guards`) | Repository guards | `docs/` is a conformant OKF bundle; every link, `#anchor` and `§N` resolves; on a pull request, an edited specification carries a new `generated.at` |
 | Dead CSS | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every class of the `*_STYLES` sheets is produced by the markup; every `var(--x)` is defined |
+| Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
