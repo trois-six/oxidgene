@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-17T15:10:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -959,14 +959,18 @@ The desktop downloads are portable, not installers:
   disk image beside a link to Applications. Without an Apple Developer ID
   signature and Apple's notarization, Gatekeeper asks the user to allow the
   first opening ([Quickstart §1](quickstart.md#1-download-a-desktop-binary)).
-- **Windows:** the x86-64 executable in a `.zip` archive, signed. Its
+- **Windows:** the x86-64 executable in a `.zip` archive, signed once
+  signing is on (below). Its
   resources (`assets/desktop/windows.rc`, completed by the crate's
   `build.rs`) carry the icon and the version information: product name
   `OxidGene` and the workspace version.
 
 On a tag, the Windows executable is signed through
 [SignPath](https://about.signpath.io) under the SignPath Foundation's free
-certificate for open source projects. The job uploads the unsigned
+certificate for open source projects. Signing is on only while the
+repository variable `SIGNPATH_ORGANIZATION_ID` is set: until the SignPath
+project exists, a tag publishes the executable unsigned, and the release's
+notes say so. The job uploads the unsigned
 executable as a short-lived artifact (`windows-unsigned`, never published),
 submits it with `signpath/github-action-submit-signing-request`, waits up to
 three hours for a maintainer to approve the request in SignPath, then checks

@@ -180,12 +180,16 @@ jobs:
           if-no-files-found: error
 
   # A rehearsal builds and packages the desktop too, unsigned; a tag signs the
-  # Windows executable through SignPath once its version is validated.
+  # Windows executable through SignPath once its version is validated. Signing
+  # is on once the repository variable SIGNPATH_ORGANIZATION_ID is set
+  # (docs/development.md §6); until then a tag publishes it unsigned.
   desktop:
     name: Build desktop for ${{ matrix.platform }}
     needs: [gates, metadata]
     if: ${{ !cancelled() && needs.gates.result == 'success' && needs.metadata.result != 'failure' }}
     runs-on: ${{ matrix.runner }}
+    env:
+      SIGN: ${{ startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ORGANIZATION_ID != '' }}
     permissions:
       contents: read
       # SignPath reads the job and downloads the unsigned artifact.
@@ -253,7 +257,7 @@ jobs:
       # (docs/development.md §6). The artifact is never published.
       - name: Upload unsigned Windows executable
         id: unsigned
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        if: runner.os == 'Windows' && env.SIGN == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: windows-unsigned
@@ -262,7 +266,7 @@ jobs:
           retention-days: 1
 
       - name: Sign Windows executable
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        if: runner.os == 'Windows' && env.SIGN == 'true'
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -281,10 +285,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          EXE: ${{ startsWith(github.ref, 'refs/tags/v') && 'signed' || 'target/release' }}/oxidgene-desktop.exe
-          SIGNED: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          EXE: ${{ env.SIGN == 'true' && 'signed' || 'target/release' }}/oxidgene-desktop.exe
         run: |
-          if ($env:SIGNED -eq 'true') {
+          if ($env:SIGN -eq 'true') {
             $signature = Get-AuthenticodeSignature $env:EXE
             if ($signature.Status -ne 'Valid') {
               throw "the executable is not validly signed: $($signature.Status)"
@@ -323,9 +326,16 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NOTES: |
-            The Windows executable is signed ([code signing policy](${{ github.server_url }}/${{ github.repository }}#code-signing-policy)). The macOS application is not signed yet: allow its first opening as the [Quickstart](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/quickstart.md#1-download-a-desktop-binary) explains. Verify every download against `SHA256SUMS`.
+          REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+          SIGNED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
+          quickstart="$REPOSITORY/blob/$GITHUB_REF_NAME/docs/quickstart.md#1-download-a-desktop-binary"
+          if [[ "$SIGNED" == "true" ]]; then
+            windows="The Windows executable is signed ([code signing policy]($REPOSITORY#code-signing-policy))."
+          else
+            windows="The Windows executable is not signed yet: SmartScreen may ask to confirm its first run."
+          fi
+          NOTES="$windows The macOS application is not signed yet: allow its first opening as the [Quickstart]($quickstart) explains. Verify every download against \`SHA256SUMS\`."
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag \
             --notes "$NOTES" \

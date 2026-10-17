@@ -54,7 +54,7 @@ gallery = [
 
 download_title = "Download OxidGene"
 downloads = [
-    { title = "Windows", text = "Windows 10 and 11, x86-64: a signed executable in a .zip archive.", link = "https://github.com/trois-six/oxidgene/releases" },
+    { title = "Windows", text = "Windows 10 and 11, x86-64: the executable in a .zip archive.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "macOS", text = "macOS 11 or later, Apple silicon and Intel: the application in a disk image.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "Linux", text = "x86-64: the executable in a .tar.gz archive, using the system's WebKitGTK.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "Web server", text = "Docker Compose or a Helm chart, with PostgreSQL and S3-compatible storage.", link = "@/guide/install.md" },

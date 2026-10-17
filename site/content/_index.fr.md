@@ -54,7 +54,7 @@ gallery = [
 
 download_title = "Télécharger OxidGene"
 downloads = [
-    { title = "Windows", text = "Windows 10 et 11, x86-64 : un exécutable signé dans une archive .zip.", link = "https://github.com/trois-six/oxidgene/releases" },
+    { title = "Windows", text = "Windows 10 et 11, x86-64 : l’exécutable dans une archive .zip.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "macOS", text = "macOS 11 ou plus récent, Apple silicon et Intel : l’application dans une image disque.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "Linux", text = "x86-64 : l’exécutable dans une archive .tar.gz, avec le WebKitGTK du système.", link = "https://github.com/trois-six/oxidgene/releases" },
     { title = "Serveur web", text = "Docker Compose ou chart Helm, avec PostgreSQL et un stockage compatible S3.", link = "@/guide/install.md" },

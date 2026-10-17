@@ -92,8 +92,10 @@ Free code signing provided by [SignPath.io](https://about.signpath.io),
 certificate by [SignPath Foundation](https://signpath.org).
 
 The release workflow signs the Windows executable it builds from this
-repository's tagged sources ([Development §6](docs/development.md#6-release-automation)).
-Nothing built elsewhere is signed.
+repository's tagged sources, once the SignPath project is set up
+([Development §6](docs/development.md#6-release-automation)); each
+release's notes say whether its executable is signed. Nothing built
+elsewhere is signed.
 
 - **Committers and reviewers:** the repository's maintainer, who reviews
   every contribution from anyone else before it is merged.

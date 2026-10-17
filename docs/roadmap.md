@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-17T15:10:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -280,7 +280,10 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [x] Publish the macOS desktop as a universal `OxidGene.app`, Apple silicon
   and Intel, in a disk image ([Development §6](development.md#6-release-automation)).
 - [x] Sign the Windows executable through SignPath at each tagged release,
-  with its product name and version in its resources.
+  with its product name and version in its resources, once the repository
+  variable `SIGNPATH_ORGANIZATION_ID` is set.
+- [ ] Obtain the SignPath Foundation's certificate, set up the SignPath
+  project and its variable and secret, which turns Windows signing on.
 - [ ] Sign the macOS application with an Apple Developer ID and notarize it,
   in place of its ad hoc signature, once the project has an Apple developer
   account.

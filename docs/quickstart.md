@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
+generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
 ---
 
 # OxidGene Quickstart
@@ -65,16 +65,17 @@ When releases are available:
 |---|---|---|
 | Linux x86-64 | `oxidgene-desktop-linux-x86_64.tar.gz` | The executable |
 | macOS 11 or later, Apple silicon and Intel | `oxidgene-desktop-macos-universal.dmg` | `OxidGene.app`, to drag into Applications |
-| Windows x86-64 | `oxidgene-desktop-windows-x86_64.zip` | The executable, signed |
+| Windows x86-64 | `oxidgene-desktop-windows-x86_64.zip` | The executable |
 
 Every release includes `SHA256SUMS`. These are portable executables, not
 installers. Do not download binaries presented as official OxidGene releases
 from another location.
 
-The Windows executable carries a signature ([code signing
-policy](https://github.com/trois-six/oxidgene#code-signing-policy)). Windows
-SmartScreen may still warn about it while the release is new: choose
-**More info**, then **Run anyway**.
+The Windows executable is not signed yet; it will be once the project's
+code signing is in place ([code signing
+policy](https://github.com/trois-six/oxidgene#code-signing-policy)), and each
+release's notes say whether it is. Windows SmartScreen may warn about it:
+choose **More info**, then **Run anyway**.
 
 The macOS application is not signed with an Apple Developer ID yet, so macOS
 refuses its first opening. Open it once, close the warning, then open

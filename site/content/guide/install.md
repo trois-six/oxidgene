@@ -28,7 +28,7 @@ OxidGene is published on its [GitHub Releases page](https://github.com/trois-six
    |---|---|---|
    | Linux (x86-64) | `oxidgene-desktop-linux-x86_64.tar.gz` | The program |
    | macOS 11 or later (Apple silicon and Intel) | `oxidgene-desktop-macos-universal.dmg` | `OxidGene.app` |
-   | Windows (x86-64) | `oxidgene-desktop-windows-x86_64.zip` | The program, signed |
+   | Windows (x86-64) | `oxidgene-desktop-windows-x86_64.zip` | The program |
 
 3. Also download `SHA256SUMS` and check that your file matches it before you run it. On Linux, for example, run `sha256sum -c SHA256SUMS --ignore-missing` in the download folder.
 
@@ -53,7 +53,7 @@ If the releases page does not list any version yet, build the application from s
 
 1. Extract the `.zip` file and move `oxidgene-desktop.exe` wherever you like.
 2. Double-click it.
-3. While a release is new, Windows SmartScreen may still warn about it even though the program is signed. Choose **More info**, then **Run anyway**.
+3. The program is not signed yet (each release's notes say when it is), so Windows SmartScreen may warn about it. Choose **More info**, then **Run anyway**.
 
 ## Where your data is kept
 
