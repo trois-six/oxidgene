@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-17T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T22:06:57Z }
 ---
 
 
@@ -1501,7 +1501,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too; on import the first `TEXT` is the citation's text, whether it sits under `DATA` or directly under a described source's `SOUR`, and further `TEXT` lines are kept GEDCOM), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is kept as the OxidGene extension `_OXIDGENE_OBJE`, its path and links with it, which an OxidGene import restores (see [GEDZIP](#gedzip)) |
 | Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
-| Vignette identifications | OxidGene extension | OxidGene extension | Each person identification and its pixel rectangle round-trip beneath the owning `OBJE` as `_OXIDGENE_VIGNETTE`, the person's xref opening the value, every `@` doubled as GEDCOM 5.5.1 writes text (`@@I1@@ 120 45 64 82`), the leading one alone in a GEDZIP's 7.0 (`@@I1@ 120 45 64 82`); `@I1@ …`, which earlier exports wrote, reads the same; software that does not know the extension ignores it. The same data survives both plain GEDCOM and GEDZIP export/import. |
+| Identifications (vignettes) | Full | Full | A crop is GEDCOM's `CROP` (`TOP`, `LEFT`, `HEIGHT`, `WIDTH`, written `_CROP` in 5.5.1, which has none) beneath the `OBJE` link to its page: beneath the person's record for a crop naming a person, beneath the event for a crop naming an event. An event's crop names its person with an `_OXIDGENE_PERSON` pointer beneath the link, and a crop that is both the person's portrait and an event's is written both ways. A person's first link is their portrait, so a crop portrait is written first. A crop naming neither a person nor an event stays `_OXIDGENE_VIGNETTE` `x y width height` beneath the `OBJE` record of its page. On import an absent `TOP` or `LEFT` is 0, and an absent `WIDTH` or `HEIGHT` runs to the edge of the picture, which needs the picture's recorded size. A crop that names no rectangle OxidGene can hold (a document of several pages, or an edge with no size known) stays a whole-picture link, with a warning, and its `CROP` is kept GEDCOM. A crop beneath a person and the same crop beneath one of that person's events, naming them, are one identification, which carries the event. Software that knows no crops ignores them. |
 | Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `oxidged`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes, as many per person, event or attribute as the file holds, each written back. In a `.ged`, any text too long for one GEDCOM line, the OxidGene extensions' included, continues on `CONC` lines, never split beside a space or before a combining mark (readers trim a `CONC` value), so that no line, level and tag included, exceeds GEDCOM 5.5.1's 255 characters. A GEDZIP's GEDCOM 7.0 has neither the limit nor `CONC`. A line break of any kind (`CR LF`, `CR`, `LF`) is a `CONT` line. On import, a value continued on `CONC` or `CONT` lines is read whole wherever it stands, and the spaces opening a `CONC` value are kept, so files whose writer split beside a space read back word for word. A `NOTE @N1@` pointer to a 5.5.1 note record, or a 7.0 `SNOTE`, imports the text of the record it points at; a pointer to a record the file does not hold is left out with a warning naming it. Each note read from one record keeps that record's group (`Note.sharedGroup` in GraphQL, `shared_group` in REST, read-only). An export writes the notes of one group that say the same thing as one shared record again — `NOTE` records in 5.5.1, `SNOTE` in 7.0 — and each owner points at it; notes of different text in one group become one record per text, and a note of its own stays inline |
@@ -1611,8 +1611,9 @@ before.
 ### OxidGene extensions
 
 OxidGene writes three extension tags beneath the `OBJE` record of each page
-it exports, and a GEDZIP two more for the media it keeps. Other software may
-ignore them; an OxidGene import reads them back.
+it exports, a GEDZIP two more for the media it keeps, and `_OXIDGENE_PERSON`
+beneath the link of an event's crop. Other software may ignore them; an
+OxidGene import reads them back.
 
 #### `_OXIDGENE_MEDIA`
 
@@ -1628,9 +1629,16 @@ reassembles a multi-page document on import.
 
 #### `_OXIDGENE_VIGNETTE`
 
-A person identified on the page: the person's xref, or `-` for nobody, then
-the pixel rectangle `x y width height`. See *Vignette identifications*
-above.
+A crop of the page that names neither a person nor an event: its pixel
+rectangle `x y width height`. A crop naming a person or an event is a `CROP`
+beneath its link instead (see *Identifications (vignettes)* above).
+
+#### `_OXIDGENE_PERSON`
+
+Beneath the `OBJE` link of a crop that names an event, the person the crop
+identifies, as a pointer to the individual's record (`_OXIDGENE_PERSON @I1@`).
+It is absent when the crop names no person. A crop beneath a person's own
+record needs none, the record being the person.
 
 #### `_OXIDGENE_OBJE`
 
@@ -1640,7 +1648,8 @@ In a GEDZIP only, a medium whose file OxidGene does not hold (see
 with the producer's path exactly as stored, `FORM` with its media type and
 `MEDI`, `TITL`, `NOTE` — and the extensions above. As a substructure of a
 person, a family or an event, its pointer payload is a link to such a
-record, written where the `OBJE` link stands in a `.ged`.
+record, written where the `OBJE` link stands in a `.ged`, with the `CROP` and
+the `_OXIDGENE_PERSON` the link it stands for holds.
 
 #### `_OXIDGENE_POS`
 

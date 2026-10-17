@@ -594,9 +594,18 @@ function gedcom(): string {
         lines.push(`0 @${source.id}@ SOUR`, `1 TITL ${source.title}`, `1 AUTH ${source.author}`, `1 REPO @${source.repo}@`, `2 CALN ${source.call}`);
     }
     const witnesses = witnessLines();
+    // An identification is a CROP beneath the link to its picture, written with the identified person.
+    const crops = new Map<string, string[]>();
+    for (const medium of media) {
+        for (const v of medium.vignettes) {
+            const lines = crops.get(v.person) ?? [];
+            lines.push(`1 OBJE @${medium.id}@`, "2 CROP", `3 TOP ${v.y}`, `3 LEFT ${v.x}`, `3 HEIGHT ${v.height}`, `3 WIDTH ${v.width}`);
+            crops.set(v.person, lines);
+        }
+    }
     for (const person of persons.values()) {
         const record = personLines(person);
-        const extra = witnesses.get(person.id);
+        const extra = [...(crops.get(person.id) ?? []), ...(witnesses.get(person.id) ?? [])];
         if (extra) {
             const links = record.findIndex((line) => line.startsWith("1 FAM"));
             record.splice(links < 0 ? record.length : links, 0, ...extra);
@@ -606,7 +615,6 @@ function gedcom(): string {
     for (const family of families.values()) lines.push(...familyLines(family));
     for (const medium of media) {
         lines.push(`0 @${medium.id}@ OBJE`, `1 FILE ${medium.file}`, "2 FORM image/jpeg", `3 TYPE ${medium.type}`, `1 TITL ${medium.title}`);
-        for (const v of medium.vignettes) lines.push(`1 _OXIDGENE_VIGNETTE @${v.person}@ ${v.x} ${v.y} ${v.width} ${v.height}`);
     }
     lines.push("0 TRLR");
     return `${lines.join("\n")}\n`;

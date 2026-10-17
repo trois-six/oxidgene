@@ -101,6 +101,6 @@ A GEDZIP archive is kept for one hour after it is created. During that hour, the
 
 - A GEDCOM file does not contain the photos themselves, only their paths. Use a GEDZIP to move or back up a tree with its media.
 - A document of several pages is written as separate pictures, each linked to the same persons. OxidGene puts them back together when it imports the file again; other programs keep them as separate pictures.
-- A portrait cropped from a group photograph cannot be expressed in GEDCOM. After a round trip, that person is shown with their first whole picture; the crop is kept on the photograph.
+- A portrait or an identification cut from a photograph travels as a standard crop (`CROP`, GEDCOM 7). Programs that read crops show it as a cut-out of the photograph, and crops written by other programs are imported as identifications.
 
 Learn more: [import specification](@/tech/ui-import.md).

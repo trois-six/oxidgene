@@ -20,8 +20,8 @@ use std::io::{Read, Seek};
 use chrono::Utc;
 use oxidged::gedzip::GedzipReader;
 use oxidged::model::{
-    Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Dataset, Date,
-    EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
+    Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Crop, Dataset,
+    Date, EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
     MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
     Ordinance, OrdinanceKind, Pedigree, Place as GedPlace, Record, Removal, Restriction,
     Sex as GedSex, Store, TagId, Text, TextRef, View,
@@ -91,7 +91,6 @@ fn import_dataset_keeping(
     let kept = restore_kept_media(&mut data);
     let mut result = import_gedcom_data(&data, tree_id)?;
     import_oxidgene_media_extensions(&data, &mut result);
-    assign_portraits(&mut result);
     crate::keeping::compute(&data, &mut result);
     let kept = kept
         .iter()
@@ -205,6 +204,48 @@ fn kept_multimedia(node: View<'_, Node>, position_tag: TagId) -> Multimedia {
     multimedia
 }
 
+/// The `OBJE` link an `_OXIDGENE_OBJE` link stands for: its pointer, its
+/// `CROP` (so a crop of a medium OxidGene holds no file for is still an
+/// identification) and its other substructures, such as `_OXIDGENE_PERSON`,
+/// as they are.
+fn kept_link(node: View<'_, Node>, position_tag: TagId) -> Option<MultimediaLink> {
+    let mut link = MultimediaLink {
+        object: Some(node.pointer()?),
+        ..Default::default()
+    };
+    let mut extra = Vec::new();
+    for sub in node.children() {
+        if sub.tag_id() == position_tag {
+            continue;
+        }
+        if sub.tag() == "CROP" {
+            link.crop = Some(Box::new(kept_crop(sub)));
+        } else {
+            extra.push(sub.into_owned());
+        }
+    }
+    link.extra = extra.into();
+    Some(link)
+}
+
+/// The rectangle a `CROP` beneath a kept link names, its absent or unreadable
+/// values left absent.
+fn kept_crop(node: View<'_, Node>) -> Crop {
+    let value = |tag: &str| {
+        node.children()
+            .into_iter()
+            .find(|child| child.tag() == tag)
+            .and_then(|child| node_text(child)?.trim().parse().ok())
+    };
+    Crop {
+        top: value("TOP"),
+        left: value("LEFT"),
+        height: value("HEIGHT"),
+        width: value("WIDTH"),
+        ..Default::default()
+    }
+}
+
 /// Insert each of `kept` into `items` at its position, in ascending order of
 /// positions, so that each lands where it was written; one without a
 /// position goes last.
@@ -272,13 +313,7 @@ impl KeptLinks {
                 .into_iter()
                 .filter(|node| node.tag_id() == kept_tag)
                 .filter_map(|node| {
-                    Some((
-                        position(node, position_tag),
-                        MultimediaLink {
-                            object: Some(node.pointer()?),
-                            ..Default::default()
-                        },
-                    ))
+                    Some((position(node, position_tag), kept_link(node, position_tag)?))
                 })
                 .collect()
         };
@@ -339,45 +374,6 @@ impl KeptLinks {
                     insert_at_positions(&mut family.detail_mut().multimedia, links);
                 }
             }
-        }
-    }
-}
-
-/// Record each person's first picture as their portrait.
-///
-/// GEDCOM has no primary-photo flag, and states the choice only by order: the
-/// first `OBJE` under an `INDI` is the primary one by long convention, and it
-/// is what OxidGene's own export writes first for exactly that reason.
-///
-/// Reading it back into `portrait_media_id` rather than leaving it implied is
-/// what makes the stored state match the displayed one. The fallback that
-/// picks a person's first picture would draw the same face either way — but
-/// with nothing stored, the gallery could not mark it, so a portrait survived a
-/// round trip visually while losing its star, and clicking "remove as profile
-/// photo" would have had nothing to remove.
-///
-/// Only a person with no portrait already is given one, so this cannot
-/// overwrite a choice made in the file it is reading.
-fn assign_portraits(result: &mut ImportResult) {
-    let mut first: HashMap<Uuid, (i32, Uuid)> = HashMap::new();
-    for link in &result.media_links {
-        let Some(person_id) = link.person_id else {
-            continue;
-        };
-        let candidate = (link.sort_order, link.media_id);
-        match first.get(&person_id) {
-            Some(current) if current.0 <= candidate.0 => {}
-            _ => {
-                first.insert(person_id, candidate);
-            }
-        }
-    }
-    for person in &mut result.persons {
-        if person.portrait_media_id.is_some() || person.portrait_vignette_id.is_some() {
-            continue;
-        }
-        if let Some((_, media_id)) = first.get(&person.id) {
-            person.portrait_media_id = Some(*media_id);
         }
     }
 }
@@ -1356,7 +1352,11 @@ fn import_individual(
     }
 
     ctx.import_notes(indi.notes(), NoteOwner::Person(person_id), result);
-    import_media_links(indi.multimedia(), LinkOwner::Person(person_id), ctx, result);
+    if let Some(picture) =
+        import_media_links(indi.multimedia(), LinkOwner::Person(person_id), ctx, result)
+    {
+        set_portrait(result, person_id, picture);
+    }
 }
 
 /// Import a `FAM` record: the family, its spouses and children, events,
@@ -1792,22 +1792,91 @@ enum LinkOwner {
     Family(Uuid),
 }
 
+/// The picture a person's first link gives them: a whole page or a crop.
+#[derive(Clone, Copy)]
+enum Picture {
+    Whole(Uuid),
+    Crop(Uuid),
+}
+
 /// Link each `OBJE` of a record to it, creating the media an inline `OBJE`
 /// describes.
+///
+/// A link with a `CROP` beneath a person or an event identifies the part of
+/// its page it cuts out, so it becomes a [`Vignette`] rather than a link; one
+/// that cannot be kept that way stays a whole-picture link, with a warning,
+/// and its `CROP` is kept as written by the kept GEDCOM. Beneath a family
+/// there is no identification to make, so a crop there is kept the same way.
 ///
 /// A person's links record the file's order rather than leaving it to the
 /// ids: a person's first picture is the one that represents them when no
 /// portrait is stored, and GEDCOM states a portrait only by writing it first.
+/// That first picture, whole or cropped, is returned.
 fn import_media_links(
     multimedia: Items<'_, MultimediaLink>,
     owner: LinkOwner,
     ctx: &ImportContext,
     result: &mut ImportResult,
-) {
+) -> Option<Picture> {
+    let mut picture = None;
     for (index, mm) in multimedia.into_iter().enumerate() {
         let Some(media_id) = resolve_or_create_media(mm, ctx, result) else {
             continue;
         };
+        let crop = match mm.crop() {
+            Some(_) if matches!(owner, LinkOwner::Family(_)) => {
+                result.warnings.push(format!(
+                    "Media {media_id}: a crop beneath a family is not an identification — kept as the whole picture"
+                ));
+                None
+            }
+            Some(crop) => match crop_identification(crop, media_id, result) {
+                Ok(identification) => Some(identification),
+                Err(reason) => {
+                    result.warnings.push(format!(
+                        "Media {media_id}: a crop {reason} — kept as the whole picture"
+                    ));
+                    None
+                }
+            },
+            None => None,
+        };
+        if let Some((
+            page_id,
+            Rectangle {
+                x,
+                y,
+                width,
+                height,
+            },
+        )) = crop
+        {
+            let (person_id, event_id) = match owner {
+                LinkOwner::Person(person_id) => (Some(person_id), None),
+                LinkOwner::Event(event_id) => (event_person(mm, ctx, result), Some(event_id)),
+                LinkOwner::Family(_) => (None, None),
+            };
+            let now = ctx.now;
+            let id = add_vignette(
+                Vignette {
+                    id: Uuid::now_v7(),
+                    media_id: page_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    person_id,
+                    event_id,
+                    created_at: now,
+                    updated_at: now,
+                },
+                result,
+            );
+            if matches!(owner, LinkOwner::Person(_)) {
+                picture.get_or_insert(Picture::Crop(id));
+            }
+            continue;
+        }
         let (person_id, event_id, family_id, sort_order) = match owner {
             LinkOwner::Person(id) => (
                 Some(id),
@@ -1818,6 +1887,9 @@ fn import_media_links(
             LinkOwner::Event(id) => (None, Some(id), None, 0),
             LinkOwner::Family(id) => (None, None, Some(id), 0),
         };
+        if matches!(owner, LinkOwner::Person(_)) {
+            picture.get_or_insert(Picture::Whole(media_id));
+        }
         result.media_links.push(MediaLink {
             id: Uuid::now_v7(),
             media_id,
@@ -1827,6 +1899,133 @@ fn import_media_links(
             family_id,
             sort_order,
         });
+    }
+    picture
+}
+
+/// A pixel rectangle of a page: its origin and its size.
+#[derive(Clone, Copy)]
+struct Rectangle {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+/// The page a crop on `media_id` cuts, and the rectangle its `CROP` names on
+/// it. A crop that names no page, or a rectangle the page cannot hold, is the
+/// reason it cannot be an identification.
+fn crop_identification(
+    crop: View<'_, Crop>,
+    media_id: Uuid,
+    result: &ImportResult,
+) -> Result<(Uuid, Rectangle), String> {
+    let page =
+        crop_page(media_id, result).ok_or_else(|| "does not cut a single page".to_owned())?;
+    let coordinate = |value: u32| {
+        i32::try_from(value).map_err(|_| format!("has the value {value}, which is too large"))
+    };
+    let x = crop.left().map_or(Ok(0), coordinate)?;
+    let y = crop.top().map_or(Ok(0), coordinate)?;
+    let width = match (crop.width(), page.width) {
+        (Some(width), _) => coordinate(width)?,
+        (None, Some(page_width)) => page_width - x,
+        (None, None) => return Err("has no WIDTH and the image size is unknown".to_owned()),
+    };
+    let height = match (crop.height(), page.height) {
+        (Some(height), _) => coordinate(height)?,
+        (None, Some(page_height)) => page_height - y,
+        (None, None) => return Err("has no HEIGHT and the image size is unknown".to_owned()),
+    };
+    page.validate_crop(x, y, width, height)
+        .map_err(|err| format!("is not a valid rectangle: {err}"))?;
+    Ok((
+        page.id,
+        Rectangle {
+            x,
+            y,
+            width,
+            height,
+        },
+    ))
+}
+
+/// The page a crop on `media_id` cuts: the media itself when it is a page,
+/// or the one page of a document. A document of several pages has no single
+/// page to cut.
+fn crop_page(media_id: Uuid, result: &ImportResult) -> Option<&Media> {
+    let media = result.media.iter().find(|media| media.id == media_id)?;
+    if !media.is_document() {
+        return Some(media);
+    }
+    let mut pages = result
+        .media
+        .iter()
+        .filter(|page| page.parent_media_id == Some(media_id));
+    let page = pages.next()?;
+    pages.next().is_none().then_some(page)
+}
+
+/// The person an event's crop identifies, from its `_OXIDGENE_PERSON`
+/// pointer. A pointer to nobody in the file is a warning, and the crop is
+/// then unattributed.
+fn event_person(
+    mm: View<'_, MultimediaLink>,
+    ctx: &ImportContext,
+    result: &mut ImportResult,
+) -> Option<Uuid> {
+    let node = tagged(mm.extra(), crate::export::PERSON_TAG).next()?;
+    let xref = mm.store().xref(node.pointer()?);
+    let person = ctx.indi_map.get(xref).copied();
+    if person.is_none() {
+        result
+            .warnings
+            .push(format!("Vignette: person {xref} was not found"));
+    }
+    person
+}
+
+/// Record an identification and return the id of the vignette holding it. A
+/// crop beneath a person and the same crop beneath one of that person's
+/// events are one identification, which carries the event: the second is
+/// merged into the first.
+fn add_vignette(vignette: Vignette, result: &mut ImportResult) -> Uuid {
+    let same_region = |other: &Vignette| {
+        other.media_id == vignette.media_id
+            && other.person_id == vignette.person_id
+            && (other.x, other.y, other.width, other.height)
+                == (vignette.x, vignette.y, vignette.width, vignette.height)
+    };
+    if vignette.person_id.is_some()
+        && let Some(existing) = result.vignettes.iter_mut().rev().find(|other| {
+            same_region(other) && (other.event_id.is_none() || vignette.event_id.is_none())
+        })
+    {
+        existing.event_id = existing.event_id.or(vignette.event_id);
+        return existing.id;
+    }
+    let id = vignette.id;
+    result.vignettes.push(vignette);
+    id
+}
+
+/// Give a person the picture their first link gives them, unless a portrait
+/// is stored already.
+fn set_portrait(result: &mut ImportResult, person_id: Uuid, picture: Picture) {
+    let Some(person) = result
+        .persons
+        .iter_mut()
+        .rev()
+        .find(|person| person.id == person_id)
+    else {
+        return;
+    };
+    if person.portrait_media_id.is_some() || person.portrait_vignette_id.is_some() {
+        return;
+    }
+    match picture {
+        Picture::Whole(media_id) => person.portrait_media_id = Some(media_id),
+        Picture::Crop(vignette_id) => person.portrait_vignette_id = Some(vignette_id),
     }
 }
 
@@ -2543,16 +2742,13 @@ fn apply_document_metadata(
     }
 }
 
-/// Restore the identifications of persons on a page: one
-/// `_OXIDGENE_VIGNETTE <person xref or -> <x> <y> <width> <height>` each.
+/// Restore the identifications that name neither a person nor an event: one
+/// `_OXIDGENE_VIGNETTE <x> <y> <width> <height>` beneath each page. The others
+/// are `CROP`s beneath their links (see [`import_media_links`]).
 fn import_vignette_extensions(data: &Dataset, result: &mut ImportResult) {
     for (media_xref, value) in media_extensions(data, "_OXIDGENE_VIGNETTE") {
         let fields = value.split_whitespace().collect::<Vec<_>>();
-        let [person_xref, x, y, width, height] = fields.as_slice() else {
-            // An arity we do not write. Saying so beats dropping the crop in
-            // silence: a file written by an older OxidGene carried a page
-            // number here, and its identifications would otherwise vanish
-            // without a word.
+        let [x, y, width, height] = fields.as_slice() else {
             result.warnings.push(format!(
                 "Vignette on {media_xref}: unrecognised _OXIDGENE_VIGNETTE line — skipped"
             ));
@@ -2561,17 +2757,6 @@ fn import_vignette_extensions(data: &Dataset, result: &mut ImportResult) {
         let Some(media_id) = result.media_by_xref.get(media_xref).copied() else {
             continue;
         };
-        let person_id = if *person_xref == "-" {
-            None
-        } else {
-            result.person_by_xref.get(*person_xref).copied()
-        };
-        if *person_xref != "-" && person_id.is_none() {
-            result.warnings.push(format!(
-                "Vignette on {media_xref}: person {person_xref} was not found"
-            ));
-            continue;
-        }
         let parsed = (
             x.parse::<i32>(),
             y.parse::<i32>(),
@@ -2598,7 +2783,7 @@ fn import_vignette_extensions(data: &Dataset, result: &mut ImportResult) {
             y,
             width,
             height,
-            person_id,
+            person_id: None,
             event_id: None,
             created_at: now,
             updated_at: now,
@@ -4337,31 +4522,22 @@ mod gedzip_tests {
         );
     }
 
-    /// Exports have written the person's xref leading the value without an
-    /// escape, with GEDCOM 7's escape of a leading `@` (`@@I1@`) and with
-    /// GEDCOM 5.5.1's of every `@` (`@@I1@@`), which `oxidged` writes now:
-    /// all read as the same identification.
+    /// The person of an event's crop is the pointer of its
+    /// `_OXIDGENE_PERSON`.
     #[test]
-    fn a_vignette_reads_with_or_without_the_escape_of_its_leading_at_sign() {
-        for value in [
-            "@I1@ 120 45 64 82",
-            "@@I1@ 120 45 64 82",
-            "@@I1@@ 120 45 64 82",
-        ] {
-            let gedcom = format!(
-                "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 SEX U\n\
-                 0 @M1@ OBJE\n1 FILE photo.jpg\n2 FORM image/jpeg\n\
-                 1 _OXIDGENE_VIGNETTE {value}\n0 TRLR\n"
-            );
-            let result = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
-            assert_eq!(result.vignettes.len(), 1, "{value}: {:?}", result.warnings);
-            let vignette = &result.vignettes[0];
-            assert_eq!(vignette.person_id, Some(result.persons[0].id), "{value}");
-            assert_eq!(
-                (vignette.x, vignette.y, vignette.width, vignette.height),
-                (120, 45, 64, 82),
-                "{value}"
-            );
-        }
+    fn an_event_crop_reads_its_person_from_its_pointer() {
+        let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 SEX U\n\
+             1 BIRT\n2 OBJE @M1@\n3 _CROP\n4 TOP 6\n4 LEFT 5\n\
+             4 HEIGHT 80\n4 WIDTH 70\n3 _OXIDGENE_PERSON @I1@\n\
+             0 @M1@ OBJE\n1 FILE photo.jpg\n2 FORM image/jpeg\n0 TRLR\n";
+        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+        assert_eq!(result.vignettes.len(), 1, "{:?}", result.warnings);
+        let vignette = &result.vignettes[0];
+        assert_eq!(vignette.person_id, Some(result.persons[0].id));
+        assert_eq!(vignette.event_id, Some(result.events[0].id));
+        assert_eq!(
+            (vignette.x, vignette.y, vignette.width, vignette.height),
+            (5, 6, 70, 80)
+        );
     }
 }

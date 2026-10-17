@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T18:17:00Z }
+generated: { by: human:maintainer, at: 2026-10-17T22:06:57Z }
 ---
 
 
@@ -316,9 +316,12 @@ choice, so a portrait that was only implied came back looking right and with no
 star — and nothing for "remove as profile photo" to remove. An existing choice
 in the file is never overwritten.
 
-A portrait that is a **crop** cannot cross: GEDCOM cannot express a region of an
-image as somebody's portrait at all. Those people come back represented by their
-first whole picture, and the crop itself survives as a vignette on the scan.
+A portrait that is a **crop** travels as well. It is written as a standard crop
+(`CROP`, GEDCOM 7.0) beneath the person's first picture link, the position a
+portrait holds, so the import reads it back as the portrait again. A crop of
+another program is read the same way: the first picture of a person, whole or
+cropped, is their portrait, and each further crop is an identification of the
+person on the photograph.
 
 ## What a GEDZIP round trip does to a multi-page document
 

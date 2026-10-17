@@ -101,6 +101,6 @@ Une archive GEDZIP est conservée une heure après sa création. Pendant cette h
 
 - Un fichier GEDCOM ne contient pas les photos elles-mêmes, seulement leur chemin. Utilisez un GEDZIP pour déplacer ou sauvegarder un arbre avec ses médias.
 - Un document de plusieurs pages est écrit sous forme d’images séparées, chacune reliée aux mêmes personnes. OxidGene les rassemble de nouveau quand il réimporte le fichier ; les autres logiciels les gardent séparées.
-- Un portrait découpé dans une photo de groupe ne peut pas s’exprimer en GEDCOM. Après un aller-retour, la personne est représentée par sa première image entière ; le découpage reste conservé sur la photo.
+- Un portrait, ou une identification, découpé dans une photographie voyage sous la forme d’un découpage standard (`CROP`, GEDCOM 7). Les logiciels qui lisent les découpages les affichent comme une partie de la photographie, et les découpages écrits par d’autres logiciels sont importés comme des identifications.
 
 En savoir plus : [spécification de l’import](@/tech/ui-import.md) (en anglais).

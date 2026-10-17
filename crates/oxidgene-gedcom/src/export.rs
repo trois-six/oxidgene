@@ -13,14 +13,15 @@ use std::collections::{HashMap, HashSet};
 use oxidged::gedzip::GedzipWriter;
 use oxidged::model::{
     Address as GedAddress, Age as GedAge, Association as GedAssociation, CallNumber, Certainty,
-    ChildLink, Citation as GedCitation, CitationData, CitationSource, Dataset, Date, EnumList,
-    Event as GedEvent, EventFamily, EventKind, EventSpouse, Family as GedFamily, File, FileForm,
-    Header, HeaderSource, Individual, IndividualRef, Map, Medium, Multimedia as GedMultimedia,
-    MultimediaLink, Name as GedName, NamePiece, NamePieceKind, NameType as GedNameType, Node,
-    Note as GedNote, Ordinance, OrdinanceKind, Pedigree as GedPedigree, Phrased, Place as GedPlace,
-    PlaceDetail, Record, Repository as GedRepository, RepositoryCitation, Restriction, Schema,
-    Sex as GedSex, SharedNote as GedSharedNote, Source as GedSource, SourceData, SourceText,
-    SpouseLink, Store, Submitter, TagId, Text, Value, XrefId,
+    ChildLink, Citation as GedCitation, CitationData, CitationSource, Crop, Dataset, Date,
+    EnumList, Event as GedEvent, EventFamily, EventKind, EventSpouse, Family as GedFamily, File,
+    FileForm, Header, HeaderSource, Individual, IndividualRef, Map, Medium,
+    Multimedia as GedMultimedia, MultimediaLink, Name as GedName, NamePiece, NamePieceKind,
+    NameType as GedNameType, Node, Note as GedNote, Ordinance, OrdinanceKind,
+    Pedigree as GedPedigree, Phrased, Place as GedPlace, PlaceDetail, Record,
+    Repository as GedRepository, RepositoryCitation, Restriction, Schema, Sex as GedSex,
+    SharedNote as GedSharedNote, Source as GedSource, SourceData, SourceText, SpouseLink, Store,
+    Submitter, TagId, Text, Value, XrefId,
 };
 pub use oxidged::profile::ExportProfile;
 use oxidged::profile::{ExportOptions as ProfileOptions, Exporter, FoldKind};
@@ -289,6 +290,7 @@ pub fn export_gedcom(
         media,
         notes,
     );
+    let person_tag = data.store_mut().intern_tag(PERSON_TAG);
     // GEDCOM 7.x writes a witness beneath its event; a 5.5.1 file beneath
     // an individual record. A GEDZIP's `gedcom.ged` is 7.0 whatever the
     // destination.
@@ -296,16 +298,24 @@ pub fn export_gedcom(
         ExportTarget::Gedzip { .. } => true,
         ExportTarget::Gedcom => choices.destination.target().version().is_v7(),
     };
-    let linked: HashSet<Uuid> = media_links.iter().filter_map(|ml| ml.event_id).collect();
+    let media_by_id: HashMap<Uuid, &Media> = media.iter().map(|m| (m.id, m)).collect();
+    let written_events = written_events(events);
+    let linked = linked_events(
+        media_links,
+        vignettes,
+        &xrefs,
+        &media_by_id,
+        &written_events,
+    );
     let ordinances: HashSet<Uuid> = events
         .iter()
         .filter(|evt| ordinance_written_as(evt, linked.contains(&evt.id)).is_some())
         .map(|evt| evt.id)
         .collect();
     let witnessed = associations(events, event_witnesses, &ordinances, under_events, &xrefs);
-    let index = ExportIndex {
+    let mut index = ExportIndex {
         place_map: places.iter().map(|p| (p.id, p)).collect(),
-        media_by_id: media.iter().map(|m| (m.id, m)).collect(),
+        media_by_id,
         pages_of: pages_of(media),
         names_by_person: group_by(person_names, |pn| Some(pn.person_id)),
         events_by_person: group_by(events, |evt| evt.person_id),
@@ -343,8 +353,14 @@ pub fn export_gedcom(
         // FAM's own HUSB/WIFE/CHIL back to individuals).
         fams_by_person: group_by(family_spouses, |fs| Some(fs.person_id)),
         famc_by_person: group_by(family_children, |fc| Some(fc.person_id)),
+        written_events,
+        vignettes_by_id: HashMap::new(),
+        crops_by_person: HashMap::new(),
+        crops_by_event: HashMap::new(),
+        person_tag,
         xrefs,
     };
+    index.group_vignettes(vignettes);
 
     let (mut extensions, extension_warnings) =
         media_extensions(data.store_mut(), media, vignettes, &index);
@@ -690,10 +706,11 @@ const EXTENSIONS_DOC: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/d
 
 /// OxidGene's own extension tags, each with the anchor of its
 /// documentation, which a GEDCOM 7.0 header declares (`HEAD.SCHMA`).
-const EXTENSION_TAGS: [(&str, &str); 5] = [
+const EXTENSION_TAGS: [(&str, &str); 6] = [
     (MEDIA_TAG, "_oxidgene_media"),
     (DOCUMENT_TAG, "_oxidgene_doc"),
     (VIGNETTE_TAG, "_oxidgene_vignette"),
+    (PERSON_TAG, "_oxidgene_person"),
     (KEPT_MEDIA_TAG, "_oxidgene_obje"),
     (POSITION_TAG, "_oxidgene_pos"),
 ];
@@ -702,8 +719,11 @@ const EXTENSION_TAGS: [(&str, &str); 5] = [
 const MEDIA_TAG: &str = "_OXIDGENE_MEDIA";
 /// The document a page belongs to: see [`DocumentExtension`].
 const DOCUMENT_TAG: &str = "_OXIDGENE_DOC";
-/// A person identified on a page and where.
+/// A region of a page that identifies nobody attributed to it, with its
+/// rectangle. An attributed crop is a `CROP` beneath the `OBJE` link instead.
 const VIGNETTE_TAG: &str = "_OXIDGENE_VIGNETTE";
+/// The person a crop beneath an event identifies, as a pointer.
+pub(crate) const PERSON_TAG: &str = "_OXIDGENE_PERSON";
 /// A medium a GEDZIP cannot name as an `OBJE`, and a link to it.
 pub(crate) const KEPT_MEDIA_TAG: &str = "_OXIDGENE_OBJE";
 /// The position of a kept medium among the `OBJE` records, or of a link to
@@ -907,6 +927,16 @@ struct ExportIndex<'a> {
     place_map: HashMap<Uuid, &'a Place>,
     media_by_id: HashMap<Uuid, &'a Media>,
     pages_of: HashMap<Uuid, Vec<&'a Media>>,
+    /// The events that are written, beneath a person or a family.
+    written_events: HashSet<Uuid>,
+    /// Every vignette that can be written, by id.
+    vignettes_by_id: HashMap<Uuid, &'a Vignette>,
+    /// The crops of a person that name no event, by id.
+    crops_by_person: HashMap<Uuid, Vec<&'a Vignette>>,
+    /// The crops beneath an event, by id.
+    crops_by_event: HashMap<Uuid, Vec<&'a Vignette>>,
+    /// The interned `_OXIDGENE_PERSON` tag.
+    person_tag: TagId,
     names_by_person: HashMap<Uuid, Vec<&'a PersonName>>,
     events_by_person: HashMap<Uuid, Vec<&'a Event>>,
     events_by_family: HashMap<Uuid, Vec<&'a Event>>,
@@ -939,6 +969,83 @@ fn some_text(value: Option<&str>) -> Option<Text> {
 /// The texts of `value`, as many as it says something: none or one.
 fn texts<C: FromIterator<Text>>(value: Option<&str>) -> C {
     some_text(value).into_iter().collect()
+}
+
+impl<'a> ExportIndex<'a> {
+    /// Index the vignettes that can be written, by person and by event: the
+    /// crops of a person name no event, the others name one.
+    fn group_vignettes(&mut self, vignettes: &'a [Vignette]) {
+        for vignette in vignettes {
+            if vignette_problem(
+                vignette,
+                &self.xrefs,
+                &self.media_by_id,
+                &self.written_events,
+            )
+            .is_some()
+            {
+                continue;
+            }
+            self.vignettes_by_id.insert(vignette.id, vignette);
+            match (vignette.person_id, vignette.event_id) {
+                (Some(person), None) => self
+                    .crops_by_person
+                    .entry(person)
+                    .or_default()
+                    .push(vignette),
+                (_, Some(event)) => self.crops_by_event.entry(event).or_default().push(vignette),
+                (None, None) => {}
+            }
+        }
+        for crops in self
+            .crops_by_person
+            .values_mut()
+            .chain(self.crops_by_event.values_mut())
+        {
+            crops.sort_by_key(|vignette| vignette.id);
+        }
+    }
+
+    /// The `OBJE` link of a crop: the page it cuts out, with the `CROP` of
+    /// its rectangle and, beneath an event, the person it identifies as an
+    /// `_OXIDGENE_PERSON` pointer. `None` when the vignette cannot be written.
+    fn crop_link(&self, vignette: &Vignette, with_person: bool) -> Option<MultimediaLink> {
+        let object = *self.xrefs.media.get(&vignette.media_id)?;
+        let crop = Crop {
+            top: Some(u32::try_from(vignette.y).ok()?),
+            left: Some(u32::try_from(vignette.x).ok()?),
+            height: Some(u32::try_from(vignette.height).ok()?),
+            width: Some(u32::try_from(vignette.width).ok()?),
+            ..Default::default()
+        };
+        let person = match (with_person, vignette.person_id) {
+            (true, Some(person_id)) => Some(*self.xrefs.person.get(&person_id)?),
+            _ => None,
+        };
+        let extra: Vec<Node> = person
+            .map(|xref| Node {
+                payload: Value::Pointer(xref),
+                ..Node::new(self.person_tag)
+            })
+            .into_iter()
+            .collect();
+        Some(MultimediaLink {
+            object: Some(object),
+            crop: Some(Box::new(crop)),
+            extra: extra.into(),
+            ..Default::default()
+        })
+    }
+
+    /// The crop links beneath an event, in vignette id order.
+    fn event_crops(&self, event_id: Uuid) -> Vec<MultimediaLink> {
+        self.crops_by_event
+            .get(&event_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|vignette| self.crop_link(vignette, true))
+            .collect()
+    }
 }
 
 impl ExportIndex<'_> {
@@ -1199,31 +1306,47 @@ impl ExportIndex<'_> {
         (events, ordinances)
     }
 
-    /// A person's multimedia links, portrait first.
+    /// A person's multimedia links: the portrait first, then the whole
+    /// pictures, then the other crops.
     ///
     /// GEDCOM has no primary-photo flag, so the choice cannot be stated —
     /// but it can be *implied*, because order survives and our own import
-    /// takes a person's first picture when no portrait is recorded. Writing
-    /// the portrait first is therefore what carries the choice across a
-    /// round trip; without it the person kept every photograph and came back
-    /// represented by whichever one happened to be written first.
-    ///
-    /// A crop portrait has no whole media to lead with, so those trees fall
-    /// back to the first picture as before: GEDCOM cannot express a region
-    /// of an image as somebody's portrait at all.
+    /// takes a person's first picture as the portrait. Writing the portrait
+    /// first is therefore what carries the choice across a round trip. A
+    /// crop portrait is written first too, as a `CROP` beneath the link; if
+    /// it names an event, it is also written beneath that event.
     fn portrait_first_multimedia(&self, person: &Person) -> Vec<MultimediaLink> {
-        let Some(mls) = self.mlinks_by_person.get(&person.id) else {
-            return Vec::new();
-        };
-        let mut ordered: Vec<&&MediaLink> = mls.iter().collect();
-        ordered.sort_by_key(|ml| {
+        let portrait = person
+            .portrait_vignette_id
+            .and_then(|id| self.vignettes_by_id.get(&id).copied())
+            .filter(|vignette| vignette.person_id == Some(person.id));
+        let mut whole: Vec<&&MediaLink> = self
+            .mlinks_by_person
+            .get(&person.id)
+            .into_iter()
+            .flatten()
+            .collect();
+        whole.sort_by_key(|ml| {
             (
                 person.portrait_media_id != Some(ml.media_id),
                 ml.sort_order,
                 ml.id,
             )
         });
-        self.multimedia_refs(ordered.into_iter().copied())
+        let mut links: Vec<MultimediaLink> = portrait
+            .and_then(|vignette| self.crop_link(vignette, false))
+            .into_iter()
+            .collect();
+        links.extend(self.multimedia_refs(whole.into_iter().copied()));
+        links.extend(
+            self.crops_by_person
+                .get(&person.id)
+                .into_iter()
+                .flatten()
+                .filter(|vignette| portrait.is_none_or(|p| p.id != vignette.id))
+                .filter_map(|vignette| self.crop_link(vignette, false)),
+        );
+        links
     }
 
     /// A source's `REPO` citations: one per repository link, with its call
@@ -1465,7 +1588,8 @@ impl ExportIndex<'_> {
         let has_media = self
             .mlinks_by_event
             .get(&evt.id)
-            .is_some_and(|links| !links.is_empty());
+            .is_some_and(|links| !links.is_empty())
+            || self.crops_by_event.contains_key(&evt.id);
         let kind = ordinance_written_as(evt, has_media)?;
         let mut ordinance = Ordinance::new(kind);
         ordinance.date = event_date(evt);
@@ -1499,13 +1623,14 @@ impl ExportIndex<'_> {
             ..GedEvent::default()
         };
         let notes: Vec<GedNote> = self.all_notes(self.notes_by_event.get(&evt.id));
-        let multimedia = self.multimedia_refs(
+        let mut multimedia = self.multimedia_refs(
             self.mlinks_by_event
                 .get(&evt.id)
                 .into_iter()
                 .flatten()
                 .copied(),
         );
+        multimedia.extend(self.event_crops(evt.id));
         let associations = self
             .assoc_by_event
             .get(&evt.id)
@@ -1574,7 +1699,9 @@ fn extension(tag: TagId, value: String) -> Node {
 /// The OxidGene extensions written beneath each page's `OBJE` record, by
 /// page id: `_OXIDGENE_MEDIA` (what the page says about itself),
 /// `_OXIDGENE_DOC` (the document it belongs to) and one `_OXIDGENE_VIGNETTE`
-/// per person identified on it.
+/// per crop that names neither a person nor an event. The attributed crops
+/// are written as `CROP`s beneath their links instead (see
+/// [`ExportIndex::crop_link`]).
 fn media_extensions(
     store: &mut Store,
     media: &[Media],
@@ -1584,7 +1711,6 @@ fn media_extensions(
     let media_tag = store.intern_tag(MEDIA_TAG);
     let document_tag = store.intern_tag(DOCUMENT_TAG);
     let vignette_tag = store.intern_tag(VIGNETTE_TAG);
-    let store: &Store = store;
     let mut warnings = Vec::new();
     let mut by_media = HashMap::<Uuid, Vec<Node>>::new();
     let ExportIndex {
@@ -1700,38 +1826,100 @@ fn media_extensions(
     }
 
     for vignette in vignettes {
-        if !xrefs.media.contains_key(&vignette.media_id) {
-            warnings.push(format!(
-                "Vignette {} references media {} which is not part of this export",
-                vignette.id, vignette.media_id
-            ));
+        if let Some(problem) =
+            vignette_problem(vignette, xrefs, &index.media_by_id, &index.written_events)
+        {
+            warnings.push(format!("Vignette {} {problem}", vignette.id));
             continue;
         }
-        let person = match vignette.person_id {
-            Some(person_id) => {
-                let Some(person) = xrefs.person.get(&person_id) else {
-                    warnings.push(format!(
-                        "Vignette {} references person {} who is not part of this export",
-                        vignette.id, person_id
-                    ));
-                    continue;
-                };
-                store.xref(*person)
-            }
-            None => "-",
-        };
+        // An attributed crop is a `CROP` beneath its link, not this record.
+        if vignette.person_id.is_some() || vignette.event_id.is_some() {
+            continue;
+        }
         by_media
             .entry(vignette.media_id)
             .or_default()
             .push(extension(
                 vignette_tag,
                 format!(
-                    "{person} {} {} {} {}",
+                    "{} {} {} {}",
                     vignette.x, vignette.y, vignette.width, vignette.height
                 ),
             ));
     }
     (by_media, warnings)
+}
+
+/// The events that are written, beneath a person or a family.
+fn written_events(events: &[Event]) -> HashSet<Uuid> {
+    events
+        .iter()
+        .filter(|evt| evt.person_id.is_some() || evt.family_id.is_some())
+        .map(|evt| evt.id)
+        .collect()
+}
+
+/// The events that have media: a link to one, or a crop beneath it that can
+/// be written. An ordinance with media is written as a generic event.
+fn linked_events(
+    media_links: &[MediaLink],
+    vignettes: &[Vignette],
+    xrefs: &Xrefs,
+    media_by_id: &HashMap<Uuid, &Media>,
+    written_events: &HashSet<Uuid>,
+) -> HashSet<Uuid> {
+    let linked_by_crop = vignettes
+        .iter()
+        .filter(|v| vignette_problem(v, xrefs, media_by_id, written_events).is_none())
+        .filter_map(|v| v.event_id);
+    media_links
+        .iter()
+        .filter_map(|ml| ml.event_id)
+        .chain(linked_by_crop)
+        .collect()
+}
+
+/// Why a vignette cannot be written, if it cannot: its page, person and event
+/// must be part of the export, and its rectangle must be one GEDCOM can state.
+fn vignette_problem(
+    vignette: &Vignette,
+    xrefs: &Xrefs,
+    media_by_id: &HashMap<Uuid, &Media>,
+    written_events: &HashSet<Uuid>,
+) -> Option<String> {
+    if !xrefs.media.contains_key(&vignette.media_id) {
+        return Some(format!(
+            "references media {} which is not part of this export",
+            vignette.media_id
+        ));
+    }
+    if media_by_id
+        .get(&vignette.media_id)
+        .is_some_and(|media| media.is_document())
+    {
+        return Some(format!(
+            "refers to document {} rather than to a page",
+            vignette.media_id
+        ));
+    }
+    if let Some(person_id) = vignette.person_id
+        && !xrefs.person.contains_key(&person_id)
+    {
+        return Some(format!(
+            "references person {person_id} who is not part of this export"
+        ));
+    }
+    if let Some(event_id) = vignette.event_id
+        && !written_events.contains(&event_id)
+    {
+        return Some(format!(
+            "references event {event_id} which is not part of this export"
+        ));
+    }
+    if vignette.x < 0 || vignette.y < 0 || vignette.width <= 0 || vignette.height <= 0 {
+        return Some("has a crop rectangle that GEDCOM cannot state".to_owned());
+    }
+    None
 }
 
 /// Where a media's bytes live inside a GEDZIP, if we hold any.
@@ -3105,12 +3293,12 @@ mod tests {
             },
         )
         .expect("exports");
-        // The value opens with the person's xref, whose leading `@` GEDCOM
-        // 7.0 doubles, and which the import reads back as one.
+        // Attributed to the person, the crop is a standard CROP beneath the
+        // link to the page.
         assert!(
             export
                 .gedcom
-                .contains("1 _OXIDGENE_VIGNETTE @@I1@ 120 45 64 82\n"),
+                .contains("1 OBJE @M1@\n2 CROP\n3 TOP 45\n3 LEFT 120\n3 HEIGHT 82\n3 WIDTH 64\n"),
             "{}",
             export.gedcom
         );

@@ -4,7 +4,7 @@ use chrono::Utc;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use oxidgene_core::types::{Note, Person, PersonName};
+use oxidgene_core::types::{MediaLink, Note, Person, PersonName, Vignette};
 use oxidgene_core::{EventType, NameType, Privacy, Sex};
 use oxidgene_gedcom::export::{
     DEFAULT_DESTINATION, ExportChoices, ExportOptions, ExportRecords, ExportTarget,
@@ -4176,6 +4176,7 @@ fn a_gedzip_declares_oxidgenes_extensions() {
         "_OXIDGENE_MEDIA",
         "_OXIDGENE_DOC",
         "_OXIDGENE_VIGNETTE",
+        "_OXIDGENE_PERSON",
         "_OXIDGENE_OBJE",
         "_OXIDGENE_POS",
     ] {
@@ -4775,4 +4776,458 @@ fn a_shared_note_nobody_points_at_is_kept_as_a_record() {
         "a note the choices leave out is not written:\n{}",
         export.gedcom
     );
+}
+
+// ── Crops: identifications as GEDCOM's standard CROP ────────────────────
+
+/// Two people, a birth and two pictures, anonymized: the first person is born
+/// in the file, and the pictures are a group photograph and another scan.
+const CROP_TREE: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 SEX M
+1 BIRT
+2 DATE 1850
+0 @I2@ INDI
+1 NAME Beta /Sample/
+1 SEX F
+0 @M1@ OBJE
+1 FILE group.jpg
+2 FORM jpg
+0 @M2@ OBJE
+1 FILE other.jpg
+2 FORM jpg
+0 TRLR
+";
+
+/// The page of the picture `file` in `result`.
+fn page_named(result: &oxidgene_gedcom::ImportResult, file: &str) -> Uuid {
+    result
+        .media
+        .iter()
+        .find(|m| !m.is_document() && m.file_name == file)
+        .unwrap_or_else(|| panic!("page {file} missing"))
+        .id
+}
+
+fn person_named(result: &oxidgene_gedcom::ImportResult, given: &str) -> Uuid {
+    result
+        .person_names
+        .iter()
+        .find(|n| n.given_names.as_deref() == Some(given))
+        .unwrap_or_else(|| panic!("person {given} missing"))
+        .person_id
+}
+
+fn given_name(result: &oxidgene_gedcom::ImportResult, person_id: Uuid) -> String {
+    result
+        .person_names
+        .iter()
+        .find(|n| n.person_id == person_id)
+        .and_then(|n| n.given_names.clone())
+        .unwrap_or_default()
+}
+
+/// Each identification as one line: its page's file, its rectangle, the
+/// person and the event it names. Sorted, so that order does not matter.
+fn identifications(result: &oxidgene_gedcom::ImportResult) -> Vec<String> {
+    let mut lines: Vec<String> = result
+        .vignettes
+        .iter()
+        .map(|vignette| {
+            let file = result
+                .media
+                .iter()
+                .find(|m| m.id == vignette.media_id)
+                .map_or("?", |m| m.file_name.as_str());
+            let person = vignette
+                .person_id
+                .map_or("-".to_owned(), |id| given_name(result, id));
+            let event = vignette
+                .event_id
+                .and_then(|id| result.events.iter().find(|e| e.id == id))
+                .map_or("-".to_owned(), |e| format!("{:?}", e.event_type));
+            format!(
+                "{file} {} {} {} {} {person} {event}",
+                vignette.x, vignette.y, vignette.width, vignette.height
+            )
+        })
+        .collect();
+    lines.sort();
+    lines
+}
+
+/// Each person with a portrait, and whether it is a whole picture or a crop.
+fn portraits(result: &oxidgene_gedcom::ImportResult) -> Vec<String> {
+    let mut lines: Vec<String> = result
+        .persons
+        .iter()
+        .filter_map(|person| {
+            let kind = if person.portrait_vignette_id.is_some() {
+                "crop"
+            } else if person.portrait_media_id.is_some() {
+                "whole"
+            } else {
+                return None;
+            };
+            Some(format!("{} {kind}", given_name(result, person.id)))
+        })
+        .collect();
+    lines.sort();
+    lines
+}
+
+/// [`CROP_TREE`] with every kind of identification: a person's, an event's,
+/// both at once, neither, and a portrait cut from the group photograph. Beta
+/// is portrayed by the crop; Alpha by the whole of the other scan, which
+/// their crops follow.
+fn tree_with_every_crop() -> oxidgene_gedcom::ImportResult {
+    let mut tree = import_gedcom(CROP_TREE, Uuid::now_v7()).expect("imports");
+    let alpha = person_named(&tree, "Alpha");
+    let beta = person_named(&tree, "Beta");
+    let birth = event_of(&tree, EventType::Birth).id;
+    let group = page_named(&tree, "group.jpg");
+    let other = page_named(&tree, "other.jpg");
+    let other_document = tree
+        .media
+        .iter()
+        .find(|m| {
+            m.is_document()
+                && Some(m.id)
+                    == tree
+                        .media
+                        .iter()
+                        .find(|p| p.id == other)
+                        .and_then(|p| p.parent_media_id)
+        })
+        .expect("the document of the other scan")
+        .id;
+    let now = Utc::now();
+    let vignette = |media_id, (x, y, width, height), person_id, event_id| Vignette {
+        id: Uuid::now_v7(),
+        media_id,
+        x,
+        y,
+        width,
+        height,
+        person_id,
+        event_id,
+        created_at: now,
+        updated_at: now,
+    };
+    let portrait = vignette(group, (7, 8, 9, 10), Some(beta), None);
+    let other_whole = MediaLink {
+        id: Uuid::now_v7(),
+        media_id: other_document,
+        person_id: Some(alpha),
+        event_id: None,
+        source_id: None,
+        family_id: None,
+        sort_order: 0,
+    };
+    for person in &mut tree.persons {
+        if person.id == beta {
+            person.portrait_vignette_id = Some(portrait.id);
+        }
+        if person.id == alpha {
+            person.portrait_media_id = Some(other_document);
+        }
+    }
+    tree.media_links.push(other_whole);
+    tree.vignettes.extend([
+        vignette(group, (120, 45, 64, 82), Some(alpha), None),
+        vignette(other, (10, 20, 30, 40), None, Some(birth)),
+        vignette(other, (5, 6, 70, 80), Some(alpha), Some(birth)),
+        vignette(other, (1, 2, 3, 4), None, None),
+        portrait,
+    ]);
+    tree
+}
+
+/// The export of `tree` as GEDCOM 7.0, with default options otherwise.
+fn export_70(tree: &oxidgene_gedcom::ImportResult) -> String {
+    export_gedcom(
+        &tree.records(),
+        &ExportOptions {
+            choices: ExportChoices {
+                destination: destination("generic-70").expect("the 7.0 destination"),
+                ..ExportChoices::default()
+            },
+            target: ExportTarget::Gedcom,
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports")
+    .gedcom
+}
+
+/// Every identification is written as the standard `CROP` beneath the link
+/// to its page (5.5.1 writes it as `_CROP`, which the standard lacks there),
+/// the person of an event's crop as an `_OXIDGENE_PERSON` pointer, and the
+/// crop without a person or an event beneath the page's `OBJE` record.
+#[test]
+fn identifications_are_written_as_crops_beneath_their_links() {
+    let mut tree = tree_with_every_crop();
+    let (ged, gdz, _) = both_exports(&mut tree, true);
+    let v70 = export_70(&tree);
+
+    assert!(
+        ged.gedcom.contains("\n2 _CROP\n3 TOP 45\n"),
+        "{}",
+        ged.gedcom
+    );
+    assert!(v70.contains("\n2 CROP\n3 TOP 45\n"), "{v70}");
+    assert!(
+        gdz.gedcom.contains("\n2 CROP\n3 TOP 45\n"),
+        "{}",
+        gdz.gedcom
+    );
+    assert!(
+        ged.gedcom.contains("\n3 _OXIDGENE_PERSON @I1@\n"),
+        "{}",
+        ged.gedcom
+    );
+    assert!(
+        gdz.gedcom.contains("\n3 _OXIDGENE_PERSON @I1@\n"),
+        "{}",
+        gdz.gedcom
+    );
+    assert!(
+        ged.gedcom.contains("\n1 _OXIDGENE_VIGNETTE 1 2 3 4\n"),
+        "{}",
+        ged.gedcom
+    );
+    assert!(
+        !ged.gedcom.contains("_OXIDGENE_VIGNETTE @"),
+        "the person field of the old extension is gone: {}",
+        ged.gedcom
+    );
+}
+
+/// Every kind of identification comes back as it was, from 5.5.1, from 7.0
+/// and from a GEDZIP holding its pictures or only naming them.
+#[test]
+fn identifications_read_back_identically_from_each_format() {
+    for held in [true, false] {
+        let mut tree = tree_with_every_crop();
+        let expected = identifications(&tree);
+        let expected_portraits = portraits(&tree);
+        let (ged, gdz, archive) = both_exports(&mut tree, held);
+        let v70 = export_70(&tree);
+        if !held {
+            assert!(
+                gdz.gedcom.contains("\n2 CROP\n") && gdz.gedcom.contains("_OXIDGENE_OBJE"),
+                "unheld pictures are kept links, crop and all: {}",
+                gdz.gedcom
+            );
+        }
+
+        let from_551 = import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("5.5.1 imports");
+        let from_70 = import_gedcom(&v70, Uuid::now_v7()).expect("7.0 imports");
+        let from_gdz = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
+            .expect("GEDZIP imports")
+            .result;
+
+        for (name, back) in [
+            ("5.5.1", &from_551),
+            ("7.0", &from_70),
+            ("GEDZIP", &from_gdz),
+        ] {
+            assert_eq!(identifications(back), expected, "{name}, held: {held}");
+            assert_eq!(portraits(back), expected_portraits, "{name}, held: {held}");
+            assert!(back.warnings.is_empty(), "{name}: {:?}", back.warnings);
+        }
+    }
+}
+
+/// A crop portrait is the person's `portrait_vignette_id` in each format.
+#[test]
+fn a_crop_portrait_reads_back_as_the_portrait_in_each_format() {
+    let mut tree = tree_with_every_crop();
+    let (ged, _, archive) = both_exports(&mut tree, true);
+    let v70 = export_70(&tree);
+    let results = [
+        import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("5.5.1 imports"),
+        import_gedcom(&v70, Uuid::now_v7()).expect("7.0 imports"),
+        oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
+            .expect("GEDZIP imports")
+            .result,
+    ];
+    for (name, back) in ["5.5.1", "7.0", "GEDZIP"].iter().zip(&results) {
+        let beta = back
+            .persons
+            .iter()
+            .find(|p| given_name(back, p.id) == "Beta")
+            .expect("Beta came back");
+        let portrait = beta
+            .portrait_vignette_id
+            .unwrap_or_else(|| panic!("{name}: no portrait crop"));
+        let vignette = back
+            .vignettes
+            .iter()
+            .find(|v| v.id == portrait)
+            .expect("the portrait is an identification");
+        assert_eq!(
+            (vignette.x, vignette.y, vignette.width, vignette.height),
+            (7, 8, 9, 10),
+            "{name}"
+        );
+        assert_eq!(beta.portrait_media_id, None, "{name}");
+    }
+}
+
+/// A `CROP` another program writes is an identification, and the first `OBJE`
+/// of a person decides the portrait: a crop there makes it a crop, a whole
+/// picture a whole picture.
+#[test]
+fn a_crop_written_by_other_software_is_an_identification_and_the_first_picture_is_the_portrait() {
+    const CROP_FIRST: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Gamma /Sample/
+1 OBJE @M1@
+2 CROP
+3 TOP 10
+3 LEFT 20
+3 HEIGHT 30
+3 WIDTH 40
+0 @M1@ OBJE
+1 FILE group.jpg
+2 FORM image/jpeg
+0 TRLR
+";
+    let imported = import_gedcom(CROP_FIRST, Uuid::now_v7()).expect("imports");
+    assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
+    assert!(imported.media_links.is_empty(), "a crop is not a link");
+    let vignette = &imported.vignettes[0];
+    assert_eq!(
+        (vignette.x, vignette.y, vignette.width, vignette.height),
+        (20, 10, 40, 30),
+        "LEFT and TOP are the origin, WIDTH and HEIGHT the size"
+    );
+    assert_eq!(vignette.person_id, Some(imported.persons[0].id));
+    assert_eq!(vignette.event_id, None);
+    assert_eq!(
+        imported.persons[0].portrait_vignette_id,
+        Some(vignette.id),
+        "the first picture is the portrait"
+    );
+
+    let whole_first = CROP_FIRST
+        .replace("1 OBJE @M1@\n2 CROP", "1 OBJE @M2@\n1 OBJE @M1@\n2 CROP")
+        .replace(
+            "0 TRLR\n",
+            "0 @M2@ OBJE\n1 FILE other.jpg\n2 FORM image/jpeg\n0 TRLR\n",
+        );
+    let imported = import_gedcom(&whole_first, Uuid::now_v7()).expect("imports");
+    assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
+    assert_eq!(
+        imported.persons[0].portrait_media_id,
+        imported.media_links.first().map(|link| link.media_id),
+        "the whole picture written first is the portrait"
+    );
+    assert_eq!(imported.persons[0].portrait_vignette_id, None);
+}
+
+/// A crop with no WIDTH on a picture whose size is unknown names no
+/// rectangle: the link stays the whole picture, with a warning, and its crop
+/// is kept, so that the export writes it back.
+#[test]
+fn a_crop_naming_no_width_on_an_unsized_picture_is_kept_as_written() {
+    const NO_WIDTH: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Delta /Sample/
+1 OBJE @M1@
+2 CROP
+3 TOP 10
+3 LEFT 20
+3 HEIGHT 30
+0 @M1@ OBJE
+1 FILE group.jpg
+2 FORM image/jpeg
+0 TRLR
+";
+    let imported = import_gedcom(NO_WIDTH, Uuid::now_v7()).expect("imports");
+    assert!(imported.vignettes.is_empty(), "no rectangle can be named");
+    assert_eq!(imported.media_links.len(), 1, "the whole picture is linked");
+    assert!(
+        imported.warnings.iter().any(|w| w.contains("WIDTH")),
+        "{:?}",
+        imported.warnings
+    );
+    let exported = export_70(&imported);
+    assert!(
+        exported.contains("\n2 CROP\n3 TOP 10\n3 LEFT 20\n3 HEIGHT 30\n"),
+        "the kept crop is written back: {exported}"
+    );
+}
+
+/// A crop beneath a person and the same crop beneath one of that person's
+/// events are one identification, which carries the event.
+#[test]
+fn a_crop_beneath_a_person_and_the_same_crop_beneath_their_event_are_one_identification() {
+    const SAME_CROP: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 7.0
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 OBJE @M1@
+2 CROP
+3 TOP 1
+3 LEFT 2
+3 HEIGHT 30
+3 WIDTH 40
+1 BIRT
+2 DATE 1850
+2 OBJE @M1@
+3 CROP
+4 TOP 1
+4 LEFT 2
+4 HEIGHT 30
+4 WIDTH 40
+3 _OXIDGENE_PERSON @I1@
+0 @M1@ OBJE
+1 FILE group.jpg
+2 FORM image/jpeg
+0 TRLR
+";
+    let imported = import_gedcom(SAME_CROP, Uuid::now_v7()).expect("imports");
+    assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
+    let vignette = &imported.vignettes[0];
+    let birth = event_of(&imported, EventType::Birth).id;
+    assert_eq!(vignette.event_id, Some(birth));
+    assert_eq!(vignette.person_id, Some(imported.persons[0].id));
+    assert_eq!(imported.persons[0].portrait_vignette_id, Some(vignette.id));
+}
+
+/// Export, import and export again give the same text for a tree with every
+/// kind of identification.
+#[test]
+fn identifications_export_idempotently() {
+    let tree = tree_with_every_crop();
+    // The header names the producer that wrote the file read, so it is left out.
+    let without_header = |text: &str| {
+        text.find("\n0 @")
+            .map_or(String::new(), |i| text[i..].to_owned())
+    };
+    let first = reexport(&tree);
+    let again = reexport(&import_gedcom(&first, Uuid::now_v7()).expect("imports"));
+    assert_eq!(without_header(&first), without_header(&again));
+    let first_70 = export_70(&tree);
+    let again_70 = export_70(&import_gedcom(&first_70, Uuid::now_v7()).expect("imports"));
+    assert_eq!(without_header(&first_70), without_header(&again_70));
 }
