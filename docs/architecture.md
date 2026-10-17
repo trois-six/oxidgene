@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-15T19:18:04Z }
+generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
 ---
 
 
@@ -473,7 +473,8 @@ but authenticated session storage is not implemented yet.
 
 ### 8.2 Desktop Distribution
 
-- Single binary per platform (Windows, Linux, macOS).
+- Single binary per platform (Windows, Linux, macOS); on macOS, universal
+    and wrapped in an `OxidGene.app` bundle.
 - Built via `cargo build --release` with appropriate target.
 - No external runtime dependencies (SQLite embedded, WebView from system).
 - The same binary serves MCP clients over stdio through its `mcp`

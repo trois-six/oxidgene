@@ -293,6 +293,12 @@ build-desktop-release:
 build-desktop-win64-release:
     cargo xwin build --target x86_64-pc-windows-msvc --release --package oxidgene-desktop
 
+# Build the universal macOS application and its disk image (on macOS), as the release does
+build-desktop-macos-app:
+    rustup target add aarch64-apple-darwin x86_64-apple-darwin
+    MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked --release --package oxidgene-desktop --target aarch64-apple-darwin --target x86_64-apple-darwin
+    scripts/macos-app.sh target/oxidgene-desktop-macos-universal.dmg target/aarch64-apple-darwin/release/oxidgene-desktop target/x86_64-apple-darwin/release/oxidgene-desktop
+
 # Generate documentation
 doc:
     cargo doc --workspace --no-deps --open

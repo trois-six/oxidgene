@@ -46,10 +46,10 @@
 //!   is a no-op stub on this backend (see `wry::web_context`), so cookies,
 //!   DOM storage, and HSTS are all managed by WebKit's own
 //!   `WKWebsiteDataStore::defaultDataStore()`, entirely outside
-//!   `webview/`. In a properly bundled `.app` this is still
-//!   namespaced per-app via `CFBundleIdentifier`; there is currently no
-//!   macOS bundle/`Info.plist` in this repo, so that namespacing isn't
-//!   wired up yet. Revisit when macOS packaging is added — wry's
+//!   `webview/`. WebKit namespaces that store by the bundle's
+//!   `CFBundleIdentifier`, `io.github.trois-six.oxidgene` in the released
+//!   `OxidGene.app` (`scripts/macos-app.sh`); a bare binary run from
+//!   `target/` has none, so its store is not the application's. wry's
 //!   `with_data_store_identifier` (macOS >= 14) is the closest available
 //!   knob, though it's an opaque store ID rather than a directory.
 

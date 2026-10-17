@@ -1,1 +1,31 @@
-32512 ICON "icon.ico"
+// The executable's resources. build.rs fills in the @NAME@ placeholders and
+// compiles the result from OUT_DIR, so the icon is named by its full path.
+
+// IDI_APPLICATION: Explorer's icon, and the one Dioxus's default_icon() loads.
+32512 ICON "@ICON@"
+
+// The version information Explorer's Details tab shows. Code signing checks
+// the product name and version (docs/development.md, Release Automation).
+1 VERSIONINFO
+FILEVERSION @VERSION_NUMBERS@
+PRODUCTVERSION @VERSION_NUMBERS@
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "OxidGene"
+            VALUE "FileVersion", "@VERSION@"
+            VALUE "InternalName", "oxidgene-desktop"
+            VALUE "OriginalFilename", "oxidgene-desktop.exe"
+            VALUE "ProductName", "OxidGene"
+            VALUE "ProductVersion", "@VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

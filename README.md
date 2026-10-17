@@ -82,6 +82,25 @@ workflow. Delivery status and planned work are in the
 The development environment, the `just` recipes, the tests and the guards are
 described in [Development](docs/development.md).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
+The release workflow signs the Windows executable it builds from this
+repository's tagged sources ([Development §6](docs/development.md#6-release-automation)).
+Nothing built elsewhere is signed.
+
+- **Committers and reviewers:** the repository's maintainer, who reviews
+  every contribution from anyone else before it is merged.
+- **Approvers:** the repository's maintainer, who approves each signing
+  request by hand.
+
+**Privacy:** OxidGene transfers no information to any networked system unless
+the user asks it to: opening a cited register on an archive's portal,
+importing a tree from Geneanet, or sending its telemetry to a collector the
+user configures.
+
 ## License
 
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).

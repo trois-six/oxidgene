@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-15T20:56:16Z }
+generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -277,6 +277,13 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [ ] Mirror security behavior and errors across REST and GraphQL.
 - [x] Build and publish versioned desktop binaries for Linux, Windows, and
   macOS from repository tags, with SHA-256 checksums.
+- [x] Publish the macOS desktop as a universal `OxidGene.app`, Apple silicon
+  and Intel, in a disk image ([Development §6](development.md#6-release-automation)).
+- [x] Sign the Windows executable through SignPath at each tagged release,
+  with its product name and version in its resources.
+- [ ] Sign the macOS application with an Apple Developer ID and notarize it,
+  in place of its ad hoc signature, once the project has an Apple developer
+  account.
 - [x] Build and publish versioned OCI images for the static WASM frontend and
   the Axum backend, with immutable tags and documented configuration.
 - [x] Provide a development Docker Compose stack for the frontend, backend, and

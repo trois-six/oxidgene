@@ -179,12 +179,17 @@ jobs:
           path: dist/*.tgz
           if-no-files-found: error
 
+  # A rehearsal builds and packages the desktop too, unsigned; a tag signs the
+  # Windows executable through SignPath once its version is validated.
   desktop:
     name: Build desktop for ${{ matrix.platform }}
-    needs: metadata
+    needs: [gates, metadata]
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.metadata.result != 'failure' }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
+      # SignPath reads the job and downloads the unsigned artifact.
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -216,7 +221,19 @@ jobs:
           shared-key: release-desktop-${{ matrix.platform }}
 
       - name: Build desktop binary
+        if: runner.os != 'macOS'
         run: cargo build --locked --release --package oxidgene-desktop
+
+      # One binary per architecture, joined into a universal one by the
+      # script (`just build-desktop-macos-app`).
+      - name: Build macOS binaries
+        if: runner.os == 'macOS'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --locked --release --package oxidgene-desktop \
+            --target aarch64-apple-darwin --target x86_64-apple-darwin
 
       - name: Package Linux binary
         if: runner.os == 'Linux'
@@ -224,18 +241,57 @@ jobs:
           mkdir -p dist
           tar -C target/release -czf dist/oxidgene-desktop-linux-x86_64.tar.gz oxidgene-desktop
 
-      - name: Package macOS binary
+      - name: Package macOS application
         if: runner.os == 'macOS'
         run: |
-          mkdir -p dist
-          tar -C target/release -czf dist/oxidgene-desktop-macos-x86_64.tar.gz oxidgene-desktop
+          scripts/macos-app.sh dist/oxidgene-desktop-macos-universal.dmg \
+            target/aarch64-apple-darwin/release/oxidgene-desktop \
+            target/x86_64-apple-darwin/release/oxidgene-desktop
+
+      # SignPath signs what this artifact holds, following the project's
+      # artifact configuration and after a manual approval
+      # (docs/development.md §6). The artifact is never published.
+      - name: Upload unsigned Windows executable
+        id: unsigned
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-unsigned
+          path: target/release/oxidgene-desktop.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Windows executable
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: oxidgene
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # Leaves the approver three hours, within the job's six.
+          wait-for-completion-timeout-in-seconds: 10800
+          output-artifact-directory: signed
+          parameters: |
+            version: "${{ needs.metadata.outputs.version }}"
 
       - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          EXE: ${{ startsWith(github.ref, 'refs/tags/v') && 'signed' || 'target/release' }}/oxidgene-desktop.exe
+          SIGNED: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
+          if ($env:SIGNED -eq 'true') {
+            $signature = Get-AuthenticodeSignature $env:EXE
+            if ($signature.Status -ne 'Valid') {
+              throw "the executable is not validly signed: $($signature.Status)"
+            }
+          }
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path target/release/oxidgene-desktop.exe `
+          Compress-Archive -Path $env:EXE `
             -DestinationPath dist/oxidgene-desktop-windows-x86_64.zip
 
       - name: Upload desktop archive
@@ -252,20 +308,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The packaged artifacts only, never the unsigned executable.
       - uses: actions/download-artifact@v8
         with:
           path: dist
+          pattern: "{desktop-*,helm-chart}"
           merge-multiple: true
 
       - name: Generate checksums
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS
 
+      # The code signing policy must be named on the download page.
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: |
+            The Windows executable is signed ([code signing policy](${{ github.server_url }}/${{ github.repository }}#code-signing-policy)). The macOS application is not signed yet: allow its first opening as the [Quickstart](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/quickstart.md#1-download-a-desktop-binary) explains. Verify every download against `SHA256SUMS`.
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag \
+            --notes "$NOTES" \
             --generate-notes \
             --title "OxidGene $GITHUB_REF_NAME"

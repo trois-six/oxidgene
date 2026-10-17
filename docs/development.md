@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-08T12:18:56Z }
+generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
 ---
 
 # Development Environment and Workflows
@@ -192,6 +192,7 @@ client spans and trace headers disabled.
 | `just desktop-openobserve [log_level]` | Run the desktop with direct OTLP/gRPC export to a local OpenObserve instance. |
 | `just build-desktop-release` | Build an optimized desktop release retaining runtime-optional OTLP telemetry support. |
 | `just build-desktop-win64-release` | Cross-compile an optimized Windows X64 desktop release with the WebView2 loader linked into the executable. |
+| `just build-desktop-macos-app` | On macOS, build the universal `OxidGene.app` and its disk image as the release does (§6). |
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running the desktop binary to export native
 desktop logs, spans, and metrics over OTLP/gRPC. The export covers the embedded
@@ -933,11 +934,62 @@ A successful run publishes:
 - `oxidgene-server` and `oxidgene-web` multi-architecture images to GitHub
    Container Registry with immutable version tags and a moving `latest` tag;
 - the OxidGene chart as an OCI artifact under `ghcr.io/trois-six/charts`;
-- native desktop archives for Linux, macOS, and Windows; and
-- a GitHub Release containing the desktop archives, packaged chart, generated
+- the desktop for Linux, macOS, and Windows; and
+- a GitHub Release containing the desktop downloads, packaged chart, generated
    release notes, and `SHA256SUMS`.
 
 Before anything is built or published, the release gates run tiers 1 to 3
 of the guards (§2.8). The release is created only after every platform build
-and publication job has succeeded. Desktop artifacts are currently unsigned portable executables, not
-platform installers.
+and publication job has succeeded. A push to a `release/**` branch builds and
+packages the desktop as well, unsigned, and publishes nothing.
+
+The desktop downloads are portable, not installers:
+
+- **Linux:** the x86-64 executable in a `.tar.gz` archive.
+- **macOS:** `scripts/macos-app.sh` joins the Apple silicon and Intel
+  executables, built for macOS 11, into one universal executable, wraps it in
+  `OxidGene.app` (bundle identifier `io.github.trois-six.oxidgene`, the icon
+  of `assets/desktop/icon.png`), signs the bundle ad hoc, and puts it in a
+  disk image beside a link to Applications. Without an Apple Developer ID
+  signature and Apple's notarization, Gatekeeper asks the user to allow the
+  first opening ([Quickstart §1](quickstart.md#1-download-a-desktop-binary)).
+- **Windows:** the x86-64 executable in a `.zip` archive, signed. Its
+  resources (`assets/desktop/windows.rc`, completed by the crate's
+  `build.rs`) carry the icon and the version information: product name
+  `OxidGene` and the workspace version.
+
+On a tag, the Windows executable is signed through
+[SignPath](https://about.signpath.io) under the SignPath Foundation's free
+certificate for open source projects. The job uploads the unsigned
+executable as a short-lived artifact (`windows-unsigned`, never published),
+submits it with `signpath/github-action-submit-signing-request`, waits up to
+three hours for a maintainer to approve the request in SignPath, then checks
+that the returned executable carries a valid Authenticode signature before
+packaging it. The SignPath side needs:
+
+- the repository connected to SignPath as a trusted build system, with the
+  GitHub Actions connector;
+- a project `oxidgene` with a signing policy `release-signing` that requires
+  manual approval, and an artifact configuration signing the executable at
+  the root of the artifact and enforcing its metadata, the version being the
+  tag's, which the workflow passes:
+
+  ```xml
+  <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+    <parameters>
+      <parameter name="version" required="true" />
+    </parameters>
+    <zip-file>
+      <pe-file path="oxidgene-desktop.exe" product-name="OxidGene" product-version="${version}">
+        <authenticode-sign/>
+      </pe-file>
+    </zip-file>
+  </artifact-configuration>
+  ```
+
+- in the repository's Actions settings, the variable
+  `SIGNPATH_ORGANIZATION_ID` and the secret `SIGNPATH_API_TOKEN` (a CI user's
+  token with submitter rights on the policy).
+
+The SignPath Foundation's terms also require the code signing policy that
+the README publishes, linked from each release's notes.

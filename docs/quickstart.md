@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-08T12:18:56Z }
+generated: { by: human:maintainer, at: 2026-10-17T14:01:50Z }
 ---
 
 # OxidGene Quickstart
@@ -61,11 +61,25 @@ When releases are available:
 3. Verify the published checksum before running the artifact.
 4. Follow that release's platform-specific installation notes.
 
-Linux and macOS x86-64 downloads are `.tar.gz` archives; the Windows x86-64
-download is a `.zip` archive. Every release includes `SHA256SUMS`. These are
-currently unsigned portable executables rather than platform installers. Do
-not download binaries presented as official OxidGene releases from another
-location.
+| Platform | Download | Contents |
+|---|---|---|
+| Linux x86-64 | `oxidgene-desktop-linux-x86_64.tar.gz` | The executable |
+| macOS 11 or later, Apple silicon and Intel | `oxidgene-desktop-macos-universal.dmg` | `OxidGene.app`, to drag into Applications |
+| Windows x86-64 | `oxidgene-desktop-windows-x86_64.zip` | The executable, signed |
+
+Every release includes `SHA256SUMS`. These are portable executables, not
+installers. Do not download binaries presented as official OxidGene releases
+from another location.
+
+The Windows executable carries a signature ([code signing
+policy](https://github.com/trois-six/oxidgene#code-signing-policy)). Windows
+SmartScreen may still warn about it while the release is new: choose
+**More info**, then **Run anyway**.
+
+The macOS application is not signed with an Apple Developer ID yet, so macOS
+refuses its first opening. Open it once, close the warning, then open
+**System Settings → Privacy & Security** and choose **Open Anyway** beside
+OxidGene's entry; macOS asks for confirmation and remembers the choice.
 
 ## 2. Build the desktop application
 
@@ -111,9 +125,9 @@ Without `just`:
 cargo build --locked --release --package oxidgene-desktop
 ```
 
-On Windows, run `target\release\oxidgene-desktop.exe`. Platform application
-bundles and installers are future release deliverables; this command currently
-produces the native executable.
+On Windows, run `target\release\oxidgene-desktop.exe`. On macOS,
+`just build-desktop-macos-app` also builds the application and disk image the
+release publishes, under `target/`.
 
 ### Collect desktop telemetry
 

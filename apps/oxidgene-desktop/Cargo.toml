@@ -16,7 +16,8 @@ default = ["telemetry"]
 telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telemetry-context", "oxidgene-ui/telemetry-client"]
 
 # Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
-# Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up.
+# Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up,
+# with the version information code signing checks (build.rs).
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3.0"
 
