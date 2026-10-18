@@ -13,20 +13,20 @@
   },
   "binaries": {
     "desktop": {
-      "bytes": 43564976,
-      "crates": 518
+      "bytes": 48598584,
+      "crates": 523
     },
     "server": {
-      "bytes": 32437448,
-      "crates": 376
+      "bytes": 36986952,
+      "crates": 386
     },
     "worker": {
-      "bytes": 15447304,
-      "crates": 377
+      "bytes": 18089128,
+      "crates": 387
     },
     "web": {
-      "bytes": 8282244,
-      "crates": 199
+      "bytes": 14233300,
+      "crates": 200
     }
   }
 }
