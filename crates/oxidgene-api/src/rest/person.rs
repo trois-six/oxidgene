@@ -189,13 +189,18 @@ pub async fn get_kinship(
 /// Server-side free-text person search: accent-folded multi-word matching
 /// against the `person_search_fts` table. Returns a `SearchResult` with
 /// display-ready entries and a total count. An empty or missing `q` lists
-/// all persons sorted by name (browse mode).
+/// all persons sorted by name (browse mode). A repeated `tag` parameter, a
+/// tag id, keeps the persons carrying every one of the tags given.
 pub async fn search_persons(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonSearchQuery>,
-    Query(filters): Query<PersonSearchFilters>,
+    Query(mut filters): Query<PersonSearchFilters>,
+    Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<SearchResult>, ApiError> {
+    // The repeated `tag` parameter names the tags a person must carry; the
+    // struct above takes no sequence from a query string.
+    filters.tags = crate::rest::dto::tag_ids(pairs)?;
     let results = state
         .profiles
         .search_filtered(

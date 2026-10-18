@@ -21,6 +21,7 @@ impl MigrationTrait for Migration {
         create_sources(manager).await?;
         create_media(manager).await?;
         create_notes_and_vignettes(manager).await?;
+        create_tags(manager).await?;
         create_gedcom_kept(manager).await?;
         create_jobs_and_search(manager).await?;
         create_traversal_indexes(manager).await?;
@@ -63,7 +64,8 @@ impl MigrationTrait for Migration {
             PersonDenorm::Table.into_table_ref(),
             SosaAncestor::Table.into_table_ref(),
             SosaState::Table.into_table_ref(),
-            MediaTag::Table.into_table_ref(),
+            RecordTag::Table.into_table_ref(),
+            Tag::Table.into_table_ref(),
             GedcomKept::Table.into_table_ref(),
             Vignette::Table.into_table_ref(),
             Note::Table.into_table_ref(),
@@ -419,11 +421,32 @@ enum Vignette {
 }
 
 #[derive(DeriveIden)]
-enum MediaTag {
+enum Tag {
     Table,
+    Id,
+    TreeId,
+    Label,
+    NormalizedLabel,
+    Color,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum RecordTag {
+    Table,
+    Id,
+    TreeId,
+    TagId,
+    PersonId,
+    FamilyId,
+    EventId,
+    PlaceId,
+    SourceId,
+    CitationId,
+    RepositoryId,
     MediaId,
-    NormalizedTag,
-    Tag,
+    NoteId,
     CreatedAt,
 }
 
@@ -1500,31 +1523,178 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
             .await?;
     }
 
-    // 16. media_tag (FK → media)
+    Ok(())
+}
+
+/// The tree's tags and the records they are put on (docs/tags.md §2).
+///
+/// `record_tag` has one nullable foreign key per kind of record and a `CHECK`
+/// that exactly one of them is set, so a link can never name a missing record
+/// nor two at once. Each kind has a partial unique index on `(tag_id, column)`,
+/// so a tag is put on a record once, and an index on the column, so a
+/// record's tags are one index range.
+async fn create_tags(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_table(
             Table::create()
-                .table(MediaTag::Table)
+                .table(Tag::Table)
                 .if_not_exists()
-                .col(uuid(MediaTag::MediaId))
-                .col(string(MediaTag::NormalizedTag))
-                .col(string(MediaTag::Tag))
-                .col(timestamp_with_time_zone(MediaTag::CreatedAt))
-                .primary_key(
-                    Index::create()
-                        .col(MediaTag::MediaId)
-                        .col(MediaTag::NormalizedTag),
-                )
+                .col(uuid(Tag::Id).primary_key())
+                .col(uuid(Tag::TreeId))
+                .col(string_len(Tag::Label, 80))
+                .col(string(Tag::NormalizedLabel))
+                .col(ColumnDef::new(Tag::Color).small_integer().not_null())
+                .col(timestamp_with_time_zone(Tag::CreatedAt))
+                .col(timestamp_with_time_zone(Tag::UpdatedAt))
                 .foreign_key(
                     ForeignKey::create()
-                        .name("fk_media_tag_media")
-                        .from(MediaTag::Table, MediaTag::MediaId)
-                        .to(Media::Table, Media::Id)
+                        .name("fk_tag_tree")
+                        .from(Tag::Table, Tag::TreeId)
+                        .to(Tree::Table, Tree::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
         )
         .await?;
+    // One spelling per folded label within a tree.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_tag_tree_normalized_label")
+                .table(Tag::Table)
+                .col(Tag::TreeId)
+                .col(Tag::NormalizedLabel)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    // The target of `record_tag`'s composite foreign key: a link can only name
+    // a tag of its own tree.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_tag_id_tree")
+                .table(Tag::Table)
+                .col(Tag::Id)
+                .col(Tag::TreeId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+
+    let mut table = Table::create();
+    table
+        .table(RecordTag::Table)
+        .if_not_exists()
+        .col(uuid(RecordTag::Id).primary_key())
+        .col(uuid(RecordTag::TreeId))
+        .col(uuid(RecordTag::TagId))
+        .col(uuid_null(RecordTag::PersonId))
+        .col(uuid_null(RecordTag::FamilyId))
+        .col(uuid_null(RecordTag::EventId))
+        .col(uuid_null(RecordTag::PlaceId))
+        .col(uuid_null(RecordTag::SourceId))
+        .col(uuid_null(RecordTag::CitationId))
+        .col(uuid_null(RecordTag::RepositoryId))
+        .col(uuid_null(RecordTag::MediaId))
+        .col(uuid_null(RecordTag::NoteId))
+        .col(timestamp_with_time_zone(RecordTag::CreatedAt))
+        .check(Expr::cust(
+            "(CASE WHEN person_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN family_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN event_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN place_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN source_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN citation_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN repository_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN media_id IS NULL THEN 0 ELSE 1 END \
+             + CASE WHEN note_id IS NULL THEN 0 ELSE 1 END) = 1",
+        ))
+        .foreign_key(
+            ForeignKey::create()
+                .name("fk_record_tag_tree")
+                .from(RecordTag::Table, RecordTag::TreeId)
+                .to(Tree::Table, Tree::Id)
+                .on_delete(ForeignKeyAction::Cascade),
+        )
+        // Composite, so a link's tag belongs to the link's tree.
+        .foreign_key(
+            ForeignKey::create()
+                .name("fk_record_tag_tag")
+                .from(RecordTag::Table, (RecordTag::TagId, RecordTag::TreeId))
+                .to(Tag::Table, (Tag::Id, Tag::TreeId))
+                .on_delete(ForeignKeyAction::Cascade),
+        );
+    for (column, name) in [
+        (RecordTag::PersonId, "person"),
+        (RecordTag::FamilyId, "family"),
+        (RecordTag::EventId, "event"),
+        (RecordTag::PlaceId, "place"),
+        (RecordTag::SourceId, "source"),
+        (RecordTag::CitationId, "citation"),
+        (RecordTag::RepositoryId, "repository"),
+        (RecordTag::MediaId, "media"),
+        (RecordTag::NoteId, "note"),
+    ] {
+        table.foreign_key(
+            ForeignKey::create()
+                .name(format!("fk_record_tag_{name}"))
+                .from(RecordTag::Table, column)
+                .to(Alias::new(name), Alias::new("id"))
+                .on_delete(ForeignKeyAction::Cascade),
+        );
+    }
+    manager.create_table(table.to_owned()).await?;
+
+    for (name, column) in [
+        ("idx_record_tag_tree_id", RecordTag::TreeId),
+        ("idx_record_tag_tag_id", RecordTag::TagId),
+    ] {
+        manager
+            .create_index(
+                Index::create()
+                    .name(name)
+                    .table(RecordTag::Table)
+                    .col(column)
+                    .to_owned(),
+            )
+            .await?;
+    }
+    for name in [
+        "person",
+        "family",
+        "event",
+        "place",
+        "source",
+        "citation",
+        "repository",
+        "media",
+        "note",
+    ] {
+        let column = Alias::new(format!("{name}_id"));
+        // Adding one tag twice to one record is a no-op.
+        manager
+            .create_index(
+                Index::create()
+                    .name(format!("uq_record_tag_{name}"))
+                    .table(RecordTag::Table)
+                    .col(RecordTag::TagId)
+                    .col(column.clone())
+                    .unique()
+                    .and_where(Expr::col(column.clone()).is_not_null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name(format!("idx_record_tag_{name}_id"))
+                    .table(RecordTag::Table)
+                    .col(column)
+                    .to_owned(),
+            )
+            .await?;
+    }
     Ok(())
 }
 

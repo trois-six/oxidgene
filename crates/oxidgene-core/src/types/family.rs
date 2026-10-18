@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{ChildType, Privacy, SpouseRole};
+use crate::types::TagRef;
 
 /// A family unit linking spouses and children.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +14,9 @@ pub struct Family {
     /// enforced when authentication lands — see the roadmap.
     #[serde(default)]
     pub privacy: Privacy,
+    /// The tags the couple carries, sorted by folded label (docs/tags.md §4).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

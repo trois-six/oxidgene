@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-18T13:46:26Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -393,7 +393,7 @@ HapMap genetic map.
 Specified in [Tags](tags.md): one vocabulary per tree, shared by every kind
 of record, replacing the media-only tags.
 
-- [ ] Phase 1: `tag` and `record_tag` replacing `media_tag`; tags on persons,
+- [x] Phase 1: `tag` and `record_tag` replacing `media_tag`; tags on persons,
   couples and media; the shared tag picker, chips and dots; the Dictionary's
   Tags tab; the person-search tag filter; GEDCOM and GEDZIP extensions;
   history; the MCP `list_tags` tool.

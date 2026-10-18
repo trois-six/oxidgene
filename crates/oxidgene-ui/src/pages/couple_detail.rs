@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use oxidgene_core::Sex;
 use oxidgene_core::projection::Pedigree;
-use oxidgene_core::types::{FamilySpouse, Note};
+use oxidgene_core::types::{FamilySpouse, Note, RecordKind, TagRef};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CoupleDetailBundle, MediaWithLink, PersonDetailBundle};
@@ -20,6 +20,7 @@ use crate::components::person_profile::{
     family_section, header_section, media_event_links, notes_section, page_gallery, page_portraits,
     refresh_button, timeline_section, union_line, use_page_pictures, use_tree_resource,
 };
+use crate::components::tags::{TagChips, TagsButton};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
@@ -42,6 +43,8 @@ struct CoupleData {
     /// The family's own media, and the addresses of their pictures.
     media: Vec<MediaWithLink>,
     gallery: crate::api::GallerySources,
+    /// The tags the couple carries.
+    family_tags: Vec<TagRef>,
 }
 
 impl CoupleData {
@@ -67,6 +70,7 @@ impl CoupleData {
             person_notes,
             media: bundle.media,
             gallery: bundle.gallery,
+            family_tags: bundle.family.tags,
         }
     }
 
@@ -318,7 +322,11 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                     unknown: &unknown,
                 };
                 rsx! {
-                    {couple_actions(&i18n, show_edit_couple, refresh)}
+                    {couple_actions(&i18n, show_edit_couple, refresh, CoupleTags {
+                        tree_id: ctx.tree_id,
+                        family_id,
+                        tags: data.family_tags.clone(),
+                    })}
                     {view.spouse_bar()}
                     {view.grid()}
                 }
@@ -442,10 +450,30 @@ fn use_side(
     }
 }
 
-/// The couple's own actions: editing it, and refreshing the page.
-fn couple_actions(i18n: &I18n, mut show_edit: Signal<bool>, mut refresh: Signal<u32>) -> Element {
+/// The couple's tags, and where they are put on.
+struct CoupleTags {
+    tree_id: Uuid,
+    family_id: Uuid,
+    tags: Vec<TagRef>,
+}
+
+/// The couple's own actions: editing it, its tags, and refreshing the page.
+fn couple_actions(
+    i18n: &I18n,
+    mut show_edit: Signal<bool>,
+    mut refresh: Signal<u32>,
+    tags: CoupleTags,
+) -> Element {
     rsx! {
         div { class: "cp-actions",
+            TagsButton {
+                tree_id: tags.tree_id,
+                kind: RecordKind::Family,
+                record_id: tags.family_id,
+                tags: tags.tags.clone(),
+                on_changed: move |()| refresh += 1,
+            }
+            TagChips { tree_id: tags.tree_id.to_string(), tags: tags.tags.clone() }
             button {
                 class: "btn btn-outline pd-header-action-btn",
                 title: i18n.t("couple.edit"),
@@ -568,6 +596,11 @@ impl CoupleView<'_> {
                     .as_ref()
                     .and_then(|photos| photos.get(&profile.person_id).cloned()),
                 self.self_person_id == Some(profile.person_id),
+                profile
+                    .person
+                    .as_ref()
+                    .map(|person| person.tags.clone())
+                    .unwrap_or_default(),
                 self.open_profile(profile.person_id),
             ),
             (Some(_), None) => rsx! {

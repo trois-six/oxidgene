@@ -12,11 +12,14 @@ pub mod import;
 mod keeping;
 pub mod kept;
 
+#[cfg(test)]
+mod tag_tests;
+
 use serde::{Deserialize, Serialize};
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
+    Person, PersonName, Place, Repository, Source, SourceRepository, TagRef, Vignette,
 };
 use oxidgene_core::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
 
@@ -43,6 +46,11 @@ pub struct ImportResult {
     pub media_links: Vec<MediaLink>,
     pub vignettes: Vec<Vignette>,
     pub notes: Vec<Note>,
+    /// The tag vocabulary the file carries: one tag per folded label, its
+    /// first spelling and colour as read first, each with the id the records
+    /// carrying it name in [`Person::tags`], [`Family::tags`] and
+    /// [`Media::tags`] (docs/tags.md §3).
+    pub tags: Vec<TagRef>,
     /// The tree the records were read for.
     pub tree_id: uuid::Uuid,
     /// The submitter the header points at (`HEAD.SUBM`), for the tree's
@@ -224,10 +232,20 @@ pub(crate) struct DocumentMetadataExtension {
     pub privacy: Privacy,
     pub source_media_type: SourceMediaType,
     pub document_category: Option<DocumentCategory>,
-    pub tags: Vec<String>,
     pub place: Option<MediaPlaceExtension>,
     /// Notes about the document as a whole, as distinct from a page transcript.
     pub notes: Vec<MediaNoteExtension>,
+}
+
+/// The value of an `_OXIDGENE_TAG` line: one tag a record carries, as a
+/// versioned JSON value so that each line is whole on its own (docs/tags.md
+/// §3). `color` is the index of the tag's colour slot.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct TagExtension {
+    pub v: u8,
+    pub label: String,
+    pub color: i16,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

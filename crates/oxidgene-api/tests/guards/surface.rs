@@ -14,6 +14,7 @@ pub const NOT_RECORDS: &[&str] = &[
     "record_type",
     "version",
     "tag",
+    "kind",
     "number",
 ];
 
@@ -55,6 +56,8 @@ pub fn record_key(name: &str, path: &str) -> Option<&'static str> {
         "allowed_link_id" | "left_out_media_links" => "media_link_id",
         "entry_id" => "entry_id",
         "record_id" => "record_id",
+        // A tag, or the tag a merge moves its links onto.
+        "tag_id" | "tags" | "into" => "tag_id",
         _ => return None,
     })
 }
@@ -68,6 +71,7 @@ pub fn plain_value(name: &str, schema: &Value) -> String {
         "record_type" => "person".into(),
         "lang" => "en".into(),
         "tag" => "fictitious".into(),
+        "kind" => "person".into(),
         _ => "1".into(),
     }
 }

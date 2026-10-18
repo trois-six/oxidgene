@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-18T12:02:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:28:42Z }
 ---
 
 
@@ -484,7 +484,7 @@ meaning.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media` | List the tree's documents (cursor-paginated), narrowed by the media library filters, each with its `usage_count` — see **Media library** below |
-| `GET` | `/trees/{tree_id}/media/facets` | The values the media library filters can take: `{tags: [{tag, count}], kinds: [{kind, count}], categories: [{category, count}]}` |
+| `GET` | `/trees/{tree_id}/media/facets` | The values the media library filters can take: `{tags: [{id, label, color, count}], kinds: [{kind, count}], categories: [{category, count}]}` |
 | `POST` | `/trees/{tree_id}/media` | Add a page that names a file without holding it — an archive's URL, or a path a GEDCOM mentioned. `document_id` is required: bytes and addresses live on pages, and a page belongs to a document. A page held as an `http(s)` URL may also carry `thumbnail_url`, the `http(s)` address of a small picture of it its server serves, and its pixel size, `width` and `height` together. The GraphQL twin is `uploadMedia` |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
@@ -499,8 +499,6 @@ meaning.
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px). For a PDF it is the scan its first page paints (see **Upload rules**). `404` when none was made — a PDF whose first page paints no image we decode, or a file whose decoding failed — so a gallery can fall back to an icon on the status alone |
 | `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every live page of a document, in one ZIP attachment (`application/zip`, `private, no-store`, `nosniff`). Entries are prefixed `001_`, `002_` in current reading order; padding grows beyond 999 pages so lexical order remains correct. A page held only as an `http(s)` URL contributes a `.url` Internet Shortcut (`[InternetShortcut]` + `URL=`, CRLF, control characters stripped) instead of bytes, so the archive has one entry per page and the address survives the round trip. Empty documents and any other page without stored bytes return `404`; pages are never silently skipped |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata. `width`/`height` are sent together or not at all, and only for a page whose bytes we do not hold — the browser that displayed a remote picture is the only witness to its size, and for our own copy the size is read from the bytes. Recording them re-checks the regions already drawn on that page. `thumbnail_url` sets a remote page's thumbnail address (`null` clears it); repointing `file_path` without one clears it |
-| `POST` | `/trees/{tree_id}/media/{media_id}/tags` | Add one tag (`{tag}`), idempotently by case-insensitive value |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}/tags/{tag}` | Remove one tag, matched like the add (case- and accent-insensitive), without replacing the other tags. `{tag}` is percent-encoded, `/` included |
 | `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
@@ -523,7 +521,7 @@ Its optional filters combine with AND, and `total_count` is counted under them:
 
 | Parameter | Keeps the documents… |
 |---|---|
-| `tag` | carrying this tag, whatever its case, accents or punctuation (matched on the stored normalized key, the tag folded as in [Cross-cutting Rules §3.6](cross-cutting.md)). Repeatable: `tag=a&tag=b` keeps the documents carrying every tag given |
+| `tag` | carrying this tag, named by its id (see **Tags**). Repeatable: `tag=a&tag=b` keeps the documents carrying every tag given |
 | `kind` | with at least one live page of this file kind: `image`, `pdf`, `video`, `audio` or `other`, read from the page's MIME type |
 | `category` | filed under this `document_category` |
 | `name` | whose title or file name, or one of whose pages' file names, contains the text, ignoring case and accents |
@@ -537,20 +535,18 @@ unknown `kind` or `category` is a `400` too. Each node is the document with
 sources it is attached to by media links on it or its pages — crops and
 portraits are not counted. The counts for a page are one grouped query.
 
-`GET .../media/facets` lists every tag carried by a live document, with its
-document count, displayed in the spelling most of those documents carry (ties
-to the first in code-point order) and sorted alphabetically ignoring case and
-accents; every file kind and category held, with theirs, in their declaration
+`GET .../media/facets` lists every tag carried by a live document, as
+`{id, label, color, count}` with its document count, sorted by folded label; every file kind and category held, with theirs, in their declaration
 order. With `tag` (repeatable), the tags are listed and counted among the
 documents carrying every tag given, so a tag cloud offers only the tags that
 still narrow a selection; the kinds and categories always count the whole
 library, and no other listing filter applies.
 
 GraphQL mirrors both: `mediaList(treeId, first, after, filter:
-MediaListFilterInput)` takes the same filters (`tags: [String!]`, `kind`, `category`,
+MediaListFilterInput)` takes the same filters (`tags: [ID!]`, `kind`, `category`,
 `name`, `linkedName`, `eventFrom`, `eventTo`, `addedFrom`, `addedTo`) and puts
 the count on each edge as `usageCount`; a backwards range is a GraphQL error.
-`mediaFacets(treeId, tags: [String!])` returns `{tags {tag count} kinds {kind
+`mediaFacets(treeId, tags: [ID!])` returns `{tags {id label color count} kinds {kind
 count} categories {category count}}`.
 
 **Download capability.** `mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!`
@@ -597,7 +593,7 @@ them once per tile.
 
 **Three kinds of media.** *Stored* — `storage_key` is set, we serve the bytes, there is a thumbnail (for a PDF, when its first page paints a scan) and, on a raster image, crops can be drawn. *Remote* — `file_path` is an `http(s)` URL: recorded, never fetched by us, so no thumbnail of ours and no crop of ours, and the browser goes to the origin directly; `thumbnail_url` may name the small picture the origin serves, which tiles draw. A thumbnail address is accepted only as an `http(s)` URL and only for a page whose `file_path` is one — anywhere else it is a `validation_error`. *Unheld* — a record naming a file nobody uploaded, which is where every GEDCOM import starts. `PUT .../media/{id}` may edit `file_path` for the last two and **refuses it for a stored one**: there `file_path` is the value a GEDCOM export writes back, and repointing it would make the export describe a file we are serving something else for. It refuses a `mime_type` for a stored one too: that type was read from the bytes at upload and is the one they are served as. A remote `mime_type` is guessed from the URL's extension when not given — the only evidence available without fetching, and it decides whether a viewer embeds the file or offers it as a download. A URL with no extension leaves it `application/octet-stream`, which is not read as "not a picture": such a page is still sent as a gallery preview and still drawn in the viewer, because the browser fetching it is the only reader that can identify the bytes.
 
-**A media carries what a fact carries.** `PUT .../media/{id}` takes `title`, `description`, `date_value`, `date_value2`, `date_qualifier`, `calendar`, `place_id`, `source_media_type` and `document_category`, so "a photograph taken around 1890 at Nantes" is written the way a birth around 1890 is. Tags are independent rows, added and removed through their two dedicated endpoints; this prevents one editor's save from overwriting another editor's tag. Labels are trimmed and case-insensitively unique. Multi-page document tags live on the document row, never its pages. GraphQL exposes the same operations as `addMediaTag` and `removeMediaTag`; `GqlMedia.tags` remains the ordered list for reads. `date_sort` is **not** accepted: the server derives it from `calendar` + `date_value`, exactly as for an event. Notes about a document go on `note.media_id` (`POST /notes` with `media_id`, `GET /notes?media_id=`). There is deliberately **no source field** — a media *is* a source document.
+**A media carries what a fact carries.** `PUT .../media/{id}` takes `title`, `description`, `date_value`, `date_value2`, `date_qualifier`, `calendar`, `place_id`, `source_media_type` and `document_category`, so "a photograph taken around 1890 at Nantes" is written the way a birth around 1890 is. Tags are independent links, put on and taken off through the tag endpoints of **Tags**; this prevents one editor's save from overwriting another editor's tag. Labels are trimmed and folded to one tag per tree. Multi-page document tags live on the document, never its pages. `GqlMedia.tags` carries the document's tags, sorted by label. `date_sort` is **not** accepted: the server derives it from `calendar` + `date_value`, exactly as for an event. Notes about a document go on `note.media_id` (`POST /notes` with `media_id`, `GET /notes?media_id=`). There is deliberately **no source field** — a media *is* a source document.
 
 **Two fields for what looks like one question.** `source_media_type` is GEDCOM's `SOURCE_MEDIA_TYPE`, exactly — `photo`, `manuscript`, `tombstone`, `fiche`, `film`, `map`, `newspaper`, `book`, `card`, `magazine`, `audio`, `video`, `electronic`, `other` — and is what an export writes and other genealogy software reads. `document_category` is the distinction GEDCOM cannot draw: a census return, a marriage contract and a conscription register are all `manuscript` to it. Sending a category without a medium also sets the medium that category implies, so a census return exports as `MANUSCRIPT` rather than `OTHER`; sending both keeps both. `document_category` accepts an explicit `null` to unclassify. See [Data Model](data-model.md) (Media).
 
@@ -722,6 +718,28 @@ a link to a person rewrites that person's projection in it — their first
 linked picture is what their card draws when no portrait is chosen — on both
 surfaces.
 
+### Tags
+
+A tag belongs to one tree and is shared by every kind of record; see
+[Tags](tags.md) for the model. `kind` is `person`, `family`, `event`, `place`,
+`source`, `citation`, `repository`, `media` or `note`. A page of a document is
+tagged on the document.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/tags` | The whole vocabulary, sorted by folded label, each tag with `{id, label, color, counts: {persons, families, events, places, sources, citations, repositories, media, notes}}`; answered whole |
+| `POST` | `/trees/{tree_id}/tags` | Create a tag (`{label, color?}`), or return the one its label folds to (`200` instead of `201`) |
+| `PUT` | `/trees/{tree_id}/tags/{tag_id}` | Rename or recolour (`{label?, color?}`). A label folding to another tag's is `409` |
+| `POST` | `/trees/{tree_id}/tags/{tag_id}/merge` | Move every link to `{into}`, dropping those it already has, then delete the tag. Returns `into` |
+| `DELETE` | `/trees/{tree_id}/tags/{tag_id}` | Delete the tag and its links. `204` |
+| `GET` | `/trees/{tree_id}/tags/{tag_id}/records?kind=…&first=…&after=…` | The live records of that kind carrying the tag, cursor-paginated, each as `{id, kind, label, person_id, family_id}` |
+| `PUT` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Put the tag on a record. Idempotent: `204` |
+| `DELETE` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Take the tag off a record. Idempotent: `204` |
+
+GraphQL: `tags(treeId)`, `taggedRecords(treeId, tagId, kind, first, after)`,
+`createTag`, `updateTag`, `mergeTag`, `deleteTag`, `tagRecord` and
+`untagRecord`. `searchPersons` takes `tags: [ID!]`.
+
 ### Notes
 
 | Method | Path | Description |
@@ -840,7 +858,7 @@ its archive is complete.
 | `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`; `subject_id` keeps only the writes about one record |
 | `GET` | `/trees/{tree_id}/audit/{entry_id}` | One `AuditEntry` |
 | `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The states the write replaced, in the order it stored them, each as `{ previous, version }` — `previous` the state replaced, `version` the one that follows it: the state the write produced, or a later one when the record changed since |
-| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**: its live state (`current: true`), then its stored ones. `record_type` is `person`, `place`, `source` or `tree` (whose `record_id` is the tree's own ID). A record that does not exist and has no stored state has none |
+| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**: its live state (`current: true`), then its stored ones. `record_type` is `person`, `place`, `source`, `repository` or `tree` (whose `record_id` is the tree's own ID). A record that does not exist and has no stored state has none |
 | `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}/{version}` | One `RecordVersion`, the current one included; a number past it is `404` |
 | `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it — restoring the state a deletion replaced undeletes it — and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
 
@@ -849,13 +867,15 @@ entity_id, subject, subject_id, label, details, version_count }`. `action` is
 `create`, `update`, `delete`, `merge`, `import`, `export` or `revert`;
 `version_count` is the number of states the write stored; `entity` names the
 kind of row written (`person_name`, `event`,
-`media_tag`, …) and `subject` the record the write is about (`person`,
+`record_tag`, …) and `subject` the record the write is about (`person`,
 `family`, `place`, `source`, `media`, `tree`). `label` is the subject's display
 name when the write happened. `details` carries only what applies: `format`,
-`file_name` and `count` for imports and exports, `event_type` for event writes,
-`version` for a restore, `other_label` for the person a merge absorbed,
-`new_label` for the name a family-name rename gave (the entry's `label`
-keeping the old one).
+`file_name` and `count` for imports and exports, `count` for a tag's merge
+(links moved) and delete (links removed), `event_type` for event writes,
+`version` for a restore, `other_label` for the person a merge absorbed or, on a
+tag merge, the label of the tag kept, `new_label` for the name a family-name
+rename gave (the entry's `label` keeping the old one). A tag merge is a `delete`
+of the absorbed tag.
 
 A `RecordVersion` is `{ id, tree_id, record_type, record_id, version,
 current, deleted, entry, snapshot, labels }`. `id` is the stored state's, or
@@ -1189,7 +1209,7 @@ Person search uses `GET /trees/{tree_id}/persons/search` and returns a paginated
 | Individual | `sex`, `surname`, `given_names`, `occupation`, `birth_from`, `birth_to`, `death_from`, `death_to` |
 | Relations | `spouse_surname`, `spouse_given_names`, `father_surname`, `father_given_names`, `mother_surname`, `mother_given_names` |
 | Events | `place`, `event_type`, `event_from`, `event_to` |
-| Media and ordering | `has_media`, `sort` (`relevance`, `name_asc`, `name_desc`, `birth_asc`, `birth_desc`) |
+| Media, tags and ordering | `has_media`, `tag` (repeatable: a tag id, every one carried), `sort` (`relevance`, `name_asc`, `name_desc`, `birth_asc`, `birth_desc`) |
 
 All supplied filters are combined with AND. Name and free-text matching is
 case- and accent-insensitive, including the `Relations` filters. An empty or
@@ -1395,6 +1415,7 @@ Every other list is one of these documented exceptions:
 | Tree-wide media links (`/media-links` without a filter, `treeMediaLinks`) | One short row per attachment, for an export or an external client's own index |
 | `/portraits` | One short row per person with a portrait |
 | `/gedcom/export-destinations` | The programs an export can be written for, which `oxidged` compiles in: a fixed list the export section draws as one select |
+| `/trees/{tree_id}/tags` (`tags(treeId)`) | The vocabulary, a handful of short rows the picker and the Tags tab filter as the reader types |
 
 Batch reads (`/pedigrees`, `/portrait-images`, `/image-data`,
 `/gallery-bundle`, `/relation-labels`, the reference bundles) take a list of
@@ -1505,7 +1526,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too; on import the first `TEXT` is the citation's text, whether it sits under `DATA` or directly under a described source's `SOUR`, and further `TEXT` lines are kept GEDCOM), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is kept as the OxidGene extension `_OXIDGENE_OBJE`, its path and links with it, which an OxidGene import restores (see [GEDZIP](#gedzip)) |
-| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, tags, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
+| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. Document tags travel as `_OXIDGENE_TAG` lines beneath its first `OBJE`, not in this value; a document with no page has none to carry them, so its tags are not exported and the export warns. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Identifications (vignettes) | Full | Full | A crop is GEDCOM's `CROP` (`TOP`, `LEFT`, `HEIGHT`, `WIDTH`, written `_CROP` in 5.5.1, which has none) beneath the `OBJE` link to its page: beneath the person's record for a crop naming a person, beneath the event for a crop naming an event. An event's crop names its person with an `_OXIDGENE_PERSON` pointer beneath the link, and a crop that is both the person's portrait and an event's is written both ways. A person's first link is their portrait, so a crop portrait is written first. A crop naming neither a person nor an event stays `_OXIDGENE_VIGNETTE` `x y width height` beneath the `OBJE` record of its page. On import an absent `TOP` or `LEFT` is 0, and an absent `WIDTH` or `HEIGHT` runs to the edge of the picture, which needs the picture's recorded size. A crop that names no rectangle OxidGene can hold (a document of several pages, or an edge with no size known) stays a whole-picture link, with a warning, and its `CROP` is kept GEDCOM. A crop beneath a person and the same crop beneath one of that person's events, naming them, are one identification, which carries the event. Software that knows no crops ignores them. |
 | Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `oxidged`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
@@ -1616,9 +1637,10 @@ before.
 ### OxidGene extensions
 
 OxidGene writes three extension tags beneath the `OBJE` record of each page
-it exports, a GEDZIP two more for the media it keeps, and `_OXIDGENE_PERSON`
-beneath the link of an event's crop. Other software may ignore them; an
-OxidGene import reads them back.
+it exports, a GEDZIP two more for the media it keeps, `_OXIDGENE_PERSON`
+beneath the link of an event's crop, and `_OXIDGENE_TAG` beneath the records
+that carry tags. Other software may ignore them; an OxidGene import reads
+them back.
 
 #### `_OXIDGENE_MEDIA`
 
@@ -1663,6 +1685,18 @@ Beneath an `_OXIDGENE_OBJE`, its position, from 0: a record's among the
 the structure holding it. A reader keeps extensions apart from the standard
 structures, and the order says which picture is a person's portrait, so the
 import puts each one back at its position.
+
+#### `_OXIDGENE_TAG`
+
+One tag beneath each `INDI` and `FAM` record that carries tags, and beneath
+the first `OBJE` of a document that carries them. Its value is a versioned
+JSON value, `{"v":1,"label":…,"color":…}`, the label as entered and the
+colour as its index in the tree's palette (0 to 11). Labels that fold alike
+are one tag on import, the first spelling and colour read winning; the line
+is read into the tag vocabulary and is not kept as untyped GEDCOM, so a
+re-export writes each tag once. The tags of other records (events, sources,
+citations, places, repositories, notes) are not written by this version. See
+[Tags](tags.md) for the kinds still to come.
 
 ### Kept GEDCOM
 

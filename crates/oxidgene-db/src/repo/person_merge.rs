@@ -12,13 +12,13 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
 use crate::entities::sea_enums;
 use crate::entities::{
     citation, event, event_witness, family_child, family_spouse, media_link, note, person,
-    person_name, tree, vignette,
+    person_name, record_tag, tree, vignette,
 };
 use crate::repo::db_err;
 use crate::repo::person_distinct::PersonDistinctRepo;
@@ -54,6 +54,7 @@ impl PersonMergeRepo {
         Self::absorb_family_links(db, kept, duplicate).await?;
         Self::absorb_witnesses(db, kept, duplicate).await?;
         Self::absorb_media_links(db, kept, duplicate).await?;
+        Self::absorb_tags(db, kept, duplicate).await?;
 
         repoint(
             db,
@@ -247,6 +248,39 @@ impl PersonMergeRepo {
             }
         }
         Ok(())
+    }
+
+    /// The duplicate's tags move to the kept person; a tag both carry stays
+    /// once.
+    async fn absorb_tags(
+        db: &impl ConnectionTrait,
+        kept: Uuid,
+        duplicate: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        let on_kept: Vec<Uuid> = record_tag::Entity::find()
+            .select_only()
+            .column(record_tag::Column::TagId)
+            .filter(record_tag::Column::PersonId.eq(kept))
+            .into_tuple::<(Uuid,)>()
+            .all(db)
+            .await
+            .map_err(db_err)?
+            .into_iter()
+            .map(|(tag_id,)| tag_id)
+            .collect();
+        record_tag::Entity::delete_many()
+            .filter(record_tag::Column::PersonId.eq(duplicate))
+            .filter(record_tag::Column::TagId.is_in(on_kept))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        repoint(
+            db,
+            record_tag::Entity::update_many().filter(record_tag::Column::PersonId.eq(duplicate)),
+            record_tag::Column::PersonId,
+            kept,
+        )
+        .await
     }
 
     async fn absorb_witnesses(

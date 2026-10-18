@@ -31,6 +31,7 @@
 //! still show the stock orange in a dozen places.
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::fmt;
 use std::sync::{Arc, LazyLock};
 
@@ -255,7 +256,29 @@ theme_tokens! {
     pn_text_muted => "pn-text-muted",
     /// Hovered card background.
     pn_hover_bg => "pn-hover-bg",
+
+    // ── Tags ────────────────────────────────────────────────────────────
+    /// The colour slots a tag takes, `--tag-0` to `--tag-11` (docs/tags.md §6.6).
+    tag_0 => "tag-0",
+    tag_1 => "tag-1",
+    tag_2 => "tag-2",
+    tag_3 => "tag-3",
+    tag_4 => "tag-4",
+    tag_5 => "tag-5",
+    tag_6 => "tag-6",
+    tag_7 => "tag-7",
+    tag_8 => "tag-8",
+    tag_9 => "tag-9",
+    tag_10 => "tag-10",
+    tag_11 => "tag-11",
 }
+
+/// The tag colours a theme without them takes, in slot order. They are
+/// chosen to read on a light card and page; a dark theme declares its own.
+const DEFAULT_TAG_COLORS: [&str; 12] = [
+    "#c0392b", "#d35400", "#b7950b", "#3d8b37", "#138d75", "#2471a3", "#5b4fc4", "#8e44ad",
+    "#c2185b", "#6d4c41", "#546e7a", "#7a9a01",
+];
 
 /// A typeface stack a theme may use. The bundled faces ship with the
 /// application; the others name what the platform already has, so no theme
@@ -626,7 +649,15 @@ fn parse_theme(source: &str, builtin: bool, bases: &[Theme]) -> Result<Theme, Th
                 .ok_or_else(|| ThemeError::UnknownBase(base.clone()))?;
             (base.colors.clone(), base.style)
         }
-        None => (ThemeColors::from_tokens(&file.colors)?, ThemeStyle::DEFAULT),
+        None => {
+            let mut tokens = file.colors.clone();
+            for (slot, hex) in DEFAULT_TAG_COLORS.iter().enumerate() {
+                if let Entry::Vacant(vacant) = tokens.entry(format!("tag-{slot}")) {
+                    vacant.insert(Color::parse(hex)?);
+                }
+            }
+            (ThemeColors::from_tokens(&tokens)?, ThemeStyle::DEFAULT)
+        }
     };
     style.apply(&file.style);
 
@@ -1154,6 +1185,77 @@ mod tests {
             parse_custom_theme(source),
             Err(ThemeError::MissingToken(_))
         ));
+    }
+
+    /// The twelve tag colours of a theme, in slot order.
+    fn tag_colors(colors: &ThemeColors) -> [&str; 12] {
+        [
+            colors.tag_0.as_str(),
+            colors.tag_1.as_str(),
+            colors.tag_2.as_str(),
+            colors.tag_3.as_str(),
+            colors.tag_4.as_str(),
+            colors.tag_5.as_str(),
+            colors.tag_6.as_str(),
+            colors.tag_7.as_str(),
+            colors.tag_8.as_str(),
+            colors.tag_9.as_str(),
+            colors.tag_10.as_str(),
+            colors.tag_11.as_str(),
+        ]
+    }
+
+    /// A colour map that gives every non-tag token of §3.2, plus `extra`.
+    fn colours_without_tags(extra: &str) -> String {
+        let mut entries: Vec<String> = ThemeColors::TOKENS
+            .iter()
+            .filter(|token| !token.starts_with("tag-"))
+            .map(|token| format!(r##""{token}":"#808080""##))
+            .collect();
+        if !extra.is_empty() {
+            entries.push(extra.to_string());
+        }
+        entries.join(",")
+    }
+
+    #[test]
+    fn a_theme_without_a_base_or_tag_colours_takes_the_default_set() {
+        let source = format!(
+            r##"{{"id":"x","name":"X","colors":{{{}}}}}"##,
+            colours_without_tags("")
+        );
+        let theme = parse_custom_theme(&source).expect("tags default");
+        assert_eq!(tag_colors(&theme.colors), DEFAULT_TAG_COLORS);
+    }
+
+    #[test]
+    fn declared_tag_colours_override_the_default_set() {
+        let source = format!(
+            r##"{{"id":"x","name":"X","colors":{{{}}}}}"##,
+            colours_without_tags(r##""tag-3":"#123456""##)
+        );
+        let theme = parse_custom_theme(&source).expect("tag override");
+        let colors = tag_colors(&theme.colors);
+        assert_eq!(colors[3], "#123456");
+        assert_eq!(colors[0], DEFAULT_TAG_COLORS[0]);
+        assert_eq!(colors[11], DEFAULT_TAG_COLORS[11]);
+    }
+
+    #[test]
+    fn a_theme_with_a_base_inherits_the_base_tag_colours() {
+        let dark = builtin_theme("dark").expect("dark theme");
+        let sepia = parse_custom_theme(
+            r##"{"id":"sepia","name":"Sepia","base":"dark","colors":{"orange":"#8a5a2b"}}"##,
+        )
+        .expect("sepia");
+        assert_eq!(tag_colors(&sepia.colors), tag_colors(&dark.colors));
+        assert_ne!(tag_colors(&dark.colors), DEFAULT_TAG_COLORS);
+
+        let light = builtin_theme("light").expect("light theme");
+        let quiet =
+            parse_custom_theme(r##"{"id":"quiet","name":"Quiet","base":"light","colors":{}}"##)
+                .expect("quiet");
+        assert_eq!(tag_colors(&quiet.colors), tag_colors(&light.colors));
     }
 
     #[test]

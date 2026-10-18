@@ -502,16 +502,6 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Mutation.deleteMediaPage"]),
     ),
     (
-        "POST",
-        "/api/v1/trees/{tree_id}/media/{media_id}/tags",
-        Gql(&["Mutation.addMediaTag"]),
-    ),
-    (
-        "DELETE",
-        "/api/v1/trees/{tree_id}/media/{media_id}/tags/{tag}",
-        Gql(&["Mutation.removeMediaTag"]),
-    ),
-    (
         "GET",
         "/api/v1/trees/{tree_id}/media/{media_id}/thumbnail",
         RestOnly(BINARY),
@@ -525,6 +515,42 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "POST",
         "/api/v1/trees/{tree_id}/media/{media_id}/vignettes",
         Gql(&["Mutation.createVignette"]),
+    ),
+    ("GET", "/api/v1/trees/{tree_id}/tags", Gql(&["Query.tags"])),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/tags",
+        Gql(&["Mutation.createTag"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}",
+        Gql(&["Mutation.updateTag"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}",
+        Gql(&["Mutation.deleteTag"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}/merge",
+        Gql(&["Mutation.mergeTag"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}/records",
+        Gql(&["Query.taggedRecords"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}",
+        Gql(&["Mutation.tagRecord"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}",
+        Gql(&["Mutation.untagRecord"]),
     ),
     (
         "GET",

@@ -131,8 +131,10 @@ async function seed(request: APIRequestContext): Promise<Ids> {
         date_value: "1945",
     });
 
-    // Tags for the media library's tag cloud.
+    // Tags for the media library's tag cloud: one vocabulary entry per label,
+    // each put on the documents it describes.
     const media = await json<{ edges: Array<{ node: { id: string; title?: string } }> }>(request, "get", `/trees/${tree.id}/media?first=100`);
+    const tagIds = new Map<string, string>();
     for (const { node } of media.edges) {
         const tags = /register/i.test(node.title ?? "")
             ? ["parish register", "18th century"]
@@ -141,7 +143,15 @@ async function seed(request: APIRequestContext): Promise<Ids> {
               : /wedding/i.test(node.title ?? "")
                 ? ["wedding", "studio portrait"]
                 : ["studio portrait"];
-        for (const tag of tags) await json(request, "post", `/trees/${tree.id}/media/${node.id}/tags`, { tag });
+        for (const label of tags) {
+            let tagId = tagIds.get(label);
+            if (tagId === undefined) {
+                tagId = (await json<{ id: string }>(request, "post", `/trees/${tree.id}/tags`, { label })).id;
+                tagIds.set(label, tagId);
+            }
+            const response = await request.put(`${apiUrl}/api/v1/trees/${tree.id}/tags/${tagId}/records/media/${node.id}`);
+            expect(response.ok(), `put tag ${label} on ${node.id}`).toBeTruthy();
+        }
     }
 
     const other = await json<{ id: string }>(request, "post", "/trees", {

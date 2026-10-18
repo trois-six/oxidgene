@@ -1,4 +1,4 @@
-//! Media writes — documents, their pages, metadata, tags and definitive
+//! Media writes — documents, their pages, metadata and definitive
 //! deletion — and the checks shared by the downloads: the same steps whether
 //! REST or GraphQL asked.
 //!
@@ -14,7 +14,7 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditEntity};
 use oxidgene_core::types::{Media, normalize_mime};
 use oxidgene_core::{Calendar, DateQualifier};
-use oxidgene_db::repo::{MediaLinkRepo, MediaPatch, MediaRepo, MediaTagRepo, PersonRepo};
+use oxidgene_db::repo::{MediaLinkRepo, MediaPatch, MediaRepo, PersonRepo};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -23,7 +23,6 @@ use crate::media::{self, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::event_date;
 use crate::service::history::Change;
-use crate::service::media_library::normalize_tag;
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
@@ -449,60 +448,6 @@ fn dimensions(
             "width and height are sent together or not at all".into(),
         )),
     }
-}
-
-/// Add a tag to media `id` of `tree_id` — to its document when it is a page,
-/// since tags describe documents — without replacing the others. Returns the
-/// tagged document.
-pub async fn add_tag(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    id: Uuid,
-    tag: &str,
-) -> Result<Media, OxidGeneError> {
-    let (tag, normalized) = normalize_tag(tag)
-        .ok_or_else(|| OxidGeneError::Validation("tag must not be empty".into()))?;
-    let txn = begin_tx(db).await?;
-    let document_id = tagged_document(&txn, tree_id, id).await?;
-    MediaTagRepo::create(&txn, document_id, tag, normalized).await?;
-    Change::new(tree_id, AuditAction::Create, AuditEntity::MediaTag, None)
-        .media(document_id)
-        .record_unversioned(&txn)
-        .await?;
-    let document = MediaRepo::get(&txn, document_id).await?;
-    commit_tx(txn).await?;
-    Ok(document)
-}
-
-/// Remove a tag from media `id` of `tree_id` (from its document when it is a
-/// page), leaving the others.
-pub async fn remove_tag(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    id: Uuid,
-    tag: &str,
-) -> Result<(), OxidGeneError> {
-    let (_, normalized) = normalize_tag(tag)
-        .ok_or_else(|| OxidGeneError::Validation("tag must not be empty".into()))?;
-    let txn = begin_tx(db).await?;
-    let document_id = tagged_document(&txn, tree_id, id).await?;
-    MediaTagRepo::delete(&txn, document_id, &normalized).await?;
-    Change::new(tree_id, AuditAction::Delete, AuditEntity::MediaTag, None)
-        .media(document_id)
-        .record_unversioned(&txn)
-        .await?;
-    commit_tx(txn).await
-}
-
-/// The document whose tags a tag write on media `id` of `tree_id` changes.
-async fn tagged_document(
-    db: &impl ConnectionTrait,
-    tree_id: Uuid,
-    id: Uuid,
-) -> Result<Uuid, OxidGeneError> {
-    require_tree_resource(db, tree_id, TreeResource::Media, id).await?;
-    let media = MediaRepo::get(db, id).await?;
-    Ok(media.parent_media_id.unwrap_or(media.id))
 }
 
 /// Set the page order of document `document_id` of `tree_id`. The list must

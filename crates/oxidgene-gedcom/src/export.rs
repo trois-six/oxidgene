@@ -32,14 +32,14 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, GedcomKept, Media, MediaLink,
-    Note, Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
+    Note, Person, PersonName, Place, Repository, Source, SourceRepository, TagRef, Vignette,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
 use crate::keeping;
 use crate::{
     DestinationReport, DocumentExtension, DocumentMetadataExtension, ExportLimit, ExportLoss,
-    ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension,
+    ExportResult, MediaMetadataExtension, MediaNoteExtension, MediaPlaceExtension, TagExtension,
 };
 
 /// Every record of one tree an export writes.
@@ -291,6 +291,7 @@ pub fn export_gedcom(
         notes,
     );
     let person_tag = data.store_mut().intern_tag(PERSON_TAG);
+    let tag_tag = data.store_mut().intern_tag(TAG_TAG);
     // GEDCOM 7.x writes a witness beneath its event; a 5.5.1 file beneath
     // an individual record. A GEDZIP's `gedcom.ged` is 7.0 whatever the
     // destination.
@@ -358,6 +359,7 @@ pub fn export_gedcom(
         crops_by_person: HashMap::new(),
         crops_by_event: HashMap::new(),
         person_tag,
+        tag_tag,
         xrefs,
     };
     index.group_vignettes(vignettes);
@@ -365,6 +367,7 @@ pub fn export_gedcom(
     let (mut extensions, extension_warnings) =
         media_extensions(data.store_mut(), media, vignettes, &index);
     warnings.extend(extension_warnings);
+    warnings.extend(untaggable_documents(media));
 
     data.set_header(Some(gedcom_header(
         index.xrefs.submitter,
@@ -706,13 +709,14 @@ const EXTENSIONS_DOC: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/d
 
 /// OxidGene's own extension tags, each with the anchor of its
 /// documentation, which a GEDCOM 7.0 header declares (`HEAD.SCHMA`).
-const EXTENSION_TAGS: [(&str, &str); 6] = [
+const EXTENSION_TAGS: [(&str, &str); 7] = [
     (MEDIA_TAG, "_oxidgene_media"),
     (DOCUMENT_TAG, "_oxidgene_doc"),
     (VIGNETTE_TAG, "_oxidgene_vignette"),
     (PERSON_TAG, "_oxidgene_person"),
     (KEPT_MEDIA_TAG, "_oxidgene_obje"),
     (POSITION_TAG, "_oxidgene_pos"),
+    (TAG_TAG, "_oxidgene_tag"),
 ];
 
 /// What a page says about itself: see [`MediaMetadataExtension`].
@@ -729,6 +733,8 @@ pub(crate) const KEPT_MEDIA_TAG: &str = "_OXIDGENE_OBJE";
 /// The position of a kept medium among the `OBJE` records, or of a link to
 /// one among the links beside it.
 pub(crate) const POSITION_TAG: &str = "_OXIDGENE_POS";
+/// One tag a person, a couple or a document carries: see [`TagExtension`].
+pub(crate) const TAG_TAG: &str = "_OXIDGENE_TAG";
 
 /// The GEDCOM header naming OxidGene as the producer, and the submitter
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
@@ -937,6 +943,8 @@ struct ExportIndex<'a> {
     crops_by_event: HashMap<Uuid, Vec<&'a Vignette>>,
     /// The interned `_OXIDGENE_PERSON` tag.
     person_tag: TagId,
+    /// The interned `_OXIDGENE_TAG` tag.
+    tag_tag: TagId,
     names_by_person: HashMap<Uuid, Vec<&'a PersonName>>,
     events_by_person: HashMap<Uuid, Vec<&'a Event>>,
     events_by_family: HashMap<Uuid, Vec<&'a Event>>,
@@ -1261,6 +1269,7 @@ impl ExportIndex<'_> {
                 .citations(self.cites_by_person.get(&person.id), warnings)
                 .into(),
             notes: self.all_notes(self.notes_by_person.get(&person.id)),
+            extra: tag_nodes(self.tag_tag, &person.tags).into(),
             ..Default::default()
         };
         let restriction = restriction(person.privacy);
@@ -1434,6 +1443,7 @@ impl ExportIndex<'_> {
                 .citations(self.cites_by_family.get(&fam.id), warnings)
                 .into(),
             notes: self.all_notes(self.notes_by_family.get(&fam.id)),
+            extra: tag_nodes(self.tag_tag, &fam.tags).into(),
             ..Default::default()
         };
         let restriction = restriction(fam.privacy);
@@ -1696,6 +1706,45 @@ fn extension(tag: TagId, value: String) -> Node {
     }
 }
 
+/// One `_OXIDGENE_TAG` line per tag, beneath the record carrying them
+/// (docs/tags.md §3).
+fn tag_nodes(tag: TagId, tags: &[TagRef]) -> Vec<Node> {
+    tags.iter()
+        .filter_map(|tag_ref| {
+            let value = serde_json::to_string(&TagExtension {
+                v: 1,
+                label: tag_ref.label.clone(),
+                color: tag_ref.color,
+            })
+            .ok()?;
+            Some(extension(tag, value))
+        })
+        .collect()
+}
+
+/// A warning for each tagged document with no page to carry its tags.
+///
+/// A document's tags are written beneath its first page's `OBJE` (see
+/// docs/tags.md §3), and a document holding no page has no `OBJE` to carry
+/// them: they are not exported, and the export says so.
+fn untaggable_documents(media: &[Media]) -> Vec<String> {
+    media
+        .iter()
+        .filter(|m| m.is_document() && !m.tags.is_empty())
+        .filter(|document| {
+            !media
+                .iter()
+                .any(|m| m.parent_media_id == Some(document.id) && m.page_index == 0)
+        })
+        .map(|document| {
+            format!(
+                "Media {} tags are not exported: the document has no page to carry them",
+                document.id
+            )
+        })
+        .collect()
+}
+
 /// The OxidGene extensions written beneath each page's `OBJE` record, by
 /// page id: `_OXIDGENE_MEDIA` (what the page says about itself),
 /// `_OXIDGENE_DOC` (the document it belongs to) and one `_OXIDGENE_VIGNETTE`
@@ -1711,6 +1760,7 @@ fn media_extensions(
     let media_tag = store.intern_tag(MEDIA_TAG);
     let document_tag = store.intern_tag(DOCUMENT_TAG);
     let vignette_tag = store.intern_tag(VIGNETTE_TAG);
+    let tag_tag = store.intern_tag(TAG_TAG);
     let mut warnings = Vec::new();
     let mut by_media = HashMap::<Uuid, Vec<Node>>::new();
     let ExportIndex {
@@ -1796,7 +1846,6 @@ fn media_extensions(
                 privacy: document.privacy,
                 source_media_type: document.source_media_type,
                 document_category: document.document_category,
-                tags: document.tags.clone(),
                 place: document.place_id.and_then(|place_id| {
                     places.get(&place_id).map(|place| MediaPlaceExtension {
                         name: place.name.clone(),
@@ -1822,6 +1871,16 @@ fn media_extensions(
                 "Media {} document metadata could not be serialized: {err}",
                 item.id
             )),
+        }
+
+        // The document's tags ride beneath its first page (docs/tags.md §3).
+        if item.page_index == 0
+            && let Some(document) = media_by_id.get(&document_id)
+        {
+            by_media
+                .entry(item.id)
+                .or_default()
+                .extend(tag_nodes(tag_tag, &document.tags));
         }
     }
 
@@ -2739,6 +2798,7 @@ mod tests {
             privacy: Default::default(),
             portrait_media_id: None,
             portrait_vignette_id: None,
+            tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
@@ -2802,6 +2862,7 @@ mod tests {
             id: Uuid::now_v7(),
             tree_id,
             privacy: Privacy::Public,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -3011,7 +3072,18 @@ mod tests {
         document.privacy = Privacy::Private;
         document.source_media_type = SourceMediaType::Photo;
         document.document_category = Some(DocumentCategory::GroupPhoto);
-        document.tags = vec!["ceremony".to_string(), "outdoors".to_string()];
+        document.tags = vec![
+            TagRef {
+                id: Uuid::now_v7(),
+                label: "ceremony".to_string(),
+                color: 4,
+            },
+            TagRef {
+                id: Uuid::now_v7(),
+                label: "outdoors".to_string(),
+                color: 6,
+            },
+        ];
         document.place_id = Some(place.id);
         page.created_at = document.created_at;
         page.updated_at = document.updated_at;
@@ -3032,7 +3104,12 @@ mod tests {
         assert_eq!(imported.privacy, original.privacy);
         assert_eq!(imported.source_media_type, original.source_media_type);
         assert_eq!(imported.document_category, original.document_category);
-        assert_eq!(imported.tags, original.tags);
+        let spelled = |tags: &[TagRef]| {
+            tags.iter()
+                .map(|tag| (tag.label.clone(), tag.color))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(spelled(&imported.tags), spelled(&original.tags));
     }
 
     /// The imported document's place and note are the exported ones.

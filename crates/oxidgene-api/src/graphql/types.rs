@@ -990,6 +990,8 @@ pub struct GqlPerson {
     pub portrait_media_id: Option<ID>,
     /// The region of a larger image representing them, if it is a crop.
     pub portrait_vignette_id: Option<ID>,
+    /// The tags the person carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1053,6 +1055,7 @@ impl From<oxidgene_core::types::Person> for GqlPerson {
             privacy: p.privacy.into(),
             portrait_media_id: p.portrait_media_id.map(|id| ID(id.to_string())),
             portrait_vignette_id: p.portrait_vignette_id.map(|id| ID(id.to_string())),
+            tags: p.tags.into_iter().map(Into::into).collect(),
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -1127,6 +1130,8 @@ impl From<oxidgene_core::types::PersonName> for GqlPersonName {
 pub struct GqlFamily {
     pub id: ID,
     pub tree_id: ID,
+    /// The tags the couple carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1192,6 +1197,7 @@ impl From<oxidgene_core::types::Family> for GqlFamily {
         Self {
             id: ID(f.id.to_string()),
             tree_id: ID(f.tree_id.to_string()),
+            tags: f.tags.into_iter().map(Into::into).collect(),
             created_at: f.created_at,
             updated_at: f.updated_at,
         }
@@ -1886,7 +1892,7 @@ pub struct GqlMedia {
     /// What kind of record it is; null when unclassified.
     pub document_category: Option<GqlDocumentCategory>,
     /// Free-form labels for this media or document.
-    pub tags: Vec<String>,
+    pub tags: Vec<GqlTagRef>,
     pub place_id: Option<ID>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -1917,7 +1923,7 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             privacy: m.privacy.into(),
             source_media_type: m.source_media_type.into(),
             document_category: m.document_category.map(Into::into),
-            tags: m.tags,
+            tags: m.tags.into_iter().map(Into::into).collect(),
             place_id: m.place_id.map(|id| ID(id.to_string())),
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -2044,11 +2050,32 @@ impl From<MediaListConnection> for GqlMediaConnection {
 
 // ── Media library facets ─────────────────────────────────────────────
 
+/// A tag of the tree's vocabulary, as a record carries it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTagRef {
+    pub id: ID,
+    pub label: String,
+    /// Index of the tag's colour, 0 to 11.
+    pub color: i32,
+}
+
+impl From<oxidgene_core::types::TagRef> for GqlTagRef {
+    fn from(tag: oxidgene_core::types::TagRef) -> Self {
+        Self {
+            id: ID(tag.id.to_string()),
+            label: tag.label,
+            color: i32::from(tag.color),
+        }
+    }
+}
+
 /// A tag and how many documents carry it.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlMediaTagFacet {
-    /// The spelling most of those documents carry.
-    pub tag: String,
+    pub id: ID,
+    pub label: String,
+    /// Index of the tag's colour, 0 to 11.
+    pub color: i32,
     pub count: i64,
 }
 
@@ -2080,9 +2107,14 @@ impl From<crate::service::media_library::MediaFacets> for GqlMediaFacets {
             tags: facets
                 .tags
                 .into_iter()
-                .map(|tag| GqlMediaTagFacet {
-                    tag: tag.tag,
-                    count: tag.count,
+                .map(|facet| {
+                    let tag = GqlTagRef::from(facet.tag);
+                    GqlMediaTagFacet {
+                        id: tag.id,
+                        label: tag.label,
+                        color: tag.color,
+                        count: facet.count,
+                    }
                 })
                 .collect(),
             kinds: facets
@@ -2656,6 +2688,7 @@ pub struct GqlPersonProfile {
     pub families_as_spouse: Vec<GqlProfileFamilyLink>,
     pub family_as_child: Option<GqlProfileChildLink>,
     pub primary_media: Option<GqlProfileMediaRef>,
+    pub tags: Vec<GqlTagRef>,
     pub media_count: i32,
     pub citation_count: i32,
     pub note_count: i32,
@@ -2676,6 +2709,7 @@ pub struct GqlProfileName {
 /// An event summary with its place name resolved (birth, death, etc.).
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlProfileEvent {
+    pub tags: Vec<GqlTagRef>,
     pub event_id: ID,
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
@@ -2748,6 +2782,8 @@ pub struct GqlSearchEntry {
     pub children_count: i32,
     /// Where the row's portrait is drawn from, when the person has one.
     pub portrait: Option<GqlPortraitRef>,
+    /// Tags put on the person, sorted by folded label.
+    pub tags: Vec<GqlTagRef>,
 }
 
 /// One tree's most recently modified persons, from a batch.
@@ -3602,6 +3638,7 @@ impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {
             media_count: p.media_count as i32,
             citation_count: p.citation_count as i32,
             note_count: p.note_count as i32,
+            tags: p.tags.into_iter().map(Into::into).collect(),
             updated_at: p.updated_at,
             built_at: p.built_at,
         }
@@ -3631,6 +3668,7 @@ impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
             place_id: e.place_id.map(|id| ID(id.to_string())),
             description: e.description,
             age: e.age,
+            tags: e.tags.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -3702,6 +3740,7 @@ impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
             mother_name: e.mother_name,
             children_count: e.children_count as i32,
             portrait: e.portrait.map(Into::into),
+            tags: e.tags.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -3888,3 +3927,114 @@ impl From<oxidgene_core::projection::PedigreeDelta> for GqlPedigreeDelta {
         }
     }
 }
+
+// ── Tags ─────────────────────────────────────────────────────────────
+
+/// The kinds of record a tag can be put on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlRecordKind {
+    Person,
+    Family,
+    Event,
+    Place,
+    Source,
+    Citation,
+    Repository,
+    Media,
+    Note,
+}
+
+impl From<oxidgene_core::types::RecordKind> for GqlRecordKind {
+    fn from(kind: oxidgene_core::types::RecordKind) -> Self {
+        use oxidgene_core::types::RecordKind as K;
+        match kind {
+            K::Person => Self::Person,
+            K::Family => Self::Family,
+            K::Event => Self::Event,
+            K::Place => Self::Place,
+            K::Source => Self::Source,
+            K::Citation => Self::Citation,
+            K::Repository => Self::Repository,
+            K::Media => Self::Media,
+            K::Note => Self::Note,
+        }
+    }
+}
+
+/// The live records of each kind carrying a tag.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTagCounts {
+    pub persons: i64,
+    pub families: i64,
+    pub events: i64,
+    pub places: i64,
+    pub sources: i64,
+    pub citations: i64,
+    pub repositories: i64,
+    pub media: i64,
+    pub notes: i64,
+}
+
+/// A tag of the tree's vocabulary, with its counts per record kind.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTag {
+    pub id: ID,
+    pub label: String,
+    /// Index of the tag's colour, 0 to 11.
+    pub color: i32,
+    pub counts: GqlTagCounts,
+}
+
+impl From<oxidgene_db::repo::TagUsage> for GqlTag {
+    fn from(usage: oxidgene_db::repo::TagUsage) -> Self {
+        use oxidgene_core::types::RecordKind as K;
+        let count = |kind| usage.count(kind);
+        Self {
+            id: ID(usage.tag.id.to_string()),
+            label: usage.tag.label.clone(),
+            color: i32::from(usage.tag.color),
+            counts: GqlTagCounts {
+                persons: count(K::Person),
+                families: count(K::Family),
+                events: count(K::Event),
+                places: count(K::Place),
+                sources: count(K::Source),
+                citations: count(K::Citation),
+                repositories: count(K::Repository),
+                media: count(K::Media),
+                notes: count(K::Note),
+            },
+        }
+    }
+}
+
+/// A live record carrying a tag, with a label to show it by.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTaggedRecord {
+    pub id: ID,
+    pub kind: GqlRecordKind,
+    pub label: String,
+    /// For an event, citation or note: the person it belongs to.
+    pub person_id: Option<ID>,
+    /// For an event, citation or note: the family it belongs to.
+    pub family_id: Option<ID>,
+}
+
+impl From<crate::service::tag::TaggedRecord> for GqlTaggedRecord {
+    fn from(record: crate::service::tag::TaggedRecord) -> Self {
+        Self {
+            id: ID(record.id.to_string()),
+            kind: record.kind.into(),
+            label: record.label,
+            person_id: record.person_id.map(|id| ID(id.to_string())),
+            family_id: record.family_id.map(|id| ID(id.to_string())),
+        }
+    }
+}
+
+connection!(
+    GqlTaggedRecordEdge,
+    GqlTaggedRecordConnection,
+    GqlTaggedRecord,
+    crate::service::tag::TaggedRecord
+);

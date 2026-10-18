@@ -257,9 +257,18 @@ impl Builder<'_> {
             json!({ "vignette_id": self.id("vignette_id") }),
         )
         .await;
-        let tags = format!("/media/{document}/tags");
-        self.send(Method::POST, &tags, json!({ "tag": "fictitious" }))
+        // One tag, on the document and on the anchor, so the purge and
+        // cross-tree guards meet tag and record_tag rows.
+        self.create("tag_id", "/tags", json!({ "label": "fictitious" }))
             .await;
+        let tag = self.id("tag_id");
+        for (kind, record) in [
+            ("media", document.as_str()),
+            ("person", self.id("person_id").as_str()),
+        ] {
+            let link = format!("/tags/{tag}/records/{kind}/{record}");
+            self.send(Method::PUT, &link, json!({})).await;
+        }
     }
 
     /// Two edits, so the history holds versions; a completed export job;

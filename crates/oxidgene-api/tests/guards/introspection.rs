@@ -47,6 +47,7 @@ const KINDS: &[(&str, &str)] = &[
     ("Record", "record_id"),
     ("ExportJob", "export_job_id"),
     ("ImportJob", "job_id"),
+    ("Tag", "tag_id"),
 ];
 
 pub fn snake(name: &str) -> String {
@@ -261,6 +262,8 @@ fn scalar_literal(scalar: &str, arg: &str, field: &str, records: &Populated) -> 
         "Int" => "1".into(),
         "Float" => "1.0".into(),
         "Boolean" => "false".into(),
+        // A record kind is spelled as `RecordKind::as_str`, not free text.
+        "String" if arg == "kind" => "\"person\"".into(),
         _ => "\"Fictitious\"".into(),
     })
 }

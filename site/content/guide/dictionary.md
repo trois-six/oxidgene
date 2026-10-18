@@ -10,7 +10,7 @@ The dictionary lists every distinct value entered across a tree — family names
 
 Click the **book icon** (**Dictionary**) in the left icon sidebar of any tree page: the pedigree, a person or couple profile, the statistics. The page opens on the **Family Names** tab.
 
-The tabs along the top are **Family Names**, **Sources**, **Repositories**, **Places**, **Occupations** and **Media**. The **Media** tab is the tree's media library, described in [Media](@/guide/media.md).
+The tabs along the top are **Family Names**, **Sources**, **Repositories**, **Places**, **Occupations**, **Media** and **Tags**. The **Media** tab is the tree's media library, described in [Media](@/guide/media.md). The **Tags** tab lists the tree's tags, described in [Tags](@/guide/tags.md).
 
 If you come back to the dictionary with the back button, it reopens exactly as you left it: same tab, filter, letter, page and open row.
 

@@ -10,7 +10,7 @@ use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
 use crate::service::{
     duplicates, event, family, family_names, media, media_link, person, person_name, place,
-    repository, source, tree, vignette,
+    repository, source, tag, tree, vignette,
 };
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
@@ -20,13 +20,14 @@ use super::history::{GqlAuditEntry, GqlRecordType};
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSourceRepositoryInput, AddSpouseInput,
     CreateCitationInput, CreateEventInput, CreateMediaLinkInput, CreateNoteInput,
-    CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTreeInput,
-    CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput, MergeChoicesInput,
-    PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput, UpdateCitationInput,
-    UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput,
-    UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput, UpdateSourceInput,
-    UpdateSourceRepositoryInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
-    UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
+    CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
+    CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
+    MergeChoicesInput, PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput,
+    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
+    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput,
+    UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput, UpdateTreeInput,
+    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
+    geneanet_media_paths,
 };
 use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
 use super::types::{
@@ -34,8 +35,8 @@ use super::types::{
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
     GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
     GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlRepository, GqlSource,
-    GqlSourceRepository, GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    purge_from_ctx, require_local_file_access,
+    GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
+    profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -74,6 +75,18 @@ where
         MaybeUndefined::Value(v) => Some(v.into()),
         _ => None,
     }
+}
+
+/// A colour index from the input, checked against the palette.
+fn color_input(color: Option<i32>) -> Result<Option<i16>> {
+    color
+        .map(|color| {
+            let color = i16::try_from(color).map_err(|_| {
+                oxidgene_core::OxidGeneError::Validation("a tag colour is 0 to 11".into())
+            })?;
+            Ok(oxidgene_db::repo::checked_color(color)?)
+        })
+        .transpose()
 }
 
 /// The root mutation type.
@@ -979,39 +992,6 @@ impl MutationRoot {
         .await
     }
 
-    /// Atomically add a tag without replacing the media's other tags.
-    async fn add_media_tag(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        id: ID,
-        tag: String,
-    ) -> Result<GqlMedia> {
-        boxed(async move {
-            let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(media::add_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag)
-                .await?
-                .into())
-        })
-        .await
-    }
-
-    /// Atomically remove one tag without replacing the media's other tags.
-    async fn remove_media_tag(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        id: ID,
-        tag: String,
-    ) -> Result<bool> {
-        boxed(async move {
-            let tree_id = live_tree(ctx, &tree_id).await?;
-            media::remove_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag).await?;
-            Ok(true)
-        })
-        .await
-    }
-
     /// Permanently delete media and its associated data.
     ///
     /// With `onlyIfUnreferencedElsewhere`, the supplied gallery link is
@@ -1297,6 +1277,132 @@ impl MutationRoot {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
             note::delete_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            Ok(true)
+        })
+        .await
+    }
+
+    // ── Tag Mutations ─────────────────────────────────────────────────
+
+    /// Create a tag, or return the existing one its label folds to.
+    async fn create_tag(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: CreateTagInput,
+    ) -> Result<GqlTag> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let color = color_input(input.color)?;
+            let (usage, _) = tag::create(db_from_ctx(ctx), tid, &input.label, color).await?;
+            Ok(usage.into())
+        })
+        .await
+    }
+
+    /// Rename and/or recolour a tag. A label folding to another tag's is a
+    /// conflict: merge the two instead.
+    async fn update_tag(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        input: UpdateTagInput,
+    ) -> Result<GqlTag> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            let color = color_input(input.color)?;
+            let usage = tag::update(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+                input.label.as_deref(),
+                color,
+            )
+            .await?;
+            Ok(usage.into())
+        })
+        .await
+    }
+
+    /// Move every link of a tag onto another tag and delete it; returns the
+    /// tag it was merged into.
+    async fn merge_tag(&self, ctx: &Context<'_>, tree_id: ID, id: ID, into: ID) -> Result<GqlTag> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            let into = uuid(&into)?;
+            let usage = tag::merge(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id, into).await?;
+            Ok(usage.into())
+        })
+        .await
+    }
+
+    /// Delete a tag and every link to it.
+    async fn delete_tag(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            tag::delete(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            Ok(true)
+        })
+        .await
+    }
+
+    /// Put a tag on a record. Idempotent; a page of a document is tagged on
+    /// the document.
+    async fn tag_record(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        tag_id: ID,
+        kind: String,
+        record_id: ID,
+    ) -> Result<bool> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let tag_id = uuid(&tag_id)?;
+            let kind = tag::parse_kind(&kind)?;
+            let record_id = uuid(&record_id)?;
+            tag::tag_record(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                tag_id,
+                kind,
+                record_id,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
+    }
+
+    /// Take a tag off a record. Idempotent.
+    async fn untag_record(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        tag_id: ID,
+        kind: String,
+        record_id: ID,
+    ) -> Result<bool> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let tag_id = uuid(&tag_id)?;
+            let kind = tag::parse_kind(&kind)?;
+            let record_id = uuid(&record_id)?;
+            tag::untag_record(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                tag_id,
+                kind,
+                record_id,
+            )
+            .await?;
             Ok(true)
         })
         .await

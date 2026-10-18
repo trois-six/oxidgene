@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
+use crate::types::TagRef;
 
 /// The MIME type a document row carries.
 ///
@@ -91,7 +92,7 @@ pub struct Media {
     /// Free-form labels used to group and find this media. Tags belong to the
     /// document row, not its individual pages.
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub tags: Vec<TagRef>,
     /// Location where the media was created or applies to.
     pub place_id: Option<Uuid>,
     /// Whether this is shown when the tree is published. Recorded now,

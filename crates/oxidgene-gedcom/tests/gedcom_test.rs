@@ -1746,6 +1746,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         privacy: Privacy::Default,
         portrait_media_id: None,
         portrait_vignette_id: None,
+        tags: Vec::new(),
         created_at: now,
         updated_at: now,
         deleted_at: None,

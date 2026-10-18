@@ -40,6 +40,7 @@ const LARGE_TABLES: &[&str] = &[
     "audit_entry",
     "media",
     "media_link",
+    "record_tag",
     "person_denorm",
 ];
 

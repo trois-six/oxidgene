@@ -8,9 +8,17 @@ use dioxus::prelude::*;
 use crate::pages::statistics::Statistics;
 use crate::pages::tools::Tools;
 use crate::pages::{
-    app_settings::AppSettings, couple_detail::CoupleDetail, dictionary::Dictionary, home::Home,
-    kinship::Kinship, not_found::NotFound, person_detail::PersonDetail,
-    person_history::PersonHistory, search_results::SearchResults, settings::Settings,
+    app_settings::AppSettings,
+    couple_detail::CoupleDetail,
+    dictionary::{Dictionary, DictionaryTag},
+    home::Home,
+    kinship::Kinship,
+    media_viewer::Media,
+    not_found::NotFound,
+    person_detail::PersonDetail,
+    person_history::PersonHistory,
+    search_results::SearchResults,
+    settings::Settings,
     tree_detail::TreeDetail,
 };
 
@@ -76,6 +84,15 @@ pub enum Route {
     #[route("/trees/:tree_id/dictionary")]
     Dictionary { tree_id: String },
 
+    /// The Dictionary opened on the Tags tab, unfolded on one tag (a chip or
+    /// a dot elsewhere, docs/tags.md §6.3).
+    #[route("/trees/:tree_id/dictionary/tags/:tag")]
+    DictionaryTag { tree_id: String, tag: String },
+
+    /// One document of a tree, in the media viewer (the Tags tab links to it).
+    #[route("/trees/:tree_id/media/:media_id")]
+    Media { tree_id: String, media_id: String },
+
     /// Statistics page for a tree: heat map of places, charts per period and
     /// notable records.
     #[route("/trees/:tree_id/statistics")]
@@ -115,6 +132,8 @@ impl Route {
             | Route::CoupleDetail { tree_id, .. }
             | Route::Kinship { tree_id, .. }
             | Route::Dictionary { tree_id }
+            | Route::DictionaryTag { tree_id, .. }
+            | Route::Media { tree_id, .. }
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
             | Route::Settings { tree_id } => Some(tree_id),
@@ -133,7 +152,8 @@ impl Route {
             Route::PersonHistory { .. } => "history.breadcrumb",
             Route::CoupleDetail { .. } => "nav_history.page.couple",
             Route::Kinship { .. } => "kinship.breadcrumb",
-            Route::Dictionary { .. } => "dictionary.breadcrumb",
+            Route::Dictionary { .. } | Route::DictionaryTag { .. } => "dictionary.breadcrumb",
+            Route::Media { .. } => "dictionary.tab.media",
             Route::Statistics { .. } => "stats.breadcrumb",
             Route::Tools { .. } => "tools.breadcrumb",
             Route::Settings { .. } => "settings.breadcrumb",
@@ -235,6 +255,14 @@ mod tests {
                 to: String::new(),
             },
             Route::Dictionary { tree_id: tree() },
+            Route::DictionaryTag {
+                tree_id: tree(),
+                tag: "t".into(),
+            },
+            Route::Media {
+                tree_id: tree(),
+                media_id: "m".into(),
+            },
             Route::Statistics { tree_id: tree() },
             Route::Tools { tree_id: tree() },
             Route::Settings { tree_id: tree() },
@@ -259,6 +287,8 @@ mod tests {
             "/trees/t/couples/f",
             "/trees/t/kinship?from=p&to=",
             "/trees/t/dictionary",
+            "/trees/t/dictionary/tags/0195c0de-0000-7000-8000-000000000001",
+            "/trees/t/media/0195c0de-0000-7000-8000-000000000002",
             "/trees/t/statistics",
             "/trees/t/tools",
             "/trees/t/settings",
@@ -271,13 +301,44 @@ mod tests {
         }
     }
 
+    /// A chip or a dot opens the Tags tab of the Dictionary on its tag, and
+    /// the plain Dictionary keeps a URL without a trailing query.
+    #[test]
+    fn the_dictionary_opens_on_a_requested_tag() {
+        let route: Route = "/trees/t/dictionary/tags/0195c0de-0000-7000-8000-000000000001"
+            .parse()
+            .unwrap();
+        assert!(matches!(
+            route,
+            Route::DictionaryTag { ref tree_id, ref tag }
+                if tree_id == "t" && tag == "0195c0de-0000-7000-8000-000000000001"
+        ));
+        let plain: Route = "/trees/t/dictionary".parse().unwrap();
+        assert!(matches!(plain, Route::Dictionary { .. }));
+        assert_eq!(plain.to_string(), "/trees/t/dictionary");
+    }
+
+    /// A document's own route round-trips through its URL.
+    #[test]
+    fn a_document_has_a_route_of_its_own() {
+        let route = Route::Media {
+            tree_id: "t".into(),
+            media_id: "0195c0de-0000-7000-8000-000000000002".into(),
+        };
+        assert_eq!(
+            route.to_string(),
+            "/trees/t/media/0195c0de-0000-7000-8000-000000000002"
+        );
+        assert_eq!(route.to_string().parse::<Route>().unwrap(), route);
+    }
+
     #[test]
     fn only_the_homepage_and_the_application_settings_show_the_navbar() {
         assert!(Route::Home {}.shows_navbar());
         assert!(Route::AppSettings {}.shows_navbar());
         assert!(
             !Route::Dictionary {
-                tree_id: "t".into()
+                tree_id: "t".into(),
             }
             .shows_navbar()
         );

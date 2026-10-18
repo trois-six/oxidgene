@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:33:32Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -215,6 +215,12 @@ keeps every default.
 Without `base`, every token in §3.2 must be given. With it, only the
 differences need listing — which is how `dark` is written, and what keeps an
 existing theme working when a token is added.
+
+The twelve tag colours (`tag-0` to `tag-11`) are the
+exception to the first rule. A theme with a `base` takes its base's set. A
+theme without one that gives none of them takes the default set, which reads
+on a light card and page; a tag colour it does give replaces the default of
+its own slot, and the other slots keep the default.
 
 Colour values are hexadecimal only: `#rgb`, `#rgba`, `#rrggbb` or
 `#rrggbbaa`, and style values are preset names only. A theme file is user
@@ -537,8 +543,8 @@ The canonical gallery owns tiles, viewer opening, edit actions, document
 paging, portraits, and context menus. Pages do not implement alternate media
 grids. A listing of documents that are nobody's gallery — the
 [Dictionary](ui-dictionary.md)'s Media tab — uses the same module's library
-grid: the same tiles, bundle and viewer, the tiles read-only with optional
-footnote lines under the caption. With no attachment to spare, the viewer's
+grid: the same tiles, bundle and viewer, the tiles read-only, with tag dots
+([§4.18](#418-tags-picker-chips-and-dots)) and optional footnote lines under the caption. With no attachment to spare, the viewer's
 delete there only ever removes a document nothing references.
 
 The initial grid loads tile thumbnails, the first four document-page previews
@@ -680,7 +686,7 @@ its fields withheld, which is how a photograph ends up with no date, no place,
 and no kind while the register beside it has all three.
 
 That cell opens `DocumentForm`: the document's own fields — title, description,
-tags, kind of record, physical medium, privacy, date, place, note, and the
+kind of record, physical medium, privacy, date, place, note, and the
 events it documents — followed by the page list, which sits last, immediately
 above Save. The fields describe the document; the pages are the document, and
 assembling them is the last thing done before committing.
@@ -707,9 +713,9 @@ title and description follow the views until the reader writes them.
 Nothing is written until the user saves. Cancelling issues no request, so
 closing the form cannot leave an unnamed empty document attached to somebody.
 Saving creates the document, writes its pages in list order, applies the
-metadata, tags, note, and event links, and attaches the document to its owner
+metadata, note, and event links, and attaches the document to its owner
 last. A failure at any step after creation purges the document — which takes
-its pages, tags, notes, and links with it — so the gallery never shows a
+its pages, notes, and links with it — so the gallery never shows a
 half-written record. Save is refused while the page list is empty.
 
 Every editable gallery is this same one. Person forms and couple forms both
@@ -938,6 +944,34 @@ all (48 pixels by default, 28 on a tree card). A busy button keeps its own
 inline ring in the button's text colour (`.btn-spinner`), which turns with
 the same animation. For a reader who asks for reduced motion it turns three
 times slower.
+
+### 4.18 Tags: picker, chips and dots
+
+One set of components, in `components/tags.rs`, serves every kind of record
+that carries tags ([Tags](tags.md)):
+
+- **TagsButton** is the icon button among a record's header actions, titled
+  and named *Tags…*. It opens the picker beside itself and tells its page to
+  reload the record when a tag changes.
+- **TagPicker** is an overlay anchored on the shared context-menu surface,
+  opened by that button or by a menu entry. It holds a filter field over the
+  tree's vocabulary (folded for case and accents), a `listbox` of checkable
+  options with the record's own tags first, and a create line when no tag
+  folds to the typed text. A checked option is written at once; a failed write
+  unchecks it and shows the translated reason under the field. Arrows move,
+  Space or Enter toggles, Escape closes and returns the focus to what opened
+  the picker.
+- **TagChips** draws a record's tags as chips, a colour dot and a label, in a
+  wrapping row; nothing is drawn for a record without tags. Each chip is a link
+  to the Dictionary's Tags tab on its tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
+  Chips carry no remove control.
+- **TagDots** draws up to three colour dots after a row's text, then `+n`. Each
+  dot is a link to the same place, with the tag's label as its tooltip and
+  accessible name and a visible focus ring. A row that is itself a link places
+  its dots beside the link, since links cannot nest.
+
+Each colour is a theme token, `--tag-0` to `--tag-11`,
+applied through the dot's inline style.
 
 ## 5. Accessibility
 

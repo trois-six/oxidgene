@@ -37,6 +37,7 @@ Survolez une profession ou un prénom dans l’en-tête. Quand OxidGene possède
 Les petits boutons à icône, à droite de l’en-tête (leur nom s’affiche au survol) :
 
 - **Modifier** ouvre le formulaire de la personne : voir [Saisir et modifier les personnes](@/guide/editing.fr.md).
+- **Étiquettes…** ouvre le sélecteur d’étiquettes : cochez celles qui décrivent cette personne. Voir [Étiquettes](@/guide/tags.fr.md).
 - **Fusionner avec…** ouvre l’assistant de fusion, pour réunir une autre fiche de la même personne avec celle-ci. Après la fusion, la page affiche la fiche conservée. Voir [Outils](@/guide/tools.fr.md).
 - **Historique** liste toutes les versions enregistrées de la personne, comparées côte à côte, et permet d’en restaurer une. Voir [Historique](@/guide/history.fr.md).
 

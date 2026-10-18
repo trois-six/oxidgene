@@ -21,7 +21,7 @@
 //!
 //! A save that fails part way deletes the document it had started, so the
 //! gallery never shows a half-written record. Purging a document takes its
-//! pages, tags, notes and links with it, so one call undoes all of it.
+//! pages, notes and links with it, so one call undoes all of it.
 
 use dioxus::prelude::*;
 use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
@@ -33,9 +33,7 @@ use crate::api::{
 };
 use crate::archive_viewer::{ArchiveRegister, ViewPage};
 use crate::components::date_input::{DateInput, DateParts};
-use crate::components::media_gallery::{
-    MediaClassification, MediaEventsChecklist, MediaOwner, MediaTagForm,
-};
+use crate::components::media_gallery::{MediaClassification, MediaEventsChecklist, MediaOwner};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
@@ -247,7 +245,6 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
     });
     let mut title = use_signal(|| draft.title.clone());
     let mut description = use_signal(|| draft.description.clone());
-    let tags = use_signal(Vec::<String>::new);
     let document_category = use_signal(|| draft.category);
     let source_media_type = use_signal(|| draft.medium);
     let privacy = use_signal(Privacy::default);
@@ -299,7 +296,6 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                 medium: source_media_type(),
                 category: document_category(),
                 date: date_parts().resolved(),
-                tags: tags(),
                 event_ids: selected_events(),
                 source_id,
             };
@@ -376,7 +372,6 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                             }
                         }
 
-                        PendingTagsEditor { tags, disabled: busy }
                         MediaClassification {
                             document_category,
                             source_media_type,
@@ -493,56 +488,6 @@ async fn create_document(
         let _ = api.delete_media(tree_id, document.id).await;
     }
     written.map(|()| document.id)
-}
-
-/// The document's tags, each removable, and the form adding one — held
-/// here until the document is written.
-#[component]
-fn PendingTagsEditor(tags: Signal<Vec<String>>, disabled: bool) -> Element {
-    let i18n = use_i18n();
-    let mut show_tag_form = use_signal(|| false);
-    rsx! {
-        div { class: "pf-subblock media-tags-editor",
-            div { class: "pf-block-label",
-                button {
-                    class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                    r#type: "button",
-                    disabled,
-                    onclick: move |_| show_tag_form.toggle(),
-                    {i18n.t("media.add_tag")}
-                }
-            }
-            if show_tag_form() {
-                MediaTagForm {
-                    on_add: move |value: String| {
-                        let known = tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value));
-                        if !value.is_empty() && !known {
-                            show_tag_form.set(false);
-                            tags.write().push(value);
-                        }
-                    },
-                }
-            }
-            if !tags().is_empty() {
-                div { class: "media-fact-tags media-edit-tags",
-                    for (index , tag) in tags().iter().enumerate() {
-                        span { key: "{tag}", class: "media-fact-tag is-editable",
-                            "{tag}"
-                            button {
-                                class: "media-tag-remove",
-                                r#type: "button",
-                                title: i18n.t("common.delete"),
-                                onclick: move |_| {
-                                    tags.write().remove(index);
-                                },
-                                "\u{00D7}"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// The document's pages: moved, retyped when they are addresses, removed,
@@ -884,7 +829,6 @@ struct WriteRequest {
     medium: SourceMediaType,
     category: Option<DocumentCategory>,
     date: DateParts,
-    tags: Vec<String>,
     event_ids: Vec<Uuid>,
     /// The source the document is linked to, if any.
     source_id: Option<Uuid>,
@@ -915,7 +859,6 @@ async fn write_document(
         medium,
         category,
         date,
-        tags,
         event_ids,
         source_id,
     } = request;
@@ -950,12 +893,6 @@ async fn write_document(
     )
     .await
     .map_err(|err| err.to_string())?;
-
-    for tag in tags {
-        api.add_media_tag(tree_id, document_id, tag)
-            .await
-            .map_err(|err| err.to_string())?;
-    }
 
     if !note.is_empty() {
         api.create_note(

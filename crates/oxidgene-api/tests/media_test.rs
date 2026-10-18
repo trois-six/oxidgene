@@ -2371,7 +2371,7 @@ async fn a_media_carries_a_date_with_its_qualifier_and_calendar() {
 }
 
 #[tokio::test]
-async fn media_tags_are_added_and_removed_independently() {
+async fn media_tags_are_put_and_taken_off_independently() {
     let h = setup().await;
     let (_, media) = upload(
         &h.app,
@@ -2381,94 +2381,39 @@ async fn media_tags_are_added_and_removed_independently() {
     .await;
     let media_id = document_of(&media);
 
-    let (status, updated) = send(
-        &h.app,
-        Method::POST,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": " archives " })),
-    )
-    .await;
+    let archives = tag_media(&h, &media_id, " archives ").await;
+    assert_eq!(media_tag_labels(&h, &media_id).await, ["archives"]);
+    let civil = tag_media(&h, &media_id, "Civil record").await;
+    assert_eq!(
+        media_tag_labels(&h, &media_id).await,
+        ["archives", "Civil record"]
+    );
 
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["tags"], json!(["archives"]));
+    // Case folds: "ARCHIVES" is the tag already there, spelled as first entered.
+    assert_eq!(tag_media(&h, &media_id, "ARCHIVES").await, archives);
+    assert_eq!(
+        media_tag_labels(&h, &media_id).await,
+        ["archives", "Civil record"]
+    );
 
-    let (status, updated) = send(
-        &h.app,
-        Method::POST,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": "Civil record" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
+    // Accents fold like case: "Église" and "EGLISE" are one tag.
+    let church = tag_media(&h, &media_id, "Église").await;
+    assert_eq!(tag_media(&h, &media_id, "EGLISE").await, church);
+    assert_eq!(
+        media_tag_labels(&h, &media_id).await,
+        ["archives", "Civil record", "Église"]
+    );
 
-    let (status, updated) = send(
-        &h.app,
-        Method::POST,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": "ARCHIVES" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
-
-    // Accents fold like case: "Église" and "EGLISE" are one tag, spelled as
-    // it was first entered.
-    for tag in ["Église", "EGLISE"] {
-        let (status, updated) = send(
-            &h.app,
-            Method::POST,
-            &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-            Some(json!({ "tag": tag })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{updated}");
-        assert_eq!(
-            updated["tags"],
-            json!(["archives", "Civil record", "Église"])
-        );
-    }
-    // The tag to remove rides in the path, percent-encoded.
-    for tag in ["eglise", "ARCHIVES"] {
-        let (status, _) = send(
-            &h.app,
-            Method::DELETE,
-            &format!("/api/v1/trees/{}/media/{media_id}/tags/{tag}", h.tree_id),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
-    }
-
-    let (status, updated) = send(
-        &h.app,
-        Method::GET,
-        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["tags"], json!(["Civil record"]));
-
-    let (status, _) = send(
-        &h.app,
-        Method::DELETE,
-        &format!(
-            "/api/v1/trees/{}/media/{media_id}/tags/civil%20RECORD",
-            h.tree_id
-        ),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    let (_, updated) = send(
-        &h.app,
-        Method::GET,
-        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
-        None,
-    )
-    .await;
-    assert_eq!(updated["tags"], json!([]));
+    // Taking one tag off leaves the others, and taking it off again is `204`.
+    untag_media(&h, &media_id, &church).await;
+    untag_media(&h, &media_id, &church).await;
+    assert_eq!(
+        media_tag_labels(&h, &media_id).await,
+        ["archives", "Civil record"]
+    );
+    untag_media(&h, &media_id, &archives).await;
+    assert_eq!(media_tag_labels(&h, &media_id).await, ["Civil record"]);
+    assert_ne!(civil, archives);
 }
 
 #[tokio::test]
@@ -3486,14 +3431,79 @@ async fn named_person(h: &Harness, given_names: &str, surname: &str) -> String {
 }
 
 async fn add_tag(h: &Harness, media_id: &str, tag: &str) {
-    let (status, body) = send(
+    tag_media(h, media_id, tag).await;
+}
+
+/// The tag `label` of the tree, created or found, put on the media
+/// `media_id`. Returns the tag's id.
+async fn tag_media(h: &Harness, media_id: &str, label: &str) -> String {
+    let (status, tag) = send(
         &h.app,
         Method::POST,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": tag })),
+        &format!("/api/v1/trees/{}/tags", h.tree_id),
+        Some(json!({ "label": label })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(status.is_success(), "{tag}");
+    let tag_id = tag["id"].as_str().unwrap().to_owned();
+    let (status, body) = send(
+        &h.app,
+        Method::PUT,
+        &format!(
+            "/api/v1/trees/{}/tags/{tag_id}/records/media/{media_id}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    tag_id
+}
+
+/// Take the tag `tag_id` off the media `media_id`.
+async fn untag_media(h: &Harness, media_id: &str, tag_id: &str) {
+    let (status, body) = send(
+        &h.app,
+        Method::DELETE,
+        &format!(
+            "/api/v1/trees/{}/tags/{tag_id}/records/media/{media_id}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+}
+
+/// The id of the tag `label` of the tree, created when it does not exist.
+async fn tag_id(h: &Harness, label: &str) -> String {
+    let (status, tag) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/tags", h.tree_id),
+        Some(json!({ "label": label })),
+    )
+    .await;
+    assert!(status.is_success(), "{tag}");
+    tag["id"].as_str().unwrap().to_owned()
+}
+
+/// The labels of the tags the media carries, in order.
+async fn media_tag_labels(h: &Harness, media_id: &str) -> Vec<String> {
+    let (status, media) = send(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{media}");
+    media["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tag| tag["label"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 async fn link(h: &Harness, body: Value) {
@@ -3639,15 +3649,20 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
     let today = chrono::Utc::now().date_naive();
     let h = setup().await;
     let [census, _, _] = library_fixture(&h).await;
+    let village = tag_id(&h, "Village Alpha").await;
+    let survey = tag_id(&h, "Survey").await;
 
     let all = ["Census sheet", "Écrits de paroisse", "Group photo"];
     assert_eq!(library_titles(&h, "").await, all);
     assert_eq!(
-        library_titles(&h, "tag=VILLAGE%20ALPHA").await,
+        library_titles(&h, &format!("tag={village}")).await,
         all,
-        "a tag matches in any case"
+        "the documents carrying the tag"
     );
-    assert_eq!(library_titles(&h, "tag=survey").await, ["Census sheet"]);
+    assert_eq!(
+        library_titles(&h, &format!("tag={survey}")).await,
+        ["Census sheet"]
+    );
     assert_eq!(library_titles(&h, "kind=pdf").await, ["Écrits de paroisse"]);
     assert_eq!(
         library_titles(&h, "kind=image").await,
@@ -3692,12 +3707,12 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
             .is_empty()
     );
     assert_eq!(
-        library_titles(&h, "tag=village%20alpha&kind=image&linked_name=exemple").await,
+        library_titles(&h, &format!("tag={village}&kind=image&linked_name=exemple")).await,
         ["Group photo"],
         "filters combine with AND"
     );
     assert_eq!(
-        library_titles(&h, "tag=village%20alpha&tag=SURVEY").await,
+        library_titles(&h, &format!("tag={village}&tag={survey}")).await,
         ["Census sheet"],
         "a repeated tag keeps the documents carrying every one"
     );
@@ -3718,10 +3733,7 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
     let (_, page) = send(
         &h.app,
         Method::GET,
-        &format!(
-            "/api/v1/trees/{}/media?first=2&tag=village%20alpha",
-            h.tree_id
-        ),
+        &format!("/api/v1/trees/{}/media?first=2&tag={village}", h.tree_id),
         None,
     )
     .await;
@@ -3735,7 +3747,7 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
         &h.app,
         Method::GET,
         &format!(
-            "/api/v1/trees/{}/media?first=2&tag=village%20alpha&after={after}",
+            "/api/v1/trees/{}/media?first=2&tag={village}&after={after}",
             h.tree_id
         ),
         None,
@@ -3764,12 +3776,9 @@ async fn the_media_facets_count_what_the_tree_holds() {
     .await;
     assert_eq!(status, StatusCode::OK, "{facets}");
     assert_eq!(
-        facets["tags"],
-        json!([
-            { "tag": "Survey", "count": 1 },
-            { "tag": "Village Alpha", "count": 3 },
-        ]),
-        "one entry per tag whatever its spelling, shown as most documents spell it"
+        facet_counts(&facets),
+        [("Survey".to_owned(), 1), ("Village Alpha".to_owned(), 3)],
+        "one entry per tag, shown with its label"
     );
     assert_eq!(
         facets["kinds"],
@@ -3782,26 +3791,47 @@ async fn the_media_facets_count_what_the_tree_holds() {
 
     // With tags selected, the tags are counted among the documents carrying
     // them all, so the cloud offers only what still narrows the selection.
+    let survey = facets["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tag| tag["label"] == "Survey")
+        .expect("the Survey tag")["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let (status, facets) = send(
         &h.app,
         Method::GET,
-        &format!("/api/v1/trees/{}/media/facets?tag=survey", h.tree_id),
+        &format!("/api/v1/trees/{}/media/facets?tag={survey}", h.tree_id),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{facets}");
     assert_eq!(
-        facets["tags"],
-        json!([
-            { "tag": "Survey", "count": 1 },
-            { "tag": "Village Alpha", "count": 1 },
-        ])
+        facet_counts(&facets),
+        [("Survey".to_owned(), 1), ("Village Alpha".to_owned(), 1)]
     );
     assert_eq!(
         facets["kinds"],
         json!([{ "kind": "image", "count": 2 }, { "kind": "pdf", "count": 1 }]),
         "kinds still count the whole library"
     );
+}
+
+/// The `(label, count)` of each tag facet, in order.
+fn facet_counts(facets: &Value) -> Vec<(String, i64)> {
+    facets["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tag| {
+            (
+                tag["label"].as_str().unwrap().to_owned(),
+                tag["count"].as_i64().unwrap(),
+            )
+        })
+        .collect()
 }
 
 // ── Import receipts ─────────────────────────────────────────────────

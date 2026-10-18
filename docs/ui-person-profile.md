@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
+generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
 ---
 
 
@@ -120,6 +120,12 @@ Full-width card at the top of the content area.
 **Name**: surname in uppercase (bold, Cinzel), first name(s) below. If the person has alternate names (married, maiden, alias), they are listed below the primary name in muted text.
 
 **Dates**: birth and death with symbols (* / +), place names included. Calculated age displayed if both dates are known.
+
+**Tags**: a **Tags…** icon button among the header's icon actions opens the
+tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+The person's tags sit in a row of chips under the dates, shown only when the
+person has some; each chip opens the Dictionary's Tags tab on its tag
+([Dictionary §20](ui-dictionary.md#20-tags-tab)).
 
 The dates are written out in full through `format_date`, qualifier included — « vers 1796 », « entre 11 nov. 1691 et 20 août 1693 » — not reduced to a year. Birth falls back to **baptism** and death to **burial** when the primary event carries no date, matching the pedigree card and its side panel; see [Tree View](ui-genealogy-tree.md). The label follows the event actually displayed: a baptism reads « Baptisé(e) le » rather than « Né(e) le », and a burial reads « Inhumé(e) le » rather than « Décédé(e) le ».
 

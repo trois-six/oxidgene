@@ -8,6 +8,7 @@ use super::*;
 
 fn birth(value: &str, sort: (i32, u32, u32), place: Option<&str>) -> ProfileEvent {
     ProfileEvent {
+        tags: Vec::new(),
         event_id: Uuid::now_v7(),
         event_type: EventType::Birth,
         date_value: Some(value.to_string()),
@@ -24,6 +25,7 @@ fn birth(value: &str, sort: (i32, u32, u32), place: Option<&str>) -> ProfileEven
 
 fn person(given: &str, surname: &str, sex: Sex) -> PersonProfile {
     PersonProfile {
+        tags: Vec::new(),
         person_id: Uuid::now_v7(),
         tree_id: Uuid::nil(),
         sex,

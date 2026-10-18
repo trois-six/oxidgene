@@ -20,7 +20,7 @@ Vous pouvez ajouter un document depuis plusieurs endroits ; tous ouvrent le mêm
 
 Ensuite :
 
-1. Renseignez ce qui décrit le document : **Titre**, **Description**, **Étiquettes** (**Ajouter une étiquette**), **Type de document**, **Support physique**, **Confidentialité**, **Date**, **Lieu** et **Note**. Tout est facultatif. Choisir un type de document (par exemple **État civil**, **Registre paroissial**, **Recensement**, **Portrait** ou **Photo de groupe**) renseigne aussi le support physique, sauf si vous l’avez choisi vous-même.
+1. Renseignez ce qui décrit le document : **Titre**, **Description**, **Type de document**, **Support physique**, **Confidentialité**, **Date**, **Lieu** et **Note**. Tout est facultatif. Choisir un type de document (par exemple **État civil**, **Registre paroissial**, **Recensement**, **Portrait** ou **Photo de groupe**) renseigne aussi le support physique, sauf si vous l’avez choisi vous-même.
 2. Sous **Documente ces événements**, cochez les événements que le document prouve.
 3. Sous **Pages**, ajoutez les fichiers : cliquez sur **Sélectionner des fichiers** ou déposez des fichiers sur la case, une image par page dans l’ordre de lecture. Pour utiliser un fichier hébergé sur un autre site, cliquez sur **Lier une adresse** et collez son URL : OxidGene enregistre l’adresse et ne télécharge jamais le fichier.
 4. Réordonnez les pages avec **Déplacer avant** et **Déplacer après**, ou retirez-en une avec **Retirer de ce document**.
@@ -78,7 +78,7 @@ Pour parcourir tous les documents d’un arbre, ouvrez le **Dictionnaire** depui
 
 Chaque filtre actif apparaît sous forme de pastille : cliquez dessus pour le retirer, ou sur **Effacer tous les filtres**. Sous chaque vignette, la légende donne le type de document et son usage, « Lié à 3 fiches » ou « Non lié ».
 
-Cliquez sur une vignette pour ouvrir la visionneuse, où vous pouvez modifier les informations et les étiquettes du document. Depuis la médiathèque, un document ne peut être supprimé que si plus rien ne le référence.
+Cliquez sur une vignette pour ouvrir la visionneuse, où vous pouvez modifier les informations du document. Ses étiquettes se choisissent avec **Étiquettes…**, depuis le menu de la visionneuse ou celui de la vignette ; voir [Étiquettes](@/guide/tags.fr.md). Depuis la médiathèque, un document ne peut être supprimé que si plus rien ne le référence.
 
 La page [Dictionnaire](@/guide/dictionary.fr.md) décrit les autres onglets.
 

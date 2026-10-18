@@ -241,6 +241,7 @@ mod tests {
 
     fn event(event_type: EventType, date: Option<&str>) -> ProfileEvent {
         ProfileEvent {
+            tags: Vec::new(),
             event_id: Uuid::now_v7(),
             event_type,
             date_value: date.map(str::to_string),
@@ -258,6 +259,7 @@ mod tests {
 
     fn person(given: &str, sex: Sex) -> PersonProfile {
         PersonProfile {
+            tags: Vec::new(),
             person_id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
             sex,

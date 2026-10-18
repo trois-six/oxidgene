@@ -234,8 +234,10 @@ impl TreePage {
     fn is_shown(self, route: &Route) -> bool {
         matches!(
             (self, route),
-            (TreePage::Dictionary, Route::Dictionary { .. })
-                | (TreePage::Statistics, Route::Statistics { .. })
+            (
+                TreePage::Dictionary,
+                Route::Dictionary { .. } | Route::DictionaryTag { .. }
+            ) | (TreePage::Statistics, Route::Statistics { .. })
                 | (TreePage::Tools, Route::Tools { .. })
                 | (TreePage::Settings, Route::Settings { .. })
         )

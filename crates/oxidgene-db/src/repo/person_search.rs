@@ -149,6 +149,8 @@ pub struct PersonSearchFilters {
     pub event_to: Option<i32>,
     /// Only persons with at least one attached media.
     pub has_media: bool,
+    /// Only persons carrying every one of these tags, by id.
+    pub tags: Vec<Uuid>,
 }
 
 /// Stable server-side ordering for person search.
@@ -522,6 +524,7 @@ impl PersonSearchRepo {
         push_person_filters(&mut values, &mut conditions, backend, filters);
         push_event_filters(&mut values, &mut conditions, backend, tree_id, filters);
         push_relative_filters(&mut values, &mut conditions, backend, tree_id, filters);
+        push_tag_filters(&mut values, &mut conditions, backend, tree_id, filters);
         let order = sort_order(&mut values, backend, words, filters, sort);
         let limit_param = push_value(&mut values, backend, (limit as i64).into());
         let offset_param = push_value(&mut values, backend, (offset as i64).into());
@@ -1047,6 +1050,26 @@ fn push_relative_filters(
     }
 }
 
+/// The persons carrying each tag of `filters.tags`: one tree-scoped `IN` per
+/// tag, for the reason given at `push_event_filters`.
+fn push_tag_filters(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    tree_id: Uuid,
+    filters: &PersonSearchFilters,
+) {
+    for tag_id in &filters.tags {
+        let tree = push_value(values, backend, tree_id.into());
+        let tag = push_value(values, backend, (*tag_id).into());
+        let person_id = uuid_as_text(backend, "rt.person_id");
+        conditions.push(format!(
+            "person_search_fts.person_id IN (SELECT {person_id} FROM record_tag rt \
+             WHERE rt.tree_id = {tree} AND rt.tag_id = {tag} AND rt.person_id IS NOT NULL)"
+        ));
+    }
+}
+
 /// The `ORDER BY` clause of a sort.
 fn sort_order(
     values: &mut Vec<Value>,
@@ -1157,6 +1180,7 @@ mod tests {
             event_from: Some(1820),
             event_to: Some(1830),
             has_media: true,
+            tags: vec![Uuid::from_u128(5)],
         }
     }
 
@@ -1208,8 +1232,11 @@ mod tests {
              AND person_search_fts.person_id IN (SELECT CAST(ml.person_id AS TEXT) \
              FROM media_link ml JOIN media m ON m.id = ml.media_id \
              WHERE m.tree_id = $26 AND m.deleted_at IS NULL) \
-             ORDER BY CASE WHEN surname LIKE $27 THEN 0 WHEN given_names LIKE $28 THEN 1 \
-             ELSE 2 END, surname, given_names LIMIT $29 OFFSET $30",
+             AND person_search_fts.person_id IN (SELECT CAST(rt.person_id AS TEXT) \
+             FROM record_tag rt WHERE rt.tree_id = $27 AND rt.tag_id = $28 \
+             AND rt.person_id IS NOT NULL) \
+             ORDER BY CASE WHEN surname LIKE $29 THEN 0 WHEN given_names LIKE $30 THEN 1 \
+             ELSE 2 END, surname, given_names LIMIT $31 OFFSET $32",
             word(2),
             word(3),
         );
@@ -1244,7 +1271,9 @@ mod tests {
                 text("%poe%"),
                 text("%bob%"),
                 text("%eve%"),
-                tree,
+                tree.clone(),
+                tree.clone(),
+                Value::from(Uuid::from_u128(5)),
                 text("an\"n%"),
                 text("an\"n%"),
                 Value::from(25_i64),

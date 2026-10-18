@@ -8,11 +8,14 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use oxidgene_core::projection::{SearchEntry, SearchResult};
+use oxidgene_core::search::fold_words;
+use oxidgene_core::types::TagRef;
 use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::{
     ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField,
+    TagSummary,
 };
 use crate::components::empty_state::EmptyState;
 use crate::components::event_icon::EventIcon;
@@ -22,16 +25,22 @@ use crate::components::person_form::FormSection;
 use crate::components::print::{PrintPageNote, search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
+use crate::components::tags::{TagDots, dot_style};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::components::view_toggle::ViewToggle;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
-use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{
+    UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource,
+};
 use crate::utils::event_type_label_key;
 
 const RESULTS_PER_PAGE: usize = 25;
+
+/// Tags the Tags filter suggests at once.
+const SUGGESTION_COUNT: usize = 8;
 /// Card (grid) view shows fewer results per page — each cell embeds a
 /// mini-pedigree, so a full list-sized page would overload the layout.
 const GRID_RESULTS_PER_PAGE: usize = 20;
@@ -179,6 +188,7 @@ fn has_search_criteria(search: &PersonSearchParams) -> bool {
         || search.sex.is_some()
         || search.event_type.is_some()
         || search.has_media
+        || !search.tags.is_empty()
         || texts.iter().any(|text| text.is_some())
         || years.iter().any(Option::is_some)
 }
@@ -219,6 +229,7 @@ struct SearchFilters {
     event_from: Signal<String>,
     event_to: Signal<String>,
     has_media: Signal<bool>,
+    tags: Signal<Vec<TagRef>>,
 }
 
 fn use_search_filters(last: &str, first: &str) -> SearchFilters {
@@ -247,6 +258,7 @@ fn use_search_filters(last: &str, first: &str) -> SearchFilters {
         event_from: use_signal(String::new),
         event_to: use_signal(String::new),
         has_media: use_signal(|| false),
+        tags: use_signal(Vec::new),
     }
 }
 
@@ -298,6 +310,7 @@ impl SearchFilters {
             event_from: parse_filter_year(&(self.event_from)()),
             event_to: parse_filter_year(&(self.event_to)()),
             has_media: (self.has_media)(),
+            tags: (self.tags)().iter().map(|tag| tag.id).collect(),
             sort: (self.sort)().server_sort(),
         }
     }
@@ -337,6 +350,11 @@ impl SearchFilters {
         self.restart();
     }
 
+    fn clear_tags(mut self) {
+        self.tags.set(Vec::new());
+        self.restart();
+    }
+
     /// Clears the names and every filter.
     fn clear_all(mut self) {
         self.last.set(String::new());
@@ -344,6 +362,7 @@ impl SearchFilters {
         self.gender.set(GenderFilter::All);
         self.event_type.set(None);
         self.has_media.set(false);
+        self.tags.set(Vec::new());
         let mut fields = self.typed().to_vec();
         fields.extend([self.committed_last, self.committed_first]);
         self.clear_fields(&fields);
@@ -354,7 +373,7 @@ impl SearchFilters {
     fn active_chips(&self, i18n: &I18n) -> Vec<(String, ClearFilter)> {
         let f = *self;
         let labelled = |key: &str, value: Signal<String>| format!("{}: {}", i18n.t(key), value());
-        let chips: [(bool, String, ClearFilter); 10] = [
+        let chips: [(bool, String, ClearFilter); 11] = [
             (
                 (f.gender)() != GenderFilter::All,
                 i18n.t((f.gender)().label_key()),
@@ -404,6 +423,11 @@ impl SearchFilters {
                 (f.has_media)(),
                 i18n.t("search.has_media"),
                 SearchFilters::clear_media,
+            ),
+            (
+                !(f.tags)().is_empty(),
+                i18n.t("search.tags"),
+                SearchFilters::clear_tags,
             ),
         ];
         chips
@@ -898,6 +922,91 @@ fn person_criteria(i18n: &I18n, suggest_tree_id: Uuid, filters: SearchFilters) -
                 }
                 span { {i18n.t("search.has_media")} }
             }
+            div { class: "sr-filter-group sr-tag-group",
+                label { {i18n.t("search.tags")} }
+                TagFilter { tree_id: suggest_tree_id, tags: filters.tags, on_change: move |()| filters.restart() }
+            }
+        }
+    }
+}
+
+/// The Tags filter: a field suggesting the tree's person tags, each choice
+/// added as a chip that removes itself with its ×.
+#[component]
+fn TagFilter(tree_id: Uuid, tags: Signal<Vec<TagRef>>, on_change: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let vocabulary = use_ui_resource("search_tag_vocabulary", move || {
+        let api = api.clone();
+        async move { api.list_tags(tree_id).await }
+    });
+    let mut query = use_signal(String::new);
+    let typed = fold_words(query().trim());
+    let chosen = tags();
+    let suggestions: Vec<TagSummary> = match &*vocabulary.read() {
+        Some(Ok(list)) if !typed.is_empty() => list
+            .iter()
+            .filter(|tag| {
+                tag.counts.persons > 0
+                    && !chosen.iter().any(|picked| picked.id == tag.id)
+                    && fold_words(&tag.label).contains(&typed)
+            })
+            .take(SUGGESTION_COUNT)
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    };
+    rsx! {
+        div { class: "sr-tag-filter",
+            input {
+                r#type: "text",
+                class: "sr-tag-filter-input",
+                placeholder: i18n.t("search.tags_placeholder"),
+                aria_label: i18n.t("search.tags"),
+                autocomplete: "off",
+                value: "{query}",
+                oninput: move |e: Event<FormData>| query.set(e.value()),
+            }
+            if !suggestions.is_empty() {
+                div { class: "sr-tag-filter-list",
+                    for tag in suggestions {
+                        button {
+                            key: "{tag.id}",
+                            class: "sr-tag-filter-option",
+                            r#type: "button",
+                            onclick: move |_| {
+                                tags.write().push(TagRef { id: tag.id, label: tag.label.clone(), color: tag.color });
+                                query.set(String::new());
+                                on_change.call(());
+                            },
+                            span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
+                            "{tag.label}"
+                        }
+                    }
+                }
+            }
+            if !chosen.is_empty() {
+                div { class: "tag-chips sr-tag-filter-chips",
+                    for tag in chosen {
+                        span { key: "{tag.id}", class: "tag-chip",
+                            span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
+                            span { class: "tag-chip-label", "{tag.label}" }
+                            button {
+                                class: "tag-chip-remove",
+                                r#type: "button",
+                                title: i18n.t("search.tags_remove"),
+                                aria_label: i18n.t("search.tags_remove"),
+                                onclick: move |_| {
+                                    let id = tag.id;
+                                    tags.write().retain(|picked| picked.id != id);
+                                    on_change.call(());
+                                },
+                                "\u{00D7}"
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1079,11 +1188,16 @@ fn render_result_item(
         }
     };
 
+    // The dots are links of their own, so they sit beside the row's link, not
+    // inside it: a link cannot hold another.
     rsx! {
-        Link {
-            to: target,
-            class: "search-person-result {sex_class}",
-            {render_person_search_summary(&summary, portrait.cloned(), i18n)}
+        div { class: "search-person-entry",
+            Link {
+                to: target,
+                class: "search-person-result {sex_class}",
+                {render_person_search_summary(&summary, portrait.cloned(), i18n)}
+            }
+            TagDots { tree_id: tree_id.to_string(), tags: entry.tags.clone() }
         }
     }
 }

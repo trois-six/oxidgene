@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -46,6 +46,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Sources and citations of each event, with the age the record gives, the agency that kept it, and an optional confidence ([Data Model](data-model.md#citation)).
 - A couple page: both spouses side by side, with the union, its events, media and notes drawn once across the two ([Couple Profile](ui-couple-profile.md)).
 - Witnesses and godparents linked to events as persons of the tree ([Data Model](data-model.md#eventwitness)).
+- Tags on persons and couples: one vocabulary per tree, each tag with a colour, put on or taken off from a shared picker and shown as chips on the page ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
 
 ![Couple page with the wedding photograph](../assets/screenshots/couple.webp)
 
@@ -82,6 +83,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Quick search from the topbar by surname, given name or SOSA number ([Common UI §2.3](ui-common.md#23-person-search)).
 - A results page filtered by sex, occupation, birth, death and event years, place, event type, spouse, father, mother and media ([Search Results §5](ui-search-results.md#5-filters)).
 - Results sorted by name or birth, as a list or as a grid of mini pedigrees ([Search Results §7](ui-search-results.md#7-view-modes)).
+- A tag filter that keeps the persons carrying every chosen tag, and a dot per tag on each result ([Search Results §5](ui-search-results.md#5-filters)).
 - Matching that ignores case, accents and punctuation, in every language ([Cross-cutting Rules §3.6](cross-cutting.md#36-comparing-words)).
 
 ## 7. Dictionary
@@ -92,6 +94,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - An alphabet index, a quick filter, and a drill-down through large source lists ([Dictionary §8](ui-dictionary.md#8-sources-tab--intelligent-navigation-drill-down)).
 - A source editor and a repository editor: archives, libraries and offices, with the sources they hold ([Dictionary §19](ui-dictionary.md#19-repositories-tab)).
 - A media library: a tag cloud and filters on name, file type, category, linked person, event years and date added ([Dictionary §18](ui-dictionary.md#18-media-tab)).
+- A Tags tab listing the tree's tags with the records each one carries, where a tag can be renamed, recoloured, merged or deleted ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
 
 ## 8. Statistics
 
@@ -129,7 +132,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Photos, scans, PDFs and videos attached to persons, couples, events and sources, uploaded or given by address ([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
 - Multi-page documents with page order, a document viewer and a ZIP of every page ([API Contract](api.md#media)).
 - Identifying someone on part of an image, and using that crop as their portrait ([Data Model](data-model.md#vignette)).
-- Dates, places, tags and categories on media ([API Contract](api.md#media)).
+- Dates, places, tags and categories on media ([API Contract](api.md#media)), the tags of a document and of a person or couple shared through one vocabulary ([Tags](tags.md)).
 - Filesystem storage, or S3-compatible object storage for stateless web deployments ([Architecture §8.1](architecture.md#81-web-deployment)).
 
 ## 11. Archives
@@ -148,7 +151,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 ![A person's history compared side by side](../assets/screenshots/history.webp)
 
-- An audit log of every write to a tree — data, settings, media, imports, exports, restores — with filters ([Tree Settings §11](ui-settings.md#11-section-history)).
+- An audit log of every write to a tree — data, settings, media, tags, imports, exports, restores — with filters ([Tree Settings §11](ui-settings.md#11-section-history)).
 - Every version of a person compared field by field, and restored, even after a deletion ([Person History](ui-person-history.md)).
 - Versions of places, sources, repositories and settings too ([Data Model §5.2](data-model.md#52-versions-record_version)).
 

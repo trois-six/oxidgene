@@ -28,6 +28,7 @@ pub mod source;
 pub mod state;
 pub mod statistics;
 pub mod suggestion;
+pub mod tag;
 pub mod tools;
 pub mod tree;
 pub mod tree_guard;

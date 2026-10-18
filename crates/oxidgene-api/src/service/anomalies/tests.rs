@@ -18,6 +18,7 @@ fn ev(event_type: EventType, year: i32, month: Option<u32>, day: Option<u32>) ->
         _ => year.to_string(),
     };
     ProfileEvent {
+        tags: Vec::new(),
         event_id: Uuid::now_v7(),
         event_type,
         date_value: Some(value),
@@ -42,6 +43,7 @@ fn day(event_type: EventType, y: i32, m: u32, d: u32) -> ProfileEvent {
 
 fn person(given: &str, sex: Sex) -> PersonProfile {
     PersonProfile {
+        tags: Vec::new(),
         person_id: Uuid::now_v7(),
         tree_id: Uuid::nil(),
         sex,

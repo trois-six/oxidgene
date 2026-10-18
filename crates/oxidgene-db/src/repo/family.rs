@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Family};
+use oxidgene_core::types::{Connection, Family, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
@@ -11,6 +11,7 @@ use crate::entities::family::{self, ActiveModel, Column, Entity};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Repository for family CRUD operations.
 pub struct FamilyRepo;
@@ -25,7 +26,11 @@ impl FamilyRepo {
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let mut families: Vec<&mut Family> =
+            page.edges.iter_mut().map(|edge| &mut edge.node).collect();
+        hydrate_tags(db, &mut families).await?;
+        Ok(page)
     }
 
     /// How many live families each of `tree_ids` holds; a tree without any is
@@ -62,7 +67,9 @@ impl FamilyRepo {
                 .all(db)
                 .await
                 .map_err(db_err)?;
-            Ok(models.into_iter().map(into_domain).collect())
+            let mut families: Vec<Family> = models.into_iter().map(into_domain).collect();
+            hydrate_all_tags(db, &mut families).await?;
+            Ok(families)
         })
         .await
     }
@@ -78,7 +85,9 @@ impl FamilyRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        let mut families: Vec<Family> = models.into_iter().map(into_domain).collect();
+        hydrate_all_tags(db, &mut families).await?;
+        Ok(families)
     }
 
     /// Narrow a set of family IDs to the ones that still exist.
@@ -105,7 +114,9 @@ impl FamilyRepo {
 
     /// Get a single family by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let mut family = find_live(db, id).await.map(into_domain)?;
+        hydrate_tags(db, &mut [&mut family]).await?;
+        Ok(family)
     }
 
     /// Create a new family.
@@ -142,7 +153,9 @@ impl FamilyRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        let mut family = into_domain(result);
+        hydrate_tags(db, &mut [&mut family]).await?;
+        Ok(family)
     }
 
     /// Soft-delete a family.
@@ -161,6 +174,7 @@ fn into_domain(m: family::Model) -> Family {
         id: m.id,
         tree_id: m.tree_id,
         privacy: m.privacy.into(),
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
@@ -173,4 +187,26 @@ async fn find_live(
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
     crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Family").await
+}
+
+/// Fill each couple's tags from one grouped read.
+async fn hydrate_tags(
+    db: &impl ConnectionTrait,
+    families: &mut [&mut Family],
+) -> Result<(), OxidGeneError> {
+    let ids: Vec<Uuid> = families.iter().map(|family| family.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Family, &ids).await?;
+    for family in families {
+        family.tags = tags.remove(&family.id).unwrap_or_default();
+    }
+    Ok(())
+}
+
+/// [`hydrate_tags`] for a list of couples.
+async fn hydrate_all_tags(
+    db: &impl ConnectionTrait,
+    families: &mut [Family],
+) -> Result<(), OxidGeneError> {
+    let mut refs: Vec<&mut Family> = families.iter_mut().collect();
+    hydrate_tags(db, &mut refs).await
 }

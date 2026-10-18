@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::NaiveDate;
 use dioxus::prelude::*;
 use oxidgene_core::enums::{DocumentCategory, Privacy, Sex, SourceMediaType};
-use oxidgene_core::types::{PersonName, Vignette};
+use oxidgene_core::types::{PersonName, RecordKind, TagRef, Vignette};
 use uuid::Uuid;
 
 use crate::api::{
@@ -43,6 +43,7 @@ use crate::components::pager::Pager;
 use crate::components::pdf_viewer::{PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
+use crate::components::tags::{TagChips, TagDots, TagPicker};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiCommand, measure_ui, trace_ui_action, use_ui_resource};
@@ -837,6 +838,42 @@ pub fn MediaLibraryGrid(
     }
 }
 
+/// One document opened from a route of its own (the Dictionary's Tags tab
+/// links to it): the Media tab's read-only viewer, opened on the document.
+#[component]
+pub fn MediaRouteViewer(tree_id: Uuid, media_id: Uuid, on_close: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let selection = use_ui_resource("media_route_viewer", move || {
+        let api = api.clone();
+        async move {
+            let media = api.get_media(tree_id, media_id).await?;
+            let tile = MediaWithLink {
+                link_id: media.id,
+                sort_order: 0,
+                media,
+            };
+            viewer_selection(&api, tree_id, tile).await
+        }
+    });
+    let loaded = selection.read();
+    match &*loaded {
+        Some(Ok(selection)) => rsx! {
+            MediaViewer {
+                tree_id,
+                tile: selection.tile.clone(),
+                initial_page: selection.initial_page,
+                events: Vec::new(),
+                read_only: true,
+                on_changed: move |()| {},
+                on_close,
+            }
+        },
+        Some(Err(_)) => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
+        None => rsx! { div { class: "loading", {i18n.t("dictionary.loading")} } },
+    }
+}
+
 // ── Tile ────────────────────────────────────────────────────────────
 
 #[component]
@@ -885,6 +922,8 @@ fn MediaTile(
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
     let mut event_menu = use_signal(|| None::<MediaEventMenu>);
     let mut event_menu_offset = use_signal(|| 0_usize);
+    // Where the tag picker sits, if it is open.
+    let mut tags_at = use_signal(|| None::<(f64, f64)>);
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
@@ -985,13 +1024,13 @@ fn MediaTile(
     });
 
     let menu = TileMenuOffer::of(
-        read_only,
         show_profile,
         &look,
         is_portrait,
         !profile_event_links.is_empty(),
         media_event_ids.is_empty(),
     );
+    let tags = tile.media.tags.clone();
 
     rsx! {
         div { class: if is_open { "media-tile is-open" } else { "media-tile" },
@@ -1010,13 +1049,11 @@ fn MediaTile(
                 // them to the edit modal to do it means leaving the page that
                 // prompted it. Every other action stays behind the modal.
                 oncontextmenu: move |e: Event<MouseData>| {
-                    if menu.any {
-                        e.prevent_default();
-                        let point = e.client_coordinates();
-                        event_menu.set(None);
-                        event_menu_offset.set(0);
-                        menu_at.set(Some((point.x, point.y)));
-                    }
+                    e.prevent_default();
+                    let point = e.client_coordinates();
+                    event_menu.set(None);
+                    event_menu_offset.set(0);
+                    menu_at.set(Some((point.x, point.y)));
                 },
                 {tile_picture(
                     &look,
@@ -1052,9 +1089,11 @@ fn MediaTile(
                 }
             }
             TileCaption {
+                tree_id,
                 caption,
                 footnotes,
                 linked_events: linked_events.clone(),
+                tags: tags.clone(),
                 error: error(),
             }
 
@@ -1105,9 +1144,25 @@ fn MediaTile(
                                 toggle_event_link.call((event_id, false));
                                 menu_at.set(None);
                             },
+                            on_tags: move |_| {
+                                tags_at.set(menu_at());
+                                menu_at.set(None);
+                            },
                             on_delete: request_delete_confirmation,
                         }
                     }
+                }
+            }
+            if let Some((x, y)) = tags_at() {
+                TagPicker {
+                    tree_id,
+                    kind: RecordKind::Media,
+                    record_id: media_id,
+                    tags: tags.clone(),
+                    x,
+                    y,
+                    on_close: move |_| tags_at.set(None),
+                    on_changed: move |_now: Vec<TagRef>| on_changed.call(()),
                 }
             }
             if delete_confirming() {
@@ -1131,8 +1186,6 @@ fn MediaTile(
 /// Which of a tile's portrait and event actions it offers.
 #[derive(Clone, Copy)]
 struct TileMenuOffer {
-    /// Whether the right-click menu opens at all.
-    any: bool,
     /// The portrait in the menu: offered for anything that draws a picture,
     /// and for whatever is already the portrait so a bad choice can be taken
     /// back. A PDF cannot represent somebody: the card would draw the
@@ -1146,7 +1199,6 @@ struct TileMenuOffer {
 
 impl TileMenuOffer {
     fn of(
-        read_only: bool,
         show_profile: bool,
         look: &TileLook,
         is_portrait: bool,
@@ -1154,7 +1206,6 @@ impl TileMenuOffer {
         unlinked: bool,
     ) -> Self {
         Self {
-            any: read_only || show_profile || has_events,
             profile: show_profile && (look.may_portray || is_portrait),
             profile_button: show_profile && look.may_portray,
             link_event: has_events && unlinked,
@@ -1162,17 +1213,22 @@ impl TileMenuOffer {
     }
 }
 
-/// What is written under a tile: its caption, the listing's notes, its
-/// linked events, and the last error.
+/// What is written under a tile: its caption, its tags, the listing's notes,
+/// its linked events, and the last error.
 #[component]
 fn TileCaption(
+    tree_id: Uuid,
     caption: String,
     footnotes: Vec<String>,
     linked_events: Vec<MediaEventLinkOption>,
+    tags: Vec<TagRef>,
     error: Option<String>,
 ) -> Element {
     rsx! {
-        div { class: "media-caption", title: "{caption}", "{caption}" }
+        div { class: "media-caption-row",
+            div { class: "media-caption", title: "{caption}", "{caption}" }
+            TagDots { tree_id: tree_id.to_string(), tags }
+        }
         for (index, line) in footnotes.iter().enumerate() {
             div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
         }
@@ -1523,6 +1579,7 @@ fn TileMenu(
     on_profile: EventHandler<()>,
     on_link_event: EventHandler<()>,
     on_unlink_event: EventHandler<Uuid>,
+    on_tags: EventHandler<()>,
     on_delete: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
@@ -1556,6 +1613,12 @@ fn TileMenu(
                 onclick: move |_| on_unlink_event.call(event_id),
                 {i18n.t("media.unlink_event")}
             }
+        }
+        button {
+            class: "context-menu-item",
+            r#type: "button",
+            onclick: move |_| on_tags.call(()),
+            {i18n.t("tag.picker.open")}
         }
         if can_delete {
             button {
@@ -1817,7 +1880,6 @@ fn MediaEditPanel(
     let privacy = use_signal(|| tile.media.privacy);
     let source_media_type = use_signal(|| tile.media.source_media_type);
     let document_category = use_signal(|| tile.media.document_category);
-    let tags = use_signal(|| tile.media.tags.clone());
     let mut note_text = use_signal(String::new);
     let note_id = use_signal(|| None::<Uuid>);
     let mut loaded_note = use_signal(|| false);
@@ -2032,8 +2094,6 @@ fn MediaEditPanel(
                     oninput: move |e: Event<FormData>| description.set(e.value()),
                 }
             }
-            MediaTagsEditor { tree_id, media_id, tags, error, on_changed }
-
             // Two fields for what looks like one question, because it is two.
             //
             // The category is what a user can actually answer about a scan —
@@ -2261,94 +2321,6 @@ fn MediaFileMeta(file_media: oxidgene_core::types::Media, page_count: i32) -> El
                 }
             }
         }
-    }
-}
-
-/// A medium's tags, each removable, and the form adding one.
-#[component]
-fn MediaTagsEditor(
-    tree_id: Uuid,
-    media_id: Uuid,
-    tags: Signal<Vec<String>>,
-    error: Signal<Option<String>>,
-    on_changed: EventHandler<()>,
-) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let mut show_tag_form = use_signal(|| false);
-    let add_tag = {
-        let api = api.clone();
-        move |value: String| {
-            if value.is_empty() || tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value)) {
-                return;
-            }
-            show_tag_form.set(false);
-            let api = api.clone();
-            spawn(async move {
-                let added = api.add_media_tag(tree_id, media_id, value).await;
-                settle_tags(added.map(|media| media.tags), tags, error, on_changed);
-            });
-        }
-    };
-    let remove_tag = use_callback(move |tag: String| {
-        let api = api.clone();
-        spawn(async move {
-            let left = match api.remove_media_tag(tree_id, media_id, tag).await {
-                Ok(()) => api
-                    .get_media(tree_id, media_id)
-                    .await
-                    .map(|media| media.tags),
-                Err(err) => Err(err),
-            };
-            settle_tags(left, tags, error, on_changed);
-        });
-    });
-    rsx! {
-        div { class: "pf-subblock media-tags-editor",
-            div { class: "pf-block-label",
-                button {
-                    class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                    r#type: "button",
-                    onclick: move |_| show_tag_form.toggle(),
-                    {i18n.t("media.add_tag")}
-                }
-            }
-            if show_tag_form() {
-                MediaTagForm { on_add: add_tag }
-            }
-            if !tags().is_empty() {
-                div { class: "media-fact-tags media-edit-tags",
-                    for tag in tags().iter().cloned() {
-                        span { key: "{tag}", class: "media-fact-tag is-editable",
-                            "{tag}"
-                            button {
-                                class: "media-tag-remove",
-                                r#type: "button",
-                                title: i18n.t("common.delete"),
-                                onclick: move |_| remove_tag(tag.clone()),
-                                "\u{00D7}"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Shows the medium's tags after a change, or why it failed.
-fn settle_tags(
-    result: Result<Vec<String>, ApiError>,
-    mut tags: Signal<Vec<String>>,
-    mut error: Signal<Option<String>>,
-    on_changed: EventHandler<()>,
-) {
-    match result {
-        Ok(now) => {
-            tags.set(now);
-            on_changed.call(());
-        }
-        Err(err) => error.set(Some(err.to_string())),
     }
 }
 
@@ -2702,7 +2674,7 @@ fn MediaFacts(
     displayed_media_id: Uuid,
     document_media_id: Option<Uuid>,
     attachment_revision: u32,
-    tags: Vec<String>,
+    tags: Vec<TagRef>,
     vignettes: Vec<Vignette>,
     person_names: Vec<PersonName>,
     events: Vec<(Uuid, String)>,
@@ -2790,11 +2762,7 @@ fn MediaFacts(
             if !tags.is_empty() {
                 div { class: "form-group media-fact",
                     label { {i18n.t("media.tags")} }
-                    div { class: "media-fact-tags",
-                        for tag in tags.iter() {
-                            span { key: "{tag}", class: "media-fact-tag", "{tag}" }
-                        }
-                    }
+                    TagChips { tree_id: tree_id.to_string(), tags: tags.clone() }
                 }
             }
             MediaFact {
@@ -3709,6 +3677,8 @@ fn MediaViewer(
     let mut managing_pages = use_signal(|| false);
     let mut identifying = use_signal(|| false);
     let mut relation_menu_at = use_signal(|| None::<(f64, f64)>);
+    // Where the tag picker of the document sits, if it is open.
+    let mut tags_menu_at = use_signal(|| None::<(f64, f64)>);
     let mut highlighted_vignette = use_signal(|| None::<Uuid>);
     let mut attachment_mode = use_signal(|| None::<MediaAttachmentMode>);
     let mut attachment_scope = use_signal(|| MediaAttachmentScope::Page);
@@ -3902,7 +3872,20 @@ fn MediaViewer(
                                 attachment_scope.set(scope);
                                 attachment_mode.set(Some(mode));
                             },
+                            on_tags: move |at: (f64, f64)| {
+                                relation_menu_at.set(None);
+                                tags_menu_at.set(Some(at));
+                            },
                         }
+                    }
+                    DocumentTagPicker {
+                        tree_id,
+                        media: current_media.clone(),
+                        at: tags_menu_at,
+                        on_changed: move |()| {
+                            media_revision += 1;
+                            on_changed.call(());
+                        },
                     }
                     MediaAttachmentPicker {
                         tree_id,
@@ -4223,6 +4206,7 @@ fn RelationMenu(
     /// Absent where nothing can be identified: on a PDF.
     on_identify: Option<EventHandler<()>>,
     on_attach: EventHandler<(MediaAttachmentScope, MediaAttachmentMode)>,
+    on_tags: EventHandler<(f64, f64)>,
 ) -> Element {
     let i18n = use_i18n();
     let (x, y) = at;
@@ -4249,6 +4233,38 @@ fn RelationMenu(
                     {i18n.t(label)}
                 }
             }
+            button {
+                class: "context-menu-item",
+                r#type: "button",
+                onclick: move |_| on_tags.call(at),
+                {i18n.t("tag.picker.open")}
+            }
+        }
+    }
+}
+
+/// The tag picker of a document, opened from the viewer's relation menu at
+/// `at`: the tags are the document's, never its pages'.
+#[component]
+fn DocumentTagPicker(
+    tree_id: Uuid,
+    media: oxidgene_core::types::Media,
+    at: Signal<Option<(f64, f64)>>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let Some((x, y)) = at() else {
+        return rsx! {};
+    };
+    rsx! {
+        TagPicker {
+            tree_id,
+            kind: RecordKind::Media,
+            record_id: media.id,
+            tags: media.tags.clone(),
+            x,
+            y,
+            on_close: move |()| at.set(None),
+            on_changed: move |_now: Vec<TagRef>| on_changed.call(()),
         }
     }
 }
@@ -5080,43 +5096,6 @@ fn extension_for_mime(mime_type: &str) -> Option<&'static str> {
         "text/plain" => "txt",
         _ => return None,
     })
-}
-
-/// Isolated so a keystroke in this short field cannot re-render the entire
-/// media editor and its place, note, event and vignette sections.
-#[component]
-pub(crate) fn MediaTagForm(on_add: EventHandler<String>) -> Element {
-    let i18n = use_i18n();
-
-    rsx! {
-        form {
-            class: "pf-subform media-tag-form",
-            onsubmit: move |event: Event<FormData>| {
-                event.prevent_default();
-                if let Some(FormValue::Text(value)) = event.get_first("media-tag") {
-                    let tag = value.trim().to_string();
-                    if !tag.is_empty() {
-                        on_add.call(tag);
-                    }
-                }
-            },
-            div { class: "form-group",
-                label { {i18n.t("media.tag")} }
-                input {
-                    r#type: "text",
-                    name: "media-tag",
-                    placeholder: i18n.t("media.tag_placeholder"),
-                    autocomplete: "off",
-                    spellcheck: "false",
-                }
-            }
-            button {
-                class: "pf-confirm-btn",
-                r#type: "submit",
-                {i18n.t("media.add_tag")}
-            }
-        }
-    }
 }
 
 /// A stored file size as a person reads it; a negative size, which the

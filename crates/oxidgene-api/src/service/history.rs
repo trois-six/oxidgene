@@ -226,6 +226,12 @@ impl Change {
         self.default_subject(AuditSubject::Media, media_id)
     }
 
+    /// Name the record a write is about, without versioning it: a tag put on
+    /// a record changes that record's tags, not its version.
+    pub fn about(self, subject: AuditSubject, id: Uuid) -> Self {
+        self.default_subject(subject, id)
+    }
+
     /// File the write under another category than its action and entity
     /// imply — a note about a media is media work, not genealogy.
     pub fn category(mut self, category: AuditCategory) -> Self {

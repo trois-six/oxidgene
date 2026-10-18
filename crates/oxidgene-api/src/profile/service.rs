@@ -18,11 +18,12 @@ use oxidgene_core::projection::{
     Pedigree, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeFamily, PedigreeNode,
     PersonProfile, SearchEntry, SearchResult,
 };
+use oxidgene_core::types::{Event, Person, RecordKind, TagRef};
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilyRepo,
     FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo,
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
-    SosaRepo, VignetteRepo, db_err,
+    RecordTagRepo, SosaRepo, VignetteRepo, db_err,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use tracing::{debug, info, instrument};
@@ -486,6 +487,7 @@ impl ProfileService {
         let mut entries: Vec<SearchEntry> =
             page.entries.into_iter().map(search_entry_from_db).collect();
         crate::service::portrait::with_portraits(conn, tree_id, &mut entries).await?;
+        attach_tags(conn, &mut entries).await?;
         Ok(SearchResult {
             entries,
             total_count: page.total_count as usize,
@@ -515,6 +517,7 @@ impl ProfileService {
             .map(search_entry_from_db)
             .collect();
         crate::service::portrait::with_portraits(conn, tree_id, &mut entries).await?;
+        attach_tags(conn, &mut entries).await?;
         Ok(entries)
     }
 
@@ -645,6 +648,21 @@ impl ProfileService {
         })
     }
 
+    /// The tags of the given persons and events, one grouped read per kind.
+    async fn tags_of_persons_and_events(
+        conn: &impl ConnectionTrait,
+        persons: &[Person],
+        events: &[Event],
+    ) -> Result<(HashMap<Uuid, Vec<TagRef>>, HashMap<Uuid, Vec<TagRef>>), OxidGeneError> {
+        let person_ids: Vec<Uuid> = persons.iter().map(|p| p.id).collect();
+        let event_ids: Vec<Uuid> = events.iter().map(|e| e.id).collect();
+        let (person_tags, event_tags) = tokio::try_join!(
+            RecordTagRepo::tags_of(conn, RecordKind::Person, &person_ids),
+            RecordTagRepo::tags_of(conn, RecordKind::Event, &event_ids),
+        )?;
+        Ok((person_tags, event_tags))
+    }
+
     /// Fetch only what the given projections need: the persons, their family
     /// memberships, all members of those families (for spouse / parent /
     /// child denormalization), their events + places, media and notes.
@@ -689,7 +707,7 @@ impl ProfileService {
             NoteRepo::list_by_persons(conn, tree_id, targets),
         )?;
 
-        // 3. Related person rows + names, places, media.
+        // 3. Related person rows + names, places, media, tags.
         let person_ids = sorted_unique(
             targets
                 .iter()
@@ -740,6 +758,9 @@ impl ProfileService {
         );
         media.extend(MediaRepo::get_many(conn, &scan_ids).await?);
 
+        let (person_tags, event_tags) =
+            Self::tags_of_persons_and_events(conn, &persons, &events).await?;
+
         Ok(TreeData {
             persons,
             names,
@@ -752,6 +773,8 @@ impl ProfileService {
             portrait_vignettes,
             citations,
             notes,
+            person_tags,
+            event_tags,
         })
     }
 
@@ -792,6 +815,9 @@ impl ProfileService {
             .collect();
         let portrait_vignettes = VignetteRepo::get_many(conn, &portrait_ids).await?;
 
+        let (person_tags, event_tags) =
+            Self::tags_of_persons_and_events(conn, &persons, &events).await?;
+
         Ok(TreeData {
             persons,
             names,
@@ -804,6 +830,8 @@ impl ProfileService {
             portrait_vignettes,
             citations,
             notes,
+            person_tags,
+            event_tags,
         })
     }
 
@@ -1077,4 +1105,22 @@ impl ProfileService {
         }
         Ok(families)
     }
+}
+
+/// Give each search row the tags its person has, read from the tag tables in
+/// one grouped query. The search index holds no tags, so this is the only
+/// place a row gets them.
+async fn attach_tags(
+    db: &impl ConnectionTrait,
+    entries: &mut [SearchEntry],
+) -> Result<(), OxidGeneError> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = entries.iter().map(|entry| entry.person_id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Person, &ids).await?;
+    for entry in entries {
+        entry.tags = tags.remove(&entry.person_id).unwrap_or_default();
+    }
+    Ok(())
 }

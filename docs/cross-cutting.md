@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -139,7 +139,7 @@ historical-date engine remain protocol/domain logic, not UI locale dispatch.
 ### 3.6 Comparing words
 
 Wherever a typed word meets a written one — search, homonyms and duplicates,
-media tags, entry suggestions, the reference dictionaries, the place field,
+tags, entry suggestions, the reference dictionaries, the place field,
 the written-date reader — both are compared in one folded form, produced by
 one function, `oxidgene_core::search::fold_words`, on the server and in the
 interface alike: lowercase; every letter decomposed and stripped of its
@@ -150,7 +150,7 @@ break. No component folds text its own way. The one variant, `fold_text`,
 lets a key another system defines keep its own separators — Geneanet's person
 references ([Geneanet media import](geneanet-media-import.md) §6).
 
-What is stored folded — the search rows, media tag keys — must be rebuilt
+What is stored folded — the search rows, the tags' normalized labels — must be rebuilt
 when the folding changes. The search rows are, through a
 `PROJECTION_SCHEMA_VERSION` bump. Stored keys are not converted while the
 product is unreleased: its databases are recreated and their genealogy

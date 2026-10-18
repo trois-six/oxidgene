@@ -10,7 +10,7 @@ use oxidgene_core::projection::*;
 
 use oxidgene_core::types::{
     Citation, Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
-    Vignette,
+    TagRef, Vignette,
 };
 use oxidgene_db::repo::RELATIVE_SEP;
 use std::collections::HashMap;
@@ -35,6 +35,10 @@ pub struct TreeData {
     pub portrait_vignettes: Vec<Vignette>,
     pub citations: Vec<Citation>,
     pub notes: Vec<Note>,
+    /// The tags of each person of `persons`, sorted by folded label.
+    pub person_tags: HashMap<Uuid, Vec<TagRef>>,
+    /// The tags of each event of `events`, sorted by folded label.
+    pub event_tags: HashMap<Uuid, Vec<TagRef>>,
 }
 
 /// Pre-indexed tree data for efficient projection building.
@@ -75,6 +79,10 @@ struct IndexedData {
     split_names: HashMap<Uuid, (Option<String>, Option<String>)>,
     /// Person sex by person_id
     sex_by_person: HashMap<Uuid, Sex>,
+    /// Tags of each person, by person_id
+    tags_by_person: HashMap<Uuid, Vec<TagRef>>,
+    /// Tags of each event, by event_id
+    tags_by_event: HashMap<Uuid, Vec<TagRef>>,
 }
 
 impl IndexedData {
@@ -201,6 +209,8 @@ impl IndexedData {
             display_names,
             split_names,
             sex_by_person,
+            tags_by_person: data.person_tags.clone(),
+            tags_by_event: data.event_tags.clone(),
         }
     }
 
@@ -240,7 +250,12 @@ fn first_pages(media: &[Media]) -> HashMap<Uuid, Uuid> {
 
 /// Build person `pid`'s `ProfileEvent` from a raw `Event` and the place
 /// index.
-fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>, pid: Uuid) -> ProfileEvent {
+fn build_profile_event(
+    event: &Event,
+    places: &HashMap<Uuid, Place>,
+    tags: &HashMap<Uuid, Vec<TagRef>>,
+    pid: Uuid,
+) -> ProfileEvent {
     let place_name = event
         .place_id
         .and_then(|pid| places.get(&pid))
@@ -258,6 +273,7 @@ fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>, pid: Uuid) 
         place_id: event.place_id,
         description: event.description.clone(),
         age: event.age_of(pid).map(str::to_owned),
+        tags: tags.get(&event.id).cloned().unwrap_or_default(),
     }
 }
 
@@ -381,6 +397,7 @@ fn build_one_person(
         families_as_spouse,
         family_as_child,
         primary_media: primary_media(idx, person, media_links),
+        tags: idx.tags_by_person.get(&pid).cloned().unwrap_or_default(),
         media_count: media_links.len() as u32,
         citation_count: idx.citation_count_by_person.get(&pid).copied().unwrap_or(0),
         note_count: idx.note_count_by_person.get(&pid).copied().unwrap_or(0),
@@ -428,7 +445,7 @@ impl KeyEvents {
     fn of(idx: &IndexedData, pid: Uuid) -> Self {
         let mut events = Self::default();
         for event in idx.events_by_person.get(&pid).into_iter().flatten() {
-            let cached = build_profile_event(event, &idx.places_by_id, pid);
+            let cached = build_profile_event(event, &idx.places_by_id, &idx.tags_by_event, pid);
             match event.event_type {
                 EventType::Birth => events.birth = Some(cached),
                 EventType::Death => events.death = Some(cached),
@@ -459,7 +476,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         .get(&family_id)
         .into_iter()
         .flatten()
-        .map(|e| build_profile_event(e, &idx.places_by_id, pid))
+        .map(|e| build_profile_event(e, &idx.places_by_id, &idx.tags_by_event, pid))
         .collect();
     let marriage = events
         .iter()
@@ -636,6 +653,7 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
         children_count,
         date_sort: birth.and_then(|e| e.date_sort),
         portrait: None,
+        tags: person.tags.clone(),
     }
 }
 
@@ -726,6 +744,9 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
             .date_sort
             .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
         portrait: None,
+        // The search index holds no tags; the service fills them in from the
+        // tag tables for the rows it returns.
+        tags: Vec::new(),
     }
 }
 
@@ -805,6 +826,7 @@ mod tests {
     #[test]
     fn test_extract_year() {
         let event = ProfileEvent {
+            tags: Vec::new(),
             event_id: Uuid::now_v7(),
             event_type: EventType::Birth,
             date_value: Some("ABT 1842".to_string()),
@@ -854,6 +876,7 @@ mod tests {
             children_count: 3,
             date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
             portrait: None,
+            tags: Vec::new(),
         };
         let tree_id = Uuid::now_v7();
 
@@ -924,5 +947,44 @@ mod tests {
         assert_eq!(parse_qualifier(""), DateQualifier::Exact);
         assert_eq!(parse_qualifier("about"), DateQualifier::About);
         assert_eq!(parse_qualifier("from_age"), DateQualifier::FromAge);
+    }
+
+    #[test]
+    fn search_entry_carries_the_person_tags() {
+        let tag = TagRef {
+            id: Uuid::now_v7(),
+            label: "To verify".to_string(),
+            color: 2,
+        };
+        let person = PersonProfile {
+            tags: vec![tag.clone()],
+            person_id: Uuid::now_v7(),
+            tree_id: Uuid::nil(),
+            sex: Sex::Unknown,
+            primary_name: None,
+            other_names: Vec::new(),
+            birth: None,
+            death: None,
+            baptism: None,
+            burial: None,
+            occupation: None,
+            other_events: Vec::new(),
+            families_as_spouse: Vec::new(),
+            family_as_child: None,
+            primary_media: None,
+            media_count: 0,
+            citation_count: 0,
+            note_count: 0,
+            updated_at: chrono::Utc::now(),
+            built_at: chrono::Utc::now(),
+        };
+
+        // The projection's tags reach the search row as they are, so a result
+        // shows the same tags as the person's profile.
+        assert_eq!(build_search_entry(&person).tags, vec![tag]);
+        // The search index holds none; a row read back from it has none until
+        // the service attaches them.
+        let row = build_db_search_entry(&person);
+        assert!(search_entry_from_db(row).tags.is_empty());
     }
 }

@@ -26,6 +26,7 @@ use crate::enums::{
     Calendar, ChildType, Confidence, DateDisplayFormat, DateInputFormat, DateQualifier, EventType,
     NameType, Privacy, Sex, SourceMediaType, SpouseRole, TreeDefaultPrivacy,
 };
+use crate::types::RecordKind;
 
 /// Declares a string-backed history enum: snake_case on the wire and in the
 /// database, with `as_str` and `FromStr` agreeing with serde.
@@ -81,7 +82,7 @@ string_enum! {
         Data => "data",
         /// The tree's own settings.
         Settings => "settings",
-        /// Media, their pages, crops, tags, and links.
+        /// Media, their pages, crops, and links.
         Media => "media",
         /// A file or a Geneanet tree read into the tree.
         Import => "import",
@@ -130,7 +131,11 @@ string_enum! {
         /// A surname's particle re-cut across every person bearing it.
         FamilyName => "family_name",
         Media => "media",
-        MediaTag => "media_tag",
+        /// A tag of the tree's vocabulary: created, renamed, recoloured,
+        /// merged or deleted.
+        Tag => "tag",
+        /// One tag put on, or taken off, one record.
+        RecordTag => "record_tag",
         MediaPage => "media_page",
         MediaLink => "media_link",
         Vignette => "vignette",
@@ -169,6 +174,10 @@ string_enum! {
 
 impl AuditCategory {
     /// The category a write falls under when nothing more specific applies.
+    ///
+    /// A [`AuditEntity::RecordTag`] write defaults to `data`: the entity does
+    /// not name the record it is on. A tag put on or taken off a medium is
+    /// `media`, and its writer must set that with [`Self::of_record_tag`].
     pub fn of(action: AuditAction, entity: AuditEntity) -> Self {
         match action {
             AuditAction::Import => return Self::Import,
@@ -178,12 +187,22 @@ impl AuditCategory {
         }
         match entity {
             AuditEntity::Tree => Self::Settings,
+            AuditEntity::Tag | AuditEntity::RecordTag => Self::Data,
             AuditEntity::Media
-            | AuditEntity::MediaTag
             | AuditEntity::MediaPage
             | AuditEntity::MediaLink
             | AuditEntity::Vignette
             | AuditEntity::Portrait => Self::Media,
+            _ => Self::Data,
+        }
+    }
+
+    /// The category of a tag put on, or taken off, a record of `kind`: a
+    /// medium's tags are `media`, as its links are, and every other kind's
+    /// are `data` (docs/tags.md §2.5).
+    pub fn of_record_tag(kind: RecordKind) -> Self {
+        match kind {
+            RecordKind::Media => Self::Media,
             _ => Self::Data,
         }
     }
@@ -693,6 +712,25 @@ mod tests {
         );
         assert_eq!(
             AuditCategory::of(AuditAction::Delete, AuditEntity::Event),
+            AuditCategory::Data
+        );
+    }
+
+    #[test]
+    fn a_tag_on_a_medium_is_audited_as_media() {
+        assert_eq!(
+            AuditCategory::of_record_tag(RecordKind::Media),
+            AuditCategory::Media
+        );
+        for kind in RecordKind::ALL
+            .into_iter()
+            .filter(|kind| *kind != RecordKind::Media)
+        {
+            assert_eq!(AuditCategory::of_record_tag(kind), AuditCategory::Data);
+        }
+        // The entity alone does not name the record, so it defaults to data.
+        assert_eq!(
+            AuditCategory::of(AuditAction::Create, AuditEntity::RecordTag),
             AuditCategory::Data
         );
     }

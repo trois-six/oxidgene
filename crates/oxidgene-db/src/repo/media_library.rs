@@ -17,13 +17,13 @@
 //! ids travel until the requested page is known; the page's rows are then
 //! loaded in one query.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Days, NaiveDate};
 use oxidgene_core::enums::{DocumentCategory, MediaFileKind};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
-use oxidgene_core::types::{Connection, Edge, Media, PageInfo};
+use oxidgene_core::types::{Connection, Edge, Media, PageInfo, TagRef};
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Func, Query, SimpleExpr};
 use sea_orm::{
@@ -33,7 +33,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entities::media::{self, Column, Entity};
-use crate::entities::{event, family_spouse, media_link, media_tag, vignette};
+use crate::entities::{event, family_spouse, media_link, record_tag, tag, vignette};
 use crate::repo::MediaRepo;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
@@ -43,9 +43,8 @@ use crate::repo::pagination::{PaginationParams, encode_cursor};
 /// set fields combine with AND; the default lists every document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MediaFilter {
-    /// Documents carrying every one of these tags, each given as its
-    /// normalized key (`media_tag.normalized_tag`).
-    pub tags: Vec<String>,
+    /// Documents carrying every one of these tags, by id.
+    pub tags: Vec<Uuid>,
     /// Documents with at least one live page of this kind.
     pub kind: Option<MediaFileKind>,
     pub category: Option<DocumentCategory>,
@@ -65,13 +64,10 @@ pub struct MediaFilter {
     pub added_to: Option<NaiveDate>,
 }
 
-/// One tag of a tree and how many documents carry it.
+/// One tag of a tree and how many live documents carry it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaTagCount {
-    /// The spelling most of those documents carry.
-    pub tag: String,
-    /// The key the tag is matched on.
-    pub normalized: String,
+    pub tag: TagRef,
     pub count: i64,
 }
 
@@ -190,13 +186,13 @@ impl MediaLibraryRepo {
     /// The tags, file kinds and categories the tree's live documents carry,
     /// each counted in the database — one row per value comes back, not one
     /// per document. The tags are counted among the documents carrying every
-    /// tag of `with_tags` (normalized keys), so a tag cloud narrows to the
-    /// tags that can still be added to a selection; the kinds and categories
-    /// always count the whole library.
+    /// tag of `with_tags`, so a tag cloud narrows to the tags that can still
+    /// be added to a selection; the kinds and categories always count the
+    /// whole library.
     pub async fn facets(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        with_tags: &[String],
+        with_tags: &[Uuid],
     ) -> Result<MediaFacets, OxidGeneError> {
         Ok(MediaFacets {
             tags: Self::tag_counts(db, tree_id, with_tags).await?,
@@ -205,58 +201,44 @@ impl MediaLibraryRepo {
         })
     }
 
-    /// Every tag used in a tree, with how many live documents carry it,
-    /// counting only the documents that also carry every tag of `with_tags`.
-    ///
-    /// A tag is identified by its normalized key and displayed in the
-    /// spelling most documents carry, ties going to the first in code-point
-    /// order so the choice is stable.
+    /// Every tag used on a tree's live documents, with how many of them carry
+    /// it, counting only the documents that also carry every tag of
+    /// `with_tags`. Sorted by folded label.
     async fn tag_counts(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        with_tags: &[String],
+        with_tags: &[Uuid],
     ) -> Result<Vec<MediaTagCount>, OxidGeneError> {
-        let mut query = media_tag::Entity::find();
-        for tag in with_tags {
-            query = query.filter(media_tag::Column::MediaId.in_subquery(tagged(tag)));
-        }
-        let rows: Vec<(String, String, i64)> = query
+        let mut query = record_tag::Entity::find()
             .select_only()
-            .column(media_tag::Column::NormalizedTag)
-            .column(media_tag::Column::Tag)
-            .column_as(media_tag::Column::MediaId.count(), "uses")
-            .join(JoinType::InnerJoin, media_tag::Relation::Media.def())
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::ParentMediaId.is_null())
-            .filter(Column::DeletedAt.is_null())
-            .group_by(media_tag::Column::NormalizedTag)
-            .group_by(media_tag::Column::Tag)
+            .column(record_tag::Column::TagId)
+            .column(tag::Column::Label)
+            .column(tag::Column::Color)
+            .column_as(record_tag::Column::MediaId.count(), "uses")
+            .join(JoinType::InnerJoin, record_tag::Relation::Tag.def())
+            .filter(record_tag::Column::TreeId.eq(tree_id))
+            .filter(record_tag::Column::MediaId.is_not_null())
+            .filter(record_tag::Column::MediaId.in_subquery(live_documents(tree_id)));
+        for tag_id in with_tags {
+            query = query.filter(record_tag::Column::MediaId.in_subquery(tagged(*tag_id)));
+        }
+        let rows: Vec<(Uuid, String, i16, i64)> = query
+            .group_by(record_tag::Column::TagId)
+            .group_by(tag::Column::Label)
+            .group_by(tag::Column::Color)
             .into_tuple()
             .all(db)
             .await
             .map_err(db_err)?;
 
-        // normalized key -> (documents, best spelling, its documents)
-        let mut tags: BTreeMap<String, (i64, String, i64)> = BTreeMap::new();
-        for (normalized, spelling, uses) in rows {
-            let entry = tags
-                .entry(normalized)
-                .or_insert_with(|| (0, spelling.clone(), 0));
-            entry.0 += uses;
-            if uses > entry.2 || (uses == entry.2 && spelling < entry.1) {
-                entry.1 = spelling;
-                entry.2 = uses;
-            }
-        }
-        let mut counts: Vec<MediaTagCount> = tags
+        let mut counts: Vec<MediaTagCount> = rows
             .into_iter()
-            .map(|(normalized, (count, tag, _))| MediaTagCount {
-                tag,
-                normalized,
+            .map(|(id, label, color, count)| MediaTagCount {
+                tag: TagRef { id, label, color },
                 count,
             })
             .collect();
-        counts.sort_by_cached_key(|entry| (fold_words(&entry.tag), entry.normalized.clone()));
+        counts.sort_by_cached_key(|entry| (fold_words(&entry.tag.label), entry.tag.id));
         Ok(counts)
     }
 
@@ -331,8 +313,8 @@ impl MediaLibraryRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
             .filter(Column::DeletedAt.is_null());
-        for tag in &filter.tags {
-            query = query.filter(Column::Id.in_subquery(tagged(tag)));
+        for tag_id in &filter.tags {
+            query = query.filter(Column::Id.in_subquery(tagged(*tag_id)));
         }
         if let Some(kind) = filter.kind {
             query = query.filter(
@@ -661,12 +643,13 @@ fn escape_like(text: &str) -> String {
     out
 }
 
-/// The ids of the media carrying the tag of normalized key `tag`.
-fn tagged(tag: &str) -> sea_orm::sea_query::SelectStatement {
+/// The ids of the media carrying the tag `tag_id`.
+fn tagged(tag_id: Uuid) -> sea_orm::sea_query::SelectStatement {
     Query::select()
-        .column(media_tag::Column::MediaId)
-        .from(media_tag::Entity)
-        .and_where(media_tag::Column::NormalizedTag.eq(tag))
+        .column(record_tag::Column::MediaId)
+        .from(record_tag::Entity)
+        .and_where(record_tag::Column::TagId.eq(tag_id))
+        .and_where(record_tag::Column::MediaId.is_not_null())
         .to_owned()
 }
 

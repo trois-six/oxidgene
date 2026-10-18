@@ -15,6 +15,7 @@ use crate::components::person_profile::{
     timeline_placeholder, timeline_section, use_ancestor_pedigree, use_mini_pedigree,
     use_page_pictures, use_tree_resource,
 };
+use crate::components::tags::TagsButton;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
@@ -22,6 +23,7 @@ use crate::components::tree_page::ToolPageFrame;
 use crate::i18n::use_i18n;
 use crate::router::{Route, person_route, push_tree_route};
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use oxidgene_core::types::RecordKind;
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
 #[component]
@@ -339,6 +341,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         profile,
                         photo,
                         is_self,
+                        profile.person.as_ref().map(|person| person.tags.clone()).unwrap_or_default(),
                         header_actions(
                             &i18n,
                             move || {
@@ -358,6 +361,15 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 }
                             },
                             move || refresh += 1,
+                            rsx! {
+                                TagsButton {
+                                    tree_id: ctx.tree_id,
+                                    kind: RecordKind::Person,
+                                    record_id: profile.person_id,
+                                    tags: profile.person.as_ref().map(|person| person.tags.clone()).unwrap_or_default(),
+                                    on_changed: move |()| refresh += 1,
+                                }
+                            },
                         ),
                     )}
                     {notes_section(&i18n, "person.notes_section", notes_resource.read().as_ref())}
@@ -407,6 +419,7 @@ fn header_actions(
     mut on_merge: impl FnMut() + 'static,
     mut on_history: impl FnMut() + 'static,
     on_refresh: impl FnMut() + 'static,
+    tags_button: Element,
 ) -> Element {
     rsx! {
         button {
@@ -449,6 +462,7 @@ fn header_actions(
                 path { d: "M12 15v6" }
             }
         }
+        {tags_button}
         button {
             class: "btn btn-outline pd-header-action-btn",
             title: i18n.t("history.button"),

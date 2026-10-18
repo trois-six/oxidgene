@@ -4645,9 +4645,46 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
     gql_photo_fixture(app, tree_id, &second).await;
 }
 
-const GQL_ADD_TAG: &str = r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
-    addMediaTag(treeId: $tree, id: $id, tag: $tag) { id }
-}"#;
+/// The id of the tag `label` of the tree, created when it does not exist.
+async fn gql_tag_id(app: &axum::Router, tree_id: &str, label: &str) -> String {
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $label: String!) {
+            createTag(treeId: $tree, input: { label: $label }) { id }
+        }"#,
+        Some(json!({ "tree": tree_id, "label": label })),
+    )
+    .await;
+    data(&resp)["createTag"]["id"].as_str().unwrap().to_string()
+}
+
+/// Put the tag `label` (created when new) on the media `media`.
+async fn gql_tag_media(app: &axum::Router, tree_id: &str, media: &str, label: &str) -> String {
+    let tag = gql_tag_id(app, tree_id, label).await;
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $tag: ID!, $media: ID!) {
+            tagRecord(treeId: $tree, tagId: $tag, kind: "media", recordId: $media)
+        }"#,
+        json!({ "tree": tree_id, "tag": tag, "media": media }),
+    )
+    .await;
+    tag
+}
+
+/// The `(label, count)` of each tag facet, in order.
+fn gql_facet_counts(tags: &Value) -> Vec<(String, i64)> {
+    tags.as_array()
+        .unwrap()
+        .iter()
+        .map(|tag| {
+            (
+                tag["label"].as_str().unwrap().to_owned(),
+                tag["count"].as_i64().unwrap(),
+            )
+        })
+        .collect()
+}
 
 const GQL_UPLOAD_PAGE: &str = r#"mutation($tree: ID!, $doc: ID!, $name: String!, $content: String!) {
     uploadMediaFile(treeId: $tree, input: { documentId: $doc, fileName: $name, contentBase64: $content }) { id }
@@ -4671,12 +4708,7 @@ async fn gql_census_fixture(app: &axum::Router, tree_id: &str, person: &str) {
     )
     .await;
     for tag in ["Village Alpha", "Survey"] {
-        gql_do(
-            app,
-            GQL_ADD_TAG,
-            json!({ "tree": tree_id, "id": census, "tag": tag }),
-        )
-        .await;
+        gql_tag_media(app, tree_id, &census, tag).await;
     }
     gql_do(
         app,
@@ -4699,12 +4731,7 @@ async fn gql_parish_fixture(app: &axum::Router, tree_id: &str, person: &str) {
         json!({ "tree": tree_id, "doc": parish }),
     )
     .await;
-    gql_do(
-        app,
-        GQL_ADD_TAG,
-        json!({ "tree": tree_id, "id": parish, "tag": "village alpha" }),
-    )
-    .await;
+    gql_tag_media(app, tree_id, &parish, "village alpha").await;
     let resp = graphql(
         app.clone(),
         r#"mutation($tree: ID!, $person: ID!) {
@@ -4742,12 +4769,7 @@ async fn gql_photo_fixture(app: &axum::Router, tree_id: &str, person: &str) {
         .as_str()
         .unwrap()
         .to_string();
-    gql_do(
-        app,
-        GQL_ADD_TAG,
-        json!({ "tree": tree_id, "id": photo, "tag": "Village Alpha" }),
-    )
-    .await;
+    gql_tag_media(app, tree_id, &photo, "Village Alpha").await;
     gql_do(
         app,
         r#"mutation($tree: ID!, $page: ID!, $person: ID!) {
@@ -4790,17 +4812,16 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
     gql_library_fixture(&app, &tree_id).await;
+    let village = gql_tag_id(&app, &tree_id, "Village Alpha").await;
+    let survey = gql_tag_id(&app, &tree_id, "Survey").await;
 
     let all = ["Census sheet", "Écrits de paroisse", "Group photo"];
     let titles = |filter: Value| gql_library_titles(&app, &tree_id, filter);
     assert_eq!(titles(json!(null)).await, all);
-    assert_eq!(titles(json!({ "tags": ["VILLAGE ALPHA"] })).await, all);
+    assert_eq!(titles(json!({ "tags": [village] })).await, all);
+    assert_eq!(titles(json!({ "tags": [survey] })).await, ["Census sheet"]);
     assert_eq!(
-        titles(json!({ "tags": ["survey"] })).await,
-        ["Census sheet"]
-    );
-    assert_eq!(
-        titles(json!({ "tags": ["village alpha", "Survey"] })).await,
+        titles(json!({ "tags": [village, survey] })).await,
         ["Census sheet"],
         "a document must carry every tag given"
     );
@@ -4841,8 +4862,7 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
             .is_empty()
     );
     assert_eq!(
-        titles(json!({ "tags": ["village alpha"], "kind": "IMAGE", "linkedName": "exemple" }))
-            .await,
+        titles(json!({ "tags": [village], "kind": "IMAGE", "linkedName": "exemple" })).await,
         ["Group photo"]
     );
 
@@ -4859,19 +4879,21 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
         "a backwards range is refused, as REST answers 400: {resp}"
     );
 
+    let village = gql_tag_id(&app, &tree_id, "Village Alpha").await;
     let page = |after: Option<String>| {
         let app = app.clone();
         let tree_id = tree_id.clone();
+        let village = village.clone();
         async move {
             let resp = graphql(
                 app,
-                r#"query($tree: ID!, $after: String) {
-                    mediaList(treeId: $tree, first: 2, after: $after, filter: { tags: ["village alpha"] }) {
+                r#"query($tree: ID!, $after: String, $village: ID!) {
+                    mediaList(treeId: $tree, first: 2, after: $after, filter: { tags: [$village] }) {
                         totalCount pageInfo { hasNextPage endCursor }
                         edges { usageCount node { title } }
                     }
                 }"#,
-                Some(json!({ "tree": tree_id, "after": after })),
+                Some(json!({ "tree": tree_id, "after": after, "village": village })),
             )
             .await;
             data(&resp)["mediaList"].clone()
@@ -4896,20 +4918,18 @@ async fn the_media_facets_over_graphql_match_rest() {
     let tree_id = tree_id_for(&app).await;
     gql_library_fixture(&app, &tree_id).await;
 
+    let survey = gql_tag_id(&app, &tree_id, "Survey").await;
     let resp = graphql(
         app.clone(),
-        r#"query($tree: ID!) {
-            narrowed: mediaFacets(treeId: $tree, tags: ["survey"]) { tags { tag count } }
+        r#"query($tree: ID!, $survey: ID!) {
+            narrowed: mediaFacets(treeId: $tree, tags: [$survey]) { tags { id label count } }
         }"#,
-        Some(json!({ "tree": tree_id })),
+        Some(json!({ "tree": tree_id, "survey": survey })),
     )
     .await;
     assert_eq!(
-        data(&resp)["narrowed"]["tags"],
-        json!([
-            { "tag": "Survey", "count": 1 },
-            { "tag": "Village Alpha", "count": 1 },
-        ]),
+        gql_facet_counts(&data(&resp)["narrowed"]["tags"]),
+        [("Survey".to_owned(), 1), ("Village Alpha".to_owned(), 1)],
         "with tags selected, the tags are counted among their documents"
     );
 
@@ -4917,7 +4937,7 @@ async fn the_media_facets_over_graphql_match_rest() {
         app,
         r#"query($tree: ID!) {
             mediaFacets(treeId: $tree) {
-                tags { tag count } kinds { kind count } categories { category count }
+                tags { id label color count } kinds { kind count } categories { category count }
             }
         }"#,
         Some(json!({ "tree": tree_id })),
@@ -4925,11 +4945,8 @@ async fn the_media_facets_over_graphql_match_rest() {
     .await;
     let facets = &data(&resp)["mediaFacets"];
     assert_eq!(
-        facets["tags"],
-        json!([
-            { "tag": "Survey", "count": 1 },
-            { "tag": "Village Alpha", "count": 3 },
-        ])
+        gql_facet_counts(&facets["tags"]),
+        [("Survey".to_owned(), 1), ("Village Alpha".to_owned(), 3)]
     );
     assert_eq!(
         facets["kinds"],
@@ -4942,24 +4959,19 @@ async fn the_media_facets_over_graphql_match_rest() {
 }
 
 /// As over REST, accents fold like case: "Église" and "EGLISE" are one tag,
-/// spelled as first entered, and "eglise" removes it.
+/// spelled as first entered, and untagging by the other spelling's id removes
+/// it.
 #[tokio::test]
 async fn graphql_media_tags_fold_accents_like_case() {
     let app = setup_app().await;
     let tree_id = gql_tree(&app).await;
     let media = gql_document(&app, &tree_id, "Parish scan").await;
-    for tag in ["Église", "EGLISE"] {
-        gql_do(
-            &app,
-            GQL_ADD_TAG,
-            json!({ "tree": tree_id, "id": media, "tag": tag }),
-        )
-        .await;
-    }
+    let church = gql_tag_media(&app, &tree_id, &media, "Église").await;
+    assert_eq!(gql_tag_id(&app, &tree_id, "EGLISE").await, church);
     let tags = |app: axum::Router, tree_id: String, media: String| async move {
         let resp = graphql(
             app,
-            r#"query($tree: ID!, $id: ID!) { media(treeId: $tree, id: $id) { tags } }"#,
+            r#"query($tree: ID!, $id: ID!) { media(treeId: $tree, id: $id) { tags { label } } }"#,
             Some(json!({ "tree": tree_id, "id": media })),
         )
         .await;
@@ -4967,14 +4979,14 @@ async fn graphql_media_tags_fold_accents_like_case() {
     };
     assert_eq!(
         tags(app.clone(), tree_id.clone(), media.clone()).await,
-        json!(["Église"])
+        json!([{ "label": "Église" }])
     );
     gql_do(
         &app,
-        r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
-            removeMediaTag(treeId: $tree, id: $id, tag: $tag)
+        r#"mutation($tree: ID!, $tag: ID!, $media: ID!) {
+            untagRecord(treeId: $tree, tagId: $tag, kind: "media", recordId: $media)
         }"#,
-        json!({ "tree": tree_id, "id": media, "tag": "eglise" }),
+        json!({ "tree": tree_id, "tag": church, "media": media }),
     )
     .await;
     assert_eq!(tags(app.clone(), tree_id, media).await, json!([]));

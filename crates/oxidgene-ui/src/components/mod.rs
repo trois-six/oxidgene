@@ -39,6 +39,7 @@ pub mod search_person;
 pub mod source_forms;
 pub mod suggest_input;
 pub mod tabs;
+pub mod tags;
 pub mod topbar_search;
 pub mod tree_cache;
 pub mod tree_icon_sidebar;

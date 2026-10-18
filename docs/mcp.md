@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-02T00:50:47Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:28:42Z }
 ---
 
 # Assistant Access (MCP)
@@ -144,8 +144,9 @@ within that tree.
 |---|---|---|---|
 | `list_trees` | `first`, `after` | `GET /trees` | Tree connection of the active trees, without the REST list's transient import-job fields; the IDs are what every other tool takes as `tree_id` |
 | `get_tree` | `tree_id` | `GET /trees/{tree_id}` | The tree's name, description, SOSA root, and the person the user identified as themself |
-| `search_persons` | `tree_id`, `q`, every `PersonSearchFilters` field, `sort`, `limit`, `offset` | `GET /trees/{tree_id}/persons/search` | `SearchResult` |
+| `search_persons` | `tree_id`, `q`, every `PersonSearchFilters` field (including `tags`, repeatable tag IDs that every match must carry), `sort`, `limit`, `offset` | `GET /trees/{tree_id}/persons/search` | `SearchResult` |
 | `get_person_profile` | `tree_id`, `person_id` | `GET /trees/{tree_id}/profiles/{person_id}` | `PersonProfile` |
+| `list_tags` | `tree_id` | `GET /trees/{tree_id}/tags` | The tree's vocabulary: each tag's ID, label, colour and counts per kind of record. Answered whole; `search_persons` takes the IDs as its `tags` filter |
 | `get_person_by_sosa` | `tree_id`, `number` | `GET /trees/{tree_id}/persons/sosa/{number}` | Person with `sosa_number` |
 | `get_pedigree` | `tree_id`, `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
 | `get_relation_labels` | `tree_id`, `person_ids`, `family_ids` | `POST /trees/{tree_id}/relation-labels` | Names of the persons, and the spouses of the families with their names; at most 1,024 IDs |

@@ -2718,6 +2718,29 @@ pub const LAYOUT_STYLES: &str = r#"
         border-radius: var(--radius);
     }
 
+    /* A search row and the tag dots beside it (docs/tags.md §6.3): the dots
+       are links of their own, so they cannot sit inside the row's link. */
+    .search-person-entry {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding-right: var(--space-4);
+    }
+    .search-person-entry > .search-person-result {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .search-person-results.sr-results-page .search-person-entry {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-bottom: var(--space-2);
+    }
+    .search-person-results.sr-results-page .search-person-entry > .search-person-result {
+        border: none;
+        border-radius: 0;
+        margin-bottom: 0;
+    }
+
     .search-person-result {
         display: flex;
         align-items: center;
@@ -4410,6 +4433,10 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    .dict-media-tag .tag-dot {
+        margin-right: var(--space-2);
+    }
+
     .dict-media-tag:hover:not(.active) {
         background: var(--bg-card-hover);
     }
@@ -4602,6 +4629,14 @@ pub const LAYOUT_STYLES: &str = r#"
 
     a.dict-accordion-item:hover {
         color: var(--orange);
+    }
+
+    .dict-accordion-group {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-3) 0;
     }
 
     .dict-accordion-name {
@@ -4877,6 +4912,15 @@ pub const LAYOUT_STYLES: &str = r#"
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    /* The tags' dots follow the caption on its line, which gives way to
+       them, so a tagged tile is no taller than another. */
+    .media-caption-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+    }
+    .media-caption-row .tag-dots { flex: 0 0 auto; margin-left: var(--space-2); }
 
     .media-event-link {
         font-size: var(--text-70);
@@ -5389,36 +5433,145 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1.2;
     }
 
-    .media-fact-tags {
+    /* Tags on records (docs/tags.md §6.1, §6.3). Each colour is a --tag-N
+       token of the theme; a dot or chip always carries its label too. */
+    .tag-dot {
+        display: inline-block;
+        flex: none;
+        width: 0.6em;
+        height: 0.6em;
+        border-radius: 50%;
+    }
+    .tag-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: var(--space-3);
+        vertical-align: middle;
+    }
+    /* A dot and a chip are links to the tag in the Dictionary: a ring marks
+       the keyboard focus. */
+    .tag-dot-link {
+        display: inline-flex;
+        border-radius: 50%;
+    }
+    .tag-dot-link:focus-visible,
+    .tag-chip:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: 2px;
+    }
+    .tag-dots-more {
+        font-size: var(--text-65);
+        color: var(--text-muted);
+    }
+    .tag-chips {
         display: flex;
         flex-wrap: wrap;
-        align-items: flex-start;
         gap: var(--space-2);
     }
-
-    .media-fact-tag {
-        font-family: var(--font-sans);
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        color: var(--text-secondary);
-        font-size: var(--text-75);
-        padding: var(--space-1) var(--space-4);
-    }
-
-    .media-tags-editor { margin-bottom: var(--space-8); }
-    .media-tag-form { margin-bottom: var(--space-5); }
-    .media-tag-form .form-group { margin-bottom: var(--space-5); }
-    .media-edit-tags { min-height: 24px; }
-
-    .media-fact-tag.is-editable {
+    .tag-chip {
         display: inline-flex;
         align-items: center;
         gap: var(--space-2);
-        padding-right: 3px;
+        text-decoration: none;
+        font-family: var(--font-sans);
+        font-size: var(--text-75);
+        color: var(--text-secondary);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: var(--space-1) var(--space-4);
     }
-
-    .media-tag-remove {
+    .tag-picker {
+        width: min(18rem, calc(100vw - 16px));
+    }
+    .tag-picker-title {
+        padding: var(--space-2) var(--space-5) var(--space-3);
+        font-size: var(--text-75);
+        color: var(--text-muted);
+    }
+    .tag-picker-input {
+        display: block;
+        box-sizing: border-box;
+        width: calc(100% - 2 * var(--space-4));
+        margin: 0 var(--space-4) var(--space-3);
+    }
+    .tag-picker-list {
+        max-height: 14rem;
+        overflow-y: auto;
+        outline: none;
+    }
+    .tag-picker-option {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-5);
+        color: var(--text-primary);
+        font-size: var(--text-80);
+        cursor: pointer;
+    }
+    .tag-picker-option:hover,
+    .tag-picker-option.is-active {
+        background: var(--sel-bg);
+    }
+    .tag-picker-option.is-create {
+        color: var(--text-secondary);
+        border-top: 1px solid var(--border);
+    }
+    .tag-picker-check {
+        flex: none;
+        width: 1em;
+        text-align: center;
+        color: var(--text-secondary);
+    }
+    .tag-picker-label {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+    .tag-picker-error {
+        margin: 0 var(--space-4) var(--space-3);
+        font-size: var(--text-75);
+        color: var(--danger-text);
+    }
+    .tag-picker-empty {
+        padding: var(--space-3) var(--space-5);
+        font-size: var(--text-75);
+        color: var(--text-muted);
+    }
+    .sr-tag-filter {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+    }
+    .sr-tag-filter-list {
+        display: flex;
+        flex-direction: column;
+        max-height: 14rem;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-card);
+    }
+    .sr-tag-filter-option {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-4);
+        border: 0;
+        background: none;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: var(--text-80);
+        text-align: left;
+        cursor: pointer;
+    }
+    .sr-tag-filter-option:hover {
+        background: var(--sel-bg);
+    }
+    .sr-tag-filter-chips {
+        margin-top: 0;
+    }
+    .tag-chip-remove {
         width: 18px;
         height: 18px;
         padding: 0;
@@ -5431,7 +5584,37 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1;
         cursor: pointer;
     }
-    .media-tag-remove:hover { background: var(--bg-card-hover); color: var(--danger-text); }
+    .tag-chip-remove:hover {
+        background: var(--bg-card-hover);
+        color: var(--danger-text);
+    }
+    .tag-swatches {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+    }
+    .tag-swatch {
+        width: 1.75rem;
+        height: 1.75rem;
+        padding: 0;
+        border: 2px solid transparent;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+    .tag-swatch.is-selected {
+        border-color: var(--text-primary);
+    }
+    .tag-merge {
+        margin: var(--space-4) 0;
+        padding: var(--space-4);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+    .tag-merge-message {
+        margin: 0 0 var(--space-3);
+        font-size: var(--text-80);
+        color: var(--text-secondary);
+    }
 
     .media-fact-tech {
         display: flex;
@@ -7877,7 +8060,7 @@ pub const LAYOUT_STYLES: &str = r#"
         .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action,
         .dict-letter-strip, .dict-filter-row, .dict-page-size,
         .media-act, .media-upload-icon-btn, .media-drop-btn,
-        .media-tag-remove, .media-identification-delete,
+        .media-identification-delete,
         .sr-filters-toggle, .sr-filters, .sr-sort, .view-toggle,
         .sr-filter-actions, .sr-clear-filters, .pager, .stats-option,
         .stats-interval,

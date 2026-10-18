@@ -44,9 +44,9 @@ use super::types::{
     GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
     GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult, GqlSource,
     GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree, GqlTreeConnection, GqlTreeMediaLink,
-    GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    reader_from_ctx, require_local_file_access,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTag, GqlTaggedRecordConnection, GqlTree,
+    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
+    media_from_ctx, profiles_from_ctx, reader_from_ctx, require_local_file_access,
 };
 
 /// A read's record, or `None` when the record is not there — the shape of
@@ -1296,11 +1296,55 @@ impl QueryRoot {
             let conn = crate::service::media_library::list(
                 db,
                 tid,
-                filter.unwrap_or_default().into(),
+                crate::service::media_library::MediaListFilters::try_from(
+                    filter.unwrap_or_default(),
+                )?,
                 &params,
             )
             .await?;
             Ok(conn.into())
+        })
+        .await
+    }
+
+    /// The tree's vocabulary: every tag with its counts per record kind,
+    /// sorted by folded label.
+    async fn tags(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlTag>> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let usages = crate::service::tag::list(reader_from_ctx(ctx), tid).await?;
+            Ok(usages.into_iter().map(GqlTag::from).collect())
+        })
+        .await
+    }
+
+    /// One page of the live records of `kind` carrying a tag.
+    async fn tagged_records(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        tag_id: ID,
+        kind: String,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlTaggedRecordConnection> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let tag_id = uuid(&tag_id)?;
+            let kind = crate::service::tag::parse_kind(&kind)?;
+            let params = PaginationParams {
+                first: first.unwrap_or(25),
+                after,
+            };
+            let page = crate::service::tag::tagged_records(
+                reader_from_ctx(ctx),
+                tid,
+                tag_id,
+                kind,
+                &params,
+            )
+            .await?;
+            Ok(page.into())
         })
         .await
     }
@@ -1312,10 +1356,11 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        #[graphql(default)] tags: Vec<String>,
+        #[graphql(default)] tags: Vec<ID>,
     ) -> Result<GqlMediaFacets> {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
+            let tags = tags.iter().map(uuid).collect::<Result<Vec<_>>>()?;
             Ok(
                 crate::service::media_library::facets(reader_from_ctx(ctx), tid, tags)
                     .await?
@@ -1879,12 +1924,14 @@ impl QueryRoot {
         event_from: Option<i32>,
         event_to: Option<i32>,
         #[graphql(default = false)] has_media: bool,
+        #[graphql(default)] tags: Vec<ID>,
         sort: Option<GqlPersonSearchSort>,
     ) -> Result<GqlSearchResult> {
         boxed(async move {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let filters = PersonSearchFilters {
+                tags: uuids(&tags)?,
                 sex: sex.map(Into::into),
                 surname,
                 given_names,

@@ -43,6 +43,7 @@ use crate::rest::dto::{
     DictionaryEntryDto, PersonDetailResponse, PersonUsageEntryDto, PlaceDictionaryEntry,
 };
 use crate::rest::error::ErrorBody;
+use crate::rest::tag::TagView;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
@@ -299,7 +300,8 @@ impl OxidGeneMcp {
     }
 
     /// Search the persons of a tree by free text and structured filters (all combined with
-    /// AND). Each result names the person's spouses, parents and number of children.
+    /// AND). Each result names the person's spouses, parents and number of children. Tags
+    /// are named by ID, as `list_tags` returns them.
     #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn search_persons(&self, params: Parameters<SearchPersonsParams>) -> CallToolResult {
         let p = params.0;
@@ -315,6 +317,19 @@ impl OxidGeneMcp {
                     p.offset.unwrap_or(0),
                 )
                 .await
+        })
+        .await
+    }
+
+    /// List a tree's tags, the vocabulary records are labelled with: each tag's ID, label,
+    /// colour and the number of records of each kind carrying it.
+    #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
+    async fn list_tags(&self, params: Parameters<TreeParams>) -> CallToolResult {
+        let p = params.0;
+        respond("list_tags", async {
+            self.tree(p.tree_id).await?;
+            let usages = crate::service::tag::list(&self.db, p.tree_id).await?;
+            Ok::<_, OxidGeneError>(usages.into_iter().map(TagView::from).collect::<Vec<_>>())
         })
         .await
     }

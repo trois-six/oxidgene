@@ -89,6 +89,8 @@ pub enum PersonAction {
     EditSpecificUnion(Uuid),
     /// Trace how the person is related to somebody else.
     Kinship,
+    /// Put tags on the person, or take them off.
+    Tags,
     /// Make a relative the chart's focus.
     GoTo(Uuid),
     Delete,
@@ -191,6 +193,11 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Merge),
                     {i18n.t("context.merge")}
+                }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::Tags),
+                    {i18n.t("tag.picker.open")}
                 }
                 if props.has_union {
                     if union_count > 1 {

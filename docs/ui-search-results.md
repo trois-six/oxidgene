@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
+generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
 ---
 
 
@@ -110,6 +110,7 @@ The expanded panel reuses the person form's visual and interaction patterns:
 | **Spouse** | Surname and given-name inputs, suggesting like the person's | Matches another spouse in the same family |
 | **Father / mother** | Surname and given-name inputs, suggesting like the person's | Matches the corresponding parent through family links |
 | **Has media** | Toggle | When enabled, only shows persons with at least one attached media |
+| **Tags** | Field suggesting the tree's person tags; each choice is added as a removable chip | Persons carrying every chosen tag ([API Contract](api.md)) |
 
 A **"Clear filters"** link resets all filters to their default state.
 
@@ -193,6 +194,7 @@ projections; loading cells show a placeholder message.
 |---|---|
 | **Click a result** | Opens that person in the kind of view the search was started from (below) |
 | **Hover** | Subtle highlight, pointer cursor |
+| **Click a tag dot** | Opens the Dictionary's Tags tab on that tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)). The dots sit beside the row's link, not inside it, and each has the tag's name as its accessible name |
 
 A result leads back to the kind of view the search was started from. The
 results page records it in the `origin` query parameter of its address

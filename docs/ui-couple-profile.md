@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-01T23:57:17Z }
+generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
 ---
 
 
@@ -123,6 +123,10 @@ column, and the ⚭ sign is centered in the gutter between the two.
   also detaches children from the union and deletes the couple. Deleting the
   couple removes the union only, and the page then returns to the tree view,
   centered on the spouse that was displayed.
+- **Tags…**, an icon button in the actions row, opens the tag picker on the
+  couple ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)). The
+  couple's tags sit as chips beside it, shown only when there are some; each
+  chip opens the Dictionary's Tags tab on its tag.
 - **Refresh**, on the web build only, reloads the page's data.
 
 At 1080px and below, as the columns collapse, each selector takes its own line

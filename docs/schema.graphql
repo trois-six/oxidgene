@@ -368,6 +368,17 @@ input CreateSourceInput {
 }
 
 """
+Input for creating a tag, or for finding the one its label folds to.
+"""
+input CreateTagInput {
+	label: String!
+	"""
+	Colour index, 0 to 11; the least used colour of the tree when absent.
+	"""
+	color: Int
+}
+
+"""
 Input for creating a new tree.
 """
 input CreateTreeInput {
@@ -643,11 +654,12 @@ enum GqlAuditEntity {
 	NOTE
 	FAMILY_NAME
 	MEDIA
-	MEDIA_TAG
 	MEDIA_PAGE
 	MEDIA_LINK
 	VIGNETTE
 	PORTRAIT
+	TAG
+	RECORD_TAG
 }
 
 """
@@ -1209,6 +1221,10 @@ A family unit.
 type GqlFamily {
 	id: ID!
 	treeId: ID!
+	"""
+	The tags the couple carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""
@@ -1723,7 +1739,7 @@ type GqlMedia {
 	"""
 	Free-form labels for this media or document.
 	"""
-	tags: [String!]!
+	tags: [GqlTagRef!]!
 	placeId: ID
 	createdAt: DateTime!
 	updatedAt: DateTime!
@@ -1809,10 +1825,12 @@ type GqlMediaLink {
 A tag and how many documents carry it.
 """
 type GqlMediaTagFacet {
+	id: ID!
+	label: String!
 	"""
-	The spelling most of those documents carry.
+	Index of the tag's colour, 0 to 11.
 	"""
-	tag: String!
+	color: Int!
 	count: Int!
 }
 
@@ -2015,6 +2033,10 @@ type GqlPerson {
 	The region of a larger image representing them, if it is a crop.
 	"""
 	portraitVignetteId: ID
+	"""
+	The tags the person carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""
@@ -2134,6 +2156,7 @@ type GqlPersonProfile {
 	familiesAsSpouse: [GqlProfileFamilyLink!]!
 	familyAsChild: GqlProfileChildLink
 	primaryMedia: GqlProfileMediaRef
+	tags: [GqlTagRef!]!
 	mediaCount: Int!
 	citationCount: Int!
 	noteCount: Int!
@@ -2348,6 +2371,7 @@ type GqlProfileChildLink {
 An event summary with its place name resolved (birth, death, etc.).
 """
 type GqlProfileEvent {
+	tags: [GqlTagRef!]!
 	eventId: ID!
 	eventType: GqlEventType!
 	dateValue: String
@@ -2419,6 +2443,21 @@ Result of a projection rebuild operation.
 type GqlProfileRebuildResult {
 	rebuilt: Boolean!
 	personsCount: Int!
+}
+
+"""
+The kinds of record a tag can be put on.
+"""
+enum GqlRecordKind {
+	PERSON
+	FAMILY
+	EVENT
+	PLACE
+	SOURCE
+	CITATION
+	REPOSITORY
+	MEDIA
+	NOTE
 }
 
 type GqlRecordLabel {
@@ -2565,6 +2604,10 @@ type GqlSearchEntry {
 	Where the row's portrait is drawn from, when the person has one.
 	"""
 	portrait: GqlPortraitRef
+	"""
+	Tags put on the person, sorted by folded label.
+	"""
+	tags: [GqlTagRef!]!
 }
 
 """
@@ -2802,6 +2845,74 @@ enum GqlSuggestionField {
 	The tree's place names.
 	"""
 	PLACES
+}
+
+"""
+A tag of the tree's vocabulary, with its counts per record kind.
+"""
+type GqlTag {
+	id: ID!
+	label: String!
+	"""
+	Index of the tag's colour, 0 to 11.
+	"""
+	color: Int!
+	counts: GqlTagCounts!
+}
+
+"""
+The live records of each kind carrying a tag.
+"""
+type GqlTagCounts {
+	persons: Int!
+	families: Int!
+	events: Int!
+	places: Int!
+	sources: Int!
+	citations: Int!
+	repositories: Int!
+	media: Int!
+	notes: Int!
+}
+
+"""
+A tag of the tree's vocabulary, as a record carries it.
+"""
+type GqlTagRef {
+	id: ID!
+	label: String!
+	"""
+	Index of the tag's colour, 0 to 11.
+	"""
+	color: Int!
+}
+
+"""
+A live record carrying a tag, with a label to show it by.
+"""
+type GqlTaggedRecord {
+	id: ID!
+	kind: GqlRecordKind!
+	label: String!
+	"""
+	For an event, citation or note: the person it belongs to.
+	"""
+	personId: ID
+	"""
+	For an event, citation or note: the family it belongs to.
+	"""
+	familyId: ID
+}
+
+type GqlTaggedRecordConnection {
+	edges: [GqlTaggedRecordEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlTaggedRecordEdge {
+	cursor: String!
+	node: GqlTaggedRecord!
 }
 
 """
@@ -3083,10 +3194,9 @@ with AND; blank text is no filter.
 """
 input MediaListFilterInput {
 	"""
-	Tags in any spelling, matched case-insensitively: a document must
-	carry all of them.
+	Tags by id: a document must carry all of them.
 	"""
-	tags: [String!]! = []
+	tags: [ID!]! = []
 	"""
 	Documents with at least one page of this file kind.
 	"""
@@ -3334,14 +3444,6 @@ type MutationRoot {
 	"""
 	updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): GqlMedia!
 	"""
-	Atomically add a tag without replacing the media's other tags.
-	"""
-	addMediaTag(treeId: ID!, id: ID!, tag: String!): GqlMedia!
-	"""
-	Atomically remove one tag without replacing the media's other tags.
-	"""
-	removeMediaTag(treeId: ID!, id: ID!, tag: String!): Boolean!
-	"""
 	Permanently delete media and its associated data.
 	
 	With `onlyIfUnreferencedElsewhere`, the supplied gallery link is
@@ -3405,6 +3507,33 @@ type MutationRoot {
 	Delete a note (soft delete).
 	"""
 	deleteNote(treeId: ID!, id: ID!): Boolean!
+	"""
+	Create a tag, or return the existing one its label folds to.
+	"""
+	createTag(treeId: ID!, input: CreateTagInput!): GqlTag!
+	"""
+	Rename and/or recolour a tag. A label folding to another tag's is a
+	conflict: merge the two instead.
+	"""
+	updateTag(treeId: ID!, id: ID!, input: UpdateTagInput!): GqlTag!
+	"""
+	Move every link of a tag onto another tag and delete it; returns the
+	tag it was merged into.
+	"""
+	mergeTag(treeId: ID!, id: ID!, into: ID!): GqlTag!
+	"""
+	Delete a tag and every link to it.
+	"""
+	deleteTag(treeId: ID!, id: ID!): Boolean!
+	"""
+	Put a tag on a record. Idempotent; a page of a document is tagged on
+	the document.
+	"""
+	tagRecord(treeId: ID!, tagId: ID!, kind: String!, recordId: ID!): Boolean!
+	"""
+	Take a tag off a record. Idempotent.
+	"""
+	untagRecord(treeId: ID!, tagId: ID!, kind: String!, recordId: ID!): Boolean!
 	"""
 	Re-cut every occurrence of one surname at the given particle — the
 	dictionary's bulk repair for an import that guessed wrong across a
@@ -3830,11 +3959,20 @@ type QueryRoot {
 	"""
 	mediaList(treeId: ID!, first: Int, after: String, filter: MediaListFilterInput): GqlMediaConnection!
 	"""
+	The tree's vocabulary: every tag with its counts per record kind,
+	sorted by folded label.
+	"""
+	tags(treeId: ID!): [GqlTag!]!
+	"""
+	One page of the live records of `kind` carrying a tag.
+	"""
+	taggedRecords(treeId: ID!, tagId: ID!, kind: String!, first: Int, after: String): GqlTaggedRecordConnection!
+	"""
 	The tags, file kinds and categories the tree's documents carry, each
 	with its document count; with `tags`, the tags are counted among the
 	documents carrying every tag given.
 	"""
-	mediaFacets(treeId: ID!, tags: [String!]! = []): GqlMediaFacets!
+	mediaFacets(treeId: ID!, tags: [ID!]! = []): GqlMediaFacets!
 	"""
 	Get a single media by ID.
 	"""
@@ -3954,7 +4092,7 @@ type QueryRoot {
 	Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
 	with accent-folded, normalised matching. Returns paginated results.
 	"""
-	searchPersons(treeId: ID!, query: String!, limit: Int! = 25, offset: Int! = 0, sex: GqlSex, surname: String, givenNames: String, occupation: String, spouseSurname: String, spouseGivenNames: String, fatherSurname: String, fatherGivenNames: String, motherSurname: String, motherGivenNames: String, birthFrom: Int, birthTo: Int, deathFrom: Int, deathTo: Int, place: String, eventType: GqlEventType, eventFrom: Int, eventTo: Int, hasMedia: Boolean! = false, sort: GqlPersonSearchSort): GqlSearchResult!
+	searchPersons(treeId: ID!, query: String!, limit: Int! = 25, offset: Int! = 0, sex: GqlSex, surname: String, givenNames: String, occupation: String, spouseSurname: String, spouseGivenNames: String, fatherSurname: String, fatherGivenNames: String, motherSurname: String, motherGivenNames: String, birthFrom: Int, birthTo: Int, deathFrom: Int, deathTo: Int, place: String, eventType: GqlEventType, eventFrom: Int, eventTo: Int, hasMedia: Boolean! = false, tags: [ID!]! = [], sort: GqlPersonSearchSort): GqlSearchResult!
 	"""
 	The other persons of the tree bearing the same folded primary surname
 	and given names, less those already confirmed to be somebody else.
@@ -4490,6 +4628,17 @@ input UpdateSourceRepositoryInput {
 	callNumber: String
 	mediaType: GqlSourceMediaType
 	sortOrder: Int
+}
+
+"""
+Input for renaming or recolouring a tag. An absent field is left alone.
+"""
+input UpdateTagInput {
+	label: String
+	"""
+	Colour index, 0 to 11.
+	"""
+	color: Int
 }
 
 """

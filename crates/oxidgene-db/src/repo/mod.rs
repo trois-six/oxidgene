@@ -22,7 +22,6 @@ mod history;
 mod media;
 mod media_library;
 mod media_link;
-mod media_tag;
 mod note;
 mod pagination;
 mod person;
@@ -33,10 +32,12 @@ mod person_merge;
 mod person_name;
 mod person_search;
 mod place;
+mod record_tag;
 mod repository;
 mod snapshot;
 mod sosa;
 mod source;
+mod tag;
 mod tree;
 mod vignette;
 
@@ -64,7 +65,6 @@ pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
 pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
-pub use media_tag::MediaTagRepo;
 pub use note::{NoteFilter, NoteRepo};
 pub use pagination::PaginationParams;
 pub use person::{PersonRepo, PortraitRow};
@@ -78,6 +78,7 @@ pub use person_search::{
     RELATIVE_SEP,
 };
 pub use place::{PlaceFilter, PlaceRepo};
+pub use record_tag::RecordTagRepo;
 pub use repository::{
     RepositoryFields, RepositoryPatch, RepositoryRepo, SourceRepositoryFields,
     SourceRepositoryPatch, SourceRepositoryRepo,
@@ -85,6 +86,7 @@ pub use repository::{
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
 pub use sosa::{ParentLink, SosaAncestor, SosaRepo};
 pub use source::SourceRepo;
+pub use tag::{TagRepo, TagUsage, checked_color, checked_label};
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};
 

@@ -24,6 +24,7 @@ use oxidgene_core::projection::{
     PROJECTION_SCHEMA_VERSION, PersonProfile, ProfileChildLink, ProfileEvent, ProfileFamilyLink,
     ProfileMediaRef, ProfileName,
 };
+use oxidgene_core::types::TagRef;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -43,6 +44,14 @@ fn name() -> ProfileName {
     }
 }
 
+fn tag() -> TagRef {
+    TagRef {
+        id: id(14),
+        label: "Fictional tag".into(),
+        color: 3,
+    }
+}
+
 fn event() -> ProfileEvent {
     ProfileEvent {
         event_id: id(2),
@@ -56,6 +65,7 @@ fn event() -> ProfileEvent {
         place_id: Some(id(3)),
         description: Some("A fictitious event".into()),
         age: Some("30y".into()),
+        tags: vec![tag()],
     }
 }
 
@@ -109,6 +119,7 @@ fn full_profile() -> PersonProfile {
         media_count: 1,
         citation_count: 1,
         note_count: 1,
+        tags: vec![tag()],
         updated_at: at,
         built_at: at,
     }

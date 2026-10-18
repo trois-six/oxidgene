@@ -27,9 +27,10 @@ use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::pages::dictionary_repositories::DictionaryRepositories;
+use crate::pages::dictionary_tags::DictionaryTags;
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_trace};
 
 /// Above this many filtered entries, selecting the "All" page size shows a
 /// perf warning instead of silently rendering everything.
@@ -63,17 +64,19 @@ enum DictTab {
     Places,
     Occupations,
     Media,
+    Tags,
 }
 
 impl DictTab {
     /// The tabs in their order, each with its label's key.
-    const ALL: [(Self, &'static str); 6] = [
+    const ALL: [(Self, &'static str); 7] = [
         (Self::FamilyNames, "dictionary.tab.family_names"),
         (Self::Sources, "dictionary.tab.sources"),
         (Self::Repositories, "dictionary.tab.repositories"),
         (Self::Places, "dictionary.tab.places"),
         (Self::Occupations, "dictionary.tab.occupations"),
         (Self::Media, "dictionary.tab.media"),
+        (Self::Tags, "dictionary.tab.tags"),
     ];
 }
 
@@ -198,7 +201,7 @@ impl OpenedTabs {
             DictTab::Sources => self.sources,
             DictTab::Places => self.places,
             DictTab::Occupations => self.occupations,
-            DictTab::Repositories | DictTab::Media => return,
+            DictTab::Repositories | DictTab::Media | DictTab::Tags => return,
         };
         if !*opened.peek() {
             opened.set(true);
@@ -287,11 +290,26 @@ fn history_subject(
 /// aggregation's answer.
 type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
 
+/// The Dictionary page of a tree.
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    rsx! { DictionaryPage { tree_id, tag: None } }
+}
+
+/// The Dictionary page opened on the Tags tab, unfolded on one tag.
+#[component]
+pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    rsx! { DictionaryPage { tree_id, tag: Some(tag) } }
+}
+
+#[component]
+fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let load_trace = use_ui_load_trace(UiPage::Dictionary);
+    // The trace the route component opened is provided above this page.
+    let load_trace = use_ui_trace();
 
     let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
     let new_parsed = tree_id.parse::<Uuid>().ok();
@@ -300,9 +318,25 @@ pub fn Dictionary(tree_id: String) -> Element {
         *tree_id_parsed.write() = new_parsed;
     }
 
+    // A tag the page was opened on (a chip or a dot elsewhere) shows the Tags
+    // tab with that tag unfolded, even when the history holds another view.
+    let requested_tag = tag.as_deref().and_then(|raw| raw.parse::<Uuid>().ok());
+    let mut applied_tag = use_signal(|| requested_tag);
+
     // The view the reader left here, when coming back through the history.
     let restored = use_restored_view::<DictionaryView>().unwrap_or_default();
-    let mut active_tab = use_signal(|| restored.tab);
+    let mut active_tab = use_signal(|| {
+        if requested_tag.is_some() {
+            DictTab::Tags
+        } else {
+            restored.tab
+        }
+    });
+    // The same page asked for another tag while it is open.
+    if requested_tag.is_some() && requested_tag != applied_tag() {
+        applied_tag.set(requested_tag);
+        active_tab.set(DictTab::Tags);
+    }
     let quick_filter = use_signal(|| restored.quick.clone());
     let letter_filter = use_signal(|| restored.letter);
     let page_size = use_signal(|| restored.page_size);
@@ -527,16 +561,25 @@ pub fn Dictionary(tree_id: String) -> Element {
                     render_sources_tab(ctx, source_history, sources_view_resource, source_edit)
                 }
                 // Its own module: a list of its own, edited in place.
-                DictTab::Repositories => match tree_id_parsed() {
-                    Some(tree_id) => rsx! { DictionaryRepositories { tree_id } },
-                    None => rsx! {},
-                },
+                DictTab::Repositories => tree_module(tree_id_parsed(), |tree_id| {
+                    rsx! { DictionaryRepositories { tree_id } }
+                }),
                 DictTab::Places => render_places_tab(ctx, places_resource, filed_places),
                 // Its own module: server-paginated, with filters of its own.
-                DictTab::Media => match tree_id_parsed() {
-                    Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
-                    None => rsx! {},
-                },
+                DictTab::Media => tree_module(tree_id_parsed(), |tree_id| {
+                    rsx! { DictionaryMedia { tree_id } }
+                }),
+                // Its own module: the vocabulary, with its records unfolded.
+                // Keyed by the requested tag, so another tag opens unfolded.
+                DictTab::Tags => tree_module(tree_id_parsed(), |tree_id| {
+                    rsx! {
+                        DictionaryTags {
+                            key: "{requested_tag.map(|id| id.to_string()).unwrap_or_default()}",
+                            tree_id,
+                            open_tag: requested_tag,
+                        }
+                    }
+                }),
             }
 
             if let (Some(source_id), Some(tid)) = (source_edit(), tree_id_parsed()) {
@@ -566,6 +609,14 @@ pub fn Dictionary(tree_id: String) -> Element {
                 }
             }
         }
+    }
+}
+
+/// A tab that is its own module, shown once the tree id has parsed.
+fn tree_module(tree_id: Option<Uuid>, module: impl FnOnce(Uuid) -> Element) -> Element {
+    match tree_id {
+        Some(tree_id) => module(tree_id),
+        None => rsx! {},
     }
 }
 

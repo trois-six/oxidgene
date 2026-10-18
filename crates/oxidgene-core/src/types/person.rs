@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{NameType, Privacy, Sex};
+use crate::types::TagRef;
 
 /// A person in a genealogical tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +24,9 @@ pub struct Person {
     pub portrait_media_id: Option<Uuid>,
     #[serde(default)]
     pub portrait_vignette_id: Option<Uuid>,
+    /// The tags the person carries, sorted by folded label (docs/tags.md §4).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

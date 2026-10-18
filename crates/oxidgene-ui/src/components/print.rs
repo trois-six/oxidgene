@@ -43,6 +43,7 @@ pub fn is_printable(route: &Route) -> bool {
         Route::Home {}
         | Route::Settings { .. }
         | Route::AppSettings {}
+        | Route::Media { .. }
         | Route::NotFound { .. } => false,
         Route::TreeDetail { .. }
         | Route::SearchResults { .. }
@@ -51,6 +52,7 @@ pub fn is_printable(route: &Route) -> bool {
         | Route::CoupleDetail { .. }
         | Route::Kinship { .. }
         | Route::Dictionary { .. }
+        | Route::DictionaryTag { .. }
         | Route::Statistics { .. }
         | Route::Tools { .. } => true,
     }

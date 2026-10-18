@@ -1,8 +1,9 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{DateQualifier, EventType};
+use oxidgene_core::{DateQualifier, EventType, OxidGeneError};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // ── Pagination query params ──────────────────────────────────────────
 
@@ -314,12 +315,6 @@ pub struct CitationListQuery {
 
 // ── Media DTOs ──────────────────────────────────────────────────────
 
-/// One free-form tag to attach to or remove from a media item.
-#[derive(Debug, Deserialize)]
-pub struct MediaTagRequest {
-    pub tag: String,
-}
-
 /// Query parameters of the media list: pagination, then filters that
 /// combine with AND. Spelled out rather than flattened, because a flattened
 /// query string cannot carry the numbers and dates.
@@ -330,7 +325,7 @@ pub struct MediaListQuery {
     /// Cursor to start after (UUID string).
     pub after: Option<String>,
     // `tag` may be repeated, which this map-shaped query cannot hold: the
-    // handler reads it from the raw pairs (`tag_values`).
+    // handler reads it from the raw pairs (`tag_ids`).
     pub kind: Option<oxidgene_core::enums::MediaFileKind>,
     pub category: Option<oxidgene_core::enums::DocumentCategory>,
     pub name: Option<String>,
@@ -343,7 +338,7 @@ pub struct MediaListQuery {
 
 impl MediaListQuery {
     /// The filter part of the query, with the tags given.
-    pub fn filters(&self, tags: Vec<String>) -> crate::service::media_library::MediaListFilters {
+    pub fn filters(&self, tags: Vec<Uuid>) -> crate::service::media_library::MediaListFilters {
         crate::service::media_library::MediaListFilters {
             tags,
             kind: self.kind,
@@ -358,12 +353,16 @@ impl MediaListQuery {
     }
 }
 
-/// Every value of a repeatable query parameter, in the order given.
-pub fn tag_values(pairs: Vec<(String, String)>) -> Vec<String> {
+/// Every value of the repeatable `tag` query parameter, as tag ids, in the
+/// order given. A value that is not an id is a validation error.
+pub fn tag_ids(pairs: Vec<(String, String)>) -> Result<Vec<Uuid>, OxidGeneError> {
     pairs
         .into_iter()
         .filter(|(key, _)| key == "tag")
-        .map(|(_, value)| value)
+        .map(|(_, value)| {
+            Uuid::parse_str(&value)
+                .map_err(|_| OxidGeneError::Validation("a tag is named by its id".into()))
+        })
         .collect()
 }
 

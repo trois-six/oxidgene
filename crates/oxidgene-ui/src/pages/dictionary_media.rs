@@ -9,6 +9,7 @@
 
 use chrono::NaiveDate;
 use dioxus::prelude::*;
+use oxidgene_core::types::TagRef;
 use oxidgene_core::{DocumentCategory, MediaFileKind, SourceMediaType};
 use uuid::Uuid;
 
@@ -16,6 +17,7 @@ use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagF
 use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
 use crate::components::pager::Pager;
+use crate::components::tags::dot_style;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
@@ -35,9 +37,8 @@ const CLOUD_MAX_REM: f64 = 1.5;
 /// until sent, so a half-typed year is not rejected mid-keystroke.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Draft {
-    /// The selected tags, as the cloud spells them; a document must carry
-    /// every one.
-    tags: Vec<String>,
+    /// The selected tags; a document must carry every one.
+    tags: Vec<TagRef>,
     kind: Option<MediaFileKind>,
     category: Option<DocumentCategory>,
     name: String,
@@ -56,7 +57,7 @@ impl Draft {
         let year = |value: &str| value.trim().parse::<i32>().ok();
         let day = |value: &str| NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").ok();
         MediaListFilters {
-            tags: self.tags.clone(),
+            tags: self.tags.iter().map(|tag| tag.id).collect(),
             kind: self.kind,
             category: self.category,
             name: text(&self.name),
@@ -155,7 +156,8 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
     // The cloud counts the tags among the documents carrying the selected
     // ones, so it offers only the tags that still narrow the selection. It
     // follows the selection at once, and no other filter.
-    let selected_tags = use_memo(move || draft().tags);
+    let selected_tags =
+        use_memo(move || draft().tags.iter().map(|tag| tag.id).collect::<Vec<Uuid>>());
     let api_facets = api.clone();
     let facets = use_ui_resource("media_facets", move || {
         let api = api_facets.clone();
@@ -353,11 +355,7 @@ fn MediaTagCloud(tags: Vec<MediaTagFacet>, draft: Signal<Draft>) -> Element {
         (min.min(tag.count), max.max(tag.count))
     });
     let selected = draft.read().tags.clone();
-    let is_selected = |tag: &MediaTagFacet| {
-        selected
-            .iter()
-            .any(|chosen| chosen.to_lowercase() == tag.tag.to_lowercase())
-    };
+    let is_selected = |tag: &MediaTagFacet| selected.iter().any(|chosen| chosen.id == tag.tag.id);
     rsx! {
         div {
             class: "dict-media-cloud",
@@ -375,13 +373,14 @@ fn MediaTagCloud(tags: Vec<MediaTagFacet>, draft: Signal<Draft>) -> Element {
                     let title = i18n.t_plural("dictionary.media.count", tag.count as usize);
                     rsx! {
                         button {
-                            key: "{tag.tag}",
+                            key: "{tag.tag.id}",
                             class: if active { "dict-media-tag active" } else { "dict-media-tag" },
                             style: cloud_style(tag.count, min, max),
                             title: "{title}",
                             aria_pressed: active,
                             onclick: move |_| toggle_tag(draft, &value, active),
-                            "{tag.tag}"
+                            span { class: "tag-dot", style: dot_style(tag.tag.color), aria_hidden: "true" }
+                            "{tag.tag.label}"
                             span { class: "dict-media-tag-count", "{tag.count}" }
                         }
                     }
@@ -392,14 +391,12 @@ fn MediaTagCloud(tags: Vec<MediaTagFacet>, draft: Signal<Draft>) -> Element {
 }
 
 /// Takes `tag` out of the selection when `selected`, else adds it.
-fn toggle_tag(mut draft: Signal<Draft>, tag: &str, selected: bool) {
+fn toggle_tag(mut draft: Signal<Draft>, tag: &TagRef, selected: bool) {
     let mut draft = draft.write();
     if selected {
-        draft
-            .tags
-            .retain(|t| t.to_lowercase() != tag.to_lowercase());
+        draft.tags.retain(|t| t.id != tag.id);
     } else {
-        draft.tags.push(tag.to_string());
+        draft.tags.push(tag.clone());
     }
 }
 
@@ -494,13 +491,13 @@ fn ActiveMediaFilters(draft: Signal<Draft>) -> Element {
         div { class: "sr-active-filters",
             for tag in current.tags.clone() {
                 button {
-                    key: "tag-{tag}",
+                    key: "tag-{tag.id}",
                     class: "sr-filter-chip",
                     onclick: {
-                        let tag = tag.clone();
-                        move |_| draft.write().tags.retain(|t| *t != tag)
+                        let id = tag.id;
+                        move |_| draft.write().tags.retain(|t| t.id != id)
                     },
-                    {format!("{}: {tag}", i18n.t("dictionary.media.tag"))}
+                    {format!("{}: {}", i18n.t("dictionary.media.tag"), tag.label)}
                     span { " \u{00D7}" }
                 }
             }

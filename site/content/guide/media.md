@@ -20,7 +20,7 @@ You can add a document from several places; each opens the same form:
 
 Then:
 
-1. Fill in what describes the document: **Title**, **Description**, **Tags** (**Add a tag**), **Kind of record**, **Physical medium**, **Privacy**, **Date**, **Place** and **Note**. All are optional. Choosing a kind of record (for example **Civil registration**, **Parish register**, **Census**, **Portrait** or **Group photo**) also fills in the physical medium, unless you set it yourself.
+1. Fill in what describes the document: **Title**, **Description**, **Kind of record**, **Physical medium**, **Privacy**, **Date**, **Place** and **Note**. All are optional. Choosing a kind of record (for example **Civil registration**, **Parish register**, **Census**, **Portrait** or **Group photo**) also fills in the physical medium, unless you set it yourself.
 2. Under **Documents these events**, tick the events the document proves.
 3. Under **Pages**, add the files: click **Select files** or drop files on the cell, one image per page in reading order. To use a file held on another website, click **Link an address** and paste its URL: OxidGene records the address and never downloads the file.
 4. Reorder pages with **Move earlier** and **Move later**, or remove one with **Remove from this document**.
@@ -78,7 +78,7 @@ To browse every document of a tree, open the **Dictionary** from the left sideba
 
 Each active filter is shown as a chip: click it to remove that filter, or click **Clear all filters**. Under each tile, the caption gives the kind of record and how much the document is used, "Linked to 3 records" or "Not linked".
 
-Click a tile to open the viewer, where you can edit the document's details and tags. From the library, a document can only be deleted when nothing references it any more.
+Click a tile to open the viewer, where you can edit the document's details. Tags are set with **Tags…**, from the viewer's menu or the tile's menu; see [Tags](@/guide/tags.md). From the library, a document can only be deleted when nothing references it any more.
 
 The [Dictionary](@/guide/dictionary.md) page describes the other tabs.
 

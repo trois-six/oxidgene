@@ -60,6 +60,7 @@ Le panneau compte trois groupes, **Individu**, **Événement** et **Relations** 
 | **Conjoint(e)** | Les personnes ayant un conjoint de ce nom et de ces prénoms |
 | **Père**, **Mère** | Les personnes dont le père ou la mère porte ce nom et ces prénoms |
 | **Avec un média** | Les personnes ayant au moins un média rattaché |
+| **Étiquettes** | Les personnes portant toutes les étiquettes choisies, proposées parmi celles de l’arbre ; voir [Étiquettes](@/guide/tags.fr.md) |
 
 Les champs de nom, de profession et des proches proposent les noms et professions présents dans votre arbre. Ils ne listent que les valeurs de l'arbre : un terme que personne ne porte ne trouverait personne.
 

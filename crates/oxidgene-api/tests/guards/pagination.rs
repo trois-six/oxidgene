@@ -26,6 +26,10 @@ use crate::common::{app_on, ok, send, setup_db};
 /// GET routes answering a whole list, by path, with docs/api.md's reason.
 const WHOLE_LISTS: &[(&str, &str)] = &[
     (
+        "/api/v1/trees/{tree_id}/tags",
+        "whole: the vocabulary, a handful of short rows the picker filters",
+    ),
+    (
         "/api/v1/trees/{tree_id}/persons/{person_id}/names",
         "a list under one record",
     ),

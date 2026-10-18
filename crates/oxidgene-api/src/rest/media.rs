@@ -23,7 +23,7 @@ use crate::service::media_library::{self, MediaListItem};
 
 use super::dto::{
     CreateDocumentRequest, DeleteMediaQuery, GalleryBundleRequest, MediaDeletionStatusQuery,
-    MediaListQuery, MediaTagRequest, ReorderPagesRequest,
+    MediaListQuery, ReorderPagesRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -80,7 +80,7 @@ pub async fn list_media(
         first: query.first.unwrap_or(25),
         after: query.after.clone(),
     };
-    let filters = query.filters(crate::rest::dto::tag_values(pairs));
+    let filters = query.filters(crate::rest::dto::tag_ids(pairs)?);
     let connection = media_library::list(&state.reader, tree_id, filters, &params).await?;
     Ok(Json(connection))
 }
@@ -96,7 +96,7 @@ pub async fn list_media_facets(
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<media_library::MediaFacets>, ApiError> {
     let facets =
-        media_library::facets(&state.reader, tree_id, crate::rest::dto::tag_values(pairs)).await?;
+        media_library::facets(&state.reader, tree_id, crate::rest::dto::tag_ids(pairs)?).await?;
     Ok(Json(facets))
 }
 
@@ -132,29 +132,6 @@ pub async fn update_media(
     let media =
         media_service::update_media(&state.db, &state.profiles, tree_id, media_id, body).await?;
     Ok(Json(media))
-}
-
-/// POST /api/v1/trees/:tree_id/media/:media_id/tags
-pub async fn add_tag(
-    State(state): State<AppState>,
-    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<MediaTagRequest>,
-) -> Result<Json<Media>, ApiError> {
-    Ok(Json(
-        media_service::add_tag(&state.db, tree_id, media_id, &body.tag).await?,
-    ))
-}
-
-/// DELETE /api/v1/trees/:tree_id/media/:media_id/tags/:tag
-///
-/// The tag rides in the path, percent-encoded, rather than in a body: a
-/// `DELETE` body has no defined meaning and proxies may drop it.
-pub async fn remove_tag(
-    State(state): State<AppState>,
-    Path((tree_id, media_id, tag)): Path<(Uuid, Uuid, String)>,
-) -> Result<StatusCode, ApiError> {
-    media_service::remove_tag(&state.db, tree_id, media_id, &tag).await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /api/v1/trees/:tree_id/media/document

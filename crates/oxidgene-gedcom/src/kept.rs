@@ -336,14 +336,21 @@ fn tagged_text(structure: &Structure) -> bool {
 
 /// Whether an unpaired child is one the import reads, so that the export
 /// writes it or is right to leave it out: an age, an event the import reads
-/// (direct children of `INDI` and `FAM` only), and the death reason the
+/// (direct children of `INDI` and `FAM` only), the death reason the
 /// `geneweb` crate writes beneath a death (`_GWDEATH`), which the import reads
-/// as the cause. An association is judged by [`is_understood_association`].
+/// as the cause, and an `_OXIDGENE_TAG` line directly beneath an `INDI`, `FAM`
+/// or `OBJE` record, which the import reads into the tag vocabulary and the
+/// export writes from it (a folded duplicate, or a tag the export has no place
+/// for, is left out). A tag line anywhere else is not read, so it is kept. An
+/// association is judged by [`is_understood_association`].
 fn is_understood(child: &Structure, depth: usize, record_tag: &str) -> bool {
     // An age is stored, or left out with a warning, and an empty one says
     // nothing: none is kept.
     child.tag.as_str() == "AGE"
         || child.tag.as_str() == "_GWDEATH"
+        || (child.tag.as_str() == crate::export::TAG_TAG
+            && depth == 0
+            && matches!(record_tag, "INDI" | "FAM" | "OBJE"))
         || (depth == 0 && is_understood_event(child, record_tag))
 }
 

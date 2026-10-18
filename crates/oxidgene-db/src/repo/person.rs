@@ -6,7 +6,7 @@
 use chrono::Utc;
 use oxidgene_core::enums::{Privacy, Sex};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Person, Portrait};
+use oxidgene_core::types::{Connection, Person, Portrait, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, Condition, ConnectionTrait, FromQueryResult, IntoActiveModel, JoinType,
@@ -20,6 +20,7 @@ use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Repository for person CRUD operations.
 pub struct PersonRepo;
@@ -112,7 +113,11 @@ impl PersonRepo {
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let mut persons: Vec<&mut Person> =
+            page.edges.iter_mut().map(|edge| &mut edge.node).collect();
+        hydrate_tags(db, &mut persons).await?;
+        Ok(page)
     }
 
     /// List persons in a tree, optionally matching any stored name.
@@ -136,10 +141,14 @@ impl PersonRepo {
                 )
                 .distinct();
         }
-        paginate(db, query, Column::Id, params, |model| {
+        let mut page = paginate(db, query, Column::Id, params, |model| {
             (model.id, into_domain(model))
         })
-        .await
+        .await?;
+        let mut persons: Vec<&mut Person> =
+            page.edges.iter_mut().map(|edge| &mut edge.node).collect();
+        hydrate_tags(db, &mut persons).await?;
+        Ok(page)
     }
 
     /// How many live persons each of `tree_ids` holds; a tree without any is
@@ -175,7 +184,9 @@ impl PersonRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        let mut persons: Vec<Person> = models.into_iter().map(into_domain).collect();
+        hydrate_all_tags(db, &mut persons).await?;
+        Ok(persons)
     }
 
     /// Get multiple persons by ID (excludes soft-deleted).
@@ -190,14 +201,18 @@ impl PersonRepo {
                 .all(db)
                 .await
                 .map_err(db_err)?;
-            Ok(models.into_iter().map(into_domain).collect())
+            let mut persons: Vec<Person> = models.into_iter().map(into_domain).collect();
+            hydrate_all_tags(db, &mut persons).await?;
+            Ok(persons)
         })
         .await
     }
 
     /// Get a single person by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Person, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let mut person = find_live(db, id).await.map(into_domain)?;
+        hydrate_tags(db, &mut [&mut person]).await?;
+        Ok(person)
     }
 
     /// The live persons whose chosen portrait is one of `media_ids`, or a
@@ -251,7 +266,7 @@ impl PersonRepo {
         tree_id: Uuid,
         id: Uuid,
     ) -> Result<Person, OxidGeneError> {
-        Entity::find_by_id(id)
+        let mut person = Entity::find_by_id(id)
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
             .one(db)
@@ -261,7 +276,9 @@ impl PersonRepo {
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
                 id,
-            })
+            })?;
+        hydrate_tags(db, &mut [&mut person]).await?;
+        Ok(person)
     }
 
     /// Create a new person.
@@ -306,7 +323,9 @@ impl PersonRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        let mut person = into_domain(result);
+        hydrate_tags(db, &mut [&mut person]).await?;
+        Ok(person)
     }
 
     /// Soft-delete a person.
@@ -550,8 +569,32 @@ impl PersonRepo {
         active.portrait_vignette_id = Set(vignette_id);
         active.updated_at = Set(Utc::now());
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        let mut person = into_domain(result);
+        hydrate_tags(db, &mut [&mut person]).await?;
+        Ok(person)
     }
+}
+
+/// Fill each person's tags from one grouped read.
+async fn hydrate_tags(
+    db: &impl ConnectionTrait,
+    persons: &mut [&mut Person],
+) -> Result<(), OxidGeneError> {
+    let ids: Vec<Uuid> = persons.iter().map(|person| person.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Person, &ids).await?;
+    for person in persons {
+        person.tags = tags.remove(&person.id).unwrap_or_default();
+    }
+    Ok(())
+}
+
+/// [`hydrate_tags`] for a list of persons.
+async fn hydrate_all_tags(
+    db: &impl ConnectionTrait,
+    persons: &mut [Person],
+) -> Result<(), OxidGeneError> {
+    let mut refs: Vec<&mut Person> = persons.iter_mut().collect();
+    hydrate_tags(db, &mut refs).await
 }
 
 fn into_domain(m: person::Model) -> Person {
@@ -562,6 +605,7 @@ fn into_domain(m: person::Model) -> Person {
         privacy: m.privacy.into(),
         portrait_media_id: m.portrait_media_id,
         portrait_vignette_id: m.portrait_vignette_id,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

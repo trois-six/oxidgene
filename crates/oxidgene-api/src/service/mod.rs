@@ -38,5 +38,6 @@ pub(crate) mod session_media;
 pub mod source;
 pub mod statistics;
 pub mod suggestions;
+pub mod tag;
 pub mod tree;
 pub mod vignette;

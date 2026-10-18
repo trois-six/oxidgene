@@ -1350,6 +1350,7 @@ mod tests {
     fn event(kind: EventType, value: &str) -> ProfileEvent {
         let date_sort = oxidgene_gedcom::date::sort_key(Calendar::Gregorian, Some(value));
         ProfileEvent {
+            tags: Vec::new(),
             event_id: Uuid::now_v7(),
             event_type: kind,
             date_value: Some(value.to_string()),
@@ -1372,6 +1373,7 @@ mod tests {
         died: Option<&str>,
     ) -> PersonProfile {
         PersonProfile {
+            tags: Vec::new(),
             person_id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
             sex,

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T13:31:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:28:42Z }
 ---
 
 
@@ -110,6 +110,7 @@ moving everything it carried onto the kept person:
 | Family links | Re-pointed; a link to a family the kept person is already a spouse (or a child) of is dropped instead of doubled |
 | Witness links | Re-pointed; dropped when the kept person already witnesses that event or the event is now their own |
 | Media links | Re-pointed; dropped when the kept person is already linked to that media |
+| Tags | The duplicate's tags move to the kept person; a tag both carry stays once |
 | Tree SOSA root and "self" person | Follow the duplicate onto the kept person |
 | Distinct confirmations | The duplicate's move to the kept person — whoever differs from one differs from the other — and the pair joining the two is dropped |
 | Kept GEDCOM | The duplicate's rows move to the kept person (see [GedcomKept](#gedcomkept)) |
@@ -408,10 +409,10 @@ answered GEDCOM's question directly and that answer is not ours to discard.
 scans and PDFs as readily as photographs, and a default that guessed would
 mislabel every existing row instead of admitting it does not know.
 
-**Tags.** A media's free-form labels for grouping scans and documents are
-[MediaTag](#mediatag) rows, which the API returns as the media's ordered
-`tags` list. A multi-page document owns one list; its page rows do not copy
-it, so every page always presents the document's same labels.
+**Tags.** A document's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list sorted by label. A
+multi-page document owns its tags; its page rows carry none, so every page
+presents the document's same labels.
 
 **Storage.** Files live on the filesystem, content-addressed under
 `{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the
@@ -446,19 +447,49 @@ that the *intent* is recorded: a user classifying their tree today does not have
 to do it again later, and enforcement becomes a read-path change rather than a
 schema change plus a data-entry campaign. Every picker that sets it says so.
 
-### MediaTag
+### Tag
+
+The tree's vocabulary: one row per label, shared by every kind of record
+([Tags](tags.md)).
 
 | Column | Type | Notes |
 |---|---|---|
-| `media_id` | UUID v7 | PK (with `normalized_tag`), FK → Media |
-| `normalized_tag` | String | PK (with `media_id`) — the tag folded as every word of the application is ([Cross-cutting Rules §3.6](cross-cutting.md)) |
-| `tag` | String | The trimmed spelling entered by whoever first created the tag |
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade), with `(id, tree_id)` unique so a link can pair a tag with its tree |
+| `label` | String | The trimmed spelling entered by whoever first created the tag, 1–80 characters |
+| `normalized_label` | String | The label folded as every word of the application is ([Cross-cutting Rules §3.6](cross-cutting.md)); unique with `tree_id` |
+| `color` | i16 | Index of the tag's colour in the palette, 0–11 ([Common UI §3.2](ui-common.md)) |
+| `created_at` / `updated_at` | DateTime | Auto |
+
+Labels that fold alike are one tag. Deleting a tag deletes its links; a merge
+moves them into the kept tag. The tree purge removes the vocabulary with the
+tree.
+
+### RecordTag
+
+One tag on one record. Exactly one of the nine record columns is set, enforced
+by a `CHECK` constraint.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `tag_id` | UUID v7 | FK → Tag (cascade), paired with `tree_id` so a link never names a tag of another tree |
+| `person_id`, `family_id`, `event_id`, `place_id`, `source_id`, `citation_id`, `repository_id`, `media_id`, `note_id` | UUID v7? | FK → the tagged record (cascade); exactly one is set |
 | `created_at` | DateTime | Auto |
 
-The compound key makes concurrent additions of one tag idempotent, and since
-each tag is its own row, removing one cannot overwrite another editor's tags.
-Tags differing only by case, accents or punctuation are one, spelled as first
-entered.
+- One partial unique index per record column on `(tag_id, <column>)` where the
+  column is set: adding a tag twice is idempotent, and concurrent additions
+  cannot duplicate it.
+- One index per record column leading with that column, so a record's tags are
+  one index range.
+- The repository checks that a record belongs to the tree before linking it,
+  since no key reaches the tree for every kind.
+- Writing a link does not touch the tagged record's `updated_at` nor version it.
+
+The phase 1 interface tags persons, couples (families) and documents. The model
+accepts all nine kinds, so the other kinds need no schema change when their
+interface arrives ([Tags §9](tags.md#9-phases)).
 
 ### Vignette
 
@@ -857,7 +888,10 @@ their schema version changes. The same design is used by SQLite and PostgreSQL.
 
 The payload contains the person's primary and alternate names, sex, complete
 birth/death/baptism/burial events, other events, family links, portrait
-reference, and aggregate citation, note, and media counts. Nested event values
+reference, the person's tags and each event's tags (`{id, label, color}`), and
+aggregate citation, note, and media counts. A tag change refreshes the profiles
+that show the tagged record in the same transaction; a rename, recolour or
+merge refreshes every profile carrying the tag. Nested event values
 retain qualifier, both date bounds, calendar, place ID, and place display name,
 and `age`: the age the record gives for the profile's person — an individual
 event's own, or this spouse's age at a family event.
@@ -1112,7 +1146,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `occurred_at` | DateTime | |
 | `category` | String | `data`, `settings`, `media`, `import`, `export`, `history` |
 | `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert` |
-| `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `media_tag`, `vignette`, `portrait`, `family_name`, … |
+| `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `record_tag`, `tag`, `vignette`, `portrait`, `family_name`, … |
 | `entity_id` | UUID? | The row written, when there is a single one |
 | `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `repository`, `media`, `tree` |
 | `subject_id` | UUID? | That record |
@@ -1123,9 +1157,9 @@ What is recorded:
 
 | Category | Writes |
 |---|---|
-| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, repositories, sources' repository links, citations, notes, surname particle re-cuts and family-name renames |
+| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, repositories, sources' repository links, citations, notes, surname particle re-cuts, family-name renames, and tags: the vocabulary (`tag`) and the tags put on or taken off records (`record_tag`), except a medium's tags, which are `media` |
 | `settings` | Creating, updating and deleting the tree itself |
-| `media` | Documents, pages, uploads, metadata, tags, page order, vignettes, media links, portraits, and notes about a media |
+| `media` | Documents, pages, uploads, metadata, page order, vignettes, media links, portraits, notes about a media, and the tags put on or taken off a document |
 | `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |
 | `export` | Completed GEDCOM and GEDZIP exports, and the tree a duplication copies |
 | `history` | Restores |
@@ -1161,12 +1195,13 @@ and ends with `id`, so a page of the log is an index range in its own order.
 Neither table references the records it describes: a history must outlive them.
 
 **What a snapshot holds.** A person's snapshot is everything their profile shows
-except media: sex, privacy, every name, their own events with each event's
+except media and tags: sex, privacy, every name, their own events with each event's
 witnesses, notes and citations, their own notes and citations, the families
 they are a child of, and the families they are a spouse in — each with its
 privacy, all its spouses and children, and its events, notes and citations.
 Portraits, media links and notes about a media are left out: media are audited,
-never versioned. A place's snapshot is its name and coordinates; a source's,
+never versioned. Tags are left out too: a tag put on or taken off a record is
+audited but does not version it, and a restore leaves the tags as they are. A place's snapshot is its name and coordinates; a source's,
 its fields and notes; the tree's, its name, description, default privacy, SOSA
 root, "self" person and submitter. A source's snapshot also lists its repository links —
 repository, call number, medium, order — with the repositories' names in

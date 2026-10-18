@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-08T07:22:40Z }
+generated: { by: human:maintainer, at: 2026-10-18T17:33:32Z }
 ---
 
 
@@ -79,7 +79,7 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. No search fields her
 
 ## 4. Tabs
 
-Six tabs, text-labeled (icons alone are ambiguous at six items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as the shared view toggle's `.view-toggle-btn.active`):
+Seven tabs, text-labeled (icons alone are ambiguous at seven items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as the shared view toggle's `.view-toggle-btn.active`):
 
 | Tab | Source field | Default active |
 |---|---|---|
@@ -89,6 +89,7 @@ Six tabs, text-labeled (icons alone are ambiguous at six items), styled as a seg
 | Places | `Place.name` | |
 | Occupations | `Event.description` where `event_type = Occupation` | |
 | Media | `Media` documents, pages folded into their document ([§18](#18-media-tab)) | |
+| Tags | The tree's tags, with the records each carries ([§20](#20-tags-tab)) | |
 
 The bar is the shared tab bar ([Common UI §4.14](ui-common.md#414-tabs)): a `tablist` whose tabs say which is selected.
 
@@ -99,6 +100,8 @@ The page opens on the family names, unless the reader comes back to it through t
 Each tab loads its data the first time it is opened, not when the page opens: the page asks only for the tab it opens on, and a tab opened later shows "Loading dictionary…" while its aggregation arrives, then keeps it while the page stays open (until the tree changes or a family name is renamed).
 
 At phone width the tabs share the row; when they do not fit, as on the [Statistics](ui-statistics.md) page, the strip scrolls sideways rather than squeezing their labels into each other.
+
+A tag chip or dot elsewhere ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)) opens the page on the Tags tab with that tag's row unfolded. The tag is the last segment of the route, `/trees/:tree_id/dictionary/tags/:tag`; a page already open takes the new tag on the same route, and the history entry reopens the tab as it was left.
 
 ---
 
@@ -417,7 +420,10 @@ authoritative and kept at exact key parity
 
 ## 14. Navigation & Access Point
 
-- Route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`
+- Route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`;
+  `Route::DictionaryTag { tree_id, tag }` → `/trees/:tree_id/dictionary/tags/:tag`
+  opens the Tags tab on a tag; `Route::Media { tree_id, media_id }` →
+  `/trees/:tree_id/media/:media_id` opens one document in the media viewer
 - Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
 
 ---
@@ -523,9 +529,9 @@ Above the grid, every tag carried by at least one document, from
 `GET /trees/{id}/media/facets`, each followed by its document count:
 
 - **Order**: alphabetical, ignoring case and accents.
-- **Spelling**: a tag is one entry whatever its case — it is matched on the
-  normalized key `media_tag` stores (trimmed, lowercased; accents are
-  significant there) — and shown in the spelling most of its documents carry.
+- **Identity**: a tag is one entry of the tree's vocabulary, whatever the case
+  or accents of the words typed for it ([Tags](tags.md)), shown under its label
+  and with a dot of its colour.
 - **Sizing**: font size from 0.78rem to 1.5rem and weight from 400 to 700,
   scaled on the logarithm of the count between the least and the most used
   tag, so one tag on every document does not flatten all the others to the
@@ -592,10 +598,14 @@ each tile's caption (its title, else its file name):
   that is not "other";
 - how much it is used — "Linked to N records", counting the distinct persons,
   families, events and sources it is attached to by media links on it or its
-  pages, or "Not linked". Crops and portraits are not counted.
+  pages, or "Not linked". Crops and portraits are not counted;
+- its tags, as colour dots under the caption when it has any
+  ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
 
 The tiles are read-only: nothing here is somebody's attachment to detach or
-make a portrait. The viewer keeps its metadata and tag editing; any change
+make a portrait. The viewer keeps its metadata editing, and its tags are put
+on and taken off through the tag picker of its relation menu
+([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); any change
 there refreshes the grid and the cloud. Its delete, like the tile's menu, only
 removes a document nothing references.
 
@@ -646,3 +656,24 @@ if the deletion is undone from the history).
 
 The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
 tab, and loads the repositories the first time it opens.
+
+---
+
+## 20. Tags Tab
+
+The tree's tag vocabulary, one row per tag: its colour dot, label and the count per kind of record
+(*12 persons · 3 sources*), sorted by label and narrowed by the quick filter,
+with no alphabet index and no pagination. The chevron unfolds the records
+carrying the tag, grouped by kind; a kind shows 25 at a time with *Load more*.
+Person, couple and media records link to their pages; a media record opens the
+media viewer on its own route (`/trees/{id}/media/{media_id}`).
+
+- **Edit** (✎) opens a dialog with the label and the twelve colours. A label
+  folding to another tag's offers a merge into it, with a sentence stating
+  that a record carrying either tag carries the merged one once.
+- **Delete** (×) asks for confirmation, naming the number of records the tag
+  leaves.
+- **New tag** creates a tag without putting it on a record.
+
+The tab is its own module (`pages/dictionary_tags.rs`) and loads the vocabulary
+the first time it opens. A tag opened from a chip or dot starts unfolded.

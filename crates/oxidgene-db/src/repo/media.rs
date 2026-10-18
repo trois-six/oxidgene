@@ -2,21 +2,21 @@
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Media, last_path_segment};
+use oxidgene_core::types::{Connection, Media, RecordKind, last_path_segment};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
     QueryFilter, QueryOrder, QuerySelect, Set,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
-use crate::entities::{media_link, media_tag, note, person, vignette};
+use crate::entities::{media_link, note, person, record_tag, vignette};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
-use crate::repo::{MediaTagRepo, PlaceRepo, VignetteRepo};
+use crate::repo::{PlaceRepo, RecordTagRepo, VignetteRepo};
 
 /// A file whose bytes are already in the media store, ready to be recorded.
 #[derive(Debug, Clone)]
@@ -803,8 +803,8 @@ async fn delete_media_rows(
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
     let media_ids: Vec<Uuid> = page_ids.iter().copied().chain([id]).collect();
-    media_tag::Entity::delete_many()
-        .filter(media_tag::Column::MediaId.is_in(media_ids.iter().copied()))
+    record_tag::Entity::delete_many()
+        .filter(record_tag::Column::MediaId.is_in(media_ids.iter().copied()))
         .exec(db)
         .await
         .map_err(db_err)?;
@@ -914,11 +914,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
 
 async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<(), OxidGeneError> {
     let media_ids: Vec<Uuid> = media.iter().map(|item| item.id).collect();
-    let tag_rows = MediaTagRepo::list_for_media_ids(db, &media_ids).await?;
-    let mut tags_by_media: HashMap<Uuid, Vec<String>> = HashMap::new();
-    for row in tag_rows {
-        tags_by_media.entry(row.media_id).or_default().push(row.tag);
-    }
+    let mut tags_by_media = RecordTagRepo::tags_of(db, RecordKind::Media, &media_ids).await?;
     for item in media {
         item.tags = tags_by_media.remove(&item.id).unwrap_or_default();
     }

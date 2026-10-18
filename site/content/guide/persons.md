@@ -37,6 +37,7 @@ Hover an occupation or a given name in the header. When OxidGene has a sheet for
 The small icon buttons at the right of the header (their name shows on hover):
 
 - **Edit** opens the person form: see [Editing persons](@/guide/editing.md).
+- **Tags…** opens the tag picker: check the tags that describe this person. See [Tags](@/guide/tags.md).
 - **Merge with…** opens the merge wizard, to fold another record of the same person into this one. After the merge the page shows the record kept. See [Tools](@/guide/tools.md).
 - **History** lists every recorded version of the person, compared side by side, and lets you restore an earlier one. See [History](@/guide/history.md).
 

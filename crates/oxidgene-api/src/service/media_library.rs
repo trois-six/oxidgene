@@ -4,8 +4,9 @@
 
 use chrono::NaiveDate;
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::enums::{DocumentCategory, MediaFileKind};
-use oxidgene_core::types::{Connection, Edge, Media};
+use oxidgene_core::types::{Connection, Edge, Media, TagRef};
 use oxidgene_db::repo::{MediaFilter, MediaLibraryRepo, PaginationParams};
 use sea_orm::ConnectionTrait;
 use serde::Serialize;
@@ -14,9 +15,8 @@ use uuid::Uuid;
 /// The media list's filters as a client sends them. Blank text is no filter.
 #[derive(Debug, Clone, Default)]
 pub struct MediaListFilters {
-    /// Tags in any spelling, matched on their normalized keys: a document
-    /// must carry all of them.
-    pub tags: Vec<String>,
+    /// Tags by id: a document must carry all of them.
+    pub tags: Vec<Uuid>,
     pub kind: Option<MediaFileKind>,
     pub category: Option<DocumentCategory>,
     pub name: Option<String>,
@@ -54,7 +54,7 @@ impl MediaListFilters {
                 .filter(|value| !value.is_empty())
         };
         Ok(MediaFilter {
-            tags: normalized_tags(self.tags),
+            tags: sorted_unique(self.tags),
             kind: self.kind,
             category: self.category,
             name: text(self.name),
@@ -108,8 +108,8 @@ pub async fn list(
 /// A tag and how many documents carry it.
 #[derive(Debug, Clone, Serialize)]
 pub struct MediaTagFacet {
-    /// The spelling most of those documents carry.
-    pub tag: String,
+    #[serde(flatten)]
+    pub tag: TagRef,
     pub count: i64,
 }
 
@@ -135,27 +135,6 @@ pub struct MediaFacets {
     pub categories: Vec<MediaCategoryFacet>,
 }
 
-/// A tag as entered, trimmed, with its key: the application's one folding
-/// (`fold_words`), so "Église", "eglise" and "EGLISE" are one tag. `None` for
-/// a blank tag. REST, GraphQL and the GEDCOM import all key tags with it.
-pub fn normalize_tag(tag: &str) -> Option<(String, String)> {
-    let tag = tag.trim();
-    let key = oxidgene_core::search::fold_words(tag);
-    (!key.is_empty()).then(|| (tag.to_string(), key))
-}
-
-/// Tags in any spelling as their normalized keys, blanks and repeats left
-/// out.
-fn normalized_tags(tags: Vec<String>) -> Vec<String> {
-    let mut keys: Vec<String> = Vec::with_capacity(tags.len());
-    for (_, key) in tags.into_iter().filter_map(|tag| normalize_tag(&tag)) {
-        if !keys.contains(&key) {
-            keys.push(key);
-        }
-    }
-    keys
-}
-
 /// The tree's tags, file kinds and categories, each with its document count.
 /// The kinds and categories count the whole library; the tags count the
 /// documents carrying every tag of `with_tags`, so a selection of tags only
@@ -163,9 +142,9 @@ fn normalized_tags(tags: Vec<String>) -> Vec<String> {
 pub async fn facets(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
-    with_tags: Vec<String>,
+    with_tags: Vec<Uuid>,
 ) -> Result<MediaFacets, OxidGeneError> {
-    let facets = MediaLibraryRepo::facets(db, tree_id, &normalized_tags(with_tags)).await?;
+    let facets = MediaLibraryRepo::facets(db, tree_id, &sorted_unique(with_tags)).await?;
     Ok(MediaFacets {
         tags: facets
             .tags

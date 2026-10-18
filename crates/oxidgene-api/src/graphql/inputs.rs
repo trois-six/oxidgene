@@ -943,6 +943,22 @@ impl TryFrom<CreateMediaLinkInput> for crate::service::media_link::NewMediaLink 
 
 // ── Note Inputs ──────────────────────────────────────────────────────
 
+/// Input for creating a tag, or for finding the one its label folds to.
+#[derive(Debug, InputObject)]
+pub struct CreateTagInput {
+    pub label: String,
+    /// Colour index, 0 to 11; the least used colour of the tree when absent.
+    pub color: Option<i32>,
+}
+
+/// Input for renaming or recolouring a tag. An absent field is left alone.
+#[derive(Debug, InputObject)]
+pub struct UpdateTagInput {
+    pub label: Option<String>,
+    /// Colour index, 0 to 11.
+    pub color: Option<i32>,
+}
+
 /// Input for creating a note.
 #[derive(Debug, InputObject)]
 pub struct CreateNoteInput {
@@ -1048,10 +1064,9 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
 /// with AND; blank text is no filter.
 #[derive(Debug, Default, InputObject)]
 pub struct MediaListFilterInput {
-    /// Tags in any spelling, matched case-insensitively: a document must
-    /// carry all of them.
+    /// Tags by id: a document must carry all of them.
     #[graphql(default)]
-    pub tags: Vec<String>,
+    pub tags: Vec<ID>,
     /// Documents with at least one page of this file kind.
     pub kind: Option<GqlMediaFileKind>,
     pub category: Option<GqlDocumentCategory>,
@@ -1069,10 +1084,12 @@ pub struct MediaListFilterInput {
     pub added_to: Option<chrono::NaiveDate>,
 }
 
-impl From<MediaListFilterInput> for crate::service::media_library::MediaListFilters {
-    fn from(input: MediaListFilterInput) -> Self {
-        Self {
-            tags: input.tags,
+impl TryFrom<MediaListFilterInput> for crate::service::media_library::MediaListFilters {
+    type Error = Error;
+
+    fn try_from(input: MediaListFilterInput) -> Result<Self> {
+        Ok(Self {
+            tags: input.tags.iter().map(uuid).collect::<Result<Vec<_>>>()?,
             kind: input.kind.map(Into::into),
             category: input.category.map(Into::into),
             name: input.name,
@@ -1081,6 +1098,6 @@ impl From<MediaListFilterInput> for crate::service::media_library::MediaListFilt
             event_to: input.event_to,
             added_from: input.added_from,
             added_to: input.added_to,
-        }
+        })
     }
 }

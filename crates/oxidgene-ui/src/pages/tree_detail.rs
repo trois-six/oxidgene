@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::projection::Pedigree;
-use oxidgene_core::types::Tree;
+use oxidgene_core::types::{RecordKind, TagRef, Tree};
 use oxidgene_core::{ChildType, SpouseRole};
 use uuid::Uuid;
 
@@ -19,6 +19,7 @@ use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, Portraits, 
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
+use crate::components::tags::TagPicker;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{
     TreeCache, fetch_tree_cached, use_tree_cache, use_view_state_cache,
@@ -31,7 +32,9 @@ use crate::router::{
     Route, couple_route, pedigree_route, person_route, push_tree_route, replace_tree_route,
 };
 use crate::shared::Shared;
-use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{
+    UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource,
+};
 use crate::utils::resolve_name;
 
 /// Describes which linking flow is active.
@@ -204,6 +207,8 @@ struct Overlays {
     merging: Signal<Option<Uuid>>,
     confirm_delete: Signal<Option<Uuid>>,
     delete_error: Signal<Option<String>>,
+    /// The person the tag picker is open on, and where it opens.
+    tagging: Signal<Option<(Uuid, f64, f64)>>,
 }
 
 fn use_overlays() -> Overlays {
@@ -216,6 +221,7 @@ fn use_overlays() -> Overlays {
         merging: use_signal(|| None),
         confirm_delete: use_signal(|| None),
         delete_error: use_signal(|| None),
+        tagging: use_signal(|| None),
     }
 }
 
@@ -227,7 +233,7 @@ impl Overlays {
         data: Option<&SharedPedigree>,
         mut selected_root: Signal<Option<Uuid>>,
     ) {
-        let Some((pid, _, _)) = (self.context_menu)() else {
+        let Some((pid, x, y)) = (self.context_menu)() else {
             return;
         };
         self.context_menu.set(None);
@@ -248,6 +254,7 @@ impl Overlays {
             }
             PersonAction::EditSpecificUnion(fid) => self.editing_union.set(Some(fid)),
             PersonAction::Kinship => self.linking.set(Some(LinkingMode::Kinship(pid))),
+            PersonAction::Tags => self.tagging.set(Some((pid, x, y))),
             PersonAction::GoTo(relative) => selected_root.set(Some(relative)),
             PersonAction::Delete => {
                 self.confirm_delete.set(Some(pid));
@@ -683,6 +690,38 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     }
 }
 
+/// The tag picker opened from a person's menu. It reads the person's tags
+/// first, so the picker opens with the ones the person carries checked.
+#[component]
+fn TreeTagPicker(
+    tree_id: Uuid,
+    person_id: Uuid,
+    x: f64,
+    y: f64,
+    on_close: EventHandler<()>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let person = use_ui_resource("tree_person_tags", move || {
+        let api = api.clone();
+        async move { api.get_person(tree_id, person_id).await }
+    });
+    match &*person.read() {
+        Some(Ok(person)) => rsx! {
+            TagPicker {
+                tree_id,
+                kind: RecordKind::Person,
+                record_id: person_id,
+                tags: person.tags.clone(),
+                x,
+                y,
+                on_close,
+                on_changed: move |_now: Vec<TagRef>| {},
+            }
+        },
+        _ => rsx! {},
+    }
+}
+
 /// The dialogs opened over the chart: merging, deleting, and the person and
 /// union forms.
 fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
@@ -698,10 +737,21 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
         mut merging,
         mut confirm_delete,
         mut delete_error,
+        mut tagging,
         ..
     } = writes.overlays;
     let delete = writes.clone();
     rsx! {
+        // The tag picker, from the person's menu.
+        if let Some((pid, x, y)) = tagging() {
+            TreeTagPicker {
+                tree_id: tid,
+                person_id: pid,
+                x,
+                y,
+                on_close: move |()| tagging.set(None),
+            }
+        }
         // "Merge with…": the wizard, from the search for the other record.
         if let Some(pid) = merging() {
             MergeDialog {

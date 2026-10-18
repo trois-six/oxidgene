@@ -7,22 +7,24 @@
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::types::TagRef;
 use oxidgene_db::entities::{
     citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, media,
-    media_link, media_tag, note, person, person_name, place, repository, sea_enums, source,
+    media_link, note, person, person_name, place, record_tag, repository, sea_enums, source,
     source_repository, vignette,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
     GedcomKeptRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo,
-    RepositoryRepo, SourceRepo, SourceRepositoryRepo, TreeRepo, VignetteRepo, db_err,
+    RepositoryRepo, SourceRepo, SourceRepositoryRepo, TagRepo, TreeRepo, VignetteRepo, db_err,
 };
 pub use oxidgene_gedcom::export::ExportChoices;
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
 };
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tracing::Instrument as _;
 use uuid::Uuid;
@@ -385,6 +387,7 @@ async fn persist_import_result_in_with_progress(
     insert_standalone_records(db, &result, now, on_inserted).await?;
     insert_persons_and_families(db, &result, now, on_inserted).await?;
     insert_attached_records(db, &result, now, on_inserted).await?;
+    insert_tags(db, &result, now).await?;
     GedcomKeptRepo::insert_many(db, &result.kept).await?;
 
     Ok(ImportSummary {
@@ -493,29 +496,83 @@ async fn insert_standalone_records(
             })
             .collect();
         batch_insert::<media::Entity, _>(db, models, on_inserted).await?;
-
-        let mut seen_tags = std::collections::HashSet::new();
-        let mut tags = Vec::new();
-        for media in &result.media {
-            for (tag, normalized_tag) in media
-                .tags
-                .iter()
-                .filter_map(|tag| crate::service::media_library::normalize_tag(tag))
-            {
-                if seen_tags.insert((media.id, normalized_tag.clone())) {
-                    tags.push(media_tag::ActiveModel {
-                        media_id: Set(media.id),
-                        normalized_tag: Set(normalized_tag),
-                        tag: Set(tag),
-                        created_at: Set(now),
-                    });
-                }
-            }
-        }
-        batch_insert::<media_tag::Entity, _>(db, tags, &mut |_| {}).await?;
     }
 
     Ok(())
+}
+
+/// Inserts the tags the file's persons, couples and documents carry, and the
+/// links to them (docs/tags.md §3). A tag the tree already has under the same
+/// folded label is joined rather than duplicated, and keeps its own colour; a
+/// new one takes the colour the file gave it.
+async fn insert_tags(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+    now: DateTime<Utc>,
+) -> Result<(), OxidGeneError> {
+    let carried: HashSet<Uuid> = result
+        .persons
+        .iter()
+        .flat_map(|person| &person.tags)
+        .chain(result.families.iter().flat_map(|family| &family.tags))
+        .chain(result.media.iter().flat_map(|item| &item.tags))
+        .map(|tag| tag.id)
+        .collect();
+    let mut stored: HashMap<Uuid, Uuid> = HashMap::new();
+    for tag in result.tags.iter().filter(|tag| carried.contains(&tag.id)) {
+        let (model, created) = TagRepo::create(db, result.tree_id, &tag.label).await?;
+        if created {
+            TagRepo::update(db, result.tree_id, model.id, None, Some(tag.color)).await?;
+        }
+        stored.insert(tag.id, model.id);
+    }
+
+    let link = |tag: &TagRef| -> Option<record_tag::ActiveModel> {
+        Some(record_tag::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            tree_id: Set(result.tree_id),
+            tag_id: Set(*stored.get(&tag.id)?),
+            created_at: Set(now),
+            ..Default::default()
+        })
+    };
+    let mut links: Vec<record_tag::ActiveModel> = Vec::new();
+    for person in &result.persons {
+        links.extend(
+            person
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    person_id: Set(Some(person.id)),
+                    ..model
+                }),
+        );
+    }
+    for family in &result.families {
+        links.extend(
+            family
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    family_id: Set(Some(family.id)),
+                    ..model
+                }),
+        );
+    }
+    for item in &result.media {
+        links.extend(
+            item.tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    media_id: Set(Some(item.id)),
+                    ..model
+                }),
+        );
+    }
+    batch_insert::<record_tag::Entity, _>(db, links, &mut |_| {}).await
 }
 
 /// Inserts the imported repositories and the sources' links to them.

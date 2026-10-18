@@ -60,6 +60,7 @@ The panel has three groups, **Person**, **Event** and **Relations**:
 | **Spouse** | Persons with a spouse of that family name and given names |
 | **Father**, **Mother** | Persons whose father or mother has that family name and given names |
 | **With media** | Persons with at least one attached media |
+| **Tags** | Persons carrying every tag chosen, suggested from the tree's tags; see [Tags](@/guide/tags.md) |
 
 The name, occupation and relatives' fields suggest the names and occupations found in your tree. They list only the tree's own values, since a term nobody carries would find nobody.
 

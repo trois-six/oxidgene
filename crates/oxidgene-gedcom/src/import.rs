@@ -31,14 +31,16 @@ use oxidged::{GedcomBuilder, GedcomVersion};
 use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
+use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{
     Citation, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media,
-    MediaLink, Note, Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
-    is_remote_url, last_path_segment, normalize_mime, split_surname_particle, split_surname_with,
+    MediaLink, Note, Person, PersonName, Place, Repository, Source, SourceRepository,
+    TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef, Vignette, is_remote_url, last_path_segment,
+    normalize_mime, split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
-use crate::{DocumentExtension, ImportResult, MediaMetadataExtension};
+use crate::{DocumentExtension, ImportResult, MediaMetadataExtension, TagExtension};
 
 /// The largest `gedcom.ged` a GEDZIP may hold, uncompressed.
 const GEDZIP_GEDCOM_LIMIT: u64 = 1024 * 1024 * 1024;
@@ -649,6 +651,7 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     for fam in data.families() {
         import_family(fam, &ctx, &mut lookups, &mut result);
     }
+    import_person_and_family_tags(data, &ctx, &mut result);
     apply_individual_family_links(data, &ctx, &mut result);
     import_associations(data, &ctx, &mut result);
 
@@ -1284,6 +1287,7 @@ fn import_individual(
     let person_id = ctx.indi_map[xref];
 
     result.persons.push(Person {
+        tags: Vec::new(),
         id: person_id,
         tree_id: ctx.tree_id,
         sex: indi.sex().as_ref().map_or(Sex::Unknown, convert_gender),
@@ -1375,6 +1379,7 @@ fn import_family(
     let family_id = ctx.fam_map[xref];
 
     result.families.push(Family {
+        tags: Vec::new(),
         id: family_id,
         tree_id: ctx.tree_id,
         privacy: privacy_from_restriction(st, fam.restriction().as_ref()),
@@ -2439,7 +2444,164 @@ fn witness_individual_event(
 fn import_oxidgene_media_extensions(data: &Dataset, result: &mut ImportResult) {
     import_media_metadata_extensions(data, result);
     import_document_extensions(data, result);
+    import_document_tags(data, result);
     import_vignette_extensions(data, result);
+}
+
+/// The tags of the `_OXIDGENE_TAG` lines of `extra`, in the order of the
+/// tag vocabulary, each read once: labels that fold alike are one tag, the
+/// first spelling and colour read stay (docs/tags.md §3). A line that is not
+/// read is left out with a warning.
+fn read_tags(
+    extra: Items<'_, Node>,
+    vocabulary: &mut Vec<TagRef>,
+    warnings: &mut Vec<String>,
+) -> Vec<TagRef> {
+    let mut found: Vec<TagRef> = Vec::new();
+    for node in tagged(extra, crate::export::TAG_TAG) {
+        let Some(value) = node_text(node) else {
+            warnings.push("Empty _OXIDGENE_TAG line — skipped".to_string());
+            continue;
+        };
+        let line = match serde_json::from_str::<TagExtension>(&value) {
+            Ok(line) if line.v == 1 => line,
+            Ok(line) => {
+                warnings.push(format!(
+                    "Unsupported _OXIDGENE_TAG version {} — skipped",
+                    line.v
+                ));
+                continue;
+            }
+            Err(err) => {
+                warnings.push(format!("Invalid _OXIDGENE_TAG line: {err} — skipped"));
+                continue;
+            }
+        };
+        let label = line.label.trim();
+        if label.is_empty() || label.chars().count() > TAG_LABEL_MAX {
+            warnings.push(format!(
+                "_OXIDGENE_TAG label {label:?} is empty or longer than {TAG_LABEL_MAX} characters — skipped"
+            ));
+            continue;
+        }
+        let folded = fold_words(label);
+        let tag = match vocabulary
+            .iter()
+            .find(|tag| fold_words(&tag.label) == folded)
+        {
+            Some(tag) => tag.clone(),
+            None => {
+                let color = if (0..TAG_COLOR_SLOTS).contains(&line.color) {
+                    line.color
+                } else {
+                    warnings.push(format!(
+                        "_OXIDGENE_TAG colour {} is out of range — the first colour is used",
+                        line.color
+                    ));
+                    0
+                };
+                let tag = TagRef {
+                    id: Uuid::now_v7(),
+                    label: label.to_string(),
+                    color,
+                };
+                vocabulary.push(tag.clone());
+                tag
+            }
+        };
+        if !found.iter().any(|known| known.id == tag.id) {
+            found.push(tag);
+        }
+    }
+    sorted_tags(found)
+}
+
+/// Tags sorted by folded label, as a record carries them (docs/tags.md §4).
+fn sorted_tags(mut tags: Vec<TagRef>) -> Vec<TagRef> {
+    tags.sort_by_cached_key(|tag| (fold_words(&tag.label), tag.id));
+    tags
+}
+
+/// Read the tags of each person and couple beneath its `INDI` or `FAM`
+/// record, and build the file's tag vocabulary.
+fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
+    let st = data.store();
+    let mut vocabulary = std::mem::take(&mut result.tags);
+    let mut person_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
+    for indi in data.individuals() {
+        let Some(&id) = indi.xref().and_then(|xref| ctx.indi_map.get(st.xref(xref))) else {
+            continue;
+        };
+        let tags = read_tags(indi.extra(), &mut vocabulary, &mut result.warnings);
+        if !tags.is_empty() {
+            person_tags.insert(id, tags);
+        }
+    }
+    let mut family_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
+    for fam in data.families() {
+        let Some(&id) = fam.xref().and_then(|xref| ctx.fam_map.get(st.xref(xref))) else {
+            continue;
+        };
+        let tags = read_tags(fam.extra(), &mut vocabulary, &mut result.warnings);
+        if !tags.is_empty() {
+            family_tags.insert(id, tags);
+        }
+    }
+    for person in &mut result.persons {
+        if let Some(tags) = person_tags.remove(&person.id) {
+            person.tags = tags;
+        }
+    }
+    for family in &mut result.families {
+        if let Some(tags) = family_tags.remove(&family.id) {
+            family.tags = tags;
+        }
+    }
+    result.tags = vocabulary;
+}
+
+/// Read the tags beneath each document's first `OBJE` (docs/tags.md §3).
+/// Runs once the pages are regrouped, so that the tags of a page land on the
+/// document it now belongs to.
+fn import_document_tags(data: &Dataset, result: &mut ImportResult) {
+    let st = data.store();
+    let mut vocabulary = std::mem::take(&mut result.tags);
+    let mut page_tags: Vec<(Uuid, Vec<TagRef>)> = Vec::new();
+    for mm in data.multimedia() {
+        let Some(&page_id) = mm
+            .xref()
+            .and_then(|xref| result.media_by_xref.get(st.xref(xref)))
+        else {
+            continue;
+        };
+        let tags = read_tags(mm.extra(), &mut vocabulary, &mut result.warnings);
+        if !tags.is_empty() {
+            page_tags.push((page_id, tags));
+        }
+    }
+    let parent_of: HashMap<Uuid, Uuid> = result
+        .media
+        .iter()
+        .filter_map(|item| Some((item.id, item.parent_media_id?)))
+        .collect();
+    let mut document_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
+    for (page_id, tags) in page_tags {
+        let Some(&document_id) = parent_of.get(&page_id) else {
+            continue;
+        };
+        let known = document_tags.entry(document_id).or_default();
+        for tag in tags {
+            if !known.iter().any(|existing| existing.id == tag.id) {
+                known.push(tag);
+            }
+        }
+    }
+    for item in &mut result.media {
+        if let Some(tags) = document_tags.remove(&item.id) {
+            item.tags = sorted_tags(tags);
+        }
+    }
+    result.tags = vocabulary;
 }
 
 /// The values of the `tag` extension beneath each top-level `OBJE`, with the
@@ -2717,7 +2879,6 @@ fn apply_document_metadata(
     document.privacy = meta.privacy;
     document.source_media_type = meta.source_media_type;
     document.document_category = meta.document_category;
-    document.tags = meta.tags;
     document.place_id = place_id;
     document.page_count = page_count;
     let tree_id = document.tree_id;

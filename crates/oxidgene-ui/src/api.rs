@@ -16,7 +16,7 @@ use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResu
 use oxidgene_core::types::{
     Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse,
     ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place, QualifiedYear,
-    Repository, Source, SourceRepository, SpouseAge, Tree, Vignette,
+    RecordKind, Repository, Source, SourceRepository, SpouseAge, TagRef, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -39,6 +39,9 @@ pub struct PersonDetail {
     pub tree_id: Uuid,
     pub sex: Sex,
     pub privacy: Privacy,
+    /// The tags the person carries (docs/tags.md §4).
+    #[serde(default)]
+    pub tags: Vec<oxidgene_core::types::TagRef>,
     /// Which image represents this person: a whole media, or a region of one.
     /// At most one is ever set.
     #[serde(default)]
@@ -114,6 +117,8 @@ pub struct PersonSearchParams {
     pub event_from: Option<i32>,
     pub event_to: Option<i32>,
     pub has_media: bool,
+    /// Persons carrying every one of these tags (docs/tags.md §5.3).
+    pub tags: Vec<Uuid>,
     pub sort: PersonSearchSort,
 }
 
@@ -1094,22 +1099,6 @@ fn is_remote(file_path: &str) -> bool {
     file_path.starts_with("http://") || file_path.starts_with("https://")
 }
 
-/// `value` as one percent-encoded path segment: every byte but the
-/// unreserved ones of RFC 3986 is escaped, `/` and `%` included, so a tag
-/// such as `1914/1918` stays one segment.
-fn path_segment(value: &str) -> String {
-    use std::fmt::Write as _;
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
-}
-
 #[derive(Debug, Serialize)]
 struct PortraitImagesRequest {
     person_ids: Vec<Uuid>,
@@ -1379,7 +1368,7 @@ pub struct MediaListItem {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MediaListFilters {
     /// A document must carry every one of these tags.
-    pub tags: Vec<String>,
+    pub tags: Vec<Uuid>,
     pub kind: Option<oxidgene_core::MediaFileKind>,
     pub category: Option<DocumentCategory>,
     pub name: Option<String>,
@@ -1399,7 +1388,7 @@ impl MediaListFilters {
             }
         };
         for tag in &self.tags {
-            push("tag", Some(tag.clone()));
+            push("tag", Some(tag.to_string()));
         }
         push("kind", self.kind.map(|kind| kind.as_str().to_string()));
         push(
@@ -1419,7 +1408,48 @@ impl MediaListFilters {
 /// A tag of the tree and how many documents carry it.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct MediaTagFacet {
-    pub tag: String,
+    #[serde(flatten)]
+    pub tag: TagRef,
+    pub count: i64,
+}
+
+/// A tag of the tree's vocabulary with its counts per record kind
+/// (docs/tags.md §5.1).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TagSummary {
+    pub id: Uuid,
+    pub label: String,
+    pub color: i16,
+    pub counts: TagCounts,
+}
+
+/// How many live records of each kind carry a tag.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TagCounts {
+    pub persons: i64,
+    pub families: i64,
+    pub events: i64,
+    pub places: i64,
+    pub sources: i64,
+    pub citations: i64,
+    pub repositories: i64,
+    pub media: i64,
+    pub notes: i64,
+}
+
+/// A record carrying a tag, as the tagged-records list shows it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TaggedRecord {
+    pub id: Uuid,
+    pub kind: RecordKind,
+    pub label: String,
+    pub person_id: Option<Uuid>,
+    pub family_id: Option<Uuid>,
+}
+
+/// The number of persons a bulk tagging changed (docs/tags.md §5.4).
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+pub struct BulkTagCount {
     pub count: i64,
 }
 
@@ -1750,8 +1780,20 @@ pub struct UpdateMediaBody {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MediaTagBody {
-    pub tag: String,
+struct CreateTagBody<'a> {
+    label: &'a str,
+    color: Option<i16>,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateTagBody<'a> {
+    label: Option<&'a str>,
+    color: Option<i16>,
+}
+
+#[derive(Debug, Serialize)]
+struct MergeTagBody {
+    into: Uuid,
 }
 
 // ── Vignette DTOs ────────────────────────────────────────────────────
@@ -3100,6 +3142,14 @@ impl ApiClient {
         self.delete_status(path).await.map(|_| ())
     }
 
+    /// Send a PUT request with no body whose success carries none (`204`).
+    async fn put_no_content(&self, path: &str) -> Result<(), ApiError> {
+        let url = self.url(path);
+        let resp = self.send_write("PUT", path, self.client.put(&url)).await?;
+        Self::require_success(resp).await?;
+        Ok(())
+    }
+
     /// Send a POST request whose success carries no body (`204`).
     async fn post_no_content<B: Serialize>(&self, path: &str, body: &B) -> Result<(), ApiError> {
         let url = self.url(path);
@@ -3294,6 +3344,9 @@ impl ApiClient {
         }
         if search.has_media {
             params.push(("has_media", "true".to_string()));
+        }
+        for tag in &search.tags {
+            params.push(("tag", tag.to_string()));
         }
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/persons/search"), &params)
             .await
@@ -4669,10 +4722,12 @@ impl ApiClient {
     pub async fn media_facets(
         &self,
         tree_id: Uuid,
-        with_tags: &[String],
+        with_tags: &[Uuid],
     ) -> Result<MediaFacets, ApiError> {
-        let params: Vec<(&str, String)> =
-            with_tags.iter().map(|tag| ("tag", tag.clone())).collect();
+        let params: Vec<(&str, String)> = with_tags
+            .iter()
+            .map(|tag| ("tag", tag.to_string()))
+            .collect();
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/media/facets"), &params)
             .await
     }
@@ -4725,32 +4780,123 @@ impl ApiClient {
             .await
     }
 
-    /// Add one media tag without replacing the other tags.
-    pub async fn add_media_tag(
+    /// The tree's whole tag vocabulary, sorted by folded label.
+    pub async fn list_tags(&self, tree_id: Uuid) -> Result<Vec<TagSummary>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/tags")).await
+    }
+
+    /// Create a tag, or return the one its label folds to.
+    pub async fn create_tag(
         &self,
         tree_id: Uuid,
-        media_id: Uuid,
-        tag: String,
-    ) -> Result<Media, ApiError> {
+        label: &str,
+        color: Option<i16>,
+    ) -> Result<TagSummary, ApiError> {
         self.post(
-            &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
-            &MediaTagBody { tag },
+            &format!("/api/v1/trees/{tree_id}/tags"),
+            &CreateTagBody { label, color },
         )
         .await
     }
 
-    /// Remove one media tag without replacing the other tags.
-    pub async fn remove_media_tag(
+    /// Rename or recolour a tag.
+    pub async fn update_tag(
         &self,
         tree_id: Uuid,
-        media_id: Uuid,
-        tag: String,
+        tag_id: Uuid,
+        label: Option<&str>,
+        color: Option<i16>,
+    ) -> Result<TagSummary, ApiError> {
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/tags/{tag_id}"),
+            &UpdateTagBody { label, color },
+        )
+        .await
+    }
+
+    /// Move every record of a tag onto `into`, then delete the tag.
+    pub async fn merge_tag(
+        &self,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        into: Uuid,
+    ) -> Result<TagSummary, ApiError> {
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/tags/{tag_id}/merge"),
+            &MergeTagBody { into },
+        )
+        .await
+    }
+
+    /// Delete a tag and every link to it.
+    pub async fn delete_tag(&self, tree_id: Uuid, tag_id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/tags/{tag_id}"))
+            .await
+    }
+
+    /// One page of the live records of `kind` carrying a tag.
+    pub async fn list_tagged_records(
+        &self,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        kind: RecordKind,
+        first: u64,
+        after: Option<&str>,
+    ) -> Result<Connection<TaggedRecord>, ApiError> {
+        let mut params = vec![
+            ("kind", kind.as_str().to_string()),
+            ("first", first.to_string()),
+        ];
+        if let Some(after) = after {
+            params.push(("after", after.to_string()));
+        }
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/tags/{tag_id}/records"),
+            &params,
+        )
+        .await
+    }
+
+    /// Put a tag on one record. Idempotent.
+    pub async fn tag_record(
+        &self,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        kind: RecordKind,
+        record_id: Uuid,
     ) -> Result<(), ApiError> {
-        self.delete_no_content(&format!(
-            "/api/v1/trees/{tree_id}/media/{media_id}/tags/{}",
-            path_segment(&tag)
+        self.put_no_content(&format!(
+            "/api/v1/trees/{tree_id}/tags/{tag_id}/records/{}/{record_id}",
+            kind.as_str()
         ))
         .await
+    }
+
+    /// Take a tag off one record. Idempotent.
+    pub async fn untag_record(
+        &self,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        kind: RecordKind,
+        record_id: Uuid,
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/tags/{tag_id}/records/{}/{record_id}",
+            kind.as_str()
+        ))
+        .await
+    }
+
+    /// Add or remove a tag on every person of a target (docs/tags.md §5.4).
+    /// `body` is the `{ action, target }` document the endpoint takes.
+    pub async fn bulk_tag<B: Serialize>(
+        &self,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        body: &B,
+    ) -> Result<BulkTagCount, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/tags/{tag_id}/bulk"), body)
+            .await
     }
 
     /// Permanently delete a media record and its associated information.
@@ -5566,15 +5712,6 @@ mod tests {
             })
         );
         assert_eq!(gallery.vignettes[0].image.source, "c");
-    }
-
-    #[test]
-    fn a_path_segment_escapes_everything_that_could_end_or_alter_it() {
-        assert_eq!(path_segment("Civil record"), "Civil%20record");
-        assert_eq!(path_segment("1914/1918"), "1914%2F1918");
-        assert_eq!(path_segment("100%"), "100%25");
-        assert_eq!(path_segment("Église"), "%C3%89glise");
-        assert_eq!(path_segment("a-b_c.d~e"), "a-b_c.d~e");
     }
 
     #[test]

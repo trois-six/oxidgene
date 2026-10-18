@@ -434,3 +434,39 @@ async fn a_tree_deleted_mid_session_disappears() {
         );
     }
 }
+
+#[tokio::test]
+async fn tags_are_listed_and_filter_the_person_search() {
+    let harness = setup().await;
+    let tree_id = harness.tree("Tag tree").await;
+    let ledger = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/tags"),
+            json!({ "label": "Ledger" }),
+        )
+        .await;
+    let tagged = harness.person(&tree_id, "male", "Alpha", "Sample").await;
+    harness.person(&tree_id, "female", "Beta", "Sample").await;
+    let (status, body) = harness
+        .rest(
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}/tags/{ledger}/records/person/{tagged}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let tags = harness.ok("list_tags", json!({ "tree_id": tree_id })).await;
+    assert_eq!(tags["items"][0]["id"], ledger);
+    assert_eq!(tags["items"][0]["label"], "Ledger");
+    assert_eq!(tags["items"][0]["counts"]["persons"], 1);
+
+    let found = harness
+        .ok(
+            "search_persons",
+            json!({ "tree_id": tree_id, "surname": "sample", "tags": [ledger] }),
+        )
+        .await;
+    assert_eq!(found["total_count"], 1);
+    assert_eq!(found["entries"][0]["person_id"], tagged);
+}

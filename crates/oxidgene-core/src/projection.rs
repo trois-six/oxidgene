@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole};
-use crate::types::PortraitRef;
+use crate::types::{PortraitRef, TagRef};
 
 /// The shape of a stored [`PersonProfile`] payload.
 ///
@@ -44,7 +44,10 @@ use crate::types::PortraitRef;
 /// 7: the primary media is a page that can represent somebody
 /// (`Media::can_portray`): a picture we hold or a remote one, never a PDF,
 /// as the portrait endpoints already decided.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 7;
+///
+/// 8: the profile and each of its events carry the tags put on them
+/// (`PersonProfile::tags`, `ProfileEvent::tags`), which were not projected.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 8;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -78,6 +81,10 @@ pub struct PersonProfile {
     pub media_count: u32,
     pub citation_count: u32,
     pub note_count: u32,
+
+    /// Tags put on the person, sorted by folded label.
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
 
     // Metadata
     pub updated_at: DateTime<Utc>,
@@ -172,6 +179,9 @@ pub struct ProfileEvent {
     /// one — in canonical GEDCOM form.
     #[serde(default)]
     pub age: Option<String>,
+    /// Tags put on the event, sorted by folded label.
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
 }
 
 /// A family in which this person is a spouse, with the other spouse's info.
@@ -390,6 +400,11 @@ pub struct SearchEntry {
     /// Filled where a row leaves the API, not in the search index.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portrait: Option<PortraitRef>,
+    /// Tags put on the person, sorted by folded label. Read from the
+    /// projection, or from the tag tables for a search row, which the search
+    /// index does not hold.
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
 }
 
 /// Paginated search results.

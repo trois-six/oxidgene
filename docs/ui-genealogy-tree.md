@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
+generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
 ---
 
 
@@ -293,6 +293,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Add child** | The same panel, for a child |
 | **Add sibling** | The same panel, for a sibling |
 | **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |
+| **Tags…** | Opens the tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the person's tags are not drawn on the card |
 | **Go to…** | In the wheels, fans and lineage (§10): opens a list of the person's relatives the chart does not draw around them — spouses and children in an ancestor chart, parents and spouses in a descendant one — under a heading per kind, each with their lifespan; choosing one makes them the focus. The chart's own focus is left out, and so is the entry when the list would be empty. Not offered on the tree, which draws them all |
 
 The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.

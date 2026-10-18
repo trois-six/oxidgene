@@ -65,6 +65,7 @@ use crate::rest::reference;
 use crate::rest::repository;
 use crate::rest::source;
 use crate::rest::state::AppState;
+use crate::rest::tag;
 use crate::rest::tree;
 use crate::rest::tree_guard;
 use crate::rest::vignette;
@@ -292,11 +293,6 @@ pub fn build_router(state: AppState) -> Router {
                 .put(media::update_media)
                 .delete(media::delete_media),
         )
-        .route("/{tree_id}/media/{media_id}/tags", post(media::add_tag))
-        .route(
-            "/{tree_id}/media/{media_id}/tags/{tag}",
-            delete(media::remove_tag),
-        )
         // Before `/{media_id}`, same reason as `upload`.
         .route("/{tree_id}/media/document", post(media::create_document))
         .route("/{tree_id}/media/facets", get(media::list_media_facets))
@@ -362,6 +358,22 @@ pub fn build_router(state: AppState) -> Router {
             get(note::get_note)
                 .put(note::update_note)
                 .delete(note::delete_note),
+        );
+
+    let tag_routes = Router::new()
+        .route("/{tree_id}/tags", get(tag::list_tags).post(tag::create_tag))
+        .route(
+            "/{tree_id}/tags/{tag_id}",
+            put(tag::update_tag).delete(tag::delete_tag),
+        )
+        .route("/{tree_id}/tags/{tag_id}/merge", post(tag::merge_tag))
+        .route(
+            "/{tree_id}/tags/{tag_id}/records",
+            get(tag::list_tagged_records),
+        )
+        .route(
+            "/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}",
+            put(tag::tag_record).delete(tag::untag_record),
         );
 
     let dictionary_routes = Router::new()
@@ -588,6 +600,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(media_link_routes)
                 .merge(vignette_routes)
                 .merge(note_routes)
+                .merge(tag_routes)
                 .merge(dictionary_routes)
                 .merge(profile_routes)
                 .merge(history_routes)

@@ -11,7 +11,14 @@
       "event_id": "string",
       "event_type": "string",
       "place_id": "string",
-      "place_name": "string"
+      "place_name": "string",
+      "tags": [
+        {
+          "color": "number",
+          "id": "string",
+          "label": "string"
+        }
+      ]
     },
     "birth": {
       "age": "string",
@@ -24,7 +31,14 @@
       "event_id": "string",
       "event_type": "string",
       "place_id": "string",
-      "place_name": "string"
+      "place_name": "string",
+      "tags": [
+        {
+          "color": "number",
+          "id": "string",
+          "label": "string"
+        }
+      ]
     },
     "built_at": "string",
     "burial": {
@@ -38,7 +52,14 @@
       "event_id": "string",
       "event_type": "string",
       "place_id": "string",
-      "place_name": "string"
+      "place_name": "string",
+      "tags": [
+        {
+          "color": "number",
+          "id": "string",
+          "label": "string"
+        }
+      ]
     },
     "citation_count": "number",
     "death": {
@@ -52,7 +73,14 @@
       "event_id": "string",
       "event_type": "string",
       "place_id": "string",
-      "place_name": "string"
+      "place_name": "string",
+      "tags": [
+        {
+          "color": "number",
+          "id": "string",
+          "label": "string"
+        }
+      ]
     },
     "families_as_spouse": [
       {
@@ -72,7 +100,14 @@
             "event_id": "string",
             "event_type": "string",
             "place_id": "string",
-            "place_name": "string"
+            "place_name": "string",
+            "tags": [
+              {
+                "color": "number",
+                "id": "string",
+                "label": "string"
+              }
+            ]
           }
         ],
         "family_id": "string",
@@ -87,7 +122,14 @@
           "event_id": "string",
           "event_type": "string",
           "place_id": "string",
-          "place_name": "string"
+          "place_name": "string",
+          "tags": [
+            {
+              "color": "number",
+              "id": "string",
+              "label": "string"
+            }
+          ]
         },
         "role": "string",
         "spouse_display_name": "string",
@@ -124,7 +166,14 @@
         "event_id": "string",
         "event_type": "string",
         "place_id": "string",
-        "place_name": "string"
+        "place_name": "string",
+        "tags": [
+          {
+            "color": "number",
+            "id": "string",
+            "label": "string"
+          }
+        ]
       }
     ],
     "other_names": [
@@ -152,8 +201,15 @@
       "surname": "string"
     },
     "sex": "string",
+    "tags": [
+      {
+        "color": "number",
+        "id": "string",
+        "label": "string"
+      }
+    ],
     "tree_id": "string",
     "updated_at": "string"
   },
-  "schema_version": 7
+  "schema_version": 8
 }

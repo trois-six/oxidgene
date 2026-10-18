@@ -10,7 +10,7 @@ Le dictionnaire recense toutes les valeurs distinctes saisies dans un arbre — 
 
 Cliquez sur l'**icône livre** (**Dictionnaire**) dans la barre d'icônes de gauche de n'importe quelle page de l'arbre : l'arbre lui-même, la fiche d'une personne ou d'un couple, les statistiques. La page s'ouvre sur l'onglet **Noms de famille**.
 
-Les onglets en haut de la page sont **Noms de famille**, **Sources**, **Dépôts**, **Lieux**, **Professions** et **Médias**. L'onglet **Médias** est la médiathèque de l'arbre, décrite dans [Médias](@/guide/media.fr.md).
+Les onglets en haut de la page sont **Noms de famille**, **Sources**, **Dépôts**, **Lieux**, **Professions**, **Médias** et **Étiquettes**. L'onglet **Médias** est la médiathèque de l'arbre, décrite dans [Médias](@/guide/media.fr.md). L'onglet **Étiquettes** liste les étiquettes de l'arbre, décrites dans [Étiquettes](@/guide/tags.fr.md).
 
 Si vous revenez au dictionnaire avec le bouton retour, il se rouvre exactement comme vous l'avez laissé : même onglet, même filtre, même lettre, même page et même ligne dépliée.
 

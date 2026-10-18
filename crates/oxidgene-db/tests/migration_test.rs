@@ -24,7 +24,8 @@ const TABLES: &[&str] = &[
     "media_link",
     "note",
     "vignette",
-    "media_tag",
+    "tag",
+    "record_tag",
     "background_job",
     "person_search_fts",
     "person_denorm",
@@ -171,7 +172,14 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
             "vignette",
             "id, media_id, x, y, width, height, person_id, event_id, created_at, updated_at",
         ),
-        ("media_tag", "media_id, normalized_tag, tag, created_at"),
+        (
+            "tag",
+            "id, tree_id, label, normalized_label, color, created_at, updated_at",
+        ),
+        (
+            "record_tag",
+            "id, tree_id, tag_id, person_id, family_id, event_id, place_id, source_id, citation_id, repository_id, media_id, note_id, created_at",
+        ),
         (
             "gedcom_kept",
             "id, tree_id, entity_kind, entity_id, nodes, created_at",

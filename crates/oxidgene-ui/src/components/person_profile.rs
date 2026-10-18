@@ -16,7 +16,8 @@ use oxidgene_core::Sex;
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType, SpouseRole};
 use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{
-    Event as DomainEvent, Note, Person, PersonName, PortraitRef, QualifiedYear, Tree, Vignette,
+    Event as DomainEvent, Note, Person, PersonName, PortraitRef, QualifiedYear, TagRef, Tree,
+    Vignette,
 };
 use uuid::Uuid;
 
@@ -34,6 +35,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
+use crate::components::tags::TagChips;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
 use crate::router::{Route, push_tree_route};
@@ -1269,6 +1271,7 @@ pub(crate) fn header_section(
     profile: &Profile,
     photo: Option<CroppedSource>,
     is_self: bool,
+    tags: Vec<TagRef>,
     actions: Element,
 ) -> Element {
     let i18n = ctx.i18n;
@@ -1304,6 +1307,7 @@ pub(crate) fn header_section(
                     if !profile.vitals.is_empty() {
                         {vitals_line(&profile.vitals, person_sex, &i18n)}
                     }
+                    TagChips { tree_id: ctx.tree_id.to_string(), tags }
                 }
             }
             div { class: "pd-header-actions",

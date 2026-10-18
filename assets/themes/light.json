@@ -52,6 +52,18 @@
     "pn-self": "#006ac4",
     "pn-text": "#111111",
     "pn-text-muted": "#555555",
-    "pn-hover-bg": "#cfe3fa"
+    "pn-hover-bg": "#cfe3fa",
+    "tag-0": "#c0392b",
+    "tag-1": "#d35400",
+    "tag-2": "#b7950b",
+    "tag-3": "#3d8b37",
+    "tag-4": "#138d75",
+    "tag-5": "#2471a3",
+    "tag-6": "#5b4fc4",
+    "tag-7": "#8e44ad",
+    "tag-8": "#c2185b",
+    "tag-9": "#6d4c41",
+    "tag-10": "#546e7a",
+    "tag-11": "#7a9a01"
   }
 }

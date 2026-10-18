@@ -17,6 +17,7 @@ mod place;
 mod repository;
 mod source;
 mod surname;
+mod tag;
 mod tree;
 
 pub use age::AgeAtEvent;
@@ -40,5 +41,6 @@ pub use surname::{
     join_surname_particle, split_surname_at_head, split_surname_particle, split_surname_with,
     surname_sort_key,
 };
+pub use tag::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef};
 pub use tree::Tree;
 pub(crate) use tree::enabled;
