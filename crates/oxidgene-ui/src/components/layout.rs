@@ -5709,7 +5709,6 @@ pub const LAYOUT_STYLES: &str = r#"
         pointer-events: none;
     }
 
-    .pdf-viewer-pages,
     .pdf-viewer-search {
         display: flex;
         align-items: center;

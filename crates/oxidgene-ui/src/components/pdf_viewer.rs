@@ -190,11 +190,25 @@ impl PdfState {
     }
 }
 
-/// A stored PDF, read in the media viewer: zoom, the page on screen, search,
-/// and the pages one under the other. `on_failed` when pdf.js cannot open
-/// it, for the caller to say so in its place.
+/// A stored PDF, read in the media viewer: zoom, search, and the pages one
+/// under the other. The viewer's own pager shows and turns its pages, as it
+/// does a document's: `position` is where the reader is, `(page, pages)`
+/// from 1, and a page set in `goto` is scrolled to. `on_failed` when pdf.js
+/// cannot open it, for the caller to say so in its place.
 #[component]
-pub(crate) fn PdfViewer(tree_id: Uuid, media_id: Uuid, on_failed: EventHandler<()>) -> Element {
+pub(crate) fn PdfViewer(
+    tree_id: Uuid,
+    media_id: Uuid,
+    position: Signal<(u32, u32)>,
+    goto: Signal<Option<u32>>,
+    on_failed: EventHandler<()>,
+    /// Buttons after the zoom ones, as the picture stage's `controls`.
+    #[props(default = VNode::empty())]
+    controls: Element,
+    /// Menus and panels over the pages, as the picture stage's `children`.
+    #[props(default)]
+    children: Element,
+) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let trace = use_ui_trace();
@@ -253,8 +267,26 @@ pub(crate) fn PdfViewer(tree_id: Uuid, media_id: Uuid, on_failed: EventHandler<(
         }
     };
 
+    let mut position = position;
+    use_effect(move || {
+        let now = ((state.page)(), (state.pages)());
+        if *position.peek() != now {
+            position.set(now);
+        }
+    });
+    let mut goto = goto;
+    use_effect({
+        let command = command.clone();
+        move || {
+            if let Some(page) = goto() {
+                goto.set(None);
+                command(Command::Page { page });
+            }
+        }
+    });
+
     let open = (state.open)();
-    let (page, pages, percent) = ((state.page)(), (state.pages)(), (state.percent)());
+    let percent = (state.percent)();
 
     rsx! {
         div { class: "pdf-viewer",
@@ -273,14 +305,7 @@ pub(crate) fn PdfViewer(tree_id: Uuid, media_id: Uuid, on_failed: EventHandler<(
                     let command = command.clone();
                     move |()| command(Command::Zoom { percent: pdf_zoom_out(*state.percent.peek()) })
                 },
-                PdfPageControls {
-                    page,
-                    pages,
-                    on_page: {
-                        let command = command.clone();
-                        move |page| command(Command::Page { page })
-                    },
-                }
+                {controls}
                 PdfSearch {
                     enabled: open,
                     query: query(),
@@ -310,50 +335,7 @@ pub(crate) fn PdfViewer(tree_id: Uuid, media_id: Uuid, on_failed: EventHandler<(
                 if !open {
                     div { class: "pdf-viewer-status", {i18n.t("media.pdf_opening")} }
                 }
-            }
-        }
-    }
-}
-
-/// The page on screen, between the steps to the previous and the next.
-#[component]
-fn PdfPageControls(page: u32, pages: u32, on_page: EventHandler<u32>) -> Element {
-    let i18n = use_i18n();
-    rsx! {
-        div { class: "pdf-viewer-pages",
-            button {
-                class: "isb-btn",
-                r#type: "button",
-                title: i18n.t("pager.previous"),
-                aria_label: i18n.t("pager.previous"),
-                disabled: page <= 1,
-                onclick: move |_| on_page.call(page.saturating_sub(1).max(1)),
-                svg {
-                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                    stroke: "currentColor", "strokeWidth": "2",
-                    path { d: "M15 18l-6-6 6-6" }
-                }
-            }
-            span { class: "media-pager-count",
-                if pages > 0 {
-                    {i18n.t_args(
-                        "pager.page_of",
-                        &[("page", &page.to_string()), ("total", &pages.to_string())],
-                    )}
-                }
-            }
-            button {
-                class: "isb-btn",
-                r#type: "button",
-                title: i18n.t("pager.next"),
-                aria_label: i18n.t("pager.next"),
-                disabled: page >= pages,
-                onclick: move |_| on_page.call(page.saturating_add(1).min(pages)),
-                svg {
-                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                    stroke: "currentColor", "strokeWidth": "2",
-                    path { d: "M9 18l6-6-6-6" }
-                }
+                {children}
             }
         }
     }

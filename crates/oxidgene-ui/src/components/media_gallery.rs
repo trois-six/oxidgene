@@ -3740,7 +3740,7 @@ fn MediaViewer(
 
     let caption = current_tile.caption().to_string();
     let is_document = current_tile.media.is_document();
-    let mut page = use_signal(|| initial_page);
+    let page = use_signal(|| initial_page);
     let mut page_revision = use_signal(|| 0_u32);
 
     // A document has no bytes of its own: what is shown is its current page,
@@ -3791,6 +3791,14 @@ fn MediaViewer(
     let mut failed_pdf = use_signal(|| None::<Uuid>);
     let pdf_failed = failed_pdf() == Some(content_media_id);
     let shows_pdf = opens_in_pdf_viewer(kind, content_source, pdf_failed);
+    // A PDF's own pages, `(page, pages)` from 1, which the pager and the
+    // count beside the title show and turn as they do a document's — unless
+    // the PDF is one page of a document of several, whose pages they keep.
+    let pdf_position = use_signal(|| (1_u32, 0_u32));
+    let pdf_goto = use_signal(|| None::<u32>);
+    let pdf_paged = pdf_drives_pager(shows_pdf, total_pages);
+    let (pager_current, pager_total) =
+        pager_position(pdf_paged.then(&*pdf_position), current, total_pages);
     // A document's visible image changes with its page. Keep that id reactive
     // so the regions in both the facts column and the image follow it.
     let mut vignette_media_id = use_signal(|| content_media_id);
@@ -3855,12 +3863,70 @@ fn MediaViewer(
         family_choices.set(Vec::new());
     });
 
+    // The relation menu — attach the page or the document to a person or a
+    // couple, and identify somebody on a picture — over an image and a PDF
+    // alike; a PDF has no identification, its pages being no picture to cut.
+    let relation_button = rsx! {
+        button {
+            class: "isb-btn media-relation-menu-button",
+            r#type: "button",
+            title: i18n.t("media.relations"),
+            aria_label: i18n.t("media.relations"),
+            onclick: move |event: Event<MouseData>| {
+                let point = event.client_coordinates();
+                relation_menu_at.set(Some((point.x, point.y)));
+            },
+            svg {
+                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                stroke: "currentColor", "strokeWidth": "2",
+                circle { cx: "12", cy: "12", r: "9" }
+                circle { cx: "12", cy: "12", r: "5" }
+                circle { cx: "12", cy: "12", r: "1" }
+            }
+        }
+    };
+    let relation_tools = rsx! {
+                    if let Some(at) = relation_menu_at() {
+                        RelationMenu {
+                            at,
+                            is_document,
+                            on_close: move |()| relation_menu_at.set(None),
+                            on_identify: (!shows_pdf).then(|| EventHandler::new(move |()| {
+                                relation_menu_at.set(None);
+                                identifying.set(true);
+                            })),
+                            on_attach: move |(scope, mode): (MediaAttachmentScope, MediaAttachmentMode)| {
+                                relation_menu_at.set(None);
+                                close_attachment.call(());
+                                attachment_notice.set(None);
+                                attachment_scope.set(scope);
+                                attachment_mode.set(Some(mode));
+                            },
+                        }
+                    }
+                    MediaAttachmentPicker {
+                        tree_id,
+                        target_media_id: attachment_target_media_id,
+                        mode: attachment_mode,
+                        busy: attachment_busy,
+                        error: attachment_error,
+                        notice: attachment_notice,
+                        family_choices,
+                        revision: attachment_revision,
+                        on_close: close_attachment,
+                        on_changed,
+                    }
+                    if let Some(message) = attachment_notice() {
+                        div { class: "media-attachment-notice", "{message}" }
+                    }
+    };
+
     rsx! {
         div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
             div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
                 div { class: "cropper-head",
                     span { class: "cropper-title", "{caption}" }
-                    {page_count(&i18n, current, total_pages)}
+                    {page_count(&i18n, pager_current, pager_total)}
                     button {
                         class: "cropper-close",
                         r#type: "button",
@@ -3977,7 +4043,11 @@ fn MediaViewer(
                         key: "pdf-{content_media_id}",
                         tree_id,
                         media_id: content_media_id,
+                        position: pdf_position,
+                        goto: pdf_goto,
                         on_failed: move |()| failed_pdf.set(Some(content_media_id)),
+                        controls: relation_button,
+                        {relation_tools}
                     }
                 } else {
                 MediaStage {
@@ -3988,25 +4058,7 @@ fn MediaViewer(
                         _ => None,
                     },
                     on_picture_error: move |()| failed_preview.set(Some(content_media_id)),
-                    controls: rsx! {
-                        button {
-                            class: "isb-btn media-relation-menu-button",
-                            r#type: "button",
-                            title: i18n.t("media.relations"),
-                            aria_label: i18n.t("media.relations"),
-                            onclick: move |event: Event<MouseData>| {
-                                let point = event.client_coordinates();
-                                relation_menu_at.set(Some((point.x, point.y)));
-                            },
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                circle { cx: "12", cy: "12", r: "9" }
-                                circle { cx: "12", cy: "12", r: "5" }
-                                circle { cx: "12", cy: "12", r: "1" }
-                            }
-                        }
-                    },
+                    controls: relation_button,
                     overlays: rsx! {
                         VignetteOverlays {
                             vignettes: content_vignettes.clone(),
@@ -4016,39 +4068,7 @@ fn MediaViewer(
                         }
                     },
                     fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
-                    if let Some(at) = relation_menu_at() {
-                        RelationMenu {
-                            at,
-                            is_document,
-                            on_close: move |()| relation_menu_at.set(None),
-                            on_identify: move |()| {
-                                relation_menu_at.set(None);
-                                identifying.set(true);
-                            },
-                            on_attach: move |(scope, mode): (MediaAttachmentScope, MediaAttachmentMode)| {
-                                relation_menu_at.set(None);
-                                close_attachment.call(());
-                                attachment_notice.set(None);
-                                attachment_scope.set(scope);
-                                attachment_mode.set(Some(mode));
-                            },
-                        }
-                    }
-                    MediaAttachmentPicker {
-                        tree_id,
-                        target_media_id: attachment_target_media_id,
-                        mode: attachment_mode,
-                        busy: attachment_busy,
-                        error: attachment_error,
-                        notice: attachment_notice,
-                        family_choices,
-                        revision: attachment_revision,
-                        on_close: close_attachment,
-                        on_changed,
-                    }
-                    if let Some(message) = attachment_notice() {
-                        div { class: "media-attachment-notice", "{message}" }
-                    }
+                    {relation_tools}
                 }
                 }
 
@@ -4057,14 +4077,14 @@ fn MediaViewer(
                 // entry is on page 27" is how a register is actually
                 // referenced — counting there with a Next button is absurd.
                 Pager {
-                    current,
-                    total: total_pages,
+                    current: pager_current,
+                    total: pager_total,
                     ends: true,
                     disabled: editing(),
                     class: "media-pager",
                     // The stage is keyed by the page, so the next one opens
-                    // fitted.
-                    on_select: move |index| page.set(index),
+                    // fitted; a PDF scrolls to its page.
+                    on_select: move |index: usize| turn_page(pdf_paged, index, page, pdf_goto),
                 }
                 }
                 }
@@ -4125,6 +4145,37 @@ fn displayed_address(
     }
 }
 
+/// Whether the viewer's pager turns a PDF's own pages: a PDF shown alone,
+/// not one page of a document of several.
+fn pdf_drives_pager(shows_pdf: bool, total_pages: usize) -> bool {
+    shows_pdf && total_pages <= 1
+}
+
+/// Turns to page `index` (from 0): the document's page, or the PDF's, which
+/// its viewer scrolls to.
+fn turn_page(
+    pdf_paged: bool,
+    index: usize,
+    mut page: Signal<usize>,
+    mut goto: Signal<Option<u32>>,
+) {
+    if pdf_paged {
+        goto.set(Some(u32::try_from(index + 1).unwrap_or(u32::MAX)));
+    } else {
+        page.set(index);
+    }
+}
+
+/// What the viewer's pager and page count show, `(index from 0, count)`: a
+/// PDF's own pages when `pdf` gives them, `(page from 1, pages)`, else the
+/// document's.
+fn pager_position(pdf: Option<(u32, u32)>, current: usize, total_pages: usize) -> (usize, usize) {
+    match pdf {
+        Some((page, pages)) => (page.saturating_sub(1) as usize, pages as usize),
+        None => (current, total_pages),
+    }
+}
+
 /// Sets `signal` to `value` when it holds another, so that what reads it
 /// reruns only on a change.
 fn follow<T: PartialEq + 'static>(signal: &mut Signal<T>, value: T) {
@@ -4169,7 +4220,8 @@ fn RelationMenu(
     at: (f64, f64),
     is_document: bool,
     on_close: EventHandler<()>,
-    on_identify: EventHandler<()>,
+    /// Absent where nothing can be identified: on a PDF.
+    on_identify: Option<EventHandler<()>>,
     on_attach: EventHandler<(MediaAttachmentScope, MediaAttachmentMode)>,
 ) -> Element {
     let i18n = use_i18n();
@@ -4180,11 +4232,13 @@ fn RelationMenu(
             y,
             menu_class: "context-menu-media-relations".to_string(),
             on_close: move |_| on_close.call(()),
-            button {
-                class: "context-menu-item",
-                r#type: "button",
-                onclick: move |_| on_identify.call(()),
-                {i18n.t("media.identify_person")}
+            if let Some(on_identify) = on_identify {
+                button {
+                    class: "context-menu-item",
+                    r#type: "button",
+                    onclick: move |_| on_identify.call(()),
+                    {i18n.t("media.identify_person")}
+                }
             }
             for (scope, mode, label) in attachment_choices(is_document).iter().copied() {
                 button {

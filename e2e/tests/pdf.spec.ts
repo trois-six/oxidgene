@@ -61,15 +61,19 @@ test("a PDF opens in the viewer, where its text can be searched", async ({ page,
     const viewer = page.locator(".pdf-viewer");
     await expect(viewer.locator(".pdfViewer .page")).toHaveCount(2);
     await expect(viewer.locator(".textLayer").first()).toContainText("Fictitious parish register");
-    await expect(viewer.getByText("Page 1 of 2")).toBeVisible();
+    // Its pages are counted and turned as a document's: beside the title,
+    // and by the viewer's pager.
+    await expect(page.locator(".cropper-head").getByText("Page 1 of 2")).toBeVisible();
 
-    const search = viewer.getByRole("searchbox", { name: "Search the document" });
+    const search = viewer.getByRole("searchbox", { name: "Search" });
     await search.fill("Exemple");
     await expect(viewer.getByRole("status")).toHaveText("1 of 4");
     await search.press("Enter");
     await expect(viewer.getByRole("status")).toHaveText("2 of 4");
     await search.fill("Nowhere");
     await expect(viewer.getByRole("status")).toHaveText("No match");
+    await page.locator(".media-pager .pager-num", { hasText: "2" }).click();
+    await expect(page.locator(".cropper-head").getByText("Page 2 of 2")).toBeVisible();
 
     // The file is still offered as it is.
     await expect(page.getByRole("button", { name: "Download file" })).toBeVisible();

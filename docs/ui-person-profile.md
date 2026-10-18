@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:14:07Z }
 ---
 
 
@@ -564,16 +564,18 @@ column reveals its frame and person label.
 A stored PDF opens in the PDF viewer in the image's place
 ([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)):
 its pages one under the other in continuous scroll, with selectable and
-copyable text and working links. Its control row keeps the zoom controls'
-place and look — **Zoom in**, **Fit** (the page width) and **Zoom out** — and
-adds the page in view out of the PDF's page count between previous and next
-page buttons, and a search field with previous and next match buttons and the
-match count. The target icon and its identification and attachment menu are
-not shown over a PDF. While the file opens the viewer says so; a PDF that
-cannot be opened gets the fallback panel with a message saying so and the
+copyable text and working links. It reads as a document of several pages
+does: the page in view out of the page count beside the title, the same
+pager below, which scrolls to the page chosen, and the same control row —
+**Zoom in**, **Fit** (the page width), **Zoom out** and the target icon,
+whose menu attaches the page or the document to a person or a couple. Only
+identifying somebody is missing from that menu: a PDF page is no picture to
+cut. The row adds a search field with previous and next match buttons and
+the match count. While the file opens the viewer says so; a PDF that cannot
+be opened gets the fallback panel with a message saying so and the
 download. The facts column, its relations and the footer's downloads are the
-same as for any page, and a document's own pager still moves between its
-pages, each PDF page opening at its first page fitted.
+same as for any page. A PDF that is one page of a document of several keeps
+the document's pager and count, and opens at its first page fitted.
 
 The viewer footer provides **Download file** for every stored file type,
 including images, PDFs, audio, video, and unknown formats. Availability comes
