@@ -50,7 +50,7 @@ impl PortraitChoice {
 
 /// Choose what represents person `person_id` of `tree_id`: a whole media, a
 /// region of one, or nothing. Every record named must belong to the tree,
-/// and a PDF is refused ([`refuse_a_pdf`]).
+/// and a PDF is refused: it is a record, not a picture of somebody.
 pub async fn set_person_portrait(
     db: &DatabaseConnection,
     profiles: &ProfileService,

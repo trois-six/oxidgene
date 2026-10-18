@@ -195,7 +195,7 @@ pub enum NoPdfThumbnail {
     Unreadable,
     /// Its first page paints no image: a text or vector page.
     NoImage,
-    /// The image declares more pixels than [`MAX_DECODED_BYTES`] holds.
+    /// The image declares more pixels than the decoding ceiling holds.
     TooLarge,
     /// The image is compressed some way not decoded here: Flate, LZW, or a
     /// chain of filters.
@@ -239,7 +239,7 @@ impl From<&LoadPdfError> for NoPdfThumbnail {
 ///
 /// A JPEG goes to [`generate`] as it is stored. CCITT fax, JBIG2 and JPEG 2000
 /// images are decoded by `hayro-syntax`. Nothing is decoded before the
-/// image's declared size is checked against [`MAX_DECODED_BYTES`].
+/// image's declared size is checked against the decoding ceiling.
 pub fn generate_pdf(pdf: &Pdf) -> Result<Thumbnail, NoPdfThumbnail> {
     let page = pdf.pages().first().ok_or(NoPdfThumbnail::Unreadable)?;
     let image = PdfImage::largest_painted(page).ok_or(NoPdfThumbnail::NoImage)?;
