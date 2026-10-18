@@ -303,13 +303,18 @@ async fn follow_job(app: &Router, tree_id: Uuid, kind: &str, job_id: &str) -> Va
     let uri = format!("/api/v1/trees/{tree_id}/{kind}/{job_id}");
     let mut slowest = Duration::ZERO;
     let mut last_phase = String::new();
+    let started = Instant::now();
     loop {
         let asked = Instant::now();
         let status = get(app, &uri).await;
         slowest = slowest.max(asked.elapsed());
         let phase = status["phase"].as_str().unwrap_or_default().to_owned();
         if phase != last_phase {
-            report(kind, &format!("phase {phase}"));
+            // When each phase began, so that the job's time can be split.
+            report(
+                kind,
+                &format!("phase {phase} at {:.1} s", started.elapsed().as_secs_f64()),
+            );
             last_phase = phase.clone();
         }
         if phase == "completed" || phase == "failed" {

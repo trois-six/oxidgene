@@ -372,9 +372,11 @@ fn held_locally(
     if deposit.views.len() != 1 {
         return false;
     }
+    // Which entry, not its bytes: inflating every matched photograph to
+    // count it made the preview take minutes on a real account.
     deposit_sizes
         .get(&deposit.id)
-        .is_some_and(|size| matches!(archives.resolve(*size), Ok(Some(_))))
+        .is_some_and(|size| matches!(archives.locate_by_size(*size), Ok(Some(_))))
 }
 
 /// One medium the server cannot produce on its own.
@@ -444,7 +446,7 @@ pub fn plan(
         if original
             && deposit_sizes
                 .get(&deposit.id)
-                .is_some_and(|size| matches!(archives.resolve(*size), Ok(Some(_))))
+                .is_some_and(|size| matches!(archives.locate_by_size(*size), Ok(Some(_))))
         {
             continue;
         }

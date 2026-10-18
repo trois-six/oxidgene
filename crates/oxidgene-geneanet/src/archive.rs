@@ -76,6 +76,60 @@ pub struct ArchiveInfo {
     pub image_count: usize,
 }
 
+/// An archive file opened once, read at explicit offsets.
+///
+/// Opening a ZIP reads its central directory, and the `zip` crate looks for
+/// the directory's end by scanning the file: a third of a second for a
+/// 700 MB data archive. An import reads hundreds of entries, so each archive
+/// is opened once and its [`zip::ZipArchive`] cloned per read — a clone
+/// shares the directory and gets a reader of its own, whose position no
+/// other clone moves, so reads may run on several threads at once.
+#[derive(Debug, Clone)]
+struct SharedFile {
+    file: std::sync::Arc<std::fs::File>,
+    position: u64,
+}
+
+impl SharedFile {
+    fn open(path: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            file: std::sync::Arc::new(std::fs::File::open(path)?),
+            position: 0,
+        })
+    }
+}
+
+impl Read for SharedFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        #[cfg(unix)]
+        let read = std::os::unix::fs::FileExt::read_at(&*self.file, buf, self.position)?;
+        #[cfg(windows)]
+        let read = std::os::windows::fs::FileExt::seek_read(&*self.file, buf, self.position)?;
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl std::io::Seek for SharedFile {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        let invalid = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before start");
+        self.position = match to {
+            std::io::SeekFrom::Start(offset) => offset,
+            std::io::SeekFrom::End(delta) => self
+                .file
+                .metadata()?
+                .len()
+                .checked_add_signed(delta)
+                .ok_or_else(invalid)?,
+            std::io::SeekFrom::Current(delta) => self
+                .position
+                .checked_add_signed(delta)
+                .ok_or_else(invalid)?,
+        };
+        Ok(self.position)
+    }
+}
+
 /// One indexed entry, addressed well enough to be read back on demand.
 #[derive(Debug, Clone)]
 struct Entry {
@@ -91,6 +145,8 @@ struct Entry {
 #[derive(Debug, Default)]
 pub struct ArchiveSet {
     archives: Vec<ArchiveInfo>,
+    /// Each archive, opened once, in the order of `archives`.
+    zips: Vec<zip::ZipArchive<SharedFile>>,
     entries: Vec<Entry>,
     by_size: HashMap<u64, Vec<usize>>,
 }
@@ -121,7 +177,7 @@ impl ArchiveSet {
         }
 
         let file =
-            std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
+            SharedFile::open(&path).with_context(|| format!("opening {}", path.display()))?;
         let mut zip = zip::ZipArchive::new(file)
             .with_context(|| format!("reading {} as a ZIP archive", path.display()))?;
 
@@ -160,6 +216,7 @@ impl ArchiveSet {
             file_count,
             image_count,
         });
+        self.zips.push(zip);
 
         Ok(self.archives.last())
     }
@@ -175,6 +232,7 @@ impl ArchiveSet {
         };
 
         self.archives.remove(removed);
+        self.zips.remove(removed);
 
         // Rebuild rather than patch: entries are addressed by position, so
         // dropping some in the middle renumbers every index that points past
@@ -203,13 +261,7 @@ impl ArchiveSet {
         let mut by_size: HashMap<u64, Vec<usize>> = HashMap::new();
 
         for (position, entry) in self.entries.iter().enumerate() {
-            let info = &self.archives[entry.archive];
-            let Ok(file) = std::fs::File::open(&info.path) else {
-                continue;
-            };
-            let Ok(mut zip) = zip::ZipArchive::new(file) else {
-                continue;
-            };
+            let mut zip = self.zips[entry.archive].clone();
             let Ok(zipped) = zip.by_index_raw(entry.index) else {
                 continue;
             };
@@ -252,10 +304,7 @@ impl ArchiveSet {
     /// Reads one indexed entry out of its archive.
     fn read(&self, entry: &Entry) -> Result<Vec<u8>> {
         let info = &self.archives[entry.archive];
-        let file = std::fs::File::open(&info.path)
-            .with_context(|| format!("opening {}", info.path.display()))?;
-        let mut zip = zip::ZipArchive::new(file)
-            .with_context(|| format!("reading {}", info.path.display()))?;
+        let mut zip = self.zips[entry.archive].clone();
 
         let mut zipped = zip
             .by_index(entry.index)
