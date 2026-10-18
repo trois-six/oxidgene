@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-18T11:35:22Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:46:26Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -387,6 +387,22 @@ processed locally only, desktop first.
 
 Before phase 2 and 3: confirm the licences of PhyloTree Build 17 and of the
 HapMap genetic map.
+
+## 11b. Planned: tags
+
+Specified in [Tags](tags.md): one vocabulary per tree, shared by every kind
+of record, replacing the media-only tags.
+
+- [ ] Phase 1: `tag` and `record_tag` replacing `media_tag`; tags on persons,
+  couples and media; the shared tag picker, chips and dots; the Dictionary's
+  Tags tab; the person-search tag filter; GEDCOM and GEDZIP extensions;
+  history; the MCP `list_tags` tool.
+- [ ] Phase 2: highlighting a tag in the tree views; bulk tagging from the
+  tree and from search results.
+- [ ] Phase 3: tags on events, sources and citations.
+- [ ] Phase 4: tags on places, repositories and notes.
+- [ ] Phase 5: statistics and anomalies limited to a tag; export of the
+  persons carrying a tag, with the subtree export (§7b).
 
 ## 12. Asynchronous processing
 
