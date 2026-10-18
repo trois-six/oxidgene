@@ -8,7 +8,6 @@
 //! double page a citation names) and what the stage shows instead of a
 //! picture (a video, a fallback panel) belong to its caller.
 
-use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 
 use crate::i18n::use_i18n;
@@ -214,15 +213,6 @@ fn stage_class(
     )
 }
 
-/// How far a wheel turned, in its own unit: positive away from the reader.
-fn wheel_delta(delta: WheelDelta) -> f64 {
-    match delta {
-        WheelDelta::Lines(lines) => lines.y,
-        WheelDelta::Pixels(pixels) => pixels.y,
-        WheelDelta::Pages(pages) => pages.y,
-    }
-}
-
 /// Fits the picture to the stage, the zoom baseline.
 fn use_fit(zoom: StageZoom, stage_id: String) -> Callback<()> {
     let StageZoom {
@@ -347,21 +337,16 @@ pub(crate) fn MediaStage(
     use_measure(zoom, stage_id.clone(), image_id.clone());
     let is_picture = picture.is_some();
     let stage_id_for_move = stage_id.clone();
-
-    rsx! {
-        if is_picture {
-            ZoomControls { level: (zoom.level)(), fitted: (zoom.fitted)().is_some(), fit, apply_zoom, {controls} }
-        }
-        {children}
-        div {
-            id: "{stage_id}",
-            class: stage_class((zoom.level)(), (zoom.overflow)(), dragging()),
-            onpointermove: move |event| {
-                if !dragging() {
-                    return;
-                }
+    let wheel_id = stage_id.clone();
+    // Moves are listened to only while the picture is dragged, and the wheel
+    // through the page's own listener: either, mounted for the viewer's
+    // whole life, would hand every move and turn in the window to Rust
+    // (docs/ui-common.md §6.5).
+    let drag_moves = crate::listeners::while_active(dragging(), || {
+        vec![dioxus::html::events::onpointermove(
+            move |event: Event<PointerData>| {
                 let point = event.client_coordinates();
-                let (from_x, from_y) = drag_from();
+                let (from_x, from_y) = *drag_from.peek();
                 drag_from.set((point.x, point.y));
                 let stage_id = serde_json::to_string(&stage_id_for_move).unwrap_or_default();
                 let (delta_x, delta_y) = (point.x - from_x, point.y - from_y);
@@ -371,6 +356,28 @@ pub(crate) fn MediaStage(
                     );
                     let _ = document::eval(&script).await;
                 });
+            },
+        )]
+    });
+
+    rsx! {
+        if is_picture {
+            ZoomControls { level: (zoom.level)(), fitted: (zoom.fitted)().is_some(), fit, apply_zoom, {controls} }
+        }
+        {children}
+        div {
+            id: "{stage_id}",
+            class: stage_class((zoom.level)(), (zoom.overflow)(), dragging()),
+            onmounted: move |_| {
+                let id = wheel_id.clone();
+                async move {
+                    crate::listeners::forward_wheel(&id, true, |turn| {
+                        let current = *zoom.level.peek();
+                        let next = if turn.delta_y > 0.0 { zoom_out(current) } else { zoom_in(current) };
+                        apply_zoom.call((next, ZoomAnchor::Pointer(turn.client_x, turn.client_y)));
+                    })
+                    .await;
+                }
             },
             onpointerdown: move |event| {
                 if is_picture {
@@ -383,13 +390,7 @@ pub(crate) fn MediaStage(
             ondragstart: move |event| event.prevent_default(),
             onpointerup: move |_| dragging.set(false),
             onpointerleave: move |_| dragging.set(false),
-            onwheel: move |event| {
-                event.prevent_default();
-                let point = event.client_coordinates();
-                let current = (zoom.level)();
-                let next = if wheel_delta(event.delta()) > 0.0 { zoom_out(current) } else { zoom_in(current) };
-                apply_zoom.call((next, ZoomAnchor::Pointer(point.x, point.y)));
-            },
+            ..drag_moves,
             match picture {
                 Some(picture) => rsx! {
                     div { class: "media-viewer-image-frame",
