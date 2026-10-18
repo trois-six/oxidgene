@@ -780,6 +780,18 @@ pub const LAYOUT_STYLES: &str = r#"
         cursor: pointer;
     }
 
+    /* A search field is drawn by the page too: left to the engine, the
+       desktop's WebKitGTK gives it the GTK theme's entry, taller than any
+       other field whatever its padding says. */
+    input[type="search"] {
+        appearance: none;
+        -webkit-appearance: none;
+    }
+
+    input[type="search"]::-webkit-search-decoration {
+        -webkit-appearance: none;
+    }
+
     input::placeholder,
     textarea::placeholder {
         color: var(--text-muted);
@@ -5488,11 +5500,19 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: var(--space-4);
     }
 
+    .media-facts-actions .media-facts-pages,
     .media-facts-actions .media-facts-edit,
     .media-facts-actions .media-facts-delete {
         width: auto;
         margin: 0;
         white-space: nowrap;
+    }
+
+    /* The size of its neighbours, Edit and Delete, rather than a page
+       button's. */
+    .media-facts-actions .media-facts-pages {
+        padding: var(--space-3) var(--space-7);
+        font-size: var(--text-80);
     }
 
     /* Inside the viewer the panel is the column, not a card floating in one. */
