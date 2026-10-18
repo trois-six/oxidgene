@@ -25,6 +25,7 @@ impl MigrationTrait for Migration {
         create_jobs_and_search(manager).await?;
         create_traversal_indexes(manager).await?;
         create_projections(manager).await?;
+        create_sosa(manager).await?;
         create_person_distinct(manager).await?;
         create_history(manager).await?;
         Ok(())
@@ -39,6 +40,16 @@ impl MigrationTrait for Migration {
             ))
             .await?;
         }
+        // PostgreSQL keeps a trigger's function when its table goes.
+        if manager.get_database_backend() == DbBackend::Postgres {
+            for function in SOSA_TRIGGER_FUNCTIONS {
+                conn.execute_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    format!("DROP FUNCTION IF EXISTS {function}() CASCADE"),
+                ))
+                .await?;
+            }
+        }
 
         // Drop in reverse dependency order: versions before their audit
         // entries, and everything holding a foreign key onto `person` or
@@ -50,6 +61,8 @@ impl MigrationTrait for Migration {
             PersonDistinct::Table.into_table_ref(),
             BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
+            SosaAncestor::Table.into_table_ref(),
+            SosaState::Table.into_table_ref(),
             MediaTag::Table.into_table_ref(),
             GedcomKept::Table.into_table_ref(),
             Vignette::Table.into_table_ref(),
@@ -361,6 +374,22 @@ enum PersonDenorm {
     Payload,
     SchemaVersion,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum SosaAncestor {
+    Table,
+    PersonId,
+    TreeId,
+    SosaNumber,
+}
+
+#[derive(DeriveIden)]
+enum SosaState {
+    Table,
+    TreeId,
+    Generation,
+    BuiltGeneration,
 }
 
 #[derive(DeriveIden)]
@@ -1913,6 +1942,214 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         .await?;
     Ok(())
 }
+
+/// The stored SOSA ancestry of each tree (docs/data-model.md §4.8): the
+/// root and its ancestors, with their SOSA numbers, and the state saying
+/// whether they are current.
+///
+/// Triggers bump a tree's `generation` whenever an input of the ancestry
+/// changes — a family link, a family's or a person's deletion, the root —
+/// whatever code path writes it, imports, merges and restores included. The
+/// rows are current while `built_generation` equals it; the next read
+/// rebuilds them otherwise.
+async fn create_sosa(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(SosaState::Table)
+                .if_not_exists()
+                .col(uuid(SosaState::TreeId).primary_key())
+                .col(big_integer(SosaState::Generation).default(0))
+                .col(big_integer_null(SosaState::BuiltGeneration))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_sosa_state_tree")
+                        .from(SosaState::Table, SosaState::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_table(
+            Table::create()
+                .table(SosaAncestor::Table)
+                .if_not_exists()
+                .col(uuid(SosaAncestor::PersonId).primary_key())
+                .col(uuid(SosaAncestor::TreeId))
+                .col(big_integer_null(SosaAncestor::SosaNumber))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_sosa_ancestor_person")
+                        .from(SosaAncestor::Table, SosaAncestor::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_sosa_ancestor_tree")
+                        .from(SosaAncestor::Table, SosaAncestor::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // A rebuild replaces a tree's rows.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_sosa_ancestor_tree_id")
+                .table(SosaAncestor::Table)
+                .col(SosaAncestor::TreeId)
+                .to_owned(),
+        )
+        .await?;
+
+    let backend = manager.get_database_backend();
+    let statements = match backend {
+        DbBackend::Sqlite => SQLITE_SOSA_TRIGGERS,
+        _ => POSTGRES_SOSA_TRIGGERS,
+    };
+    let conn = manager.get_connection();
+    for sql in statements {
+        conn.execute_raw(Statement::from_string(backend, (*sql).to_owned()))
+            .await?;
+    }
+    Ok(())
+}
+
+/// The bump of the tree owning family `$family`, as a trigger body writes it.
+macro_rules! bump_family_tree {
+    ($family:literal) => {
+        concat!(
+            "UPDATE sosa_state SET generation = generation + 1 \
+             WHERE tree_id = (SELECT tree_id FROM family WHERE id = ",
+            $family,
+            ");"
+        )
+    };
+}
+
+/// The SQLite triggers that keep `sosa_state.generation` moving. A row
+/// deleted by a cascade fires its table's trigger too; when the family it
+/// belonged to is already gone, the family's own trigger has bumped the tree.
+const SQLITE_SOSA_TRIGGERS: &[&str] = &[
+    "CREATE TRIGGER sosa_tree_insert AFTER INSERT ON tree BEGIN \
+         INSERT INTO sosa_state (tree_id, generation) VALUES (NEW.id, 0); END",
+    "CREATE TRIGGER sosa_tree_root AFTER UPDATE OF sosa_root_person_id ON tree \
+         WHEN OLD.sosa_root_person_id IS NOT NEW.sosa_root_person_id BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.id; END",
+    concat!(
+        "CREATE TRIGGER sosa_family_child_insert AFTER INSERT ON family_child BEGIN ",
+        bump_family_tree!("NEW.family_id"),
+        " END"
+    ),
+    concat!(
+        "CREATE TRIGGER sosa_family_child_delete AFTER DELETE ON family_child BEGIN ",
+        bump_family_tree!("OLD.family_id"),
+        " END"
+    ),
+    concat!(
+        "CREATE TRIGGER sosa_family_child_update AFTER UPDATE OF family_id, person_id \
+         ON family_child WHEN OLD.family_id IS NOT NEW.family_id \
+         OR OLD.person_id IS NOT NEW.person_id BEGIN ",
+        bump_family_tree!("OLD.family_id"),
+        bump_family_tree!("NEW.family_id"),
+        " END"
+    ),
+    concat!(
+        "CREATE TRIGGER sosa_family_spouse_insert AFTER INSERT ON family_spouse BEGIN ",
+        bump_family_tree!("NEW.family_id"),
+        " END"
+    ),
+    concat!(
+        "CREATE TRIGGER sosa_family_spouse_delete AFTER DELETE ON family_spouse BEGIN ",
+        bump_family_tree!("OLD.family_id"),
+        " END"
+    ),
+    concat!(
+        "CREATE TRIGGER sosa_family_spouse_update AFTER UPDATE OF family_id, person_id, role \
+         ON family_spouse WHEN OLD.family_id IS NOT NEW.family_id \
+         OR OLD.person_id IS NOT NEW.person_id OR OLD.role IS NOT NEW.role BEGIN ",
+        bump_family_tree!("OLD.family_id"),
+        bump_family_tree!("NEW.family_id"),
+        " END"
+    ),
+    "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family \
+         WHEN OLD.deleted_at IS NOT NEW.deleted_at BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; END",
+    "CREATE TRIGGER sosa_family_delete AFTER DELETE ON family BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
+    "CREATE TRIGGER sosa_person_deleted AFTER UPDATE OF deleted_at ON person \
+         WHEN OLD.deleted_at IS NOT NEW.deleted_at BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; END",
+    "CREATE TRIGGER sosa_person_delete AFTER DELETE ON person BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
+];
+
+/// The functions behind the PostgreSQL triggers, which `down` drops.
+const SOSA_TRIGGER_FUNCTIONS: &[&str] = &[
+    "sosa_tree_insert",
+    "sosa_tree_root",
+    "sosa_link_changed",
+    "sosa_owner_changed",
+];
+
+/// The PostgreSQL counterpart of [`SQLITE_SOSA_TRIGGERS`].
+const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
+    "CREATE FUNCTION sosa_tree_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         INSERT INTO sosa_state (tree_id, generation) VALUES (NEW.id, 0); RETURN NULL; END $$",
+    "CREATE FUNCTION sosa_tree_root() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.id; \
+         RETURN NULL; END $$",
+    // A family link: the tree of the family it left, and of the one it joined.
+    concat!(
+        "CREATE FUNCTION sosa_link_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         IF TG_OP <> 'INSERT' THEN ",
+        bump_family_tree!("OLD.family_id"),
+        " END IF; IF TG_OP <> 'DELETE' THEN ",
+        bump_family_tree!("NEW.family_id"),
+        " END IF; RETURN NULL; END $$"
+    ),
+    // A family or a person, deleted or restored: the tree it belongs to.
+    "CREATE FUNCTION sosa_owner_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         IF TG_OP = 'DELETE' THEN \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; \
+         ELSE \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; \
+         END IF; RETURN NULL; END $$",
+    "CREATE TRIGGER sosa_tree_insert AFTER INSERT ON tree \
+         FOR EACH ROW EXECUTE FUNCTION sosa_tree_insert()",
+    "CREATE TRIGGER sosa_tree_root AFTER UPDATE OF sosa_root_person_id ON tree FOR EACH ROW \
+         WHEN (OLD.sosa_root_person_id IS DISTINCT FROM NEW.sosa_root_person_id) \
+         EXECUTE FUNCTION sosa_tree_root()",
+    "CREATE TRIGGER sosa_family_child_change AFTER INSERT OR DELETE ON family_child \
+         FOR EACH ROW EXECUTE FUNCTION sosa_link_changed()",
+    "CREATE TRIGGER sosa_family_child_update AFTER UPDATE OF family_id, person_id \
+         ON family_child FOR EACH ROW \
+         WHEN (OLD.family_id IS DISTINCT FROM NEW.family_id \
+         OR OLD.person_id IS DISTINCT FROM NEW.person_id) \
+         EXECUTE FUNCTION sosa_link_changed()",
+    "CREATE TRIGGER sosa_family_spouse_change AFTER INSERT OR DELETE ON family_spouse \
+         FOR EACH ROW EXECUTE FUNCTION sosa_link_changed()",
+    "CREATE TRIGGER sosa_family_spouse_update AFTER UPDATE OF family_id, person_id, role \
+         ON family_spouse FOR EACH ROW \
+         WHEN (OLD.family_id IS DISTINCT FROM NEW.family_id \
+         OR OLD.person_id IS DISTINCT FROM NEW.person_id OR OLD.role IS DISTINCT FROM NEW.role) \
+         EXECUTE FUNCTION sosa_link_changed()",
+    "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family FOR EACH ROW \
+         WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) \
+         EXECUTE FUNCTION sosa_owner_changed()",
+    "CREATE TRIGGER sosa_family_delete AFTER DELETE ON family \
+         FOR EACH ROW EXECUTE FUNCTION sosa_owner_changed()",
+    "CREATE TRIGGER sosa_person_deleted AFTER UPDATE OF deleted_at ON person FOR EACH ROW \
+         WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) \
+         EXECUTE FUNCTION sosa_owner_changed()",
+    "CREATE TRIGGER sosa_person_delete AFTER DELETE ON person \
+         FOR EACH ROW EXECUTE FUNCTION sosa_owner_changed()",
+];
 
 /// Answers that two same-named persons are different people.
 ///

@@ -1095,6 +1095,159 @@ async fn pedigree_reflects_a_mutation_immediately() {
     );
 }
 
+/// A family of `tree_id` whose `parents` (with their roles) have `child`.
+async fn link_parents(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    parents: &[(Uuid, SpouseRole)],
+    child: Uuid,
+) -> Uuid {
+    let family_id = Uuid::now_v7();
+    FamilyRepo::create(db, family_id, tree_id).await.unwrap();
+    for (position, (parent, role)) in parents.iter().enumerate() {
+        FamilySpouseRepo::create(
+            db,
+            Uuid::now_v7(),
+            family_id,
+            *parent,
+            *role,
+            position as i32,
+        )
+        .await
+        .unwrap();
+    }
+    FamilyChildRepo::create(
+        db,
+        Uuid::now_v7(),
+        family_id,
+        child,
+        ChildType::Biological,
+        0,
+    )
+    .await
+    .unwrap();
+    family_id
+}
+
+async fn set_sosa_root(db: &DatabaseConnection, tree_id: Uuid, root: Option<Uuid>) {
+    TreeRepo::update(
+        db,
+        tree_id,
+        oxidgene_db::repo::TreeChanges {
+            sosa_root_person_id: Some(root),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// SOSA numbers follow the parents' roles: a husband doubles, a wife doubles
+/// plus one, and a partner is an ancestor without a number.
+#[tokio::test]
+async fn sosa_numbers_follow_the_parents_roles() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let [root, father, mother, grandfather, partner, unrelated] = [(); 6].map(|_| Uuid::now_v7());
+    for person in [root, father, mother, grandfather, partner, unrelated] {
+        PersonRepo::create(&db, person, tree_id, Sex::Unknown)
+            .await
+            .unwrap();
+    }
+    link_parents(
+        &db,
+        tree_id,
+        &[
+            (father, SpouseRole::Husband),
+            (mother, SpouseRole::Wife),
+            (partner, SpouseRole::Partner),
+        ],
+        root,
+    )
+    .await;
+    link_parents(&db, tree_id, &[(grandfather, SpouseRole::Husband)], father).await;
+    set_sosa_root(&db, tree_id, Some(root)).await;
+
+    for (person, expected) in [
+        (root, Some(1)),
+        (father, Some(2)),
+        (mother, Some(3)),
+        (grandfather, Some(4)),
+        (partner, None),
+        (unrelated, None),
+    ] {
+        assert_eq!(
+            service.sosa_number(tree_id, person).await.unwrap(),
+            expected
+        );
+    }
+    let marked = service
+        .sosa_ancestors_among(
+            tree_id,
+            &[root, father, mother, grandfather, partner, unrelated],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        marked,
+        [root, father, mother, grandfather, partner]
+            .into_iter()
+            .collect(),
+        "a partner is an ancestor all the same"
+    );
+}
+
+/// The stored SOSA ancestry follows every change to its inputs without
+/// anything asking for it: a new link, a deletion, a new root.
+#[tokio::test]
+async fn the_stored_sosa_ancestry_follows_the_tree() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (father, mother, child, family) = create_family_trio(&db, tree_id).await;
+    let grandmother = create_named_person(&db, tree_id, Sex::Female, "Ida", "Exemple", None).await;
+    set_sosa_root(&db, tree_id, Some(child)).await;
+    assert_eq!(service.sosa_number(tree_id, mother).await.unwrap(), Some(3));
+    assert_eq!(
+        service.sosa_number(tree_id, grandmother).await.unwrap(),
+        None
+    );
+
+    link_parents(&db, tree_id, &[(grandmother, SpouseRole::Wife)], father).await;
+    assert_eq!(
+        service.sosa_number(tree_id, grandmother).await.unwrap(),
+        Some(5)
+    );
+    let pedigree = service
+        .get_or_build_pedigree(tree_id, father, 1, 0)
+        .await
+        .unwrap();
+    assert!(pedigree.persons[&grandmother].sosa_ancestor);
+
+    FamilyRepo::delete(&db, family).await.unwrap();
+    assert_eq!(service.sosa_number(tree_id, father).await.unwrap(), None);
+    assert_eq!(
+        service.sosa_number(tree_id, grandmother).await.unwrap(),
+        None
+    );
+
+    set_sosa_root(&db, tree_id, Some(father)).await;
+    assert_eq!(service.sosa_number(tree_id, father).await.unwrap(), Some(1));
+    assert_eq!(
+        service.sosa_number(tree_id, grandmother).await.unwrap(),
+        Some(3)
+    );
+
+    PersonRepo::delete(&db, father).await.unwrap();
+    assert!(
+        service
+            .sosa_ancestors_among(tree_id, &[father, grandmother])
+            .await
+            .unwrap()
+            .is_empty(),
+        "a deleted root is no root"
+    );
+}
+
 #[tokio::test]
 async fn expand_pedigree_returns_only_the_new_generation() {
     let (db, service) = setup().await;

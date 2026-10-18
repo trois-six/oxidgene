@@ -9,14 +9,15 @@ use oxidgene_core::types::{
     Source, Vignette,
 };
 use oxidgene_db::repo::{
-    AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaLinkTarget, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo, SourceRepo,
-    SourceRepositoryRepo, TreeRepo, VignetteRepo,
+    CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
+    PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo, SourceRepo, SourceRepositoryRepo,
+    VignetteRepo,
 };
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::profile::ProfileService;
 use crate::service::gallery::{GalleryBundle, load_gallery_bundle};
 
 const GALLERY_BATCH_SIZE: usize = 1_024;
@@ -92,6 +93,7 @@ pub struct EventMediaTile {
 #[tracing::instrument(name = "person_detail.load", skip_all)]
 pub async fn load_person_detail_bundle(
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     tree_id: Uuid,
     person_id: Uuid,
 ) -> Result<PersonDetailBundle, OxidGeneError> {
@@ -102,7 +104,7 @@ pub async fn load_person_detail_bundle(
             id: person_id,
         });
     }
-    let sosa_number = compute_sosa_number(db, tree_id, person_id).await?;
+    let sosa_number = profiles.sosa_number(tree_id, person_id).await?;
 
     let (own_spouse_links, own_child_links) = tokio::try_join!(
         FamilySpouseRepo::list_by_person(db, person_id),
@@ -216,7 +218,8 @@ pub async fn load_person_detail_bundle(
     );
     let vignette_ids = sorted_unique(profile_vignettes.iter().map(|item| item.id));
     let gallery = load_page_gallery(db, tree_id, &media_ids, &vignette_ids).await?;
-    let (portrait, sosa_ancestor_ids) = page_marks(db, tree_id, person_id, &persons).await?;
+    let (portrait, sosa_ancestor_ids) =
+        page_marks(db, profiles, tree_id, person_id, &persons).await?;
 
     Ok(PersonDetailBundle {
         portrait,
@@ -273,24 +276,6 @@ async fn cited_sources(
     Ok((sources, holdings, addresses))
 }
 
-/// Resolve one SOSA number while visiting only the ancestry of the configured
-/// root, rather than loading every family in the tree.
-pub async fn compute_sosa_number(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    person_id: Uuid,
-) -> Result<Option<u64>, OxidGeneError> {
-    let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id else {
-        return Ok(None);
-    };
-    // A root that is no longer a live person of the tree is no root.
-    match PersonRepo::get_in_tree(db, tree_id, root).await {
-        Ok(_) => AncestryRepo::sosa_number(db, root, person_id).await,
-        Err(OxidGeneError::NotFound { .. }) => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
 /// The gallery of a page's media and vignettes, read in bounded batches.
 async fn load_page_gallery(
     db: &DatabaseConnection,
@@ -325,6 +310,7 @@ async fn load_page_gallery(
 /// The person's own portrait, and those of `persons` who are SOSA ancestors.
 async fn page_marks(
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     tree_id: Uuid,
     person_id: Uuid,
     persons: &[Person],
@@ -332,38 +318,9 @@ async fn page_marks(
     let mut portraits =
         crate::service::portrait::portrait_refs(db, tree_id, std::slice::from_ref(&person_id))
             .await?;
-    let sosa = sosa_ancestors_among(db, tree_id, persons.iter().map(|person| person.id)).await?;
+    let candidates: Vec<Uuid> = persons.iter().map(|person| person.id).collect();
+    let sosa = profiles.sosa_ancestors_among(tree_id, &candidates).await?;
     Ok((portraits.remove(&person_id), sorted_unique(sosa)))
-}
-
-/// Those of `candidates` that are the tree's SOSA root or one of its
-/// ancestors.
-///
-/// One walk up the root's ancestry, kept for the request only, so a screen
-/// can mark them without the client loading the whole ancestry.
-pub async fn sosa_ancestors_among(
-    db: &impl sea_orm::ConnectionTrait,
-    tree_id: Uuid,
-    candidates: impl IntoIterator<Item = Uuid>,
-) -> Result<HashSet<Uuid>, OxidGeneError> {
-    let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id else {
-        return Ok(HashSet::new());
-    };
-    match PersonRepo::get_in_tree(db, tree_id, root).await {
-        Ok(_) => {}
-        Err(OxidGeneError::NotFound { .. }) => return Ok(HashSet::new()),
-        Err(error) => return Err(error),
-    }
-    let ancestry: HashSet<Uuid> = AncestryRepo::ancestors(db, root, None)
-        .await?
-        .into_iter()
-        .map(|link| link.person_id)
-        .chain(std::iter::once(root))
-        .collect();
-    Ok(candidates
-        .into_iter()
-        .filter(|id| ancestry.contains(id))
-        .collect())
 }
 
 #[cfg(test)]
@@ -618,7 +575,8 @@ mod tests {
         .await
         .unwrap();
 
-        let bundle = load_person_detail_bundle(&db, tree_id, target)
+        let profiles = ProfileService::new(db.clone());
+        let bundle = load_person_detail_bundle(&db, &profiles, tree_id, target)
             .await
             .unwrap();
 

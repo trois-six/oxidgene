@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T08:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
 ---
 
 
@@ -618,9 +618,8 @@ generation distance, as `AncestryLink { person_id, depth }`.
 Traversal is bounded at 64 generations when no depth is given, because the
 schema does not prevent a cycle in the family links.
 
-Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly (§4) ·
-SOSA badge computation ([Person Profile](ui-person-profile.md),
-[Dictionary](ui-dictionary.md) §12)
+Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly (§4).
+The SOSA root's ancestry is not walked per request: it is stored (§4.8).
 
 ### person_search_fts (Search Table)
 
@@ -894,6 +893,9 @@ traversal per direction seeded with every root, then one batch read per
 step for the union of the windows, each window then assembled from what was
 read. Its cost follows the depth, never the number of roots.
 
+A node's `sosa_ancestor` mark is read from the stored SOSA ancestry (§4.8),
+one indexed lookup for every node of the windows.
+
 Expansion returns only nodes and edges beyond the depth already held by the
 client. The opposite loaded depth is part of the request so crossing edges are
 complete.
@@ -1007,6 +1009,8 @@ rewrites it at once.
 | `person_denorm` entity and repository | `oxidgene-db` |
 | Search entity and repository | `oxidgene-db` |
 | Builder, invalidation, and service | `oxidgene-api/src/profile/` |
+| SOSA ancestry: tables and triggers, repository | migration, `SosaRepo` in `oxidgene-db` |
+| SOSA ancestry: walk and numbering | `oxidgene-api/src/profile/sosa.rs` |
 | REST and GraphQL contract | [API](api.md) |
 
 `oxidgene-ui` depends on projection types through `oxidgene-core`; it does not
@@ -1029,6 +1033,55 @@ depend on the database or API implementation crates.
 - Refresh latency is part of mutation latency and must remain bounded to the
     affected set; whole-tree rebuilds are reserved for imports, maintenance, or
     schema-version changes.
+
+### 4.8 SOSA ancestry: `sosa_ancestor`
+
+The tree's SOSA root and every ancestor of it are stored, with their
+SOSA-Stradonitz numbers, so that marking the SOSA ancestors of a pedigree or a
+person page, or numbering a person, is an indexed read rather than a walk of
+the root's whole ancestry (thousands of persons and tens of milliseconds on a
+real tree, once per request).
+
+| Table | Column | Purpose |
+|---|---|---|
+| `sosa_ancestor` | `person_id` | Primary key and FK to `person` (cascade). |
+| | `tree_id` | FK to `tree` (cascade), indexed: a rebuild replaces a tree's rows. |
+| | `sosa_number` | The person's number, or `NULL` for an ancestor the numbering cannot place. |
+| `sosa_state` | `tree_id` | Primary key and FK to `tree` (cascade); one row per tree, inserted with it. |
+| | `generation` | Moved by every change to an input of the ancestry. |
+| | `built_generation` | The generation the stored rows were built from; `NULL` before the first build. |
+
+**What is stored.** The root, when it is a live person of the tree, and every
+person reached from it upwards — a person's parents are the live spouses of
+the live families they are a child of — at most 64 generations up, since the
+schema does not prevent a cycle. The root is 1; a husband is `2n` and a wife
+`2n + 1` of the child numbered `n`. Through pedigree implex a person is reached
+by several paths: the shortest wins, then the lowest number. A spouse who is a
+family's partner, neither husband nor wife, is an ancestor without a number, and
+so is every ancestor reached only through one; so is any ancestor beyond
+generation 62, whose number would not fit the signed 64-bit integers both
+backends share. Deleted families and persons take no part, unlike in the
+plain ancestry traversal (§1), which reads the membership rows as they are.
+
+**Keeping it current.** Database triggers move the tree's `generation` on
+every write that can change the ancestry, whatever code path makes it —
+mutations, imports, merges, restores and purges alike: a `family_child` or
+`family_spouse` row inserted or deleted, or updated in its family, its person or
+(a spouse's) role; a family or a person deleted, restored, or removed; the tree's
+`sosa_root_person_id` changed. The rows are current while `built_generation`
+equals `generation`. The first read that finds them stale rebuilds them in one
+transaction on the writer, one query per generation, reading the generation
+before any family link, so a change committed meanwhile leaves the result stale
+rather than marked current. On PostgreSQL the rebuild holds the state row
+locked, which also keeps two rebuilds of one tree from interleaving. A
+mutation therefore pays only the trigger's one-row update; the rebuild is paid
+once, by the next read that needs the marks.
+
+**Readers.** The person page bundle's `sosa_number` and `sosa_ancestor_ids`,
+the person read's `sosa_number`, and the pedigree nodes' `sosa_ancestor`
+([API](api.md)). The lookup by SOSA number (`/persons/sosa/{number}`) walks
+down from the root one parent at a time and does not read the table: it
+answers for any of a person's numbers, not only the lowest.
 
 ---
 

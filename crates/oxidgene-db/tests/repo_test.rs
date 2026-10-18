@@ -10,13 +10,13 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
-    MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams,
+    MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams, ParentLink,
     PersonDistinctRepo, PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
-    PersonRepo, PlaceRepo, RepositoryFields, RepositoryRepo, SourceRepo, SourceRepositoryFields,
-    SourceRepositoryRepo, TreeChanges, TreeRepo, UploadedMedia, UploadedMediaMetadata, connect,
-    run_migrations,
+    PersonRepo, PlaceRepo, RepositoryFields, RepositoryRepo, SosaAncestor, SosaRepo, SourceRepo,
+    SourceRepositoryFields, SourceRepositoryRepo, TreeChanges, TreeRepo, UploadedMedia,
+    UploadedMediaMetadata, connect, run_migrations,
 };
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
 use std::sync::{Arc, Mutex};
 use tracing::{Subscriber, field::Visit};
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
@@ -2133,66 +2133,197 @@ async fn ancestry_reports_shortest_depth_on_implex() {
     assert_eq!(shared_link.depth, 1, "the shortest path wins");
 }
 
+/// The generation of `tree_id`'s stored SOSA ancestry, which the schema's
+/// triggers move.
+async fn sosa_generation(db: &DatabaseConnection, tree_id: Uuid) -> i64 {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "SELECT generation FROM sosa_state WHERE tree_id = ?",
+        [Value::from(tree_id)],
+    ))
+    .await
+    .unwrap()
+    .expect("every tree has a SOSA state")
+    .try_get("", "generation")
+    .unwrap()
+}
+
+/// Every write that can change a tree's SOSA ancestry moves its generation,
+/// whatever code path makes it; a write that cannot leaves it alone.
 #[tokio::test]
-async fn sosa_number_follows_parent_roles_and_ignores_partners() {
+async fn sosa_generation_moves_with_every_input_of_the_ancestry() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let root = create_person(&db, tree_id).await;
     let father = create_person(&db, tree_id).await;
-    let mother = create_person(&db, tree_id).await;
-    let paternal_grandfather = create_person(&db, tree_id).await;
-    let partner = create_person(&db, tree_id).await;
-    let unrelated = create_person(&db, tree_id).await;
+    assert_eq!(sosa_generation(&db, tree_id).await, 0);
 
-    link_sosa_parents(
-        &db,
-        tree_id,
-        &[
-            (father, SpouseRole::Husband),
-            (mother, SpouseRole::Wife),
-            (partner, SpouseRole::Partner),
-        ],
-        root,
-    )
-    .await;
-    link_sosa_parents(
-        &db,
-        tree_id,
-        &[(paternal_grandfather, SpouseRole::Husband)],
-        father,
-    )
-    .await;
-
-    for (person_id, expected) in [
-        (root, Some(1)),
-        (father, Some(2)),
-        (mother, Some(3)),
-        (paternal_grandfather, Some(4)),
-        (partner, None),
-        (unrelated, None),
-    ] {
-        assert_eq!(
-            AncestryRepo::sosa_number(&db, root, person_id)
-                .await
-                .unwrap(),
-            expected
-        );
+    let mut last = 0;
+    async fn moved(db: &DatabaseConnection, tree_id: Uuid, last: &mut i64, what: &str) {
+        let now = sosa_generation(db, tree_id).await;
+        assert!(now > *last, "{what} must move the generation");
+        *last = now;
     }
+
+    TreeRepo::update(
+        &db,
+        tree_id,
+        TreeChanges {
+            sosa_root_person_id: Some(Some(root)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    moved(&db, tree_id, &mut last, "setting the root").await;
+
+    let family_id = Uuid::now_v7();
+    FamilyRepo::create(&db, family_id, tree_id).await.unwrap();
+    let spouse_link = Uuid::now_v7();
+    FamilySpouseRepo::create(&db, spouse_link, family_id, father, SpouseRole::Husband, 0)
+        .await
+        .unwrap();
+    moved(&db, tree_id, &mut last, "adding a spouse").await;
+    let child_link = Uuid::now_v7();
+    FamilyChildRepo::create(&db, child_link, family_id, root, ChildType::Biological, 0)
+        .await
+        .unwrap();
+    moved(&db, tree_id, &mut last, "adding a child").await;
+
+    for (sql, what) in [
+        (
+            "UPDATE family_spouse SET role = 'wife' WHERE id = ?",
+            "changing a spouse's role",
+        ),
+        ("UPDATE family_spouse SET sort_order = 3 WHERE id = ?", ""),
+    ] {
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            sql,
+            [Value::from(spouse_link)],
+        ))
+        .await
+        .unwrap();
+        if what.is_empty() {
+            assert_eq!(sosa_generation(&db, tree_id).await, last, "{sql}");
+        } else {
+            moved(&db, tree_id, &mut last, what).await;
+        }
+    }
+    TreeRepo::update(
+        &db,
+        tree_id,
+        TreeChanges {
+            name: Some("Renamed".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(sosa_generation(&db, tree_id).await, last, "a renamed tree");
+
+    PersonRepo::delete(&db, father).await.unwrap();
+    moved(&db, tree_id, &mut last, "deleting a person").await;
+    FamilyRepo::delete(&db, family_id).await.unwrap();
+    moved(&db, tree_id, &mut last, "deleting a family").await;
+    FamilyChildRepo::delete(&db, child_link).await.unwrap();
+    moved(&db, tree_id, &mut last, "removing a child").await;
+    FamilySpouseRepo::delete(&db, spouse_link).await.unwrap();
+    moved(&db, tree_id, &mut last, "removing a spouse").await;
 }
 
+/// A rebuild is current until the next change, and a change made between
+/// the start of a rebuild and its end leaves it stale.
 #[tokio::test]
-async fn sosa_number_chooses_the_lowest_shortest_path_on_implex() {
+async fn a_sosa_rebuild_is_current_for_the_generation_it_started_from() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let root = create_person(&db, tree_id).await;
-    let shared = create_person(&db, tree_id).await;
+    let parent = create_person(&db, tree_id).await;
+    assert!(!SosaRepo::is_current(&db, tree_id).await.unwrap());
 
-    link_sosa_parents(&db, tree_id, &[(shared, SpouseRole::Wife)], root).await;
-    link_sosa_parents(&db, tree_id, &[(shared, SpouseRole::Husband)], root).await;
-
+    let generation = SosaRepo::begin_rebuild(&db, tree_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let ancestors = [
+        SosaAncestor {
+            person_id: root,
+            sosa_number: Some(1),
+        },
+        SosaAncestor {
+            person_id: parent,
+            sosa_number: None,
+        },
+    ];
+    SosaRepo::replace_tree(&db, tree_id, &ancestors, generation)
+        .await
+        .unwrap();
+    assert!(SosaRepo::is_current(&db, tree_id).await.unwrap());
+    assert_eq!(SosaRepo::begin_rebuild(&db, tree_id).await.unwrap(), None);
+    assert_eq!(SosaRepo::number(&db, tree_id, root).await.unwrap(), Some(1));
+    assert_eq!(SosaRepo::number(&db, tree_id, parent).await.unwrap(), None);
+    let stranger = create_person(&db, tree_id).await;
     assert_eq!(
-        AncestryRepo::sosa_number(&db, root, shared).await.unwrap(),
-        Some(2)
+        SosaRepo::among(&db, tree_id, &[root, parent, stranger])
+            .await
+            .unwrap(),
+        [root, parent].into_iter().collect()
+    );
+
+    let generation = SosaRepo::begin_rebuild(&db, tree_id).await.unwrap();
+    assert_eq!(generation, None);
+    link_parents(&db, tree_id, &[parent], root).await;
+    assert!(!SosaRepo::is_current(&db, tree_id).await.unwrap());
+    let started = SosaRepo::begin_rebuild(&db, tree_id)
+        .await
+        .unwrap()
+        .unwrap();
+    link_parents(&db, tree_id, &[stranger], parent).await;
+    SosaRepo::replace_tree(&db, tree_id, &ancestors, started)
+        .await
+        .unwrap();
+    assert!(
+        !SosaRepo::is_current(&db, tree_id).await.unwrap(),
+        "a link added during the rebuild leaves it stale"
+    );
+}
+
+/// A SOSA ancestry climbs only through live families to live parents.
+#[tokio::test]
+async fn sosa_parent_links_skip_deleted_families_and_persons() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let child = create_person(&db, tree_id).await;
+    let father = create_person(&db, tree_id).await;
+    let mother = create_person(&db, tree_id).await;
+    let adoptive = create_person(&db, tree_id).await;
+    link_sosa_parents(
+        &db,
+        tree_id,
+        &[(father, SpouseRole::Husband), (mother, SpouseRole::Wife)],
+        child,
+    )
+    .await;
+    link_sosa_parents(&db, tree_id, &[(adoptive, SpouseRole::Partner)], child).await;
+    PersonRepo::delete(&db, mother).await.unwrap();
+    let adoptive_family = FamilyChildRepo::list_by_person(&db, child)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|link| link.family_id)
+        .max()
+        .unwrap();
+    FamilyRepo::delete(&db, adoptive_family).await.unwrap();
+
+    let links = SosaRepo::parent_links(&db, &[child]).await.unwrap();
+    assert_eq!(
+        links,
+        vec![ParentLink {
+            child_id: child,
+            parent_id: father,
+            role: SpouseRole::Husband,
+        }]
     );
 }
 

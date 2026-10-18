@@ -56,9 +56,7 @@ pub async fn get_person(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PersonDetailResponse>, ApiError> {
     let person = PersonRepo::get_in_tree(&state.reader, tree_id, person_id).await?;
-    let sosa_number =
-        crate::service::person_detail::compute_sosa_number(&state.reader, tree_id, person_id)
-            .await?;
+    let sosa_number = state.profiles.sosa_number(tree_id, person_id).await?;
     Ok(Json(PersonDetailResponse {
         person,
         sosa_number,

@@ -87,7 +87,12 @@ pub async fn get_couple_detail_bundle(
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<crate::service::couple_detail::CoupleDetailBundle>, ApiError> {
     Ok(Json(
-        crate::service::couple_detail::load_couple_detail_bundle(&state.reader, tree_id, family_id)
-            .await?,
+        crate::service::couple_detail::load_couple_detail_bundle(
+            &state.reader,
+            &state.profiles,
+            tree_id,
+            family_id,
+        )
+        .await?,
     ))
 }

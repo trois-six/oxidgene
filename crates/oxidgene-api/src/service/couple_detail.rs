@@ -16,6 +16,7 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::profile::ProfileService;
 use crate::service::gallery::{GalleryBundle, load_gallery_bundle};
 use crate::service::person_detail::{
     PersonDetailBundle, ProfileMediaTile, load_person_detail_bundle,
@@ -43,6 +44,7 @@ pub struct CoupleDetailBundle {
 #[tracing::instrument(name = "couple_detail.load", skip_all)]
 pub async fn load_couple_detail_bundle(
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     tree_id: Uuid,
     family_id: Uuid,
 ) -> Result<CoupleDetailBundle, OxidGeneError> {
@@ -56,7 +58,7 @@ pub async fn load_couple_detail_bundle(
     let persons = futures_util::future::try_join_all(
         spouses
             .iter()
-            .map(|spouse| load_person_detail_bundle(db, tree_id, spouse.person_id)),
+            .map(|spouse| load_person_detail_bundle(db, profiles, tree_id, spouse.person_id)),
     )
     .await?;
 

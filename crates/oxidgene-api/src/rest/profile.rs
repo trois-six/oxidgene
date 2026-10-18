@@ -28,9 +28,13 @@ pub async fn get_person_detail_bundle(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<crate::service::person_detail::PersonDetailBundle>, ApiError> {
-    let bundle =
-        crate::service::person_detail::load_person_detail_bundle(&state.reader, tree_id, person_id)
-            .await?;
+    let bundle = crate::service::person_detail::load_person_detail_bundle(
+        &state.reader,
+        &state.profiles,
+        tree_id,
+        person_id,
+    )
+    .await?;
     Ok(Json(bundle))
 }
 

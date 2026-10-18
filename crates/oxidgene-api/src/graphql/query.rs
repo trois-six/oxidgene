@@ -123,6 +123,7 @@ impl QueryRoot {
         boxed(async move {
             Ok(crate::service::person_detail::load_person_detail_bundle(
                 reader_from_ctx(ctx),
+                profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
                 uuid(&person_id)?,
             )
@@ -144,6 +145,7 @@ impl QueryRoot {
         boxed(async move {
             Ok(crate::service::couple_detail::load_couple_detail_bundle(
                 reader_from_ctx(ctx),
+                profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
                 uuid(&family_id)?,
             )

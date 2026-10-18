@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-18T08:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
 ---
 
 
@@ -221,7 +221,9 @@ all records in the tree. It carries the person's own `portrait` (an image
 source and its crop, as a pedigree node's) so the page resolves it with the
 gallery's pictures in one request, and `sosa_ancestor_ids`: those of its
 persons who are the tree's SOSA root or one of its ancestors, for the marks of
-the family narrative, so the page never loads the whole ancestry.
+the family narrative, so the page never loads the whole ancestry; they and
+`sosa_number` come from the stored SOSA ancestry
+([Data Model §4.8](data-model.md)).
 
 Each profile media tile carries `family_id` (`familyId` in GraphQL): the
 conjugal family the media reaches the profile through, or `null` when it is
@@ -1163,8 +1165,9 @@ the node's portrait source and crop, absent when the person has none, so a
 chart goes straight to the pictures; `sosa_ancestor` (`sosaAncestor`) says
 whether the person is the tree's SOSA root or one of its ancestors, whatever
 the window, so a chart marks them without loading the whole ancestry. Both are
-read once for the whole window (once for all the windows of a batch), never
-stored.
+read once for the whole window (once for all the windows of a batch); neither
+is part of the stored projection, and the mark comes from the stored SOSA
+ancestry ([Data Model §4.8](data-model.md)).
 
 **A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s rather than a year and a place name, so nothing a client may draw is lost before it sees it: the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id. `ProfileEvent` carries `date_qualifier`, `date_value2` and `calendar` beside the date, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
 

@@ -35,6 +35,7 @@ mod person_search;
 mod place;
 mod repository;
 mod snapshot;
+mod sosa;
 mod source;
 mod tree;
 mod vignette;
@@ -82,6 +83,7 @@ pub use repository::{
     SourceRepositoryPatch, SourceRepositoryRepo,
 };
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
+pub use sosa::{ParentLink, SosaAncestor, SosaRepo};
 pub use source::SourceRepo;
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};

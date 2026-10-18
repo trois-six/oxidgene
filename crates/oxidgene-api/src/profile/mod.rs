@@ -16,5 +16,6 @@ pub mod builder;
 pub mod invalidation;
 mod pedigree;
 pub mod service;
+mod sosa;
 
 pub use service::ProfileService;

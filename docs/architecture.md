@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-17T16:18:10Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
 ---
 
 
@@ -28,7 +28,7 @@ generated: { by: human:maintainer, at: 2026-10-17T16:18:10Z }
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | [oxidged](https://github.com/trois-six/oxidged) | 0.3 | Lenient lossless reading of any file (any encoding, extensions, misplaced structures kept), conformant writing of GEDCOM 5.5.1, 7.0 and 7.1, date grammars and calendars, GEDZIP |
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.6, ported to `oxidged` | Read only, incl. `gwplus`; converts to the same `oxidged` model, so one domain mapping serves both formats |
-| Read projections | Same database | — | `person_denorm` and `person_search_fts`; no cache tier. See [Data Model §4](data-model.md) |
+| Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |
 | Build orchestration | just | latest | Unified justfile for all tasks |

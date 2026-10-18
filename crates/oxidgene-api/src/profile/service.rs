@@ -22,7 +22,7 @@ use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilyRepo,
     FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo,
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
-    VignetteRepo, db_err,
+    SosaRepo, VignetteRepo, db_err,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use tracing::{debug, info, instrument};
@@ -31,7 +31,7 @@ use uuid::Uuid;
 use super::builder::{
     self, TreeData, build_all_persons, build_db_search_entry, search_entry_from_db,
 };
-use super::{invalidation, pedigree};
+use super::{invalidation, pedigree, sosa};
 
 /// Above this many affected persons, rebuild from a single whole-tree fetch
 /// instead of running targeted per-person queries.
@@ -148,6 +148,46 @@ impl ProfileService {
         debug!(denorm, search, "Tree projections are not materialized");
         self.rebuild_tree_full(&self.writer, tree_id).await?;
         Ok(())
+    }
+
+    // ── SOSA ancestry ────────────────────────────────────────────────────
+
+    /// Rebuild the stored SOSA ancestry of `tree_id` on the writer when a
+    /// family link, a deletion or the root changed since it was built.
+    #[instrument(skip_all)]
+    async fn ensure_sosa(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
+        if SosaRepo::is_current(&self.reader, tree_id).await? {
+            return Ok(());
+        }
+        let txn = self.writer.begin().await.map_err(db_err)?;
+        if let Some(generation) = SosaRepo::begin_rebuild(&txn, tree_id).await? {
+            let ancestors = sosa::ancestry(&txn, tree_id).await?;
+            debug!(count = ancestors.len(), "Rebuilt the SOSA ancestry");
+            SosaRepo::replace_tree(&txn, tree_id, &ancestors, generation).await?;
+        }
+        txn.commit().await.map_err(db_err)
+    }
+
+    /// Those of `candidates` that are the SOSA root of `tree_id` or one of
+    /// its ancestors.
+    pub async fn sosa_ancestors_among(
+        &self,
+        tree_id: Uuid,
+        candidates: &[Uuid],
+    ) -> Result<HashSet<Uuid>, OxidGeneError> {
+        self.ensure_sosa(tree_id).await?;
+        SosaRepo::among(&self.reader, tree_id, candidates).await
+    }
+
+    /// The SOSA number of `person_id` in `tree_id`: `None` when the tree has
+    /// no root, or the person is not a numbered ancestor of it.
+    pub async fn sosa_number(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<Option<u64>, OxidGeneError> {
+        self.ensure_sosa(tree_id).await?;
+        SosaRepo::number(&self.reader, tree_id, person_id).await
     }
 
     // ── Person projections ───────────────────────────────────────────────
@@ -837,8 +877,9 @@ impl ProfileService {
     }
 
     /// Give each node of the windows its portrait and whether it is a SOSA
-    /// ancestor: two queries for all the windows, so the client neither
-    /// asks whose portrait is what nor loads the tree's whole ancestry.
+    /// ancestor: two queries for all the windows, the second against the
+    /// stored SOSA ancestry, so the client neither asks whose portrait is
+    /// what nor loads the tree's whole ancestry.
     async fn decorate_nodes(
         &self,
         conn: &impl ConnectionTrait,
@@ -847,9 +888,8 @@ impl ProfileService {
     ) -> Result<(), OxidGeneError> {
         let ids = sorted_unique(windows.iter().flat_map(|nodes| nodes.keys().copied()));
         let portraits = crate::service::portrait::portrait_refs(conn, tree_id, &ids).await?;
-        let sosa =
-            crate::service::person_detail::sosa_ancestors_among(conn, tree_id, ids.iter().copied())
-                .await?;
+        self.ensure_sosa(tree_id).await?;
+        let sosa = SosaRepo::among(conn, tree_id, &ids).await?;
         for (id, node) in windows.iter_mut().flat_map(|nodes| nodes.iter_mut()) {
             node.portrait = portraits.get(id).cloned();
             node.sosa_ancestor = sosa.contains(id);

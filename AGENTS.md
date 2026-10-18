@@ -170,9 +170,9 @@ observability <- db/api (feature), server/worker/desktop
   declared as UI traits and injected by the desktop binary.
 - `oxidgene-geneanet` performs no HTTP. Geneanet requests run inside the
   desktop login window because direct clients are rejected by Cloudflare.
-- There is no cache tier. Durable read models live in `person_denorm` and
-  `person_search_fts`; pedigrees are assembled per request from family links and
-  denormalized profiles.
+- There is no cache tier. Durable read models live in `person_denorm`,
+  `person_search_fts` and `sosa_ancestor`; pedigrees are assembled per request
+  from family links and denormalized profiles.
 - Until the first release, the schema is the single initial migration
   (`m20250101_000001_initial.rs`): a schema change edits it, with no dated
   migration and no data conversion, and existing databases are recreated and
