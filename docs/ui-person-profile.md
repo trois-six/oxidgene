@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T13:14:07Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
 ---
 
 
@@ -565,7 +565,8 @@ A stored PDF opens in the PDF viewer in the image's place
 ([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)):
 its pages one under the other in continuous scroll, with selectable and
 copyable text and working links. It reads as a document of several pages
-does: the page in view out of the page count beside the title, the same
+does: the page in view out of the page count beside the title (on one line
+however narrow the viewer, the title truncating instead), the same
 pager below, which scrolls to the page chosen, and the same control row —
 **Zoom in**, **Fit** (the page width), **Zoom out** and the target icon,
 whose menu attaches the page or the document to a person or a couple. Only

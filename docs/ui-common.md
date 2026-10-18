@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -863,9 +863,22 @@ A list read through a cursor, which cannot jump to a page, shows *Page n of m*
 
 Every button has a localized accessible name and tooltip (*Previous page*,
 *Page 4*…); the current page is marked `aria-current="page"`; a single page
-draws no pager. The numbers scroll sideways rather than wrap; below `640px` a
-list's pager keeps only its step buttons, while the document viewer keeps its
-numbers, registers being cited by page. Pagers do not print.
+draws no pager.
+
+A numbered pager stays one row and fits the width its container gives it — a
+list's column, the viewer's pane — rather than the window's (container
+queries on the pager, [§6.2](#62-layout-invariants)). Its number strip holds
+at most nine slots (numbers and gaps) at its widest, seven below `400px` and
+five below `330px`; at each width it keeps the widest window that fits, two
+pages either side of the current one, then one, then none, so a short
+document keeps all its numbers however narrow. The first and last page and
+the current one are always shown. Below `480px` the jump buttons give way,
+the first and last numbers standing for them; the step buttons stay. The
+strips are rendered for every width and the stylesheet shows the one that
+fits, so no width is measured in code. Only narrower than the narrowest
+strip do the numbers scroll sideways, never under the step buttons. Below
+`640px` a list's pager keeps only its step buttons, while the document viewer
+keeps its numbers, registers being cited by page. Pagers do not print.
 
 ### 4.13 Modal
 

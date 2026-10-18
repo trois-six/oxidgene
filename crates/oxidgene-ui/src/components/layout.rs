@@ -3939,14 +3939,33 @@ pub const LAYOUT_STYLES: &str = r#"
         border-color: var(--orange);
     }
 
-    /* Scrolls rather than wraps: a forty-page register must not push the
-       image out of the panel to make room for its own page numbers. */
     .pager-numbers {
         display: flex;
         gap: var(--space-2);
-        overflow-x: auto;
-        max-width: min(520px, 60vw);
         padding: var(--space-1);
+        /* The last resort, narrower than the narrowest strip: the numbers
+           scroll rather than wrap or slide under the step buttons. */
+        overflow-x: auto;
+    }
+
+    /* A numbered pager fits the width it is given — a list's column, the
+       viewer's pane — rather than the window's. It is the container of its
+       strips of numbers (components/pager.rs), which hold at most nine,
+       seven and five slots; each breakpoint is the width of the fuller strip
+       with the step buttons, at three-digit page numbers. Below the first,
+       the jump buttons go, the first and last numbers standing for them. */
+    .pager.is-numbered { container: pager / inline-size; }
+    .pager-numbers:not(.fits-wide) { display: none; }
+    @container pager (width < 480px) {
+        .pager-end { display: none; }
+    }
+    @container pager (width < 400px) {
+        .pager-numbers.fits-wide { display: none; }
+        .pager-numbers.fits-medium { display: flex; }
+    }
+    @container pager (width < 330px) {
+        .pager-numbers.fits-medium { display: none; }
+        .pager-numbers.fits-narrow { display: flex; }
     }
 
     .pager-gap {
@@ -5716,10 +5735,6 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-left: var(--space-4);
     }
 
-    /* Compact beside the zoom buttons, where a full-width field would push
-       the controls onto a row of their own. */
-    .pdf-viewer-search .media-pager-count { white-space: nowrap; }
-
     /* The height of the control row's buttons (`.media-viewer-controls
        .isb-btn`), stated rather than left to padding: the engine's own
        metrics for a text field (WebKitGTK's GTK entry) would otherwise set
@@ -5868,7 +5883,15 @@ pub const LAYOUT_STYLES: &str = r#"
        two read as one control rather than as a button and an unrelated row. */
     .media-drop.is-open { border-color: var(--orange); }
 
-    .media-pager-count { font-size: var(--text-75); color: var(--text-muted); }
+    /* A count stays one line — beside the title, which gives way to it,
+       and beside the zoom buttons, which a wrapped field would push onto a
+       row of their own. */
+    .media-pager-count {
+        flex: 0 0 auto;
+        font-size: var(--text-75);
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
 
     /* ── Event evidence on the profile timeline ───────────────────── */
 
@@ -6069,7 +6092,8 @@ pub const LAYOUT_STYLES: &str = r#"
             margin-left: 0;
         }
         /* A list's pager keeps its step buttons; the document viewer keeps
-           its numbers, which scroll, since registers are cited by page. */
+           its numbers, narrowed to its pane, since registers are cited by
+           page. */
         .pager:not(.media-pager) .pager-numbers { display: none; }
         .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .cropper-backdrop { padding: 0; }

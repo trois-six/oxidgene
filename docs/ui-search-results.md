@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:54:13Z }
 ---
 
 
@@ -228,7 +228,8 @@ Results are paginated with 25 results per page in list view (matching the API de
 Pagination controls at the bottom of the results are the shared pager
 ([Common UI §4.12](ui-common.md#412-pager)):
 - Previous / Next arrow buttons
-- Page number buttons (first, last, current +/- 2), the current page marked
+- Page number buttons (first, last, current +/- 2, fewer in a narrow column),
+  the current page marked
 
 The server computes the exact total and applies sorting before `limit` and
 `offset`; the UI never truncates to a fixed client-side result set.

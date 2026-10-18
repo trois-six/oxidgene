@@ -1,22 +1,25 @@
 // A stored PDF opens in the PDF viewer, drawn by pdf.js: its pages scroll,
 // its text is searchable, and its gallery tile shows its first page.
 
+import type { APIRequestContext } from "@playwright/test";
 import { apiUrl, expect, test } from "./fixtures";
 
-/// A fictitious two-page PDF of text in a standard font, written by hand:
-/// no scan, so the server takes no thumbnail of it and the client draws one.
-function textPdf(): Buffer {
+/// A fictitious PDF of text in a standard font, written by hand: no scan, so
+/// the server takes no thumbnail of it and the client draws one. Two portrait
+/// pages unless told otherwise.
+function textPdf(pages = 2, [width, height] = [612, 792]): Buffer {
+    const numbers = Array.from({ length: pages }, (_, index) => index + 1);
     const objects: string[] = [];
     const add = (body: string) => objects.push(body);
     add("<< /Type /Catalog /Pages 2 0 R >>");
-    add("<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>");
+    add(`<< /Type /Pages /Kids [${numbers.map(n => `${2 + n * 2} 0 R`).join(" ")}] /Count ${pages} >>`);
     add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-    for (const [index, number] of [1, 2].entries()) {
+    for (const [index, number] of numbers.entries()) {
         const content =
             `BT /F1 24 Tf 72 720 Td (Fictitious parish register - page ${number}) Tj ET\n` +
             "BT /F1 14 Tf 72 680 Td (Baptism of Jean Exemple, son of Pierre Exemple) Tj ET\n";
         add(
-            `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+            `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ` +
                 `/Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`,
         );
         add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
@@ -34,14 +37,15 @@ function textPdf(): Buffer {
     return Buffer.from(pdf, "latin1");
 }
 
-test("a PDF opens in the viewer, where its text can be searched", async ({ page, request, tree }) => {
+/// Files `pdf` as the document `title`, attached to the tree's anchor person.
+async function attachPdf(request: APIRequestContext, tree: { treeId: string; anchorId: string }, title: string, pdf: Buffer) {
     const base = `${apiUrl}/api/v1/trees/${tree.treeId}`;
-    const document = await request.post(`${base}/media/document`, { data: { title: "Fictitious register" } });
+    const document = await request.post(`${base}/media/document`, { data: { title } });
     expect(document.ok(), await document.text()).toBeTruthy();
     const documentId = (await document.json()).id as string;
     const uploaded = await request.post(`${base}/media/upload`, {
         multipart: {
-            file: { name: "register.pdf", mimeType: "application/pdf", buffer: textPdf() },
+            file: { name: "register.pdf", mimeType: "application/pdf", buffer: pdf },
             document_id: documentId,
         },
     });
@@ -51,6 +55,10 @@ test("a PDF opens in the viewer, where its text can be searched", async ({ page,
         data: { media_id: documentId, person_id: tree.anchorId, sort_order: 0 },
     });
     expect(linked.ok(), await linked.text()).toBeTruthy();
+}
+
+test("a PDF opens in the viewer, where its text can be searched", async ({ page, request, tree }) => {
+    await attachPdf(request, tree, "Fictitious register", textPdf());
 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     const tile = page.locator(".media-tile", { hasText: "Fictitious register" });
@@ -77,4 +85,47 @@ test("a PDF opens in the viewer, where its text can be searched", async ({ page,
 
     // The file is still offered as it is.
     await expect(page.getByRole("button", { name: "Download file" })).toBeVisible();
+});
+
+test("at a phone's width the viewer's pager, count and pages fit its pane", async ({ page, request, tree }) => {
+    await attachPdf(request, tree, "Fictitious register of a long title", textPdf(4, [960, 540]));
+    await page.setViewportSize({ width: 300, height: 700 });
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await page.locator(".media-tile", { hasText: "Fictitious register" }).locator(".media-thumb").click();
+    const viewer = page.locator(".pdf-viewer");
+    await expect(viewer.locator(".pdfViewer .page")).toHaveCount(4);
+
+    // Every number shown lies whole inside the pager, none under a step
+    // button, and the last page is among them.
+    const pager = page.locator(".media-pager");
+    await expect(pager.locator(".pager-num:visible", { hasText: /^4$/ })).toBeVisible();
+    const clipped = await pager.evaluate(nav => {
+        const row = nav.getBoundingClientRect();
+        const steps = [...nav.querySelectorAll(".pager-btn")]
+            .map(button => button.getBoundingClientRect())
+            .filter(rect => rect.width > 0);
+        const found: string[] = [];
+        for (const number of nav.querySelectorAll(".pager-num")) {
+            const rect = number.getBoundingClientRect();
+            if (rect.width === 0) continue;
+            const strip = number.parentElement!;
+            if (rect.left < row.left || rect.right > row.right || strip.scrollWidth > strip.clientWidth) {
+                found.push(`${number.textContent} clipped`);
+            }
+            if (steps.some(step => rect.left < step.right && step.left < rect.right)) {
+                found.push(`${number.textContent} under a step button`);
+            }
+        }
+        return found;
+    });
+    expect(clipped).toEqual([]);
+
+    // The count beside the title stays on one line; the title gives way.
+    const count = page.locator(".cropper-head .media-pager-count");
+    await expect(count).toHaveText("Page 1 of 4");
+    expect(await count.evaluate(span => span.getClientRects().length)).toBe(1);
+
+    // A fitted page is no wider than the pane it scrolls in.
+    const scroll = viewer.locator(".pdf-viewer-scroll");
+    await expect.poll(() => scroll.evaluate(box => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(1);
 });
