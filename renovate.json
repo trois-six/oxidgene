@@ -26,7 +26,7 @@
     },
     {
       "customType": "regex",
-      "description": "The vendored pdf.js: the bot bumps VERSION alone, and the vendored pdf.js guard fails until `just pdfjs` replaces the files (docs/development.md §2.6)",
+      "description": "The vendored pdf.js: the bot bumps VERSION alone, and .github/workflows/pdfjs.yml vendors the files on its branch (docs/development.md §2.6)",
       "managerFilePatterns": ["/^assets\\/public\\/pdfjs\\/VERSION$/"],
       "matchStrings": ["pdfjs-dist (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+) "],
       "datasourceTemplate": "npm",

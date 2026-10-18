@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:04:20Z }
 ---
 
 # Development Environment and Workflows
@@ -322,9 +322,12 @@ integrity.
 pdf.js runs in the application's origin, which reads every tree, on files
 users supplied, so its security releases are taken as soon as they are
 published (CVE-2024-4367 was code execution through a font). Renovate
-proposes each release by bumping `VERSION` alone; the vendored pdf.js guard
-then fails until `just pdfjs` is run on that branch with the new release's
-integrity. Watch the
+proposes each release by bumping `VERSION` alone, and
+`.github/workflows/pdfjs.yml` finishes the bump on its branch: it reads the
+release's integrity from the npm registry, vendors it with `scripts/pdfjs.sh`,
+commits the files and dispatches CI on the new commit, the pull request's
+head. The pull request is then reviewed and merged as any other; `just pdfjs`
+remains for an update made by hand. Watch the
 [pdf.js security advisories](https://github.com/mozilla/pdf.js/security) too:
 an advisory may come before the bot's pull request, which waits a week. After
 an update, open a text PDF and a scanned PDF on the web and the desktop.

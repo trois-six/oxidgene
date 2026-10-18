@@ -1,0 +1,67 @@
+name: pdf.js update
+
+# Renovate proposes a pdf.js release by bumping assets/public/pdfjs/VERSION
+# alone (docs/development.md §2.6); the files it names are vendored, so this
+# workflow finishes the bump on Renovate's branch: it reads the release's
+# integrity from the npm registry, vendors the release with
+# scripts/pdfjs.sh, which checks the archive against it, and commits the
+# files. A push made with the workflow's token starts no workflow, so CI is
+# then dispatched on the branch: its checks land on the new commit, which is
+# the one the pull request needs.
+
+on:
+  push:
+    branches: ["renovate/**pdfjs-dist**"]
+    paths: ["assets/public/pdfjs/VERSION"]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: pdfjs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vendor:
+    name: Vendor the pdf.js release
+    if: github.actor == 'renovate[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Vendor the release VERSION names
+        id: vendor
+        run: |
+          read -r _ version recorded < assets/public/pdfjs/VERSION
+          integrity=$(curl --fail --silent --show-error --proto '=https' \
+            "https://registry.npmjs.org/pdfjs-dist/$version" |
+            python3 -I -c 'import json, sys; print(json.load(sys.stdin)["dist"]["integrity"])')
+          if [ "$recorded" = "$integrity" ]; then
+            echo "pdfjs-dist $version is already vendored"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scripts/pdfjs.sh "$version" "$integrity"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the files
+        if: steps.vendor.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.vendor.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/public/pdfjs
+          git commit -m "chore(deps): vendor pdfjs-dist $VERSION" \
+            -m "The files of the release Renovate proposed, checked against the integrity the npm registry lists (scripts/pdfjs.sh)."
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Run CI on the new commit
+        if: steps.vendor.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref "$GITHUB_REF_NAME"
