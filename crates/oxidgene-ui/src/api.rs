@@ -1211,6 +1211,20 @@ pub struct GalleryMedia {
     pub source: Option<String>,
     pub event_ids: Vec<Uuid>,
     pub document_previews: Vec<String>,
+    /// Whether the medium may be chosen as a portrait as far as its type
+    /// goes: never a PDF, whatever thumbnail of its scan a tile draws.
+    pub portrayable: bool,
+    /// A document's PDF page the tile draws itself, when no page has a
+    /// preview: a PDF we hold that has no thumbnail.
+    pub pdf_page: Option<GalleryPdfPage>,
+}
+
+/// A PDF page a tile draws its picture from, with pdf.js.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct GalleryPdfPage {
+    pub media_id: Uuid,
+    /// Its size in bytes: drawing it means reading the whole file.
+    pub file_size: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1257,6 +1271,8 @@ impl GallerySources {
                 source,
                 event_ids: item.event_ids.clone(),
                 document_previews: previews,
+                portrayable: item.portrayable,
+                pdf_page: item.pdf_page,
             });
         }
         for item in &self.vignettes {
@@ -1280,6 +1296,8 @@ struct WireGalleryMedia {
     source: Option<ImageSource>,
     event_ids: Vec<Uuid>,
     document_previews: Vec<ImageSource>,
+    portrayable: bool,
+    pdf_page: Option<GalleryPdfPage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -1442,6 +1460,16 @@ pub enum MediaSource {
     Remote,
     /// A path we were told about and never received.
     Unheld,
+}
+
+/// A stored file as a script of the page receives it
+/// ([`ApiClient::media_file_for_script`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptFile {
+    /// A path on the application's own origin, served by its shell.
+    Hosted(String),
+    /// The file's bytes, fetched through the typed client.
+    Bytes(Vec<u8>),
 }
 
 /// How a media should be presented when there is room to show it.
@@ -4236,6 +4264,30 @@ impl ApiClient {
             .await
     }
 
+    /// A medium's stored file, for a script of the page to read rather than
+    /// an element to draw: the PDF viewer's.
+    ///
+    /// A shell serving media from its own origin hands over the path, which
+    /// the script fetches from that origin. Everywhere else the bytes come
+    /// through this client, and the caller passes them on as they are: a
+    /// `data:` URL would cost a third again and a second copy to decode.
+    pub async fn media_file_for_script(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<ScriptFile, ApiError> {
+        let asset = crate::image_host::MediaAsset::File { media_id };
+        if let Some(host) = &self.image_host
+            && let Some(path) = host.path(tree_id, asset)
+        {
+            return Ok(ScriptFile::Hosted(path));
+        }
+        let (bytes, _) = self
+            .get_binary(&crate::image_host::api_path(tree_id, asset))
+            .await?;
+        Ok(ScriptFile::Bytes(bytes))
+    }
+
     /// The drawable form of one held picture, hosted or inlined.
     async fn media_asset_url(
         &self,
@@ -5490,7 +5542,9 @@ mod tests {
                 "media_id": page,
                 "source": { "kind": "thumbnail", "media_id": page },
                 "event_ids": [],
-                "document_previews": [{ "kind": "thumbnail", "media_id": preview }]
+                "document_previews": [{ "kind": "thumbnail", "media_id": preview }],
+                "portrayable": false,
+                "pdf_page": { "media_id": preview, "file_size": 42 }
             }],
             "vignettes": [{
                 "vignette_id": vignette,
@@ -5503,6 +5557,14 @@ mod tests {
         let gallery = sources.resolve(&mut drawn);
         assert_eq!(gallery.media[0].source.as_deref(), Some("a"));
         assert_eq!(gallery.media[0].document_previews, ["b"]);
+        assert!(!gallery.media[0].portrayable);
+        assert_eq!(
+            gallery.media[0].pdf_page,
+            Some(GalleryPdfPage {
+                media_id: preview,
+                file_size: 42
+            })
+        );
         assert_eq!(gallery.vignettes[0].image.source, "c");
     }
 

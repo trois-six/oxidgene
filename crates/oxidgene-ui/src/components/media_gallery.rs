@@ -27,8 +27,8 @@ use oxidgene_core::types::{PersonName, Vignette};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, CreateMediaLinkBody, CreateNoteBody, CroppedSource, MediaKind,
-    MediaSource, MediaWithLink, SetPortraitBody, UpdateMediaBody, UpdateNoteBody,
+    ApiClient, ApiError, CreateMediaLinkBody, CreateNoteBody, CroppedSource, GalleryPdfPage,
+    MediaKind, MediaSource, MediaWithLink, SetPortraitBody, UpdateMediaBody, UpdateNoteBody,
     UpdateVignetteBody,
 };
 use crate::components::confirm_dialog::ConfirmDialog;
@@ -40,6 +40,7 @@ use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::media_stage::{MediaStage, StagePicture};
 use crate::components::pager::Pager;
+use crate::components::pdf_viewer::{PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
@@ -608,6 +609,8 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     read_only,
                     thumbnail_source: bundle.and_then(|item| item.source.clone()),
                     document_previews: bundle.map(|item| item.document_previews.clone()).unwrap_or_default(),
+                    portrayable: bundle.is_none_or(|item| item.portrayable),
+                    pdf_page: bundle.and_then(|item| item.pdf_page),
                     media_event_ids: bundle.map(|item| item.event_ids.clone()).unwrap_or_default(),
                     profile_event_links: profile_event_links.clone(),
                     is_open: editing() == Some(tile.media.id),
@@ -804,6 +807,8 @@ pub fn MediaLibraryGrid(
                             read_only: true,
                             thumbnail_source: preview.and_then(|item| item.source.clone()),
                             document_previews: preview.map(|item| item.document_previews.clone()).unwrap_or_default(),
+                            portrayable: preview.is_none_or(|item| item.portrayable),
+                            pdf_page: preview.and_then(|item| item.pdf_page),
                             media_event_ids: Vec::new(),
                             profile_event_links: Vec::new(),
                             is_open: false,
@@ -847,6 +852,13 @@ fn MediaTile(
     read_only: bool,
     thumbnail_source: Option<String>,
     document_previews: Vec<String>,
+    /// The gallery bundle's word on whether it may be a portrait as far as
+    /// its type goes; true until the bundle says otherwise.
+    #[props(default = true)]
+    portrayable: bool,
+    /// The PDF page it draws itself when it has no other picture.
+    #[props(default)]
+    pdf_page: Option<GalleryPdfPage>,
     media_event_ids: Vec<Uuid>,
     profile_event_links: Vec<MediaEventLinkOption>,
     is_open: bool,
@@ -876,7 +888,7 @@ fn MediaTile(
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
-    let look = TileLook::of(&tile, &document_previews);
+    let look = TileLook::of(&tile, &document_previews, portrayable, pdf_page);
     let caption = look.caption.clone();
     let linked_events: Vec<MediaEventLinkOption> = profile_event_links
         .iter()
@@ -1006,7 +1018,13 @@ fn MediaTile(
                         menu_at.set(Some((point.x, point.y)));
                     }
                 },
-                {tile_picture(&look, &document_previews, thumbnail_source.clone(), tile.media.thumbnail_key.is_some())}
+                {tile_picture(
+                    &look,
+                    &document_previews,
+                    thumbnail_source.clone(),
+                    tile.media.thumbnail_key.is_some(),
+                    look.pdf_preview.map(|page| (tree_id, page)),
+                )}
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
                 if !read_only {
                     TileActions {
@@ -1137,8 +1155,8 @@ impl TileMenuOffer {
     ) -> Self {
         Self {
             any: read_only || show_profile || has_events,
-            profile: show_profile && (look.draws_a_picture || is_portrait),
-            profile_button: show_profile && look.draws_a_picture,
+            profile: show_profile && (look.may_portray || is_portrait),
+            profile_button: show_profile && look.may_portray,
             link_event: has_events && unlinked,
         }
     }
@@ -1196,10 +1214,15 @@ struct TileLook {
     caption: String,
     /// A remote page's own address, when the browser can draw it.
     remote_preview: Option<String>,
-    /// Whether the tile shows a picture, which alone can be a portrait.
-    draws_a_picture: bool,
+    /// Whether it may be offered as somebody's portrait: it draws a picture
+    /// that is not only a PDF's. A tile drawing the scan of a PDF draws a
+    /// picture all the same, and is still never a portrait.
+    may_portray: bool,
     /// Whether what it shows is somebody else's file.
     draws_remote: bool,
+    /// The PDF page whose first page it draws with pdf.js, when it has no
+    /// other picture: a display convenience, never a portrait either.
+    pdf_preview: Option<Uuid>,
 }
 
 /// The address a remote medium is drawn from, when its type says it is a
@@ -1222,10 +1245,16 @@ fn drawn_as_picture(media: &oxidgene_core::types::Media) -> bool {
 
 impl TileLook {
     /// A document holds no bytes of its own, so what the tile draws — and
-    /// what it may therefore say about where the file lives, or offer as
-    /// somebody's portrait — is decided by its pages, which is what the
-    /// `previews` are.
-    fn of(tile: &MediaWithLink, previews: &[String]) -> Self {
+    /// what it may therefore say about where the file lives — is decided by
+    /// its pages, which is what the `previews` are. Whether it may be a
+    /// portrait is the gallery bundle's `portrayable`, which says whether its
+    /// pages are all PDFs, and the medium's own type when it is a page.
+    fn of(
+        tile: &MediaWithLink,
+        previews: &[String],
+        portrayable: bool,
+        pdf_page: Option<GalleryPdfPage>,
+    ) -> Self {
         let source = tile.source();
         let kind = tile.kind();
         // Its server's thumbnail when it serves one: a tile of a few
@@ -1233,6 +1262,7 @@ impl TileLook {
         let remote_preview = remote_picture_address(&tile.media);
         let draws_a_picture =
             !previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
+        let portrayable = portrayable && !oxidgene_core::types::is_pdf_mime(&tile.media.mime_type);
         let draws_remote = source == MediaSource::Remote
             || previews
                 .iter()
@@ -1243,20 +1273,27 @@ impl TileLook {
             kind_label: tile.kind_label(),
             caption: tile.caption().to_string(),
             remote_preview,
-            draws_a_picture,
+            may_portray: draws_a_picture && portrayable,
             draws_remote,
+            pdf_preview: previews
+                .is_empty()
+                .then(|| pdf_preview_page(&tile.media, pdf_page))
+                .flatten(),
         }
     }
 }
 
-/// The tile's picture: its pages, its thumbnail, its remote address, or an
-/// icon saying what the file is — rather than the broken image an `<img>`
-/// onto a 404 would draw.
+/// The tile's picture: its pages, its thumbnail, its remote address, page 1
+/// of a PDF drawn here (`pdf_preview` names its tree and medium), or an icon
+/// saying what the file is — rather than the broken image an `<img>` onto a
+/// 404 would draw. A PDF shows the icon until its page is drawn, and keeps it
+/// when it cannot be.
 fn tile_picture(
     look: &TileLook,
     previews: &[String],
     thumbnail_source: Option<String>,
     has_thumbnail: bool,
+    pdf_preview: Option<(Uuid, Uuid)>,
 ) -> Element {
     if !previews.is_empty() {
         return rsx! { DocumentMosaic { sources: previews.to_vec() } };
@@ -1267,11 +1304,17 @@ fn tile_picture(
     if let Some(preview) = &look.remote_preview {
         return rsx! { img { src: "{preview}", alt: "{look.caption}", loading: "lazy" } };
     }
-    rsx! {
+    let icon = rsx! {
         div { class: "media-thumb-icon",
             span { class: "media-glyph", {look.kind.icon()} }
             span { class: "media-kind", "{look.kind_label}" }
         }
+    };
+    match pdf_preview {
+        Some((tree_id, media_id)) => rsx! {
+            PdfPreview { tree_id, media_id, alt: look.caption.clone(), fallback: icon }
+        },
+        None => icon,
     }
 }
 
@@ -3744,6 +3787,10 @@ fn MediaViewer(
     let mut failed_preview = use_signal(|| None::<Uuid>);
     let preview_failed = failed_preview() == Some(content_media_id);
     let kind = displayed_kind(&current_tile, shown, content_source, preview_failed);
+    // The page pdf.js could not open, held by id like `failed_preview`.
+    let mut failed_pdf = use_signal(|| None::<Uuid>);
+    let pdf_failed = failed_pdf() == Some(content_media_id);
+    let shows_pdf = opens_in_pdf_viewer(kind, content_source, pdf_failed);
     // A document's visible image changes with its page. Keep that id reactive
     // so the regions in both the facts column and the image follow it.
     let mut vignette_media_id = use_signal(|| content_media_id);
@@ -3752,7 +3799,7 @@ fn MediaViewer(
     // Only a media we hold has an asset to fetch. A remote one is rendered
     // straight from its URL, and asking the server for bytes it never stored
     // is a request that can only 404.
-    let requested_asset_id = (content_source == MediaSource::Stored).then_some(content_media.id);
+    let requested_asset_id = asset_to_fetch(content_source, kind, content_media.id);
     let mut asset_media_id = use_signal(|| requested_asset_id);
     follow(&mut asset_media_id, requested_asset_id);
     let media_asset = use_ui_resource("media_asset", {
@@ -3768,10 +3815,10 @@ fn MediaViewer(
             }
         }
     });
-    let url = match content_source {
-        MediaSource::Remote => Some(content_media.file_path.trim().to_string()),
-        _ => media_asset.read_unchecked().as_ref().and_then(Clone::clone),
-    };
+    let url = displayed_address(
+        &content_media,
+        media_asset.read_unchecked().as_ref().and_then(Clone::clone),
+    );
     let content_vignettes = use_ui_resource("content_vignettes", {
         let api = api.clone();
         move || {
@@ -3925,6 +3972,14 @@ fn MediaViewer(
                 }
 
                 div { class: "media-viewer-main",
+                if shows_pdf {
+                    PdfViewer {
+                        key: "pdf-{content_media_id}",
+                        tree_id,
+                        media_id: content_media_id,
+                        on_failed: move |()| failed_pdf.set(Some(content_media_id)),
+                    }
+                } else {
                 MediaStage {
                     key: "{content_media_id}",
                     stage_key: content_media_id.to_string(),
@@ -3960,7 +4015,7 @@ fn MediaViewer(
                             size: (content_width, content_height),
                         }
                     },
-                    fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, &content_media),
+                    fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
                     if let Some(at) = relation_menu_at() {
                         RelationMenu {
                             at,
@@ -3994,6 +4049,7 @@ fn MediaViewer(
                     if let Some(message) = attachment_notice() {
                         div { class: "media-attachment-notice", "{message}" }
                     }
+                }
                 }
 
                 // The pager. Step buttons for reading front to back, jump
@@ -4047,6 +4103,25 @@ fn MediaViewer(
                 }
             }
         }
+    }
+}
+
+/// The page whose file the viewer fetches to draw: one we hold, and not a
+/// PDF, which the PDF viewer reads its own way and the fallback after a
+/// failure offers as a download — a remote page is drawn from its address.
+fn asset_to_fetch(source: MediaSource, kind: MediaKind, media_id: Uuid) -> Option<Uuid> {
+    (source == MediaSource::Stored && kind != MediaKind::Pdf).then_some(media_id)
+}
+
+/// Where the viewer draws `page` from: its own address when it is somebody
+/// else's, else the file `fetched` for it.
+fn displayed_address(
+    page: &oxidgene_core::types::Media,
+    fetched: Option<String>,
+) -> Option<String> {
+    match crate::api::media_source(page) {
+        MediaSource::Remote => Some(page.file_path.trim().to_string()),
+        _ => fetched,
     }
 }
 
@@ -4197,9 +4272,14 @@ fn stage_fallback(
     kind: MediaKind,
     url: Option<String>,
     preview_failed: bool,
+    pdf_failed: bool,
     content_media: &oxidgene_core::types::Media,
 ) -> Element {
-    let content_media_id = content_media.id;
+    let message = if preview_failed {
+        "media.preview_failed"
+    } else {
+        "media.not_embeddable"
+    };
     match (url.clone(), kind) {
         (Some(url), MediaKind::Video) => rsx! {
             video {
@@ -4212,25 +4292,12 @@ fn stage_fallback(
         (Some(url), MediaKind::Audio) => rsx! {
             audio { class: "media-viewer-audio", src: "{url}", controls: true }
         },
-        (Some(_), _) => rsx! {
-            div { class: "media-viewer-fallback",
-                span { class: "media-glyph-large", {kind.icon()} }
-                p {
-                    if preview_failed {
-                        {i18n.t("media.preview_failed")}
-                    } else {
-                        {i18n.t("media.not_embeddable")}
-                    }
-                }
-                if let Some(download_source) = MediaDownloadSource::for_media(tree_id, content_media) {
-                    DownloadMediaButton {
-                        key: "fallback-{content_media_id}",
-                        source: download_source,
-                        file_name: download_name(&content_media.file_name, &content_media.mime_type),
-                    }
-                }
-            }
-        },
+        (Some(_), _) => refusal_panel(tree_id, kind, &i18n.t(message), content_media),
+        // A PDF hands its file to the PDF viewer rather than to the stage:
+        // there is no address here, only a file pdf.js could not open.
+        (None, _) if pdf_failed => {
+            refusal_panel(tree_id, kind, &i18n.t("media.pdf_failed"), content_media)
+        }
         (None, _) => rsx! {
             div { class: "media-viewer-fallback",
                 span { class: "media-glyph-large", {kind.icon()} }
@@ -4243,6 +4310,30 @@ fn stage_fallback(
                 }
             }
         },
+    }
+}
+
+/// The panel of a file the viewer holds but cannot show: why, and the file to
+/// download instead.
+fn refusal_panel(
+    tree_id: Uuid,
+    kind: MediaKind,
+    message: &str,
+    content_media: &oxidgene_core::types::Media,
+) -> Element {
+    let content_media_id = content_media.id;
+    rsx! {
+        div { class: "media-viewer-fallback",
+            span { class: "media-glyph-large", {kind.icon()} }
+            p { "{message}" }
+            if let Some(download_source) = MediaDownloadSource::for_media(tree_id, content_media) {
+                DownloadMediaButton {
+                    key: "fallback-{content_media_id}",
+                    source: download_source,
+                    file_name: download_name(&content_media.file_name, &content_media.mime_type),
+                }
+            }
+        }
     }
 }
 
@@ -5018,6 +5109,90 @@ mod tests {
         assert_eq!(
             attachment_picture(false, None, Sex::Unknown),
             AttachmentPicture::Silhouette(Sex::Unknown)
+        );
+    }
+
+    /// A gallery tile of `mime_type`, a document when `document`.
+    fn tile_of(mime_type: &str, document: bool, thumbnail: bool) -> MediaWithLink {
+        let media: oxidgene_core::types::Media = serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(2),
+            "tree_id": Uuid::from_u128(1),
+            "parent_media_id": (!document).then_some(Uuid::from_u128(3)),
+            "file_name": "sample",
+            "file_path": "sample",
+            "mime_type": mime_type,
+            "storage_key": (!document).then_some("sample-key"),
+            "thumbnail_key": thumbnail.then_some("sample-thumbnail"),
+            "page_count": 1,
+            "file_size": 42,
+            "created_at": "2000-01-01T00:00:00Z",
+            "updated_at": "2000-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        MediaWithLink {
+            link_id: Uuid::from_u128(4),
+            sort_order: 0,
+            media,
+        }
+    }
+
+    #[test]
+    fn the_viewer_fetches_no_pdf_to_draw_it_on_the_stage() {
+        let id = Uuid::from_u128(9);
+        assert_eq!(
+            asset_to_fetch(MediaSource::Stored, MediaKind::Image, id),
+            Some(id)
+        );
+        assert_eq!(
+            asset_to_fetch(MediaSource::Stored, MediaKind::Pdf, id),
+            None
+        );
+        assert_eq!(
+            asset_to_fetch(MediaSource::Remote, MediaKind::Image, id),
+            None
+        );
+    }
+
+    #[test]
+    fn a_tile_drawing_only_pdf_scans_is_never_a_portrait() {
+        let document = tile_of(oxidgene_core::types::DOCUMENT_MIME, true, false);
+        let scans = ["scan.jpg".to_string()];
+        // A document of photographs, or of a photograph beside a PDF.
+        assert!(TileLook::of(&document, &scans, true, None).may_portray);
+        // A document whose pictures are all its PDFs' scans draws them, and
+        // is not offered.
+        let pdf_only = TileLook::of(&document, &scans, false, None);
+        assert!(!pdf_only.may_portray);
+        assert_eq!(pdf_only.pdf_preview, None);
+        // Nothing drawn, nothing to offer.
+        assert!(!TileLook::of(&document, &[], true, None).may_portray);
+        // A page tile follows its own type, whatever its thumbnail.
+        let photo = tile_of("image/jpeg", false, true);
+        assert!(TileLook::of(&photo, &[], true, None).may_portray);
+        let pdf = tile_of("application/pdf", false, true);
+        assert!(!TileLook::of(&pdf, &[], true, None).may_portray);
+    }
+
+    #[test]
+    fn a_pdf_of_text_draws_its_first_page_without_becoming_a_portrait() {
+        let document = tile_of(oxidgene_core::types::DOCUMENT_MIME, true, false);
+        let page = GalleryPdfPage {
+            media_id: Uuid::from_u128(5),
+            file_size: 42,
+        };
+        let look = TileLook::of(&document, &[], false, Some(page));
+        assert_eq!(look.pdf_preview, Some(page.media_id));
+        assert!(!look.may_portray);
+        // A preview from the server wins over drawing one here.
+        let scans = ["scan.jpg".to_string()];
+        assert_eq!(
+            TileLook::of(&document, &scans, false, Some(page)).pdf_preview,
+            None
+        );
+        let text = tile_of("application/pdf", false, false);
+        assert_eq!(
+            TileLook::of(&text, &[], true, None).pdf_preview,
+            Some(text.media.id)
         );
     }
 

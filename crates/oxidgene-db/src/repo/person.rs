@@ -414,8 +414,9 @@ impl PersonRepo {
         // source does not specify a portrait choice.
         //
         // Only a medium that can actually be drawn qualifies as a fallback: one
-        // we have rasterised, or a remote URL we recorded. A PDF or a record
-        // naming a file nobody uploaded is not somebody's portrait by default.
+        // we have rasterised, or a remote URL we recorded. A record naming a
+        // file nobody uploaded is not somebody's portrait by default, and a
+        // PDF is never one, even with the thumbnail of the scan it holds.
         //
         // Either way the answer is then resolved to a page: what a reader
         // chooses is a tile, and a tile is a document. A document holds no
@@ -454,12 +455,14 @@ impl PersonRepo {
                                            FROM media page
                                            WHERE page.parent_media_id = mm.id
                                              AND page.deleted_at IS NULL
+                                             AND LOWER(page.mime_type) <> 'application/pdf'
                                              AND (page.thumbnail_key IS NOT NULL
                                                   OR page.file_path LIKE 'http%')
                                            ORDER BY page.page_index, page.id
                                            LIMIT 1),
                                           CASE
                                             WHEN mm.parent_media_id IS NOT NULL
+                                                 AND LOWER(mm.mime_type) <> 'application/pdf'
                                                  AND (mm.thumbnail_key IS NOT NULL
                                                       OR mm.file_path LIKE 'http%')
                                             THEN mm.id
@@ -490,6 +493,7 @@ impl PersonRepo {
                               FROM media page
                               WHERE page.parent_media_id = c.portrait_media_id
                                 AND page.deleted_at IS NULL
+                                AND LOWER(page.mime_type) <> 'application/pdf'
                                 AND (page.thumbnail_key IS NOT NULL
                                      OR page.file_path LIKE 'http%')
                               ORDER BY page.page_index, page.id

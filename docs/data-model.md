@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T13:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:31:00Z }
 ---
 
 
@@ -358,11 +358,11 @@ restoring it brings them back.
 | `file_path` | String | GEDCOM `OBJE.FILE` value — the producer's own path, kept verbatim so an export round-trips. Not where our copy lives |
 | `storage_key` | String? | Key of the stored bytes in the media store. Null for a record that names a file we have never received — every GEDCOM import starts that way |
 | `sha256` | String? | Hex SHA-256 of the stored bytes. Doubles as the HTTP `ETag` and as the deduplication key |
-| `thumbnail_key` | String? | Key of the generated thumbnail. Null for PDFs and for byte-less records |
+| `thumbnail_key` | String? | Key of the generated thumbnail. For a PDF, a thumbnail of the scan its first page paints: the largest image that page draws (see [API](api.md), PDF uploads). Null for byte-less records, for a PDF whose first page paints no image we decode, and wherever generation failed |
 | `thumbnail_url` | String? | For a page held only as an `http(s)` URL, the `http(s)` address of a small picture of it that its server also serves — an archive's thumbnail of a view. Gallery tiles draw it instead of the full picture. Null for every other row; cleared when the page is repointed without a new one, or receives our own bytes |
 | `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, given when the page is added by a client that knows it (an archive's image service states it), or recorded from the browser that first displayed it |
 | `height` | i32? | Intrinsic pixel height |
-| `page_count` | i32 | Pages in the document; `1` for photos and single-page files |
+| `page_count` | i32 | On a document, its live pages. On a page, the pages inside its file: a multi-page TIFF's images, a PDF's pages read from its page tree; `1` for photos, single-page files and a PDF that cannot be opened |
 | `parent_media_id` | UUID v7? | The document this row is a page of; null when the row is a document itself |
 | `page_index` | i32 | Zero-based position of the page within its document |
 | `file_size` | i64 | Bytes |
@@ -525,7 +525,9 @@ the caller chose, which is normally a document: a gallery tile is a document,
 and that is what a reader stars. A document holds no bytes, so every read path
 resolves the stored pointer to the first page beneath it that can actually be
 drawn — one whose thumbnail was generated, or whose `file_path` is a remote
-image URL — and reports that page. A page chosen directly resolves to itself. A
+image URL — and reports that page. A PDF is never that page, even with the
+thumbnail of its scan: it is a record, not a picture of somebody, and choosing
+one as a portrait is refused. A page chosen directly resolves to itself. A
 person who chose nothing falls back to their first linked photograph, resolved
 by the same rule, in `media_link.sort_order` order. Chosen and inferred
 portraits therefore always name a row whose file exists, and the portrait

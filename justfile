@@ -225,6 +225,15 @@ theme-preview:
 places *args:
     cargo run --package oxidgene-place-dictionary -- {{args}}
 
+# Vendor pdfjs-dist VERSION, the PDF viewer's library, into
+# assets/public/pdfjs/, after checking the archive against INTEGRITY: the
+# `sha512-…` the npm registry lists for it (`npm view pdfjs-dist@VERSION
+# dist.integrity`). Run by hand for each release taken, security releases
+# first (see docs/development.md); commit the result.
+# Update the vendored pdf.js
+pdfjs version integrity:
+    scripts/pdfjs.sh "{{ version }}" "{{ integrity }}"
+
 # Rewrite docs/schema.graphql, the committed SDL of the GraphQL schema, after
 # an intended schema change (a guard fails while the two differ).
 graphql-schema:

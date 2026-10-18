@@ -16,6 +16,8 @@ COPY assets/themes/ assets/themes/
 COPY assets/portraits/ assets/portraits/
 COPY assets/fonts/ assets/fonts/
 COPY assets/brand/logo_64.png assets/brand/logo_64.png
+# Served as they are at the bundle's root (Dioxus.toml `public_dir`): pdf.js.
+COPY assets/public/ assets/public/
 COPY scripts/dx.sh scripts/dx.sh
 
 # An empty base URL makes browser API calls same-origin for Kubernetes Ingress.
@@ -33,8 +35,8 @@ RUN OXIDGENE_API_URL="${OXIDGENE_API_URL}" OXIDGENE_LOG_LEVEL="${OXIDGENE_LOG_LE
 # compressing anything at serve time. -n keeps the gzip archives
 # reproducible.
 RUN find target/dx/oxidgene-web/release/web/public -type f -size +1k \
-        \( -name '*.wasm' -o -name '*.js' -o -name '*.css' -o -name '*.html' \
-           -o -name '*.json' -o -name '*.svg' \) \
+        \( -name '*.wasm' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' \
+           -o -name '*.html' -o -name '*.json' -o -name '*.svg' \) \
         -exec gzip -9 -k -n {} + \
         -exec brotli -q 11 -k {} +
 

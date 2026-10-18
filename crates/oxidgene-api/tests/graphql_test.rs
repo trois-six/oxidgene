@@ -895,6 +895,132 @@ async fn a_portrait_is_a_media_of_the_persons_own_tree_over_graphql() {
     );
 }
 
+/// A PDF is never a portrait, even with a thumbnail; the REST twin is in
+/// `media_test.rs`.
+#[tokio::test]
+async fn a_pdf_is_refused_as_a_portrait_over_graphql() {
+    use base64::Engine as _;
+
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image::RgbImage::new(64, 48))
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    let pdf = common::pdf::scan(&jpeg.into_inner(), 64, 48);
+    let page = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "acte.pdf", contentBase64: "{}" }}) {{ id thumbnailKey pageCount }} }}"#,
+                base64::engine::general_purpose::STANDARD.encode(pdf)
+            ),
+            None,
+        )
+        .await,
+    )["uploadMediaFile"]
+        .clone();
+    assert!(page["thumbnailKey"].is_string(), "{page}");
+    assert_eq!(page["pageCount"], 1, "{page}");
+    let person_id = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for media_id in [document_id.as_str(), page["id"].as_str().unwrap()] {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ setPersonPortrait(treeId: "{tree_id}", personId: "{person_id}", mediaId: "{media_id}") {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+            "{response}"
+        );
+    }
+
+    // The gallery draws its thumbnail and does not offer it as a portrait;
+    // a PDF of text, with no thumbnail, names its page for the client to
+    // draw itself.
+    let text_document = document_id_for(&app, &tree_id).await;
+    let text = common::pdf::build(
+        &[common::pdf::Page {
+            text: true,
+            ..common::pdf::Page::default()
+        }],
+        "",
+    );
+    let text_page = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{text_document}", fileName: "letter.pdf", contentBase64: "{}" }}) {{ id thumbnailKey }} }}"#,
+                base64::engine::general_purpose::STANDARD.encode(text)
+            ),
+            None,
+        )
+        .await,
+    )["uploadMediaFile"]
+        .clone();
+    assert!(text_page["thumbnailKey"].is_null(), "{text_page}");
+    let bundle = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{document_id}", "{text_document}"], vignetteIds: []) {{ media {{ mediaId documentPreviews {{ kind mediaId }} portrayable pdfPage {{ mediaId fileSize }} }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["galleryBundle"]
+        .clone();
+    let item = |id: &str| {
+        bundle["media"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["mediaId"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{id} missing from {bundle}"))
+    };
+    assert_eq!(
+        item(&document_id)["documentPreviews"],
+        serde_json::json!([{ "kind": "THUMBNAIL", "mediaId": page["id"] }]),
+        "{bundle}"
+    );
+    assert_eq!(item(&document_id)["portrayable"], false, "{bundle}");
+    assert!(item(&document_id)["pdfPage"].is_null(), "{bundle}");
+    assert_eq!(
+        item(&text_document)["documentPreviews"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        item(&text_document)["pdfPage"]["mediaId"],
+        text_page["id"],
+        "{bundle}"
+    );
+    assert!(
+        item(&text_document)["pdfPage"]["fileSize"]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(item(&text_document)["portrayable"], false, "{bundle}");
+}
+
 #[tokio::test]
 async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql() {
     // The REST twin of this lives in `media_test.rs`. Both surfaces have to

@@ -164,6 +164,13 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
     "webp",
 ] }
+# PDF uploads: the page count, and a thumbnail drawn from the scan page 1
+# paints. The parser alone, not the `hayro` renderer, which would add ~30
+# crates and ~4 MB per binary to draw text and vector pages too. `images`
+# brings the CCITT, JBIG2 and JPEG 2000 decoders scans are made of; `unsafe`
+# (flate2, SIMD) stays off: speed is not what a once-per-upload thumbnail
+# needs.
+hayro-syntax = { version = "0.8", default-features = false, features = ["std", "images"] }
 # Geneanet pHash decoding. `jpeg-decoder` powers the production coarse tier
 # through reduced IDCT; zune exposes direct luminance output for the opt-in
 # decoder comparison harness.
@@ -271,6 +278,7 @@ opt-level = 3
 
 # Build scripts compile unoptimised in release, and at that level Brotli's
 # best quality takes tens of seconds per reference file. The compressor only
-# ever runs inside `oxidgene-api`'s build script, so this costs no binary size.
+# ever runs inside build scripts (`oxidgene-api`'s reference files, the
+# desktop's vendored pdf.js), so this costs no binary size.
 [profile.release.package.brotli]
 opt-level = 3

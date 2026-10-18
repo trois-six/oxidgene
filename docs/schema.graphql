@@ -1319,6 +1319,27 @@ type GqlGalleryMedia {
 	source: GqlImageSource
 	eventIds: [ID!]!
 	documentPreviews: [GqlImageSource!]!
+	"""
+	Whether the medium may be chosen as a portrait as far as its type
+	goes: false for a PDF, whatever thumbnail of its scan it carries.
+	"""
+	portrayable: Boolean!
+	"""
+	A document's PDF page the client may draw itself, when no page has a
+	preview: a PDF we hold without a thumbnail.
+	"""
+	pdfPage: GqlGalleryPdfPage
+}
+
+"""
+A PDF page a client draws a tile's picture from itself.
+"""
+type GqlGalleryPdfPage {
+	mediaId: ID!
+	"""
+	Its size in bytes: drawing it means reading the whole file.
+	"""
+	fileSize: Int!
 }
 
 type GqlGalleryVignette {
@@ -1648,7 +1669,8 @@ type GqlMedia {
 	"""
 	sha256: String
 	"""
-	Key of the generated thumbnail; null for PDFs and byte-less records.
+	Key of the generated thumbnail, of the scan page 1 paints for a PDF;
+	null when none could be made and for byte-less records.
 	"""
 	thumbnailKey: String
 	"""

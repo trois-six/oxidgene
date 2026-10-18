@@ -1851,7 +1851,8 @@ pub struct GqlMedia {
     pub storage_key: Option<String>,
     /// Hex SHA-256 of the stored bytes.
     pub sha256: Option<String>,
-    /// Key of the generated thumbnail; null for PDFs and byte-less records.
+    /// Key of the generated thumbnail, of the scan page 1 paints for a PDF;
+    /// null when none could be made and for byte-less records.
     pub thumbnail_key: Option<String>,
     /// For a page held only as a URL, the address of a small picture of it
     /// that its server also serves; gallery tiles draw it instead of the
@@ -3290,6 +3291,20 @@ pub struct GqlGalleryMedia {
     pub source: Option<GqlImageSource>,
     pub event_ids: Vec<ID>,
     pub document_previews: Vec<GqlImageSource>,
+    /// Whether the medium may be chosen as a portrait as far as its type
+    /// goes: false for a PDF, whatever thumbnail of its scan it carries.
+    pub portrayable: bool,
+    /// A document's PDF page the client may draw itself, when no page has a
+    /// preview: a PDF we hold without a thumbnail.
+    pub pdf_page: Option<GqlGalleryPdfPage>,
+}
+
+/// A PDF page a client draws a tile's picture from itself.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGalleryPdfPage {
+    pub media_id: ID,
+    /// Its size in bytes: drawing it means reading the whole file.
+    pub file_size: i64,
 }
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -3315,6 +3330,11 @@ impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
                         .map(|id| ID(id.to_string()))
                         .collect(),
                     document_previews: item.document_previews.into_iter().map(Into::into).collect(),
+                    portrayable: item.portrayable,
+                    pdf_page: item.pdf_page.map(|page| GqlGalleryPdfPage {
+                        media_id: ID(page.media_id.to_string()),
+                        file_size: page.file_size,
+                    }),
                 })
                 .collect(),
             vignettes: bundle

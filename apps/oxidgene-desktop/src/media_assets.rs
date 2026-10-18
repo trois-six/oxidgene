@@ -98,6 +98,9 @@ pub fn DesktopApp() -> Element {
         });
     });
 
+    // The PDF viewer's library answers on the same window, at `/pdfjs/…`.
+    crate::pdfjs_assets::use_pdfjs_handler();
+
     rsx! {
         oxidgene_ui::App {}
     }

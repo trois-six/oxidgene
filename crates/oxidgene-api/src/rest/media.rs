@@ -518,9 +518,9 @@ fn archive_stem(file_name: &str) -> String {
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/thumbnail
 ///
-/// The generated thumbnail. `404` when the format could not be rasterised —
-/// a PDF, or an image whose thumbnail generation failed at upload — so a
-/// gallery can fall back to an icon on the status code alone.
+/// The generated thumbnail. `404` when none was made — a PDF whose first
+/// page paints no scan, or an image whose thumbnail generation failed at
+/// upload — so a gallery can fall back to an icon on the status code alone.
 pub async fn download_thumbnail(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,

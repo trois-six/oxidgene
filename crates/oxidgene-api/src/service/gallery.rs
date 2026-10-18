@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{ImageCrop, ImageSource};
+use oxidgene_core::types::{ImageCrop, ImageSource, Media, is_pdf_mime};
 use oxidgene_db::repo::{MediaLinkRepo, MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -32,6 +32,23 @@ pub struct GalleryMedia {
     pub source: Option<ImageSource>,
     pub event_ids: Vec<Uuid>,
     pub document_previews: Vec<ImageSource>,
+    /// Whether the medium may be chosen as a portrait as far as its type
+    /// goes: false for a PDF page and for a document all of whose pages are
+    /// PDFs ([`Media::is_pdf_only`]), which `PUT …/portrait` refuses. A tile
+    /// may draw a PDF's thumbnail and still not be offered as a portrait.
+    pub portrayable: bool,
+    /// A document's page the client may draw itself: when no page of the
+    /// document has a preview, its first page that is a PDF we hold without
+    /// a thumbnail — a PDF of text, with no scan to take one from.
+    pub pdf_page: Option<GalleryPdfPage>,
+}
+
+/// A PDF page a client draws a tile's picture from itself.
+#[derive(Debug, Clone, Serialize)]
+pub struct GalleryPdfPage {
+    pub media_id: Uuid,
+    /// Its size in bytes: drawing it means reading the whole file.
+    pub file_size: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,8 +117,7 @@ pub async fn load_gallery_bundle(
         .iter()
         .filter(|vignette| {
             vignette_media.get(&vignette.media_id).is_some_and(|media| {
-                media.storage_key.is_some()
-                    && crate::media::thumbnail::can_thumbnail(&media.mime_type)
+                media.storage_key.is_some() && crate::media::thumbnail::can_crop(&media.mime_type)
             })
         })
         .map(|vignette| vignette.id)
@@ -141,42 +157,34 @@ pub async fn load_gallery_bundle(
                 }
                 grouped
             });
-    let mut previews = HashMap::<Uuid, Vec<ImageSource>>::new();
+    let mut previews = document_previews(&pages);
+    let mut pages_of = HashMap::<Uuid, Vec<Media>>::new();
     for page in pages {
-        let Some(document_id) = page.parent_media_id else {
-            continue;
-        };
-        let document_previews = previews.entry(document_id).or_default();
-        if document_previews.len() >= MAX_DOCUMENT_PREVIEWS {
-            continue;
-        }
-        // A page we hold is drawn from the thumbnail we rasterised. A page we
-        // only have a URL for is drawn by the browser from that URL — it is a
-        // picture like any other, and the alternative is a document tile
-        // showing a file icon for a photograph the viewer can see perfectly
-        // well one click away.
-        if page.thumbnail_key.is_some() {
-            document_previews.push(ImageSource::Thumbnail { media_id: page.id });
-        } else if let Some(url) = remote_preview(&page) {
-            // The archive's own thumbnail when it serves one: a tile of a few
-            // kilobytes rather than the full view.
-            document_previews.push(ImageSource::Remote {
-                url: url.to_string(),
-            });
+        if let Some(document_id) = page.parent_media_id {
+            pages_of.entry(document_id).or_default().push(page);
         }
     }
 
     Ok(GalleryBundle {
         media: media
             .into_iter()
-            .map(|item| GalleryMedia {
-                source: item
-                    .thumbnail_key
-                    .is_some()
-                    .then_some(ImageSource::Thumbnail { media_id: item.id }),
-                event_ids: event_ids.get(&item.id).cloned().unwrap_or_default(),
-                document_previews: previews.remove(&item.id).unwrap_or_default(),
-                media_id: item.id,
+            .map(|item| {
+                let pages = pages_of.remove(&item.id).unwrap_or_default();
+                let document_previews = previews.remove(&item.id).unwrap_or_default();
+                GalleryMedia {
+                    source: item
+                        .thumbnail_key
+                        .is_some()
+                        .then_some(ImageSource::Thumbnail { media_id: item.id }),
+                    event_ids: event_ids.get(&item.id).cloned().unwrap_or_default(),
+                    portrayable: !item.is_pdf_only(&pages),
+                    pdf_page: document_previews
+                        .is_empty()
+                        .then(|| pdf_page(&pages))
+                        .flatten(),
+                    document_previews,
+                    media_id: item.id,
+                }
             })
             .collect(),
         vignettes: cuttable
@@ -199,10 +207,65 @@ pub async fn load_gallery_bundle(
     })
 }
 
+/// The pictures each document's tile draws, by document: the first
+/// [`MAX_DOCUMENT_PREVIEWS`] of its pages that have one, a PDF's thumbnail
+/// among them. Whether the tile may then be a portrait is said apart, by
+/// [`GalleryMedia::portrayable`]: drawing a PDF's scan does not make it a
+/// picture of somebody.
+fn document_previews(pages: &[Media]) -> HashMap<Uuid, Vec<ImageSource>> {
+    let mut previews = HashMap::<Uuid, Vec<ImageSource>>::new();
+    for page in pages {
+        let Some(document_id) = page.parent_media_id else {
+            continue;
+        };
+        let Some(preview) = page_preview(page) else {
+            continue;
+        };
+        let document_previews = previews.entry(document_id).or_default();
+        if document_previews.len() < MAX_DOCUMENT_PREVIEWS {
+            document_previews.push(preview);
+        }
+    }
+    previews
+}
+
+/// The first of `pages` a client may draw itself: a PDF we hold that has no
+/// thumbnail.
+fn pdf_page(pages: &[Media]) -> Option<GalleryPdfPage> {
+    pages
+        .iter()
+        .find(|page| {
+            page.storage_key.is_some()
+                && page.thumbnail_key.is_none()
+                && is_pdf_mime(&page.mime_type)
+        })
+        .map(|page| GalleryPdfPage {
+            media_id: page.id,
+            file_size: page.file_size,
+        })
+}
+
+/// The picture a document tile draws for `page`, if it has one.
+///
+/// A page we hold is drawn from the thumbnail we made. A page we only have a
+/// URL for is drawn by the browser from that URL — it is a picture like any
+/// other, and the alternative is a document tile showing a file icon for a
+/// photograph the viewer can see perfectly well one click away.
+fn page_preview(page: &Media) -> Option<ImageSource> {
+    if page.thumbnail_key.is_some() {
+        return Some(ImageSource::Thumbnail { media_id: page.id });
+    }
+    // The archive's own thumbnail when it serves one: a tile of a few
+    // kilobytes rather than the full view.
+    remote_preview(page).map(|url| ImageSource::Remote {
+        url: url.to_string(),
+    })
+}
+
 /// The address a document tile draws a page we only have a URL for from:
 /// the archive's own thumbnail when it serves one — a tile of a few
 /// kilobytes rather than the full view — and the picture's otherwise.
-fn remote_preview(page: &oxidgene_core::types::Media) -> Option<&str> {
+fn remote_preview(page: &Media) -> Option<&str> {
     is_remote_image(page)
         .then(|| page.remote_tile_address())
         .flatten()
@@ -213,7 +276,7 @@ fn remote_preview(page: &oxidgene_core::types::Media) -> Option<&str> {
 /// A remote PDF or video has no still to draw, so only a page that may be a
 /// picture goes out as a preview — which includes one whose type nobody
 /// declared, since the browser is then the only reader able to tell.
-fn is_remote_image(page: &oxidgene_core::types::Media) -> bool {
+fn is_remote_image(page: &Media) -> bool {
     oxidgene_core::types::is_remote_url(&page.file_path)
         && oxidgene_core::types::may_draw_as_image(&page.mime_type)
 }

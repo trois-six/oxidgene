@@ -117,9 +117,11 @@ pub async fn vignette_image(
             id: media.id,
         }));
     };
-    if !crate::media::thumbnail::can_thumbnail(&media.mime_type) {
+    // A PDF's thumbnail shows one image of its first page, not the page a
+    // region was drawn on: crops are raster-only.
+    if !crate::media::thumbnail::can_crop(&media.mime_type) {
         return Err(ApiError(OxidGeneError::Validation(format!(
-            "cannot crop a {} — only raster images can be cropped",
+            "cannot crop a {} — crops are raster-only",
             media.mime_type
         ))));
     }

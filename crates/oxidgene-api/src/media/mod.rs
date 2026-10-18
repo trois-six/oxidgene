@@ -9,6 +9,12 @@ pub mod pages;
 pub mod store;
 pub mod thumbnail;
 
+/// The fictitious PDFs the integration tests build, shared with these unit
+/// tests so both exercise the same files.
+#[cfg(test)]
+#[path = "../../tests/common/pdf.rs"]
+pub(crate) mod test_pdf;
+
 use std::path::PathBuf;
 
 use oxidgene_core::error::OxidGeneError;
@@ -122,7 +128,8 @@ pub struct IngestedMedia {
     /// Hex SHA-256 of the bytes — also the `ETag` when serving them.
     pub sha256: String,
     pub file_size: i64,
-    /// Key of the generated thumbnail, absent for formats we cannot rasterise.
+    /// Key of the generated thumbnail, absent when none could be made: a PDF
+    /// that paints no scan on its first page, or a file that failed to decode.
     pub thumbnail_key: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -168,22 +175,44 @@ fn derive_span(input_bytes: usize) -> tracing::Span {
 }
 
 /// [`Derived`] for `bytes` of type `mime_type`. CPU-bound.
-fn derive(mime_type: &'static str, bytes: &[u8]) -> Derived {
-    let page_count = pages::count(mime_type, bytes);
-    let dimensions = thumbnail::dimensions(bytes);
-    let thumb = thumbnail::can_thumbnail(mime_type)
-        .then(|| thumbnail::generate(bytes))
-        .and_then(|generated| {
-            generated
-                .inspect_err(|_| {
-                    tracing::warn!(
-                        error = "thumbnail_generation",
-                        "thumbnail generation failed"
-                    );
-                })
-                .ok()
-        });
-    (page_count, dimensions, thumb)
+fn derive(mime_type: &'static str, bytes: Vec<u8>) -> Derived {
+    if !thumbnail::may_preview(mime_type) {
+        return (pages::count(mime_type, &bytes), None, None);
+    }
+    if oxidgene_core::types::is_pdf_mime(mime_type) {
+        return derive_pdf(bytes);
+    }
+    let thumb = thumbnail::generate(&bytes)
+        .inspect_err(|_| thumbnail_failed("undecodable"))
+        .ok();
+    (
+        pages::count(mime_type, &bytes),
+        thumbnail::dimensions(&bytes),
+        thumb,
+    )
+}
+
+/// [`Derived`] for a PDF, parsed once for its page count and its thumbnail.
+/// It has no pixel size: a document is not a picture.
+fn derive_pdf(bytes: Vec<u8>) -> Derived {
+    let pdf = hayro_syntax::Pdf::new(bytes);
+    let thumb = pdf
+        .as_ref()
+        .map_err(thumbnail::NoPdfThumbnail::from)
+        .and_then(thumbnail::generate_pdf)
+        .inspect_err(|reason| thumbnail_failed(reason.reason()))
+        .ok();
+    (pages::count_pdf(pdf.as_ref().ok()), None, thumb)
+}
+
+/// Log that a file got no thumbnail, saying why in a word and nothing of
+/// what it holds.
+fn thumbnail_failed(reason: &'static str) {
+    tracing::warn!(
+        error = "thumbnail_generation",
+        reason,
+        "thumbnail generation failed"
+    );
 }
 
 /// Validate an uploaded file, store it, and derive its thumbnail and page count.
@@ -224,7 +253,7 @@ pub async fn ingest(
     // Decoding a large scan is seconds of CPU; keep it off the async runtime.
     let span = derive_span(bytes.len());
     let (page_count, dimensions, thumb) =
-        crate::service::blocking::run(span, move || derive(mime_type, &bytes)).await?;
+        crate::service::blocking::run(span, move || derive(mime_type, bytes)).await?;
 
     let thumbnail_key = match thumb {
         Some(thumb) => match store.put(tree_id, thumb.extension, &thumb.bytes).await {
@@ -495,24 +524,61 @@ mod tests {
         assert!(store.exists(&media.storage_key).await);
     }
 
+    fn jpeg(width: u32, height: u32) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::new(width, height))
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        out.into_inner()
+    }
+
     #[tokio::test]
-    async fn a_pdf_is_stored_without_a_thumbnail() {
+    async fn a_scanned_pdf_is_stored_with_its_pages_and_a_thumbnail_of_the_scan() {
+        use test_pdf::{Image, Page, build};
+
         let root = TempRoot::new("pdf");
         let store = FsStore::new(root.0.path());
+        let scan = jpeg(800, 600);
+        let pdf = build(
+            &[
+                Page {
+                    images: vec![Image::jpeg(&scan, 800, 600)],
+                    ..Page::default()
+                },
+                Page::default(),
+            ],
+            "",
+        );
 
-        let media = ingest(
-            &store,
-            Uuid::now_v7(),
-            "act.pdf",
-            b"%PDF-1.4\nnot a real document".to_vec(),
-        )
-        .await
-        .unwrap();
+        let media = ingest(&store, Uuid::now_v7(), "act.pdf", pdf)
+            .await
+            .unwrap();
 
         assert_eq!(media.mime_type, "application/pdf");
-        assert_eq!(media.thumbnail_key, None);
-        assert_eq!(media.width, None);
-        assert_eq!(media.page_count, 1);
+        assert_eq!(media.page_count, 2);
+        assert_eq!(media.width, None, "a document is not a picture");
+        let key = media.thumbnail_key.expect("a scan gets a thumbnail");
+        let thumbnail = store.get(&key).await.unwrap();
+        assert_eq!(thumbnail::dimensions(&thumbnail), Some((400, 300)));
+    }
+
+    #[tokio::test]
+    async fn a_pdf_with_no_scan_or_no_page_is_stored_without_a_thumbnail() {
+        let root = TempRoot::new("pdf-text");
+        let store = FsStore::new(root.0.path());
+
+        for (pdf, pages) in [
+            (test_pdf::text(3), 3),
+            (b"%PDF-1.4\nnot a real document".to_vec(), 1),
+            (test_pdf::locked(), 1),
+        ] {
+            let media = ingest(&store, Uuid::now_v7(), "act.pdf", pdf)
+                .await
+                .unwrap();
+            assert_eq!(media.mime_type, "application/pdf");
+            assert_eq!(media.thumbnail_key, None);
+            assert_eq!(media.page_count, pages);
+        }
     }
 
     #[tokio::test]

@@ -315,9 +315,15 @@ where
     T: 'static,
     F: Future<Output = T> + 'static,
 {
+    use_traced_resource(use_ui_trace(), name, future)
+}
+
+/// The load trace of the page this component sits on, or one of its own
+/// below no page: what a component loading on demand rather than through a
+/// resource files its requests under, with [`UiLoadTrace::resource`].
+pub fn use_ui_trace() -> UiLoadTrace {
     let fallback = use_hook(|| UiLoadTrace::new(UiPage::Component));
-    let trace = try_use_context::<UiLoadTrace>().unwrap_or(fallback);
-    use_traced_resource(trace, name, future)
+    try_use_context::<UiLoadTrace>().unwrap_or(fallback)
 }
 
 pub fn measure_ui<T>(name: &'static str, operation: impl FnOnce() -> T) -> T {

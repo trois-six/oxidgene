@@ -8,24 +8,34 @@
 //!
 //! Counting is header work, not rendering. Nothing here decodes a pixel.
 //!
-//! PDFs are not counted. Reading a page count out of one means walking the
-//! xref table — a naive `/Type /Page` scan miscounts the compressed object
-//! streams every modern writer emits — and the only crate that does it
-//! properly brought a PDF encryption stack, a parser combinator library and
-//! two duplicated hash crates along for a single call. A PDF therefore
-//! reports one page, which is what the code already does for anything it
-//! cannot parse.
+//! A PDF is counted from its page tree, which `hayro-syntax` reads through
+//! the xref table — a naive `/Type /Page` scan miscounts the compressed
+//! object streams every modern writer emits. The same parse also serves the
+//! PDF's thumbnail, so [`count_pdf`] takes the opened document rather than
+//! its bytes.
+
+use hayro_syntax::Pdf;
 
 /// Number of pages in `bytes`, given its MIME type.
 ///
-/// Returns `1` for single-page formats, for PDFs, and for anything
-/// unparseable — a document we cannot count is still a document, and refusing
-/// the upload over a metadata field would be worse than under-reporting it.
+/// Returns `1` for single-page formats and for anything unparseable — a
+/// document we cannot count is still a document, and refusing the upload over
+/// a metadata field would be worse than under-reporting it. PDFs are counted
+/// by [`count_pdf`].
 pub fn count(mime_type: &str, bytes: &[u8]) -> u32 {
     match mime_type {
         "image/tiff" => count_tiff(bytes).unwrap_or(1),
         _ => 1,
     }
+}
+
+/// Number of pages of a PDF, given what opening it gave: `1` when it could
+/// not be opened — one that needs a password included — for the same reason
+/// as [`count`].
+pub fn count_pdf(pdf: Option<&Pdf>) -> u32 {
+    pdf.and_then(|pdf| u32::try_from(pdf.pages().len()).ok())
+        .filter(|pages| *pages > 0)
+        .unwrap_or(1)
 }
 
 /// Walk a TIFF's chain of image file directories.
@@ -203,9 +213,21 @@ mod tests {
         assert_eq!(count("image/tiff", b""), 1);
     }
 
+    fn opened(bytes: Vec<u8>) -> u32 {
+        count_pdf(Pdf::new(bytes).ok().as_ref())
+    }
+
     #[test]
-    fn a_pdf_counts_as_one_page_however_many_it_really_has() {
-        assert_eq!(count("application/pdf", b"%PDF-1.4\ntruncated"), 1);
+    fn a_pdf_counts_the_pages_of_its_page_tree() {
+        assert_eq!(opened(crate::media::test_pdf::text(1)), 1);
+        assert_eq!(opened(crate::media::test_pdf::text(2)), 2);
+        assert_eq!(opened(crate::media::test_pdf::text(40)), 40);
+    }
+
+    #[test]
+    fn a_pdf_that_cannot_be_opened_counts_as_one_page() {
+        assert_eq!(opened(b"%PDF-1.4\ntruncated".to_vec()), 1);
+        assert_eq!(opened(crate::media::test_pdf::locked()), 1);
     }
 
     #[test]

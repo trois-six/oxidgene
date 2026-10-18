@@ -34,7 +34,7 @@ A document added from the person or couple form is written when you save the doc
 
 In the **Media** section of the person form or the couple form, each tile has small buttons (their name shows on hover):
 
-- **Use as profile image** (★): makes the image the person's portrait, shown on their tree card, page and events panel. A PDF cannot be a portrait.
+- **Use as profile image** (★): makes the image the person's portrait, shown on their tree card, page and events panel. A PDF cannot be a portrait, even when its tile shows the scan it holds.
 - **Crop a region** (✂): drag a rectangle on the image to keep only part of it, such as a face on a group photo or one entry on a register page, then click **Save region**. You can say which event the region documents.
 - **Edit** (✎): changes the document's title, description, date, place and other details.
 - **Remove from this record** (🗑): detaches the document from this person or couple after a confirmation. The document itself stays in the tree.
@@ -57,8 +57,9 @@ Back in the viewer, hover a region or its row in the facts column to see its fra
 Click any tile to open the document in the viewer. It fills the window and shows the page with a column of facts beside it.
 
 - **Zoom in**, **Zoom out** and **Fit** size the image; drag it when it overflows.
+- A PDF opens as a document to read: its pages follow one another as you scroll, and you can select and copy its text and follow its links. Type in **Search the document** to find a word: Enter, or the arrows beside the field, move from one match to the next, and the count says which one is shown. **Zoom in**, **Zoom out** and **Fit** (the width of the page) redraw the pages sharply, and the page you are reading is shown with the number of pages. A PDF that cannot be opened offers its download instead. In a gallery, the tile of a PDF shows its first page.
 - A multi-page document has a pager to move between its pages. Each page can have its own transcript, shown with the page number.
-- **Attachments / identifications** lists everyone the document is attached to and everyone identified on the page shown, five at a time. The × at the end of a row removes that link only. A row whose medium cannot be shown as a picture, such as a PDF, shows the person's portrait, or a silhouette when they have none; a couple shows a silhouette.
+- **Attachments / identifications** lists everyone the document is attached to and everyone identified on the page shown, five at a time. The × at the end of a row removes that link only. A row whose medium cannot be shown as a picture, such as a PDF of text, shows the person's portrait, or a silhouette when they have none; a couple shows a silhouette.
 - **Edit** changes the document's details and the page's transcript. **Delete** deletes the document permanently, with its files, after a confirmation.
 - The target icon opens a menu: **Identify a person**, **Attach to a person** and **Attach to a couple**. For a multi-page document it offers to attach the whole document or only the page shown, to a person or a couple. To attach to a couple, search for one of the spouses, then choose the couple. An existing link is never duplicated.
 - **Manage pages** (multi-page documents): **Add pages**, move pages, or delete one page with its transcript and links.

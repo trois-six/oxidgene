@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T10:59:56Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -567,11 +567,25 @@ the editors, so a tile of an archive's view loads a few kilobytes rather than
 the full view; only a tile with none of those falls back to a labelled file
 icon. A
 tile whose file is somebody else's — the document's page, or the tile itself —
-carries the remote badge. A document is offered as a portrait exactly when it
-draws a picture; a PDF is not, and the action is withheld rather than accepted
-and then drawn as a silhouette.
+carries the remote badge. Drawing a picture and being offered as a portrait
+are two tests. A PDF draws the scan its first page paints when the server took
+a thumbnail of it, like any page, but it is never a portrait: the gallery
+bundle's `portrayable` says whether a document's pages are all PDFs, and a page
+tile's own MIME type decides for it. A tile is offered as a portrait when it
+draws a picture and is portrayable — a document with a photograph beside its
+PDF is, and choosing it resolves to the photograph — and otherwise the action
+is withheld rather than accepted and refused.
 
-The square beside an attachment in the viewer follows the same test. A medium that
+A tile with no other picture whose bundle names a `pdf_page` — a PDF we hold
+that the server could not take a thumbnail of, typically one of text — draws
+that PDF's first page itself with pdf.js (see the PDF viewer below), once the
+tile comes within 200 pixels of the viewport, two at a time, for files up to
+32 MiB. The labelled icon shows until it is drawn and stays when it cannot be.
+The picture is a `blob:` image kept per page for the session: nothing is
+uploaded or stored, and it is a display convenience only — it makes the tile
+no more a portrait, and the square beside an attachment never uses it.
+
+The square beside an attachment in the viewer follows the thumbnail test. A medium that
 cannot be drawn is replaced there by the person's portrait when they have one,
 else by the silhouette of their sex, and a couple by the unknown-sex silhouette;
 the portrait is the one the person page shows. See
@@ -620,6 +634,34 @@ overflows, with the caller's overlays — identified regions — over it in
 percentages of the picture. Moving to another page starts it fitted again.
 Archive registers are shown by the archives' own portals
 ([Archive Portals §6](archives.md#6-display)), not here.
+
+A stored PDF opens instead in the **PDF viewer** (`components/pdf_viewer.rs`),
+built on the viewer components of Mozilla's pdf.js (`PDFViewer`, `EventBus`,
+`PDFLinkService`, `PDFFindController`), never on its full viewer application.
+Its pages scroll one under the other; their text can be selected, copied and
+searched; a link within the document moves to its target and a link out of it
+opens apart from the application (on the desktop, in the system's browser);
+zooming redraws the pages rather than magnifying a bitmap. Its control row is
+the stage's (`ZoomControls`, one component for both): **Zoom in**, **Fit** —
+the page width, which it also opens at and keeps when the window is resized —
+and **Zoom out**, from 25 % to 1000 % of the actual size in the stage's steps;
+then the page most in view out of the page count, between the previous and
+next page; then a search field, whose Enter and Shift+Enter and the two
+buttons beside it step to the next and previous match, with the match shown
+out of their count, or that there is none. Every label, and the name each page
+gives assistive technology, goes through the interface's translations. The
+library, its worker, its stylesheet and its JPEG 2000 and JBIG2 decoders load
+on first use from `/pdfjs/` on the application's own origin — the web bundle's
+static files, the desktop's own handler — never with the page and never from
+the network. They run no script of the document, render no XFA form and
+evaluate no code built from the file. The file reaches pdf.js as
+[Cross-cutting §7.1](cross-cutting.md#71-backend-exposure-before-authentication)
+requires: on the desktop as the shell's own path, fetched whole; on the web as
+bytes fetched through the typed client and handed over in chunks. A PDF
+pdf.js cannot open keeps the fallback panel, saying so and offering the
+download; so do a PDF held only as somebody else's address, which is never
+fetched, and every format neither the stage nor a player draws. Identification
+and cropping are not offered on a PDF.
 
 The viewer and the edit panel describe the **page** on screen, not the document
 above it: its format, dimensions, size, and whether the file is stored, remote,

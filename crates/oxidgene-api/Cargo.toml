@@ -62,6 +62,9 @@ image = { workspace = true }
 # A vignette of a JPEG too large to decode whole is cut from a reduced-scale
 # decode, which `image` does not offer (see `media::thumbnail::crop`).
 jpeg-decoder = { workspace = true }
+# Counts a PDF's pages and finds the scan its first page paints, for the
+# thumbnail (see `media::pages` and `media::thumbnail`).
+hayro-syntax = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 object_store = { workspace = true, optional = true }

@@ -154,7 +154,7 @@ async fn plan_reads(
             ImageSource::Crop { vignette_id } => {
                 let vignette = vignettes.get(vignette_id)?;
                 let medium = media.get(&vignette.media_id)?;
-                if !crate::media::thumbnail::can_thumbnail(&medium.mime_type)
+                if !crate::media::thumbnail::can_crop(&medium.mime_type)
                     || medium.storage_key.is_none()
                 {
                     return None;

@@ -362,7 +362,14 @@ pub(crate) fn MediaStage(
 
     rsx! {
         if is_picture {
-            ZoomControls { level: (zoom.level)(), fitted: (zoom.fitted)().is_some(), fit, apply_zoom, {controls} }
+            ZoomControls {
+                can_zoom_in: (zoom.fitted)().is_some() && (zoom.level)().is_none_or(|z| z < MAX_ZOOM),
+                can_zoom_out: (zoom.fitted)().is_some() && (zoom.level)().is_none_or(|z| z > MIN_ZOOM),
+                on_zoom_in: move |()| apply_zoom.call((zoom_in((zoom.level)()), ZoomAnchor::Center)),
+                on_fit: move |()| fit.call(()),
+                on_zoom_out: move |()| apply_zoom.call((zoom_out((zoom.level)()), ZoomAnchor::Center)),
+                {controls}
+            }
         }
         {children}
         div {
@@ -413,16 +420,17 @@ pub(crate) fn MediaStage(
     }
 }
 
-/// Zoom belongs to pictures alone: a video and an audio track have their own
-/// controls, and a fallback has nothing to magnify. These use the tree
-/// sidebar's visual language so they remain compact beside a large scan;
-/// `children` follow them.
+/// The viewer's zoom buttons — in, fit, out — then `children`. One row for
+/// every document the viewer draws: a picture on the stage and a PDF zoom
+/// alike, each saying what a step means for it. They use the tree sidebar's
+/// visual language so they remain compact beside a large scan.
 #[component]
-fn ZoomControls(
-    level: Option<u32>,
-    fitted: bool,
-    fit: Callback<()>,
-    apply_zoom: Callback<(u32, ZoomAnchor)>,
+pub(crate) fn ZoomControls(
+    can_zoom_in: bool,
+    can_zoom_out: bool,
+    on_zoom_in: EventHandler<()>,
+    on_fit: EventHandler<()>,
+    on_zoom_out: EventHandler<()>,
     children: Element,
 ) -> Element {
     let i18n = use_i18n();
@@ -432,8 +440,8 @@ fn ZoomControls(
                 class: "isb-btn",
                 r#type: "button",
                 title: i18n.t("media.zoom_in"),
-                disabled: !fitted || level.is_some_and(|z| z >= MAX_ZOOM),
-                onclick: move |_| apply_zoom.call((zoom_in(level), ZoomAnchor::Center)),
+                disabled: !can_zoom_in,
+                onclick: move |_| on_zoom_in.call(()),
                 svg {
                     width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
                     stroke: "currentColor", "strokeWidth": "2",
@@ -447,7 +455,7 @@ fn ZoomControls(
                 class: "isb-btn",
                 r#type: "button",
                 title: i18n.t("media.zoom_fit"),
-                onclick: move |_| fit.call(()),
+                onclick: move |_| on_fit.call(()),
                 svg {
                     width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
                     stroke: "currentColor", "strokeWidth": "2",
@@ -461,8 +469,8 @@ fn ZoomControls(
                 class: "isb-btn",
                 r#type: "button",
                 title: i18n.t("media.zoom_out"),
-                disabled: !fitted || level.is_some_and(|z| z <= MIN_ZOOM),
-                onclick: move |_| apply_zoom.call((zoom_out(level), ZoomAnchor::Center)),
+                disabled: !can_zoom_out,
+                onclick: move |_| on_zoom_out.call(()),
                 svg {
                     width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
                     stroke: "currentColor", "strokeWidth": "2",

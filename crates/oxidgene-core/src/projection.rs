@@ -40,7 +40,11 @@ use crate::types::PortraitRef;
 /// 5: the search rows are folded with `search::fold_words` — every script
 /// unaccented, `æ` as `ae`, `ß` as `ss`, punctuation as a word break — so
 /// every tree's rows are rebuilt to meet queries folded the same way.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 6;
+///
+/// 7: the primary media is a page that can represent somebody
+/// (`Media::can_portray`): a picture we hold or a remote one, never a PDF,
+/// as the portrait endpoints already decided.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 7;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 

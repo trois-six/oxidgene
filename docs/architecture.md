@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:16:38Z }
 ---
 
 
@@ -28,6 +28,8 @@ generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
 | Desktop database | SQLite | 3.35+ | Embedded in desktop binary |
 | GEDCOM | [oxidged](https://github.com/trois-six/oxidged) | 0.3 | Lenient lossless reading of any file (any encoding, extensions, misplaced structures kept), conformant writing of GEDCOM 5.5.1, 7.0 and 7.1, date grammars and calendars, GEDZIP |
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.6, ported to `oxidged` | Read only, incl. `gwplus`; converts to the same `oxidged` model, so one domain mapping serves both formats |
+| PDF reading | [hayro-syntax](https://github.com/LaurenzV/hayro) | 0.8 | Parser only, pure Rust (Apache-2.0 OR MIT): a PDF's page count and the scan its first page paints, with its CCITT, JBIG2 and JPEG 2000 decoders. Not the `hayro` renderer; see **Media ingest** (§4) |
+| PDF viewing | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`) | 6.4, legacy build | Vendored files, not a Cargo dependency (Apache-2.0; its JPEG 2000 and JBIG2 wasm decoders BSD); see **PDF viewer** (§4) |
 | Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |
@@ -88,6 +90,10 @@ For full entity definitions, see [Data Model](data-model.md).
     browser frontend, and the desktop application. There is no CLI.
 
 API endpoints are documented in [API Contract](api.md).
+
+**Media ingest.** An upload is identified by its magic bytes, stored under its content hash, then derived on a blocking thread (`oxidgene-api::media::ingest`): its page count, its pixel size and a thumbnail. A raster image is decoded and scaled by `image`. A PDF is parsed once by `hayro-syntax` for its page count and for the largest image its first page paints, which becomes the thumbnail: a JPEG as stored, a CCITT fax, JBIG2 or JPEG 2000 image decoded, each refused before decoding when its declared size exceeds the decode ceiling. OxidGene ships no PDF renderer — `hayro`, `pdfium` and MuPDF were weighed against their binary size and native dependencies — so a text or vector PDF gets no thumbnail from the server, and drawing and viewing a PDF is the frontend's work (**PDF viewer** below). A thumbnail that cannot be made costs an icon, never the upload. Crops are cut from raster originals only ([API Contract](api.md), Media).
+
+**PDF viewer.** The PDF viewer draws with Mozilla pdf.js (`pdfjs-dist`, Apache-2.0; JPEG 2000 and JBIG2 decoders under BSD licences), vendored as files rather than a Cargo dependency: the legacy build's library, worker, viewer components, stylesheet and two wasm decoders in `assets/public/pdfjs/` (about 2.9 MB, 0.67 MB brotli). The web bundle serves them as static files (`public_dir`), and the desktop brotli-compresses them into its binary at build time and serves them from an asset handler at the same `/pdfjs/` path. They are loaded on first use only, never from the network. `oxidgene-ui` drives them through `document::eval` (`components/pdf_viewer.js`) and keeps no JS or web-sys dependency, so it still compiles to WASM. `scripts/pdfjs.sh` (`just pdfjs`) updates them against the npm integrity, and a guard keeps them one release of the legacy build. The same library draws, client-side, the gallery preview of a PDF the server could not thumbnail.
 
 **Database connections.** A SQLite database opens in write-ahead-log mode and
 has a single writer: one pooled connection, SeaORM's default, through which

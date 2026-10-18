@@ -30,8 +30,10 @@ pub struct Media {
     pub storage_key: Option<String>,
     /// Hex SHA-256 of the stored bytes. Doubles as the `ETag`.
     pub sha256: Option<String>,
-    /// Key of the generated thumbnail. `None` for formats we cannot rasterise
-    /// (PDFs) and for records with no bytes.
+    /// Key of the generated thumbnail. For a PDF, a thumbnail of the scan its
+    /// first page paints. `None` for records with no bytes, for a PDF whose
+    /// first page paints no image we can decode, and wherever generation
+    /// failed.
     pub thumbnail_key: Option<String>,
     /// For a page held only as a URL, the address of a small picture of it
     /// that its server also serves — an archive's thumbnail of a view. Gallery
@@ -114,6 +116,29 @@ impl Media {
     #[must_use]
     pub fn is_document(&self) -> bool {
         self.parent_media_id.is_none()
+    }
+
+    /// Whether this page can represent somebody: a picture we have
+    /// rasterised, or a remote one we recorded, and never a PDF, whatever
+    /// thumbnail of its scan it carries. The fallback portrait query of the
+    /// database (`PersonRepo::list_portraits_matching`) applies the same rule.
+    #[must_use]
+    pub fn can_portray(&self) -> bool {
+        !is_pdf_mime(&self.mime_type)
+            && (self.thumbnail_key.is_some() || is_remote_url(&self.file_path))
+    }
+
+    /// Whether this medium is a PDF as far as portraits go: a PDF page, or a
+    /// document all of whose `pages` are PDFs. A document with another page
+    /// is not — choosing it resolves to that page — and neither is one with
+    /// no page at all. `pages` are ignored for a page.
+    #[must_use]
+    pub fn is_pdf_only(&self, pages: &[Media]) -> bool {
+        if self.is_document() {
+            !pages.is_empty() && pages.iter().all(|page| is_pdf_mime(&page.mime_type))
+        } else {
+            is_pdf_mime(&self.mime_type)
+        }
     }
 
     /// What the media is called: its title, or its file name without one.
@@ -335,6 +360,19 @@ pub struct PortraitRef {
     pub crop: Option<ImageCrop>,
 }
 
+/// The MIME type of a PDF.
+pub const PDF_MIME: &str = "application/pdf";
+
+/// Whether a MIME type names a PDF, whatever its case.
+///
+/// A PDF may carry a thumbnail of the scan its first page paints, but it is a
+/// document, never a picture: it is not cropped and never represents
+/// somebody.
+#[must_use]
+pub fn is_pdf_mime(mime_type: &str) -> bool {
+    mime_type.trim().eq_ignore_ascii_case(PDF_MIME)
+}
+
 /// Whether a MIME type names a picture an `<img>` can draw.
 #[must_use]
 pub fn is_image_mime(mime_type: &str) -> bool {
@@ -510,6 +548,21 @@ mod crop_tests {
     }
 
     const URL: &str = "https://archives.example.org/group/7.jpg";
+
+    #[test]
+    fn a_document_is_a_pdf_only_when_every_page_is_one() {
+        let pdf = page("acte.pdf", PDF_MIME);
+        let photo = page("photo.jpg", "image/jpeg");
+        assert!(pdf.is_pdf_only(&[]));
+        assert!(!photo.is_pdf_only(&[]));
+        let mut document = page("", DOCUMENT_MIME);
+        document.parent_media_id = None;
+        assert!(document.is_pdf_only(&[pdf.clone(), pdf.clone()]));
+        // Beside a photograph it resolves to the photograph.
+        assert!(!document.is_pdf_only(&[pdf, photo]));
+        // An empty document is no PDF.
+        assert!(!document.is_pdf_only(&[]));
+    }
 
     #[test]
     fn a_tile_draws_a_remote_page_from_its_thumbnail_address() {
@@ -688,5 +741,13 @@ mod mime_tests {
         assert!(!may_draw_as_image("application/pdf"));
         assert!(!may_draw_as_image("video/mp4"));
         assert!(!may_draw_as_image(DOCUMENT_MIME));
+    }
+
+    #[test]
+    fn a_pdf_is_recognised_whatever_its_case() {
+        assert!(is_pdf_mime(PDF_MIME));
+        assert!(is_pdf_mime(" Application/PDF "));
+        assert!(!is_pdf_mime("image/jpeg"));
+        assert!(!is_pdf_mime(DOCUMENT_MIME));
     }
 }

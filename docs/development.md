@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-18T10:59:56Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
 ---
 
 # Development Environment and Workflows
@@ -301,13 +301,41 @@ INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal, Destatis,
 ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau, the DGT CAOP, CBS
 and the Wikidata query service.
 
+**pdf.js.** The PDF viewer draws with Mozilla's pdf.js (`pdfjs-dist`,
+Apache-2.0), vendored in `assets/public/pdfjs/` and committed: the directory is
+the web bundle's static files (`public_dir` of `apps/oxidgene-web/Dioxus.toml`,
+served by nginx under `/pdfjs/`) and is compressed with Brotli into the
+desktop binary by its build script, which serves it at the same path. It holds
+the legacy build's library, worker and viewer components — the modern build
+requires what only the latest Chrome and Firefox implement, and the desktop
+draws in WebKitGTK, WKWebView and WebView2 — the viewer's stylesheet and its
+loading picture, the JPEG 2000 and JBIG2 decoders scans need, and the
+licences. Neither the standard fonts nor the CMaps are vendored: a PDF whose
+fonts are not embedded is drawn with the system's, and CJK text without
+embedded CMaps may not draw. `VERSION` records the release and its archive's
+integrity.
+
+| Command | Purpose |
+|---------|---------|
+| `just pdfjs VERSION INTEGRITY` | Download `pdfjs-dist` VERSION from the npm registry, check the archive against INTEGRITY — the `sha512-…` the registry lists (`npm view pdfjs-dist@VERSION dist.integrity`) — and replace `assets/public/pdfjs/` with its files. Commit the result. |
+
+pdf.js runs in the application's origin, which reads every tree, on files
+users supplied, so its security releases are taken as soon as they are
+published (CVE-2024-4367 was code execution through a font). Renovate
+proposes each release by bumping `VERSION` alone; the vendored pdf.js guard
+then fails until `just pdfjs` is run on that branch with the new release's
+integrity. Watch the
+[pdf.js security advisories](https://github.com/mozilla/pdf.js/security) too:
+an advisory may come before the bot's pull request, which waits a week. After
+an update, open a text PDF and a scanned PDF on the web and the desktop.
+
 ### 2.7 Test Categories
 
 | Category | What | Command | CI job | Gates `CI` |
 |----------|------|---------|--------|------------|
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
 | Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database, repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
-| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs`, and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
+| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
@@ -500,6 +528,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
+| Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` is one release of pdf.js's legacy build, the one its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |

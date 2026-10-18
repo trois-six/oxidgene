@@ -12,6 +12,7 @@
 )]
 
 pub mod capture;
+pub mod pdf;
 pub mod populated;
 
 use axum::Router;

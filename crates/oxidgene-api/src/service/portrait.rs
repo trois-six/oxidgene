@@ -10,7 +10,7 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{ImageCrop, ImageSource, Person, Portrait, PortraitRef, is_remote_url};
-use oxidgene_db::repo::{PersonRepo, PortraitRow};
+use oxidgene_db::repo::{MediaRepo, PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -49,7 +49,8 @@ impl PortraitChoice {
 }
 
 /// Choose what represents person `person_id` of `tree_id`: a whole media, a
-/// region of one, or nothing. Every record named must belong to the tree.
+/// region of one, or nothing. Every record named must belong to the tree,
+/// and a PDF is refused ([`refuse_a_pdf`]).
 pub async fn set_person_portrait(
     db: &DatabaseConnection,
     profiles: &ProfileService,
@@ -68,6 +69,9 @@ pub async fn set_person_portrait(
             require_tree_resource(&txn, tree_id, resource, id).await?;
         }
     }
+    if let Some(media_id) = choice.media_id {
+        refuse_a_pdf(&txn, media_id).await?;
+    }
     // A portrait is media, never versioned; the person is the subject.
     let pending = Change::update(tree_id, AuditEntity::Portrait, person_id)
         .person(person_id)
@@ -80,6 +84,30 @@ pub async fn set_person_portrait(
     pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(person)
+}
+
+/// Refuse `media_id` as a portrait when it is a PDF: a PDF page, or a
+/// document all of whose pages are PDFs.
+///
+/// A PDF may carry a thumbnail of the scan it holds, but it is a record, not
+/// a picture of somebody. A document with a photograph among its pages stays
+/// eligible: choosing it resolves to that photograph.
+async fn refuse_a_pdf(
+    txn: &impl sea_orm::ConnectionTrait,
+    media_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    let media = MediaRepo::get(txn, media_id).await?;
+    let pages = if media.is_document() {
+        MediaRepo::list_pages(txn, media_id).await?
+    } else {
+        Vec::new()
+    };
+    if media.is_pdf_only(&pages) {
+        return Err(OxidGeneError::Validation(
+            "a PDF cannot be a portrait".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Where one person's portrait comes from.

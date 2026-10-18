@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T10:56:52Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
 ---
 
 
@@ -513,8 +513,8 @@ focus, and a politely announced range. The two relation types keep
 their distinct semantics: each attachment is a compact row with a `36 × 28 px` whole-image
 thumbnail, an ellipsized person or couple label, a **Document** or **Page N**
 scope badge on multi-page documents, and a trailing remove control that deletes
-only that link. When the medium shown cannot be drawn as a picture (a PDF, a
-file nobody holds, a remote page with no address), a person's thumbnail is their
+only that link. When the medium shown cannot be drawn as a picture (a PDF the
+server took no thumbnail of, a file nobody holds, a remote page with no address), a person's thumbnail is their
 portrait when they have one and otherwise the silhouette of their sex; a couple's
 is the unknown-sex silhouette. The medium's own thumbnail is kept whenever it can
 be drawn, which is the same test that decides a gallery tile's picture. An
@@ -560,6 +560,20 @@ appear empty.
 Identification regions remain aligned over the fitted or zoomed image;
 hovering either a region on the image or its identification row in the facts
 column reveals its frame and person label.
+
+A stored PDF opens in the PDF viewer in the image's place
+([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)):
+its pages one under the other in continuous scroll, with selectable and
+copyable text and working links. Its control row keeps the zoom controls'
+place and look — **Zoom in**, **Fit** (the page width) and **Zoom out** — and
+adds the page in view out of the PDF's page count between previous and next
+page buttons, and a search field with previous and next match buttons and the
+match count. The target icon and its identification and attachment menu are
+not shown over a PDF. While the file opens the viewer says so; a PDF that
+cannot be opened gets the fallback panel with a message saying so and the
+download. The facts column, its relations and the footer's downloads are the
+same as for any page, and a document's own pager still moves between its
+pages, each PDF page opening at its first page fitted.
 
 The viewer footer provides **Download file** for every stored file type,
 including images, PDFs, audio, video, and unknown formats. Availability comes

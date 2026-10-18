@@ -4738,8 +4738,8 @@ pub const LAYOUT_STYLES: &str = r#"
         height: 100%;
     }
 
-    /* What a PDF gets instead of a thumbnail — the server could not
-       rasterise it, so the file type is the picture. */
+    /* What a file with no picture to draw gets instead — the file type is
+       the picture; a PDF shows it until its first page is drawn. */
     .media-kind {
         font-family: var(--font-heading);
         font-size: var(--text-80);
@@ -5645,6 +5645,77 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
         font-size: var(--text-85);
     }
+
+    /* A PDF in the viewer, in the stage's place: the stage's zoom row,
+       then the pages pdf.js lays out one under the other in a scrolling box
+       it requires absolutely positioned. */
+    .pdf-viewer {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .pdf-viewer-frame {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        margin-top: var(--space-3);
+        background: var(--bg-deep);
+    }
+
+    .pdf-viewer-scroll {
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+    }
+
+    /* pdf.js lays its pages out in the engine's default box model. Under the
+       application's border-box, a page's border would squeeze its drawing
+       inside it, and the text layer — what is selected and what a search
+       highlights — would no longer lie over the text. */
+    .pdf-viewer-scroll *,
+    .pdf-viewer-scroll *::before,
+    .pdf-viewer-scroll *::after { box-sizing: content-box; }
+
+    .pdf-viewer-status {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: var(--text-85);
+        pointer-events: none;
+    }
+
+    .pdf-viewer-pages,
+    .pdf-viewer-search {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-left: var(--space-4);
+    }
+
+    /* Compact beside the zoom buttons, where a full-width field would push
+       the controls onto a row of their own. */
+    .pdf-viewer-search .media-pager-count { white-space: nowrap; }
+
+    .pdf-viewer-search .pdf-viewer-search-input {
+        width: min(220px, 40vw);
+        padding: var(--space-2) var(--space-4);
+        font-size: var(--text-80);
+    }
+
+    /* Page 1 of a PDF, drawn in a tile until or unless the server has a
+       thumbnail: its top, where a title or a heading is, rather than its
+       middle. */
+    .pdf-preview {
+        width: 100%;
+        height: 100%;
+    }
+
+    .media-thumb .pdf-preview img { object-position: top center; }
 
     .media-viewer-path {
         font-family: var(--font-sans);

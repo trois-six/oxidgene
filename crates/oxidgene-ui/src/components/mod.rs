@@ -25,6 +25,7 @@ pub mod modal;
 pub mod paged_list;
 pub mod pager;
 pub mod parent_suggestions;
+pub mod pdf_viewer;
 pub mod pedigree_chart;
 pub mod pedigree_theme;
 pub mod pedigree_view;

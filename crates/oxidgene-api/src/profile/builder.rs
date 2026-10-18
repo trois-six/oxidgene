@@ -215,10 +215,11 @@ impl IndexedData {
     }
 }
 
-/// The first page of each document among `media`, by the document's id.
+/// The first page of each document among `media` that can represent
+/// somebody ([`Media::can_portray`]), by the document's id.
 fn first_pages(media: &[Media]) -> HashMap<Uuid, Uuid> {
     let mut first: HashMap<Uuid, &Media> = HashMap::new();
-    for page in media {
+    for page in media.iter().filter(|page| page.can_portray()) {
         let Some(document_id) = page.parent_media_id else {
             continue;
         };
@@ -336,7 +337,7 @@ fn drawable_media<'a>(idx: &'a IndexedData, media: &'a Media) -> Option<&'a Medi
             .first_page_by_document
             .get(&media.id)
             .and_then(|page| idx.media_by_id.get(page)),
-        Some(_) => Some(media),
+        Some(_) => media.can_portray().then_some(media),
     }
 }
 

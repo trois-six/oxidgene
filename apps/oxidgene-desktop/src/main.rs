@@ -60,6 +60,7 @@ mod geneanet;
 mod languages;
 mod mcp;
 mod media_assets;
+mod pdfjs_assets;
 mod printing;
 mod themes;
 

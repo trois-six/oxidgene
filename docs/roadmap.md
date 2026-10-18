@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-17T16:18:10Z }
+generated: { by: human:maintainer, at: 2026-10-18T11:35:22Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -49,8 +49,12 @@ generated: { by: human:maintainer, at: 2026-10-17T16:18:10Z }
   server-side filters on name, file type, category, linked person, linked
   event years, and date added.
 - [ ] Exercise migrations and media workflows against PostgreSQL in CI.
-- [ ] Decide whether PDF page rendering justifies a native rasterizer and its
-  cross-platform binary cost.
+- [x] Decide how PDFs are drawn without a native rasterizer and its
+  cross-platform binary cost: the server reads them with the `hayro-syntax`
+  parser alone, for a real page count and a thumbnail of the scan page 1
+  paints ([API](api.md), Media).
+- [ ] View PDFs in the UI with pdf.js, which also draws a preview of a PDF the
+  server could not thumbnail (a text or vector page).
 - [ ] Prefer an event-linked vignette over the whole media as its illustration.
 - [ ] Add per-media progress and cancellation to the final Geneanet write pass.
 - [ ] Test large media libraries and close media-specific error-state gaps.

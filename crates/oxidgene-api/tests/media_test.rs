@@ -187,6 +187,26 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     out.into_inner()
 }
 
+/// A fictitious two-page scanned PDF: page 1 paints an 800 × 600 JPEG,
+/// page 2 is blank.
+fn scanned_pdf() -> Vec<u8> {
+    let mut jpeg = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image::RgbImage::new(800, 600))
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    let jpeg = jpeg.into_inner();
+    common::pdf::build(
+        &[
+            common::pdf::Page {
+                images: vec![common::pdf::Image::jpeg(&jpeg, 800, 600)],
+                ..common::pdf::Page::default()
+            },
+            common::pdf::Page::default(),
+        ],
+        "",
+    )
+}
+
 /// Exercise the URL capability and its HTTP representation with the same inputs.
 async fn download_access(
     h: &Harness,
@@ -861,16 +881,48 @@ async fn the_thumbnail_is_a_smaller_decodable_image() {
 }
 
 #[tokio::test]
-async fn a_pdf_has_no_thumbnail_to_serve() {
+async fn a_scanned_pdf_serves_a_thumbnail_of_its_scan_and_counts_its_pages() {
     let h = setup().await;
     let (status, media) = upload(
         &h.app,
         h.tree_id,
-        &[("file", Some("acte.pdf"), b"%PDF-1.4\nnot a real document\n")],
+        &[("file", Some("acte.pdf"), &scanned_pdf())],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{media}");
+    assert_eq!(media["mime_type"], "application/pdf");
+    assert_eq!(media["page_count"], 2, "{media}");
+    assert!(media["thumbnail_key"].is_string(), "{media}");
+    assert!(
+        media["width"].is_null(),
+        "a document is not a picture: {media}"
+    );
+    let id = media["id"].as_str().unwrap();
+
+    let (status, headers, bytes) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/media/{id}/thumbnail", h.tree_id),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
+    let thumb = image::load_from_memory(&bytes).expect("thumbnail decodes");
+    assert_eq!((thumb.width(), thumb.height()), (400, 300));
+}
+
+#[tokio::test]
+async fn a_pdf_with_no_scan_has_no_thumbnail_to_serve() {
+    let h = setup().await;
+    let (status, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("acte.pdf"), &common::pdf::text(3))],
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{media}");
     assert!(media["thumbnail_key"].is_null());
+    assert_eq!(media["page_count"], 3, "{media}");
     let id = media["id"].as_str().unwrap();
 
     let (status, _, _) = raw(
@@ -1203,9 +1255,13 @@ async fn a_pdf_cannot_be_cropped() {
     let (_, media) = upload(
         &h.app,
         h.tree_id,
-        &[("file", Some("acte.pdf"), b"%PDF-1.4\nnot a real document\n")],
+        &[("file", Some("acte.pdf"), &scanned_pdf())],
     )
     .await;
+    assert!(
+        media["thumbnail_key"].is_string(),
+        "even with a thumbnail: {media}"
+    );
     let media_id = media["id"].as_str().unwrap();
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
@@ -1219,11 +1275,7 @@ async fn a_pdf_cannot_be_cropped() {
     let id = vignette["id"].as_str().unwrap();
 
     let (status, _, _) = raw(&h.app, &format!("{base}/vignettes/{id}/image"), &[]).await;
-    assert_eq!(
-        status,
-        StatusCode::BAD_REQUEST,
-        "rasterising a PDF needs a renderer we do not ship"
-    );
+    assert_eq!(status, StatusCode::BAD_REQUEST, "crops are raster-only");
 }
 
 // ── Tree purge ──────────────────────────────────────────────────────
@@ -1445,6 +1497,190 @@ async fn choosing_a_portrait_replaces_the_previous_one() {
     // What comes back is where the pixels are: a document holds none, so
     // reporting it would hand a card an id whose file does not exist.
     assert_eq!(rows[0]["media_id"], second_page.as_str(), "{portraits}");
+}
+
+/// Upload a scanned PDF and attach it to `person_id`; returns (document id,
+/// page id).
+async fn attach_pdf(h: &Harness, person_id: &str) -> (String, String) {
+    let (_, media) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("acte.pdf"), &scanned_pdf())],
+    )
+    .await;
+    assert!(media["thumbnail_key"].is_string(), "{media}");
+    let document_id = document_of(&media);
+    let (status, link) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media-links", h.tree_id),
+        Some(json!({"media_id": document_id, "person_id": person_id, "sort_order": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{link}");
+    (document_id, media["id"].as_str().unwrap().to_string())
+}
+
+/// A PDF is never a portrait, even with a thumbnail; the GraphQL twin is in
+/// `graphql_test.rs`.
+#[tokio::test]
+async fn a_pdf_is_refused_as_a_portrait() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (document_id, page_id) = attach_pdf(&h, &person_id).await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    for media_id in [&document_id, &page_id] {
+        let (status, body) = send(
+            &h.app,
+            Method::PUT,
+            &format!("{base}/persons/{person_id}/portrait"),
+            Some(json!({"media_id": media_id})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    // Beside a photograph the document stays a portrait, drawn from the
+    // photograph.
+    let photo = add_page(&h, &document_id, "photo.png").await;
+    let (status, body) = send(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({"media_id": document_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    assert_eq!(portraits[0]["media_id"], photo.as_str(), "{portraits}");
+}
+
+#[tokio::test]
+async fn a_person_whose_only_medium_is_a_pdf_has_no_default_portrait() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    attach_pdf(&h, &person_id).await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    assert_eq!(portraits, json!([]), "{portraits}");
+    let (status, images) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/portrait-images"),
+        Some(json!({"person_ids": [person_id]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{images}");
+    assert_eq!(images, json!([]), "{images}");
+    // The projection's primary media follows the same rule.
+    let (status, profile) = send(
+        &h.app,
+        Method::GET,
+        &format!("{base}/profiles/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{profile}");
+    assert!(profile["primary_media"].is_null(), "{profile}");
+}
+
+/// A PDF's thumbnail previews its document like any page's, and the tile
+/// says apart whether it may be a portrait; the GraphQL twin is in
+/// `graphql_test.rs`.
+#[tokio::test]
+async fn a_pdf_document_draws_its_thumbnail_but_is_no_portrait() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (pdf_only, pdf_page) = attach_pdf(&h, &person_id).await;
+    let (mixed, mixed_pdf) = attach_pdf(&h, &person_id).await;
+    let photo = add_page(&h, &mixed, "photo.png").await;
+    let (status, text) = upload(
+        &h.app,
+        h.tree_id,
+        &[(
+            "file",
+            Some("letter.pdf"),
+            &common::pdf::build(
+                &[common::pdf::Page {
+                    text: true,
+                    ..common::pdf::Page::default()
+                }],
+                "",
+            ),
+        )],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{text}");
+    assert!(text["thumbnail_key"].is_null(), "{text}");
+    let (text_document, text_page) = (document_of(&text), text["id"].as_str().unwrap().to_string());
+
+    let (status, bundle) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [pdf_only, mixed, pdf_page, text_document], "vignette_ids": []})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    let item = |id: &str| {
+        bundle["media"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["media_id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{id} missing from {bundle}"))
+    };
+    // Drawn, never offered as a portrait, which a PDF never is.
+    assert_eq!(
+        item(&pdf_only)["document_previews"],
+        json!([{ "kind": "thumbnail", "media_id": pdf_page }]),
+        "{bundle}"
+    );
+    assert_eq!(item(&pdf_only)["portrayable"], json!(false), "{bundle}");
+    assert!(item(&pdf_only)["pdf_page"].is_null(), "{bundle}");
+    // Beside a photograph it is a portrait: choosing it resolves to that.
+    assert_eq!(
+        item(&mixed)["document_previews"],
+        json!([
+            { "kind": "thumbnail", "media_id": mixed_pdf },
+            { "kind": "thumbnail", "media_id": photo },
+        ]),
+        "{bundle}"
+    );
+    assert_eq!(item(&mixed)["portrayable"], json!(true), "{bundle}");
+    // The PDF page itself still serves its thumbnail.
+    assert_eq!(
+        item(&pdf_page)["source"],
+        json!({ "kind": "thumbnail", "media_id": pdf_page }),
+        "{bundle}"
+    );
+    assert_eq!(item(&pdf_page)["portrayable"], json!(false), "{bundle}");
+    // A PDF of text has no thumbnail: its page is named for the client to
+    // draw itself.
+    assert_eq!(
+        item(&text_document)["document_previews"],
+        json!([]),
+        "{bundle}"
+    );
+    assert_eq!(
+        item(&text_document)["pdf_page"]["media_id"],
+        json!(text_page),
+        "{bundle}"
+    );
+    assert!(
+        item(&text_document)["pdf_page"]["file_size"]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(
+        item(&text_document)["portrayable"],
+        json!(false),
+        "{bundle}"
+    );
 }
 
 /// A portrait names a person, a media and a crop of the tree it is set in;

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-10-15T19:12:05Z }
+generated: { by: human:maintainer, at: 2026-10-18T12:02:41Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -648,8 +648,12 @@ must never be exposed directly to an untrusted network:
   (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), with
   `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`. The
   API adds the last three to every response, and
-  `default-src 'none'; frame-ancestors 'none'` to JSON. The desktop window
-  loads no plugin and honours no `<base>`;
+  `default-src 'none'; frame-ancestors 'none'` to JSON. The PDF viewer's
+  pdf.js needs nothing more: its modules and its module worker are scripts of
+  the frontend's own origin (`worker-src` falls back to `script-src`), its
+  WebAssembly decoders compile under `'wasm-unsafe-eval'` and are fetched
+  from that origin, and its gallery previews are `blob:` images. The desktop
+  window loads no plugin and honours no `<base>`;
 - stored files are served with `X-Content-Type-Options: nosniff` and, except
   for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
   of the origin that serves it; the type of a held file is the one sniffed from
@@ -660,7 +664,10 @@ must never be exposed directly to an untrusted network:
   build, the GraphiQL page, neither of which holds tree data;
 - media, thumbnails, crops, archives, and exports are fetched through the
   typed client, then exposed to the rendering engine as local `data:` or
-  `blob:` resources or written through a platform save dialog;
+  `blob:` resources or written through a platform save dialog. A script of
+  the page that reads a file rather than drawing it — the PDF viewer's
+  pdf.js — receives the bytes themselves, base64-encoded in chunks over the
+  script channel, never an address;
 - a shell that answers on an origin of its own may serve them from it instead —
   the desktop build registers a handler under `/oxidgene-media/…` and proxies
   it onto the embedded server. That is the application's own address, not the
@@ -669,7 +676,10 @@ must never be exposed directly to an untrusted network:
   already let in. The handler forwards, with the launch token, only the paths
   its image host builds — a medium's thumbnail or file, a vignette's image —
   and answers `404` to anything else, and note bodies keep no image and no
-  relative URL that could point at it (§7). It is preferred where available, because the engine can then
+  relative URL that could point at it (§7). The PDF viewer's pdf.js fetches
+  a PDF there too, a path of the same handler. A second handler,
+  `/pdfjs/…`, serves pdf.js itself from the binary and nothing of the
+  backend's. The media handler is preferred where available, because the engine can then
   cache, lazily load and decode pictures the way it does for any other image —
   see [API §Image sources](api.md).
 

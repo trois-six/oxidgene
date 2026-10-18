@@ -1,6 +1,9 @@
 [application]
 name = "oxidgene-web"
 default_platform = "web"
+# Files served as they are, at the bundle's root: pdf.js under /pdfjs/,
+# which the desktop serves from its binary at the same path.
+public_dir = "../../assets/public"
 
 [web.app]
 title = "OxidGene"

@@ -15,6 +15,11 @@ workspace = true
 default = ["telemetry"]
 telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telemetry-context", "oxidgene-ui/telemetry-client"]
 
+# pdf.js, compressed into the binary by the build script (build.rs) and
+# decompressed as the window asks for a file (src/pdfjs_assets.rs).
+[build-dependencies]
+brotli = { workspace = true }
+
 # Embed the .ico as a Windows resource (IDI_APPLICATION / 32512) so that
 # Explorer shows the OxidGene icon and Dioxus's default_icon() picks it up,
 # with the version information code signing checks (build.rs).
@@ -53,6 +58,7 @@ oxidgene-archives = { workspace = true }
 serde = { workspace = true }
 # The window hands media over base64-encoded; they are written as bytes.
 base64 = { workspace = true }
+brotli-decompressor = { workspace = true }
 # The Geneanet login window reports back across the event loop boundary.
 futures-channel = "0.3"
 dioxus = { workspace = true, features = ["desktop", "router"] }
