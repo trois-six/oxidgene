@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-18T09:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T10:59:56Z }
 ---
 
 # Development Environment and Workflows
@@ -500,6 +500,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
+| Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards_test`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |

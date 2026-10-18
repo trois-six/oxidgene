@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T10:56:52Z }
+generated: { by: human:maintainer, at: 2026-10-18T10:59:56Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -1036,7 +1036,8 @@ scrolls. No element keeps one while nothing needs it:
   stays there; it does not follow the pointer.
 
 Entering and leaving an element (`mouseenter`, `pointerleave`…) do not bubble,
-are listened to on the element alone, and are free to use.
+are listened to on the element alone, and are free to use. A repository guard
+(`continuous_listeners`) fails on a continuous listener written in the markup.
 
 ## 7. Printing
 
