@@ -36,6 +36,8 @@ jobs:
     permissions:
       contents: read
       packages: read
+      # Its first job compares a scheduled run with the previous one.
+      actions: read
     uses: ./.github/workflows/nightly.yml
 
   # Tier 3 reports its next-toolchain jobs without failing; everything else

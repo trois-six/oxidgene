@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-17T18:30:42Z }
+generated: { by: human:maintainer, at: 2026-10-18T09:30:00Z }
 ---
 
 # Development Environment and Workflows
@@ -479,8 +479,10 @@ three tiers, so that a pull request waits only for the fast ones:
 - **Tier 2** — every pull request touching code, blocking, each its own
   parallel CI job: the functional guards that need a database, the SQL
   plans, the dependency audit, the duplication budget.
-- **Tier 3** — every night (`.github/workflows/nightly.yml`), on demand,
-  and as gates of a release; never on a pull request: the browser
+- **Tier 3** — every night (`.github/workflows/nightly.yml`) when `main`
+  moved since the previous run (its `changes` job compares the commits,
+  cancelled runs aside, and skips the others), on demand, and as gates of
+  a release, which always run; never on a pull request: the browser
   suite, budgets, timing, reports and the next toolchains.
 
 `.github/workflows/release.yml` runs on a `v*` tag, and on a push to a
