@@ -3626,3 +3626,58 @@ async fn restoring_a_version_sanitizes_its_notes() {
     let restored = NoteRepo::get(&db, note_id).await.unwrap();
     assert_eq!(restored.text, "<p>kept</p>");
 }
+
+/// A tree's projections are usable only when every row is of the current
+/// version: a row written by an older build, or by a newer one, makes the
+/// tree stale.
+#[tokio::test]
+async fn a_projection_of_any_other_version_leaves_the_tree_unmaterialized() {
+    use oxidgene_core::projection::PROJECTION_SCHEMA_VERSION;
+    use oxidgene_db::repo::PersonDenormRepo;
+
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    assert!(
+        !PersonDenormRepo::is_materialized(&db, tree_id)
+            .await
+            .unwrap()
+    );
+    let mut rows = Vec::new();
+    for _ in 0..3 {
+        let person = create_person(&db, tree_id).await;
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "INSERT INTO person_denorm (person_id, tree_id, payload, schema_version, updated_at) \
+             VALUES (?, ?, '{}', ?, CURRENT_TIMESTAMP)",
+            [
+                Value::from(person),
+                Value::from(tree_id),
+                Value::from(PROJECTION_SCHEMA_VERSION),
+            ],
+        ))
+        .await
+        .unwrap();
+        rows.push(person);
+    }
+    assert!(
+        PersonDenormRepo::is_materialized(&db, tree_id)
+            .await
+            .unwrap()
+    );
+
+    for version in [PROJECTION_SCHEMA_VERSION - 1, PROJECTION_SCHEMA_VERSION + 1] {
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "UPDATE person_denorm SET schema_version = ? WHERE person_id = ?",
+            [Value::from(version), Value::from(rows[1])],
+        ))
+        .await
+        .unwrap();
+        assert!(
+            !PersonDenormRepo::is_materialized(&db, tree_id)
+                .await
+                .unwrap(),
+            "a row of version {version}"
+        );
+    }
+}

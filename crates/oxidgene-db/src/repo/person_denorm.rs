@@ -11,6 +11,7 @@
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::projection::{PROJECTION_SCHEMA_VERSION, PersonProfile};
+use sea_orm::ExprTrait as _;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set,
@@ -223,7 +224,10 @@ impl PersonDenormRepo {
     ///
     /// Every tree read asks this, so both lookups stop at their first row
     /// (the `(tree_id, schema_version)` index serves them) instead of
-    /// counting the tree.
+    /// counting the tree. The stale lookup asks for a version below or above
+    /// the current one rather than one unequal to it: an index can seek a
+    /// range, but answers `<>` only by reading every row of the tree
+    /// (15 ms a pedigree on a tree of 10,000 persons).
     pub async fn is_materialized(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -232,7 +236,9 @@ impl PersonDenormRepo {
             let version = if current {
                 is_current()
             } else {
-                Column::SchemaVersion.ne(PROJECTION_SCHEMA_VERSION)
+                Column::SchemaVersion
+                    .lt(PROJECTION_SCHEMA_VERSION)
+                    .or(Column::SchemaVersion.gt(PROJECTION_SCHEMA_VERSION))
             };
             Entity::find()
                 .select_only()

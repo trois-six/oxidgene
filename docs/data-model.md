@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:30:00Z }
 ---
 
 
@@ -864,9 +864,11 @@ event's own, or this spouse's age at a family event.
 nested projection type changes. Reads filter by the current version. An older
 row is treated as absent and rebuilt lazily, because `#[serde(default)]` alone
 would deserialize a missing new field as if it were genuine empty data. A
-tree counts as materialized only when it has rows and none of them is older:
-rebuilding one person on demand never stands for the whole tree, so the first
-tree-wide read after a bump rebuilds every row.
+tree counts as materialized only when it has rows and none of them is of
+another version, older or newer: rebuilding one person on demand never stands
+for the whole tree, so the first tree-wide read after a bump rebuilds every
+row. The check is two index range reads, below and above the current version,
+since an index answers `<>` only by reading every row of the tree.
 The initial schema defaults `schema_version` to `0`, so a row without an
 explicit current version is stale rather than assumed to contain a current
 payload. The schema migrations never replace this runtime version check.
@@ -970,8 +972,8 @@ therefore exclude deleted families explicitly, or a targeted rebuild would
 restore a family a whole-tree rebuild correctly omits.
 
 Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
-work. On startup or first read, `ensure_materialized` compares the count of
-current-version projections with active people and rebuilds when necessary.
+work. On every tree-wide read, `ensure_materialized` checks that the tree is
+materialized (§4.1) and rebuilds it when it is not.
 
 ### 4.5 Deletion and recovery
 
