@@ -2,7 +2,6 @@
 //! the sidebar, dragging and wheel-zooming the canvas, and the saved view
 //! every move updates.
 
-use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
@@ -279,6 +278,10 @@ struct Drag {
 }
 
 /// The canvas the reader drags to pan and wheels to zoom about the cursor.
+///
+/// The move and release listeners exist only during a drag, and the wheel
+/// is read by the page's own listener, so the chart holds the window up for
+/// no pointer move or wheel turn it does not use (see [`crate::listeners`]).
 #[component]
 pub(super) fn PanZoomViewport(
     class: String,
@@ -296,9 +299,37 @@ pub(super) fn PanZoomViewport(
             saver.save();
         }
     };
+    let id = crate::listeners::use_element_id("pan-zoom");
+    let wheel_id = id.clone();
+    let dragging = crate::listeners::while_active(drag().is_some(), || {
+        vec![
+            dioxus::html::events::onpointermove(move |evt: Event<PointerData>| {
+                let Some(Drag { pointer, origin }) = *drag.peek() else {
+                    return;
+                };
+                let coords = evt.client_coordinates();
+                transform.set(ViewportTransform {
+                    x: origin.0 + coords.x - pointer.0,
+                    y: origin.1 + coords.y - pointer.1,
+                    ..transform()
+                });
+            }),
+            dioxus::html::events::onpointerup(move |_: Event<PointerData>| end_drag()),
+        ]
+    });
     rsx! {
         div {
+            id,
             class,
+            onmounted: move |_| {
+                let id = wheel_id.clone();
+                async move {
+                    crate::listeners::forward_wheel(&id, false, |turn| {
+                        wheel_zoom(turn, saver, viewport_rect, animating, max_zoom);
+                    })
+                    .await;
+                }
+            },
             onpointerdown: move |evt| {
                 // Direct manipulation tracks the pointer 1:1 — the CSS
                 // transition is only for programmatic jumps (fit/center).
@@ -310,23 +341,8 @@ pub(super) fn PanZoomViewport(
                     origin: (current.x, current.y),
                 }));
             },
-            onpointermove: move |evt| {
-                let Some(Drag { pointer, origin }) = drag() else {
-                    return;
-                };
-                let coords = evt.client_coordinates();
-                transform.set(ViewportTransform {
-                    x: origin.0 + coords.x - pointer.0,
-                    y: origin.1 + coords.y - pointer.1,
-                    ..transform()
-                });
-            },
-            onpointerup: move |_| {
-                drag.set(None);
-                saver.save();
-            },
             onpointerleave: move |_| end_drag(),
-            onwheel: move |evt| wheel_zoom(&evt, saver, viewport_rect, animating, max_zoom),
+            ..dragging,
             {children}
         }
     }
@@ -334,17 +350,13 @@ pub(super) fn PanZoomViewport(
 
 /// Zooms a step about the cursor, in or out as the wheel turns.
 fn wheel_zoom(
-    evt: &Event<WheelData>,
+    turn: crate::listeners::WheelTurn,
     saver: ViewSaver,
     viewport_rect: Signal<ViewportRect>,
     mut animating: Signal<bool>,
     max_zoom: f64,
 ) {
-    let delta_y = match evt.delta() {
-        WheelDelta::Lines(l) => l.y * 20.0,
-        WheelDelta::Pixels(p) => p.y,
-        WheelDelta::Pages(p) => p.y * 400.0,
-    };
+    let delta_y = turn.delta_y;
     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
     let Some(new_scale) = zoom_step((saver.transform)().scale, factor, max_zoom) else {
         return;
@@ -356,10 +368,9 @@ fn wheel_zoom(
     // keeps this handler fully synchronous, so there is no round-trip
     // latency and no risk of updates applying out of order.
     animating.set(false);
-    let coords = evt.client_coordinates();
     let rect = viewport_rect();
     // The wheel holds the point under the cursor still.
-    let anchor = (coords.x - rect.page_x, coords.y - rect.page_y);
+    let anchor = (turn.client_x - rect.page_x, turn.client_y - rect.page_y);
     zoom_about(saver.transform, anchor, new_scale);
     saver.save();
 }

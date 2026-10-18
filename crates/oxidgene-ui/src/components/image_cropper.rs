@@ -144,6 +144,19 @@ fn CropStage(
 ) -> Element {
     let mut drag_start = use_signal(|| None::<(f64, f64)>);
     let s = scale;
+    // Moves are listened to while a rectangle is being drawn only (see
+    // `crate::listeners`).
+    let drawing = crate::listeners::while_active(drag_start().is_some(), || {
+        vec![dioxus::html::events::onmousemove(
+            move |e: Event<MouseData>| {
+                let Some(start) = *drag_start.peek() else {
+                    return;
+                };
+                let p = e.element_coordinates();
+                drag_rect.set(Some(spanned(start, (p.x, p.y))));
+            },
+        )]
+    });
     rsx! {
         div {
             class: "cropper-stage",
@@ -166,13 +179,9 @@ fn CropStage(
                 drag_start.set(Some((p.x, p.y)));
                 drag_rect.set(None);
             },
-            onmousemove: move |e: Event<MouseData>| {
-                let Some(start) = drag_start() else { return };
-                let p = e.element_coordinates();
-                drag_rect.set(Some(spanned(start, (p.x, p.y))));
-            },
             onmouseup: move |_| drag_start.set(None),
             onmouseleave: move |_| drag_start.set(None),
+            ..drawing,
 
             if let Some(image_url) = image_url {
                 img {

@@ -896,6 +896,27 @@ pub fn HeatMap(
     let fit = View::fitting(&located.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>());
     let mut view = use_signal(|| fit);
     let mut drag = use_signal(|| None::<(f64, f64, View)>);
+    let map_id = crate::listeners::use_element_id("stats-map");
+    let wheel_id = map_id.clone();
+    // Moves are listened to during a drag only, and the wheel through the
+    // page's own listener (see `crate::listeners`).
+    let dragging = crate::listeners::while_active(drag().is_some(), || {
+        vec![dioxus::html::events::onmousemove(
+            move |e: Event<MouseData>| {
+                if let Some((x0, y0, start)) = *drag.peek() {
+                    let point = e.client_coordinates();
+                    // One screen pixel is roughly this many map units on
+                    // a map about 600px wide.
+                    let scale = start.width / 600.0;
+                    view.set(View {
+                        cx: start.cx - (point.x - x0) * scale,
+                        cy: start.cy - (point.y - y0) * scale,
+                        ..start
+                    });
+                }
+            },
+        )]
+    });
     // Follows the focus only: the view is peeked, not read, so panning
     // and zooming do not bring it back.
     use_effect(move || {
@@ -943,30 +964,25 @@ pub fn HeatMap(
                 "preserveAspectRatio": "xMidYMid meet",
                 role: "img",
                 "aria-label": "{i18n.t(\"stats.map_title\")}",
-                onwheel: move |e: Event<WheelData>| {
-                    e.prevent_default();
-                    let factor = if e.delta().strip_units().y > 0.0 { 1.2 } else { 1.0 / 1.2 };
-                    view.set(view().zoomed(factor));
+                id: map_id,
+                onmounted: move |_| {
+                    let id = wheel_id.clone();
+                    async move {
+                        crate::listeners::forward_wheel(&id, true, |turn| {
+                            let factor = if turn.delta_y > 0.0 { 1.2 } else { 1.0 / 1.2 };
+                            let zoomed = view.peek().zoomed(factor);
+                            view.set(zoomed);
+                        })
+                        .await;
+                    }
                 },
                 onmousedown: move |e: Event<MouseData>| {
                     let point = e.client_coordinates();
                     drag.set(Some((point.x, point.y, view())));
                 },
-                onmousemove: move |e: Event<MouseData>| {
-                    if let Some((x0, y0, start)) = drag() {
-                        let point = e.client_coordinates();
-                        // One screen pixel is roughly this many map units on
-                        // a map about 600px wide.
-                        let scale = start.width / 600.0;
-                        view.set(View {
-                            cx: start.cx - (point.x - x0) * scale,
-                            cy: start.cy - (point.y - y0) * scale,
-                            ..start
-                        });
-                    }
-                },
                 onmouseup: move |_| drag.set(None),
                 onmouseleave: move |_| drag.set(None),
+                ..dragging,
                 defs {
                     radialGradient { id: "stats-heat",
                         stop { offset: "0%", style: "stop-color: var(--red); stop-opacity: 0.55" }

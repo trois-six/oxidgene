@@ -207,6 +207,11 @@ observability <- db/api (feature), server/worker/desktop
 - Do not use an SVG `<title>` directly in `rsx!`; Dioxus resolves it as the HTML
   element. Use escaped `dangerous_inner_html` so the browser parses it in the
   SVG namespace, following the existing pedigree card implementation.
+- Never leave a listener for a continuous bubbling event (`onmousemove`,
+  `onpointermove`, `onwheel`, `onmouseover`…) in the markup: on desktop each
+  one sends every such event of the window to Rust synchronously. Attach drag
+  listeners with `listeners::while_active`, read a wheel with
+  `listeners::forward_wheel` (`ui-common.md` §6.5).
 
 ## Backend Rules
 

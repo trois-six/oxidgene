@@ -3388,22 +3388,23 @@ fn record_viewport(mut viewport: Signal<Option<(f64, f64)>>, evt: &Event<ResizeD
     }
 }
 
-/// Moves the tooltip of the hovered person, if any, to the pointer, opening
-/// it towards the larger side of a screen `screen_width` wide.
-fn follow_pointer(
-    mut hovered: Signal<Option<MiniPedigreeTooltipValue>>,
-    screen_width: f64,
-    evt: &Event<MouseData>,
-) {
-    let coordinates = evt.client_coordinates();
-    if let Some(value) = hovered.write().as_mut() {
-        value.pointer = Some(MiniPedigreeTooltipPointer {
-            x: coordinates.x,
-            y: coordinates.y,
-            opens_right: coordinates.x < screen_width / 2.0,
-            opens_below: coordinates.y < 72.0,
-        });
+/// Where a tooltip shown at client point `(x, y)` stands, opening towards
+/// the larger side of a screen `screen_width` wide.
+fn tooltip_pointer(x: f64, y: f64, screen_width: f64) -> MiniPedigreeTooltipPointer {
+    MiniPedigreeTooltipPointer {
+        x,
+        y,
+        opens_right: x < screen_width / 2.0,
+        opens_below: y < 72.0,
     }
+}
+
+/// The tooltip of a mini pedigree: the card it is shown for, if any, and the
+/// width of the screen it opens on.
+#[derive(Clone, Copy)]
+struct MiniTooltip {
+    hovered: Signal<Option<MiniPedigreeTooltipValue>>,
+    screen_width: Signal<f64>,
 }
 
 /// The connectors of one side of a tree, keyed by `side` and their index; a
@@ -3498,7 +3499,10 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         root_person_id: props.root_person_id,
         actions,
         empty_slots_open: false,
-        mini_tooltip: Some(hovered_person),
+        mini_tooltip: Some(MiniTooltip {
+            hovered: hovered_person,
+            screen_width: window_width,
+        }),
         theme,
         i18n,
     };
@@ -3514,9 +3518,6 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                 }
             },
             onresize: move |evt: Event<ResizeData>| record_viewport(viewport, &evt),
-            onmousemove: move |evt: Event<MouseData>| {
-                follow_pointer(hovered_person, window_width(), &evt);
-            },
             MiniPedigreeTransform { transform,
                 PedigreeScene {
                     svg {
@@ -3910,9 +3911,38 @@ struct CardContext<'a> {
     /// pedigree.
     empty_slots_open: bool,
     /// The tooltip a mini pedigree shows for the hovered card.
-    mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
+    mini_tooltip: Option<MiniTooltip>,
     theme: &'a PedigreeTheme,
     i18n: I18n,
+}
+
+/// What a mini pedigree's card listens to for its tooltip: shown where the
+/// pointer enters the card, or beside it when the card takes the focus;
+/// hidden as either leaves. The interactive chart's cards have none of
+/// them, so moving over a chart costs nothing.
+fn tooltip_listeners(tooltip: MiniTooltip, value: MiniPedigreeTooltipValue) -> Vec<Attribute> {
+    let MiniTooltip {
+        mut hovered,
+        screen_width,
+    } = tooltip;
+    let focused = value.clone();
+    let mut listeners = vec![
+        dioxus::html::events::onmouseenter(move |evt: Event<MouseData>| {
+            let point = evt.client_coordinates();
+            hovered.set(Some(MiniPedigreeTooltipValue {
+                pointer: Some(tooltip_pointer(point.x, point.y, screen_width())),
+                ..value.clone()
+            }));
+        }),
+        dioxus::html::events::onmouseleave(move |_: Event<MouseData>| hovered.set(None)),
+        dioxus::html::events::onfocus(move |_: Event<FocusData>| {
+            hovered.set(Some(focused.clone()))
+        }),
+        dioxus::html::events::onblur(move |_: Event<FocusData>| hovered.set(None)),
+    ];
+    // The renderer diffs an element's spread attributes as a sorted list.
+    listeners.sort_by_key(|attribute| attribute.name);
+    listeners
 }
 
 /// Render one card (person or empty slot) of the pedigree as an SVG `<g>`,
@@ -3975,8 +4005,6 @@ fn render_person_card(
     };
     let tooltip_value = card_tooltip(node, i18n);
     let tooltip_name = tooltip_value.name.clone();
-    let enter_tooltip = tooltip_value.clone();
-    let focus_tooltip = tooltip_value.clone();
     let CardGeometry {
         gender_line,
         gender_line_width,
@@ -4002,28 +4030,9 @@ fn render_person_card(
             role: mini_tooltip.map(|_| "link"),
             tabindex: mini_tooltip.map(|_| "0"),
             "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
-            onmouseenter: move |_| {
-                if let Some(mut hovered) = mini_tooltip {
-                    hovered.set(Some(enter_tooltip.clone()));
-                }
-            },
-            onmouseleave: move |_| {
-                if let Some(mut hovered) = mini_tooltip {
-                    hovered.set(None);
-                }
-            },
-            onfocus: move |_| {
-                if let Some(mut hovered) = mini_tooltip {
-                    hovered.set(Some(focus_tooltip.clone()));
-                }
-            },
-            onblur: move |_| {
-                if let Some(mut hovered) = mini_tooltip {
-                    hovered.set(None);
-                }
-            },
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
+            ..mini_tooltip.map(|tooltip| tooltip_listeners(tooltip, tooltip_value)).unwrap_or_default(),
             {card_outline(node, geo, theme, bg)}
             if let Some(gl) = gender_line {
                 path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }

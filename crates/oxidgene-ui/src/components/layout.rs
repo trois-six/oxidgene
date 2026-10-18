@@ -364,7 +364,10 @@ pub const LAYOUT_STYLES: &str = r#"
     /* Subtle radial light leaks on the page background. The rule is
        unconditional and the two colours carry their own alpha, so a theme
        that wants no leaks — as the light one does — sets them fully
-       transparent rather than needing a selector of its own. */
+       transparent rather than needing a selector of its own. The pages
+       scroll in transparent containers over it: a layer of its own lets the
+       engine move the content over the painted gradients instead of painting
+       them again for every scrolled frame. */
     body::before {
         content: '';
         position: fixed;
@@ -374,6 +377,7 @@ pub const LAYOUT_STYLES: &str = r#"
             radial-gradient(ellipse at 80% 20%, var(--page-glow-cool) 0%, transparent 50%);
         pointer-events: none;
         z-index: 0;
+        will-change: transform;
     }
 
     /* Dioxus desktop mounts into <div id="main"> */
@@ -1332,20 +1336,7 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 9px 0;
         border-top: 1px solid var(--border);
         font-size: var(--text-90);
-        /* A documented ancestor can have dozens of rows, several carrying a
-           full media gallery of their own — skip layout/paint for the ones
-           currently scrolled out of view instead of keeping the whole
-           timeline "hot". `auto` remembers each row's real size once it has
-           been rendered, so the placeholder guess only matters the first
-           time a row comes into view. */
-        content-visibility: auto;
-        contain-intrinsic-size: auto 44px;
     }
-    /* `content-visibility` contains the row's paint, which would make the row
-       the box of a fixed overlay opened from it — the viewer of a cited
-       register or of a document proving the event, the dialog completing a
-       cited register — and clip it there. */
-    .pd-timeline li:has(.cropper-backdrop, .modal-backdrop) { content-visibility: visible; }
     .pd-timeline li:first-child {
         border-top: none;
         padding-top: var(--space-1);

@@ -114,6 +114,10 @@ pub fn OccupationsHover(titles: ReadSignal<Vec<String>>) -> Element {
     }
 }
 
+/// A term with its reference card, shown after a short delay beside the
+/// point where the pointer entered it. The card stays put rather than
+/// following the pointer: a move listener would hand every pointer move in
+/// the window to Rust (see [`crate::listeners`]).
 #[component]
 fn FicheHover(fiche: FicheContent, children: Element) -> Element {
     let mut visible = use_signal(|| false);
@@ -136,12 +140,6 @@ fn FicheHover(fiche: FicheContent, children: Element) -> Element {
                         visible.set(true);
                     }
                 });
-            },
-            onmousemove: move |evt| {
-                if visible() {
-                    let c = evt.client_coordinates();
-                    pos.set((c.x, c.y));
-                }
             },
             onmouseleave: move |_| {
                 hover_gen += 1;

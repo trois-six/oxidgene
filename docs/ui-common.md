@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-17T16:17:28Z }
+generated: { by: human:maintainer, at: 2026-10-18T13:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -1010,6 +1010,27 @@ width. Hiding the sidebar below 400px likewise preserves both values for a
 later wider viewport. Every real window-size transition continues through the
 existing debounced pedigree resize handler so graph fitting and zoom behavior
 remain consistent.
+
+### 6.5 Continuous events
+
+On the desktop, the renderer answers every bubbling event through a single
+listener on the document and hands each one to Rust synchronously: the window
+waits for the answer before it goes on. A listener for an event that fires
+continuously — `mousemove`, `pointermove`, `wheel`, `mouseover`, `mouseout`,
+`pointerover`, `pointerout`, `touchmove` — mounted anywhere would therefore
+send every move or turn in the window across and hold the page up for each,
+scrolling included, since the engine moves the pointer over the content it
+scrolls. No element keeps one while nothing needs it:
+
+- A drag (panning a chart or a map, drawing a crop) listens to moves and to
+  the release only from the press to the release (`listeners::while_active`).
+- A wheel that zooms is read by a listener of the page's own, which sends each
+  turn on without waiting (`listeners::forward_wheel`).
+- A hover card opens beside the point where the pointer entered its target and
+  stays there; it does not follow the pointer.
+
+Entering and leaving an element (`mouseenter`, `pointerleave`…) do not bubble,
+are listened to on the element alone, and are free to use.
 
 ## 7. Printing
 
