@@ -3128,9 +3128,10 @@ fn convert_quay(quay: Option<&Certainty>) -> Option<Confidence> {
 /// (`< 8y` and `PHRASE CHILD` as `CHILD`, which a GEDZIP writes of a
 /// 5.5.1 keyword), and an age known only in words (an empty `AGE` with a
 /// `PHRASE`) from its phrase.
-/// The family an individual event names without belonging to it: the
-/// adoptive family of an `ADOP` (its nested `FAMC`) and the family a child
-/// is sealed to by an `SLGC` (its `FAMC`). A pointer to a family the file
+/// The family an individual event names without belonging to it: its
+/// `FAMC` — the adoptive family of an `ADOP`, the family of a `BIRT` or a
+/// `CHR`, the family a child is sealed to by an `SLGC`, and the `_FAMC`
+/// oxidged reads back beneath an event GEDCOM gives none. A pointer to a family the file
 /// does not hold is a warning, and the event names none.
 fn related_family(
     event: EventView<'_>,
@@ -3138,7 +3139,7 @@ fn related_family(
     warnings: &mut Vec<String>,
 ) -> Option<Uuid> {
     let family = match event {
-        EventView::Event(e) if e.kind() == EventKind::Adoption => e.family()?.family()?,
+        EventView::Event(e) => e.family()?.family()?,
         EventView::Ordinance(o) if matches!(o.kind(), OrdinanceKind::ChildSealing) => o.family()?,
         _ => return None,
     };

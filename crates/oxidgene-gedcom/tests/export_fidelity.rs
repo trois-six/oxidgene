@@ -503,6 +503,48 @@ fn an_adoption_family_round_trips_to_the_same_export() {
     assert_eq!(body(&first), body(&second));
 }
 
+/// A child sealing holding a description has no ordinance structure to be
+/// written in: it is an `EVEN`, beneath which GEDCOM gives no `FAMC`. The
+/// family it names is written as `_FAMC`, which oxidged reads back, so the
+/// sealing keeps its family in 5.5.1 and 7.0 alike.
+#[test]
+fn a_child_sealing_written_as_a_generic_event_keeps_its_family() {
+    let text = gedcom_551(ADOPTED_AND_SEALED);
+    let mut imported = import(&text);
+    let sealed_to = family_with_spouse(&imported, "Ben");
+    let sealing = imported
+        .events
+        .iter_mut()
+        .find(|e| e.event_type == EventType::SealingChild)
+        .expect("the sealing imports");
+    sealing.description = Some("Sealed with siblings".to_owned());
+    assert_eq!(sealing.related_family_id, Some(sealed_to));
+
+    for destination in ["generic-551", "generic-70"] {
+        let export = export_for(&imported, destination);
+        let cy = record(&export, "0 @I3@ INDI");
+        let even = beneath(cy, "\n1 EVEN Sealed with siblings\n");
+        assert!(even.contains("2 _FAMC @F"), "{destination}: {cy}");
+
+        let reimport = import(&export);
+        let sealing = reimport
+            .events
+            .iter()
+            .find(|e| e.event_type == EventType::SealingChild)
+            .unwrap_or_else(|| panic!("{destination}: the sealing re-imports"));
+        assert_eq!(
+            sealing.related_family_id,
+            Some(family_with_spouse(&reimport, "Ben")),
+            "{destination}"
+        );
+        assert_eq!(
+            body(&export_for(&reimport, destination)),
+            body(&export),
+            "{destination}"
+        );
+    }
+}
+
 // 2. A witness is written beneath its event in GEDCOM 7, where the event is.
 
 /// Witnesses of an individual's birth and of a family's marriage. A 5.5.1

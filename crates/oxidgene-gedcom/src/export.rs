@@ -2417,7 +2417,6 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
     // GEDCOM 5.5.1 only allows `ASSO` directly under an INDIVIDUAL_RECORD,
     // and readers (Gramps included) reject it as a substructure of an event.
     //
-    let adoption = kind == EventKind::Adoption;
     let mut event = GedEvent {
         kind,
         value: value.map(Text::from).unwrap_or_default(),
@@ -2428,26 +2427,26 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
     // A family event's ages are its spouses' own.
     let age = to_ged_age(evt.age.as_deref()).filter(|_| evt.family_id.is_none());
     let agency = evt.agency.as_deref().map(Text::from);
-    // An adoption names the adoptive family beneath it (`FAMC`).
-    let adoptive_family = adoption
-        .then(|| index.related_family_xref(evt))
-        .flatten()
-        .map(|family| EventFamily {
-            family: Some(family),
-            ..EventFamily::default()
-        });
+    // The family an individual event names without belonging to it (an
+    // adoption's adoptive family) is its `FAMC`. Beneath an event GEDCOM
+    // gives none (a child sealing written as an `EVEN`), oxidged writes it
+    // as `_FAMC` and reads it back.
+    let related_family = index.related_family_xref(evt).map(|family| EventFamily {
+        family: Some(family),
+        ..EventFamily::default()
+    });
     if classification.is_some()
         || cause.is_some()
         || age.is_some()
         || agency.is_some()
-        || adoptive_family.is_some()
+        || related_family.is_some()
     {
         let detail = event.detail_mut();
         detail.classification = classification;
         detail.cause = cause;
         detail.age = age;
         detail.agency = agency;
-        detail.family = adoptive_family;
+        detail.family = related_family;
     }
     event
 }

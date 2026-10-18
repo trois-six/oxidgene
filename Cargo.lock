@@ -5011,9 +5011,9 @@ dependencies = [
 
 [[package]]
 name = "oxidged"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d16f64c04939f991223c05cdf6760406fb74669f179fe191c73ef6a5ab27f5bd"
+checksum = "c34a474de0a84245426ef550b3aa10e90a24683b677ebcb25a002955bc8542b8"
 dependencies = [
  "calendrical_calculations",
  "calendrier",

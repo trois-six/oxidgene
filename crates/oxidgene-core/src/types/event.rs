@@ -44,10 +44,11 @@ pub struct Event {
     pub person_id: Option<Uuid>,
     /// Set for family events.
     pub family_id: Option<Uuid>,
-    /// For an individual event, a family it names without belonging to it:
-    /// the adoptive family of an adoption (GEDCOM `ADOP.FAMC`), the family a
-    /// child is sealed to (`SLGC.FAMC`). Never set with `family_id`, which
-    /// makes an event a family's own.
+    /// For an individual event, a family it names without belonging to it,
+    /// GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption
+    /// (`ADOP.FAMC`), the family of a birth (`BIRT.FAMC`), the family a child
+    /// is sealed to (`SLGC.FAMC`). Never set with `family_id`, which makes an
+    /// event a family's own.
     #[serde(default)]
     pub related_family_id: Option<Uuid>,
     pub description: Option<String>,

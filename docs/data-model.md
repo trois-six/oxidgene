@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-17T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T08:00:00Z }
 ---
 
 
@@ -214,7 +214,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `place_id` | UUID v7? | FK → Place |
 | `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |
-| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it: the adoptive family of an adoption (GEDCOM `ADOP.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner |
+| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it, GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption (`ADOP.FAMC`), the family of a birth or a christening (`BIRT.FAMC`, `CHR.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner |
 | `description` | String? | Free text; also holds occupation title for `Occupation` events |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -677,10 +677,13 @@ handles dates. They follow these rules:
   individual, and `SLGS` under a family, are written as GEDCOM's ordinance
   structures (`LdsBaptism`, `LdsConfirmation`, `Endowment`, `LdsInitiatory`,
   `SealingChild`, `SealingSpouse`). GEDCOM's ordinance structure has no room
-  for an event's description, media, age, agency or cause, nor for an event
-  with no date, place, note or citation: such an event is written as `EVEN` +
-  `TYPE` instead. A child sealing names the family it is sealed to through
-  `related_family_id`, which is written as its `FAMC`. 5.5.1 has no `INIL`
+  for an event's description, media, age, agency or cause: such an event is
+  written as `EVEN` + `TYPE` instead. An ordinance holding nothing else is
+  written as its bare tag in 5.5.1, and left out of 7.x, which permits no
+  structure without a value or a substructure. A child sealing names the family it is sealed to through
+  `related_family_id`, which is written as its `FAMC`; a sealing written as
+  an `EVEN` has no `FAMC` in GEDCOM, so `oxidged` writes it as `_FAMC` and
+  reads it back. 5.5.1 has no `INIL`
   and requires a child sealing's `FAMC`: `oxidged` writes an initiatory, and
   a child sealing naming no family, under the extension tags `_INIL` and
   `_SLGC`, and reads them back as the ordinances they stand for.

@@ -127,7 +127,7 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 
 # GEDCOM, and the GeneWeb .gw reader that converts to the same oxidged model.
-oxidged = { version = "0.3.1", features = ["gedzip", "calendar"] }
+oxidged = { version = "0.3.2", features = ["gedzip", "calendar"] }
 geneweb = "0.6.0"
 
 # Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
