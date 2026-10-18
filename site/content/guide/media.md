@@ -58,7 +58,7 @@ Click any tile to open the document in the viewer. It fills the window and shows
 
 - **Zoom in**, **Zoom out** and **Fit** size the image; drag it when it overflows.
 - A multi-page document has a pager to move between its pages. Each page can have its own transcript, shown with the page number.
-- **Attachments / identifications** lists everyone the document is attached to and everyone identified on the page shown, five at a time. The × at the end of a row removes that link only.
+- **Attachments / identifications** lists everyone the document is attached to and everyone identified on the page shown, five at a time. The × at the end of a row removes that link only. A row whose medium cannot be shown as a picture, such as a PDF, shows the person's portrait, or a silhouette when they have none; a couple shows a silhouette.
 - **Edit** changes the document's details and the page's transcript. **Delete** deletes the document permanently, with its files, after a confirmation.
 - The target icon opens a menu: **Identify a person**, **Attach to a person** and **Attach to a couple**. For a multi-page document it offers to attach the whole document or only the page shown, to a person or a couple. To attach to a couple, search for one of the spouses, then choose the couple. An existing link is never duplicated.
 - **Manage pages** (multi-page documents): **Add pages**, move pages, or delete one page with its transcript and links.

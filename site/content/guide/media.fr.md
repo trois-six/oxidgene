@@ -58,7 +58,7 @@ Cliquez sur n’importe quelle vignette pour ouvrir le document dans la visionne
 
 - **Agrandir**, **Réduire** et **Ajuster** règlent la taille de l’image ; faites-la glisser quand elle déborde.
 - Un document de plusieurs pages dispose d’un sélecteur de pages. Chaque page peut avoir sa propre transcription, affichée avec son numéro.
-- **Rattachements / identifications** liste toutes les personnes et tous les couples auxquels le document est rattaché, et les personnes identifiées sur la page affichée, cinq par cinq. La croix au bout d’une ligne ne supprime que ce lien.
+- **Rattachements / identifications** liste toutes les personnes et tous les couples auxquels le document est rattaché, et les personnes identifiées sur la page affichée, cinq par cinq. La croix au bout d’une ligne ne supprime que ce lien. Une ligne dont le média ne peut pas être affiché en image, comme un PDF, montre le portrait de la personne, ou une silhouette à défaut ; un couple montre une silhouette.
 - **Modifier** change les informations du document et la transcription de la page. **Supprimer** supprime définitivement le document et ses fichiers, après confirmation.
 - L’icône de cible ouvre un menu : **Identifier une personne**, **Rattacher à une personne** et **Rattacher à un couple**. Pour un document de plusieurs pages, il propose de rattacher le document entier ou seulement la page affichée, à une personne ou à un couple. Pour un couple, recherchez l’un des conjoints, puis choisissez le couple. Un rattachement existant n’est jamais créé en double.
 - **Gérer les pages** (documents de plusieurs pages) : **Ajouter des pages**, déplacer des pages, ou supprimer une page avec sa transcription et ses liens.

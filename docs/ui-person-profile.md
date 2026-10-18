@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T16:04:29Z }
+generated: { by: human:maintainer, at: 2026-10-18T10:56:52Z }
 ---
 
 
@@ -513,7 +513,12 @@ focus, and a politely announced range. The two relation types keep
 their distinct semantics: each attachment is a compact row with a `36 × 28 px` whole-image
 thumbnail, an ellipsized person or couple label, a **Document** or **Page N**
 scope badge on multi-page documents, and a trailing remove control that deletes
-only that link. An identification always carries the **Page N** badge. When the displayed page has a person
+only that link. When the medium shown cannot be drawn as a picture (a PDF, a
+file nobody holds, a remote page with no address), a person's thumbnail is their
+portrait when they have one and otherwise the silhouette of their sex; a couple's
+is the unknown-sex silhouette. The medium's own thumbnail is kept whenever it can
+be drawn, which is the same test that decides a gallery tile's picture. An
+identification always carries the **Page N** badge. When the displayed page has a person
 identification and a whole-media attachment for the same person, the
 identification replaces the attachment in this list; both rows are never shown
 together. For a

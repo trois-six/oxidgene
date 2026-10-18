@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T10:56:52Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -570,6 +570,12 @@ tile whose file is somebody else's — the document's page, or the tile itself �
 carries the remote badge. A document is offered as a portrait exactly when it
 draws a picture; a PDF is not, and the action is withheld rather than accepted
 and then drawn as a silhouette.
+
+The square beside an attachment in the viewer follows the same test. A medium that
+cannot be drawn is replaced there by the person's portrait when they have one,
+else by the silhouette of their sex, and a couple by the unknown-sex silhouette;
+the portrait is the one the person page shows. See
+[Person Profile](ui-person-profile.md).
 
 A remote page whose MIME type nobody could establish counts as a remote image
 everywhere a picture is drawn: the tile, the document mosaic, the page list,

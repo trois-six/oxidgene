@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use dioxus::prelude::*;
-use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
+use oxidgene_core::enums::{DocumentCategory, Privacy, Sex, SourceMediaType};
 use oxidgene_core::types::{PersonName, Vignette};
 use uuid::Uuid;
 
@@ -102,23 +102,40 @@ fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) 
 /// has none and never will, so the browser draws it from that URL — the same
 /// answer the tile, the mosaic and the viewer give.
 #[component]
-fn AttachmentThumbnail(tree_id: Uuid, media_id: Uuid, remote: Option<String>) -> Element {
+fn AttachmentThumbnail(
+    tree_id: Uuid,
+    media_id: Uuid,
+    remote: Option<String>,
+    picture: AttachmentPicture,
+) -> Element {
     const CLASS: &str = "media-vignette-thumbnail";
-    rsx! {
-        if let Some(remote) = remote {
-            BundledThumbnail {
-                source: Some(remote),
+    match picture {
+        AttachmentPicture::Portrait(image) => rsx! {
+            CroppedImage { image, alt: String::new(), class: CLASS.to_string() }
+        },
+        AttachmentPicture::Silhouette(sex) => rsx! {
+            CroppedImage {
+                image: CroppedSource::silhouette(sex),
                 alt: String::new(),
                 class: CLASS.to_string(),
             }
-        } else {
-            PrivateThumbnail {
-                tree_id,
-                media_id,
-                alt: String::new(),
-                class: CLASS.to_string(),
+        },
+        AttachmentPicture::Medium => rsx! {
+            if let Some(remote) = remote {
+                BundledThumbnail {
+                    source: Some(remote),
+                    alt: String::new(),
+                    class: CLASS.to_string(),
+                }
+            } else {
+                PrivateThumbnail {
+                    tree_id,
+                    media_id,
+                    alt: String::new(),
+                    class: CLASS.to_string(),
+                }
             }
-        }
+        },
     }
 }
 
@@ -1185,6 +1202,24 @@ struct TileLook {
     draws_remote: bool,
 }
 
+/// The address a remote medium is drawn from, when its type says it is a
+/// picture: the thumbnail's address when it has one, else its own.
+fn remote_picture_address(media: &oxidgene_core::types::Media) -> Option<String> {
+    (crate::api::media_source(media) == MediaSource::Remote
+        && oxidgene_core::types::may_draw_as_image(&media.mime_type))
+    .then(|| media.remote_tile_address().map(str::to_string))
+    .flatten()
+}
+
+/// Whether the gallery and the viewer draw this medium as a picture: a stored
+/// one the server thumbnailed, or a remote one with an address to draw from.
+/// Anything else is drawn as its file icon, so wherever a picture of it would
+/// go, a portrait or a silhouette stands in instead.
+fn drawn_as_picture(media: &oxidgene_core::types::Media) -> bool {
+    (crate::api::media_source(media) == MediaSource::Stored && media.thumbnail_key.is_some())
+        || remote_picture_address(media).is_some()
+}
+
 impl TileLook {
     /// A document holds no bytes of its own, so what the tile draws — and
     /// what it may therefore say about where the file lives, or offer as
@@ -1195,10 +1230,7 @@ impl TileLook {
         let kind = tile.kind();
         // Its server's thumbnail when it serves one: a tile of a few
         // kilobytes rather than the full picture.
-        let remote_preview = (source == MediaSource::Remote
-            && oxidgene_core::types::may_draw_as_image(&tile.media.mime_type))
-        .then(|| tile.media.remote_tile_address().map(str::to_string))
-        .flatten();
+        let remote_preview = remote_picture_address(&tile.media);
         let draws_a_picture =
             !previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
         let draws_remote = source == MediaSource::Remote
@@ -2514,10 +2546,7 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                     let has_thumbnail = page.thumbnail_key.is_some();
                     // A page we never received has its own address, and the
                     // browser draws it as readily as one of ours.
-                    let remote = (crate::api::media_source(page) == MediaSource::Remote
-                        && oxidgene_core::types::may_draw_as_image(&page.mime_type))
-                    .then(|| page.remote_tile_address().map(str::to_string))
-                    .flatten();
+                    let remote = remote_picture_address(page);
                     let name = page.file_name.clone();
                     rsx! {
                         div { key: "{page_id}", class: "doc-page",
@@ -2767,7 +2796,7 @@ fn MediaFacts(
             }
 
             MediaRelations {
-                key: "{attachment_revision}",
+                key: "{displayed_media_id}-{attachment_revision}",
                 tree_id,
                 displayed_media_id,
                 document_media_id,
@@ -2924,10 +2953,26 @@ fn MediaRelations(
         .take(range.len())
         .collect::<Vec<_>>();
 
-    let remote_thumbnail = (crate::api::media_source(&source_media) == MediaSource::Remote
-        && oxidgene_core::types::may_draw_as_image(&source_media.mime_type))
-    .then(|| source_media.remote_tile_address().map(str::to_string))
-    .flatten();
+    let remote_thumbnail = remote_picture_address(&source_media);
+    let can_draw = drawn_as_picture(&source_media);
+    // Only a medium that cannot be drawn needs its persons' portraits and, for
+    // those without one, their sexes: the silhouette they are drawn with.
+    let stand_ins = use_ui_resource("media_attachment_stand_ins", {
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let people = match data.read().as_ref() {
+                Some(Some((links, _))) if !can_draw => attachment_people(links),
+                _ => Vec::new(),
+            };
+            async move { attachment_stand_ins(&api, tree_id, &people).await }
+        }
+    });
+    let stand_ins = stand_ins
+        .read_unchecked()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
 
     let delete_attachment = use_callback({
         let api = api.clone();
@@ -2998,6 +3043,7 @@ fn MediaRelations(
                                     tree_id,
                                     thumbnail_media_id,
                                     remote_thumbnail: remote_thumbnail.clone(),
+                                    picture: person_picture(can_draw, &stand_ins, person_id),
                                     scope: scope_label(scope),
                                     busy: busy(),
                                     on_delete: move |_| delete_attachment.call(link_id),
@@ -3023,6 +3069,8 @@ fn MediaRelations(
                                     tree_id,
                                     thumbnail_media_id,
                                     remote_thumbnail: remote_thumbnail.clone(),
+                                    // A couple has no portrait, so it is the unknown silhouette.
+                                    picture: attachment_picture(can_draw, None, Sex::Unknown),
                                     scope: scope_label(scope),
                                     busy: busy(),
                                     on_delete: move |_| delete_attachment.call(link_id),
@@ -3179,6 +3227,99 @@ fn identifications(vignettes: &[Vignette], person_names: &[PersonName]) -> Vec<M
         .collect()
 }
 
+/// What an attachment row draws beside its name.
+#[derive(Debug, Clone, PartialEq)]
+enum AttachmentPicture {
+    /// The medium itself, which can be drawn as a picture.
+    Medium,
+    /// A person's portrait, standing in for a medium that cannot be drawn.
+    Portrait(CroppedSource),
+    /// The silhouette of a sex, for a medium that cannot be drawn and a
+    /// person with no portrait, or a couple, which has none of its own.
+    Silhouette(Sex),
+}
+
+/// The thumbnail of an attachment row: the medium when it can be drawn, else
+/// the person's portrait, else the silhouette of their sex.
+fn attachment_picture(
+    can_draw: bool,
+    portrait: Option<CroppedSource>,
+    sex: Sex,
+) -> AttachmentPicture {
+    match (can_draw, portrait) {
+        (true, _) => AttachmentPicture::Medium,
+        (false, Some(portrait)) => AttachmentPicture::Portrait(portrait),
+        (false, None) => AttachmentPicture::Silhouette(sex),
+    }
+}
+
+/// The portraits and sexes that stand in for a person's medium on their row.
+#[derive(Debug, Clone, Default)]
+struct AttachmentStandIns {
+    portraits: HashMap<Uuid, CroppedSource>,
+    sexes: HashMap<Uuid, Sex>,
+}
+
+/// The persons an attachment names, each once.
+fn attachment_people(
+    links: &[(MediaAttachmentScope, oxidgene_core::types::MediaLink)],
+) -> Vec<Uuid> {
+    let mut people: Vec<Uuid> = links
+        .iter()
+        .filter_map(|(_, link)| link.person_id)
+        .collect();
+    people.sort_unstable();
+    people.dedup();
+    people
+}
+
+/// The portraits of `person_ids` in one batch, then the sex of each person
+/// without one, which the silhouette needs. Empty when nobody is listed.
+async fn attachment_stand_ins(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person_ids: &[Uuid],
+) -> AttachmentStandIns {
+    if person_ids.is_empty() {
+        return AttachmentStandIns::default();
+    }
+    let portraits = api.portrait_map_for_ids(tree_id, person_ids).await;
+    let without_portrait: Vec<Uuid> = person_ids
+        .iter()
+        .copied()
+        .filter(|person_id| !portraits.contains_key(person_id))
+        .collect();
+    let sexes =
+        futures_util::future::join_all(without_portrait.into_iter().map(|person_id| async move {
+            let sex = api
+                .get_person_profile(tree_id, person_id)
+                .await
+                .map_or(Sex::Unknown, |profile| profile.sex);
+            (person_id, sex)
+        }))
+        .await
+        .into_iter()
+        .collect();
+    AttachmentStandIns { portraits, sexes }
+}
+
+/// The picture of a person's attachment row, from what was loaded for them.
+fn person_picture(
+    can_draw: bool,
+    stand_ins: &AttachmentStandIns,
+    person_id: Uuid,
+) -> AttachmentPicture {
+    attachment_picture(
+        can_draw,
+        stand_ins.portraits.get(&person_id).cloned(),
+        stand_ins
+            .sexes
+            .get(&person_id)
+            .copied()
+            .unwrap_or(Sex::Unknown),
+    )
+}
+
 /// A person or couple attached to the page or its document: its thumbnail,
 /// `children` naming it, where it is attached, and its delete button.
 #[component]
@@ -3186,6 +3327,7 @@ fn AttachmentRow(
     tree_id: Uuid,
     thumbnail_media_id: Uuid,
     remote_thumbnail: Option<String>,
+    picture: AttachmentPicture,
     scope: Option<String>,
     busy: bool,
     on_delete: EventHandler<()>,
@@ -3198,6 +3340,7 @@ fn AttachmentRow(
                 tree_id,
                 media_id: thumbnail_media_id,
                 remote: remote_thumbnail,
+                picture,
             }
             {children}
             if let Some(scope) = scope {
@@ -4840,6 +4983,43 @@ fn media_size(bytes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_medium_that_can_be_drawn_is_shown_whatever_could_stand_in_for_it() {
+        let portrait = CroppedSource::whole("portrait.png".into());
+        assert_eq!(
+            attachment_picture(true, Some(portrait), Sex::Female),
+            AttachmentPicture::Medium
+        );
+        assert_eq!(
+            attachment_picture(true, None, Sex::Male),
+            AttachmentPicture::Medium
+        );
+    }
+
+    #[test]
+    fn an_undrawable_medium_gives_way_to_the_portrait_then_the_silhouette() {
+        let portrait = CroppedSource::whole("portrait.png".into());
+        assert_eq!(
+            attachment_picture(false, Some(portrait.clone()), Sex::Male),
+            AttachmentPicture::Portrait(portrait)
+        );
+        for sex in [Sex::Male, Sex::Female, Sex::Unknown] {
+            assert_eq!(
+                attachment_picture(false, None, sex),
+                AttachmentPicture::Silhouette(sex)
+            );
+        }
+    }
+
+    #[test]
+    fn a_couple_with_an_undrawable_medium_is_the_unknown_silhouette() {
+        // A couple has no portrait and no sex of its own.
+        assert_eq!(
+            attachment_picture(false, None, Sex::Unknown),
+            AttachmentPicture::Silhouette(Sex::Unknown)
+        );
+    }
 
     #[test]
     fn relation_pages_are_bounded_complete_and_never_repeat_rows() {
