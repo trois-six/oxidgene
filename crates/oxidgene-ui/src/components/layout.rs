@@ -5720,10 +5720,17 @@ pub const LAYOUT_STYLES: &str = r#"
        the controls onto a row of their own. */
     .pdf-viewer-search .media-pager-count { white-space: nowrap; }
 
+    /* The height of the control row's buttons (`.media-viewer-controls
+       .isb-btn`), stated rather than left to padding: the engine's own
+       metrics for a text field (WebKitGTK's GTK entry) would otherwise set
+       it. */
     .pdf-viewer-search .pdf-viewer-search-input {
         width: min(220px, 40vw);
-        padding: var(--space-2) var(--space-4);
+        height: 30px;
+        box-sizing: border-box;
+        padding: 0 var(--space-4);
         font-size: var(--text-80);
+        line-height: 1;
     }
 
     /* Page 1 of a PDF, drawn in a tile until or unless the server has a
