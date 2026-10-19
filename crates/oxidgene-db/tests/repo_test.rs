@@ -3376,6 +3376,89 @@ async fn dictionary_resolve_source_drill_down_skips_forced_single_choice_levels(
 }
 
 #[tokio::test]
+async fn dictionary_resolve_source_drill_down_ends_on_a_shared_exact_title() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // More sources than the drill-down's flat list takes (250), all with the
+    // same title: no character after the title splits them, so the drill-down
+    // must end on the final list at that title instead of a single group
+    // labelled with the title itself (which the Sources tab could never open).
+    for _ in 0..300 {
+        SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            "Civil register".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(&db, tree_id, "", 250)
+        .await
+        .unwrap();
+    assert_eq!(prefix, "CIVIL REGISTER");
+    assert_eq!(total, 300);
+    assert!(groups.is_empty());
+
+    let final_list = DictionaryRepo::sources_with_usage_by_prefix(&db, tree_id, &prefix)
+        .await
+        .unwrap();
+    assert_eq!(final_list.len(), 300);
+}
+
+#[tokio::test]
+async fn dictionary_resolve_source_drill_down_keeps_siblings_beside_an_exact_title() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // One source titled exactly "Civil register" next to 300 sources whose
+    // titles continue it: the level is a real branch, so the drill-down must
+    // keep the groups (the exact-title group included) rather than flatten
+    // the whole level into one list of 301 sources.
+    SourceRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        "Civil register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    for i in 0..300 {
+        SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            format!("Civil register - Book {i}"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(&db, tree_id, "", 250)
+        .await
+        .unwrap();
+    assert_eq!(prefix, "CIVIL REGISTER");
+    assert_eq!(total, 301);
+    assert!(!groups.is_empty());
+    assert!(groups.contains(&("CIVIL REGISTER".to_string(), 1)));
+    assert!(groups.contains(&("CIVIL REGISTER ".to_string(), 300)));
+}
+
+#[tokio::test]
 async fn dictionary_places_with_usage_counts_events() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;

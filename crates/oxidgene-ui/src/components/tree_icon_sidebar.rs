@@ -241,6 +241,9 @@ impl TreePage {
                     | Route::DictionarySources { .. }
                     | Route::DictionaryPlaces { .. }
                     | Route::DictionaryRepositories { .. }
+                    | Route::DictionarySource { .. }
+                    | Route::DictionaryPlace { .. }
+                    | Route::DictionaryRepository { .. }
             ) | (TreePage::Statistics, Route::Statistics { .. })
                 | (TreePage::Tools, Route::Tools { .. })
                 | (TreePage::Settings, Route::Settings { .. })

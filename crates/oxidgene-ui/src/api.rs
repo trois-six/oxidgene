@@ -4279,6 +4279,18 @@ impl ApiClient {
         .await
     }
 
+    /// Every source of the tree, each paired with its citation count. Used to
+    /// find a source's title when a record link opens its row; a source that
+    /// is not in the list (deleted, or never a record of the tree) is then
+    /// known without asking for its id.
+    pub async fn dictionary_sources(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/sources"))
+            .await
+    }
+
     /// All places in the tree, each paired with its usage count.
     pub async fn dictionary_places(
         &self,

@@ -33,11 +33,16 @@ use crate::pages::dictionary_media::DictionaryMedia;
 use crate::pages::dictionary_tags::DictionaryTags;
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_trace};
+use crate::ui_observability::{
+    UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace, use_ui_trace,
+};
 
 /// Above this many filtered entries, selecting the "All" page size shows a
 /// perf warning instead of silently rendering everything.
 const LARGE_LIST_THRESHOLD: usize = 500;
+
+/// The page size the tabs open on, and the one a place's link opens on.
+const DEFAULT_PER_PAGE: usize = 25;
 
 /// The Sources tab's smart drill-down is either showing the next level of
 /// prefix groups, or — once a prefix's count is small enough — the final
@@ -242,7 +247,7 @@ impl Default for DictionaryView {
             tab: DictTab::FamilyNames,
             quick: String::new(),
             letter: None,
-            page_size: PageSize::Fixed(25),
+            page_size: PageSize::Fixed(DEFAULT_PER_PAGE),
             page: 1,
             expanded: None,
             source_history: Vec::new(),
@@ -289,22 +294,315 @@ fn history_subject(
     }
 }
 
+/// A row the Dictionary opens on: the record's id, on its tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordTarget {
+    Source(Uuid),
+    Place(Uuid),
+    Repository(Uuid),
+}
+
+impl RecordTarget {
+    fn tab(self) -> DictTab {
+        match self {
+            RecordTarget::Source(_) => DictTab::Sources,
+            RecordTarget::Place(_) => DictTab::Places,
+            RecordTarget::Repository(_) => DictTab::Repositories,
+        }
+    }
+}
+
+/// Scrolls the row `dom_id` into view and moves the focus to it. The row may
+/// render a moment after the data it waits for, so the script retries for a
+/// few seconds before it gives up. The row may also be rendered again by the
+/// change that revealed it, which takes the focus with the old element: a few
+/// passes after the first one focus it again, but only when the focus has been
+/// lost to the document, so a focus the reader moved stays where it is.
+pub(crate) fn reveal_row(dom_id: &str) {
+    document::eval(&format!(
+        "(function reveal(left, passes) {{ const row = document.getElementById('{dom_id}'); if (!row) {{ if (left > 0) {{ setTimeout(() => reveal(left - 1, passes), 50); }} return; }} const lost = !document.activeElement || document.activeElement === document.body; if (passes === undefined || lost) {{ row.scrollIntoView({{ block: 'center' }}); row.focus(); }} if (passes === undefined) {{ setTimeout(() => reveal(0, 3), 250); }} else if (passes > 0) {{ setTimeout(() => reveal(0, passes - 1), 250); }} }})(100);"
+    ));
+}
+
+/// The most levels a walk down the Sources tab takes: the tab's own levels are
+/// few (each one a real branch), so this only guards against a loop.
+const MAX_DRILL_LEVELS: usize = 256;
+
+/// The group of a drill-down level that holds `title`, the label a reader
+/// clicking it would push. The backend groups titles uppercased, and so does
+/// the comparison. `None` when no group reaches past the level's `prefix`.
+fn drill_step(title: &str, prefix: &str, groups: &[SourceGroupEntry]) -> Option<String> {
+    let title = title.to_uppercase();
+    let prefix_len = prefix.chars().count();
+    groups
+        .iter()
+        .find(|group| title.starts_with(&group.label) && group.label.chars().count() > prefix_len)
+        .map(|group| group.label.clone())
+}
+
+/// The labels a reader clicking down the Sources tab would push to reach the
+/// row of source `id`: each level asks the tab's own question
+/// (`dictionary_source_groups`) and takes the group holding the title, until
+/// the level is the final list. `None` when the tree holds no such source, or
+/// when the final list does not hold it (a source deleted since). The source is
+/// looked up in the tree's list rather than by its id, so an unknown id causes
+/// no failed request. See ui-dictionary.md §8 and §17.
+async fn locate_source(
+    api: &ApiClient,
+    tid: Uuid,
+    id: Uuid,
+) -> Result<Option<Vec<String>>, ApiError> {
+    let listed = api.dictionary_sources(tid).await?;
+    let Some(entry) = listed.iter().find(|entry| entry.source.id == id) else {
+        return Ok(None);
+    };
+    let title = entry.source.title.clone();
+    let mut path: Vec<String> = Vec::new();
+    let mut query = String::new();
+    for _ in 0..MAX_DRILL_LEVELS {
+        let level = api.dictionary_source_groups(tid, &query).await?;
+        if level.groups.is_empty() {
+            let listed = level.sources.unwrap_or_default();
+            return Ok(listed
+                .iter()
+                .any(|entry| entry.source.id == id)
+                .then_some(path));
+        }
+        let Some(label) = drill_step(&title, &level.prefix, &level.groups) else {
+            return Ok(None);
+        };
+        path.push(label.clone());
+        query = label;
+    }
+    Ok(None)
+}
+
+/// Where place `id` shows on the Places tab: the letter it files under (none
+/// when its first character is not an ASCII letter, the tab then showing all
+/// places), and its index among the places shown under that letter, in the
+/// tab's order.
+fn place_position<'a>(
+    names: impl Iterator<Item = (Uuid, &'a str)>,
+    id: Uuid,
+) -> Option<(Option<char>, usize)> {
+    let names: Vec<(Uuid, &str)> = names.collect();
+    let name = names.iter().find(|(entry, _)| *entry == id)?.1;
+    let letter = name
+        .chars()
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .filter(char::is_ascii_uppercase);
+    let index = names
+        .iter()
+        .filter(|(_, name)| matches_filters(name, name, "", letter))
+        .position(|(entry, _)| *entry == id)?;
+    Some((letter, index))
+}
+
 /// A value tab's data: `None` until the tab is first opened, then the
 /// aggregation's answer.
 type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
+
+/// What a source's link found: the source asked for, and the clicks that
+/// reach its row (see `locate_source`).
+type SourceWalk = Resource<Option<(Uuid, Result<Option<Vec<String>>, ApiError>)>>;
+
+/// The view the page opens on: a record's route opens its tab's root, any
+/// other route the view the reader left, when coming back to it.
+fn opening_view(record_route: bool, restored: Option<DictionaryView>) -> DictionaryView {
+    if record_route {
+        DictionaryView::default()
+    } else {
+        restored.unwrap_or_default()
+    }
+}
+
+/// The source a link asks for, if it asks for one.
+fn source_of(target: Option<RecordTarget>) -> Option<Uuid> {
+    match target {
+        Some(RecordTarget::Source(id)) => Some(id),
+        _ => None,
+    }
+}
+
+/// The repository a link asks for, if it asks for one.
+fn repository_of(target: Option<RecordTarget>) -> Option<Uuid> {
+    match target {
+        Some(RecordTarget::Repository(id)) => Some(id),
+        _ => None,
+    }
+}
+
+/// The row a link asked for, until the page has shown it. The same page asked
+/// for another row while it is open shows that row's tab.
+fn use_record_request(
+    record: Option<RecordTarget>,
+    landing_tab: DictTab,
+    mut active_tab: Signal<DictTab>,
+) -> Signal<Option<RecordTarget>> {
+    let mut applied = use_signal(|| record);
+    let mut pending = use_signal(|| record);
+    if record != applied() {
+        applied.set(record);
+        pending.set(record);
+        active_tab.set(record.map_or(landing_tab, RecordTarget::tab));
+    }
+    pending
+}
+
+/// Resets the filters, paging and expansion when the reader switches tabs.
+fn switch_tab(
+    mut prev_tab: Signal<DictTab>,
+    active: DictTab,
+    mut pending: Signal<Option<RecordTarget>>,
+    view: TabView,
+    mut source_history: Signal<Vec<String>>,
+) {
+    if prev_tab() == active {
+        return;
+    }
+    // A repository's link is taken by the Repositories tab, which keeps it
+    // while shown. Leaving the tab takes the request back, so returning to
+    // the tab later shows the row as the reader left it.
+    if prev_tab() == DictTab::Repositories && repository_of(pending()).is_some() {
+        pending.set(None);
+    }
+    prev_tab.set(active);
+    let TabView {
+        letter: mut letter_filter,
+        quick: mut quick_filter,
+        mut page,
+        mut expanded,
+        ..
+    } = view;
+    quick_filter.set(String::new());
+    letter_filter.set(None);
+    page.set(1);
+    expanded.set(None);
+    // Only when there is something to clear: setting it marks it changed,
+    // which re-ran the Sources request the tab switch had just sent.
+    if !source_history.peek().is_empty() {
+        source_history.set(Vec::new());
+    }
+}
+
+/// A source's link: the clicks that reach its row, found before the tab
+/// replays them (see `locate_source`).
+fn use_source_walk(
+    trace: UiLoadTrace,
+    api: ApiClient,
+    tree_id: Signal<Option<Uuid>>,
+    pending: Signal<Option<RecordTarget>>,
+) -> SourceWalk {
+    use_traced_resource(trace, "source_path", move || {
+        let api = api.clone();
+        let tid = tree_id();
+        let asked = source_of(pending());
+        async move {
+            let (Some(id), Some(tid)) = (asked, tid) else {
+                return None;
+            };
+            Some((id, locate_source(&api, tid, id).await))
+        }
+    })
+}
+
+/// A source's link: the tab replays the clicks that reach the source, then
+/// shows its row unfolded and focused. A source that is not in the tree
+/// leaves the tab on its root.
+fn use_source_landing(
+    mut pending: Signal<Option<RecordTarget>>,
+    source_walk: SourceWalk,
+    mut source_history: Signal<Vec<String>>,
+    mut expanded: Signal<Option<UsageKey>>,
+) {
+    use_effect(move || {
+        let Some(RecordTarget::Source(asked)) = pending() else {
+            return;
+        };
+        let walk = source_walk.read();
+        let Some(Some((id, found))) = &*walk else {
+            return;
+        };
+        if *id != asked {
+            return;
+        }
+        match found {
+            Ok(Some(path)) => {
+                source_history.set(path.clone());
+                expanded.set(Some(UsageKey::Source(asked)));
+                reveal_row(&format!("dict-source-{asked}"));
+            }
+            _ => source_history.set(Vec::new()),
+        }
+        pending.set(None);
+    });
+}
+
+/// The filters and paging of the tab shown, which a tab switch resets and a
+/// place's link sets.
+#[derive(Clone, Copy)]
+struct TabView {
+    letter: Signal<Option<char>>,
+    quick: Signal<String>,
+    page_size: Signal<PageSize>,
+    page: Signal<usize>,
+    expanded: Signal<Option<UsageKey>>,
+}
+
+/// A place's link: once the places are in, the tab shows the place's letter
+/// and page, its row unfolded and focused. A place that is not in the tree
+/// leaves the tab on its root.
+fn use_place_landing(
+    mut pending: Signal<Option<RecordTarget>>,
+    places: TabResource<Vec<PlaceDictionaryEntry>>,
+    view: TabView,
+) {
+    use_effect(move || {
+        let Some(RecordTarget::Place(id)) = pending() else {
+            return;
+        };
+        let read = places.read();
+        let Some(Some(Ok(entries))) = &*read else {
+            return;
+        };
+        pending.set(None);
+        let Some((letter, index)) = place_position(
+            entries
+                .iter()
+                .map(|entry| (entry.place.id, entry.place.name.as_str())),
+            id,
+        ) else {
+            return;
+        };
+        let TabView {
+            letter: mut letter_filter,
+            quick: mut quick_filter,
+            mut page_size,
+            mut page,
+            mut expanded,
+        } = view;
+        letter_filter.set(letter);
+        quick_filter.set(String::new());
+        page_size.set(PageSize::Fixed(DEFAULT_PER_PAGE));
+        page.set(index / DEFAULT_PER_PAGE + 1);
+        expanded.set(Some(UsageKey::Place(id)));
+        reveal_row(&format!("dict-place-{id}"));
+    });
+}
 
 /// The Dictionary page of a tree.
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, landing: None } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: None, record: None, record_route: false } }
 }
 
 /// The Dictionary page opened on the Tags tab, unfolded on one tag.
 #[component]
 pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: Some(tag), landing: None } }
+    rsx! { DictionaryPage { tree_id, tag: Some(tag), landing: None, record: None, record_route: false } }
 }
 
 /// The Dictionary page opened on the Sources tab (a source's link in the
@@ -312,7 +610,38 @@ pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
 #[component]
 pub fn DictionarySources(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Sources) } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Sources), record: None, record_route: false } }
+}
+
+/// The Dictionary page opened on one source's row in the Sources tab (a
+/// source's link in the Tags tab). An id that is not a source's id opens the
+/// tab's root, as does a source that is no longer in the tree.
+#[component]
+pub fn DictionarySource(tree_id: String, source_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    let record = source_id.parse::<Uuid>().ok().map(RecordTarget::Source);
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Sources), record, record_route: true } }
+}
+
+/// The Dictionary page opened on one place's row in the Places tab (a place's
+/// link in the Tags tab), on its letter and page.
+#[component]
+pub fn DictionaryPlace(tree_id: String, place_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    let record = place_id.parse::<Uuid>().ok().map(RecordTarget::Place);
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Places), record, record_route: true } }
+}
+
+/// The Dictionary page opened on one repository's row in the Repositories tab
+/// (a repository's link in the Tags tab).
+#[component]
+pub fn DictionaryRepository(tree_id: String, repository_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    let record = repository_id
+        .parse::<Uuid>()
+        .ok()
+        .map(RecordTarget::Repository);
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Repositories), record, record_route: true } }
 }
 
 /// The Dictionary page opened on the Places tab (a place's link in the Tags
@@ -320,7 +649,7 @@ pub fn DictionarySources(tree_id: String) -> Element {
 #[component]
 pub fn DictionaryPlaces(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Places) } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Places), record: None, record_route: false } }
 }
 
 /// The Dictionary page opened on the Repositories tab (a repository's link in
@@ -328,11 +657,17 @@ pub fn DictionaryPlaces(tree_id: String) -> Element {
 #[component]
 pub fn DictionaryRepositories(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Repositories) } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Repositories), record: None, record_route: false } }
 }
 
 #[component]
-fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>) -> Element {
+fn DictionaryPage(
+    tree_id: String,
+    tag: Option<String>,
+    landing: Option<DictTab>,
+    record: Option<RecordTarget>,
+    record_route: bool,
+) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     // The trace the route component opened is provided above this page.
@@ -350,8 +685,13 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
     let requested_tag = tag.as_deref().and_then(|raw| raw.parse::<Uuid>().ok());
     let mut applied_tag = use_signal(|| requested_tag);
 
-    // The view the reader left here, when coming back through the history.
-    let restored = use_restored_view::<DictionaryView>().unwrap_or_default();
+    // The view the reader left here, when coming back through the history. A
+    // row's link opens its tab on that row's own view, not on the one left.
+    let restored_view = use_restored_view::<DictionaryView>();
+    // A record's route opens on the tab's root, as does a record that is not
+    // there (its id does not parse, or it is unknown); only the other routes
+    // reopen the view the reader left.
+    let restored = opening_view(record_route, restored_view);
     // The tab the page opens on, unless a tag asks for the Tags tab: the tab
     // the route asks for, else the tab the reader left.
     let landing_tab = landing.unwrap_or(restored.tab);
@@ -361,11 +701,12 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
         applied_tag.set(requested_tag);
         active_tab.set(DictTab::Tags);
     }
+    let pending = use_record_request(record, landing_tab, active_tab);
     let quick_filter = use_signal(|| restored.quick.clone());
     let letter_filter = use_signal(|| restored.letter);
     let page_size = use_signal(|| restored.page_size);
-    let mut current_page = use_signal(|| restored.page);
-    let mut expanded = use_signal(|| restored.expanded.clone());
+    let current_page = use_signal(|| restored.page);
+    let expanded = use_signal(|| restored.expanded.clone());
     // Sources tab drill-down history: each entry is a branch label the user
     // clicked (see ui-dictionary.md §8.10). Empty = "All sources" root.
     let mut source_history = use_signal(|| restored.source_history.clone());
@@ -380,19 +721,15 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
     });
 
     // Reset filters/pagination/expansion when switching tabs.
-    let mut prev_tab = use_signal(|| landing_tab);
-    if prev_tab() != active_tab() {
-        prev_tab.set(active_tab());
-        quick_filter.clone().set(String::new());
-        letter_filter.clone().set(None);
-        current_page.set(1);
-        expanded.set(None);
-        // Only when there is something to clear: setting it marks it changed,
-        // which re-ran the Sources request the tab switch had just sent.
-        if !source_history.peek().is_empty() {
-            source_history.set(Vec::new());
-        }
-    }
+    let prev_tab = use_signal(|| landing_tab);
+    let view = TabView {
+        letter: letter_filter,
+        quick: quick_filter,
+        page_size,
+        page: current_page,
+        expanded,
+    };
+    switch_tab(prev_tab, active_tab(), pending, view, source_history);
 
     // Scroll back to the top of the scrollable content area whenever the
     // page changes (pagination, or a filter/tab switch resetting to page
@@ -457,7 +794,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
         let api = api_src.clone();
         let tid = tree_id_parsed();
         let query_prefix = source_history().last().cloned().unwrap_or_default();
-        let wanted = opened.sources();
+        let wanted = opened.sources() && source_of(pending()).is_none();
         async move {
             if !wanted {
                 return None;
@@ -468,6 +805,10 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
             Some(load_sources_view(&api, tid, &query_prefix).await)
         }
     });
+
+    // A source's link: the clicks that reach its row, found before the tab
+    // replays them (see `locate_source`).
+    let source_walk = use_source_walk(load_trace.clone(), api.clone(), tree_id_parsed, pending);
 
     let api_place = api.clone();
     let mut places_resource = use_traced_resource(load_trace.clone(), "places", move || {
@@ -522,6 +863,9 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
     let filed_occupations = use_filed_values(occupations_resource, sort_particles);
     let filed_places = use_filed_places(places_resource);
 
+    use_source_landing(pending, source_walk, source_history, expanded);
+    use_place_landing(pending, places_resource, view);
+
     let record_menu = use_record_menu();
     let ctx = TabContext {
         i18n,
@@ -536,6 +880,9 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
         usage_people: usage_resource,
         record_menu,
     };
+
+    // The repository the Repositories tab opens on, until the reader leaves it.
+    let open_repository = repository_of(pending());
 
     // ── Render ──
     rsx! {
@@ -588,7 +935,12 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>
                 }
                 // Its own module: a list of its own, edited in place.
                 DictTab::Repositories => tree_module(tree_id_parsed(), |tree_id| {
-                    rsx! { crate::pages::dictionary_repositories::DictionaryRepositories { tree_id } }
+                    rsx! {
+                        crate::pages::dictionary_repositories::DictionaryRepositories {
+                            tree_id,
+                            open: open_repository,
+                        }
+                    }
                 }),
                 DictTab::Places => render_places_tab(ctx, places_resource, filed_places),
                 // Its own module: server-paginated, with filters of its own.
@@ -1528,7 +1880,8 @@ fn render_sources_breadcrumb(
 /// Renders the prefix-group buttons for the current drill-down level: only
 /// groups that actually occur in this tree are ever passed in, so every
 /// button is clickable (contrast with the disabled-letter A-Z index used by
-/// the other tabs). Clicking a group pushes it onto `history` — the next
+/// the other tabs), except the group labelled with `prefix` itself, which is
+/// disabled (see the button below). Clicking a group pushes it onto `history` — the next
 /// resolve request may auto-skip further forced single-choice levels
 /// beyond it (see ui-dictionary.md §8.10).
 fn render_sources_groups(
@@ -1574,6 +1927,10 @@ fn render_sources_groups(
                     button {
                         key: "{g.label}",
                         class: "dict-letter-btn",
+                        // The group labelled with the level's own prefix holds
+                        // the sources titled exactly that prefix: no character
+                        // splits them, so pushing it would reload this level.
+                        disabled: g.label == prefix,
                         onclick: {
                             let label = g.label.clone();
                             move |_| {
@@ -1942,6 +2299,48 @@ fn render_places_tab(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn group(label: &str) -> SourceGroupEntry {
+        SourceGroupEntry {
+            label: label.to_string(),
+            count: 1,
+        }
+    }
+
+    /// A walk takes the group its title starts with, past the level's prefix.
+    #[test]
+    fn drill_step_takes_the_group_holding_the_title() {
+        let groups = [group("AD44 - A"), group("AD44 - H")];
+        assert_eq!(
+            drill_step("AD44 - Hotel - (records", "AD44 - ", &groups).as_deref(),
+            Some("AD44 - H")
+        );
+        assert_eq!(drill_step("zz", "AD44 - ", &groups), None);
+    }
+
+    /// A group that does not reach past the prefix is no step: the walk stops.
+    #[test]
+    fn drill_step_stops_on_a_group_that_makes_no_progress() {
+        let groups = [group("ALPHA")];
+        assert_eq!(drill_step("ALPHA", "ALPHA", &groups), None);
+    }
+
+    /// A place opens on its letter, at its index among that letter's places.
+    #[test]
+    fn place_position_files_a_place_under_its_letter() {
+        let names = [
+            (Uuid::from_u128(1), "Ashfield"),
+            (Uuid::from_u128(2), "Brookmere"),
+            (Uuid::from_u128(3), "ashford"),
+            (Uuid::from_u128(4), "Ælfheim"),
+        ];
+        let at = |id: u128| place_position(names.iter().copied(), Uuid::from_u128(id));
+        assert_eq!(at(3), Some((Some('A'), 1)));
+        assert_eq!(at(2), Some((Some('B'), 0)));
+        // A first letter outside A to Z files under no letter: all places show.
+        assert_eq!(at(4), Some((None, 3)));
+        assert_eq!(at(9), None);
+    }
 
     fn entry(value: &str, sort_key: &str) -> DictionaryEntry {
         DictionaryEntry {

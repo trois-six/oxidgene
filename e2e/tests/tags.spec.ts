@@ -24,6 +24,23 @@ async function personIdOf(request: APIRequestContext, treeId: string, given: str
     return id as string;
 }
 
+/// Create one source per title in `treeId`, in batches, and return their ids in
+/// the order of `titles`.
+async function seedSources(request: APIRequestContext, treeId: string, titles: string[]): Promise<string[]> {
+    const ids: string[] = [];
+    for (let start = 0; start < titles.length; start += 26) {
+        const batch = titles.slice(start, start + 26);
+        const created = await Promise.all(
+            batch.map((title) => request.post(`${apiUrl}/api/v1/trees/${treeId}/sources`, { data: { title } })),
+        );
+        for (const response of created) {
+            expect(response.status()).toBe(201);
+            ids.push((await response.json()).id as string);
+        }
+    }
+    return ids;
+}
+
 test("highlights a tag's carriers in the tree and in another chart", async ({ page, request, tree }) => {
     const tagId = await createTag(request, tree.treeId, "Fictional mark");
     await tagPerson(request, tree.treeId, tagId, tree.anchorId);
@@ -228,4 +245,223 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await expect(place.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional place mark");
     await page.keyboard.press("Escape");
     await expect(place).toBeFocused();
+});
+
+test("opens a tagged source, place and repository on their own rows from the Tags tab", async ({ page, request, tree }) => {
+    // More sources than the drill-down's flat list takes (250), sharing one
+    // title prefix, so the Sources tab takes at least one prefix level to
+    // reach the target.
+    const sourceTitles = Array.from({ length: 260 }, (_, index) => `Fictional register ${String(index + 1).padStart(3, "0")}`);
+    const sourceIds = await seedSources(request, tree.treeId, sourceTitles);
+    const deepIndex = sourceTitles.indexOf("Fictional register 200");
+    const sourceId = sourceIds[deepIndex];
+
+    const repository = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, {
+        data: { name: "Fictional archive" },
+    });
+    expect(repository.status()).toBe(201);
+    const repositoryId = (await repository.json()).id as string;
+
+    const places = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/places?first=100`)).json()) as {
+        edges: Array<{ node: { id: string; name: string } }>;
+    };
+    const placeId = places.edges.map((edge) => edge.node).find((place) => place.name.includes("Northfield"))?.id;
+    expect(placeId, "the fixture's Northfield").toBeTruthy();
+
+    const records = [
+        { label: "Fictional deep mark", kind: "source", id: sourceId, title: "Fictional register 200", row: `dict-source-${sourceId}` },
+        { label: "Fictional place mark", kind: "place", id: placeId, title: "Northfield", row: `dict-place-${placeId}` },
+        { label: "Fictional repository mark", kind: "repository", id: repositoryId, title: "Fictional archive", row: `dict-repository-${repositoryId}` },
+    ];
+    for (const record of records) {
+        const tagId = await createTag(request, tree.treeId, record.label);
+        const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/${record.kind}/${record.id}`);
+        expect(put.status()).toBe(204);
+
+        // The tag's own page unfolds it: the record's link opens its row.
+        await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+        await page.getByRole("link", { name: record.title }).click();
+
+        const row = page.locator(`#${record.row}`);
+        await expect(row).toBeVisible({ timeout: 15_000 });
+        await expect(row).toBeInViewport();
+        await expect(row).toBeFocused({ timeout: 15_000 });
+        await expect(row).toContainText("▲");
+    }
+});
+
+test("opens a record's link on the tab root when the id is not a record's", async ({ page, tree }) => {
+    // A link with no record id behind it: the Sources tab opens at its root,
+    // with no request for the record and no error.
+    await page.goto(`/trees/${tree.treeId}/dictionary/sources/not-a-record`);
+    await expect(page.getByRole("tab", { name: "Sources", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".dict-row").first()).toBeVisible();
+});
+
+test("opens a tagged source whose title is shared by more sources than the flat list takes", async ({ page, request, tree }) => {
+    // Every source shares one title: no character after it splits them, so the
+    // Sources tab must show the final list at that title, with the tagged row
+    // in it, rather than a single group the tab could not open.
+    const sourceIds = await seedSources(request, tree.treeId, Array.from({ length: 260 }, () => "Fictional ledger"));
+    const sourceId = sourceIds[200];
+
+    const tagId = await createTag(request, tree.treeId, "Fictional shared mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/source/${sourceId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    await page.getByRole("link", { name: "Fictional ledger", exact: true }).click();
+
+    const row = page.locator(`#dict-source-${sourceId}`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row).toBeInViewport();
+    await expect(row).toBeFocused({ timeout: 15_000 });
+    await expect(row).toContainText("▲");
+});
+
+test("opens a tagged place on a later page of its letter", async ({ page, request, tree }) => {
+    // Thirty places share one letter, so the one at index 26 sits on the second
+    // page of that letter (25 per page): the tab must change page to show it.
+    const names = Array.from({ length: 30 }, (_, index) => `Fictional hamlet ${String(index + 1).padStart(2, "0")}`);
+    const placeIds: string[] = [];
+    for (const name of names) {
+        const created = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/places`, { data: { name } });
+        expect(created.status()).toBe(201);
+        placeIds.push((await created.json()).id as string);
+    }
+    const placeId = placeIds[26];
+
+    const tagId = await createTag(request, tree.treeId, "Fictional hamlet mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/place/${placeId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    await page.getByRole("link", { name: names[26], exact: true }).click();
+
+    const row = page.locator(`#dict-place-${placeId}`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row).toBeInViewport();
+    await expect(row).toBeFocused({ timeout: 15_000 });
+    await expect(row).toContainText("▲");
+});
+
+test("opens the tab root, without a request error, for a source deleted since it was tagged", async ({ page, request, tree }) => {
+    const [deletedId] = await seedSources(request, tree.treeId, ["Fictional deleted register"]);
+    await seedSources(request, tree.treeId, ["Fictional surviving register"]);
+    const deleted = await request.delete(`${apiUrl}/api/v1/trees/${tree.treeId}/sources/${deletedId}`);
+    expect(deleted.ok(), await deleted.text()).toBeTruthy();
+
+    // A well-formed id that is no source of the tree: the Sources tab opens at
+    // its root and no request for the id fails (the console guard is active).
+    await page.goto(`/trees/${tree.treeId}/dictionary/sources/${deletedId}`);
+    await expect(page.getByRole("tab", { name: "Sources", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(`#dict-source-${deletedId}`)).toHaveCount(0);
+});
+
+test("opens the tab root, without a request error, for an unknown source id", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/dictionary/sources/0195c0de-0000-7000-8000-0000000000fe`);
+    await expect(page.getByRole("tab", { name: "Sources", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("opens the tab root, without a request error, for an unknown place id", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/dictionary/places/0195c0de-0000-7000-8000-0000000000fd`);
+    await expect(page.getByRole("tab", { name: "Places", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".dict-row").first()).toBeVisible();
+});
+
+test("opens the tab root, without a request error, for an unknown repository id", async ({ page, request, tree }) => {
+    const repository = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, {
+        data: { name: "Fictional listed archive" },
+    });
+    expect(repository.status()).toBe(201);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/repositories/0195c0de-0000-7000-8000-0000000000fc`);
+    await expect(page.getByRole("tab", { name: "Repositories", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".dict-row").first()).toBeVisible();
+});
+
+test("unfolds a linked repository once, not again when its tab is shown later", async ({ page, request, tree }) => {
+    const repository = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, {
+        data: { name: "Fictional reading room" },
+    });
+    expect(repository.status()).toBe(201);
+    const repositoryId = (await repository.json()).id as string;
+
+    const tagId = await createTag(request, tree.treeId, "Fictional room mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/repository/${repositoryId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    await page.getByRole("link", { name: "Fictional reading room", exact: true }).click();
+    const row = page.locator(`#dict-repository-${repositoryId}`);
+    await expect(row).toContainText("▲", { timeout: 15_000 });
+
+    // Leaving the tab and coming back shows the row as the reader left it:
+    // folded, not unfolded and focused again by the link.
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    await page.getByRole("tab", { name: "Repositories", exact: true }).click();
+    await expect(row).toBeVisible();
+    await expect(row).not.toContainText("▲");
+});
+
+test("replays the Sources tab's levels on browser back and forward after a tagged source's link", async ({ page, request, tree }) => {
+    // The same shape as the deep-source case: the target sits under the
+    // "FICTIONAL REGISTER 2" branch of the level "FICTIONAL REGISTER ".
+    const sourceTitles = Array.from({ length: 260 }, (_, index) => `Fictional register ${String(index + 1).padStart(3, "0")}`);
+    const sourceIds = await seedSources(request, tree.treeId, sourceTitles);
+    const sourceId = sourceIds[sourceTitles.indexOf("Fictional register 200")];
+
+    const tagId = await createTag(request, tree.treeId, "Fictional history mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/source/${sourceId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    await page.getByRole("link", { name: "Fictional register 200", exact: true }).click();
+    const row = page.locator(`#dict-source-${sourceId}`);
+    await expect(row).toContainText("▲", { timeout: 15_000 });
+    const activeCrumb = page.locator(".dict-src-breadcrumb .dict-src-crumb.active");
+    await expect(activeCrumb).toHaveText("FICTIONAL REGISTER 2");
+
+    // Back leaves the record's route for the tag's page.
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/dictionary/tags/${tagId}$`));
+
+    // Forward replays the levels to the same row: the breadcrumb and the
+    // drill level read as before, and the row is reachable again.
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/dictionary/sources/${sourceId}$`));
+    await expect(page.getByRole("tab", { name: "Sources", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(activeCrumb).toHaveText("FICTIONAL REGISTER 2", { timeout: 15_000 });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row).toBeFocused({ timeout: 15_000 });
+    await expect(row).toContainText("▲");
+
+    // The root crumb leads back to the tab's root, whose letters are shown.
+    await page.locator(".dict-src-breadcrumb .dict-src-crumb").first().click();
+    await expect(page.getByRole("button", { name: "F", exact: true })).toBeVisible();
+    await expect(page.locator(".dict-src-groups-label")).toBeVisible();
+});
+
+test("drills through a level whose exact-title group sits beside its siblings", async ({ page, request, tree }) => {
+    // One source titled exactly "Fictional ledger" beside 300 sources that
+    // continue it: the level stays a branch, its exact-title group is shown
+    // but cannot be chosen, and the sibling group drills on as usual.
+    const titles = ["Fictional ledger", ...Array.from({ length: 300 }, (_, index) => `Fictional ledger: Book ${index + 1}`)];
+    await seedSources(request, tree.treeId, titles);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    // The root's letters: the tree's own "P" sources and the "F" of the ledgers,
+    // whose levels skip down to the ledger title on their own.
+    await page.getByRole("button", { name: "F", exact: true }).click();
+    await expect(page.getByRole("button", { name: "FICTIONAL LEDGER", exact: true })).toBeDisabled();
+    const book = page.getByRole("button", { name: "FICTIONAL LEDGER:", exact: true });
+    await expect(book).toBeEnabled();
+    await book.click();
+
+    // The next level is a branch too: its groups show, not the 300 sources flattened.
+    await expect(page.locator(".dict-src-groups-label")).toBeVisible();
+    await expect(page.locator(".dict-row")).toHaveCount(0);
+    await page.getByRole("button", { name: "FICTIONAL LEDGER: BOOK 1", exact: true }).click();
+    await expect(page.locator(".dict-row")).toHaveCount(111);
 });

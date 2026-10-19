@@ -50,7 +50,7 @@ Tags take no room on a record that has none.
 
 ## The Tags tab
 
-Open the **Dictionary** from the left sidebar and choose the **Tags** tab. Each row is a tag, with its colour and the number of records that carry it, by kind: persons, couples, documents and so on. Click the arrow of a row to list those records, grouped by kind, and open any of them. An event or a citation opens the profile of its person or couple, a source opens the **Sources** tab, a place the **Places** tab and a repository the **Repositories** tab. A note opens the profile of the person or couple it belongs to.
+Open the **Dictionary** from the left sidebar and choose the **Tags** tab. Each row is a tag, with its colour and the number of records that carry it, by kind: persons, couples, documents and so on. Click the arrow of a row to list those records, grouped by kind, and open any of them. An event or a citation opens the profile of its person or couple, a source opens its row in the **Sources** tab, a place its row in the **Places** tab and a repository its row in the **Repositories** tab. A note opens the profile of the person or couple it belongs to.
 
 - **Edit** (the pencil) changes the label and the colour. If the new label is the same as another tag's, OxidGene offers to **merge** the two: every record carrying either tag then carries the merged tag once.
 - **Delete** (the ×) removes the tag from every record that carries it. The confirmation says how many records that is. It cannot be undone.

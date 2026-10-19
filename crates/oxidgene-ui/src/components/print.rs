@@ -56,6 +56,9 @@ pub fn is_printable(route: &Route) -> bool {
         | Route::DictionarySources { .. }
         | Route::DictionaryPlaces { .. }
         | Route::DictionaryRepositories { .. }
+        | Route::DictionarySource { .. }
+        | Route::DictionaryPlace { .. }
+        | Route::DictionaryRepository { .. }
         | Route::Statistics { .. }
         | Route::Tools { .. } => true,
     }

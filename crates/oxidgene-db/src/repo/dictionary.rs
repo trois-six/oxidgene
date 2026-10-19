@@ -393,10 +393,15 @@ impl DictionaryRepo {
     ///
     /// Returns `(resolved_prefix, total, groups)`: `resolved_prefix` may be
     /// longer than the input `prefix` (every auto-skipped character is
-    /// folded in); `groups` is empty when `total <= threshold` — the caller
-    /// should then fetch the final flat list via
+    /// folded in); `groups` is empty when `total <= threshold`, and also when
+    /// the only group is labelled with the resolved prefix itself (every
+    /// source of the level has that exact title, which no character splits,
+    /// so the final flat list is shown whatever its size) — the caller should
+    /// then fetch the final flat list via
     /// `sources_with_usage_by_prefix(resolved_prefix)` instead of rendering
-    /// another drill-down level. See ui-dictionary.md §8.10.
+    /// another drill-down level. When siblings exist beside a group labelled
+    /// with the resolved prefix itself, that group is returned like any other
+    /// and the level stays a branch level. See ui-dictionary.md §8.10.
     pub async fn resolve_source_drill_down(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -415,10 +420,10 @@ impl DictionaryRepo {
             }
             let (only_label, _) = &groups[0];
             if only_label == &current {
-                // No further characters to drill into (every remaining
-                // source's title is exactly `current`) — stop even though
-                // `total` is still above the threshold.
-                return Ok((current, total, groups));
+                // Every remaining source's title is exactly `current`: no
+                // further character splits them, so the level is the final
+                // list even though `total` is still above the threshold.
+                return Ok((current, total, Vec::new()));
             }
             current = only_label.clone();
         }

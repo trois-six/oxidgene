@@ -21,6 +21,9 @@ const PAGE_NAMES: &[(&str, &str)] = &[
     ("DictionarySources", "Dictionary"),
     ("DictionaryPlaces", "Dictionary"),
     ("DictionaryRepositories", "Dictionary"),
+    ("DictionarySource", "Dictionary"),
+    ("DictionaryPlace", "Dictionary"),
+    ("DictionaryRepository", "Dictionary"),
 ];
 
 /// Files allowed a plain `use_resource(`, with why.

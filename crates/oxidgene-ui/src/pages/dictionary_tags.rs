@@ -425,21 +425,21 @@ fn TaggedRecordRow(tree_id: Uuid, record: TaggedRecord) -> Element {
                 }
             }
         },
-        // A source is edited in the Sources tab of this dictionary.
+        // A source opens its row in the Sources tab of this dictionary.
         RecordKind::Source => rsx! {
             div { class: "dict-accordion-item",
                 Link {
-                    to: Route::DictionarySources { tree_id: tree },
+                    to: Route::DictionarySource { tree_id: tree, source_id: record.id.to_string() },
                     class: "dict-accordion-name",
                     "{record.label}"
                 }
             }
         },
-        // A place and a repository are edited in their tabs of this dictionary.
+        // A place and a repository open their row in their tab of this dictionary.
         RecordKind::Place => rsx! {
             div { class: "dict-accordion-item",
                 Link {
-                    to: Route::DictionaryPlaces { tree_id: tree },
+                    to: Route::DictionaryPlace { tree_id: tree, place_id: record.id.to_string() },
                     class: "dict-accordion-name",
                     "{record.label}"
                 }
@@ -448,7 +448,7 @@ fn TaggedRecordRow(tree_id: Uuid, record: TaggedRecord) -> Element {
         RecordKind::Repository => rsx! {
             div { class: "dict-accordion-item",
                 Link {
-                    to: Route::DictionaryRepositories { tree_id: tree },
+                    to: Route::DictionaryRepository { tree_id: tree, repository_id: record.id.to_string() },
                     class: "dict-accordion-name",
                     "{record.label}"
                 }

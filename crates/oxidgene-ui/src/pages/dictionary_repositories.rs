@@ -14,6 +14,7 @@ use crate::components::tags::{
     use_record_menu,
 };
 use crate::i18n::{I18n, use_i18n};
+use crate::pages::dictionary::reveal_row;
 use crate::ui_observability::use_ui_resource;
 use oxidgene_core::types::RecordKind;
 
@@ -60,12 +61,25 @@ fn held_label(i18n: &I18n, held: &HeldSource) -> String {
     }
 }
 
+/// The Repositories tab. `open` is the repository a link asked for: its row
+/// starts unfolded, then is scrolled to and focused. The page keeps the request
+/// while the tab is shown and takes it back when the reader leaves the tab, so
+/// `open` is `None` when the tab is shown later; a new request while the tab is
+/// shown unfolds its row in place.
 #[component]
-pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
+pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut quick = use_signal(String::new);
-    let mut expanded = use_signal(|| None::<Uuid>);
+    let mut expanded = use_signal(|| open);
+    // Runs on mount and whenever a new request arrives: unfolds the requested
+    // row and reveals it. A request already taken back changes nothing.
+    use_effect(use_reactive!(|(open,)| {
+        if let Some(id) = open {
+            expanded.set(Some(id));
+            reveal_row(&format!("dict-repository-{id}"));
+        }
+    }));
     let mut editing = use_signal(|| None::<Editing>);
     let record_menu = use_record_menu();
 
@@ -78,8 +92,14 @@ pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
     let held = use_ui_resource("repository_sources", move || {
         let api = api_held.clone();
         let open = expanded();
+        // Only a repository the list holds is asked for: an unknown or deleted
+        // id has no sources to read, and the backend answers it with not found.
+        let listed = match &*repositories.read() {
+            Some(Ok(list)) => list.iter().any(|r| Some(r.id) == open),
+            _ => false,
+        };
         async move {
-            let Some(id) = open else {
+            let Some(id) = open.filter(|_| listed) else {
                 return (None, Vec::new());
             };
             (

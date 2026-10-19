@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-19T13:45:51Z }
 ---
 
 
@@ -102,6 +102,8 @@ Each tab loads its data the first time it is opened, not when the page opens: th
 At phone width the tabs share the row; when they do not fit, as on the [Statistics](ui-statistics.md) page, the strip scrolls sideways rather than squeezing their labels into each other.
 
 A tag chip or dot elsewhere ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)) opens the page on the Tags tab with that tag's row unfolded. The tag is the last segment of the route, `/trees/:tree_id/dictionary/tags/:tag`; a page already open takes the new tag on the same route, and the history entry reopens the tab as it was left.
+
+A record's link in the Tags tab opens the page on that record's own row, on the tab that holds it: the route is the tab's route followed by the record's id (§14). A page already open takes the new record on the same route, and a record link opens its tab on that row rather than on the view the reader left there.
 
 ---
 
@@ -308,6 +310,8 @@ A naive one-character-at-a-time drill-down forces the user through every level e
 
 **Rule**: a drill-down level is shown to the user — as a breadcrumb segment, a set of clickable choices, or a stop before the final list — only when it is a **genuine branch point** (more than one possible next character) **or** the count has already dropped to <= 250. Any level with exactly one possible next character is skipped automatically and folded into the next request; the user never clicks through it.
 
+**Exact-title group**: a level may hold sources whose title is exactly the level's prefix (for example `"AD44 - HOTEL - ("` next to `"AD44 - HOTEL - (N..."`). No character splits them, so their group is labelled with the prefix itself. Beside sibling groups it stays a real branch: the level keeps all its groups, and the exact-title group is shown with its label but is not clickable, since choosing it would reload the same level. When it is the only group, the level is the final list whatever its size (see the next paragraph and section 8.5).
+
 **Example** — a department (`AD44`) containing two single-record towns (`ALPHA`, `BETA`) and one town (`HOTEL`) with six records split across two record types:
 
 ```
@@ -339,7 +343,9 @@ Level "AD44 - HOTEL - (":     REAL BRANCH: "AD44 - HOTEL - (N" (3) / "AD44 - HOT
 
 The user experiences exactly **two** navigation steps (the two "REAL BRANCH" points above), not fourteen.
 
-**Backend contract**: `GET .../dictionary/sources/groups?prefix=...` performs this resolution server-side in a loop and returns the *resolved* prefix (which may be longer than the requested `prefix`) together with `total` and the real next-level `groups` — empty `groups` signals "the count is already <= 250", and the final list at this resolved prefix then comes in the same answer. This keeps each user click, the final level included, to a single request regardless of how many forced characters were skipped. See `DictionaryRepo::resolve_source_drill_down` (`oxidgene-db`).
+A record link to one source (section 14, Tags tab section 20) replays these same levels on the way to the source's row: section 17 describes the walk.
+
+**Backend contract**: `GET .../dictionary/sources/groups?prefix=...` performs this resolution server-side in a loop and returns the *resolved* prefix (which may be longer than the requested `prefix`) together with `total` and the real next-level `groups` — empty `groups` signals "the count is already <= 250, or the level cannot be split further" (only when its one group is labelled with the prefix itself, see section 16), and the final list at this resolved prefix then comes in the same answer. This keeps each user click, the final level included, to a single request regardless of how many forced characters were skipped. See `DictionaryRepo::resolve_source_drill_down` (`oxidgene-db`).
 
 ---
 
@@ -353,6 +359,8 @@ Grouped by first letter of the place name (same pattern as section 7). Each row:
 - Tag dots after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag dot takes Enter or Space to its tag instead)
 
 Clicking a row expands it inline (same accordion pattern as Sources) listing the persons the place's events and media concern — a couple's event its spouses, a media the persons it is linked to or shows — each linking to the person, so a place with uses never lists nobody.
+
+A place's record link (section 14, Tags tab section 20) opens the tab on the place's letter and on the page holding the place, the row unfolded, scrolled into view and focused, as section 17 describes. A place id that is not a place of the tree opens the tab's root.
 
 ---
 
@@ -425,11 +433,22 @@ authoritative and kept at exact key parity
 - Route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`;
   `Route::DictionaryTag { tree_id, tag }` → `/trees/:tree_id/dictionary/tags/:tag`
   opens the Tags tab on a tag; `Route::DictionarySources { tree_id }` →
-  `/trees/:tree_id/dictionary/sources` opens the Sources tab (a source's link
-  in the Tags tab); `Route::DictionaryPlaces { tree_id }` →
+  `/trees/:tree_id/dictionary/sources` opens the Sources tab at its root;
+  `Route::DictionaryPlaces { tree_id }` →
   `/trees/:tree_id/dictionary/places` and `Route::DictionaryRepositories
   { tree_id }` → `/trees/:tree_id/dictionary/repositories` open the Places and
-  Repositories tabs (a place's and a repository's link in the Tags tab);
+  Repositories tabs at their roots;
+  `Route::DictionarySource { tree_id, source_id }` →
+  `/trees/:tree_id/dictionary/sources/:source_id`,
+  `Route::DictionaryPlace { tree_id, place_id }` →
+  `/trees/:tree_id/dictionary/places/:place_id` and
+  `Route::DictionaryRepository { tree_id, repository_id }` →
+  `/trees/:tree_id/dictionary/repositories/:repository_id` open the record's
+  own row in its tab (a record's link in the Tags tab, §20): the tab opens on
+  the level that holds the row (the drill-down path of §17, the letter and page
+  of §9), the row is unfolded, scrolled into view and focused. An id that is not a record of the tree, or a record deleted
+  since, opens the tab's root without an error: the page looks the id up in the tree's own list (which never answers with not found),
+  so no failed request is logged for it;
   `Route::Media { tree_id, media_id }` →
   `/trees/:tree_id/media/:media_id` opens one document in the media viewer
 - Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
@@ -465,14 +484,14 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
     ]
   }
   ```
-  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and the response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
+  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and also when the level's only group is labelled with the resolved prefix itself: those sources all have that exact title and no further character splits them, so the level is final whatever its size. When siblings exist beside such a group, `groups` keeps every group, the exact-title one included (labelled with the resolved prefix; the Sources tab shows it disabled). The response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
 
 - **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count; with `prefix` absent, every source. It serves API clients: the tab itself takes the final list from the drill-down response.
 
 ### Backend Logic
 
 - **Grouping**: `DictionaryRepo::source_group_counts(prefix)` groups all sources whose (uppercased) title starts with `prefix` by exactly one more character, returning only groups that actually occur — no prefix-format assumptions (no French-archive-specific parsing), it works for any title text.
-- **Compression**: `DictionaryRepo::resolve_source_drill_down(prefix, threshold)` loops `source_group_counts`, extending `prefix` by the single available character while there is exactly one group and the total is still above `threshold` (`SOURCE_DRILL_THRESHOLD = 250`). It stops at whichever comes first — a genuine branch (`groups.len() != 1`) or `total <= threshold` — and returns `(resolved_prefix, total, groups)` with `groups` cleared in the latter case. A same-prefix guard prevents infinite loops if every remaining title is exactly `prefix` itself (no further characters to consume).
+- **Compression**: `DictionaryRepo::resolve_source_drill_down(prefix, threshold)` loops `source_group_counts`, extending `prefix` by the single available character while there is exactly one group and the total is still above `threshold` (`SOURCE_DRILL_THRESHOLD = 250`). It stops at whichever comes first — a genuine branch (`groups.len() != 1`, the groups returned as they are, including a group labelled with the resolved prefix itself beside siblings), `total <= threshold`, or a sole group labelled with the resolved prefix itself (every source of the level has that exact title; the level is then final even above the threshold) — and returns `(resolved_prefix, total, groups)` with `groups` cleared in the last two cases. Every extension adds at least one character, so the loop always ends.
 - **Computed per request**: both queries read the `source` table on every request, grouping the titles in Rust; no prefix index or other data is stored for the drill-down.
 
 ---
@@ -494,6 +513,26 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
 - The quick-filter text is reset on every navigation action (crumb, root or
   branch click), so a stale filter cannot hide the next level's results.
 - A row's usage is loaded only when the row is expanded.
+- A source's record link (§14, §20) starts from an empty history and replays the
+  clicks that reach the source: the page reads the title of the source from the
+  tree's own source list (`GET .../dictionary/sources`), asks the drill-down
+  question for each level, takes the group whose label holds that title (the same
+  uppercased comparison the backend groups by) and stops at the final list that
+  holds the source. The replayed labels become `source_history`, so the
+  breadcrumb and the Back control read as if the reader had clicked down to
+  the row; the row is then unfolded, scrolled into view and focused. A source
+  that the tree's list does not hold (deleted, or never a source of the tree),
+  or that the final list does not hold, leaves the tab on its root. No request
+  is made for the source's own id, so none can fail with not found.
+- A place's record link (§14, §20) opens the Places tab on the place's letter
+  (none when its first character is not an ASCII letter, the tab then showing
+  every place), at the page that holds the place in the tab's order, with the
+  quick filter cleared and the place's row unfolded, scrolled into view and
+  focused. A repository's record link opens the Repositories tab with the
+  repository's row unfolded, scrolled into view and focused. The link is taken
+  back once the tab has it: returning to the Repositories tab later shows the
+  row as the reader left it, folded. A repository's held sources are asked for
+  only when the tree's repository list holds the repository.
 - On mobile (<640px), a breadcrumb too long for the width scrolls
   horizontally; the drill-down buttons reuse the `.dict-letter-btn` styling
   and wrapping of the alphabet index (section 5).
@@ -681,8 +720,8 @@ Person, couple and media records link to their pages; a media record opens the
 media viewer on its own route (`/trees/{id}/media/{media_id}`). An event or a
 citation links to the profile of its owner, a person or a couple; a source links
 to this dictionary's Sources tab, a place to its Places tab, a repository to its
-Repositories tab, and a note to the profile of the person or couple it belongs
-to (a note of a source, a repository or a document is shown as text).
+Repositories tab, each opening on that record's own row (§14); and a note to
+the profile of the person or couple it belongs to (a note of a source, a repository or a document is shown as text).
 
 - **Edit** (✎) opens a dialog with the label and the twelve colours. A label
   folding to another tag's offers a merge into it, with a sentence stating

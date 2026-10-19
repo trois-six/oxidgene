@@ -11,7 +11,8 @@ use crate::pages::{
     app_settings::AppSettings,
     couple_detail::CoupleDetail,
     dictionary::{
-        Dictionary, DictionaryPlaces, DictionaryRepositories, DictionarySources, DictionaryTag,
+        Dictionary, DictionaryPlace, DictionaryPlaces, DictionaryRepositories,
+        DictionaryRepository, DictionarySource, DictionarySources, DictionaryTag,
     },
     home::Home,
     kinship::Kinship,
@@ -104,6 +105,25 @@ pub enum Route {
     #[route("/trees/:tree_id/dictionary/repositories")]
     DictionaryRepositories { tree_id: String },
 
+    /// The Dictionary opened on one source's row in the Sources tab, unfolded
+    /// and focused (the Tags tab links to it). An unknown id opens the tab's
+    /// root (docs/ui-dictionary.md §14).
+    #[route("/trees/:tree_id/dictionary/sources/:source_id")]
+    DictionarySource { tree_id: String, source_id: String },
+
+    /// The Dictionary opened on one place's row in the Places tab, on its
+    /// letter and page, unfolded and focused (the Tags tab links to it).
+    #[route("/trees/:tree_id/dictionary/places/:place_id")]
+    DictionaryPlace { tree_id: String, place_id: String },
+
+    /// The Dictionary opened on one repository's row in the Repositories tab,
+    /// unfolded and focused (the Tags tab links to it).
+    #[route("/trees/:tree_id/dictionary/repositories/:repository_id")]
+    DictionaryRepository {
+        tree_id: String,
+        repository_id: String,
+    },
+
     /// One document of a tree, in the media viewer (the Tags tab links to it).
     #[route("/trees/:tree_id/media/:media_id")]
     Media { tree_id: String, media_id: String },
@@ -151,6 +171,9 @@ impl Route {
             | Route::DictionarySources { tree_id }
             | Route::DictionaryPlaces { tree_id }
             | Route::DictionaryRepositories { tree_id }
+            | Route::DictionarySource { tree_id, .. }
+            | Route::DictionaryPlace { tree_id, .. }
+            | Route::DictionaryRepository { tree_id, .. }
             | Route::Media { tree_id, .. }
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
@@ -174,7 +197,10 @@ impl Route {
             | Route::DictionaryTag { .. }
             | Route::DictionarySources { .. }
             | Route::DictionaryPlaces { .. }
-            | Route::DictionaryRepositories { .. } => "dictionary.breadcrumb",
+            | Route::DictionaryRepositories { .. }
+            | Route::DictionarySource { .. }
+            | Route::DictionaryPlace { .. }
+            | Route::DictionaryRepository { .. } => "dictionary.breadcrumb",
             Route::Media { .. } => "dictionary.tab.media",
             Route::Statistics { .. } => "stats.breadcrumb",
             Route::Tools { .. } => "tools.breadcrumb",
@@ -284,6 +310,18 @@ mod tests {
             Route::DictionarySources { tree_id: tree() },
             Route::DictionaryPlaces { tree_id: tree() },
             Route::DictionaryRepositories { tree_id: tree() },
+            Route::DictionarySource {
+                tree_id: tree(),
+                source_id: "s".into(),
+            },
+            Route::DictionaryPlace {
+                tree_id: tree(),
+                place_id: "p".into(),
+            },
+            Route::DictionaryRepository {
+                tree_id: tree(),
+                repository_id: "r".into(),
+            },
             Route::Media {
                 tree_id: tree(),
                 media_id: "m".into(),
@@ -314,6 +352,9 @@ mod tests {
             "/trees/t/dictionary",
             "/trees/t/dictionary/tags/0195c0de-0000-7000-8000-000000000001",
             "/trees/t/dictionary/sources",
+            "/trees/t/dictionary/sources/0195c0de-0000-7000-8000-000000000003",
+            "/trees/t/dictionary/places/0195c0de-0000-7000-8000-000000000004",
+            "/trees/t/dictionary/repositories/0195c0de-0000-7000-8000-000000000005",
             "/trees/t/media/0195c0de-0000-7000-8000-000000000002",
             "/trees/t/statistics",
             "/trees/t/tools",
@@ -342,6 +383,42 @@ mod tests {
         let plain: Route = "/trees/t/dictionary".parse().unwrap();
         assert!(matches!(plain, Route::Dictionary { .. }));
         assert_eq!(plain.to_string(), "/trees/t/dictionary");
+    }
+
+    /// A row's route carries the record's id and round-trips through its URL,
+    /// next to the tab's own route that opens the tab's root.
+    #[test]
+    fn a_record_opens_its_row_in_its_tab() {
+        let id = "0195c0de-0000-7000-8000-000000000003";
+        for (raw, expected) in [
+            (
+                format!("/trees/t/dictionary/sources/{id}"),
+                Route::DictionarySource {
+                    tree_id: "t".into(),
+                    source_id: id.into(),
+                },
+            ),
+            (
+                format!("/trees/t/dictionary/places/{id}"),
+                Route::DictionaryPlace {
+                    tree_id: "t".into(),
+                    place_id: id.into(),
+                },
+            ),
+            (
+                format!("/trees/t/dictionary/repositories/{id}"),
+                Route::DictionaryRepository {
+                    tree_id: "t".into(),
+                    repository_id: id.into(),
+                },
+            ),
+        ] {
+            let route: Route = raw.parse().unwrap();
+            assert_eq!(route, expected, "{raw}");
+            assert_eq!(route.to_string(), raw);
+        }
+        let tab: Route = "/trees/t/dictionary/places".parse().unwrap();
+        assert!(matches!(tab, Route::DictionaryPlaces { .. }));
     }
 
     /// A document's own route round-trips through its URL.
