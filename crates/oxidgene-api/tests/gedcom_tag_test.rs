@@ -143,7 +143,7 @@ async fn a_tag_the_tree_already_has_is_joined_and_keeps_its_colour() {
 
 /// A birth tagged beneath its `BIRT`, and its citation of a source tagged
 /// beneath the citation's `SOUR` pointer, with the source tagged beneath its
-/// own record (docs/tags.md, §2.1). All data is fictitious.
+/// own record (docs/api.md, `_OXIDGENE_TAG`). All data is fictitious.
 const EVENT_TAGGED_GEDCOM: &str = "0 HEAD\n\
 1 GEDC\n\
 2 VERS 5.5.1\n\
@@ -202,5 +202,80 @@ async fn a_file_tags_its_events_sources_and_citations() {
         exported.matches("_OXIDGENE_TAG").count(),
         3,
         "each carried tag is written once, beneath its structure"
+    );
+}
+
+/// A place named by two events (each `PLAC` carrying the same tag), a
+/// repository, an inline note, and a shared note two persons point at, with
+/// its tag beneath the shared record (docs/api.md, `_OXIDGENE_TAG` and `_OXIDGENE_PLACE`). All data is
+/// fictitious.
+const PLACE_TAGGED_GEDCOM: &str = "0 HEAD\n\
+1 GEDC\n\
+2 VERS 5.5.1\n\
+2 FORM LINEAGE-LINKED\n\
+1 CHAR UTF-8\n\
+0 @I1@ INDI\n\
+1 NAME Sample /Person/\n\
+1 BIRT\n\
+2 PLAC Sample town\n\
+3 _OXIDGENE_TAG {\"v\":1,\"label\":\"Vanished parish\",\"color\":5}\n\
+1 DEAT\n\
+2 PLAC Sample town\n\
+3 _OXIDGENE_TAG {\"v\":1,\"label\":\"vanished PARISH\",\"color\":5}\n\
+1 NOTE An inline hypothesis\n\
+2 _OXIDGENE_TAG {\"v\":1,\"label\":\"Hypothesis\",\"color\":2}\n\
+1 NOTE @N1@\n\
+0 @I2@ INDI\n\
+1 NAME Other /Person/\n\
+1 NOTE @N1@\n\
+0 @R1@ REPO\n\
+1 NAME Sample archive\n\
+1 _OXIDGENE_TAG {\"v\":1,\"label\":\"Closed\",\"color\":6}\n\
+0 @N1@ NOTE Shared transcript\n\
+1 _OXIDGENE_TAG {\"v\":1,\"label\":\"To check\",\"color\":4}\n\
+0 TRLR\n";
+
+#[tokio::test]
+async fn a_file_tags_its_places_repositories_and_notes() {
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let tree_id = new_tree(&app, "Place Tags Tree").await;
+    let tree = Uuid::parse_str(&tree_id).expect("tree id");
+    import_gedcom(&app, &db, &tree_id, PLACE_TAGGED_GEDCOM).await;
+
+    let links = tree_links(&db, tree).await;
+    assert_eq!(
+        links.iter().filter(|link| link.place_id.is_some()).count(),
+        1,
+        "the place takes the one tag of its two PLAC structures"
+    );
+    assert_eq!(
+        links
+            .iter()
+            .filter(|link| link.repository_id.is_some())
+            .count(),
+        1,
+        "the repository is linked to its tag"
+    );
+    assert_eq!(
+        links.iter().filter(|link| link.note_id.is_some()).count(),
+        3,
+        "the inline note and each of the two rows of the shared note are linked"
+    );
+    assert_eq!(links.len(), 5);
+
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let exported = body["gedcom"].as_str().expect("gedcom text");
+    assert_eq!(
+        exported.matches("_OXIDGENE_TAG").count(),
+        5,
+        "each PLAC, the repository, the inline note and the shared note carry their tag once"
     );
 }

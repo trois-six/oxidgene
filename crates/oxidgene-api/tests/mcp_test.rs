@@ -470,3 +470,103 @@ async fn tags_are_listed_and_filter_the_person_search() {
     assert_eq!(found["total_count"], 1);
     assert_eq!(found["entries"][0]["person_id"], tagged);
 }
+
+#[tokio::test]
+async fn place_and_note_reads_carry_their_tags() {
+    let harness = setup().await;
+    let tree_id = harness.tree("Tagged place tree").await;
+    // Created in this order, read back sorted by folded label.
+    let bravo = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/tags"),
+            json!({ "label": "Bravo" }),
+        )
+        .await;
+    let alpha = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/tags"),
+            json!({ "label": "alpha" }),
+        )
+        .await;
+    let person = harness.person(&tree_id, "male", "Piers", "Hollowell").await;
+    let place = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/places"),
+            json!({ "name": "Harbour Town" }),
+        )
+        .await;
+    let plain_place = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/places"),
+            json!({ "name": "Millbrook" }),
+        )
+        .await;
+    let note = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/notes"),
+            json!({ "text": "Remark", "person_id": person }),
+        )
+        .await;
+    let plain_note = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/notes"),
+            json!({ "text": "Plain", "person_id": person }),
+        )
+        .await;
+    for (tag, kind, id) in [
+        (&bravo, "place", &place),
+        (&alpha, "place", &place),
+        (&alpha, "note", &note),
+    ] {
+        let (status, body) = harness
+            .rest(
+                Method::PUT,
+                &format!("/api/v1/trees/{tree_id}/tags/{tag}/records/{kind}/{id}"),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    }
+
+    let labels = |tags: &Value| -> Vec<String> {
+        tags.as_array()
+            .expect("an array of tags")
+            .iter()
+            .map(|tag| tag["label"].as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    let tagged = harness
+        .ok(
+            "get_place",
+            json!({ "tree_id": tree_id, "place_id": place }),
+        )
+        .await;
+    assert_eq!(labels(&tagged["tags"]), ["alpha", "Bravo"]);
+    let untagged = harness
+        .ok(
+            "get_place",
+            json!({ "tree_id": tree_id, "place_id": plain_place }),
+        )
+        .await;
+    assert_eq!(untagged["tags"], json!([]));
+
+    let notes = harness
+        .ok(
+            "list_notes",
+            json!({ "tree_id": tree_id, "person_id": person }),
+        )
+        .await;
+    let node = |id: &str| {
+        notes["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| &edge["node"])
+            .find(|node| node["id"] == id)
+            .unwrap_or_else(|| panic!("no note {id}"))
+            .clone()
+    };
+    assert_eq!(labels(&node(&note)["tags"]), ["alpha"]);
+    assert_eq!(node(&plain_note)["tags"], json!([]));
+}

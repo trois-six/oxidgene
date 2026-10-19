@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 # Assistant Access (MCP)
@@ -151,10 +151,10 @@ within that tree.
 | `get_pedigree` | `tree_id`, `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
 | `get_relation_labels` | `tree_id`, `person_ids`, `family_ids` | `POST /trees/{tree_id}/relation-labels` | Names of the persons, and the spouses of the families with their names; at most 1,024 IDs |
 | `list_events` | `tree_id`, `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection; each event carries its `tags` |
-| `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place |
+| `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place, with its `tags` |
 | `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` and `GET …/sources/{source_id}/repositories` | Source, with `repositories`: each holding repository's id and name, call number and medium; the source carries its `tags` |
 | `list_citations` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection; each citation carries its `tags` |
-| `list_notes` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection |
+| `list_notes` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection; each note carries its `tags` |
 | `list_dictionary` | `tree_id`, `kind` (`family_names`, `occupations`, `places`, `sources`), `prefix` (`sources` only) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |
 | `dictionary_usage` | `tree_id`, `kind`, then `value` (`family_names`, `occupations`) or `id` (`places`, `sources`) | The matching `…/usage` endpoint | `PersonUsageEntry` list |
 

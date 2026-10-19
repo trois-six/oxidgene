@@ -472,11 +472,15 @@ impl DictionaryRepo {
             }
         }
 
+        let ids: Vec<Uuid> = places.iter().map(|m| m.id).collect();
+        let mut tags = RecordTagRepo::tags_of(db, RecordKind::Place, &ids).await?;
         let mut out: Vec<(Place, i64)> = places
             .into_iter()
             .map(|m| {
                 let count = counts.get(&m.id).copied().unwrap_or(0);
-                (into_place(m), count)
+                let mut place = into_place(m);
+                place.tags = tags.remove(&place.id).unwrap_or_default();
+                (place, count)
             })
             .collect();
         out.sort_by_cached_key(|(a, _)| a.name.to_lowercase());
@@ -1117,6 +1121,7 @@ fn into_place(m: place::Model) -> Place {
         name: m.name,
         latitude: m.latitude,
         longitude: m.longitude,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
     }

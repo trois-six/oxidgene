@@ -257,7 +257,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             RecordTagMenu {
                 tree_id: tid,
                 menu: record_menu,
-                on_changed: move |()| media_revision += 1,
+                on_changed: move |()| {
+                    media_revision += 1;
+                    refresh += 1;
+                },
             }
         }
         if let (true, Some(tid)) = (show_edit_person(), tree_id_parsed()) {
@@ -381,7 +384,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                             },
                         ),
                     )}
-                    {notes_section(&i18n, "person.notes_section", notes_resource.read().as_ref())}
+                    {notes_section(&i18n, "person.notes_section", notes_resource.read().as_ref(), ctx.tree_id, ctx.record_menu)}
                     ProfileMediaCard {
                         tree_id: ctx.tree_id,
                         owner: MediaOwner::Person(profile.person_id),

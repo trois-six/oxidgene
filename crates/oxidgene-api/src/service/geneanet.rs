@@ -783,7 +783,7 @@ async fn place_keys(
     tree_id: Uuid,
     summary: &mut GeneanetImportSummary,
 ) -> HashMap<String, Uuid> {
-    match PlaceRepo::list_all(db, tree_id).await {
+    match PlaceRepo::list_all_untagged(db, tree_id).await {
         Ok(places) => places
             .into_iter()
             .map(|place| (place_key(&place.name), place.id))

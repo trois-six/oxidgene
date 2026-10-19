@@ -1912,6 +1912,10 @@ type GqlNote {
 	only, so it is never an input.
 	"""
 	sharedGroup: ID
+	"""
+	The tags the note carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 }
@@ -2250,6 +2254,10 @@ type GqlPlace {
 	name: String!
 	latitude: Float
 	longitude: Float
+	"""
+	The tags the place carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 }
@@ -2574,6 +2582,10 @@ type GqlRepository {
 	phone: String
 	email: String
 	website: String
+	"""
+	The tags the repository carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""

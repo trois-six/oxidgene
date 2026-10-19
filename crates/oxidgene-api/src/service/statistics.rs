@@ -1582,6 +1582,7 @@ mod tests {
             None,
         ));
         let place = |name: &str, lat: Option<f64>| Place {
+            tags: Vec::new(),
             id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
             name: name.to_string(),
@@ -1743,6 +1744,7 @@ mod tests {
     fn births_are_placed_in_their_country_region_and_subdivision() {
         let mut people = family();
         let place = Place {
+            tags: Vec::new(),
             id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
             name: "Place A".to_string(),

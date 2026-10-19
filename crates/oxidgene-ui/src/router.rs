@@ -10,7 +10,9 @@ use crate::pages::tools::Tools;
 use crate::pages::{
     app_settings::AppSettings,
     couple_detail::CoupleDetail,
-    dictionary::{Dictionary, DictionarySources, DictionaryTag},
+    dictionary::{
+        Dictionary, DictionaryPlaces, DictionaryRepositories, DictionarySources, DictionaryTag,
+    },
     home::Home,
     kinship::Kinship,
     media_viewer::Media,
@@ -94,6 +96,14 @@ pub enum Route {
     #[route("/trees/:tree_id/dictionary/sources")]
     DictionarySources { tree_id: String },
 
+    /// The Dictionary opened on the Places tab (the Tags tab links to it).
+    #[route("/trees/:tree_id/dictionary/places")]
+    DictionaryPlaces { tree_id: String },
+
+    /// The Dictionary opened on the Repositories tab (the Tags tab links to it).
+    #[route("/trees/:tree_id/dictionary/repositories")]
+    DictionaryRepositories { tree_id: String },
+
     /// One document of a tree, in the media viewer (the Tags tab links to it).
     #[route("/trees/:tree_id/media/:media_id")]
     Media { tree_id: String, media_id: String },
@@ -139,6 +149,8 @@ impl Route {
             | Route::Dictionary { tree_id }
             | Route::DictionaryTag { tree_id, .. }
             | Route::DictionarySources { tree_id }
+            | Route::DictionaryPlaces { tree_id }
+            | Route::DictionaryRepositories { tree_id }
             | Route::Media { tree_id, .. }
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
@@ -160,7 +172,9 @@ impl Route {
             Route::Kinship { .. } => "kinship.breadcrumb",
             Route::Dictionary { .. }
             | Route::DictionaryTag { .. }
-            | Route::DictionarySources { .. } => "dictionary.breadcrumb",
+            | Route::DictionarySources { .. }
+            | Route::DictionaryPlaces { .. }
+            | Route::DictionaryRepositories { .. } => "dictionary.breadcrumb",
             Route::Media { .. } => "dictionary.tab.media",
             Route::Statistics { .. } => "stats.breadcrumb",
             Route::Tools { .. } => "tools.breadcrumb",
@@ -268,6 +282,8 @@ mod tests {
                 tag: "t".into(),
             },
             Route::DictionarySources { tree_id: tree() },
+            Route::DictionaryPlaces { tree_id: tree() },
+            Route::DictionaryRepositories { tree_id: tree() },
             Route::Media {
                 tree_id: tree(),
                 media_id: "m".into(),

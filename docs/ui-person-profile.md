@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T08:24:49Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 
@@ -633,6 +633,12 @@ A failed read shows its error in place of the card.
 
 Each note attached to the person is shown in full, with its formatting and
 line breaks; the markup was sanitized when the note was written.
+
+**Tags.** A note's tags are dots under its text, nothing drawn for an untagged
+note ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)). A note
+takes the same record menu as a timeline row: a right click, the context-menu
+key or Shift+F10 with the note focused, or a long touch opens it, and *Tags…*
+opens the tag picker beside the note. The menu closes back onto the note.
 
 There is no separate sources card. Sources appear only in the events timeline,
 as the **Sources** line of each event they are cited for (§6), without their

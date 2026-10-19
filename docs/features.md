@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -50,6 +50,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Bulk tagging of persons: tag a branch of the tree (ancestors, descendants or both, with their spouses if asked) from a person's menu, or every result of a search from the results toolbar, with a count per tag and one audit entry per change ([Genealogy Tree](ui-genealogy-tree.md), [Search Results §4](ui-search-results.md#4-results-toolbar), [API Contract](api.md#tags)).
 - Highlighting a tag in the tree: its carriers get a dot and a border in the tag's colour in every chart, and the others are dimmed unless turned off ([Genealogy Tree](ui-genealogy-tree.md)).
 - Tags on events, sources and citations: a dot and a *Tags…* menu on each event row and citation entry of the timelines, and on each source of the Dictionary's Sources tab ([Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md), [Dictionary](ui-dictionary.md), [Tags](tags.md)).
+- Tags on places, repositories and notes: a dot and a *Tags…* menu on each place of the Dictionary's Places tab, each repository of its Repositories tab, and each note of a person's or couple's page ([Dictionary](ui-dictionary.md), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
 
 ![Couple page with the wedding photograph](../assets/screenshots/couple.webp)
 

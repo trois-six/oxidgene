@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:25:00Z }
 ---
 
 
@@ -391,6 +391,12 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place; a blank `name` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/places/{place_id}` | Delete a place |
 
+Every place read carries `tags`, the labels put on the place as `[{id, label,
+color}]` sorted by folded label (GraphQL `Place.tags { id label color }`), also
+on the place rows of `GET /trees/{tree_id}/dictionary/places` and the GraphQL
+`dictionaryPlaces`. Tags are put on and taken off through the tag endpoints of
+**Tags**, not through the place's `PUT`.
+
 ### Sources
 
 | Method | Path | Description |
@@ -463,6 +469,11 @@ GraphQL, with no `request_id`:
 | `POST` | `/trees/{tree_id}/sources/{source_id}/repositories` | Link a source to a repository of the tree: `repository_id`, optional `call_number`, `media_type` (`SourceMediaType`), `sort_order` (after the others when omitted). One link per call number |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Update a link (`repository_id`, `call_number`, `media_type`, `sort_order`); a link of another source is `not_found` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Remove a link; a link of another source is `not_found` |
+
+Every repository read carries `tags`, the labels put on the repository as
+`[{id, label, color}]` sorted by folded label (GraphQL
+`Repository.tags { id label color }`), put on and taken off through the tag
+endpoints of **Tags**.
 
 GraphQL: `repositories`, `repository`, `Source.repositories`
 (`SourceRepository { callNumber mediaType sortOrder repository source }`),
@@ -735,7 +746,7 @@ surfaces.
 ### Tags
 
 A tag belongs to one tree and is shared by every kind of record; see
-[Tags](tags.md) for the model. `kind` is `person`, `family`, `event`, `place`,
+[Data Model](data-model.md#tag) for the model. `kind` is `person`, `family`, `event`, `place`,
 `source`, `citation`, `repository`, `media` or `note`. A page of a document is
 tagged on the document.
 
@@ -797,6 +808,12 @@ and `POST /tags/target` write nothing.
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
 | `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
+
+Every note read carries `tags`, the labels put on the note as `[{id, label,
+color}]` sorted by folded label (GraphQL `Note.tags { id label color }`), put on
+and taken off through the tag endpoints of **Tags**. The tagged-records listing
+gives a note the owner it is attached to, a person's or a family's; a note of a
+source, repository or media has none there.
 
 A note is created with some text: a blank `text` is a validation error on
 both surfaces (`400` in REST, `VALIDATION_ERROR` from `createNote`).
@@ -1079,7 +1096,9 @@ unchanged map answers `If-None-Match` with a bodiless `304`.
 ### Import / export
 
 GEDCOM and GEDZIP are read and written; GeneWeb `.gw` is read only — OxidGene
-imports the format, it does not produce it.
+imports the format, it does not produce it. A `.gw` has no room for tags and
+carries none, on import or export: an import creates no tag, and no export
+writes one to a `.gw`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -1574,7 +1593,7 @@ The API handles GEDCOM import/export via the `oxidged` crate (see [Architecture]
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too; on import the first `TEXT` is the citation's text, whether it sits under `DATA` or directly under a described source's `SOUR`, and further `TEXT` lines are kept GEDCOM), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, format, title, description and physical medium use standard `FILE`, `FORM` (the MIME type, written in 5.5.1's vocabulary in a `.ged`: `jpg` for `image/jpeg`; as itself in a GEDZIP's 7.0), `FILE.TITL` (a record-level `TITL`, as GEDCOM 5.5 and earlier exports wrote it, is read too), `NOTE`, and `FORM.TYPE` (7.0's `FORM.MEDI`, which a GEDZIP writes, is read too) structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan. A plain `.ged` never carries file bytes, and its remote and unheld media retain their original `FILE` reference. A GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry, unless it is exported without its media (`include_media=false`), which leaves every `OBJE` out; a remote medium keeps its web address, and an unheld one, which only a file outside the archive could name, is kept as the OxidGene extension `_OXIDGENE_OBJE`, its path and links with it, which an OxidGene import restores (see [GEDZIP](#gedzip)) |
-| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, media place with coordinates, record timestamps, and notes attached specifically to the media. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. Document tags travel as `_OXIDGENE_TAG` lines beneath its first `OBJE`, not in this value; a document with no page has none to carry them, so its tags are not exported and the export warns. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
+| Extended media metadata | OxidGene extension | OxidGene extension | `_OXIDGENE_MEDIA` is a versioned value beneath the owning `OBJE`. It preserves the original file name, structured date and calendar, document category, privacy, media place with coordinates, record timestamps, and notes attached specifically to the media, each with its tags. Each exported page of a multi-page document owns a separate `OBJE` and extension value, so different page transcripts round-trip with their page rather than collapsing into one document note. Document tags travel as `_OXIDGENE_TAG` lines beneath its first `OBJE`, not in this value; a document with no page has none to carry them, so its tags are not exported and the export warns. It also mirrors standard title, description, and physical-medium values for an exact OxidGene round trip; other readers may ignore it. |
 | Identifications (vignettes) | Full | Full | A crop is GEDCOM's `CROP` (`TOP`, `LEFT`, `HEIGHT`, `WIDTH`, written `_CROP` in 5.5.1, which has none) beneath the `OBJE` link to its page: beneath the person's record for a crop naming a person, beneath the event for a crop naming an event. An event's crop names its person with an `_OXIDGENE_PERSON` pointer beneath the link, and a crop that is both the person's portrait and an event's is written both ways. A person's first link is their portrait, so a crop portrait is written first. A crop naming neither a person nor an event stays `_OXIDGENE_VIGNETTE` `x y width height` beneath the `OBJE` record of its page. On import an absent `TOP` or `LEFT` is 0, and an absent `WIDTH` or `HEIGHT` runs to the edge of the picture, which needs the picture's recorded size. A crop that names no rectangle OxidGene can hold (a document of several pages, or an edge with no size known) stays a whole-picture link, with a warning, and its `CROP` is kept GEDCOM. A crop beneath a person and the same crop beneath one of that person's events, naming them, are one identification, which carries the event. Software that knows no crops ignores them. |
 | Dates (`DATE`) | Full | Full | Qualifier, range and calendar each have their own column, split by `oxidged`'s date grammar, which reads both versions' syntax in any case. A calendar escape is read before each date (`ABT @#DJULIAN@ 1700`, `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`) or, as some programs and earlier exports wrote it, before the whole value, and a 7.0 calendar keyword (`ABT JULIAN 1700`) too; it is written the GEDCOM 5.5.1 way, after the qualifier and before each bound, in a `.ged`, and as 7.0's keyword in a GEDZIP. A 7.0 date with a `PHRASE` reads as 5.5.1 writes it: an interpreted date (`INT 1850 (phrase)`) after a single date, a date phrase (`(phrase)`) alone, and a dual year (`30 JAN 1648/49`) or a date before the common era (`44 B.C.`) as 5.5.1 words it, so each round-trips through a GEDZIP. A date is stored in GEDCOM's canonical words (`7 SEP 1830`), its unread wording as written; a date phrase, an interpreted date, a calendar OxidGene has no value for, and a 7.0 date known only by its `PHRASE` keep their whole text |
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
@@ -1614,6 +1633,14 @@ authoritative list, in the order a client shows it:
   observed behaviour, much of it dated, and is to be re-verified against
   their recent versions (`oxidged`'s tier 1); `version` is the version
   written.
+
+**Tags do not travel to Geneanet or GeneWeb.** Those two profiles have no
+room for OxidGene's tag extensions, so the export does not write them as
+tags: every `_OXIDGENE_TAG`, `_OXIDGENE_PLACE` and note tag is taken out of
+its record, and its text is kept as a `NOTE` where the record takes one,
+otherwise it is left out. Each one is reported in the export's `losses`, as
+`as_text` or `omitted` respectively. The other destinations, the standard
+ones included, write the tags as tags.
 
 The OxidGene export builds its records as for any `.ged` (GEDCOM 5.5.1),
 then `oxidged`'s `Exporter` writes them with the destination's profile.
@@ -1693,7 +1720,7 @@ them back.
 #### `_OXIDGENE_MEDIA`
 
 A versioned JSON value: what a page says about itself — its original file
-name, its timestamps and its own notes. See *Extended media metadata* above.
+name, its timestamps and its own notes, each note with its tags. See *Extended media metadata* above.
 
 #### `_OXIDGENE_DOC`
 
@@ -1734,21 +1761,43 @@ the structure holding it. A reader keeps extensions apart from the standard
 structures, and the order says which picture is a person's portrait, so the
 import puts each one back at its position.
 
+#### `_OXIDGENE_PLACE`
+
+A record of its own, for a tagged place that no written event names: a place
+used by no event, by a document alone, or only by events of a person or family
+the export does not write (a soft-deleted one, say), has no `PLAC` to carry its
+tags. It is
+`0 @P1@ _OXIDGENE_PLACE`, holding a `PLAC` with the place's name, its `MAP`
+coordinates when it has them, and the `_OXIDGENE_TAG` lines of the place beneath
+the `PLAC`. An import reads it as a place of that name, which joins a place of
+the same name already read, and gives the place those tags and coordinates.
+Other software may ignore it.
+
 #### `_OXIDGENE_TAG`
 
 One tag beneath each `INDI` and `FAM` record that carries tags, beneath the
 first `OBJE` of a document that carries them, beneath each `SOUR` record that
 carries tags, beneath each citation's `SOUR` pointer that carries them (the
-structure under the event, person or family that cites the source), and beneath
-each event or attribute structure that carries them, an LDS ordinance included.
-Its value is a versioned JSON value, `{"v":1,"label":…,"color":…}`, the label as
-entered and the colour as its index in the tree's palette (0 to 11). Labels
-that fold alike are one tag on import, the first spelling and colour read
-winning; the line is read into the tag vocabulary and is not kept as untyped
-GEDCOM, so a re-export writes each tag once. A tag line beneath any other
-structure is kept as it was read. The tags of places, repositories and notes
-are not written by this version. See [Tags](tags.md) for the kinds still to
-come.
+structure under the event, person or family that cites the source), beneath
+each event or attribute structure that carries them, an LDS ordinance included,
+beneath each `REPO` record that carries tags, beneath each `PLAC` structure of a
+place that carries tags (every `PLAC` of the place, since GEDCOM repeats the
+place in each event), and beneath each inline `NOTE` structure that carries
+tags, or each shared note record (`NOTE` in 5.5.1, `SNOTE` in 7.0) once, with
+the union of the tags of the notes it stands for. A pointer to a shared note
+carries no tag line. Its value is a versioned JSON value,
+`{"v":1,"label":…,"color":…}`, the label as entered and the colour as its index
+in the tree's palette (0 to 11). Labels that fold alike are one tag on import,
+the first spelling and colour read winning; the line is read into the tag
+vocabulary and is not kept as untyped GEDCOM, so a re-export writes each tag
+once. On import a place takes the union of the tags of its `PLAC` structures,
+and each row of a shared note takes the tags of its record. A tag line beneath
+any other structure is kept as it was read. The tags of the media transcripts
+(`_OXIDGENE_MEDIA` notes) travel in their note entry instead, as a `tags` array
+of the same values, absent when the note carries none. A line of another version
+than `1`, wherever it stands (a transcript's `tags` included), is skipped with a
+warning. A place no written event names (see `_OXIDGENE_PLACE`) is written as an
+`_OXIDGENE_PLACE` record instead.
 
 ### Kept GEDCOM
 

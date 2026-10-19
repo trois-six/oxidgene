@@ -181,3 +181,51 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await page.keyboard.press("Escape");
     await expect(source).toBeFocused();
 });
+
+test("tags a note and a place from the keyboard menu, and sees the dots", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional note mark");
+    await createTag(request, tree.treeId, "Fictional place mark");
+    const note = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/notes`, {
+        data: { text: "Fictional note about the root", person_id: tree.anchorId },
+    });
+    expect(note.status()).toBe(201);
+    const filter = page.getByRole("textbox", { name: "Filter or create a tag" });
+    const tagsEntry = page.locator(".record-tag-menu").getByRole("button", { name: "Tags…", exact: true });
+
+    // The note of the person's profile, in the Notes card.
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    const entry = page.locator("[id^='note-entry-']").filter({ hasText: "Fictional note about the root" }).first();
+    await expect(entry).toBeVisible();
+    await expect(entry.locator(".tag-dots")).toHaveCount(0);
+
+    await entry.focus();
+    await page.keyboard.press("Shift+F10");
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(filter).toBeFocused();
+    await page.keyboard.type("Fictional note mark");
+    await expect(page.getByRole("option", { name: "Fictional note mark" })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(entry.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional note mark");
+    await page.keyboard.press("Escape");
+    await expect(entry).toBeFocused();
+
+    // The place of the fixture, in the Places tab of the dictionary.
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Places", exact: true }).click();
+    const place = page.locator(".dict-row").filter({ hasText: "Northfield" }).first();
+    await expect(place).toBeVisible();
+    await expect(place.locator(".tag-dot-link")).toHaveCount(0);
+
+    await place.focus();
+    await page.keyboard.press("Shift+F10");
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(filter).toBeFocused();
+    await page.keyboard.type("Fictional place mark");
+    await expect(page.getByRole("option", { name: "Fictional place mark" })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(place.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional place mark");
+    await page.keyboard.press("Escape");
+    await expect(place).toBeFocused();
+});

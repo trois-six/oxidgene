@@ -501,8 +501,9 @@ async fn insert_standalone_records(
     Ok(())
 }
 
-/// Inserts the tags the file's persons, couples, documents, events, sources and
-/// citations carry, and the links to them (docs/api.md, OxidGene extensions). A tag the tree already has under the same
+/// Inserts the tags the file's persons, couples, documents, events, sources,
+/// citations, places, repositories and notes carry, and the links to them
+/// (docs/api.md, OxidGene extensions). A tag the tree already has under the same
 /// folded label is joined rather than duplicated, and keeps its own colour; a
 /// new one takes the colour the file gave it.
 async fn insert_tags(
@@ -519,6 +520,9 @@ async fn insert_tags(
         .chain(result.events.iter().flat_map(|event| &event.tags))
         .chain(result.sources.iter().flat_map(|source| &source.tags))
         .chain(result.citations.iter().flat_map(|citation| &citation.tags))
+        .chain(result.places.iter().flat_map(|place| &place.tags))
+        .chain(result.repositories.iter().flat_map(|repo| &repo.tags))
+        .chain(result.notes.iter().flat_map(|note| &note.tags))
         .map(|tag| tag.id)
         .collect();
     let mut stored: HashMap<Uuid, Uuid> = HashMap::new();
@@ -607,6 +611,40 @@ async fn insert_tags(
                 .filter_map(link)
                 .map(|model| record_tag::ActiveModel {
                     citation_id: Set(Some(citation.id)),
+                    ..model
+                }),
+        );
+    }
+    for place in &result.places {
+        links.extend(
+            place
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    place_id: Set(Some(place.id)),
+                    ..model
+                }),
+        );
+    }
+    for repo in &result.repositories {
+        links.extend(
+            repo.tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    repository_id: Set(Some(repo.id)),
+                    ..model
+                }),
+        );
+    }
+    for note in &result.notes {
+        links.extend(
+            note.tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    note_id: Set(Some(note.id)),
                     ..model
                 }),
         );

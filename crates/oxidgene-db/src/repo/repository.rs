@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Repository, SourceRepository};
+use oxidgene_core::types::{Connection, RecordKind, Repository, SourceRepository};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
@@ -17,6 +17,7 @@ use crate::entities::{note, source, source_repository};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// A repository's own fields, as a create writes them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -70,7 +71,12 @@ impl RepositoryRepo {
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let repositories = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, repository) in page.edges.iter_mut().zip(hydrate(db, repositories).await?) {
+            edge.node = repository;
+        }
+        Ok(page)
     }
 
     /// Every live repository of a tree.
@@ -84,16 +90,18 @@ impl RepositoryRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// A live repository.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Repository, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let repository = find_live(db, id).await.map(into_domain)?;
+        hydrate_one(db, repository).await
     }
 
-    /// Live repositories among `ids`.
-    pub async fn get_many(
+    /// The live repositories among `ids`, one read per bounded slice of ids.
+    /// Their tags are not filled: this serves the labels of many records at once.
+    pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Repository>, OxidGeneError> {
@@ -107,6 +115,15 @@ impl RepositoryRepo {
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
+    }
+
+    /// Live repositories among `ids`.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Repository>, OxidGeneError> {
+        let repositories = Self::get_many_untagged(db, ids).await?;
+        hydrate(db, repositories).await
     }
 
     pub async fn create(
@@ -128,7 +145,8 @@ impl RepositoryRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        model.insert(db).await.map_err(db_err).map(into_domain)
+        let repository = model.insert(db).await.map_err(db_err).map(into_domain)?;
+        hydrate_one(db, repository).await
     }
 
     pub async fn update(
@@ -153,7 +171,8 @@ impl RepositoryRepo {
             active.website = Set(website);
         }
         active.updated_at = Set(Utc::now());
-        active.update(db).await.map_err(db_err).map(into_domain)
+        let repository = active.update(db).await.map_err(db_err).map(into_domain)?;
+        hydrate_one(db, repository).await
     }
 
     /// Soft-delete a repository. Its links stay, unread while it is deleted:
@@ -256,7 +275,7 @@ impl SourceRepositoryRepo {
     ) -> Result<HashMap<Uuid, Vec<String>>, OxidGeneError> {
         let links = Self::list_by_sources(db, source_ids).await?;
         let repository_ids: Vec<Uuid> = links.iter().map(|l| l.repository_id).collect();
-        let names: HashMap<Uuid, String> = RepositoryRepo::get_many(db, &repository_ids)
+        let names: HashMap<Uuid, String> = RepositoryRepo::get_many_untagged(db, &repository_ids)
             .await?
             .into_iter()
             .map(|r| (r.id, r.name))
@@ -367,10 +386,36 @@ fn into_domain(m: repository::Model) -> Repository {
         phone: m.phone,
         email: m.email,
         website: m.website,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Fill the tags of each repository from one grouped read.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    mut repositories: Vec<Repository>,
+) -> Result<Vec<Repository>, OxidGeneError> {
+    let ids: Vec<Uuid> = repositories
+        .iter()
+        .map(|repository| repository.id)
+        .collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Repository, &ids).await?;
+    for repository in &mut repositories {
+        repository.tags = tags.remove(&repository.id).unwrap_or_default();
+    }
+    Ok(repositories)
+}
+
+/// [`hydrate`] for one repository.
+async fn hydrate_one(
+    db: &impl ConnectionTrait,
+    repository: Repository,
+) -> Result<Repository, OxidGeneError> {
+    let mut repositories = hydrate(db, vec![repository]).await?;
+    Ok(repositories.remove(0))
 }
 
 fn link_into_domain(m: source_repository::Model) -> SourceRepository {

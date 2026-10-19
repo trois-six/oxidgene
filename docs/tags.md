@@ -1,9 +1,9 @@
 ---
 type: "Product Specification"
 title: "Tags"
-description: "Planned tag extensions: tags on places, repositories and notes, and the uses beyond finding (statistics, anomalies, export by tag)."
+description: "Planned uses of tags beyond finding: statistics, anomalies and export limited to a tag."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 # Tags
@@ -13,25 +13,20 @@ generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 > [Common UI](ui-common.md) · [Dictionary](ui-dictionary.md) ·
 > [Genealogy Tree](ui-genealogy-tree.md) · [Roadmap](roadmap.md)
 
-**Status: phases 1 to 3 are delivered.** Phase 1 put tags on persons, couples
-and documents, with the shared picker, chips and dots, the Dictionary's Tags
-tab, the person-search filter, GEDCOM and GEDZIP, the audit log and the
-`list_tags` tool. Phase 2 added bulk tagging of persons from the tree and from
-search results, and the highlight of a tag in the tree views. Phase 3 added
-tags on events, sources and citations. Their contracts are in
-[Data Model](data-model.md) (Tag, RecordTag, Event, Source, Citation),
-[API Contract](api.md) (Tags, OxidGene extensions),
-[Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots),
-[Dictionary §20](ui-dictionary.md#20-tags-tab), [Person Profile](ui-person-profile.md),
-[Couple Profile](ui-couple-profile.md), [Genealogy Tree](ui-genealogy-tree.md)
-and [Search Results §4](ui-search-results.md#4-results-toolbar). This document
-keeps only what phases 4 and 5 still deliver ([§5](#5-phases)).
+The tags themselves, their menus, dots, reads and GEDCOM placements are
+specified where they apply: the vocabulary and the link in
+[Data Model](data-model.md) (Tag, RecordTag), the endpoints in
+[API Contract](api.md) (Tags, OxidGene extensions), the picker, chips and dots in
+[Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), and each record's
+menu and dots in [Person Profile](ui-person-profile.md),
+[Couple Profile](ui-couple-profile.md) and [Dictionary](ui-dictionary.md). This
+document keeps the principles that hold for every use of tags, and the uses
+beyond finding that are still planned. Their delivery status is in
+[Roadmap §11b](roadmap.md#11b-planned-tags).
 
 ---
 
 ## 1. Principles
-
-These hold for every phase:
 
 - **One vocabulary per tree.** A tag exists once in a tree and is shared by
   every kind of record. Renaming, recolouring, merging or deleting it acts
@@ -45,83 +40,26 @@ These hold for every phase:
 - **User content.** OxidGene ships no predefined tag and never translates one
   ([Cross-cutting Rules](cross-cutting.md)).
 
-Every record that exists on its own in the interface can carry a tag. The
-kinds still to come:
-
-| Record | Phase | Example |
-|---|---|---|
-| Place | 4 | *vanished parish*, *to locate* |
-| Repository | 4 | *closed*, *online* |
-| Note | 4 | *hypothesis*, *to write* |
-
+Every record that exists on its own in the interface can carry a tag: persons,
+couples, documents, events, places, sources, citations, repositories and notes.
 Parts of a record do not carry tags: a person's names, a family's spouse and
 child links, an event's witnesses and spouse ages, vignettes, media links and
 kept GEDCOM. A multi-page document carries its tags on the document, never on
 its pages. The tree itself carries none.
 
-## 2. Remaining kinds
-
-The model already accepts the nine kinds of `record_tag`, and the generic
-endpoints already tag them ([API Contract](api.md), Tags). Phase 4 adds the
-interface and the reads for places, repositories and notes:
-
-- the `tags` field of their reads ([Data Model](data-model.md)), and their menu
-  entries: the Dictionary's Places and Repositories tabs, and the **Notes** card
-  of a record; notes show their dots in the card
-  ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
-
-The rules of [Data Model](data-model.md) (RecordTag) apply to these kinds too: a
-soft-deleted record keeps its links, which return with it, and a tag change
-never versions the tagged record. A duplicated tree carries its tags and links
-along with its records.
-
-### 2.1 GEDCOM for the remaining kinds
-
-Phase 1 writes `_OXIDGENE_TAG` beneath `INDI`, `FAM` and the first `OBJE` of
-a document, and phase 3 extends it to events, sources and citations ([API
-Contract](api.md), OxidGene extensions). Phase 4 extends it to the remaining
-kinds, following the same rules (one value `{"v":1,"label":…,"color":…}` per
-tag, labels folding alike being one tag on import, a tag no record carries not
-exported):
-
-- each `REPO` and `NOTE` or `SNOTE` structure;
-- every `PLAC` of a tagged place. A GEDCOM place is a string repeated in each
-  event, not a record a tag could sit beneath once, so an import gives a place
-  the union of the tags its `PLAC` structures carry.
-
-A `.gw` has no room for tags and carries none, as today.
-
-### 2.2 Interface strings
-
-Every interface string of phases 4 and 5 (menu entries, confirmations, errors,
+Every interface string of these uses (menu entries, confirmations, errors,
 accessible names and empty states) goes through the translation tables in all
 eight languages. Tag labels are user content and are never translated.
 
-## 3. Uses beyond finding (phase 5)
+## 2. Uses beyond finding
 
 - Statistics and anomalies limited to a tag ([Statistics](ui-statistics.md),
   [Tools §3](ui-tools.md#3-anomalies)).
 - An export of the persons carrying a tag, with the subtree export of the
   [Roadmap](roadmap.md#7b-planned-subtree-export).
 
-## 4. Tests still to write
+## 3. Tests still to write
 
-- Phase 4: every REST operation and its GraphQL twin for the new kinds'
-  reads; the GEDCOM round trip of each kind's tags and the vocabulary's colours;
-  a Geneanet or GeneWeb destination drops them and reports it.
-- Phase 5: the statistics and anomalies limited to a tag, and the export of the
-  persons carrying a tag, each with its REST and GraphQL coverage.
+- Statistics and anomalies limited to a tag, and the export of the persons
+  carrying a tag, each with its REST and GraphQL coverage.
 - Test data is fictitious ([Cross-cutting Rules](cross-cutting.md)).
-
-## 5. Phases
-
-| Phase | Content |
-|---|---|
-| 1 | Delivered: tags on persons, couples and documents, the vocabulary, the picker, chips and dots, GEDCOM, the audit log ([Data Model](data-model.md), [API Contract](api.md)) |
-| 2 | Delivered: bulk tagging from the tree and from search results, and the highlight of a tag in the tree views ([API Contract](api.md), Tags; [Genealogy Tree](ui-genealogy-tree.md); [Search Results](ui-search-results.md)) |
-| 3 | Delivered: tags on events, sources and citations, their reads, their menus and dots, and their GEDCOM `_OXIDGENE_TAG` placements ([Data Model](data-model.md), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md), [Dictionary](ui-dictionary.md), [API Contract](api.md)) |
-| 4 | Places, repositories and notes: the same, including the `PLAC` rule of §2.1 |
-| 5 | Uses beyond finding: statistics and anomalies limited to a tag, and an export of the persons carrying a tag, with the subtree export (§3) ([Roadmap](roadmap.md)) |
-
-Until its phase, the reads of places, repositories and notes do not yet carry
-`tags` ([Data Model](data-model.md)); the generic endpoints already tag them.

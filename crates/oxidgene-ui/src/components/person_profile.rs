@@ -1436,11 +1436,15 @@ fn vital_clause(clause: &VitalClause, sex: Sex, i18n: &I18n) -> Element {
     }
 }
 
-/// A notes card, rendered only when there is something to show.
+/// A notes card, rendered only when there is something to show. Each note
+/// takes a tag menu (right click, the context-menu key, a long press) and
+/// shows its dots.
 pub(crate) fn notes_section(
     i18n: &I18n,
     title_key: &str,
     notes: Option<&Result<Vec<Note>, ApiError>>,
+    tree_id: Uuid,
+    menu: RecordMenu,
 ) -> Element {
     match notes {
         Some(Ok(notes)) if !notes.is_empty() => rsx! {
@@ -1448,8 +1452,33 @@ pub(crate) fn notes_section(
                 h2 { class: "section-title section-title-spaced", {i18n.t(title_key)} }
                 div {
                     for note in notes.iter() {
+                        {
+                            let row_id = format!("note-entry-{}", note.id);
+                            let target = MenuTarget {
+                                kind: RecordKind::Note,
+                                record_id: note.id,
+                                tags: note.tags.clone(),
+                                row_id: row_id.clone(),
+                            };
+                            rsx! {
                         div {
                             key: "{note.id}",
+                            id: "{row_id}",
+                            tabindex: "0",
+                            oncontextmenu: {
+                                let target = target.clone();
+                                move |event: Event<MouseData>| menu.open_at_pointer(&event, target.clone())
+                            },
+                            onkeydown: {
+                                let target = target.clone();
+                                move |event: Event<KeyboardData>| menu.open_from_keyboard(&event, target.clone())
+                            },
+                            onpointerdown: {
+                                let target = target.clone();
+                                move |event: Event<PointerData>| menu.press_start(&event, target.clone())
+                            },
+                            onpointerup: move |_| menu.press_end(),
+                            onpointercancel: move |_| menu.press_end(),
                             class: "note-entry",
                             // Note bodies carry markup — GEDCOM and GeneWeb
                             // both put some in — and are sanitized server-side
@@ -1460,6 +1489,9 @@ pub(crate) fn notes_section(
                             div {
                                 class: "note-html",
                                 dangerous_inner_html: note_html_for_display(&note.text),
+                            }
+                            TagDots { tree_id: tree_id.to_string(), tags: note.tags.clone() }
+                        }
                             }
                         }
                     }

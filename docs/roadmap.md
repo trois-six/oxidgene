@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -402,7 +402,10 @@ of record, replacing the media-only tags.
 - [x] Phase 3: tags on events, sources and citations: the `tags` of their
   reads, the record menus and dots of the timelines and the Sources tab, and
   their GEDCOM `_OXIDGENE_TAG` placements.
-- [ ] Phase 4: tags on places, repositories and notes.
+- [x] Phase 4: tags on places, repositories and notes: the `tags` of their
+  reads, the record menus and dots of the Dictionary's Places and Repositories
+  tabs and of the Notes cards, and their GEDCOM placements, including the
+  `PLAC` rule.
 - [ ] Phase 5: statistics and anomalies limited to a tag; export of the
   persons carrying a tag, with the subtree export (§7b).
 

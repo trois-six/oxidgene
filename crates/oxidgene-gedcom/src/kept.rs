@@ -299,7 +299,9 @@ fn is_inline_medium(structure: &Structure) -> bool {
 /// which the pointer itself says, and the export writes none.
 fn is_understood_beneath(parent: &Structure, child: &Structure) -> bool {
     if child.tag.as_str() == crate::export::TAG_TAG {
-        return is_tagged_structure(parent.tag.as_str());
+        // A pointer to a shared note carries no tags: its record does.
+        let shared_pointer = parent.tag.as_str() == "NOTE" && parent.pointer().is_some();
+        return !shared_pointer && is_tagged_structure(parent.tag.as_str());
     }
     matches!(
         (parent.tag.as_str(), child.tag.as_str()),
@@ -311,10 +313,14 @@ fn is_understood_beneath(parent: &Structure, child: &Structure) -> bool {
 /// beneath, and the import reads it from: an event or attribute structure
 /// (`BIRT`, `OCCU`), an LDS ordinance, a military service or separation (`MILI`,
 /// `SEP`, which the import reads as generic events), a `SOUR` (a source record,
-/// or the pointer a citation is written as). Any other structure holds no tag
-/// line the import reads, so one there is kept.
+/// or the pointer a citation is written as), a `PLAC` (the place an event
+/// names, whose tags repeat in each one) and a `NOTE` (an inline note; a
+/// pointer is judged by [`is_understood_beneath`]). Any other structure holds
+/// no tag line the import reads, so one there is kept.
 fn is_tagged_structure(tag: &str) -> bool {
     tag == "SOUR"
+        || tag == "PLAC"
+        || tag == "NOTE"
         || tag == "EVEN"
         || matches!(tag, "MILI" | "SEP")
         || is_lds_ordinance(tag)
@@ -355,9 +361,9 @@ fn tagged_text(structure: &Structure) -> bool {
 /// writes it or is right to leave it out: an age, an event the import reads
 /// (direct children of `INDI` and `FAM` only), the death reason the
 /// `geneweb` crate writes beneath a death (`_GWDEATH`), which the import reads
-/// as the cause, and an `_OXIDGENE_TAG` line directly beneath an `INDI`, `FAM`
-/// or `OBJE` record, which the import reads into the tag vocabulary and the
-/// export writes from it (a folded duplicate, or a tag the export has no place
+/// as the cause, and an `_OXIDGENE_TAG` line directly beneath an `INDI`, `FAM`,
+/// `OBJE`, `REPO` or shared note (`NOTE`, `SNOTE`) record, which the import
+/// reads into the tag vocabulary and the export writes from it (a folded duplicate, or a tag the export has no place
 /// for, is left out). The tag lines of a `SOUR` record, of an event, an
 /// attribute or a citation are judged by [`is_understood_beneath`], as the
 /// structures they sit beneath. A tag line anywhere else is not read, so it is
@@ -369,7 +375,10 @@ fn is_understood(child: &Structure, depth: usize, record_tag: &str) -> bool {
         || child.tag.as_str() == "_GWDEATH"
         || (child.tag.as_str() == crate::export::TAG_TAG
             && depth == 0
-            && matches!(record_tag, "INDI" | "FAM" | "OBJE"))
+            && matches!(
+                record_tag,
+                "INDI" | "FAM" | "OBJE" | "REPO" | "NOTE" | "SNOTE"
+            ))
         || (depth == 0 && is_understood_event(child, record_tag))
 }
 

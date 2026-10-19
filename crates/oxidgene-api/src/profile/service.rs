@@ -704,7 +704,7 @@ impl ProfileService {
             EventRepo::list_by_families(conn, &family_ids),
             MediaLinkRepo::list_by_persons(conn, targets),
             CitationRepo::list_by_persons(conn, targets),
-            NoteRepo::list_by_persons(conn, tree_id, targets),
+            NoteRepo::list_by_persons_untagged(conn, tree_id, targets),
         )?;
 
         // 3. Related person rows + names, places, media, tags.
@@ -724,7 +724,7 @@ impl ProfileService {
         let (persons, names, places, media) = tokio::try_join!(
             PersonRepo::get_many(conn, &person_ids),
             PersonNameRepo::list_by_persons(conn, &person_ids),
-            PlaceRepo::get_many(conn, &place_ids),
+            PlaceRepo::get_many_untagged(conn, &place_ids),
             MediaRepo::get_many(conn, &media_ids),
         )?;
 
@@ -789,10 +789,10 @@ impl ProfileService {
             PersonRepo::list_all(conn, tree_id),
             EventRepo::list_all(conn, tree_id),
             FamilyRepo::list_all(conn, tree_id),
-            PlaceRepo::list_all(conn, tree_id),
+            PlaceRepo::list_all_untagged(conn, tree_id),
             MediaRepo::list_all(conn, tree_id),
             CitationRepo::list_all(conn, tree_id),
-            NoteRepo::list_all(conn, tree_id),
+            NoteRepo::list_all_untagged(conn, tree_id),
         )?;
 
         let person_ids: Vec<Uuid> = persons.iter().map(|p| p.id).collect();

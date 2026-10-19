@@ -585,6 +585,7 @@ fn a_rule_lists_a_bounded_number_of_items_but_counts_them_all() {
 #[test]
 fn places_without_coordinates_the_dictionary_cannot_read_are_listed() {
     let place = |name: &str, coordinates: Option<(f64, f64)>| Place {
+        tags: Vec::new(),
         id: Uuid::now_v7(),
         tree_id: Uuid::nil(),
         name: name.to_string(),

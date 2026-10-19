@@ -435,6 +435,50 @@ fn TaggedRecordRow(tree_id: Uuid, record: TaggedRecord) -> Element {
                 }
             }
         },
+        // A place and a repository are edited in their tabs of this dictionary.
+        RecordKind::Place => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::DictionaryPlaces { tree_id: tree },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
+        RecordKind::Repository => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::DictionaryRepositories { tree_id: tree },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
+        // A note is shown on the profile of the person or couple it belongs to.
+        RecordKind::Note if record.person_id.is_some() => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::PersonDetail {
+                        tree_id: tree,
+                        person_id: record.person_id.map(|id| id.to_string()).unwrap_or_default(),
+                    },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
+        RecordKind::Note if record.family_id.is_some() => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::CoupleDetail {
+                        tree_id: tree,
+                        family_id: record.family_id.map(|id| id.to_string()).unwrap_or_default(),
+                    },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
         _ => rsx! {
             div { class: "dict-accordion-item",
                 span { class: "dict-accordion-name", "{record.label}" }

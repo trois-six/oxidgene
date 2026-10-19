@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:15:20Z }
 ---
 
 
@@ -282,6 +282,12 @@ The `name` is a single string. The recommended format is comma-separated from
 most specific to least specific (see [Common UI §4.4](ui-common.md)), but any
 text is valid.
 
+**Tags.** A place's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. A place has no soft delete, so its links go with it when it is
+deleted. A tag change on a place refreshes no profile: profiles carry a place's
+name, not its tags.
+
 ### Source
 
 | Column | Type | Notes |
@@ -324,6 +330,10 @@ An archive, library or registry office holding sources (GEDCOM `REPO`).
 | `deleted_at` | DateTime? | Soft delete |
 
 Notes about a repository are `Note` rows carrying `repository_id`.
+
+**Tags.** A repository's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. They are the repository's own, not those of the sources it holds.
 
 ### SourceRepository
 
@@ -463,8 +473,9 @@ schema change plus a data-entry campaign. Every picker that sets it says so.
 
 ### Tag
 
-The tree's vocabulary: one row per label, shared by every kind of record
-([Tags](tags.md)).
+The tree's vocabulary: one row per label, shared by every kind of record. The
+links are [RecordTag](#recordtag) rows; the picker and the dots are in
+[Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -501,13 +512,19 @@ by a `CHECK` constraint.
   since no key reaches the tree for every kind.
 - Writing a link does not touch the tagged record's `updated_at` nor version it.
 
-The interface tags persons, couples (families), documents, events, sources and
-citations. A bulk change over persons ([API Contract](api.md), Tags) adds or
-removes their links in one transaction: it writes only the links that change, so
-the count it returns and audits is exact, and a link already present or already
-absent is not counted. The model accepts all nine kinds, so places, repositories
-and notes need no schema change when their interface arrives
-([Tags §5](tags.md#5-phases)).
+The interface tags persons, couples (families), documents, events, places,
+sources, citations, repositories and notes. A bulk change over persons
+([API Contract](api.md), Tags) adds or removes their links in one transaction: it
+writes only the links that change, so the count it returns and audits is exact,
+and a link already present or already absent is not counted. The model accepts
+all nine kinds, so a further kind needs no schema change.
+
+These rules hold for every kind:
+
+- A soft-deleted record keeps its tag links while it is deleted, unread, and
+  they return with it when it is restored.
+- A tree duplication copies the tag links of each record it copies, with their
+  tags, so the copy's records carry the same tags as the original's.
 
 ### Vignette
 
@@ -618,6 +635,11 @@ page number of its own: the page it belongs to is the media it points at.
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
+
+**Tags.** A note's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. A tag on a note is its own: it is not the tag of the record the
+note is about.
 
 A note body is rendered as HTML, because imported notes carry markup, so it
 is stored already sanitized (`oxidgene_db::html::sanitize_note_html`). Every

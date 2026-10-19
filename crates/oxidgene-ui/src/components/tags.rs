@@ -1194,6 +1194,29 @@ impl RecordMenu {
     }
 }
 
+/// Whether a key press is Enter or Space, the keys that activate a row.
+pub(crate) fn is_enter_or_space(event: &Event<KeyboardData>) -> bool {
+    match event.key() {
+        Key::Enter => true,
+        Key::Character(typed) => typed == " ",
+        _ => false,
+    }
+}
+
+/// Enter and Space on a button or tag link inside a row act on that control
+/// alone: the row's own activation does not also fire.
+pub(crate) fn stop_row_activation(event: Event<KeyboardData>) {
+    if is_enter_or_space(&event) {
+        event.stop_propagation();
+    }
+}
+
+/// A touch on a button inside a row does not also start the row's long press,
+/// which would open its record menu.
+pub(crate) fn stop_row_press(event: Event<PointerData>) {
+    event.stop_propagation();
+}
+
 /// The menu of the record a [`RecordMenu`] is open for: one entry, Tags…,
 /// which closes it and opens the shared [`TagPicker`] beside it. Rendered once
 /// per list, beside the rows it serves.

@@ -17,7 +17,7 @@ pub struct Source {
     /// `SOUR.DATA.AGNC`).
     #[serde(default)]
     pub agency: Option<String>,
-    /// The tags the source carries, sorted by folded label (docs/tags.md, §2).
+    /// The tags the source carries, sorted by folded label (docs/data-model.md, RecordTag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::types::TagRef;
+
 /// A textual note attached to a person, event, family, source, media, or
 /// repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +27,9 @@ pub struct Note {
     /// as one shared record again.
     #[serde(default)]
     pub shared_group: Option<Uuid>,
+    /// The tags the note carries, sorted by folded label (docs/data-model.md, RecordTag).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

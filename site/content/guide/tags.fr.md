@@ -1,18 +1,18 @@
 +++
 title = "Étiquettes"
-description = "Classer les personnes, les couples, les documents, les événements, les sources et les citations avec vos propres étiquettes, les colorer, les retrouver dans la recherche et les gérer dans le Dictionnaire."
+description = "Classer les personnes, les couples, les documents, les événements, les sources, les citations, les lieux, les dépôts et les notes avec vos propres étiquettes, les colorer, les retrouver dans la recherche et les gérer dans le Dictionnaire."
 weight = 75
 +++
 
 Une étiquette est un court libellé que vous posez sur des fiches pour les retrouver : *à vérifier*, *acte introuvable*, *Soldats 1914–1918*. Les étiquettes sont votre propre vocabulaire. OxidGene n'en fournit aucune et ne traduit jamais celles que vous écrivez. Un arbre n'a qu'un seul vocabulaire : une étiquette créée sur une personne est la même étiquette sur toutes les autres fiches.
 
-Les étiquettes se posent sur les **personnes**, les **couples**, les **documents** (photos, numérisations et PDF), les **événements**, les **sources** et les **citations**. Les lieux, dépôts et notes pourront en recevoir plus tard.
+Les étiquettes se posent sur les **personnes**, les **couples**, les **documents** (photos, numérisations et PDF), les **événements**, les **sources**, les **citations**, les **lieux**, les **dépôts** et les **notes**.
 
 ## Ajouter ou retirer une étiquette
 
 Sur la fiche d’une personne, cliquez sur le bouton **Étiquettes…** de l’en-tête. Sur la fiche d’un couple, il se trouve dans la rangée d’actions. Pour un document, utilisez **Étiquettes…** dans le menu de la visionneuse ou dans le menu de la vignette.
 
-Pour un événement, ouvrez **Étiquettes…** depuis sa ligne dans la frise chronologique : faites un clic droit sur la ligne, ou appuyez sur la touche du menu contextuel ou sur Maj+F10 quand la ligne a le focus. Une citation de la ligne des sources de la frise et une source de l'onglet **Sources** du Dictionnaire ouvrent le même menu.
+Pour un événement, ouvrez **Étiquettes…** depuis sa ligne dans la frise chronologique : faites un clic droit sur la ligne, ou appuyez sur la touche du menu contextuel ou sur Maj+F10 quand la ligne a le focus. Une citation de la ligne des sources de la frise et une source de l'onglet **Sources** du Dictionnaire ouvrent le même menu. Un lieu de l'onglet **Lieux** et un dépôt de l'onglet **Dépôts** l'ouvrent aussi, comme une note d'une fiche de personne ou de couple : faites un clic droit dessus, ou appuyez sur la touche du menu contextuel ou sur Maj+F10 quand elle a le focus.
 
 Le sélecteur liste les étiquettes de l’arbre, celles déjà posées sur la fiche en premier :
 
@@ -44,12 +44,13 @@ Les étiquettes ne prennent aucune place sur une fiche qui n’en a pas.
 
 - Sur la fiche d’une personne ou d’un couple, leurs étiquettes apparaissent sous l’en-tête, sous forme de pastilles avec leur couleur.
 - Dans les résultats de recherche, les étiquettes d’une personne apparaissent sous forme de petits points après le nom. Survolez un point pour lire son étiquette.
-- Dans la frise chronologique, un événement ou une citation affiche ses points après son texte. Dans l’onglet **Sources** du Dictionnaire, une source affiche ses points après son titre.
+- Dans la frise chronologique, un événement ou une citation affiche ses points après son texte. Dans l’onglet **Sources** du Dictionnaire, une source affiche ses points après son titre. Dans les onglets **Lieux** et **Dépôts**, un lieu ou un dépôt affiche ses points après son nom.
+- Une note affiche ses points sous son texte, sur la fiche d’une personne ou d’un couple, et rien du tout quand elle n’a pas d’étiquette.
 - Cliquez sur une pastille ou un point pour ouvrir l’onglet **Étiquettes** du Dictionnaire sur cette étiquette.
 
 ## L’onglet Étiquettes
 
-Ouvrez le **Dictionnaire** depuis la barre latérale de gauche et choisissez l’onglet **Étiquettes**. Chaque ligne est une étiquette, avec sa couleur et le nombre de fiches qui la portent, par type : personnes, couples, documents, etc. Cliquez sur la flèche d’une ligne pour lister ces fiches, regroupées par type, et ouvrir celle que vous voulez. Un événement ou une citation ouvre la fiche de sa personne ou de son couple, et une source ouvre l’onglet **Sources**.
+Ouvrez le **Dictionnaire** depuis la barre latérale de gauche et choisissez l’onglet **Étiquettes**. Chaque ligne est une étiquette, avec sa couleur et le nombre de fiches qui la portent, par type : personnes, couples, documents, etc. Cliquez sur la flèche d’une ligne pour lister ces fiches, regroupées par type, et ouvrir celle que vous voulez. Un événement ou une citation ouvre la fiche de sa personne ou de son couple, une source ouvre l’onglet **Sources**, un lieu l’onglet **Lieux** et un dépôt l’onglet **Dépôts**. Une note ouvre la fiche de la personne ou du couple auquel elle appartient.
 
 - **Modifier** (le crayon) change le libellé et la couleur. Si le nouveau libellé est celui d’une autre étiquette, OxidGene propose de **fusionner** les deux : chaque fiche portant l’une ou l’autre porte ensuite l’étiquette fusionnée, une seule fois.
 - **Supprimer** (la croix) retire l’étiquette de toutes les fiches qui la portent. La confirmation indique combien elles sont. L’opération est définitive.

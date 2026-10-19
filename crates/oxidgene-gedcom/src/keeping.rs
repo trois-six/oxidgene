@@ -130,7 +130,12 @@ fn header_submitter(original: &[Structure]) -> Option<String> {
 /// Whether a structure is a record the comparison covers: any record other
 /// than the header and the trailer, with an xref or without one.
 fn is_compared(record: &Structure) -> bool {
-    !matches!(record.tag.as_str(), "HEAD" | "TRLR")
+    // An OxidGene place record is read whole on import, its tags included, so
+    // it is never kept beside the export that writes it again.
+    !matches!(
+        record.tag.as_str(),
+        "HEAD" | "TRLR" | crate::export::PLACE_TAG
+    )
 }
 
 /// The kept rows of each original record against its exported counterpart.

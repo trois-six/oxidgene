@@ -22,12 +22,14 @@ use crate::components::print::PrintPageNote;
 use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
-use crate::components::tags::{MenuTarget, RecordMenu, RecordTagMenu, TagDots, use_record_menu};
+use crate::components::tags::{
+    MenuTarget, RecordMenu, RecordTagMenu, TagDots, is_enter_or_space, stop_row_activation,
+    stop_row_press, use_record_menu,
+};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::pages::dictionary_media::DictionaryMedia;
-use crate::pages::dictionary_repositories::DictionaryRepositories;
 use crate::pages::dictionary_tags::DictionaryTags;
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
@@ -295,14 +297,14 @@ type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, sources: false } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: None } }
 }
 
 /// The Dictionary page opened on the Tags tab, unfolded on one tag.
 #[component]
 pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: Some(tag), sources: false } }
+    rsx! { DictionaryPage { tree_id, tag: Some(tag), landing: None } }
 }
 
 /// The Dictionary page opened on the Sources tab (a source's link in the
@@ -310,11 +312,27 @@ pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
 #[component]
 pub fn DictionarySources(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None, sources: true } }
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Sources) } }
+}
+
+/// The Dictionary page opened on the Places tab (a place's link in the Tags
+/// tab).
+#[component]
+pub fn DictionaryPlaces(tree_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Places) } }
+}
+
+/// The Dictionary page opened on the Repositories tab (a repository's link in
+/// the Tags tab).
+#[component]
+pub fn DictionaryRepositories(tree_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    rsx! { DictionaryPage { tree_id, tag: None, landing: Some(DictTab::Repositories) } }
 }
 
 #[component]
-fn DictionaryPage(tree_id: String, tag: Option<String>, sources: bool) -> Element {
+fn DictionaryPage(tree_id: String, tag: Option<String>, landing: Option<DictTab>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     // The trace the route component opened is provided above this page.
@@ -334,13 +352,9 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, sources: bool) -> Elemen
 
     // The view the reader left here, when coming back through the history.
     let restored = use_restored_view::<DictionaryView>().unwrap_or_default();
-    // The tab the page opens on, unless a tag asks for the Tags tab: the
-    // Sources tab when the route asks for it, else the tab the reader left.
-    let landing_tab = if sources {
-        DictTab::Sources
-    } else {
-        restored.tab
-    };
+    // The tab the page opens on, unless a tag asks for the Tags tab: the tab
+    // the route asks for, else the tab the reader left.
+    let landing_tab = landing.unwrap_or(restored.tab);
     let mut active_tab = use_signal(|| requested_tag.map_or(landing_tab, |_| DictTab::Tags));
     // The same page asked for another tag while it is open.
     if requested_tag.is_some_and(|tag| applied_tag() != Some(tag)) {
@@ -574,7 +588,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, sources: bool) -> Elemen
                 }
                 // Its own module: a list of its own, edited in place.
                 DictTab::Repositories => tree_module(tree_id_parsed(), |tree_id| {
-                    rsx! { DictionaryRepositories { tree_id } }
+                    rsx! { crate::pages::dictionary_repositories::DictionaryRepositories { tree_id } }
                 }),
                 DictTab::Places => render_places_tab(ctx, places_resource, filed_places),
                 // Its own module: server-paginated, with filters of its own.
@@ -598,7 +612,10 @@ fn DictionaryPage(tree_id: String, tag: Option<String>, sources: bool) -> Elemen
                 RecordTagMenu {
                     tree_id: tid,
                     menu: record_menu,
-                    on_changed: move |()| sources_view_resource.restart(),
+                    on_changed: move |()| {
+                    sources_view_resource.restart();
+                    places_resource.restart();
+                },
                 }
             }
 
@@ -1109,7 +1126,7 @@ struct TabContext<'a> {
     filters: ListFilters,
     expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
-    /// The menu of the sources' rows, rendered once by the page.
+    /// The menu of the sources' and places' rows, rendered once by the page.
     record_menu: RecordMenu,
 }
 
@@ -1692,7 +1709,7 @@ fn render_sources_list(
                                         let mut toggle = toggle.clone();
                                         move |_| toggle()
                                     },
-                                    div { class: "dict-row-main",
+                                    div { class: "dict-row-main", onkeydown: stop_row_activation,
                                         span { class: "dict-row-value", "{entry.source.title}" }
                                         if !meta.is_empty() {
                                             span { class: "dict-row-meta", "{meta}" }
@@ -1729,29 +1746,6 @@ fn render_sources_list(
             }
         }
     }
-}
-
-/// Whether a key press is Enter or Space, the keys that activate a row.
-fn is_enter_or_space(event: &Event<KeyboardData>) -> bool {
-    match event.key() {
-        Key::Enter => true,
-        Key::Character(typed) => typed == " ",
-        _ => false,
-    }
-}
-
-/// Enter and Space on a button inside a source row act on that button alone:
-/// the row's own activation does not also fire.
-fn stop_row_activation(event: Event<KeyboardData>) {
-    if is_enter_or_space(&event) {
-        event.stop_propagation();
-    }
-}
-
-/// A touch on a button inside a source row does not also start the row's
-/// long press, which would open its record menu.
-fn stop_row_press(event: Event<PointerData>) {
-    event.stop_propagation();
 }
 
 fn render_sources_tab(
@@ -1813,6 +1807,7 @@ fn render_places_tab(
         filters,
         mut expanded,
         usage_people,
+        record_menu,
         ..
     } = ctx;
     let ListFilters {
@@ -1859,33 +1854,74 @@ fn render_places_tab(
                         div { key: "hdr-{c}", class: "dict-group-header", "{c}" }
                     }
                     {
-                        let key = UsageKey::Place(entry.place.id);
+                        let place_id = entry.place.id;
+                        let key = UsageKey::Place(place_id);
                         let is_open = expanded() == Some(key.clone());
                         let has_coords = entry.place.latitude.is_some() && entry.place.longitude.is_some();
+                        let row_id = format!("dict-place-{place_id}");
+                        let place_target = MenuTarget {
+                            kind: RecordKind::Place,
+                            record_id: place_id,
+                            tags: entry.place.tags.clone(),
+                            row_id: row_id.clone(),
+                        };
+                        let tree_text = tree_id.to_string();
+                        // A click, or Enter or Space on the row, unfolds its usage or folds it.
+                        let toggle = {
+                            let key = key.clone();
+                            move || {
+                                if expanded() == Some(key.clone()) {
+                                    expanded.set(None);
+                                } else {
+                                    expanded.set(Some(key.clone()));
+                                }
+                            }
+                        };
                         rsx! {
-                            div { key: "{entry.place.id}",
+                            div { key: "{place_id}",
                                 div {
                                     class: "dict-row",
-                                    onclick: {
-                                        let key = key.clone();
-                                        move |_| {
-                                            if expanded() == Some(key.clone()) {
-                                                expanded.set(None);
+                                    id: "{row_id}",
+                                    tabindex: "0",
+                                    oncontextmenu: {
+                                        let target = place_target.clone();
+                                        move |event: Event<MouseData>| record_menu.open_at_pointer(&event, target.clone())
+                                    },
+                                    onkeydown: {
+                                        let target = place_target.clone();
+                                        let mut toggle = toggle.clone();
+                                        move |event: Event<KeyboardData>| {
+                                            if is_enter_or_space(&event) {
+                                                event.prevent_default();
+                                                toggle();
                                             } else {
-                                                expanded.set(Some(key.clone()));
+                                                record_menu.open_from_keyboard(&event, target.clone());
                                             }
                                         }
                                     },
-                                    div { class: "dict-row-main",
+                                    onpointerdown: {
+                                        let target = place_target.clone();
+                                        move |event: Event<PointerData>| record_menu.press_start(&event, target.clone())
+                                    },
+                                    onpointerup: move |_| record_menu.press_end(),
+                                    onpointercancel: move |_| record_menu.press_end(),
+                                    onclick: {
+                                        let mut toggle = toggle.clone();
+                                        move |_| toggle()
+                                    },
+                                    div { class: "dict-row-main", onkeydown: stop_row_activation,
                                         span { class: if has_coords { "dict-row-value dict-pin" } else { "dict-row-value" },
                                             if has_coords { "\u{1F4CD} " } else { "" }
                                             "{entry.place.name}"
                                         }
+                                        TagDots { tree_id: tree_text, tags: entry.place.tags.clone() }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.reference_count", entry.count as usize)} }
                                     button {
                                         class: "dict-row-action",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
+                                        onkeydown: stop_row_activation,
+                                        onpointerdown: stop_row_press,
                                         if is_open { "\u{25B2}" } else { "\u{25BC}" }
                                     }
                                 }

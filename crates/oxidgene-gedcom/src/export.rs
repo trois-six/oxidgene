@@ -300,7 +300,7 @@ pub fn export_gedcom(
         ExportTarget::Gedcom => choices.destination.target().version().is_v7(),
     };
     let media_by_id: HashMap<Uuid, &Media> = media.iter().map(|m| (m.id, m)).collect();
-    let written_events = written_events(events);
+    let written_events = written_events(persons, families, events);
     let linked = linked_events(
         media_links,
         vignettes,
@@ -383,6 +383,7 @@ pub fn export_gedcom(
         data.push(Record::Note(Box::new(GedSharedNote {
             xref: Some(shared.xref),
             text: Text::from(shared.text.as_str()),
+            extra: tag_nodes(tag_tag, &shared.tags).into(),
             ..GedSharedNote::default()
         })));
     }
@@ -392,6 +393,7 @@ pub fn export_gedcom(
     for repo in repositories {
         data.push(Record::Repository(Box::new(index.repository(repo))));
     }
+    push_standalone_places(&mut data, places, events, &index.written_events, tag_tag);
     // A document is dissolved into its pages, which carry the bytes; see
     // `pages_of`.
     for m in media.iter().filter(|m| !m.is_document()) {
@@ -486,6 +488,8 @@ struct Xrefs {
 struct SharedNoteRecord {
     xref: XrefId,
     text: String,
+    /// The tags of every note the record stands for, once each.
+    tags: Vec<TagRef>,
 }
 
 impl Xrefs {
@@ -507,14 +511,27 @@ impl Xrefs {
             .collect();
         shared.sort_unstable();
         shared.dedup();
+        // The tags of the notes each record stands for: the record is written
+        // once, so it carries their union (docs/api.md, `_OXIDGENE_TAG`).
+        let mut tags_of: HashMap<(Uuid, &str), Vec<&TagRef>> = HashMap::new();
+        for note in notes.iter().filter(|note| is_written_as_pointer(note)) {
+            if let Some(group) = note.shared_group {
+                tags_of
+                    .entry((group, note.text.as_str()))
+                    .or_default()
+                    .extend(note.tags.iter());
+            }
+        }
         let mut note_text = HashMap::new();
         let mut shared_notes = Vec::with_capacity(shared.len());
         for (i, (group, text)) in shared.into_iter().enumerate() {
             let xref = intern(store, &format!("@N{}@", i + 1));
             note_text.insert((group, text.to_string()), xref);
+            let tags = tags_of.remove(&(group, text)).unwrap_or_default();
             shared_notes.push(SharedNoteRecord {
                 xref,
                 text: text.to_string(),
+                tags: union_tags(tags),
             });
         }
         Self {
@@ -709,13 +726,14 @@ const EXTENSIONS_DOC: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/blob/main/d
 
 /// OxidGene's own extension tags, each with the anchor of its
 /// documentation, which a GEDCOM 7.0 header declares (`HEAD.SCHMA`).
-const EXTENSION_TAGS: [(&str, &str); 7] = [
+const EXTENSION_TAGS: [(&str, &str); 8] = [
     (MEDIA_TAG, "_oxidgene_media"),
     (DOCUMENT_TAG, "_oxidgene_doc"),
     (VIGNETTE_TAG, "_oxidgene_vignette"),
     (PERSON_TAG, "_oxidgene_person"),
     (KEPT_MEDIA_TAG, "_oxidgene_obje"),
     (POSITION_TAG, "_oxidgene_pos"),
+    (PLACE_TAG, "_oxidgene_place"),
     (TAG_TAG, "_oxidgene_tag"),
 ];
 
@@ -735,6 +753,9 @@ pub(crate) const KEPT_MEDIA_TAG: &str = "_OXIDGENE_OBJE";
 pub(crate) const POSITION_TAG: &str = "_OXIDGENE_POS";
 /// One tag a person, a couple or a document carries: see [`TagExtension`].
 pub(crate) const TAG_TAG: &str = "_OXIDGENE_TAG";
+/// A tagged place no event names, written as a record of its own: see
+/// [`standalone_place`].
+pub(crate) const PLACE_TAG: &str = "_OXIDGENE_PLACE";
 
 /// The GEDCOM header naming OxidGene as the producer, and the submitter
 /// GEDCOM 5.5.1 requires it to point at. The writer completes it with what
@@ -1071,7 +1092,10 @@ impl ExportIndex<'_> {
             .and_then(|group| self.xrefs.note_text.get(&(group, note.text.clone())))
         {
             Some(&xref) => GedNote::shared(xref),
-            None => to_ged_note(&note.text),
+            None => GedNote {
+                extra: tag_nodes(self.tag_tag, &note.tags).into(),
+                ..to_ged_note(&note.text)
+            },
         }
     }
 
@@ -1147,6 +1171,7 @@ impl ExportIndex<'_> {
             emails: texts(repo.email.as_deref()),
             websites: texts(repo.website.as_deref()),
             notes: self.all_notes(self.notes_by_repository.get(&repo.id)),
+            extra: tag_nodes(self.tag_tag, &repo.tags).into(),
             ..Default::default()
         }
     }
@@ -1582,10 +1607,15 @@ impl ExportIndex<'_> {
     }
 
     /// The `PLAC` of an event, when it has a place the export writes.
+    /// Every `PLAC` of a tagged place carries the place's tags, since GEDCOM
+    /// repeats the place in each event rather than holding it once.
     fn event_place(&self, evt: &Event) -> Option<GedPlace> {
         evt.place_id
             .and_then(|pid| self.place_map.get(&pid))
-            .map(|p| to_ged_place(p))
+            .map(|p| GedPlace {
+                extra: tag_nodes(self.tag_tag, &p.tags).into(),
+                ..to_ged_place(p)
+            })
     }
 
     /// The LDS ordinance an event is written as, when GEDCOM's ordinance
@@ -1709,6 +1739,19 @@ fn extension(tag: TagId, value: String) -> Node {
     }
 }
 
+/// The tags of several records, each once, sorted by label: the union a
+/// record written once for several notes carries.
+fn union_tags<'a>(tags: impl IntoIterator<Item = &'a TagRef>) -> Vec<TagRef> {
+    let mut union: Vec<TagRef> = Vec::new();
+    for tag in tags {
+        if !union.iter().any(|known| known.id == tag.id) {
+            union.push(tag.clone());
+        }
+    }
+    union.sort_by(|a, b| (&a.label, a.id).cmp(&(&b.label, b.id)));
+    union
+}
+
 /// One `_OXIDGENE_TAG` line per tag, beneath the record carrying them
 /// (docs/api.md, OxidGene extensions).
 fn tag_nodes(tag: TagId, tags: &[TagRef]) -> Vec<Node> {
@@ -1721,6 +1764,79 @@ fn tag_nodes(tag: TagId, tags: &[TagRef]) -> Vec<Node> {
             })
             .ok()?;
             Some(extension(tag, value))
+        })
+        .collect()
+}
+
+/// The tagged places no written event names, in slice order: a `PLAC` writes
+/// the tags of every place a written event names, so these have no other
+/// carrier. An event of a person or family that is not exported is not
+/// written, so the place it names is not carried by any `PLAC`.
+fn standalone_places<'a>(
+    places: &'a [Place],
+    events: &[Event],
+    written: &HashSet<Uuid>,
+) -> Vec<&'a Place> {
+    let named: HashSet<Uuid> = events
+        .iter()
+        .filter(|evt| written.contains(&evt.id))
+        .filter_map(|evt| evt.place_id)
+        .collect();
+    places
+        .iter()
+        .filter(|place| !place.tags.is_empty() && !named.contains(&place.id))
+        .collect()
+}
+
+/// Writes each tagged place no event names as a record of its own, since no
+/// `PLAC` would carry its tags.
+fn push_standalone_places(
+    data: &mut Dataset,
+    places: &[Place],
+    events: &[Event],
+    written: &HashSet<Uuid>,
+    tag_tag: TagId,
+) {
+    let unnamed = standalone_places(places, events, written);
+    let xrefs = numbered(data.store_mut(), "P", unnamed.iter().map(|p| p.id));
+    for place in unnamed {
+        let node = standalone_place(data.store_mut(), place, xrefs[&place.id], tag_tag);
+        data.push(Record::Other(Box::new(node)));
+    }
+}
+
+/// The record a tagged place no event names is written as: a `_OXIDGENE_PLACE`
+/// holding the place's `PLAC`, with its `MAP` coordinates and the tag lines of
+/// the place beneath the `PLAC` (docs/api.md, OxidGene extensions).
+fn standalone_place(store: &mut Store, place: &Place, xref: XrefId, tag_tag: TagId) -> Node {
+    let place_tag = store.intern_tag(PLACE_TAG);
+    let plac_tag = store.intern_tag("PLAC");
+    let mut plac = extension(plac_tag, place.name.clone());
+    if let (Some(lat), Some(lon)) = (place.latitude, place.longitude) {
+        let map_tag = store.intern_tag("MAP");
+        let latitude = extension(store.intern_tag("LATI"), format_coord(lat, true));
+        let longitude = extension(store.intern_tag("LONG"), format_coord(lon, false));
+        plac.children.push(Node {
+            children: vec![latitude, longitude],
+            ..Node::new(map_tag)
+        });
+    }
+    plac.children.extend(tag_nodes(tag_tag, &place.tags));
+    Node {
+        xref: Some(xref),
+        children: vec![plac],
+        ..Node::new(place_tag)
+    }
+}
+
+/// The versioned values of `tags`, as the `_OXIDGENE_TAG` lines of a record
+/// holding them would hold them.
+fn tag_values(tags: &[TagRef]) -> Vec<TagExtension> {
+    tags.iter()
+        .map(|tag_ref| TagExtension {
+            v: 1,
+            label: tag_ref.label.clone(),
+            color: tag_ref.color,
         })
         .collect()
 }
@@ -1783,6 +1899,7 @@ fn media_extensions(
                 text: note.text.clone(),
                 created_at: Some(note.created_at),
                 updated_at: Some(note.updated_at),
+                tags: tag_values(&note.tags),
             })
             .collect()
     };
@@ -1912,11 +2029,18 @@ fn media_extensions(
     (by_media, warnings)
 }
 
-/// The events that are written, beneath a person or a family.
-fn written_events(events: &[Event]) -> HashSet<Uuid> {
+/// The events that are written: those beneath a person or a family the export
+/// writes. An event of a person or family left out (a soft-deleted one, say) is
+/// not written, and names nothing that a `PLAC` would carry.
+fn written_events(persons: &[Person], families: &[Family], events: &[Event]) -> HashSet<Uuid> {
+    let person_ids: HashSet<Uuid> = persons.iter().map(|p| p.id).collect();
+    let family_ids: HashSet<Uuid> = families.iter().map(|f| f.id).collect();
     events
         .iter()
-        .filter(|evt| evt.person_id.is_some() || evt.family_id.is_some())
+        .filter(|evt| {
+            evt.person_id.is_some_and(|id| person_ids.contains(&id))
+                || evt.family_id.is_some_and(|id| family_ids.contains(&id))
+        })
         .map(|evt| evt.id)
         .collect()
 }
@@ -3148,6 +3272,7 @@ mod tests {
     #[test]
     fn oxidgene_media_metadata_survives_an_export_and_a_re_import() {
         let place = Place {
+            tags: Vec::new(),
             id: Uuid::now_v7(),
             tree_id: Uuid::now_v7(),
             name: "Sample Village".to_string(),
@@ -3158,6 +3283,7 @@ mod tests {
         };
         let (document, page) = described_document_with_page(&place);
         let note = Note {
+            tags: Vec::new(),
             id: Uuid::now_v7(),
             tree_id: document.tree_id,
             text: "The left edge is damaged".to_string(),
@@ -3579,6 +3705,7 @@ mod tests {
         second_page.page_index = 1;
         let notes = [
             Note {
+                tags: Vec::new(),
                 id: Uuid::now_v7(),
                 tree_id: first_page.tree_id,
                 text: "First page transcript".to_string(),
@@ -3594,6 +3721,7 @@ mod tests {
                 deleted_at: None,
             },
             Note {
+                tags: Vec::new(),
                 id: Uuid::now_v7(),
                 tree_id: second_page.tree_id,
                 text: "Second page transcript".to_string(),

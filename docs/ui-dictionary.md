@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 
@@ -245,7 +245,7 @@ Each row shows:
 - Usage count badge: number of `Citation` rows referencing this source
 - Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
 - Tag dots after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
-- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons keep their own Enter and Space
+- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons and the tag dots keep their own Enter and Space
 
 The expanded list holds the persons the citations concern, each linking to the person: those cited directly, the person of a cited individual event, and the spouses of a cited family or of a cited family event (a marriage's citation lists both spouses; the list has no separate couple row, like the Places tab). A citation is one use, so the count counts citations and the list counts persons: a cited source never lists nobody, and a person cited several times appears once. Deleted persons, events and families are left out.
 
@@ -350,6 +350,7 @@ Grouped by first letter of the place name (same pattern as section 7). Each row:
 - Place name as entered, shown as a full free-text hierarchy
 - A small pin icon (📍-style, filled) when `latitude`/`longitude` are set, outline/muted when not
 - Usage count badge: number of `Event` + `Media` rows referencing this place
+- Tag dots after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag dot takes Enter or Space to its tag instead)
 
 Clicking a row expands it inline (same accordion pattern as Sources) listing the persons the place's events and media concern — a couple's event its spouses, a media the persons it is linked to or shows — each linking to the person, so a place with uses never lists nobody.
 
@@ -425,7 +426,11 @@ authoritative and kept at exact key parity
   `Route::DictionaryTag { tree_id, tag }` → `/trees/:tree_id/dictionary/tags/:tag`
   opens the Tags tab on a tag; `Route::DictionarySources { tree_id }` →
   `/trees/:tree_id/dictionary/sources` opens the Sources tab (a source's link
-  in the Tags tab); `Route::Media { tree_id, media_id }` →
+  in the Tags tab); `Route::DictionaryPlaces { tree_id }` →
+  `/trees/:tree_id/dictionary/places` and `Route::DictionaryRepositories
+  { tree_id }` → `/trees/:tree_id/dictionary/repositories` open the Places and
+  Repositories tabs (a place's and a repository's link in the Tags tab);
+  `Route::Media { tree_id, media_id }` →
   `/trees/:tree_id/media/:media_id` opens one document in the media viewer
 - Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
 
@@ -657,6 +662,10 @@ repository's editor ends with a delete confirmation: the sources it held stay
 in the tree, no longer listed as held there (the links are kept and come back
 if the deletion is undone from the history).
 
+Each row takes the same record menu and tag dots as a source row (§8): the
+row is a tab stop, and *Tags…* opens the tag picker beside it; the ✎ and ▼
+buttons and the tag dots keep their own Enter and Space.
+
 The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
 tab, and loads the repositories the first time it opens.
 
@@ -671,7 +680,9 @@ carrying the tag, grouped by kind; a kind shows 25 at a time with *Load more*.
 Person, couple and media records link to their pages; a media record opens the
 media viewer on its own route (`/trees/{id}/media/{media_id}`). An event or a
 citation links to the profile of its owner, a person or a couple; a source links
-to this dictionary's Sources tab.
+to this dictionary's Sources tab, a place to its Places tab, a repository to its
+Repositories tab, and a note to the profile of the person or couple it belongs
+to (a note of a source, a repository or a document is shown as text).
 
 - **Edit** (✎) opens a dialog with the label and the twelve colours. A label
   folding to another tag's offers a merge into it, with a sentence stating

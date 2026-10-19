@@ -7,7 +7,7 @@
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Note};
+use oxidgene_core::types::{Connection, Note, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -17,6 +17,7 @@ use crate::html::sanitize_note_html;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Optional entity filters for listing notes.
 #[derive(Debug, Clone, Default)]
@@ -63,20 +64,27 @@ impl NoteRepo {
             query = query.filter(Column::RepositoryId.eq(repository_id));
         }
 
-        paginate(db, query, Column::Id, params, |model| {
+        let mut page = paginate(db, query, Column::Id, params, |model| {
             (model.id, into_domain(model))
         })
-        .await
+        .await?;
+        let notes = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, note) in page.edges.iter_mut().zip(hydrate(db, notes).await?) {
+            edge.node = note;
+        }
+        Ok(page)
     }
 
     /// Get a single note by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Note, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let note = find_live(db, id).await.map(into_domain)?;
+        hydrate_one(db, note).await
     }
 
-    /// The live notes among `ids`, one read per bounded slice of ids. A
+    /// The live notes among `ids`, one read per bounded slice of ids. Their tags
+    /// are not filled: this serves the labels of many records at once. A
     /// missing or soft-deleted id is absent.
-    pub async fn get_many(
+    pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
@@ -92,8 +100,28 @@ impl NoteRepo {
         .await
     }
 
+    /// The live notes among `ids`, one read per bounded slice of ids. A
+    /// missing or soft-deleted id is absent.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        let notes = Self::get_many_untagged(db, ids).await?;
+        hydrate(db, notes).await
+    }
+
     /// List all notes in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        let notes = Self::list_all_untagged(db, tree_id).await?;
+        hydrate(db, notes).await
+    }
+
+    /// Every live note of a tree, without its tags: the profile projections
+    /// only count notes per person.
+    pub async fn list_all_untagged(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Note>, OxidGeneError> {
@@ -138,7 +166,7 @@ impl NoteRepo {
         }
 
         let models = query.all(db).await.map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// List the live notes attached to any of the given persons in a tree.
@@ -147,7 +175,18 @@ impl NoteRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        Self::list_live_by(db, tree_id, Column::PersonId, person_ids).await
+        let notes = Self::list_by_persons_untagged(db, tree_id, person_ids).await?;
+        hydrate(db, notes).await
+    }
+
+    /// [`Self::list_by_persons`] without the tags, for the profile
+    /// projections, which count these notes and never show their tags.
+    pub async fn list_by_persons_untagged(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        Self::list_live_by_untagged(db, tree_id, Column::PersonId, person_ids).await
     }
 
     /// List the live notes attached to any of the given events in a tree.
@@ -156,11 +195,12 @@ impl NoteRepo {
         tree_id: Uuid,
         event_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        Self::list_live_by(db, tree_id, Column::EventId, event_ids).await
+        let notes = Self::list_live_by_untagged(db, tree_id, Column::EventId, event_ids).await?;
+        hydrate(db, notes).await
     }
 
-    /// The live notes of a tree whose `column` is one of `ids`.
-    async fn list_live_by(
+    /// The live notes of a tree whose `column` is one of `ids`, without tags.
+    async fn list_live_by_untagged(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         column: Column,
@@ -204,7 +244,7 @@ impl NoteRepo {
             deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Update a note's text.
@@ -222,7 +262,7 @@ impl NoteRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Soft-delete a note.
@@ -248,10 +288,30 @@ fn into_domain(m: note::Model) -> Note {
         media_id: m.media_id,
         repository_id: m.repository_id,
         shared_group: m.shared_group,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Fill the tags of each note from one grouped read.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    mut notes: Vec<Note>,
+) -> Result<Vec<Note>, OxidGeneError> {
+    let ids: Vec<Uuid> = notes.iter().map(|note| note.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Note, &ids).await?;
+    for note in &mut notes {
+        note.tags = tags.remove(&note.id).unwrap_or_default();
+    }
+    Ok(notes)
+}
+
+/// [`hydrate`] for one note.
+async fn hydrate_one(db: &impl ConnectionTrait, note: Note) -> Result<Note, OxidGeneError> {
+    let mut notes = hydrate(db, vec![note]).await?;
+    Ok(notes.remove(0))
 }
 
 /// Row `id`, unless it is missing or soft-deleted.

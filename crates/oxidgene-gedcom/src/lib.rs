@@ -49,8 +49,9 @@ pub struct ImportResult {
     /// The tag vocabulary the file carries: one tag per folded label, its
     /// first spelling and colour as read first, each with the id the records
     /// carrying it name in [`Person::tags`], [`Family::tags`], [`Media::tags`],
-    /// [`Event::tags`], [`Source::tags`] and [`Citation::tags`]
-    /// (docs/api.md, OxidGene extensions).
+    /// [`Event::tags`], [`Source::tags`], [`Citation::tags`], [`Place::tags`],
+    /// [`Repository::tags`] and [`Note::tags`] (docs/api.md, OxidGene
+    /// extensions).
     pub tags: Vec<TagRef>,
     /// The tree the records were read for.
     pub tree_id: uuid::Uuid,
@@ -263,4 +264,8 @@ pub(crate) struct MediaNoteExtension {
     pub text: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The tags of the transcript, each as a `_OXIDGENE_TAG` value holds them;
+    /// absent when it carries none (docs/api.md, `_OXIDGENE_MEDIA`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<TagExtension>,
 }

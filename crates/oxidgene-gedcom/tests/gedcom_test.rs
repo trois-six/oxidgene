@@ -1767,6 +1767,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         updated_at: now,
     };
     let note = Note {
+        tags: Vec::new(),
         id: Uuid::now_v7(),
         tree_id,
         text: format!("{}é suite de la note", "a".repeat(254)),
@@ -3102,6 +3103,7 @@ fn add_event(
     let n = tree.events.len();
     let date = format!("{} JAN {}", n % 28 + 1, 1700 + n);
     let place = oxidgene_core::types::Place {
+        tags: Vec::new(),
         id: Uuid::now_v7(),
         tree_id: tree.tree_id,
         name: format!("Sampletown {n}"),

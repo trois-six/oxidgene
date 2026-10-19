@@ -1425,6 +1425,8 @@ pub struct GqlPlace {
     pub name: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+    /// The tags the place carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1437,6 +1439,7 @@ impl From<oxidgene_core::types::Place> for GqlPlace {
             name: p.name,
             latitude: p.latitude,
             longitude: p.longitude,
+            tags: p.tags.into_iter().map(Into::into).collect(),
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -1693,6 +1696,8 @@ pub struct GqlRepository {
     pub phone: Option<String>,
     pub email: Option<String>,
     pub website: Option<String>,
+    /// The tags the repository carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1716,6 +1721,7 @@ impl From<oxidgene_core::types::Repository> for GqlRepository {
             phone: r.phone,
             email: r.email,
             website: r.website,
+            tags: r.tags.into_iter().map(Into::into).collect(),
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -2238,6 +2244,8 @@ pub struct GqlNote {
     /// The shared GEDCOM note record this note was read from; set by imports
     /// only, so it is never an input.
     pub shared_group: Option<ID>,
+    /// The tags the note carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -2254,6 +2262,7 @@ impl From<oxidgene_core::types::Note> for GqlNote {
             source_id: n.source_id.map(|id| ID(id.to_string())),
             media_id: n.media_id.map(|id| ID(id.to_string())),
             shared_group: n.shared_group.map(|id| ID(id.to_string())),
+            tags: n.tags.into_iter().map(Into::into).collect(),
             created_at: n.created_at,
             updated_at: n.updated_at,
         }

@@ -19,7 +19,7 @@ pub struct Citation {
     pub confidence: Option<Confidence>,
     /// Extracted text from the source.
     pub text: Option<String>,
-    /// The tags the citation carries, sorted by folded label (docs/tags.md, §2).
+    /// The tags the citation carries, sorted by folded label (docs/data-model.md, RecordTag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 
@@ -82,6 +82,9 @@ taller of the two.
 A notes row is omitted when neither spouse has notes, and the couple notes
 card is omitted when the couple has none. A notes card that failed to load
 still shows its error.
+
+The notes of the couple and of each spouse take the record menu and the tag
+dots of the person profile's notes ([Person Profile §8](ui-person-profile.md#8-notes)).
 
 ### Placement
 

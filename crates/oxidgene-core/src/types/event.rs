@@ -59,7 +59,7 @@ pub struct Event {
     /// whose `TYPE` is its description.
     #[serde(default)]
     pub classification: Option<String>,
-    /// The tags the event carries, sorted by folded label (docs/tags.md, §2).
+    /// The tags the event carries, sorted by folded label (docs/data-model.md, RecordTag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::SourceMediaType;
+use crate::types::TagRef;
 
 /// A place holding sources — an archive, a library, a registry office
 /// (GEDCOM `REPO`).
@@ -16,6 +17,9 @@ pub struct Repository {
     pub phone: Option<String>,
     pub email: Option<String>,
     pub website: Option<String>,
+    /// The tags the repository carries, sorted by folded label (docs/data-model.md, RecordTag).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

@@ -9,14 +9,19 @@ use uuid::Uuid;
 use crate::api::{ApiClient, HeldSource};
 use crate::components::empty_state::EmptyState;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
+use crate::components::tags::{
+    MenuTarget, RecordTagMenu, TagDots, is_enter_or_space, stop_row_activation, stop_row_press,
+    use_record_menu,
+};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
+use oxidgene_core::types::RecordKind;
 
 /// Which editor is open: a repository's, or the one creating a repository.
 #[derive(Clone, PartialEq)]
 enum Editing {
     New,
-    Existing(Repository),
+    Existing(Box<Repository>),
 }
 
 /// The repository's address, phone and website on one line.
@@ -62,6 +67,7 @@ pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
     let mut quick = use_signal(String::new);
     let mut expanded = use_signal(|| None::<Uuid>);
     let mut editing = use_signal(|| None::<Editing>);
+    let record_menu = use_record_menu();
 
     let api_list = api.clone();
     let mut repositories = use_ui_resource("repositories", move || {
@@ -131,29 +137,66 @@ pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
                             let is_open = expanded() == Some(id);
                             let meta = repository_meta(&repository);
                             let edited = repository.clone();
+                            let row_id = format!("dict-repository-{id}");
+                            let target = MenuTarget {
+                                kind: RecordKind::Repository,
+                                record_id: id,
+                                tags: repository.tags.clone(),
+                                row_id: row_id.clone(),
+                            };
+                            let tree_text = tree_id.to_string();
+                            let mut fold = move || expanded.set((!is_open).then_some(id));
                             rsx! {
                                 div { key: "{id}",
                                     div {
                                         class: "dict-row",
-                                        onclick: move |_| expanded.set((!is_open).then_some(id)),
-                                        div { class: "dict-row-main",
+                                        id: "{row_id}",
+                                        tabindex: "0",
+                                        oncontextmenu: {
+                                            let target = target.clone();
+                                            move |event: Event<MouseData>| record_menu.open_at_pointer(&event, target.clone())
+                                        },
+                                        onkeydown: {
+                                            let target = target.clone();
+                                            move |event: Event<KeyboardData>| {
+                                                if is_enter_or_space(&event) {
+                                                    event.prevent_default();
+                                                    fold();
+                                                } else {
+                                                    record_menu.open_from_keyboard(&event, target.clone());
+                                                }
+                                            }
+                                        },
+                                        onpointerdown: {
+                                            let target = target.clone();
+                                            move |event: Event<PointerData>| record_menu.press_start(&event, target.clone())
+                                        },
+                                        onpointerup: move |_| record_menu.press_end(),
+                                        onpointercancel: move |_| record_menu.press_end(),
+                                        onclick: move |_| fold(),
+                                        div { class: "dict-row-main", onkeydown: stop_row_activation,
                                             span { class: "dict-row-value", "{repository.name}" }
                                             if !meta.is_empty() {
                                                 span { class: "dict-row-meta", "{meta}" }
                                             }
+                                            TagDots { tree_id: tree_text, tags: repository.tags.clone() }
                                         }
                                         button {
                                             class: "dict-row-action",
                                             title: "{i18n.t(\"common.edit\")}",
+                                            onkeydown: stop_row_activation,
+                                            onpointerdown: stop_row_press,
                                             onclick: move |e: Event<MouseData>| {
                                                 e.stop_propagation();
-                                                editing.set(Some(Editing::Existing(edited.clone())));
+                                                editing.set(Some(Editing::Existing(Box::new(edited.clone()))));
                                             },
                                             "\u{270E}"
                                         }
                                         button {
                                             class: "dict-row-action",
                                             title: "{i18n.t(\"dictionary.repository.view_sources\")}",
+                                            onkeydown: stop_row_activation,
+                                            onpointerdown: stop_row_press,
                                             if is_open { "\u{25B2}" } else { "\u{25BC}" }
                                         }
                                     }
@@ -167,13 +210,18 @@ pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
                 }
             },
         }
+        RecordTagMenu {
+            tree_id,
+            menu: record_menu,
+            on_changed: move |()| repositories.restart(),
+        }
         if let Some(edit) = editing() {
             RepositoryEditor {
                 key: "{edit_key(&edit)}",
                 tree_id,
                 repository: match edit {
                     Editing::New => None,
-                    Editing::Existing(repository) => Some(repository),
+                    Editing::Existing(repository) => Some(*repository),
                 },
                 on_close: move |()| editing.set(None),
                 on_saved: move |()| {

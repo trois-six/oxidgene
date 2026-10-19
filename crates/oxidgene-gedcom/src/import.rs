@@ -23,7 +23,7 @@ use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Crop, Dataset,
     Date, EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
     MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
-    Ordinance, OrdinanceKind, Pedigree, Place as GedPlace, Record, Removal, Restriction,
+    Ordinance, OrdinanceKind, Pedigree, Place as GedPlace, Record, RecordRef, Removal, Restriction,
     Sex as GedSex, Store, TagId, Text, TextRef, View,
 };
 use oxidged::tree::{Payload, Structure};
@@ -597,6 +597,7 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
         let id = Uuid::now_v7();
         place_map.insert(name.to_string(), id);
         result.places.push(Place {
+            tags: Vec::new(),
             id,
             tree_id,
             name: name.to_string(),
@@ -653,6 +654,8 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
         import_family(fam, &ctx, &mut lookups, &mut result);
     }
     import_person_and_family_tags(data, &ctx, &mut result);
+    import_shared_note_tags(data, &ctx, &mut result);
+    import_standalone_places(data, &mut lookups, &mut result);
     apply_individual_family_links(data, &ctx, &mut result);
     import_associations(data, &ctx, &mut result);
 
@@ -765,12 +768,23 @@ impl<'d> ImportContext<'d> {
             .collect()
     }
 
-    /// One note row per note of `notes`, attached to `owner`.
+    /// One note row per note of `notes`, attached to `owner`. A note written
+    /// inline carries its own tags; a pointer to a shared note record takes
+    /// the tags of that record (see [`import_shared_note_tags`]).
     fn import_notes(&self, notes: Items<'_, GedNote>, owner: NoteOwner, result: &mut ImportResult) {
-        for (text, shared_group) in self.note_pieces(notes, &mut result.warnings) {
-            let mut note = owner.note(self.tree_id, self.now, text);
-            note.shared_group = shared_group;
-            result.notes.push(note);
+        for note in notes {
+            let Some((text, shared_group)) = self.note_text(note, &mut result.warnings) else {
+                continue;
+            };
+            if text.trim().is_empty() {
+                continue;
+            }
+            let mut row = owner.note(self.tree_id, self.now, text);
+            row.shared_group = shared_group;
+            if shared_group.is_none() {
+                row.tags = read_tags(note.extra(), &mut result.tags, &mut result.warnings);
+            }
+            result.notes.push(row);
         }
     }
 }
@@ -789,6 +803,7 @@ impl NoteOwner {
     /// A note row holding `text`, attached to this owner.
     fn note(self, tree_id: Uuid, now: chrono::DateTime<Utc>, text: String) -> Note {
         let mut note = Note {
+            tags: Vec::new(),
             id: Uuid::now_v7(),
             tree_id,
             text,
@@ -898,14 +913,22 @@ fn import_repositories(
         };
         let id = Uuid::now_v7();
         index.by_xref.insert(xref.to_string(), id);
-        let notes = ctx.note_texts(repo.notes(), &mut result.warnings);
+        let first_note = result.notes.len();
+        ctx.import_notes(repo.notes(), NoteOwner::Repository(id), result);
+        for note in &mut result.notes[first_note..] {
+            if note.shared_group.is_none() {
+                note.text = note.text.trim().to_string();
+            }
+        }
         let name = non_blank(repo.name())
             .or_else(|| {
-                let first = notes.first()?.trim();
+                let first = result.notes.get(first_note)?.text.trim();
                 Some(first.lines().next().unwrap_or_default().to_string())
             })
             .unwrap_or_else(|| xref.trim_matches('@').to_string());
+        let tags = read_tags(repo.extra(), &mut result.tags, &mut result.warnings);
         result.repositories.push(Repository {
+            tags,
             id,
             tree_id: ctx.tree_id,
             name,
@@ -917,12 +940,6 @@ fn import_repositories(
             updated_at: ctx.now,
             deleted_at: None,
         });
-        for text in notes {
-            let text = text.trim().to_string();
-            result
-                .notes
-                .push(NoteOwner::Repository(id).note(ctx.tree_id, ctx.now, text));
-        }
     }
     index
 }
@@ -1047,6 +1064,7 @@ fn text_repository(
     let id = Uuid::now_v7();
     repositories.by_text.insert(text.to_string(), id);
     result.repositories.push(Repository {
+        tags: Vec::new(),
         id,
         tree_id: ctx.tree_id,
         name: text.to_string(),
@@ -2463,67 +2481,89 @@ fn read_tags(
     vocabulary: &mut Vec<TagRef>,
     warnings: &mut Vec<String>,
 ) -> Vec<TagRef> {
-    let mut found: Vec<TagRef> = Vec::new();
+    let mut lines = Vec::new();
     for node in tagged(extra, crate::export::TAG_TAG) {
         let Some(value) = node_text(node) else {
             warnings.push("Empty _OXIDGENE_TAG line — skipped".to_string());
             continue;
         };
-        let line = match serde_json::from_str::<TagExtension>(&value) {
-            Ok(line) if line.v == 1 => line,
-            Ok(line) => {
-                warnings.push(format!(
-                    "Unsupported _OXIDGENE_TAG version {} — skipped",
-                    line.v
-                ));
-                continue;
-            }
-            Err(err) => {
-                warnings.push(format!("Invalid _OXIDGENE_TAG line: {err} — skipped"));
-                continue;
-            }
-        };
-        let label = line.label.trim();
-        if label.is_empty() || label.chars().count() > TAG_LABEL_MAX {
+        match serde_json::from_str::<TagExtension>(&value) {
+            Ok(line) => lines.push(line),
+            Err(err) => warnings.push(format!("Invalid _OXIDGENE_TAG line: {err} — skipped")),
+        }
+    }
+    tags_of_lines(lines, vocabulary, warnings)
+}
+
+/// The tags of `lines`, each read into the vocabulary once, in the order of
+/// the vocabulary (see [`read_tags`]). Every `_OXIDGENE_TAG` value, whatever
+/// structure holds it, goes through here, so the version rule is one rule: a
+/// line of another version is skipped with a warning.
+fn tags_of_lines(
+    lines: impl IntoIterator<Item = TagExtension>,
+    vocabulary: &mut Vec<TagRef>,
+    warnings: &mut Vec<String>,
+) -> Vec<TagRef> {
+    let mut found: Vec<TagRef> = Vec::new();
+    for line in lines {
+        if line.v != 1 {
             warnings.push(format!(
-                "_OXIDGENE_TAG label {label:?} is empty or longer than {TAG_LABEL_MAX} characters — skipped"
+                "Unsupported _OXIDGENE_TAG version {} — skipped",
+                line.v
             ));
             continue;
         }
-        let folded = fold_words(label);
-        let tag = match vocabulary
-            .iter()
-            .find(|tag| fold_words(&tag.label) == folded)
+        if let Some(tag) = tag_of_line(line, vocabulary, warnings)
+            && !found.iter().any(|known| known.id == tag.id)
         {
-            Some(tag) => tag.clone(),
-            None => {
-                let color = if (0..TAG_COLOR_SLOTS).contains(&line.color) {
-                    line.color
-                } else {
-                    warnings.push(format!(
-                        "_OXIDGENE_TAG colour {} is out of range — the first colour is used",
-                        line.color
-                    ));
-                    0
-                };
-                let tag = TagRef {
-                    id: Uuid::now_v7(),
-                    label: label.to_string(),
-                    color,
-                };
-                vocabulary.push(tag.clone());
-                tag
-            }
-        };
-        if !found.iter().any(|known| known.id == tag.id) {
             found.push(tag);
         }
     }
     sorted_tags(found)
 }
 
+/// The tag one `_OXIDGENE_TAG` value names, read into the vocabulary: the tag
+/// of a label that folds alike, else a new one. `None` with a warning when the
+/// label is unusable.
+fn tag_of_line(
+    line: TagExtension,
+    vocabulary: &mut Vec<TagRef>,
+    warnings: &mut Vec<String>,
+) -> Option<TagRef> {
+    let label = line.label.trim();
+    if label.is_empty() || label.chars().count() > TAG_LABEL_MAX {
+        warnings.push(format!(
+            "_OXIDGENE_TAG label {label:?} is empty or longer than {TAG_LABEL_MAX} characters — skipped"
+        ));
+        return None;
+    }
+    let folded = fold_words(label);
+    if let Some(tag) = vocabulary
+        .iter()
+        .find(|tag| fold_words(&tag.label) == folded)
+    {
+        return Some(tag.clone());
+    }
+    let color = if (0..TAG_COLOR_SLOTS).contains(&line.color) {
+        line.color
+    } else {
+        warnings.push(format!(
+            "_OXIDGENE_TAG colour {} is out of range — the first colour is used",
+            line.color
+        ));
+        0
+    };
+    let tag = TagRef {
+        id: Uuid::now_v7(),
+        label: label.to_string(),
+        color,
+    };
+    vocabulary.push(tag.clone());
+    Some(tag)
+}
+
 /// The tags beneath an event, attribute or LDS ordinance structure, read into
-/// the file's vocabulary (docs/tags.md, §2.1). A structure with no extension
+/// the file's vocabulary (docs/api.md, `_OXIDGENE_TAG`). A structure with no extension
 /// node reads none.
 fn event_tags(extra: Option<Items<'_, Node>>, result: &mut ImportResult) -> Vec<TagRef> {
     match extra {
@@ -2536,6 +2576,90 @@ fn event_tags(extra: Option<Items<'_, Node>>, result: &mut ImportResult) -> Vec<
 fn sorted_tags(mut tags: Vec<TagRef>) -> Vec<TagRef> {
     tags.sort_by_cached_key(|tag| (fold_words(&tag.label), tag.id));
     tags
+}
+
+/// Adds `tags` to `known`, each tag once, keeping the sorted order of a record.
+fn add_tags(known: &mut Vec<TagRef>, tags: Vec<TagRef>) {
+    for tag in tags {
+        if !known.iter().any(|existing| existing.id == tag.id) {
+            known.push(tag);
+        }
+    }
+    *known = sorted_tags(std::mem::take(known));
+}
+
+/// Read each `_OXIDGENE_PLACE` record: a tagged place no event names
+/// (docs/api.md, OxidGene extensions). Its `PLAC` names the place, as an event's
+/// `PLAC` does, and takes its coordinates and tags the same way. A place of
+/// that name already read (from an event or a document) is the one it joins.
+fn import_standalone_places(data: &Dataset, lookups: &mut Lookups<'_>, result: &mut ImportResult) {
+    for record in data.records() {
+        let RecordRef::Other(node) = record else {
+            continue;
+        };
+        if node.tag() != crate::export::PLACE_TAG {
+            continue;
+        }
+        let Some(plac) = node.children().into_iter().find(|c| c.tag() == "PLAC") else {
+            result
+                .warnings
+                .push("_OXIDGENE_PLACE without a PLAC — skipped".to_string());
+            continue;
+        };
+        let Some(name) = node_text(plac).map(|text| text.trim().to_string()) else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let id = match result.places.iter().find(|place| place.name == name) {
+            Some(place) => place.id,
+            None => (lookups.place)(&name, result),
+        };
+        let tags = read_tags(plac.children(), &mut result.tags, &mut result.warnings);
+        let coordinates = map_coordinates(plac);
+        if let Some(place) = result.places.iter_mut().find(|place| place.id == id) {
+            add_tags(&mut place.tags, tags);
+            if let Some((latitude, longitude)) = coordinates {
+                place.latitude = Some(latitude);
+                place.longitude = Some(longitude);
+            }
+        }
+    }
+}
+
+/// The coordinates of a `PLAC`'s `MAP`, when it has both.
+fn map_coordinates(plac: View<'_, Node>) -> Option<(f64, f64)> {
+    let map = plac.children().into_iter().find(|c| c.tag() == "MAP")?;
+    let coordinate = |tag: &str| {
+        let node = map.children().into_iter().find(|c| c.tag() == tag)?;
+        parse_gedcom_coord(&node_text(node)?).ok()
+    };
+    Some((coordinate("LATI")?, coordinate("LONG")?))
+}
+
+/// Read the tags beneath each shared note record (`NOTE` in 5.5.1, `SNOTE` in
+/// 7.0) and give every note row pointing at it those tags: the export writes
+/// the record once, carrying the union of its notes' tags (docs/api.md, `_OXIDGENE_TAG`).
+fn import_shared_note_tags(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
+    let st = data.store();
+    let mut vocabulary = std::mem::take(&mut result.tags);
+    let mut group_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
+    for note in data.notes() {
+        let Some(&group) = note.xref().and_then(|xref| ctx.note_map.get(st.xref(xref))) else {
+            continue;
+        };
+        let tags = read_tags(note.extra(), &mut vocabulary, &mut result.warnings);
+        if !tags.is_empty() {
+            group_tags.insert(group, tags);
+        }
+    }
+    for note in &mut result.notes {
+        if let Some(tags) = note.shared_group.and_then(|group| group_tags.get(&group)) {
+            note.tags = tags.clone();
+        }
+    }
+    result.tags = vocabulary;
 }
 
 /// Read the tags of each person and couple beneath its `INDI` or `FAM`
@@ -2667,7 +2791,9 @@ fn import_media_metadata_extensions(data: &Dataset, result: &mut ImportResult) {
 
         for note in metadata.notes {
             let created_at = note.created_at.unwrap_or_else(Utc::now);
+            let tags = tags_of_lines(note.tags, &mut result.tags, &mut result.warnings);
             result.notes.push(Note {
+                tags,
                 id: Uuid::now_v7(),
                 tree_id,
                 text: note.text,
@@ -2868,6 +2994,7 @@ fn apply_document_metadata(
             .find(|item| item.id == document_id)
             .map(|item| item.tree_id)?;
         result.places.push(Place {
+            tags: Vec::new(),
             id,
             tree_id,
             name: place.name.clone(),
@@ -2901,7 +3028,9 @@ fn apply_document_metadata(
 
     for note in meta.notes {
         let created_at = note.created_at.unwrap_or_else(Utc::now);
+        let tags = tags_of_lines(note.tags, &mut result.tags, &mut result.warnings);
         result.notes.push(Note {
+            tags,
             id: Uuid::now_v7(),
             tree_id,
             text: note.text,
@@ -3983,6 +4112,14 @@ fn import_place(
     let plac = plac?;
     let name = opt(Some(plac.name()))?;
     let pid = get_or_create_place(&name, result);
+    // Every PLAC of a place repeats its tags, and the place takes their union
+    // (docs/api.md, `_OXIDGENE_TAG` and `_OXIDGENE_PLACE`).
+    let tags = read_tags(plac.extra(), &mut result.tags, &mut result.warnings);
+    if !tags.is_empty()
+        && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
+    {
+        add_tags(&mut place.tags, tags);
+    }
     if let Some(map) = plac.map()
         && let (Some(lat_str), Some(lon_str)) = (map.latitude(), map.longitude())
         && let (Ok(lat), Ok(lon)) = (

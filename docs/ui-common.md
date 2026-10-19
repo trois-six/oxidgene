@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-19T08:24:49Z }
+generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -989,11 +989,13 @@ that carries tags ([Tags](tags.md)):
   persons it names.
 - **TagDots** draws up to three colour dots after a row's text, then `+n`. Each
   dot is a link to the same place, with the tag's label as its tooltip and
-  accessible name and a visible focus ring. A row that is itself a link places
-  its dots beside the link, since links cannot nest.
+  accessible name and a visible focus ring; Enter on a focused dot follows its
+  link and does not also activate the row holding it. A row that is itself a
+  link places its dots beside the link, since links cannot nest.
 - **RecordMenu** is the shared context menu of a record row that has none of
-  its own (the timeline's event rows and citation entries, and the Dictionary's
-  Sources rows). The page holds one menu state for its list and renders one
+  its own (the timeline's event rows and citation entries, the Notes cards of
+  a person or a couple, and the Dictionary's Sources, Places and Repositories
+  rows). The page holds one menu state for its list and renders one
   **RecordTagMenu** for it, a context-menu surface with a single *Tags…* entry
   that closes and opens the TagPicker beside it. The row opens it by a right
   click, by the context-menu key or Shift+F10 while the row or one of its

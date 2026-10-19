@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Place};
+use oxidgene_core::types::{Connection, Place, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -11,6 +11,7 @@ use crate::entities::place::{self, ActiveModel, Column, Entity};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Repository for place CRUD operations.
 pub struct PlaceRepo;
@@ -59,11 +60,26 @@ impl PlaceRepo {
         if let Some(ids) = filter.ids {
             query = query.filter(Column::Id.is_in(ids.iter().copied()));
         }
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let places = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, place) in page.edges.iter_mut().zip(hydrate(db, places).await?) {
+            edge.node = place;
+        }
+        Ok(page)
     }
 
     /// List all places in a tree without pagination.
     pub async fn list_all(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<Place>, OxidGeneError> {
+        let places = Self::list_all_untagged(db, tree_id).await?;
+        hydrate(db, places).await
+    }
+
+    /// Every place of a tree, without pagination and without its tags: the
+    /// profile projections name places and never show their tags.
+    pub async fn list_all_untagged(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Place>, OxidGeneError> {
@@ -75,8 +91,9 @@ impl PlaceRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// Get multiple places by ID.
-    pub async fn get_many(
+    /// The places among `ids`, one read per bounded slice of ids. Their tags
+    /// are not filled: this serves the labels of many records at once.
+    pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Place>, OxidGeneError> {
@@ -91,9 +108,18 @@ impl PlaceRepo {
         .await
     }
 
+    /// Get multiple places by ID.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Place>, OxidGeneError> {
+        let places = Self::get_many_untagged(db, ids).await?;
+        hydrate(db, places).await
+    }
+
     /// Get a single place by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Place, OxidGeneError> {
-        Entity::find_by_id(id)
+        let place = Entity::find_by_id(id)
             .one(db)
             .await
             .map_err(db_err)?
@@ -101,7 +127,8 @@ impl PlaceRepo {
             .ok_or(OxidGeneError::NotFound {
                 entity: "Place",
                 id,
-            })
+            })?;
+        hydrate_one(db, place).await
     }
 
     /// Create a new place.
@@ -124,7 +151,7 @@ impl PlaceRepo {
             updated_at: Set(now),
         };
         let result = model.insert(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Update a place.
@@ -157,7 +184,7 @@ impl PlaceRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Hard-delete a place.
@@ -180,7 +207,27 @@ fn into_domain(m: place::Model) -> Place {
         name: m.name,
         latitude: m.latitude,
         longitude: m.longitude,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
+}
+
+/// Fill the tags of each place from one grouped read.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    mut places: Vec<Place>,
+) -> Result<Vec<Place>, OxidGeneError> {
+    let ids: Vec<Uuid> = places.iter().map(|place| place.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Place, &ids).await?;
+    for place in &mut places {
+        place.tags = tags.remove(&place.id).unwrap_or_default();
+    }
+    Ok(places)
+}
+
+/// [`hydrate`] for one place.
+async fn hydrate_one(db: &impl ConnectionTrait, place: Place) -> Result<Place, OxidGeneError> {
+    let mut places = hydrate(db, vec![place]).await?;
+    Ok(places.remove(0))
 }

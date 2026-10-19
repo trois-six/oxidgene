@@ -441,7 +441,7 @@ impl OxidGeneMcp {
             let source = SourceRepo::get(&self.db, p.source_id).await?;
             let links = SourceRepositoryRepo::list_by_source(&self.db, p.source_id).await?;
             let ids: Vec<Uuid> = links.iter().map(|l| l.repository_id).collect();
-            let names: HashMap<Uuid, String> = RepositoryRepo::get_many(&self.db, &ids)
+            let names: HashMap<Uuid, String> = RepositoryRepo::get_many_untagged(&self.db, &ids)
                 .await?
                 .into_iter()
                 .map(|r| (r.id, r.name))

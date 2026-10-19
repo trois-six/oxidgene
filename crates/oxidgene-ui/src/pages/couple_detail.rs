@@ -637,13 +637,13 @@ impl CoupleView<'_> {
         rsx! {
             if !self.data.notes.is_empty() {
                 div { class: "cp-span",
-                    {notes_section(i18n, "couple.notes_section", Some(&Ok(self.data.notes.clone())))}
+                    {notes_section(i18n, "couple.notes_section", Some(&Ok(self.data.notes.clone())), self.ctx.tree_id, self.ctx.record_menu)}
                 }
             }
             if has_person_notes {
                 for column in self.columns.iter() {
                     div { class: "cp-cell",
-                        {notes_section(i18n, "person.notes_section", Some(&Ok(column.notes.clone())))}
+                        {notes_section(i18n, "person.notes_section", Some(&Ok(column.notes.clone())), self.ctx.tree_id, self.ctx.record_menu)}
                     }
                 }
             }

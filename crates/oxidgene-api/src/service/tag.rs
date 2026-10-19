@@ -254,7 +254,7 @@ async fn labels_of(
     let mut labels: HashMap<Uuid, String> = match kind {
         RecordKind::Person => display_names(db, ids).await?,
         RecordKind::Family => family_labels(db, ids).await?,
-        RecordKind::Place => PlaceRepo::get_many(db, ids)
+        RecordKind::Place => PlaceRepo::get_many_untagged(db, ids)
             .await?
             .into_iter()
             .map(|place| (place.id, place.name))
@@ -264,7 +264,7 @@ async fn labels_of(
             .into_iter()
             .map(|source| (source.id, source.title))
             .collect(),
-        RecordKind::Repository => RepositoryRepo::get_many(db, ids)
+        RecordKind::Repository => RepositoryRepo::get_many_untagged(db, ids)
             .await?
             .into_iter()
             .map(|repository| (repository.id, repository.name))
@@ -328,7 +328,7 @@ async fn note_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let notes = NoteRepo::get_many(db, ids).await?;
+    let notes = NoteRepo::get_many_untagged(db, ids).await?;
     Ok(notes.into_iter().map(|note| (note.id, note.text)).collect())
 }
 
@@ -431,7 +431,8 @@ async fn tagged_record(
 
 /// The record a tag change on `id` of `kind` is about in the audit log: the
 /// record itself, or for an event, citation or note, the person or family
-/// owning it. `None` when nothing owns it.
+/// owning it, else the source, repository or media a note is about. `None`
+/// when nothing owns it.
 async fn subject_of(
     db: &impl ConnectionTrait,
     kind: RecordKind,
@@ -477,7 +478,7 @@ async fn subjects_of(
                 .collect()
         }
         RecordKind::Note => {
-            let notes = NoteRepo::get_many(db, ids).await?;
+            let notes = NoteRepo::get_many_untagged(db, ids).await?;
             let event_ids: Vec<Uuid> = notes.iter().filter_map(|n| n.event_id).collect();
             let owners = event_owners(db, &event_ids).await?;
             notes
@@ -490,6 +491,12 @@ async fn subjects_of(
                         .or(note
                             .source_id
                             .map(|source_id| (AuditSubject::Source, source_id)))
+                        .or(note
+                            .repository_id
+                            .map(|repository_id| (AuditSubject::Repository, repository_id)))
+                        .or(note
+                            .media_id
+                            .map(|media_id| (AuditSubject::Media, media_id)))
                         .map(|subject| (note.id, subject))
                 })
                 .collect()
