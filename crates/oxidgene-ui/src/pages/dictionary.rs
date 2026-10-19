@@ -44,13 +44,33 @@ const LARGE_LIST_THRESHOLD: usize = 500;
 /// The page size the tabs open on, and the one a place's link opens on.
 const DEFAULT_PER_PAGE: usize = 25;
 
+/// One step of the Sources tab's smart drill-down (ui-dictionary.md §8.10):
+/// the group a reader clicked, which is either a branch label (the titles
+/// starting with it) or the exact-title group of a level (the titles equal to
+/// its prefix, a final list).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DrillStep {
+    Prefix(String),
+    Exact(String),
+}
+
+impl DrillStep {
+    /// The label of the group clicked.
+    fn label(&self) -> &str {
+        match self {
+            Self::Prefix(label) | Self::Exact(label) => label,
+        }
+    }
+}
+
 /// The Sources tab's smart drill-down is either showing the next level of
 /// prefix groups, or — once a prefix's count is small enough — the final
 /// flat list of matching sources. Both variants carry the *resolved*
 /// prefix (the backend auto-skips forced single-choice levels, so this may
 /// be longer than the last prefix the user actually clicked — see
-/// ui-dictionary.md §8.10). Whichever mode is active is decided entirely by
-/// the backend (`groups` empty means "fetch the list").
+/// ui-dictionary.md §8.10). Whichever mode is active is decided by the
+/// backend (`groups` empty means "fetch the list"), or by the step clicked
+/// when it is an exact-title group.
 #[derive(Debug, Clone)]
 enum SourcesView {
     Groups {
@@ -141,15 +161,24 @@ enum UsageKey {
     Occupation(String),
 }
 
-/// The sources level under `query_prefix`: its groups, or its sources when
-/// it has no group left. The backend resolves the drill-down itself,
-/// auto-skipping any forced single-choice levels — the prefix returned may be
-/// longer than `query_prefix`. See ui-dictionary.md §8.10.
+/// The sources level under the last step clicked (none: the root): its
+/// groups, or its sources when it has no group left. The backend resolves the
+/// drill-down itself, auto-skipping any forced single-choice levels — the
+/// prefix returned may be longer than the step's label. An exact-title group
+/// is a final list, asked for by its title. See ui-dictionary.md §8.10.
 async fn load_sources_view(
     api: &ApiClient,
     tid: Uuid,
-    query_prefix: &str,
+    step: Option<&DrillStep>,
 ) -> Result<SourcesView, ApiError> {
+    if let Some(DrillStep::Exact(title)) = step {
+        let sources = api.dictionary_sources_exact(tid, title).await?;
+        return Ok(SourcesView::List {
+            prefix: title.clone(),
+            sources,
+        });
+    }
+    let query_prefix = step.map_or("", DrillStep::label);
     let resolved = api.dictionary_source_groups(tid, query_prefix).await?;
     if !resolved.groups.is_empty() {
         return Ok(SourcesView::Groups {
@@ -238,7 +267,7 @@ struct DictionaryView {
     page_size: PageSize,
     page: usize,
     expanded: Option<UsageKey>,
-    source_history: Vec<String>,
+    source_history: Vec<DrillStep>,
 }
 
 impl Default for DictionaryView {
@@ -328,16 +357,24 @@ pub(crate) fn reveal_row(dom_id: &str) {
 /// few (each one a real branch), so this only guards against a loop.
 const MAX_DRILL_LEVELS: usize = 256;
 
-/// The group of a drill-down level that holds `title`, the label a reader
-/// clicking it would push. The backend groups titles uppercased, and so does
-/// the comparison. `None` when no group reaches past the level's `prefix`.
-fn drill_step(title: &str, prefix: &str, groups: &[SourceGroupEntry]) -> Option<String> {
+/// The step of a drill-down level that holds `title`, the group a reader
+/// clicking it would push. A title equal to the level's `prefix` is held by
+/// the exact-title group, labelled with the prefix; any other is held by the
+/// group reaching past it. The backend groups titles uppercased, and so does
+/// the comparison. `None` when no group holds the title.
+fn drill_step(title: &str, prefix: &str, groups: &[SourceGroupEntry]) -> Option<DrillStep> {
     let title = title.to_uppercase();
+    if title == prefix.to_uppercase() {
+        return groups
+            .iter()
+            .find(|group| group.label == prefix)
+            .map(|group| DrillStep::Exact(group.label.clone()));
+    }
     let prefix_len = prefix.chars().count();
     groups
         .iter()
         .find(|group| title.starts_with(&group.label) && group.label.chars().count() > prefix_len)
-        .map(|group| group.label.clone())
+        .map(|group| DrillStep::Prefix(group.label.clone()))
 }
 
 /// The labels a reader clicking down the Sources tab would push to reach the
@@ -351,13 +388,13 @@ async fn locate_source(
     api: &ApiClient,
     tid: Uuid,
     id: Uuid,
-) -> Result<Option<Vec<String>>, ApiError> {
+) -> Result<Option<Vec<DrillStep>>, ApiError> {
     let listed = api.dictionary_sources(tid).await?;
     let Some(entry) = listed.iter().find(|entry| entry.source.id == id) else {
         return Ok(None);
     };
     let title = entry.source.title.clone();
-    let mut path: Vec<String> = Vec::new();
+    let mut path: Vec<DrillStep> = Vec::new();
     let mut query = String::new();
     for _ in 0..MAX_DRILL_LEVELS {
         let level = api.dictionary_source_groups(tid, &query).await?;
@@ -368,11 +405,25 @@ async fn locate_source(
                 .any(|entry| entry.source.id == id)
                 .then_some(path));
         }
-        let Some(label) = drill_step(&title, &level.prefix, &level.groups) else {
+        let Some(step) = drill_step(&title, &level.prefix, &level.groups) else {
             return Ok(None);
         };
-        path.push(label.clone());
-        query = label;
+        match step {
+            DrillStep::Exact(label) => {
+                // The exact-title group is a final list: the source is in it
+                // when its title is asked for.
+                let exact = api.dictionary_sources_exact(tid, &label).await?;
+                path.push(DrillStep::Exact(label));
+                return Ok(exact
+                    .iter()
+                    .any(|entry| entry.source.id == id)
+                    .then_some(path));
+            }
+            DrillStep::Prefix(label) => {
+                query.clone_from(&label);
+                path.push(DrillStep::Prefix(label));
+            }
+        }
     }
     Ok(None)
 }
@@ -405,7 +456,7 @@ type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
 
 /// What a source's link found: the source asked for, and the clicks that
 /// reach its row (see `locate_source`).
-type SourceWalk = Resource<Option<(Uuid, Result<Option<Vec<String>>, ApiError>)>>;
+type SourceWalk = Resource<Option<(Uuid, Result<Option<Vec<DrillStep>>, ApiError>)>>;
 
 /// The view the page opens on: a record's route opens its tab's root, any
 /// other route the view the reader left, when coming back to it.
@@ -456,7 +507,7 @@ fn switch_tab(
     active: DictTab,
     mut pending: Signal<Option<RecordTarget>>,
     view: TabView,
-    mut source_history: Signal<Vec<String>>,
+    mut source_history: Signal<Vec<DrillStep>>,
 ) {
     if prev_tab() == active {
         return;
@@ -513,7 +564,7 @@ fn use_source_walk(
 fn use_source_landing(
     mut pending: Signal<Option<RecordTarget>>,
     source_walk: SourceWalk,
-    mut source_history: Signal<Vec<String>>,
+    mut source_history: Signal<Vec<DrillStep>>,
     mut expanded: Signal<Option<UsageKey>>,
 ) {
     use_effect(move || {
@@ -793,7 +844,7 @@ fn DictionaryPage(
     let mut sources_view_resource = use_traced_resource(load_trace.clone(), "sources", move || {
         let api = api_src.clone();
         let tid = tree_id_parsed();
-        let query_prefix = source_history().last().cloned().unwrap_or_default();
+        let step = source_history().last().cloned();
         let wanted = opened.sources() && source_of(pending()).is_none();
         async move {
             if !wanted {
@@ -802,7 +853,7 @@ fn DictionaryPage(
             let Some(tid) = tid else {
                 return Some(Err(ApiError::invalid_tree_id(&i18n)));
             };
-            Some(load_sources_view(&api, tid, &query_prefix).await)
+            Some(load_sources_view(&api, tid, step.as_ref()).await)
         }
     });
 
@@ -1833,12 +1884,12 @@ fn sources_total_label(i18n: &I18n, count: usize, prefix: &str) -> String {
 /// extra, non-clickable crumb representing where that skip landed.
 fn render_sources_breadcrumb(
     i18n: I18n,
-    mut history: Signal<Vec<String>>,
+    mut history: Signal<Vec<DrillStep>>,
     mut quick_filter: Signal<String>,
     active_prefix: &str,
 ) -> Element {
     let hist = history();
-    let last_is_active = hist.last().map(String::as_str) == Some(active_prefix);
+    let last_is_active = hist.last().map(DrillStep::label) == Some(active_prefix);
     rsx! {
         div { class: "dict-src-breadcrumb",
             button {
@@ -1849,11 +1900,17 @@ fn render_sources_breadcrumb(
                 },
                 {i18n.t("dictionary.sources_breadcrumb_root")}
             }
-            for (i , label) in hist.iter().enumerate() {
+            for (i , step) in hist.iter().enumerate() {
                 {
                     let idx = i;
                     let is_last_history_entry = i == hist.len() - 1;
                     let is_active = is_last_history_entry && last_is_active;
+                    let label = match step {
+                        DrillStep::Prefix(label) => label.clone(),
+                        DrillStep::Exact(title) => {
+                            i18n.t_args("dictionary.sources_exact_title", &[("title", title)])
+                        }
+                    };
                     rsx! {
                         span { key: "sep-{i}", class: "dict-src-crumb-sep", "\u{203A}" }
                         button {
@@ -1880,13 +1937,14 @@ fn render_sources_breadcrumb(
 /// Renders the prefix-group buttons for the current drill-down level: only
 /// groups that actually occur in this tree are ever passed in, so every
 /// button is clickable (contrast with the disabled-letter A-Z index used by
-/// the other tabs), except the group labelled with `prefix` itself, which is
-/// disabled (see the button below). Clicking a group pushes it onto `history` — the next
-/// resolve request may auto-skip further forced single-choice levels
-/// beyond it (see ui-dictionary.md §8.10).
+/// the other tabs). Clicking a group pushes it onto `history` — the next
+/// resolve request may auto-skip further forced single-choice levels beyond
+/// it (see ui-dictionary.md §8.10). The group labelled with `prefix` itself
+/// holds the sources titled exactly `prefix`: it pushes an exact-title step,
+/// whose list is final.
 fn render_sources_groups(
     i18n: I18n,
-    mut history: Signal<Vec<String>>,
+    mut history: Signal<Vec<DrillStep>>,
     prefix: &str,
     total: i64,
     groups: &[SourceGroupEntry],
@@ -1927,15 +1985,16 @@ fn render_sources_groups(
                     button {
                         key: "{g.label}",
                         class: "dict-letter-btn",
-                        // The group labelled with the level's own prefix holds
-                        // the sources titled exactly that prefix: no character
-                        // splits them, so pushing it would reload this level.
-                        disabled: g.label == prefix,
+                        title: if g.label == prefix { i18n.t_args("dictionary.sources_exact_title", &[("title", prefix)]) } else { String::new() },
                         onclick: {
-                            let label = g.label.clone();
+                            let step = if g.label == prefix {
+                                DrillStep::Exact(g.label.clone())
+                            } else {
+                                DrillStep::Prefix(g.label.clone())
+                            };
                             move |_| {
                                 let mut h = history();
-                                h.push(label.clone());
+                                h.push(step.clone());
                                 history.set(h);
                                 quick_filter.set(String::new());
                             }
@@ -2107,7 +2166,7 @@ fn render_sources_list(
 
 fn render_sources_tab(
     ctx: TabContext,
-    history: Signal<Vec<String>>,
+    history: Signal<Vec<DrillStep>>,
     resource: TabResource<SourcesView>,
     source_edit: Signal<Option<Uuid>>,
 ) -> Element {
@@ -2125,7 +2184,10 @@ fn render_sources_tab(
         Some(SourcesView::Groups { prefix, .. }) | Some(SourcesView::List { prefix, .. }) => {
             prefix.clone()
         }
-        None => history().last().cloned().unwrap_or_default(),
+        None => history()
+            .last()
+            .map(|step| step.label().to_owned())
+            .unwrap_or_default(),
     };
 
     rsx! {
@@ -2312,17 +2374,44 @@ mod tests {
     fn drill_step_takes_the_group_holding_the_title() {
         let groups = [group("AD44 - A"), group("AD44 - H")];
         assert_eq!(
-            drill_step("AD44 - Hotel - (records", "AD44 - ", &groups).as_deref(),
-            Some("AD44 - H")
+            drill_step("AD44 - Hotel - (records", "AD44 - ", &groups),
+            Some(DrillStep::Prefix("AD44 - H".to_string()))
         );
         assert_eq!(drill_step("zz", "AD44 - ", &groups), None);
     }
 
-    /// A group that does not reach past the prefix is no step: the walk stops.
+    /// A group that does not reach past the prefix, and holds no title equal to
+    /// it, is no step: the walk stops.
     #[test]
     fn drill_step_stops_on_a_group_that_makes_no_progress() {
         let groups = [group("ALPHA")];
-        assert_eq!(drill_step("ALPHA", "ALPHA", &groups), None);
+        assert_eq!(drill_step("ALPHA BETA", "ALPHA", &groups), None);
+    }
+
+    /// A title equal to the level's prefix is held by the exact-title group
+    /// beside its siblings, and the step is that group's exact-title step.
+    #[test]
+    fn drill_step_takes_the_exact_title_group_beside_its_siblings() {
+        let groups = [group("CIVIL REGISTER"), group("CIVIL REGISTER ")];
+        assert_eq!(
+            drill_step("Civil register", "CIVIL REGISTER", &groups),
+            Some(DrillStep::Exact("CIVIL REGISTER".to_string()))
+        );
+        assert_eq!(
+            drill_step("Civil register - Book 2", "CIVIL REGISTER", &groups),
+            Some(DrillStep::Prefix("CIVIL REGISTER ".to_string()))
+        );
+    }
+
+    /// A title equal to the level's prefix finds no step when the level holds
+    /// no group labelled with the prefix: the walk stops.
+    #[test]
+    fn drill_step_finds_no_exact_group_for_an_absent_title() {
+        let groups = [group("CIVIL REGISTER ")];
+        assert_eq!(
+            drill_step("CIVIL REGISTER", "CIVIL REGISTER", &groups),
+            None
+        );
     }
 
     /// A place opens on its letter, at its index among that letter's places.

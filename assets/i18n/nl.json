@@ -7024,6 +7024,7 @@
     "dictionary.source.title_required": "Een bron heeft een titel nodig.",
     "dictionary.sources_breadcrumb_root": "Alle bronnen",
     "dictionary.sources_choose_letter": "Kies een letter:",
+    "dictionary.sources_exact_title": "Precies getiteld „{title}“",
     "dictionary.sources_total_one": "{count} bron in de stamboom",
     "dictionary.sources_total_other": "{count} bronnen in de stamboom",
     "dictionary.sources_total_prefix_one": "{count} bron in de stamboom die begint met “{prefix}”",

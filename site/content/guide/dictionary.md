@@ -72,6 +72,8 @@ Trees often hold thousands of sources, many starting the same way ("AD44 …"). 
 
 The path you have taken is shown as a breadcrumb starting at **All sources**; click any part of it to go back up. The **Filter...** field narrows the current level.
 
+A group whose label is exactly the one above it holds the sources titled exactly like that label, with no more characters. Click it to list only those sources: the breadcrumb then reads "Titled exactly “…”".
+
 Each source row shows its title, its author and the repositories that hold it, and its number of citations. Unfold it to see the persons the source documents: those cited directly, the person of a cited event, and both spouses of a cited union or union event.
 
 ### Edit a source

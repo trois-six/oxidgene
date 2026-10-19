@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T13:45:51Z }
+generated: { by: human:maintainer, at: 2026-10-19T15:51:25Z }
 ---
 
 
@@ -310,7 +310,7 @@ A naive one-character-at-a-time drill-down forces the user through every level e
 
 **Rule**: a drill-down level is shown to the user — as a breadcrumb segment, a set of clickable choices, or a stop before the final list — only when it is a **genuine branch point** (more than one possible next character) **or** the count has already dropped to <= 250. Any level with exactly one possible next character is skipped automatically and folded into the next request; the user never clicks through it.
 
-**Exact-title group**: a level may hold sources whose title is exactly the level's prefix (for example `"AD44 - HOTEL - ("` next to `"AD44 - HOTEL - (N..."`). No character splits them, so their group is labelled with the prefix itself. Beside sibling groups it stays a real branch: the level keeps all its groups, and the exact-title group is shown with its label but is not clickable, since choosing it would reload the same level. When it is the only group, the level is the final list whatever its size (see the next paragraph and section 8.5).
+**Exact-title group**: a level may hold sources whose title is exactly the level's prefix (for example `"AD44 - HOTEL - ("` next to `"AD44 - HOTEL - (N..."`). No character splits them, so their group is labelled with the prefix itself. Beside sibling groups it stays a real branch: the level keeps all its groups, and the exact-title group is clickable like the others. Choosing it pushes an *exact-title step* (section 17), not a prefix: its level is the final list of the sources titled exactly the prefix, whatever its size, fetched with `exact=true` (section 16). The breadcrumb names that step "Titled exactly “AD44 - HOTEL - (”", so it reads apart from a branch of the same label. When it is the only group, the level is the final list directly (see the next paragraph and section 8.5).
 
 **Example** — a department (`AD44`) containing two single-record towns (`ALPHA`, `BETA`) and one town (`HOTEL`) with six records split across two record types:
 
@@ -484,9 +484,10 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
     ]
   }
   ```
-  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and also when the level's only group is labelled with the resolved prefix itself: those sources all have that exact title and no further character splits them, so the level is final whatever its size. When siblings exist beside such a group, `groups` keeps every group, the exact-title one included (labelled with the resolved prefix; the Sources tab shows it disabled). The response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
+  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and also when the level's only group is labelled with the resolved prefix itself: those sources all have that exact title and no further character splits them, so the level is final whatever its size. When siblings exist beside such a group, `groups` keeps every group, the exact-title one included (labelled with the resolved prefix; choosing it pushes an exact-title step, section 17). The response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
 
 - **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count; with `prefix` absent, every source. It serves API clients: the tab itself takes the final list from the drill-down response.
+- **`GET /dictionary/sources?prefix={prefix}&exact=true`** — Returns the sources whose title is exactly `prefix` (case-insensitive), with the same entries. It is the final list of an exact-title step (section 17), and the tab asks it for that step. An exact lookup needs a non-empty `prefix`: without one the request is refused with a validation error, as in GraphQL (`dictionarySources(prefix, exact: true)`).
 
 ### Backend Logic
 
@@ -498,16 +499,21 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
 
 ## 17. Sources Drill-Down State
 
-- `source_history` holds only the branch labels the user actually clicked
-  (real, multi-way choices — never an auto-skipped level); empty is the "All
-  sources" root.
-- The query sent to the backend is `source_history`'s last label (empty at
-  the root); one resource re-resolves on every history change and returns
-  either the next branch choices or the final list (section 8.5), so each
-  click costs one request however many levels are skipped (section 16).
-- The breadcrumb (section 8.6) renders `source_history` as clickable crumbs,
-  plus one non-clickable "active" crumb for the resolved prefix when it
-  differs from the last clicked label (when levels were skipped).
+- `source_history` holds only the steps the user actually clicked (real,
+  multi-way choices — never an auto-skipped level); empty is the "All
+  sources" root. A step is either a *branch* (its label is a prefix, the
+  titles starting with it) or an *exact-title* step (its label is the level's
+  prefix, the titles equal to it, section 8.10).
+- The query sent to the backend is `source_history`'s last step: a branch asks
+  the drill-down question for its label (empty at the root), and an
+  exact-title step asks the exact list for its label (`exact=true`, section 16).
+  One resource re-resolves on every history change and returns either the next
+  branch choices or the final list (section 8.5), so each click costs one
+  request however many levels are skipped (section 16).
+- The breadcrumb (section 8.6) renders `source_history` as clickable crumbs; an
+  exact-title step is named "Titled exactly “…”", a branch by its label. Plus
+  one non-clickable "active" crumb for the resolved prefix when it differs
+  from the last clicked label (when levels were skipped).
 - Clicking an earlier crumb truncates `source_history` to that point; clicking
   a branch-choice button appends its label.
 - The quick-filter text is reset on every navigation action (crumb, root or
@@ -518,7 +524,9 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
   tree's own source list (`GET .../dictionary/sources`), asks the drill-down
   question for each level, takes the group whose label holds that title (the same
   uppercased comparison the backend groups by) and stops at the final list that
-  holds the source. The replayed labels become `source_history`, so the
+  holds the source. A title equal to the level's prefix is held by the
+  exact-title group, which the replay takes as an exact-title step (the final
+  list is then asked with `exact=true`). The replayed steps become `source_history`, so the
   breadcrumb and the Back control read as if the reader had clicked down to
   the row; the row is then unfolded, scrolled into view and focused. A source
   that the tree's list does not hold (deleted, or never a source of the tree),

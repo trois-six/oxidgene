@@ -444,8 +444,9 @@ test("replays the Sources tab's levels on browser back and forward after a tagge
 
 test("drills through a level whose exact-title group sits beside its siblings", async ({ page, request, tree }) => {
     // One source titled exactly "Fictional ledger" beside 300 sources that
-    // continue it: the level stays a branch, its exact-title group is shown
-    // but cannot be chosen, and the sibling group drills on as usual.
+    // continue it: the level stays a branch, its exact-title group is chosen
+    // like any other and lists the exact source alone, and the sibling group
+    // drills on as usual.
     const titles = ["Fictional ledger", ...Array.from({ length: 300 }, (_, index) => `Fictional ledger: Book ${index + 1}`)];
     await seedSources(request, tree.treeId, titles);
 
@@ -454,14 +455,47 @@ test("drills through a level whose exact-title group sits beside its siblings", 
     // The root's letters: the tree's own "P" sources and the "F" of the ledgers,
     // whose levels skip down to the ledger title on their own.
     await page.getByRole("button", { name: "F", exact: true }).click();
-    await expect(page.getByRole("button", { name: "FICTIONAL LEDGER", exact: true })).toBeDisabled();
+    const exact = page.getByRole("button", { name: "FICTIONAL LEDGER", exact: true });
+    await expect(exact).toBeEnabled();
+    await exact.click();
+
+    // The exact group is a final list: its one source, and the breadcrumb says
+    // what the list holds.
+    await expect(page.locator(".dict-src-breadcrumb .dict-src-crumb.active")).toHaveText("Titled exactly “FICTIONAL LEDGER”");
+    await expect(page.locator(".dict-row")).toHaveCount(1);
+    await expect(page.locator(".dict-row").first()).toContainText("Fictional ledger");
+    await expect(page.locator(".dict-src-groups-label")).toHaveCount(0);
+
+    // Back on the level by its breadcrumb, the sibling group is a branch too:
+    // its groups show, not the 300 sources flattened.
+    await page.locator(".dict-src-breadcrumb .dict-src-crumb").nth(1).click();
     const book = page.getByRole("button", { name: "FICTIONAL LEDGER:", exact: true });
     await expect(book).toBeEnabled();
     await book.click();
-
-    // The next level is a branch too: its groups show, not the 300 sources flattened.
     await expect(page.locator(".dict-src-groups-label")).toBeVisible();
     await expect(page.locator(".dict-row")).toHaveCount(0);
     await page.getByRole("button", { name: "FICTIONAL LEDGER: BOOK 1", exact: true }).click();
     await expect(page.locator(".dict-row")).toHaveCount(111);
+});
+
+test("opens a tagged source whose exact title sits beside its siblings in the drill-down", async ({ page, request, tree }) => {
+    // The same level: the tagged source is the one titled exactly "Fictional
+    // ledger", so the Sources tab reaches it through the exact-title group.
+    const titles = ["Fictional ledger", ...Array.from({ length: 300 }, (_, index) => `Fictional ledger: Book ${index + 1}`)];
+    const sourceIds = await seedSources(request, tree.treeId, titles);
+    const sourceId = sourceIds[0];
+
+    const tagId = await createTag(request, tree.treeId, "Fictional exact mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/source/${sourceId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    await page.getByRole("link", { name: "Fictional ledger", exact: true }).click();
+
+    const row = page.locator(`#dict-source-${sourceId}`);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row).toBeInViewport();
+    await expect(row).toBeFocused({ timeout: 15_000 });
+    await expect(row).toContainText("▲");
+    await expect(page.locator(".dict-src-breadcrumb .dict-src-crumb.active")).toHaveText("Titled exactly “FICTIONAL LEDGER”");
 });

@@ -832,12 +832,18 @@ impl QueryRoot {
         .await
     }
 
-    /// Sources whose titles match a prefix, with citation counts.
+    /// Sources whose titles match a prefix, with citation counts. With
+    /// `exact`, the sources titled exactly the prefix instead (a non-empty
+    /// prefix is then required).
     async fn dictionary_sources(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         prefix: Option<String>,
+        #[graphql(
+            desc = "Sources titled exactly the prefix, ignoring case, instead of starting with it."
+        )]
+        exact: Option<bool>,
     ) -> Result<Vec<GqlSourceDictionaryEntry>> {
         boxed(async move {
             let db = reader_from_ctx(ctx);
@@ -845,6 +851,7 @@ impl QueryRoot {
                 db,
                 live_tree(ctx, &tree_id).await?,
                 prefix.as_deref().unwrap_or_default(),
+                exact.unwrap_or(false),
             )
             .await?;
             Ok(entries
@@ -878,7 +885,7 @@ impl QueryRoot {
             .await?;
             let sources = if groups.is_empty() {
                 let entries =
-                    crate::service::source::dictionary_sources(db, tree_id, &prefix).await?;
+                    crate::service::source::dictionary_sources(db, tree_id, &prefix, false).await?;
                 Some(
                     entries
                         .into_iter()

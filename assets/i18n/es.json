@@ -7024,6 +7024,7 @@
     "dictionary.source.title_required": "Una fuente necesita un título.",
     "dictionary.sources_breadcrumb_root": "Todas las fuentes",
     "dictionary.sources_choose_letter": "Elija una letra:",
+    "dictionary.sources_exact_title": "Título exactamente «{title}»",
     "dictionary.sources_total_one": "{count} fuente en el árbol",
     "dictionary.sources_total_other": "{count} fuentes en el árbol",
     "dictionary.sources_total_prefix_one": "{count} fuente en el árbol que empieza por «{prefix}»",

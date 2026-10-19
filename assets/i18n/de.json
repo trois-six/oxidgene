@@ -7024,6 +7024,7 @@
     "dictionary.source.title_required": "Eine Quelle braucht einen Titel.",
     "dictionary.sources_breadcrumb_root": "Alle Quellen",
     "dictionary.sources_choose_letter": "Wählen Sie einen Buchstaben:",
+    "dictionary.sources_exact_title": "Genau betitelt „{title}“",
     "dictionary.sources_total_one": "{count} Quelle im Stammbaum",
     "dictionary.sources_total_other": "{count} Quellen im Stammbaum",
     "dictionary.sources_total_prefix_one": "{count} Quelle im Stammbaum, die mit „{prefix}“ beginnt",

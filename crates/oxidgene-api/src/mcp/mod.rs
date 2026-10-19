@@ -538,6 +538,7 @@ impl OxidGeneMcp {
                         db,
                         p.tree_id,
                         p.prefix.as_deref().unwrap_or_default(),
+                        false,
                     )
                     .await?,
                 )?,

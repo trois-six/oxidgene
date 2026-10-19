@@ -8,9 +8,9 @@ use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
 use uuid::Uuid;
 
 use super::dto::{
-    DictionaryEntryDto, DictionaryUsageQuery, FamilyNameParticleUpdateDto, FamilyNameRenameDto,
-    PersonUsageEntryDto, PlaceDictionaryEntry, SourceDictionaryEntry, SourceDrillResponse,
-    SourceGroupDto, SourcePrefixQuery,
+    DictionaryEntryDto, DictionarySourcesQuery, DictionaryUsageQuery, FamilyNameParticleUpdateDto,
+    FamilyNameRenameDto, PersonUsageEntryDto, PlaceDictionaryEntry, SourceDictionaryEntry,
+    SourceDrillResponse, SourceGroupDto, SourcePrefixQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -34,21 +34,28 @@ pub async fn occupations(
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
-/// GET /api/v1/trees/:tree_id/dictionary/sources?prefix=...
+/// GET /api/v1/trees/:tree_id/dictionary/sources?prefix=...&exact=...
 ///
 /// `prefix` narrows the result to sources whose title starts with it
-/// (case-insensitive); absent/empty returns every source. Used both for the
-/// legacy full fetch and as the final flat-list step of the Sources tab's
-/// smart drill-down (see ui-dictionary.md §8) once a prefix's count drops
-/// to <= 250.
+/// (case-insensitive); absent/empty returns every source. With `exact=true`
+/// the result is the sources whose title is `prefix` itself instead, which
+/// needs a non-empty prefix. Used both for the legacy full fetch and as the
+/// final flat-list step of the Sources tab's smart drill-down (see
+/// ui-dictionary.md §8) once a prefix's count drops to <= 250.
 pub async fn sources(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Query(query): Query<SourcePrefixQuery>,
+    Query(query): Query<DictionarySourcesQuery>,
 ) -> Result<Json<Vec<SourceDictionaryEntry>>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
     Ok(Json(
-        crate::service::source::dictionary_sources(&state.reader, tree_id, &prefix).await?,
+        crate::service::source::dictionary_sources(
+            &state.reader,
+            tree_id,
+            &prefix,
+            query.exact.unwrap_or(false),
+        )
+        .await?,
     ))
 }
 
@@ -77,8 +84,13 @@ pub async fn source_groups(
     .await?;
     let sources = if groups.is_empty() {
         Some(
-            crate::service::source::dictionary_sources(&state.reader, tree_id, &resolved_prefix)
-                .await?,
+            crate::service::source::dictionary_sources(
+                &state.reader,
+                tree_id,
+                &resolved_prefix,
+                false,
+            )
+            .await?,
         )
     } else {
         None

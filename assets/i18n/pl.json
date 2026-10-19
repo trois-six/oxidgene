@@ -7063,6 +7063,7 @@
     "dictionary.source.title_required": "Źródło musi mieć tytuł.",
     "dictionary.sources_breadcrumb_root": "Wszystkie źródła",
     "dictionary.sources_choose_letter": "Wybierz literę:",
+    "dictionary.sources_exact_title": "Dokładnie zatytułowane „{title}”",
     "dictionary.sources_total_few": "{count} źródła w drzewie",
     "dictionary.sources_total_many": "{count} źródeł w drzewie",
     "dictionary.sources_total_one": "{count} źródło w drzewie",

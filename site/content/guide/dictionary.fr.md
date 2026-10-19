@@ -72,6 +72,8 @@ Un arbre contient souvent des milliers de sources, dont beaucoup commencent de l
 
 Le chemin parcouru s'affiche sous forme de fil d'Ariane commençant par **Toutes les sources** ; cliquez sur n'importe quelle partie pour remonter. Le champ **Filtrer...** resserre le niveau en cours.
 
+Un groupe dont l'intitulé est exactement celui du niveau au-dessus regroupe les sources qui portent exactement ce titre, sans caractère de plus. Cliquez dessus pour ne lister que ces sources : le fil d'Ariane affiche alors « Titre exactement « … » ».
+
 Chaque ligne de source affiche son titre, son auteur et les dépôts qui la conservent, ainsi que son nombre de citations. Dépliez-la pour voir les personnes que la source documente : celles citées directement, la personne d'un événement cité, et les deux conjoints d'une union ou d'un événement d'union cités.
 
 ### Modifier une source

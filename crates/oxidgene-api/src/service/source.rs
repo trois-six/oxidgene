@@ -132,14 +132,26 @@ pub async fn delete_source(
     Ok(deleted)
 }
 
-/// The sources of `tree_id` whose title starts with `prefix`, each with its
-/// citation count and the names of the repositories holding it.
+/// The sources of `tree_id` whose title starts with `prefix`, or, with
+/// `exact`, whose title is `prefix` itself (ignoring case). Each comes with
+/// its citation count and the names of the repositories holding it. An exact
+/// lookup needs a prefix: a blank title is no source's title.
 pub async fn dictionary_sources(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     prefix: &str,
+    exact: bool,
 ) -> Result<Vec<SourceDictionaryEntry>, OxidGeneError> {
-    let entries = DictionaryRepo::sources_with_usage_by_prefix(db, tree_id, prefix).await?;
+    let entries = if exact {
+        if prefix.trim().is_empty() {
+            return Err(OxidGeneError::Validation(
+                "an exact title needs a non-empty prefix".into(),
+            ));
+        }
+        DictionaryRepo::sources_with_usage_by_exact_title(db, tree_id, prefix).await?
+    } else {
+        DictionaryRepo::sources_with_usage_by_prefix(db, tree_id, prefix).await?
+    };
     let ids: Vec<Uuid> = entries.iter().map(|(s, _)| s.id).collect();
     let mut names = SourceRepositoryRepo::repository_names(db, &ids).await?;
     Ok(entries

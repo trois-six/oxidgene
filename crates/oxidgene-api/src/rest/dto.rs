@@ -726,6 +726,16 @@ pub struct SourcePrefixQuery {
     pub prefix: Option<String>,
 }
 
+/// Query parameters of the sources list (`/dictionary/sources`): the prefix
+/// narrows it, and `exact` asks for the sources titled exactly the prefix
+/// instead (the final list of an exact-title drill-down group, see
+/// ui-dictionary.md §8.10).
+#[derive(Debug, Deserialize)]
+pub struct DictionarySourcesQuery {
+    pub prefix: Option<String>,
+    pub exact: Option<bool>,
+}
+
 /// A prefix group (Sources tab smart drill-down) plus how many sources fall
 /// under it. `label` is always `prefix` (see `SourceDrillResponse`) extended
 /// by exactly one more character.

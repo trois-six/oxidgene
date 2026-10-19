@@ -3920,9 +3920,16 @@ type QueryRoot {
 	"""
 	dictionaryOccupations(treeId: ID!): [GqlDictionaryEntry!]!
 	"""
-	Sources whose titles match a prefix, with citation counts.
+	Sources whose titles match a prefix, with citation counts. With
+	`exact`, the sources titled exactly the prefix instead (a non-empty
+	prefix is then required).
 	"""
-	dictionarySources(treeId: ID!, prefix: String): [GqlSourceDictionaryEntry!]!
+	dictionarySources(		treeId: ID!,		prefix: String,
+		"""
+		Sources titled exactly the prefix, ignoring case, instead of starting with it.
+		"""
+		exact: Boolean
+	): [GqlSourceDictionaryEntry!]!
 	"""
 	The next selectable source-title prefixes for the smart drill-down.
 	"""

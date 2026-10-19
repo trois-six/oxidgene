@@ -4279,6 +4279,21 @@ impl ApiClient {
         .await
     }
 
+    /// The sources titled exactly `title` (ignoring case), each with its
+    /// citation count: the final list of an exact-title group of the Sources
+    /// tab's drill-down (ui-dictionary.md §8.10).
+    pub async fn dictionary_sources_exact(
+        &self,
+        tree_id: Uuid,
+        title: &str,
+    ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/sources"),
+            &[("prefix", title), ("exact", "true")],
+        )
+        .await
+    }
+
     /// Every source of the tree, each paired with its citation count. Used to
     /// find a source's title when a record link opens its row; a source that
     /// is not in the list (deleted, or never a record of the tree) is then

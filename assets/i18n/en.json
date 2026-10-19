@@ -7024,6 +7024,7 @@
     "dictionary.source.title_required": "A source needs a title.",
     "dictionary.sources_breadcrumb_root": "All sources",
     "dictionary.sources_choose_letter": "Choose a letter:",
+    "dictionary.sources_exact_title": "Titled exactly “{title}”",
     "dictionary.sources_total_one": "{count} source in the tree",
     "dictionary.sources_total_other": "{count} sources in the tree",
     "dictionary.sources_total_prefix_one": "{count} source in the tree starting with \"{prefix}\"",

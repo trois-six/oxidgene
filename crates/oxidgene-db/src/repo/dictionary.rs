@@ -335,6 +335,24 @@ impl DictionaryRepo {
             .collect())
     }
 
+    /// All sources in a tree whose title is exactly `title` (case-insensitive,
+    /// like the drill-down's groups), paired with their citation count. This
+    /// is the final flat list of an exact-title group (see
+    /// `source_group_counts` and ui-dictionary.md §8.10), the group a level
+    /// holds beside its siblings when a title equals the level's prefix.
+    pub async fn sources_with_usage_by_exact_title(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        title: &str,
+    ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
+        let title_upper = title.to_uppercase();
+        let all = Self::sources_with_usage(db, tree_id).await?;
+        Ok(all
+            .into_iter()
+            .filter(|(s, _)| s.title.to_uppercase() == title_upper)
+            .collect())
+    }
+
     /// Groups a tree's sources whose title starts with `prefix` by the next
     /// character after `prefix`, returning `(group_label, count)` pairs —
     /// `group_label` is always `prefix` extended by exactly one more

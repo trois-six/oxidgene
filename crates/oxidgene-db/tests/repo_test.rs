@@ -3459,6 +3459,47 @@ async fn dictionary_resolve_source_drill_down_keeps_siblings_beside_an_exact_tit
 }
 
 #[tokio::test]
+async fn dictionary_sources_by_exact_title_matches_only_that_title() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+
+    // The exact-title group of a drill-down level: the titles equal to the
+    // level's prefix, ignoring case, and nothing that merely starts with it.
+    for title in [
+        "Civil register",
+        "CIVIL REGISTER",
+        "Civil register - Book 1",
+        "Civil",
+        "Parish register",
+    ] {
+        SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree_id,
+            title.into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let exact = DictionaryRepo::sources_with_usage_by_exact_title(&db, tree_id, "civil register")
+        .await
+        .unwrap();
+    let mut titles: Vec<String> = exact.iter().map(|(s, _)| s.title.clone()).collect();
+    titles.sort();
+    assert_eq!(titles, vec!["CIVIL REGISTER", "Civil register"]);
+
+    let none = DictionaryRepo::sources_with_usage_by_exact_title(&db, tree_id, "Civil reg")
+        .await
+        .unwrap();
+    assert!(none.is_empty());
+}
+
+#[tokio::test]
 async fn dictionary_places_with_usage_counts_events() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
