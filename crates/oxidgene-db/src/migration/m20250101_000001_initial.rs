@@ -1526,7 +1526,7 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
     Ok(())
 }
 
-/// The tree's tags and the records they are put on (docs/tags.md §2).
+/// The tree's tags and the records they are put on (docs/data-model.md, RecordTag).
 ///
 /// `record_tag` has one nullable foreign key per kind of record and a `CHECK`
 /// that exactly one of them is set, so a link can never name a missing record

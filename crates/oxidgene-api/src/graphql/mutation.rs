@@ -8,6 +8,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self};
 use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
+use crate::service::tag_bulk::{self, BulkAction};
 use crate::service::{
     duplicates, event, family, family_names, media, media_link, person, person_name, place,
     repository, source, tag, tree, vignette,
@@ -23,11 +24,11 @@ use super::inputs::{
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
     MergeChoicesInput, PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput,
-    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
-    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput,
-    UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput, UpdateTreeInput,
-    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
-    geneanet_media_paths,
+    TagTargetInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput,
+    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
+    UpdateRepositoryInput, UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput,
+    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
+    geneanet_deposit_sizes, geneanet_media_paths, tag_target_spec,
 };
 use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
 use super::types::{
@@ -38,6 +39,7 @@ use super::types::{
     GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
     profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
+use super::types::{GqlBulkTagAction, GqlBulkTagCount};
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
 ///
@@ -1347,6 +1349,40 @@ impl MutationRoot {
             let id = uuid(&id)?;
             tag::delete(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
             Ok(true)
+        })
+        .await
+    }
+
+    /// Add a tag to, or remove it from, every person of a target, in one
+    /// transaction and one audit entry. Returns the number of persons changed.
+    async fn bulk_tag(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        tag_id: ID,
+        action: GqlBulkTagAction,
+        target: TagTargetInput,
+    ) -> Result<GqlBulkTagCount> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let tag_id = uuid(&tag_id)?;
+            let spec = tag_target_spec(target)?;
+            let action = match action {
+                GqlBulkTagAction::Add => BulkAction::Add,
+                GqlBulkTagAction::Remove => BulkAction::Remove,
+            };
+            let count = tag_bulk::bulk_tag(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                tag_id,
+                action,
+                &spec,
+            )
+            .await?;
+            Ok(GqlBulkTagCount {
+                count: i64::try_from(count).unwrap_or(i64::MAX),
+            })
         })
         .await
     }

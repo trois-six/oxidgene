@@ -121,6 +121,79 @@ async fn unique_index_makes_adding_a_tag_idempotent() {
 }
 
 #[tokio::test]
+async fn bulk_add_returns_exactly_the_links_it_inserted() {
+    let (db, tree) = setup().await;
+    let tag = tag_named(&db, tree, "Fictional").await;
+    let (p, q, r) = (
+        person(&db, tree).await,
+        person(&db, tree).await,
+        person(&db, tree).await,
+    );
+    RecordTagRepo::add(&db, tree, tag.id, RecordKind::Person, p)
+        .await
+        .unwrap();
+
+    // A person already carrying the tag, and a repeated id, are not counted.
+    let mut added = RecordTagRepo::add_persons(&db, tree, tag.id, &[p, q, q, r])
+        .await
+        .unwrap();
+    added.sort();
+    let mut expected = vec![q, r];
+    expected.sort();
+    assert_eq!(added, expected);
+    assert_eq!(links(&db).await, 3);
+
+    // Adding to persons who all carry the tag inserts nothing and names none.
+    assert!(
+        RecordTagRepo::add_persons(&db, tree, tag.id, &[p, q, r])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(links(&db).await, 3);
+}
+
+#[tokio::test]
+async fn bulk_remove_returns_exactly_the_links_it_deleted() {
+    let (db, tree) = setup().await;
+    let tag = tag_named(&db, tree, "Fictional").await;
+    let (p, q, r, s) = (
+        person(&db, tree).await,
+        person(&db, tree).await,
+        person(&db, tree).await,
+        person(&db, tree).await,
+    );
+    RecordTagRepo::add_persons(&db, tree, tag.id, &[p, q, r])
+        .await
+        .unwrap();
+    // A writer outside the bulk call takes the tag off `p` first: the bulk
+    // call must not name it, since it deletes nothing for it.
+    assert!(
+        RecordTagRepo::remove(&db, tree, tag.id, RecordKind::Person, p)
+            .await
+            .unwrap()
+    );
+
+    // `s` never carried the tag, and a repeated id is removed once.
+    let mut removed = RecordTagRepo::remove_persons(&db, tree, tag.id, &[p, q, q, r, s])
+        .await
+        .unwrap();
+    removed.sort();
+    let mut expected = vec![q, r];
+    expected.sort();
+    assert_eq!(removed, expected);
+    assert_eq!(links(&db).await, 0);
+
+    // Removing from persons who no longer carry the tag names none.
+    assert!(
+        RecordTagRepo::remove_persons(&db, tree, tag.id, &[p, q, r, s])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn labels_that_fold_alike_are_one_tag() {
     let (db, tree) = setup().await;
     let (first, created) = TagRepo::create(&db, tree, "  À vérifier ").await.unwrap();

@@ -308,10 +308,16 @@ fn render_slim_box(
     };
     let card = &theme.card;
     let mark = mark_colour(node);
+    let tag = card_mark(pid);
+    let class = format!("ped-card {}", dim_class(tag));
+    let frame = match mark_stroke(tag) {
+        Some(colour) => format!("stroke:{colour};stroke-width:3"),
+        None => "stroke:var(--pn-border);stroke-width:1".to_string(),
+    };
     rsx! {
         g {
             key: "{key}",
-            class: "ped-card",
+            class: "{class}",
             style: "cursor:pointer",
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
@@ -319,7 +325,7 @@ fn render_slim_box(
                 class: "ped-card-rect",
                 x: "{x:.2}", y: "{y:.2}", width: "{box_w:.2}", height: "{h}",
                 rx: "{theme.metrics.border_radius}",
-                style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1",
+                style: "fill:var(--pn-bg);{frame}",
                 dangerous_inner_html: "{title}",
             }
             path {
@@ -329,6 +335,7 @@ fn render_slim_box(
             if let Some(colour) = mark {
                 circle { cx: "{x + box_w - 9.0:.2}", cy: "{centre.1:.2}", r: "4", style: "fill:{colour};pointer-events:none" }
             }
+            {mark_dot(tag, x + box_w - 3.0, y + 3.0, 4.0)}
             text {
                 class: "ped-card-name-text",
                 x: "{x + 12.0:.2}", y: "{name_y:.2}",
@@ -386,6 +393,19 @@ fn render_spouse_box(
     let (x, y) = (centre.0 - box_w / 2.0, centre.1 - SINGLE_H / 2.0);
     let node = &entry.node;
     let spouse = node.id;
+    let tag = spouse.and_then(card_mark);
+    let class = format!(
+        "lineage-spouse {} {}",
+        if spouse.is_some() {
+            ""
+        } else {
+            "lineage-spouse-unknown"
+        },
+        dim_class(tag),
+    );
+    let frame = mark_stroke(tag).map_or_else(String::new, |colour| {
+        format!("stroke:{colour};stroke-width:3")
+    });
     let (name, title) = match spouse {
         Some(_) => (
             slim_text(node, BoxSize::Single, (box_w - 30.0) as f32, i18n.dates()).name,
@@ -396,7 +416,7 @@ fn render_spouse_box(
     rsx! {
         g {
             key: "lu-{entry.sosa}",
-            class: if spouse.is_some() { "lineage-spouse" } else { "lineage-spouse lineage-spouse-unknown" },
+            class: "{class}",
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
@@ -415,8 +435,10 @@ fn render_spouse_box(
                 class: "lineage-spouse-rect",
                 x: "{x:.2}", y: "{y:.2}", width: "{box_w:.2}", height: "{SINGLE_H}",
                 rx: "{theme.metrics.border_radius}",
+                style: "{frame}",
                 dangerous_inner_html: "{svg_title(&title)}",
             }
+            {mark_dot(tag, x + box_w - 3.0, y + 3.0, 4.0)}
             text {
                 class: "ped-card-name-text",
                 x: "{x + 8.0:.2}", y: "{centre.1 + 4.0:.2}",

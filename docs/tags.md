@@ -1,9 +1,9 @@
 ---
 type: "Product Specification"
 title: "Tags"
-description: "Planned tag extensions: highlighting a tag in the tree views, bulk tagging of persons from the tree and from search results, tags on events, sources, citations, places, repositories and notes, and the uses beyond finding (statistics, anomalies, export by tag)."
+description: "Planned tag extensions: tags on events, sources, citations, places, repositories and notes, and the uses beyond finding (statistics, anomalies, export by tag)."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
+generated: { by: human:maintainer, at: 2026-10-19T06:41:24Z }
 ---
 
 # Tags
@@ -13,13 +13,16 @@ generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
 > [Common UI](ui-common.md) · [Dictionary](ui-dictionary.md) ·
 > [Genealogy Tree](ui-genealogy-tree.md) · [Roadmap](roadmap.md)
 
-**Status: phase 1 is delivered** (tags on persons, couples and documents, the
-shared picker, chips and dots, the Dictionary's Tags tab, the person-search
-filter, GEDCOM and GEDZIP, the audit log, the `list_tags` tool). Its contract
-is in [Data Model](data-model.md) (Tag, RecordTag), [API Contract](api.md)
+**Status: phases 1 and 2 are delivered.** Phase 1 put tags on persons, couples
+and documents, with the shared picker, chips and dots, the Dictionary's Tags
+tab, the person-search filter, GEDCOM and GEDZIP, the audit log and the
+`list_tags` tool. Phase 2 added bulk tagging of persons from the tree and from
+search results, and the highlight of a tag in the tree views. Their contracts
+are in [Data Model](data-model.md) (Tag, RecordTag), [API Contract](api.md)
 (Tags), [Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots),
-[Dictionary §20](ui-dictionary.md#20-tags-tab) and the record pages. This
-document keeps only what phases 2 to 5 still deliver ([§9](#9-phases)).
+[Dictionary §20](ui-dictionary.md#20-tags-tab), [Genealogy Tree](ui-genealogy-tree.md)
+and [Search Results §4](ui-search-results.md#4-results-toolbar). This document
+keeps only what phases 3 to 5 still deliver ([§5](#5-phases)).
 
 ---
 
@@ -99,110 +102,35 @@ one tag on import, a tag no record carries not exported):
 
 A `.gw` has no room for tags and carries none, as today.
 
-## 3. Bulk tagging (phase 2)
+### 2.2 Interface strings
 
-Bulk tagging is about persons only: the other kinds are tagged one at a time,
-and none of their lists offers a selection.
+Every interface string of phases 3 to 5 (menu entries, confirmations, errors,
+accessible names and empty states) goes through the translation tables in all
+eight languages. Tag labels are user content and are never translated.
 
-### 3.1 Interface
-
-- **Bulk mode of the picker.** The picker ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots))
-  is opened in bulk mode on a set of persons. It shows, for each tag, how many
-  of the target's persons carry it, and two actions per tag, **Add to all** and
-  **Remove from all**, in place of the checkbox. It asks for confirmation when
-  the target holds more than 100 persons. Each action is written at once, and
-  a failed one shows its translated error under the field.
-- **From the tree**: the pencil action picker of a person ([Genealogy Tree](ui-genealogy-tree.md))
-  gains **Tag a branch…**. It asks for the scope (ancestors, descendants, or
-  both), a depth (default: all generations, up to 30), whether to include the
-  person, and for descendants whether to include their spouses. It then opens
-  the picker in bulk mode on those persons.
-- **From search results**: a **Tag the results…** action in the results
-  toolbar ([Search Results](ui-search-results.md)) opens the picker in bulk mode
-  on every person the current search and filters return, not only the page
-  shown. It is disabled when there is no result.
-
-### 3.2 API
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/trees/{tree_id}/tags/{tag_id}/bulk` | `{ action: "add" \| "remove", target }`. Applies the tag to, or takes it off, every person of `target` in one transaction and one audit entry. Returns `{ count }`, the persons changed |
-
-`target` is exactly one of:
-
-- `{ persons: [id, …] }`, at most 1,000;
-- `{ ancestors_of: id, depth, include_self }` or
-  `{ descendants_of: id, depth, include_self, include_spouses }`, `depth` 1–30
-  generations;
-- `{ search: { q, …PersonSearchFilters } }`, every person the search would
-  return, not one page of it.
-
-A target of more than 10,000 persons is `400 bulk_too_large`. GraphQL:
-`bulkTag(treeId, tagId, action, target)`. The bulk change is audited as one
-`record_tag` entry with the `count` of records changed ([Data Model](data-model.md),
-Audit log). The REST and GraphQL surfaces share the validation, errors and
-tests ([Cross-cutting Rules](cross-cutting.md)).
-
-## 4. Highlighting a tag in the tree views (phase 2)
-
-The tree's left sidebar gains a **Highlight a tag** button. It opens the
-vocabulary as a list (the persons' tags only, those carried by at least one
-person); choosing a tag:
-
-- marks every card of a person carrying it with a dot in the tag's colour at
-  the card's top corner and a border in that colour, in the tree and in every
-  other chart (wheels, fans, lineage, hourglass);
-- dims the other cards to 45 % opacity, unless the reader turns **Dim the
-  others** off in the same list;
-- shows the tag as a chip under the sidebar button, whose × ends the
-  highlight.
-
-The highlight lasts while the tree page is open and is kept in its history
-entry ([Common UI §2.4](ui-common.md)); it is not saved in the settings.
-Printing keeps the marks, not the dimming. Tree cards draw nothing for tags
-except while a tag is highlighted.
-
-## 5. Uses beyond finding (phase 5)
+## 3. Uses beyond finding (phase 5)
 
 - Statistics and anomalies limited to a tag ([Statistics](ui-statistics.md),
   [Tools §3](ui-tools.md#3-anomalies)).
 - An export of the persons carrying a tag, with the subtree export of the
-  [Roadmap](roadmap.md) (§7b).
+  [Roadmap](roadmap.md#7b-planned-subtree-export).
 
-## 6. Errors
+## 4. Tests still to write
 
-Phase 2 adds one code to the shared set of [Cross-cutting Rules §4](cross-cutting.md):
-a bulk target past its bound is `validation_error` (400) and above 10,000
-persons `bulk_too_large` (400). Every message is translated in the interface.
-
-## 7. Interface strings
-
-Every interface string of the phases below — menu entries, bulk confirmations,
-the highlight list, errors, accessible names — goes through the translation
-tables in all eight languages. Tag labels are user content and are never
-translated.
-
-## 8. Tests still to write
-
-- Phases 2: bulk tagging through REST and GraphQL, with the same cases: each
-  target and its bounds, `bulk_too_large`, a search target covering more than
-  one page, one audit entry per bulk change; a `persons` target of another tree
-  refused.
-- Phases 2: the highlight in the tree and in one chart; the picker's bulk mode
-  keyboard behaviour.
 - Phases 3 and 4: every REST operation and its GraphQL twin for the new kinds'
   reads; the GEDCOM round trip of each kind's tags and the vocabulary's colours;
   a Geneanet or GeneWeb destination drops them and reports it.
 - Test data is fictitious ([Cross-cutting Rules](cross-cutting.md)).
 
-## 9. Phases
+## 5. Phases
 
 | Phase | Content |
 |---|---|
-| 2 | Highlighting a tag in the tree views; bulk tagging from the tree and from search results (§3, §4) |
+| 1 | Delivered: tags on persons, couples and documents, the vocabulary, the picker, chips and dots, GEDCOM, the audit log ([Data Model](data-model.md), [API Contract](api.md)) |
+| 2 | Delivered: bulk tagging from the tree and from search results, and the highlight of a tag in the tree views ([API Contract](api.md), Tags; [Genealogy Tree](ui-genealogy-tree.md); [Search Results](ui-search-results.md)) |
 | 3 | Events, sources and citations: the reads, the menus and the GEDCOM `_OXIDGENE_TAG` of those kinds (§2, §2.1) |
 | 4 | Places, repositories and notes: the same, including the `PLAC` rule of §2.1 |
-| 5 | Uses beyond finding: statistics and anomalies limited to a tag, and an export of the persons carrying a tag, with the subtree export (§5) ([Roadmap](roadmap.md)) |
+| 5 | Uses beyond finding: statistics and anomalies limited to a tag, and an export of the persons carrying a tag, with the subtree export (§3) ([Roadmap](roadmap.md)) |
 
 Until its phase, the reads of events, sources, citations, places, repositories
 and notes do not yet carry `tags` ([Data Model](data-model.md)); the generic

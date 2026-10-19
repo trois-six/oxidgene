@@ -14,8 +14,8 @@ use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField,
-    TagSummary,
+    ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SearchTargetBody,
+    SuggestionField, TagSummary, TagTarget,
 };
 use crate::components::empty_state::EmptyState;
 use crate::components::event_icon::EventIcon;
@@ -25,7 +25,7 @@ use crate::components::person_form::FormSection;
 use crate::components::print::{PrintPageNote, search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
-use crate::components::tags::{TagDots, dot_style};
+use crate::components::tags::{BulkTagPicker, TagDots, dot_style};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::components::view_toggle::ViewToggle;
@@ -466,6 +466,10 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     // ── Search state ──
     let filters = use_search_filters(&props.last, &props.first);
     let mut show_filters = use_signal(|| false);
+    // "Tag the results…" is open, and bumped after each change so the
+    // results and their tags are searched again.
+    let mut tagging_results = use_signal(|| false);
+    let tag_revision = use_signal(|| 0_u32);
     let sections_open = [
         use_signal(|| true),
         use_signal(|| true),
@@ -500,6 +504,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let api_search = api.clone();
     let search_resource = use_traced_resource(load_trace.clone(), "person_search", move || {
         let api = api_search.clone();
+        let _ = tag_revision();
         let typed = filters.typed().map(|field| field());
         let still_typing = typed_filters
             .replace(Some(typed.clone()))
@@ -628,7 +633,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             }
         }
 
-        {toolbar(&i18n, total_filtered, filters)}
+        {toolbar(&i18n, total_filtered, filters, EventHandler::new(move |()| tagging_results.set(true)))}
+        {tag_results_picker(tree_id, filters, tagging_results, tag_revision)}
 
         // ── Results ──
         match body {
@@ -647,6 +653,32 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
         {pagination(page, total_pages, filters.page)}
         PrintPageNote { page, pages: total_pages }
+        }
+    }
+}
+
+/// "Tag the results…": the bulk picker over the search's current criteria,
+/// shown while it is open. Each change bumps `revision`, so the results and
+/// their tags are searched again.
+fn tag_results_picker(
+    tree_id: Option<Uuid>,
+    filters: SearchFilters,
+    open: Signal<bool>,
+    revision: Signal<u32>,
+) -> Element {
+    let (Some(tid), true) = (tree_id, open()) else {
+        return rsx! {};
+    };
+    let mut open = open;
+    let mut revision = revision;
+    rsx! {
+        BulkTagPicker {
+            tree_id: tid,
+            target: TagTarget::Search {
+                search: Box::new(SearchTargetBody::from(&filters.params())),
+            },
+            on_close: move |()| open.set(false),
+            on_changed: move |()| revision += 1,
         }
     }
 }
@@ -1107,7 +1139,12 @@ fn relation_group(
 }
 
 /// The result count, the sort menu and the view switch.
-fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
+fn toolbar(
+    i18n: &I18n,
+    total: usize,
+    filters: SearchFilters,
+    on_tag_results: EventHandler<()>,
+) -> Element {
     let SearchFilters {
         mut sort, mut view, ..
     } = filters;
@@ -1124,6 +1161,13 @@ fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
                         option { value: "{order:?}", {i18n.t(key)} }
                     }
                 }
+            }
+            button {
+                class: "btn btn-outline btn-sm",
+                r#type: "button",
+                disabled: total == 0,
+                onclick: move |_| on_tag_results.call(()),
+                {i18n.t("tag.results.open")}
             }
             ViewToggle {
                 list: view() == ViewMode::List,

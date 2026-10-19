@@ -3,91 +3,91 @@
     "requests": 3,
     "depth": 3,
     "duplicates": 0,
-    "bytes": 34058
+    "bytes": 34108
   },
   "pedigree:tree": {
-    "requests": 3,
+    "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53878
+    "bytes": 54060
   },
   "pedigree:wheel": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 11921
+    "bytes": 12103
   },
   "pedigree:fan": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 11921
+    "bytes": 12103
   },
   "pedigree:descendant-wheel": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 11921
+    "bytes": 12103
   },
   "pedigree:descendant-fan": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 11921
+    "bytes": 12103
   },
   "pedigree:lineage": {
-    "requests": 3,
+    "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53878
+    "bytes": 54060
   },
   "pedigree:descendant-lineage": {
-    "requests": 3,
+    "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53878
+    "bytes": 54060
   },
   "pedigree:hourglass": {
-    "requests": 3,
+    "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53878
+    "bytes": 54060
   },
   "pedigree:bowtie": {
-    "requests": 3,
+    "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53878
+    "bytes": 54060
   },
   "search": {
     "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 31288
+    "bytes": 31338
   },
   "person": {
     "requests": 5,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 172265
+    "bytes": 173120
   },
   "history": {
     "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 9975
+    "bytes": 10297
   },
   "couple": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 226119
+    "bytes": 227243
   },
   "kinship": {
     "requests": 5,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 21929
+    "bytes": 22049
   },
   "dictionary": {
     "requests": 2,
@@ -111,7 +111,7 @@
     "requests": 4,
     "depth": 3,
     "duplicates": 0,
-    "bytes": 8244
+    "bytes": 8284
   },
   "appSettings": {
     "requests": 0,
@@ -123,85 +123,85 @@
     "requests": 3,
     "depth": 3,
     "duplicates": 0,
-    "bytes": 16868
+    "bytes": 16918
   },
   "pedigree<-home": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 36870
+  },
+  "pedigree<-person": {
     "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 36688
-  },
-  "pedigree<-person": {
-    "requests": 2,
-    "depth": 2,
-    "duplicates": 0,
-    "bytes": 48062
+    "bytes": 48244
   },
   "person<-pedigree": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 166449
+    "bytes": 167304
   },
   "pedigree<-search": {
-    "requests": 2,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 38582
+    "bytes": 38764
   },
   "search<-person": {
     "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 25472
+    "bytes": 25522
   },
   "person<-history": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 171631
+    "bytes": 172486
   },
   "person<-couple": {
     "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 28730
+    "bytes": 29585
   },
   "person<-kinship": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 166449
+    "bytes": 167304
   },
   "pedigree<-dictionary": {
-    "requests": 2,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53244
+    "bytes": 53426
   },
   "pedigree<-statistics": {
-    "requests": 2,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53244
+    "bytes": 53426
   },
   "pedigree<-tools": {
-    "requests": 2,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53244
+    "bytes": 53426
   },
   "pedigree<-settings": {
-    "requests": 2,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 48062
+    "bytes": 48244
   },
   "home<-appSettings": {
     "requests": 3,
     "depth": 3,
     "duplicates": 0,
-    "bytes": 34058
+    "bytes": 34108
   },
   "dictionary:Sources": {
     "requests": 1,
@@ -273,7 +273,7 @@
     "requests": 1,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 2697
+    "bytes": 2737
   },
   "tools:Anomalies": {
     "requests": 0,

@@ -35,7 +35,7 @@ pub async fn list(db: &DatabaseConnection, tree_id: Uuid) -> Result<Vec<TagUsage
 }
 
 /// The record kind named by a request, spelled as `RecordKind::as_str` spells
-/// it. An unknown spelling is `not_found` (docs/tags.md §5.5) on both
+/// it. An unknown spelling is `not_found` (docs/api.md, Tags) on both
 /// surfaces; the kind is not an id, so the error carries the nil one.
 pub fn parse_kind(value: &str) -> Result<RecordKind, OxidGeneError> {
     value.parse().map_err(|_| OxidGeneError::NotFound {

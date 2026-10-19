@@ -538,6 +538,16 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Mutation.mergeTag"]),
     ),
     (
+        "POST",
+        "/api/v1/trees/{tree_id}/tags/{tag_id}/bulk",
+        Gql(&["Mutation.bulkTag"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/tags/target",
+        Gql(&["Query.tagTarget"]),
+    ),
+    (
         "GET",
         "/api/v1/trees/{tree_id}/tags/{tag_id}/records",
         Gql(&["Query.taggedRecords"]),

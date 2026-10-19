@@ -10,7 +10,7 @@ use oxidgene_core::types::{RecordKind, TagRef, Tree};
 use oxidgene_core::{ChildType, SpouseRole};
 use uuid::Uuid;
 
-use crate::api::{AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody};
+use crate::api::{AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody, TagSummary};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
@@ -19,7 +19,7 @@ use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, Portraits, 
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
-use crate::components::tags::TagPicker;
+use crate::components::tags::{TagBranchDialog, TagPicker};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{
     TreeCache, fetch_tree_cached, use_tree_cache, use_view_state_cache,
@@ -209,6 +209,8 @@ struct Overlays {
     delete_error: Signal<Option<String>>,
     /// The person the tag picker is open on, and where it opens.
     tagging: Signal<Option<(Uuid, f64, f64)>>,
+    /// The person whose branch is being tagged.
+    tagging_branch: Signal<Option<Uuid>>,
 }
 
 fn use_overlays() -> Overlays {
@@ -222,6 +224,7 @@ fn use_overlays() -> Overlays {
         confirm_delete: use_signal(|| None),
         delete_error: use_signal(|| None),
         tagging: use_signal(|| None),
+        tagging_branch: use_signal(|| None),
     }
 }
 
@@ -255,6 +258,7 @@ impl Overlays {
             PersonAction::EditSpecificUnion(fid) => self.editing_union.set(Some(fid)),
             PersonAction::Kinship => self.linking.set(Some(LinkingMode::Kinship(pid))),
             PersonAction::Tags => self.tagging.set(Some((pid, x, y))),
+            PersonAction::TagBranch => self.tagging_branch.set(Some(pid)),
             PersonAction::GoTo(relative) => selected_root.set(Some(relative)),
             PersonAction::Delete => {
                 self.confirm_delete.set(Some(pid));
@@ -532,6 +536,25 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
+    // ── The tree's tag vocabulary, for the chart's highlight list. Asked with
+    // the tree and the pedigree, not once the chart is drawn, so it does not
+    // add a level to the page's requests ──
+    let api_tags = api.clone();
+    let tags_resource = use_traced_resource(load_trace.clone(), "tags", move || {
+        let api = api_tags.clone();
+        let tid = tree_id_parsed();
+        async move {
+            match tid {
+                Some(tid) => api.list_tags(tid).await,
+                None => Ok(Vec::new()),
+            }
+        }
+    });
+    let tags: Vec<TagSummary> = match &*tags_resource.read() {
+        Some(Ok(tags)) => tags.clone(),
+        _ => Vec::new(),
+    };
+
     // ── The portraits of the chart's people, whose sources the pedigree
     // carries — only for a view that draws them ──
     let view_pref = try_use_context::<Signal<crate::components::pedigree_view::PedigreeView>>();
@@ -652,6 +675,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         sosa_root_person_id: tree.as_ref().and_then(|tree| tree.sosa_root_person_id),
                         sosa_ancestor_ids: sosa_ancestors(),
                         portraits: photos_resource.read().clone(),
+                        tags: tags.clone(),
                         center_gen: center_gen(),
                         on_person_click: move |(pid, x, y)| {
                             context_menu.set(Some((pid, x, y)));
@@ -722,6 +746,27 @@ fn TreeTagPicker(
     }
 }
 
+/// The "Tag a branch…" dialog, opened from a person's menu. Each change to the
+/// tags is followed by a new read of the tree, so the chart shows it.
+fn branch_tagging(
+    tree_id: Uuid,
+    tagging_branch: Signal<Option<Uuid>>,
+    tree_cache: TreeCache,
+) -> Element {
+    let mut tagging_branch = tagging_branch;
+    match tagging_branch() {
+        Some(person_id) => rsx! {
+            TagBranchDialog {
+                tree_id,
+                person_id,
+                on_close: move |()| tagging_branch.set(None),
+                on_changed: move |()| tree_cache.invalidate(),
+            }
+        },
+        None => rsx! {},
+    }
+}
+
 /// The dialogs opened over the chart: merging, deleting, and the person and
 /// union forms.
 fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
@@ -738,6 +783,7 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
         mut confirm_delete,
         mut delete_error,
         mut tagging,
+        tagging_branch,
         ..
     } = writes.overlays;
     let delete = writes.clone();
@@ -752,6 +798,7 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
                 on_close: move |()| tagging.set(None),
             }
         }
+        {branch_tagging(tid, tagging_branch, tree_cache)}
         // "Merge with…": the wizard, from the search for the other record.
         if let Some(pid) = merging() {
             MergeDialog {

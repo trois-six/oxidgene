@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
+generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -47,6 +47,8 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - A couple page: both spouses side by side, with the union, its events, media and notes drawn once across the two ([Couple Profile](ui-couple-profile.md)).
 - Witnesses and godparents linked to events as persons of the tree ([Data Model](data-model.md#eventwitness)).
 - Tags on persons and couples: one vocabulary per tree, each tag with a colour, put on or taken off from a shared picker and shown as chips on the page ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
+- Bulk tagging of persons: tag a branch of the tree (ancestors, descendants or both, with their spouses if asked) from a person's menu, or every result of a search from the results toolbar, with a count per tag and one audit entry per change ([Genealogy Tree](ui-genealogy-tree.md), [Search Results §4](ui-search-results.md#4-results-toolbar), [API Contract](api.md#tags)).
+- Highlighting a tag in the tree: its carriers get a dot and a border in the tag's colour in every chart, and the others are dimmed unless turned off ([Genealogy Tree](ui-genealogy-tree.md)).
 
 ![Couple page with the wedding photograph](../assets/screenshots/couple.webp)
 

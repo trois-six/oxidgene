@@ -199,7 +199,7 @@ impl AuditCategory {
 
     /// The category of a tag put on, or taken off, a record of `kind`: a
     /// medium's tags are `media`, as its links are, and every other kind's
-    /// are `data` (docs/tags.md §2.5).
+    /// are `data` (docs/data-model.md, Audit log).
     pub fn of_record_tag(kind: RecordKind) -> Self {
         match kind {
             RecordKind::Media => Self::Media,

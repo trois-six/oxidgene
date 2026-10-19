@@ -367,6 +367,8 @@ pub fn build_router(state: AppState) -> Router {
             put(tag::update_tag).delete(tag::delete_tag),
         )
         .route("/{tree_id}/tags/{tag_id}/merge", post(tag::merge_tag))
+        .route("/{tree_id}/tags/{tag_id}/bulk", post(tag::bulk_tag))
+        .route("/{tree_id}/tags/target", post(tag::tag_target))
         .route(
             "/{tree_id}/tags/{tag_id}/records",
             get(tag::list_tagged_records),

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
 ---
 
 
@@ -80,7 +80,11 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. The search fields ar
 ## 4. Results Toolbar
 
 The toolbar reports the exact total returned by the server, exposes the sort
-selector, and switches between list and pedigree-grid views.
+selector, and switches between list and pedigree-grid views. Its **Tag the
+results…** button opens the bulk tag picker on every person the current search
+and filters return, not only the page shown ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+It is disabled when there is no result. The picker's changes refresh the results,
+so their tag dots follow.
 
 ---
 

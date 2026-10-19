@@ -1,14 +1,17 @@
-//! Tags on records (docs/tags.md §6.1 and §6.3): the picker that puts a tag
+//! Tags on records (docs/ui-common.md §4.18): the picker that puts a tag
 //! on a record or takes it off, and the chips and dots that show a record's
 //! tags. The picker is one component for every kind of record.
+
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{RecordKind, TAG_COLOR_SLOTS, TagRef};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, TagSummary};
+use crate::api::{ApiClient, ApiError, BulkTagAction, TagSummary, TagTarget};
 use crate::components::context_menu::ContextMenuSurface;
+use crate::components::modal::Modal;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
@@ -38,7 +41,7 @@ const _: () = assert!(TAG_VARS.len() == TAG_COLOR_SLOTS as usize);
 
 /// The colour a new tag takes: the slot the fewest of the tree's tags use,
 /// the lowest index on a tie, so the first twelve tags all differ
-/// (docs/tags.md §2.1).
+/// (docs/data-model.md, Tag).
 pub(crate) fn next_color(tags: &[TagSummary]) -> i16 {
     (0..TAG_COLOR_SLOTS)
         .min_by_key(|slot| tags.iter().filter(|tag| tag.color == *slot).count())
@@ -52,7 +55,13 @@ fn tag_slot(color: i16) -> usize {
 
 /// The inline style that paints a dot in a tag's colour.
 pub(crate) fn dot_style(color: i16) -> String {
-    format!("background: {};", TAG_VARS[tag_slot(color)])
+    format!("background: {};", tag_colour(color))
+}
+
+/// The `var()` reference to the theme token of a tag's colour, for SVG
+/// fills and strokes.
+pub(crate) fn tag_colour(color: i16) -> &'static str {
+    TAG_VARS[tag_slot(color)]
 }
 
 /// Remembers the element that has focus before the picker takes it, so
@@ -456,6 +465,507 @@ fn TagPickerRows(
     }
 }
 
+/// A bulk change over more persons than this asks for confirmation first
+/// (docs/ui-common.md §4.18).
+const CONFIRM_ABOVE: i64 = 100;
+
+/// The deepest generation a branch reaches (docs/ui-common.md §4.18).
+const MAX_DEPTH: u8 = 30;
+
+/// How many of a target's persons carry each tag.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct BulkCounts {
+    total: i64,
+    per_tag: HashMap<Uuid, i64>,
+}
+
+impl BulkCounts {
+    /// How many of the persons carry `tag`.
+    fn carried(&self, tag: Uuid) -> i64 {
+        self.per_tag.get(&tag).copied().unwrap_or(0)
+    }
+}
+
+/// Reads the counts of the target. The server counts each person of the
+/// target once, whatever the target spans.
+async fn read_counts(
+    api: &ApiClient,
+    tree_id: Uuid,
+    target: &TagTarget,
+) -> Result<BulkCounts, ApiError> {
+    let part = api.tag_target(tree_id, target).await?;
+    Ok(BulkCounts {
+        total: part.total,
+        per_tag: part
+            .tags
+            .into_iter()
+            .map(|tag| (tag.tag_id, tag.count))
+            .collect(),
+    })
+}
+
+/// The counts a read gave, or the message that says why there are none.
+fn counts_of(
+    i18n: &I18n,
+    read: &Option<Result<BulkCounts, ApiError>>,
+) -> (Option<BulkCounts>, Option<String>) {
+    match read {
+        Some(Ok(counts)) => (Some(counts.clone()), None),
+        Some(Err(err)) => (None, Some(error_message(i18n, err))),
+        None => (None, None),
+    }
+}
+
+/// The change waiting for confirmation, its action, and the number of persons
+/// it writes.
+type PendingChange = Option<(TagRef, BulkTagAction, i64)>;
+
+/// The number of persons an action writes: those without the tag for Add,
+/// those carrying it for Remove.
+fn changed_persons(action: BulkTagAction, total: i64, carried: i64) -> i64 {
+    match action {
+        BulkTagAction::Add => (total - carried).max(0),
+        BulkTagAction::Remove => carried.max(0),
+    }
+}
+
+/// Whether a change writing `changed` persons asks for confirmation first.
+fn needs_confirmation(changed: i64) -> bool {
+    changed > CONFIRM_ABOVE
+}
+
+/// Starts a change: at once, or once confirmed when it writes many persons.
+fn ask(
+    changed: i64,
+    mut pending: Signal<PendingChange>,
+    apply: Callback<(TagRef, BulkTagAction)>,
+    tag: TagRef,
+    action: BulkTagAction,
+) {
+    if needs_confirmation(changed) {
+        pending.set(Some((tag, action, changed)));
+    } else {
+        apply.call((tag, action));
+    }
+}
+
+/// Props of [`BulkTagPicker`].
+#[derive(Props, Clone, PartialEq)]
+pub struct BulkTagPickerProps {
+    pub tree_id: Uuid,
+    /// The persons the picker acts on. Fixed when the picker opens.
+    pub target: TagTarget,
+    pub on_close: EventHandler<()>,
+    /// After each change, so the views that show the tags read them again.
+    pub on_changed: EventHandler<()>,
+}
+
+/// The picker in bulk mode (docs/ui-common.md §4.18). For each tag of the tree it
+/// shows how many of the target's persons carry it, and two actions: Add to
+/// all, Remove from all. A change over more than [`CONFIRM_ABOVE`] persons
+/// asks first. Each change is one request, so it is written at once.
+#[component]
+pub fn BulkTagPicker(props: BulkTagPickerProps) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_id = props.tree_id;
+    let on_changed = props.on_changed;
+    let target = use_hook(|| props.target.clone());
+
+    // Bumped after each change, so the counts are read again.
+    let mut revision = use_signal(|| 0_u32);
+    let vocabulary = {
+        let api = api.clone();
+        use_ui_resource("tag_vocabulary", move || {
+            let api = api.clone();
+            async move { api.list_tags(tree_id).await }
+        })
+    };
+    let counts = {
+        let api = api.clone();
+        let target = target.clone();
+        use_ui_resource("tag_bulk_counts", move || {
+            let api = api.clone();
+            let target = target.clone();
+            let _ = revision();
+            async move { read_counts(&api, tree_id, &target).await }
+        })
+    };
+
+    let mut query = use_signal(String::new);
+    let mut error = use_signal(|| None::<String>);
+    let mut pending = use_signal(|| None::<(TagRef, BulkTagAction, i64)>);
+    let mut busy = use_signal(|| false);
+
+    let (tags, load_failure) = vocabulary_of(&i18n, &vocabulary.read_unchecked());
+    let (counts_now, count_failure) = counts_of(&i18n, &counts.read_unchecked());
+    let loading = vocabulary.read_unchecked().is_none() || counts.read_unchecked().is_none();
+    let total = counts_now.as_ref().map_or(0, |counts| counts.total);
+
+    // The tags the target carries sort first, as the single picker does.
+    let carried: Vec<TagRef> = tags
+        .iter()
+        .filter(|tag| {
+            counts_now
+                .as_ref()
+                .is_some_and(|counts| counts.carried(tag.id) > 0)
+        })
+        .map(as_tag_ref)
+        .collect();
+    let typed = query().trim().to_string();
+    let (options, _) = picker_options(&tags, &carried, &typed);
+
+    // Writes the change in one request, then reads the counts again.
+    let api_for_apply = api.clone();
+    let apply_target = target.clone();
+    let apply = use_callback(move |(tag, action): (TagRef, BulkTagAction)| {
+        let api = api_for_apply.clone();
+        let target = apply_target.clone();
+        pending.set(None);
+        busy.set(true);
+        spawn(async move {
+            let result = api.bulk_tag(tree_id, tag.id, action, &target).await;
+            busy.set(false);
+            match result {
+                Ok(_) => error.set(None),
+                Err(err) => error.set(Some(error_message(&i18n, &err))),
+            }
+            revision += 1;
+            on_changed.call(());
+        });
+    });
+
+    let title = i18n.t("tag.bulk.title");
+    // The list says why it is empty; a failed count is shown on its own
+    // line, and no row is drawn over counts that are unknown.
+    let empty_text = if loading {
+        i18n.t("tag.picker.loading")
+    } else if let Some(message) = load_failure {
+        message
+    } else {
+        i18n.t("tag.bulk.empty")
+    };
+    let total_text = i18n.t_plural("tag.bulk.total", total.max(0) as usize);
+    let filter_label = i18n.t("tag.picker.filter");
+
+    rsx! {
+        Modal {
+            class: "modal-card tag-bulk-card".to_string(),
+            label: title.clone(),
+            on_close: props.on_close,
+            busy: busy(),
+            h3 { "{title}" }
+            p { class: "tag-bulk-total", "{total_text}" }
+            input {
+                r#type: "text",
+                class: "tag-picker-input",
+                placeholder: "{filter_label}",
+                aria_label: "{filter_label}",
+                autocomplete: "off",
+                spellcheck: "false",
+                value: "{query}",
+                oninput: move |event: Event<FormData>| query.set(event.value()),
+            }
+            if let Some(message) = error() {
+                p { class: "tag-picker-error", role: "alert", "{message}" }
+            }
+            if let Some(message) = count_failure.clone() {
+                p { class: "tag-picker-error", role: "alert", "{message}" }
+            }
+            if let Some((tag, action, changed)) = pending() {
+                {
+                    let confirmed = tag.clone();
+                    let confirm_text = i18n.t_plural("tag.bulk.confirm_message", changed.max(0) as usize);
+                    rsx! {
+                        div { class: "tag-bulk-confirm", role: "group",
+                            p { "{confirm_text}" }
+                            div { class: "tag-bulk-confirm-actions",
+                                button {
+                                    class: "btn btn-outline btn-sm",
+                                    r#type: "button",
+                                    onclick: move |_| pending.set(None),
+                                    {i18n.t("common.cancel")}
+                                }
+                                button {
+                                    class: "btn btn-primary btn-sm",
+                                    r#type: "button",
+                                    onclick: move |_| apply.call((confirmed.clone(), action)),
+                                    {i18n.t("tag.bulk.confirm")}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div {
+                class: "tag-bulk-list",
+                if let Some(counts) = counts_now.clone() {
+                    BulkTagRows {
+                        options: options.clone(),
+                        counts,
+                        busy: busy(),
+                        pending,
+                        apply,
+                    }
+                    if options.is_empty() {
+                        div { class: "tag-picker-empty", "{empty_text}" }
+                    }
+                } else if count_failure.is_none() {
+                    div { class: "tag-picker-empty", "{empty_text}" }
+                }
+            }
+        }
+    }
+}
+
+/// The tag as the picker's rows carry it.
+fn as_tag_ref(tag: &TagSummary) -> TagRef {
+    TagRef {
+        id: tag.id,
+        label: tag.label.clone(),
+        color: tag.color,
+    }
+}
+
+/// The rows of the bulk picker: one line per tag with its count and the two
+/// actions. Each action is a button, so Tab and Enter reach it.
+#[component]
+fn BulkTagRows(
+    options: Vec<TagSummary>,
+    counts: BulkCounts,
+    busy: bool,
+    pending: Signal<PendingChange>,
+    apply: Callback<(TagRef, BulkTagAction)>,
+) -> Element {
+    let i18n = use_i18n();
+    let total = counts.total;
+    rsx! {
+        for tag in options.iter() {
+            {
+                let row = as_tag_ref(tag);
+                let carried = counts.carried(tag.id);
+                let add_row = row.clone();
+                let remove_row = row.clone();
+                let add_disabled = busy || carried >= total;
+                let remove_disabled = busy || carried == 0;
+                let add_changed = changed_persons(BulkTagAction::Add, total, carried);
+                let remove_changed = changed_persons(BulkTagAction::Remove, total, carried);
+                let carried_text = i18n.t_args(
+                    "tag.bulk.carried",
+                    &[("count", &carried.to_string()), ("total", &total.to_string())],
+                );
+                let add_label = i18n.t_args("tag.bulk.add_label", &[("label", &tag.label)]);
+                let remove_label = i18n.t_args("tag.bulk.remove_label", &[("label", &tag.label)]);
+                rsx! {
+                    div {
+                        key: "{tag.id}",
+                        class: "tag-bulk-row",
+                        role: "group",
+                        aria_label: "{tag.label}",
+                        span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
+                        span { class: "tag-picker-label", "{tag.label}" }
+                        span { class: "tag-bulk-count", "{carried_text}" }
+                        button {
+                            class: "btn btn-outline btn-sm",
+                            r#type: "button",
+                            disabled: add_disabled,
+                            aria_label: "{add_label}",
+                            onclick: move |_| ask(add_changed, pending, apply, add_row.clone(), BulkTagAction::Add),
+                            {i18n.t("tag.bulk.add")}
+                        }
+                        button {
+                            class: "btn btn-outline btn-sm",
+                            r#type: "button",
+                            disabled: remove_disabled,
+                            aria_label: "{remove_label}",
+                            onclick: move |_| ask(remove_changed, pending, apply, remove_row.clone(), BulkTagAction::Remove),
+                            {i18n.t("tag.bulk.remove")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Which persons of a branch are named (docs/ui-common.md §4.18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BranchScope {
+    Ancestors,
+    Descendants,
+    Both,
+}
+
+/// The target a branch names. "Both" is one target on the server, which
+/// counts a person on both sides once.
+fn branch_target(
+    person: Uuid,
+    scope: BranchScope,
+    depth: Option<u8>,
+    include_self: bool,
+    include_spouses: bool,
+) -> TagTarget {
+    match scope {
+        BranchScope::Ancestors => TagTarget::Ancestors {
+            ancestors_of: person,
+            depth,
+            include_self,
+        },
+        BranchScope::Descendants => TagTarget::Descendants {
+            descendants_of: person,
+            depth,
+            include_self,
+            include_spouses,
+        },
+        BranchScope::Both => TagTarget::AncestorsAndDescendants {
+            ancestors_and_descendants_of: person,
+            depth,
+            include_self,
+            include_spouses,
+        },
+    }
+}
+
+/// The generations field: empty means all of them, up to 30; otherwise a
+/// number from 1 to 30. `None` when the text is neither.
+fn parse_depth(text: &str) -> Option<Option<u8>> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Some(None);
+    }
+    match text.parse::<u8>() {
+        Ok(depth) if (1..=MAX_DEPTH).contains(&depth) => Some(Some(depth)),
+        _ => None,
+    }
+}
+
+/// The dialog that tags a branch from a person's menu (docs/ui-common.md §4.18):
+/// the scope, the depth and the two inclusions, then the bulk picker on the
+/// persons they name.
+#[component]
+pub fn TagBranchDialog(
+    tree_id: Uuid,
+    person_id: Uuid,
+    on_close: EventHandler<()>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let mut scope = use_signal(|| BranchScope::Ancestors);
+    let mut depth = use_signal(String::new);
+    let mut include_self = use_signal(|| true);
+    let mut include_spouses = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut chosen = use_signal(|| None::<TagTarget>);
+
+    if let Some(target) = chosen() {
+        return rsx! {
+            BulkTagPicker { tree_id, target, on_close, on_changed }
+        };
+    }
+
+    let title = i18n.t("tag.branch.title");
+    let spouses_enabled = scope() != BranchScope::Ancestors;
+    let submit = move |event: Event<FormData>| {
+        event.prevent_default();
+        match parse_depth(&depth()) {
+            Some(depth) => {
+                error.set(None);
+                chosen.set(Some(branch_target(
+                    person_id,
+                    scope(),
+                    depth,
+                    include_self(),
+                    include_spouses(),
+                )));
+            }
+            None => error.set(Some(i18n.t("tag.branch.depth_invalid"))),
+        }
+    };
+
+    rsx! {
+        Modal {
+            class: "modal-card".to_string(),
+            label: title.clone(),
+            on_close,
+            h3 { "{title}" }
+            form { class: "tag-branch-form", onsubmit: submit,
+                fieldset { class: "tag-branch-scope",
+                    legend { {i18n.t("tag.branch.scope")} }
+                    label {
+                        input {
+                            r#type: "radio",
+                            name: "tag-branch-scope",
+                            checked: scope() == BranchScope::Ancestors,
+                            onchange: move |_| scope.set(BranchScope::Ancestors),
+                        }
+                        span { {i18n.t("tag.branch.ancestors")} }
+                    }
+                    label {
+                        input {
+                            r#type: "radio",
+                            name: "tag-branch-scope",
+                            checked: scope() == BranchScope::Descendants,
+                            onchange: move |_| scope.set(BranchScope::Descendants),
+                        }
+                        span { {i18n.t("tag.branch.descendants")} }
+                    }
+                    label {
+                        input {
+                            r#type: "radio",
+                            name: "tag-branch-scope",
+                            checked: scope() == BranchScope::Both,
+                            onchange: move |_| scope.set(BranchScope::Both),
+                        }
+                        span { {i18n.t("tag.branch.both")} }
+                    }
+                }
+                label { class: "tag-branch-field",
+                    span { {i18n.t("tag.branch.depth")} }
+                    input {
+                        r#type: "number",
+                        inputmode: "numeric",
+                        min: "1",
+                        max: "30",
+                        placeholder: i18n.t("tag.branch.depth_all"),
+                        value: "{depth}",
+                        oninput: move |event: Event<FormData>| depth.set(event.value()),
+                    }
+                    span { class: "tag-branch-hint", {i18n.t("tag.branch.depth_hint")} }
+                }
+                label {
+                    input {
+                        r#type: "checkbox",
+                        checked: include_self(),
+                        onchange: move |event: Event<FormData>| include_self.set(event.checked()),
+                    }
+                    span { {i18n.t("tag.branch.include_self")} }
+                }
+                label {
+                    input {
+                        r#type: "checkbox",
+                        disabled: !spouses_enabled,
+                        checked: include_spouses(),
+                        onchange: move |event: Event<FormData>| include_spouses.set(event.checked()),
+                    }
+                    span { {i18n.t("tag.branch.include_spouses")} }
+                }
+                if let Some(message) = error() {
+                    p { class: "tag-picker-error", role: "alert", "{message}" }
+                }
+                div { class: "tag-branch-actions",
+                    button {
+                        class: "btn btn-outline",
+                        r#type: "button",
+                        onclick: move |_| on_close.call(()),
+                        {i18n.t("common.cancel")}
+                    }
+                    button { class: "btn btn-primary", r#type: "submit", {i18n.t("tag.branch.next")} }
+                }
+            }
+        }
+    }
+}
+
 /// The icon button that opens the picker on a record, drawn among the
 /// record's header actions. The picker opens beside the button.
 #[component]
@@ -502,7 +1012,7 @@ pub fn TagsButton(
 }
 
 /// The route that opens the Dictionary's Tags tab on a tag: what a chip or a
-/// dot follows (docs/tags.md §6.3).
+/// dot follows (docs/ui-common.md §4.18).
 fn tag_route(tree_id: &str, tag: &TagRef) -> Route {
     Route::DictionaryTag {
         tree_id: tree_id.to_string(),
@@ -512,7 +1022,7 @@ fn tag_route(tree_id: &str, tag: &TagRef) -> Route {
 
 /// The tags of a record as chips: a colour dot and the label, one after the
 /// other, each opening the Tags tab on its tag. Nothing is drawn for a record
-/// without tags (docs/tags.md §6.3). Chips carry no remove button.
+/// without tags (docs/ui-common.md §4.18). Chips carry no remove button.
 #[component]
 pub fn TagChips(tree_id: String, tags: Vec<TagRef>) -> Element {
     let i18n = use_i18n();
@@ -537,7 +1047,7 @@ pub fn TagChips(tree_id: String, tags: Vec<TagRef>) -> Element {
 
 /// The tags of a record as dots, at most three and then `+n`. Each dot opens
 /// the Tags tab on its tag; its label is in the tooltip and the accessible
-/// name, so a dot never carries its tag by colour alone (docs/tags.md §6.3).
+/// name, so a dot never carries its tag by colour alone (docs/ui-common.md §4.18).
 #[component]
 pub fn TagDots(tree_id: String, tags: Vec<TagRef>) -> Element {
     let i18n = use_i18n();
@@ -713,5 +1223,85 @@ mod tests {
         assert_eq!(dot_style(-5), "background: var(--tag-0);");
         assert_eq!(dot_style(TAG_COLOR_SLOTS), "background: var(--tag-11);");
         assert_eq!(dot_style(99), "background: var(--tag-11);");
+    }
+
+    #[test]
+    fn the_generations_field_is_empty_for_all_or_one_to_thirty() {
+        assert_eq!(parse_depth("  "), Some(None));
+        assert_eq!(parse_depth("1"), Some(Some(1)));
+        assert_eq!(parse_depth(" 30 "), Some(Some(30)));
+        assert_eq!(parse_depth("0"), None);
+        assert_eq!(parse_depth("31"), None);
+        assert_eq!(parse_depth("many"), None);
+    }
+
+    #[test]
+    fn both_sides_of_a_branch_are_one_target() {
+        let person = Uuid::now_v7();
+        assert_eq!(
+            branch_target(person, BranchScope::Both, Some(4), true, true),
+            TagTarget::AncestorsAndDescendants {
+                ancestors_and_descendants_of: person,
+                depth: Some(4),
+                include_self: true,
+                include_spouses: true,
+            }
+        );
+        assert_eq!(
+            branch_target(person, BranchScope::Ancestors, None, false, true),
+            TagTarget::Ancestors {
+                ancestors_of: person,
+                depth: None,
+                include_self: false,
+            }
+        );
+    }
+
+    #[test]
+    fn a_branch_target_serializes_as_the_server_reads_it() {
+        let person = Uuid::nil();
+        let json = serde_json::to_value(TagTarget::Descendants {
+            descendants_of: person,
+            depth: None,
+            include_self: true,
+            include_spouses: false,
+        })
+        .expect("a target serializes");
+        assert_eq!(json["descendants_of"], person.to_string());
+        assert!(json.get("depth").is_none(), "an absent depth is left out");
+        assert_eq!(json["include_self"], true);
+    }
+
+    #[test]
+    fn the_carried_count_of_an_unlisted_tag_is_zero() {
+        let tag = Uuid::now_v7();
+        let counts = BulkCounts {
+            total: 5,
+            per_tag: HashMap::from([(tag, 2)]),
+        };
+        assert_eq!(counts.carried(tag), 2);
+        assert_eq!(counts.carried(Uuid::now_v7()), 0);
+    }
+
+    #[test]
+    fn a_change_is_gated_on_the_persons_it_writes_not_the_target() {
+        // Add to all on 150 persons, 60 carrying the tag: 90 are written.
+        let added = changed_persons(BulkTagAction::Add, 150, 60);
+        assert_eq!(added, 90);
+        assert!(!needs_confirmation(added));
+        // Remove from all on the same 150, 3 carrying it: 3 are written.
+        let removed = changed_persons(BulkTagAction::Remove, 150, 3);
+        assert_eq!(removed, 3);
+        assert!(!needs_confirmation(removed));
+        // Add to all on 250 persons, 60 carrying the tag: 190 are written.
+        let large = changed_persons(BulkTagAction::Add, 250, 60);
+        assert_eq!(large, 190);
+        assert!(needs_confirmation(large));
+    }
+
+    #[test]
+    fn the_confirmation_threshold_is_more_than_one_hundred_persons() {
+        assert!(!needs_confirmation(CONFIRM_ABOVE));
+        assert!(needs_confirmation(CONFIRM_ABOVE + 1));
     }
 }

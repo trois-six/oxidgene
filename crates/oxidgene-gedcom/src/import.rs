@@ -2450,7 +2450,7 @@ fn import_oxidgene_media_extensions(data: &Dataset, result: &mut ImportResult) {
 
 /// The tags of the `_OXIDGENE_TAG` lines of `extra`, in the order of the
 /// tag vocabulary, each read once: labels that fold alike are one tag, the
-/// first spelling and colour read stay (docs/tags.md §3). A line that is not
+/// first spelling and colour read stay (docs/api.md, OxidGene extensions). A line that is not
 /// read is left out with a warning.
 fn read_tags(
     extra: Items<'_, Node>,
@@ -2516,7 +2516,7 @@ fn read_tags(
     sorted_tags(found)
 }
 
-/// Tags sorted by folded label, as a record carries them (docs/tags.md §4).
+/// Tags sorted by folded label, as a record carries them (docs/data-model.md, Tag).
 fn sorted_tags(mut tags: Vec<TagRef>) -> Vec<TagRef> {
     tags.sort_by_cached_key(|tag| (fold_words(&tag.label), tag.id));
     tags
@@ -2560,7 +2560,7 @@ fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &m
     result.tags = vocabulary;
 }
 
-/// Read the tags beneath each document's first `OBJE` (docs/tags.md §3).
+/// Read the tags beneath each document's first `OBJE` (docs/api.md, OxidGene extensions).
 /// Runs once the pages are regrouped, so that the tags of a page land on the
 /// document it now belongs to.
 fn import_document_tags(data: &Dataset, result: &mut ImportResult) {

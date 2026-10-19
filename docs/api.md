@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-18T17:28:42Z }
+generated: { by: human:maintainer, at: 2026-10-18T21:08:05Z }
 ---
 
 
@@ -732,13 +732,47 @@ tagged on the document.
 | `PUT` | `/trees/{tree_id}/tags/{tag_id}` | Rename or recolour (`{label?, color?}`). A label folding to another tag's is `409` |
 | `POST` | `/trees/{tree_id}/tags/{tag_id}/merge` | Move every link to `{into}`, dropping those it already has, then delete the tag. Returns `into` |
 | `DELETE` | `/trees/{tree_id}/tags/{tag_id}` | Delete the tag and its links. `204` |
+| `POST` | `/trees/{tree_id}/tags/{tag_id}/bulk` | Add the tag to, or remove it from, every person of `target` (`{action: "add" \| "remove", target}`), in one transaction and one audit entry. Returns `{count}`, the persons changed |
+| `POST` | `/trees/{tree_id}/tags/target` | `{target}` in, `{total, tags: [{tag_id, count}]}` out: the persons of the target and, per tag they carry, how many. Writes nothing. The same bounds and errors as the bulk change |
 | `GET` | `/trees/{tree_id}/tags/{tag_id}/records?kind=…&first=…&after=…` | The live records of that kind carrying the tag, cursor-paginated, each as `{id, kind, label, person_id, family_id}` |
 | `PUT` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Put the tag on a record. Idempotent: `204` |
 | `DELETE` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Take the tag off a record. Idempotent: `204` |
 
 GraphQL: `tags(treeId)`, `taggedRecords(treeId, tagId, kind, first, after)`,
-`createTag`, `updateTag`, `mergeTag`, `deleteTag`, `tagRecord` and
-`untagRecord`. `searchPersons` takes `tags: [ID!]`.
+`createTag`, `updateTag`, `mergeTag`, `deleteTag`, `tagRecord`, `untagRecord`,
+`bulkTag(treeId, tagId, action, target)` and `tagTarget(treeId, target)`, which
+take the same `target` as the REST routes. `searchPersons` takes `tags: [ID!]`.
+The GraphQL `action` of `bulkTag` is the enum `ADD` or `REMOVE` (`GqlBulkTagAction`),
+where REST takes the strings `"add"` or `"remove"`. `bulkTag` returns
+`{count}` (GraphQL `count`), and `tagTarget` returns `total` and `tags`, a list
+of `{tagId, count}` (`GqlTagTargetCounts`), where REST returns `{total, tags: [{tag_id, count}]}`.
+
+**Bulk targets.** `target` names exactly one of:
+
+- `persons`: a list of person ids, at most 1 000. Each must be a live person of
+  the tree; one of another tree, or a deleted one, is `404 not_found`;
+- `ancestors_of`, `descendants_of` or `ancestors_and_descendants_of`: a person
+  id, which must be a live person of the tree; one of another tree, or a deleted
+  one, is `404 not_found`, as for a listed person. The walk takes `depth` (1 to
+  30 generations; all of them, up to 30, when absent), `include_self` (default
+  `false`) and, for descendants and for both sides, `include_spouses` (default
+  `false`) naming the spouses of the descendants. The walk follows live families
+  and live persons only: a soft-deleted family links no one, and a soft-deleted
+  person is neither named nor walked through;
+  With `ancestors_and_descendants_of` the two sides are one set of persons: a
+  person named on both sides is counted once;
+- `search`: `{q, …PersonSearchFilters}`, every person the search returns, not
+  one page of it.
+
+A target that names none of these or several, a depth outside 1–30, a listing
+of more than 1 000 persons, or more than 10 000 persons in all is
+`400 validation_error`, with the generic message of its code on both surfaces
+([Cross-cutting Rules §4.4](cross-cutting.md)): the response does not name the bound it
+passed. `bulkTag` writes its links in one transaction, refreshes the projections
+of the persons it changed in that transaction, and writes one audit entry in the
+`record_tag` entity with `details.count` ([Data Model](data-model.md), Audit log).
+It returns `{count}`, the persons it added or removed the tag from. `tagTarget`
+and `POST /tags/target` write nothing.
 
 ### Notes
 

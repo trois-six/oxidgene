@@ -1,5 +1,5 @@
 //! One document of a tree on a route of its own, opened from the Tags tab of
-//! the Dictionary (docs/tags.md §6.7). The viewer is the Media tab's.
+//! the Dictionary (docs/ui-dictionary.md §20). The viewer is the Media tab's.
 
 use dioxus::history::History;
 use dioxus::prelude::*;

@@ -39,7 +39,7 @@ pub struct PersonDetail {
     pub tree_id: Uuid,
     pub sex: Sex,
     pub privacy: Privacy,
-    /// The tags the person carries (docs/tags.md §4).
+    /// The tags the person carries (docs/data-model.md, Tag).
     #[serde(default)]
     pub tags: Vec<oxidgene_core::types::TagRef>,
     /// Which image represents this person: a whole media, or a region of one.
@@ -117,7 +117,7 @@ pub struct PersonSearchParams {
     pub event_from: Option<i32>,
     pub event_to: Option<i32>,
     pub has_media: bool,
-    /// Persons carrying every one of these tags (docs/tags.md §5.3).
+    /// Persons carrying every one of these tags (docs/api.md, Tags).
     pub tags: Vec<Uuid>,
     pub sort: PersonSearchSort,
 }
@@ -1414,7 +1414,7 @@ pub struct MediaTagFacet {
 }
 
 /// A tag of the tree's vocabulary with its counts per record kind
-/// (docs/tags.md §5.1).
+/// (docs/api.md, Tags).
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct TagSummary {
     pub id: Uuid,
@@ -1447,10 +1447,165 @@ pub struct TaggedRecord {
     pub family_id: Option<Uuid>,
 }
 
-/// The number of persons a bulk tagging changed (docs/tags.md §5.4).
+/// The number of persons a bulk tagging changed (docs/api.md, Tags).
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 pub struct BulkTagCount {
     pub count: i64,
+}
+
+/// Whether a bulk tagging puts the tag on its persons or takes it off
+/// (docs/api.md, Tags).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BulkTagAction {
+    Add,
+    Remove,
+}
+
+/// The persons a bulk tagging or a target read names (docs/api.md, Tags).
+/// Serialized untagged: the server reads the one key that is present.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum TagTarget {
+    /// Persons named by id, at most 1,000.
+    Persons { persons: Vec<Uuid> },
+    /// The ancestors of a person; `depth` absent means all generations, up
+    /// to 30.
+    Ancestors {
+        ancestors_of: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        depth: Option<u8>,
+        include_self: bool,
+    },
+    /// The descendants of a person, optionally with their spouses.
+    Descendants {
+        descendants_of: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        depth: Option<u8>,
+        include_self: bool,
+        include_spouses: bool,
+    },
+    /// The ancestors and the descendants of a person, the person counted
+    /// once: a person on both sides is named once.
+    AncestorsAndDescendants {
+        ancestors_and_descendants_of: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        depth: Option<u8>,
+        include_self: bool,
+        include_spouses: bool,
+    },
+    /// Every person a person search returns, not one page of it.
+    Search { search: Box<SearchTargetBody> },
+}
+
+/// The query and the filters of a person search, as a tag target.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SearchTargetBody {
+    pub q: String,
+    #[serde(flatten)]
+    pub filters: SearchTargetFilters,
+}
+
+/// The filters of [`SearchTargetBody`]: the same fields the server's
+/// `PersonSearchFilters` reads. The order and the page are not part of a
+/// target, since every match counts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SearchTargetFilters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sex: Option<Sex>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occupation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spouse_surname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spouse_given_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub father_surname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub father_given_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mother_surname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mother_given_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub birth_from: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub birth_to: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub death_from: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub death_to: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<EventType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_from: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_to: Option<i32>,
+    pub has_media: bool,
+    pub tags: Vec<Uuid>,
+}
+
+impl From<&PersonSearchParams> for SearchTargetBody {
+    fn from(search: &PersonSearchParams) -> Self {
+        Self {
+            q: search.query.clone(),
+            filters: SearchTargetFilters {
+                sex: search.sex,
+                surname: search.surname.clone(),
+                given_names: search.given_names.clone(),
+                occupation: search.occupation.clone(),
+                spouse_surname: search.spouse_surname.clone(),
+                spouse_given_names: search.spouse_given_names.clone(),
+                father_surname: search.father_surname.clone(),
+                father_given_names: search.father_given_names.clone(),
+                mother_surname: search.mother_surname.clone(),
+                mother_given_names: search.mother_given_names.clone(),
+                birth_from: search.birth_from,
+                birth_to: search.birth_to,
+                death_from: search.death_from,
+                death_to: search.death_to,
+                place: search.place.clone(),
+                event_type: search.event_type,
+                event_from: search.event_from,
+                event_to: search.event_to,
+                has_media: search.has_media,
+                tags: search.tags.clone(),
+            },
+        }
+    }
+}
+
+/// One tag carried by at least one person of a target, with how many carry
+/// it (docs/api.md, Tags).
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+pub struct TargetTagCount {
+    pub tag_id: Uuid,
+    pub count: i64,
+}
+
+/// The size of a target and, per tag, how many of its persons carry it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TargetCounts {
+    pub total: i64,
+    pub tags: Vec<TargetTagCount>,
+}
+
+/// The body of `POST /tags/target` and of `POST /tags/{tag_id}/bulk`.
+#[derive(Serialize)]
+struct TargetBody<'a> {
+    target: &'a TagTarget,
+}
+
+#[derive(Serialize)]
+struct BulkTagBody<'a> {
+    action: BulkTagAction,
+    target: &'a TagTarget,
 }
 
 /// A file kind and how many documents hold a page of it.
@@ -4887,16 +5042,34 @@ impl ApiClient {
         .await
     }
 
-    /// Add or remove a tag on every person of a target (docs/tags.md §5.4).
-    /// `body` is the `{ action, target }` document the endpoint takes.
-    pub async fn bulk_tag<B: Serialize>(
+    /// Add or remove a tag on every person of a target, in one transaction
+    /// (docs/api.md, Tags).
+    pub async fn bulk_tag(
         &self,
         tree_id: Uuid,
         tag_id: Uuid,
-        body: &B,
+        action: BulkTagAction,
+        target: &TagTarget,
     ) -> Result<BulkTagCount, ApiError> {
-        self.post(&format!("/api/v1/trees/{tree_id}/tags/{tag_id}/bulk"), body)
-            .await
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/tags/{tag_id}/bulk"),
+            &BulkTagBody { action, target },
+        )
+        .await
+    }
+
+    /// The size of a target and how many of its persons carry each tag. It
+    /// writes nothing (docs/api.md, Tags).
+    pub async fn tag_target(
+        &self,
+        tree_id: Uuid,
+        target: &TagTarget,
+    ) -> Result<TargetCounts, ApiError> {
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/tags/target"),
+            &TargetBody { target },
+        )
+        .await
     }
 
     /// Permanently delete a media record and its associated information.

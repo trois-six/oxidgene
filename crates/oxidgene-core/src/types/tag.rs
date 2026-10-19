@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Number of colour slots a tag can take, `0..TAG_COLOR_SLOTS`. The theme
-/// declares one colour per slot (docs/tags.md §6.6).
+/// declares one colour per slot (docs/ui-common.md §4.18).
 pub const TAG_COLOR_SLOTS: i16 = 12;
 
-/// Longest label a tag can have, in characters after trimming (docs/tags.md §2.1).
+/// Longest label a tag can have, in characters after trimming (docs/data-model.md, Tag).
 pub const TAG_LABEL_MAX: usize = 80;
 
 /// A tag as a record carries it: its identity, its spelling and its colour

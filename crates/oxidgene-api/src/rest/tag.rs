@@ -1,5 +1,5 @@
-//! REST handlers for the tag vocabulary and for tagging records (docs/tags.md
-//! §5.1 and §5.2). Each one is a thin adapter over `service::tag`.
+//! REST handlers for the tag vocabulary and for tagging records (docs/api.md, Tags).
+//! Each one is a thin adapter over `service::tag`.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -12,6 +12,7 @@ use uuid::Uuid;
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::tag::{self, TaggedRecord};
+use crate::service::tag_bulk::{self, BulkAction, TagTargetSpec, TargetCounts};
 
 /// A tag of the vocabulary with its counts per record kind.
 #[derive(Debug, Serialize)]
@@ -88,7 +89,7 @@ pub struct TaggedRecordsQuery {
 
 /// GET /api/v1/trees/:tree_id/tags
 ///
-/// The whole vocabulary, answered in one response (docs/tags.md §5.1).
+/// The whole vocabulary, answered in one response (docs/api.md, Tags).
 pub async fn list_tags(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
@@ -190,4 +191,59 @@ pub async fn untag_record(
     let kind = tag::parse_kind(&kind)?;
     tag::untag_record(&state.db, &state.profiles, tree_id, tag_id, kind, record_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Body of `POST /trees/:tree_id/tags/:tag_id/bulk`. The action is read as
+/// text so that an unknown one is `validation_error`, not an extractor error.
+#[derive(Debug, Deserialize)]
+pub struct BulkTagRequest {
+    pub action: String,
+    pub target: TagTargetSpec,
+}
+
+/// Body of `POST /trees/:tree_id/tags/target`.
+#[derive(Debug, Deserialize)]
+pub struct TagTargetRequest {
+    pub target: TagTargetSpec,
+}
+
+/// The persons a bulk change changed.
+#[derive(Debug, Serialize)]
+pub struct BulkTagCount {
+    pub count: u64,
+}
+
+/// POST /api/v1/trees/:tree_id/tags/:tag_id/bulk
+///
+/// Adds the tag to, or removes it from, every person of the target, in one
+/// transaction and one audit entry (docs/api.md, Tags).
+pub async fn bulk_tag(
+    State(state): State<AppState>,
+    Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<BulkTagRequest>,
+) -> Result<Json<BulkTagCount>, ApiError> {
+    let action = body.action.parse::<BulkAction>()?;
+    let count = tag_bulk::bulk_tag(
+        &state.db,
+        &state.profiles,
+        tree_id,
+        tag_id,
+        action,
+        &body.target,
+    )
+    .await?;
+    Ok(Json(BulkTagCount { count }))
+}
+
+/// POST /api/v1/trees/:tree_id/tags/target
+///
+/// The size of the target and, per tag, how many of its persons carry it.
+/// Writes nothing (docs/api.md, Tags).
+pub async fn tag_target(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<TagTargetRequest>,
+) -> Result<Json<TargetCounts>, ApiError> {
+    let counts = tag_bulk::target_counts(&state.reader, tree_id, &body.target).await?;
+    Ok(Json(counts))
 }

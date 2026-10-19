@@ -198,6 +198,11 @@ test-postgres:
 test-s3:
     cargo nextest run -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
 
+# Refuse a bulk target past 10,000 persons end to end on both surfaces. It
+# creates 10,001 persons, so it runs only on request.
+tag-bounds:
+    cargo nextest run -p oxidgene-api --features graphql --test tag_bulk_test --run-ignored only -E 'test(a_target_past_ten_thousand_persons_is_refused)'
+
 # Stream a private Geneanet session archive, named by
 # OXIDGENE_GENEANET_SESSION, through REST without logging its contents.
 session-check:

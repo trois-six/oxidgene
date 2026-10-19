@@ -4038,3 +4038,46 @@ connection!(
     GqlTaggedRecord,
     crate::service::tag::TaggedRecord
 );
+
+/// What a bulk tag change does to the target's persons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlBulkTagAction {
+    Add,
+    Remove,
+}
+
+/// The persons a bulk tag change changed.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlBulkTagCount {
+    pub count: i64,
+}
+
+/// A tag carried by at least one person of a target, with how many carry it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTagTargetCount {
+    pub tag_id: ID,
+    pub count: i64,
+}
+
+/// The size of a target and, per tag, how many of its persons carry it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTagTargetCounts {
+    pub total: i64,
+    pub tags: Vec<GqlTagTargetCount>,
+}
+
+impl From<crate::service::tag_bulk::TargetCounts> for GqlTagTargetCounts {
+    fn from(counts: crate::service::tag_bulk::TargetCounts) -> Self {
+        Self {
+            total: i64::try_from(counts.total).unwrap_or(i64::MAX),
+            tags: counts
+                .tags
+                .into_iter()
+                .map(|tag| GqlTagTargetCount {
+                    tag_id: ID(tag.tag_id.to_string()),
+                    count: tag.count,
+                })
+                .collect(),
+        }
+    }
+}

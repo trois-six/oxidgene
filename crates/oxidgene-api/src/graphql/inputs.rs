@@ -1101,3 +1101,106 @@ impl TryFrom<MediaListFilterInput> for crate::service::media_library::MediaListF
         })
     }
 }
+
+// ── Tag Target Inputs ────────────────────────────────────────────────
+
+/// The persons a bulk tag change or a tag count reads. Exactly one of
+/// `persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf` or
+/// `search` is set.
+#[derive(Debug, InputObject)]
+pub struct TagTargetInput {
+    /// Persons named by id, at most 1,000.
+    pub persons: Option<Vec<ID>>,
+    /// The person whose ancestors are named.
+    pub ancestors_of: Option<ID>,
+    /// The person whose descendants are named.
+    pub descendants_of: Option<ID>,
+    /// The person whose ancestors and descendants are named together; a
+    /// person named on both sides is counted once.
+    pub ancestors_and_descendants_of: Option<ID>,
+    /// Generations walked, 1 to 30; absent means all of them, up to 30.
+    pub depth: Option<i32>,
+    /// Whether the root person is named as well.
+    pub include_self: Option<bool>,
+    /// Whether the spouses of the descendants are named as well.
+    pub include_spouses: Option<bool>,
+    /// Every person the search returns, not one page of it.
+    pub search: Option<TagSearchTargetInput>,
+}
+
+/// A person search as a tag target: the query and the filters of the search.
+#[derive(Debug, InputObject)]
+pub struct TagSearchTargetInput {
+    pub q: Option<String>,
+    pub sex: Option<GqlSex>,
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+    pub occupation: Option<String>,
+    pub spouse_surname: Option<String>,
+    pub spouse_given_names: Option<String>,
+    pub father_surname: Option<String>,
+    pub father_given_names: Option<String>,
+    pub mother_surname: Option<String>,
+    pub mother_given_names: Option<String>,
+    pub birth_from: Option<i32>,
+    pub birth_to: Option<i32>,
+    pub death_from: Option<i32>,
+    pub death_to: Option<i32>,
+    pub place: Option<String>,
+    pub event_type: Option<GqlEventType>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    pub has_media: Option<bool>,
+    /// Only persons carrying every one of these tags.
+    pub tags: Option<Vec<ID>>,
+}
+
+/// Converts a GraphQL target into the service's target, reading its ids.
+pub(crate) fn tag_target_spec(
+    input: TagTargetInput,
+) -> Result<crate::service::tag_bulk::TagTargetSpec> {
+    use crate::service::tag_bulk::{SearchTarget, TagTargetSpec};
+    use oxidgene_db::repo::PersonSearchFilters;
+
+    let search = match input.search {
+        Some(search) => Some(SearchTarget {
+            q: search.q.unwrap_or_default(),
+            filters: PersonSearchFilters {
+                sex: search.sex.map(Into::into),
+                surname: search.surname,
+                given_names: search.given_names,
+                occupation: search.occupation,
+                spouse_surname: search.spouse_surname,
+                spouse_given_names: search.spouse_given_names,
+                father_surname: search.father_surname,
+                father_given_names: search.father_given_names,
+                mother_surname: search.mother_surname,
+                mother_given_names: search.mother_given_names,
+                birth_from: search.birth_from,
+                birth_to: search.birth_to,
+                death_from: search.death_from,
+                death_to: search.death_to,
+                place: search.place,
+                event_type: search.event_type.map(Into::into),
+                event_from: search.event_from,
+                event_to: search.event_to,
+                has_media: search.has_media.unwrap_or(false),
+                tags: match search.tags {
+                    Some(tags) => uuids(&tags)?,
+                    None => Vec::new(),
+                },
+            },
+        }),
+        None => None,
+    };
+    Ok(TagTargetSpec {
+        persons: input.persons.as_deref().map(uuids).transpose()?,
+        ancestors_of: opt_uuid(input.ancestors_of.as_ref())?,
+        descendants_of: opt_uuid(input.descendants_of.as_ref())?,
+        ancestors_and_descendants_of: opt_uuid(input.ancestors_and_descendants_of.as_ref())?,
+        depth: input.depth.map(i64::from),
+        include_self: input.include_self.unwrap_or(false),
+        include_spouses: input.include_spouses.unwrap_or(false),
+        search,
+    })
+}

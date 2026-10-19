@@ -1,7 +1,7 @@
 //! The Dictionary's Tags tab: the tree's vocabulary, each tag with its colour
 //! and its counts per kind of record. A row unfolds the records carrying the
 //! tag, grouped by kind and paged a kind at a time, and offers to edit,
-//! delete or merge the tag. See `docs/tags.md` §6.7.
+//! delete or merge the tag. See `docs/ui-dictionary.md` §20.
 
 use dioxus::prelude::*;
 use oxidgene_core::search::fold_words;

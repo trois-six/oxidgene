@@ -91,6 +91,8 @@ pub enum PersonAction {
     Kinship,
     /// Put tags on the person, or take them off.
     Tags,
+    /// Put a tag on the person's ancestors, descendants or both.
+    TagBranch,
     /// Make a relative the chart's focus.
     GoTo(Uuid),
     Delete,
@@ -198,6 +200,11 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Tags),
                     {i18n.t("tag.picker.open")}
+                }
+                button {
+                    class: "context-menu-item",
+                    onclick: move |_| props.on_action.call(PersonAction::TagBranch),
+                    {i18n.t("tag.branch.open")}
                 }
                 if props.has_union {
                     if union_count > 1 {

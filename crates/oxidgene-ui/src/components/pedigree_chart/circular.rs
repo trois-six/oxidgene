@@ -541,6 +541,9 @@ pub(super) struct CircularLayout {
     pub(super) entries: Vec<AncestorEntry>,
     pub(super) segments: Vec<Segment>,
     pub(super) root_path: String,
+    /// Where the root's tag dot sits: inside the disc, towards its outer
+    /// corner on the side the chart opens to.
+    pub(super) root_dot: (f64, f64),
     pub(super) root_label: Option<SegmentLabel>,
     /// Whether the chart's root is the tree's SOSA 1, which makes every
     /// position its SOSA number.
@@ -666,6 +669,13 @@ impl CircularLayout {
             entries: Vec::new(),
             segments: Vec::new(),
             root_path: String::new(),
+            root_dot: polar(
+                arc.root_radius * 0.8,
+                match arc.disc {
+                    Disc::Lower => 135.0,
+                    Disc::Full | Disc::Upper => 45.0,
+                },
+            ),
             root_label: None,
             root_is_sosa_root: false,
             max_zoom: ZOOM_MAX,
@@ -748,19 +758,32 @@ fn render_person_segment(
     actions: ChartActions,
 ) -> Element {
     let band = mark_colour(&entry.node);
+    let mark = card_mark(pid);
+    let (dot_x, dot_y) = segment_corner(segment);
+    let class = format!("{} {}", sex_class(entry.node.sex), dim_class(mark));
     rsx! {
         g {
             key: "fs-{entry.sosa}",
-            class: sex_class(entry.node.sex),
+            class: "{class}",
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             path { class: "fan-seg-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
             if let Some(colour) = band {
                 path { class: "fan-seg-band", d: "{segment.band}", style: "stroke:{colour}" }
             }
+            if let Some(colour) = mark_stroke(mark) {
+                path { class: "fan-seg-tag", d: "{segment.path}", style: "stroke:{colour};stroke-width:3;fill:none;pointer-events:none" }
+            }
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
+            {mark_dot(mark, dot_x, dot_y, 4.0)}
         }
     }
+}
+
+/// Where a segment's tag dot sits: near its outer corner at the start of
+/// the segment, the fan's and the wheel's counterpart of a card's top corner.
+fn segment_corner(segment: &Segment) -> (f64, f64) {
+    polar(segment.ring.r_out - 6.0, segment.start + 4.0)
 }
 
 /// A union in a descendant chart: the spouse's name across the band that
@@ -775,10 +798,13 @@ fn render_union_segment(
     actions: ChartActions,
 ) -> Element {
     let spouse = entry.node.id;
+    let mark = spouse.and_then(card_mark);
+    let (dot_x, dot_y) = segment_corner(segment);
+    let class = format!("fan-union {}", dim_class(mark));
     rsx! {
         g {
             key: "fu-{entry.sosa}",
-            class: "fan-union",
+            class: "{class}",
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
@@ -794,7 +820,11 @@ fn render_union_segment(
                 }
             },
             path { class: "fan-union-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
+            if let Some(colour) = mark_stroke(mark) {
+                path { class: "fan-seg-tag", d: "{segment.path}", style: "stroke:{colour};stroke-width:3;fill:none;pointer-events:none" }
+            }
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
+            {mark_dot(mark, dot_x, dot_y, 4.0)}
         }
     }
 }
@@ -855,18 +885,25 @@ fn render_root(
     };
     let pick = move |evt: Event<MouseData>| actions.pick(pid, &evt);
     let band = mark_colour(&entry.node);
+    let mark = card_mark(pid);
+    let class = format!("fan-seg fan-root {}", dim_class(mark));
+    let (dot_x, dot_y) = layout.root_dot;
     rsx! {
         g {
-            class: "fan-seg fan-root",
+            class: "{class}",
             onclick: pick,
             oncontextmenu: pick,
             path { class: "fan-seg-shape", d: "{layout.root_path}", dangerous_inner_html: "{title}" }
             if let Some(colour) = band {
                 path { class: "fan-root-ring", d: "{layout.root_path}", style: "stroke:{colour}" }
             }
+            if let Some(colour) = mark_stroke(mark) {
+                path { class: "fan-root-ring fan-seg-tag", d: "{layout.root_path}", style: "stroke:{colour};stroke-width:3" }
+            }
             if let Some(label) = &layout.root_label {
                 {render_label(label, theme, "var(--white)", "var(--white)")}
             }
+            {mark_dot(mark, dot_x, dot_y, 5.0)}
         }
     }
 }

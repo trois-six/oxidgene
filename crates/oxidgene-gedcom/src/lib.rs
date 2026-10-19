@@ -49,7 +49,7 @@ pub struct ImportResult {
     /// The tag vocabulary the file carries: one tag per folded label, its
     /// first spelling and colour as read first, each with the id the records
     /// carrying it name in [`Person::tags`], [`Family::tags`] and
-    /// [`Media::tags`] (docs/tags.md §3).
+    /// [`Media::tags`] (docs/api.md, OxidGene extensions).
     pub tags: Vec<TagRef>,
     /// The tree the records were read for.
     pub tree_id: uuid::Uuid,
@@ -238,8 +238,8 @@ pub(crate) struct DocumentMetadataExtension {
 }
 
 /// The value of an `_OXIDGENE_TAG` line: one tag a record carries, as a
-/// versioned JSON value so that each line is whole on its own (docs/tags.md
-/// §3). `color` is the index of the tag's colour slot.
+/// versioned JSON value so that each line is whole on its own (docs/api.md,
+/// OxidGene extensions). `color` is the index of the tag's colour slot.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct TagExtension {

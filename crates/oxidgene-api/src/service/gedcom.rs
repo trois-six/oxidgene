@@ -502,7 +502,7 @@ async fn insert_standalone_records(
 }
 
 /// Inserts the tags the file's persons, couples and documents carry, and the
-/// links to them (docs/tags.md §3). A tag the tree already has under the same
+/// links to them (docs/api.md, OxidGene extensions). A tag the tree already has under the same
 /// folded label is joined rather than duplicated, and keeps its own colour; a
 /// new one takes the colour the file gave it.
 async fn insert_tags(

@@ -21,6 +21,21 @@ Le sélecteur liste les étiquettes de l’arbre, celles déjà posées sur la f
 
 Deux écritures qui ne diffèrent que par la casse ou les accents sont une seule étiquette : saisir *a verifier* retrouve celle créée sous le nom *À vérifier*.
 
+## Étiqueter plusieurs personnes à la fois
+
+Deux actions étiquettent un groupe de personnes en une seule étape.
+
+- **Étiqueter une branche…** se trouve dans le menu au crayon d’une personne de l’arbre. Il demande quelles personnes étiqueter : les ascendants, les descendants, ou les deux. Vous choisissez aussi le nombre de générations (vide pour toutes, jusqu’à 30), si la personne est incluse et, pour les descendants, si leurs conjoints le sont. **Continuer** ouvre le sélecteur sur ces personnes. Une personne à la fois ascendante et conjointe d’un descendant n’est comptée qu’une fois.
+- **Étiqueter les résultats…** se trouve dans la barre d’outils des résultats de recherche. Il étiquette toutes les personnes que la recherche et ses filtres renvoient, et pas seulement la page affichée. Il est indisponible quand il n’y a aucun résultat.
+
+Le sélecteur liste ensuite chaque étiquette avec le nombre de ces personnes qui la portent, sous la forme *3 sur 12*. **Ajouter à toutes** pose l’étiquette sur chaque personne du groupe qui ne l’a pas, et **Retirer de toutes** la retire à celles qui la portent. Chaque bouton s’applique aussitôt, et le journal des modifications enregistre une seule entrée pour lui. Quand plus de 100 personnes sont concernées, OxidGene demande d’abord une confirmation. La touche Tab passe d’un bouton à l’autre et Entrée active celui qui a le focus. Pour créer une étiquette, utilisez d’abord le sélecteur d’une seule personne : le sélecteur groupé ne liste que les étiquettes existantes.
+
+## Mettre une étiquette en évidence dans l’arbre
+
+Pour voir où se trouvent les personnes d’une étiquette dans l’arbre, appuyez sur **Mettre une étiquette en évidence** dans la barre latérale gauche de l’arbre, puis choisissez une étiquette dans la liste. La liste ne montre que les étiquettes portées par au moins une personne. Chacune de ces personnes reçoit, dans chaque graphique (arbre, éventail, roue, lignée, sablier et nœud papillon), un point de la couleur de l’étiquette dans le coin supérieur de sa carte, et une bordure de cette couleur. Les autres cartes sont estompées ; décochez **Estomper les autres** pour les laisser telles quelles. Une puce sous le bouton indique l’étiquette, et sa × met fin à la mise en évidence.
+
+La mise en évidence reste tant que la page est ouverte, et quand vous revenez sur la page avec les boutons de l’historique. Elle n’est pas enregistrée dans les réglages. L’impression garde les repères, pas l’estompage.
+
 ## Où les étiquettes apparaissent
 
 Les étiquettes ne prennent aucune place sur une fiche qui n’en a pas.

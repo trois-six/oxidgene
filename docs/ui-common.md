@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-18T17:33:32Z }
+generated: { by: human:maintainer, at: 2026-10-19T06:41:24Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -965,6 +965,28 @@ that carries tags ([Tags](tags.md)):
   wrapping row; nothing is drawn for a record without tags. Each chip is a link
   to the Dictionary's Tags tab on its tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
   Chips carry no remove control.
+- **BulkTagPicker** is the picker in bulk mode, a dialog over a set of persons
+  (the routes are in [API Contract](api.md#tags)). It lists each tag of the tree
+  with how many of the persons carry it, read from the server
+  (`POST /tags/target`), and two buttons per tag, *Add to all* and *Remove from
+  all*, each disabled when it would change nothing. A change over more than 100
+  persons asks for confirmation first, counting the persons the change writes
+  (for *Add to all*, the persons without the tag; for *Remove from all*, the
+  persons carrying it), and the confirmation states that number. Each change is written at once, then the
+  counts are read again; a failed one shows its translated reason, and a failed
+  count read shows its reason under the field, with no row drawn.
+  - **Keyboard (reviewed exception).** The single picker is a listbox with arrow
+    keys; the bulk picker deliberately is not. Each tag carries two independent
+    actions, each with its own disabled state, and an ARIA `option` cannot hold
+    two buttons (nesting interactive controls inside a `listbox` option is
+    invalid ARIA). Each tag is therefore a `role="group"` row of two native
+    buttons, reached with Tab and activated with Enter or Space. Arrow keys do
+    not move between rows, and Escape closes the dialog as in every modal. The
+    end-to-end suite drives this path (`e2e/tests/tags.spec.ts`).
+- **TagBranchDialog** is the dialog behind *Tag a branch…* in a person's menu:
+  the scope (ancestors, descendants, or both), the generations (empty for all,
+  up to 30), and the two inclusions. Its *Continue* opens the bulk picker on the
+  persons it names.
 - **TagDots** draws up to three colour dots after a row's text, then `+n`. Each
   dot is a link to the same place, with the tag's label as its tooltip and
   accessible name and a visible focus ring. A row that is itself a link places

@@ -1,5 +1,5 @@
 //! Tags beneath persons, couples and documents, as `_OXIDGENE_TAG` lines of a
-//! `.ged` and of a GEDZIP (docs/tags.md §3).
+//! `.ged` and of a GEDZIP (docs/api.md, OxidGene extensions).
 
 use std::collections::HashMap;
 

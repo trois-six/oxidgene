@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::service::person::Lineage;
 use crate::service::repository;
 use crate::service::scope::{TreeResource, require_tree_resource};
+use crate::service::tag_bulk;
 
 use oxidgene_db::repo::{
     AuditFilter, CitationFilter, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
@@ -28,7 +29,8 @@ use super::history::{
     GqlRecordVersionConnection, GqlVersionChangeConnection,
 };
 use super::inputs::{
-    GeneanetPreviewInput, ImageSourceInput, MediaListFilterInput, geneanet_deposit_sizes,
+    GeneanetPreviewInput, ImageSourceInput, MediaListFilterInput, TagTargetInput,
+    geneanet_deposit_sizes, tag_target_spec,
 };
 use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
 use super::types::{
@@ -44,9 +46,10 @@ use super::types::{
     GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
     GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult, GqlSource,
     GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTag, GqlTaggedRecordConnection, GqlTree,
-    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
-    media_from_ctx, profiles_from_ctx, reader_from_ctx, require_local_file_access,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTag, GqlTagTargetCounts,
+    GqlTaggedRecordConnection, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion,
+    GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, reader_from_ctx,
+    require_local_file_access,
 };
 
 /// A read's record, or `None` when the record is not there — the shape of
@@ -1314,6 +1317,23 @@ impl QueryRoot {
             let tid = live_tree(ctx, &tree_id).await?;
             let usages = crate::service::tag::list(reader_from_ctx(ctx), tid).await?;
             Ok(usages.into_iter().map(GqlTag::from).collect())
+        })
+        .await
+    }
+
+    /// The size of a target and, per tag, how many of its persons carry it.
+    /// Writes nothing.
+    async fn tag_target(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        target: TagTargetInput,
+    ) -> Result<GqlTagTargetCounts> {
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let spec = tag_target_spec(target)?;
+            let counts = tag_bulk::target_counts(reader_from_ctx(ctx), tid, &spec).await?;
+            Ok(counts.into())
         })
         .await
     }

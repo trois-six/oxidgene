@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
 ---
 
 
@@ -294,6 +294,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Add sibling** | The same panel, for a sibling |
 | **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |
 | **Tags…** | Opens the tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the person's tags are not drawn on the card |
+| **Tag a branch…** | Opens the branch dialog: the ancestors, the descendants or both, the generations (all by default, up to 30), whether to include the person and, for descendants, their spouses. Then the bulk picker opens on those persons ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [API Contract](api.md#tags)) |
 | **Go to…** | In the wheels, fans and lineage (§10): opens a list of the person's relatives the chart does not draw around them — spouses and children in an ancestor chart, parents and spouses in a descendant one — under a heading per kind, each with their lifespan; choosing one makes them the focus. The chart's own focus is left out, and so is the entry when the list would be empty. Not offered on the tree, which draws them all |
 
 The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
@@ -510,6 +511,8 @@ which they find from the page's route, and show as current on their own page
 ([Common UI §6.3](ui-common.md#63-shared-left-icon-sidebar)).
 
 This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart**, **Wrench** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, Tools, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.
+
+On the tree page the sidebar also holds **Highlight a tag**. It opens the list of the tags that at least one person carries; the chosen tag is shown as a chip under the button, whose × ends the highlight. Every card of a person carrying the tag gets a dot in the tag's colour at its top corner and a border in that colour, in every chart of the page, and the other cards are dimmed to 45 % unless **Dim the others** is off. The highlight belongs to the page's history entry, not to the settings, and printing keeps the marks without the dimming. Cards draw nothing for tags while no tag is highlighted.
 
 **Depth selector — hover panel**:
 

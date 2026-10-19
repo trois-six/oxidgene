@@ -14,7 +14,7 @@ pub struct Family {
     /// enforced when authentication lands — see the roadmap.
     #[serde(default)]
     pub privacy: Privacy,
-    /// The tags the couple carries, sorted by folded label (docs/tags.md §4).
+    /// The tags the couple carries, sorted by folded label (docs/data-model.md, Tag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,

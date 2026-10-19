@@ -1,6 +1,6 @@
 //! A GEDCOM file's tags reach the database: each folded label is one tag of
 //! the tree, linked to the persons, couples and documents that carry it, and
-//! an export writes them back once (docs/tags.md §3).
+//! an export writes them back once (docs/api.md, OxidGene extensions).
 //!
 //! All data is fictitious.
 

@@ -246,18 +246,24 @@ struct Step {
 
 impl Step {
     /// Upwards: from a person, to the families they are a child of, to the
-    /// spouses of those families.
+    /// spouses of those families. Deleted families and deleted spouses are
+    /// not walked through, as in [`AncestryRepo::family_links`].
     const UP: Self = Self {
         joins: "JOIN family_child  fc ON fc.person_id = step.person_id \
-                JOIN family_spouse fs ON fs.family_id = fc.family_id",
+                JOIN family f ON f.id = fc.family_id AND f.deleted_at IS NULL \
+                JOIN family_spouse fs ON fs.family_id = fc.family_id \
+                JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL",
         next_person: "fs.person_id",
     };
 
     /// Downwards: from a person, to the families they are a spouse in, to
-    /// the children of those families.
+    /// the children of those families. Deleted families and deleted children
+    /// are not walked through, as in [`AncestryRepo::family_links`].
     const DOWN: Self = Self {
         joins: "JOIN family_spouse fs ON fs.person_id = step.person_id \
-                JOIN family_child  fc ON fc.family_id = fs.family_id",
+                JOIN family f ON f.id = fs.family_id AND f.deleted_at IS NULL \
+                JOIN family_child  fc ON fc.family_id = fs.family_id \
+                JOIN person p ON p.id = fc.person_id AND p.deleted_at IS NULL",
         next_person: "fc.person_id",
     };
 }

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T17:28:42Z }
+generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
 ---
 
 
@@ -487,9 +487,12 @@ by a `CHECK` constraint.
   since no key reaches the tree for every kind.
 - Writing a link does not touch the tagged record's `updated_at` nor version it.
 
-The phase 1 interface tags persons, couples (families) and documents. The model
-accepts all nine kinds, so the other kinds need no schema change when their
-interface arrives ([Tags §9](tags.md#9-phases)).
+The interface tags persons, couples (families) and documents. A bulk change over
+persons ([API Contract](api.md), Tags) adds or removes their links in one
+transaction: it writes only the links that change, so the count it returns and
+audits is exact, and a link already present or already absent is not counted.
+The model accepts all nine kinds, so the other kinds need no schema change when
+their interface arrives ([Tags §5](tags.md#5-phases)).
 
 ### Vignette
 
@@ -1167,6 +1170,12 @@ What is recorded:
 Projection maintenance (rebuilding or dropping `person_denorm`) derives data and
 changes none, so it is not recorded. Authentication is not part of the current
 MVP, so an entry records no author.
+
+A bulk tag change writes one entry for the whole change, in its transaction:
+`entity` `record_tag`, `entity_id` the tag, `action` `create` when it adds the
+tag and `delete` when it removes it, `details.count` the persons changed, and no
+subject, since the change names no single record. Nothing is versioned, as for
+any tag write. A change that alters no link writes no entry.
 
 An event write names the event's owner as its subject and its type in
 `details.event_type`; a write on a note or citation names what the note or

@@ -39,5 +39,6 @@ pub mod source;
 pub mod statistics;
 pub mod suggestions;
 pub mod tag;
+pub mod tag_bulk;
 pub mod tree;
 pub mod vignette;

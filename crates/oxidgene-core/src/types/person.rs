@@ -24,7 +24,7 @@ pub struct Person {
     pub portrait_media_id: Option<Uuid>,
     #[serde(default)]
     pub portrait_vignette_id: Option<Uuid>,
-    /// The tags the person carries, sorted by folded label (docs/tags.md §4).
+    /// The tags the person carries, sorted by folded label (docs/data-model.md, Tag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,

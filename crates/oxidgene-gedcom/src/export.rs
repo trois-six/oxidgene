@@ -1707,7 +1707,7 @@ fn extension(tag: TagId, value: String) -> Node {
 }
 
 /// One `_OXIDGENE_TAG` line per tag, beneath the record carrying them
-/// (docs/tags.md §3).
+/// (docs/api.md, OxidGene extensions).
 fn tag_nodes(tag: TagId, tags: &[TagRef]) -> Vec<Node> {
     tags.iter()
         .filter_map(|tag_ref| {
@@ -1725,7 +1725,7 @@ fn tag_nodes(tag: TagId, tags: &[TagRef]) -> Vec<Node> {
 /// A warning for each tagged document with no page to carry its tags.
 ///
 /// A document's tags are written beneath its first page's `OBJE` (see
-/// docs/tags.md §3), and a document holding no page has no `OBJE` to carry
+/// docs/api.md, OxidGene extensions), and a document holding no page has no `OBJE` to carry
 /// them: they are not exported, and the export says so.
 fn untaggable_documents(media: &[Media]) -> Vec<String> {
     media
@@ -1873,7 +1873,7 @@ fn media_extensions(
             )),
         }
 
-        // The document's tags ride beneath its first page (docs/tags.md §3).
+        // The document's tags ride beneath its first page (docs/api.md, OxidGene extensions).
         if item.page_index == 0
             && let Some(document) = media_by_id.get(&document_id)
         {

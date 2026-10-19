@@ -712,6 +712,21 @@ type GqlBackgroundJobStarted {
 }
 
 """
+What a bulk tag change does to the target's persons.
+"""
+enum GqlBulkTagAction {
+	ADD
+	REMOVE
+}
+
+"""
+The persons a bulk tag change changed.
+"""
+type GqlBulkTagCount {
+	count: Int!
+}
+
+"""
 Calendar system.
 """
 enum GqlCalendar {
@@ -2888,6 +2903,22 @@ type GqlTagRef {
 }
 
 """
+A tag carried by at least one person of a target, with how many carry it.
+"""
+type GqlTagTargetCount {
+	tagId: ID!
+	count: Int!
+}
+
+"""
+The size of a target and, per tag, how many of its persons carry it.
+"""
+type GqlTagTargetCounts {
+	total: Int!
+	tags: [GqlTagTargetCount!]!
+}
+
+"""
 A live record carrying a tag, with a label to show it by.
 """
 type GqlTaggedRecord {
@@ -3526,6 +3557,11 @@ type MutationRoot {
 	"""
 	deleteTag(treeId: ID!, id: ID!): Boolean!
 	"""
+	Add a tag to, or remove it from, every person of a target, in one
+	transaction and one audit entry. Returns the number of persons changed.
+	"""
+	bulkTag(treeId: ID!, tagId: ID!, action: GqlBulkTagAction!, target: TagTargetInput!): GqlBulkTagCount!
+	"""
 	Put a tag on a record. Idempotent; a page of a document is tagged on
 	the document.
 	"""
@@ -3964,6 +4000,11 @@ type QueryRoot {
 	"""
 	tags(treeId: ID!): [GqlTag!]!
 	"""
+	The size of a target and, per tag, how many of its persons carry it.
+	Writes nothing.
+	"""
+	tagTarget(treeId: ID!, target: TagTargetInput!): GqlTagTargetCounts!
+	"""
 	One page of the live records of `kind` carrying a tag.
 	"""
 	taggedRecords(treeId: ID!, tagId: ID!, kind: String!, first: Int, after: String): GqlTaggedRecordConnection!
@@ -4263,6 +4304,77 @@ type Summary {
 	stdDev: Float
 	min: Float
 	max: Float
+}
+
+"""
+A person search as a tag target: the query and the filters of the search.
+"""
+input TagSearchTargetInput {
+	q: String
+	sex: GqlSex
+	surname: String
+	givenNames: String
+	occupation: String
+	spouseSurname: String
+	spouseGivenNames: String
+	fatherSurname: String
+	fatherGivenNames: String
+	motherSurname: String
+	motherGivenNames: String
+	birthFrom: Int
+	birthTo: Int
+	deathFrom: Int
+	deathTo: Int
+	place: String
+	eventType: GqlEventType
+	eventFrom: Int
+	eventTo: Int
+	hasMedia: Boolean
+	"""
+	Only persons carrying every one of these tags.
+	"""
+	tags: [ID!]
+}
+
+"""
+The persons a bulk tag change or a tag count reads. Exactly one of
+`persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf` or
+`search` is set.
+"""
+input TagTargetInput {
+	"""
+	Persons named by id, at most 1,000.
+	"""
+	persons: [ID!]
+	"""
+	The person whose ancestors are named.
+	"""
+	ancestorsOf: ID
+	"""
+	The person whose descendants are named.
+	"""
+	descendantsOf: ID
+	"""
+	The person whose ancestors and descendants are named together; a
+	person named on both sides is counted once.
+	"""
+	ancestorsAndDescendantsOf: ID
+	"""
+	Generations walked, 1 to 30; absent means all of them, up to 30.
+	"""
+	depth: Int
+	"""
+	Whether the root person is named as well.
+	"""
+	includeSelf: Boolean
+	"""
+	Whether the spouses of the descendants are named as well.
+	"""
+	includeSpouses: Boolean
+	"""
+	Every person the search returns, not one page of it.
+	"""
+	search: TagSearchTargetInput
 }
 
 """

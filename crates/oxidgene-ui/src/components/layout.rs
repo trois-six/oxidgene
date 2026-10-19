@@ -2718,7 +2718,7 @@ pub const LAYOUT_STYLES: &str = r#"
         border-radius: var(--radius);
     }
 
-    /* A search row and the tag dots beside it (docs/tags.md §6.3): the dots
+    /* A search row and the tag dots beside it (docs/ui-common.md §4.18): the dots
        are links of their own, so they cannot sit inside the row's link. */
     .search-person-entry {
         display: flex;
@@ -5433,7 +5433,7 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1.2;
     }
 
-    /* Tags on records (docs/tags.md §6.1, §6.3). Each colour is a --tag-N
+    /* Tags on records (docs/ui-common.md §4.18). Each colour is a --tag-N
        token of the theme; a dot or chip always carries its label too. */
     .tag-dot {
         display: inline-block;
@@ -5535,6 +5535,169 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .tag-picker-empty {
         padding: var(--space-3) var(--space-5);
+        font-size: var(--text-75);
+        color: var(--text-muted);
+    }
+    .tag-bulk-card {
+        width: min(34rem, calc(100vw - 16px));
+        padding-bottom: var(--space-4);
+    }
+    .tag-bulk-total {
+        font-size: var(--text-75);
+        color: var(--text-muted);
+    }
+    .tag-bulk-list {
+        max-height: 22rem;
+        overflow-y: auto;
+    }
+    .tag-bulk-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-4);
+        font-size: var(--text-80);
+        color: var(--text-primary);
+    }
+    .tag-bulk-row .tag-picker-label {
+        flex: 1;
+    }
+    .tag-bulk-count {
+        flex: none;
+        font-size: var(--text-75);
+        color: var(--text-muted);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .tag-bulk-confirm {
+        margin: 0 var(--space-4) var(--space-3);
+        padding: var(--space-3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        font-size: var(--text-80);
+    }
+    .tag-bulk-confirm p {
+        margin: 0 0 var(--space-3);
+    }
+    .tag-bulk-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-3);
+    }
+    .tag-branch-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        font-size: var(--text-80);
+        color: var(--text-primary);
+    }
+    .tag-branch-scope {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+    .tag-branch-form label {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+    }
+    .tag-branch-field {
+        flex-wrap: wrap;
+    }
+    .tag-branch-hint {
+        flex-basis: 100%;
+        font-size: var(--text-75);
+        color: var(--text-muted);
+    }
+    .tag-branch-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-3);
+    }
+    /* Highlighting a tag in the tree views (docs/ui-genealogy-tree.md): the dimmed cards
+       keep their marks, and printing shows every card at full strength. */
+    .ped-tag-dim { opacity: 0.45; }
+    @media print {
+        .ped-tag-dim { opacity: 1; }
+    }
+    .tag-highlight-chip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-1);
+        width: 100%;
+        padding: var(--space-1) 0;
+        font-size: var(--text-65);
+        color: var(--text-secondary);
+    }
+    .tag-highlight-chip-label {
+        writing-mode: vertical-rl;
+        max-height: 96px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .tag-highlight-chip-clear {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--text-muted);
+        font-size: var(--text-80);
+        line-height: 1;
+        cursor: pointer;
+    }
+    .tag-highlight-chip-clear:hover { color: var(--orange); }
+    .tag-highlight-chip-clear:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: 2px;
+    }
+    .tag-highlight-card { min-width: min(20rem, calc(100vw - 32px)); }
+    .tag-highlight-dim {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+        font-size: var(--text-80);
+        color: var(--text-primary);
+    }
+    .tag-highlight-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        max-height: 50vh;
+        overflow-y: auto;
+    }
+    .tag-highlight-option {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        width: 100%;
+        padding: var(--space-2) var(--space-3);
+        background: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        font: inherit;
+        font-size: var(--text-80);
+        color: var(--text-primary);
+        text-align: left;
+        cursor: pointer;
+    }
+    .tag-highlight-option:hover,
+    .tag-highlight-option:focus-visible {
+        background: var(--bg-card-hover);
+        outline: none;
+    }
+    .tag-highlight-option.is-active { border-color: var(--orange); }
+    .tag-highlight-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .tag-highlight-count {
         font-size: var(--text-75);
         color: var(--text-muted);
     }

@@ -506,6 +506,40 @@ impl PersonSearchRepo {
 
     // ── Statement builders ──────────────────────────────────────────────
 
+    /// The ids of every person `search_filtered` would return for the same
+    /// arguments, unpaged, up to `limit` of them. A caller asking for `limit`
+    /// + 1 learns whether the search is larger than it may take.
+    pub async fn search_ids(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        query: &str,
+        filters: &PersonSearchFilters,
+        limit: u64,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let words: Vec<String> = fold_words(query)
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
+        let mut values = Vec::new();
+        let conditions = filtered_conditions(&mut values, backend, tree_id, &words, filters);
+        let limit_param = push_value(&mut values, backend, (limit as i64).into());
+        let sql = format!(
+            "SELECT person_id FROM person_search_fts WHERE {conditions} LIMIT {limit_param}"
+        );
+        db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
+            .await
+            .map_err(db_err)?
+            .iter()
+            .map(|row| {
+                let text = row.try_get::<String>("", "person_id").map_err(db_err)?;
+                Uuid::parse_str(&text).map_err(|_| {
+                    OxidGeneError::Validation("a search row holds a malformed person id".to_owned())
+                })
+            })
+            .collect()
+    }
+
     fn filtered_statement(
         backend: DbBackend,
         tree_id: Uuid,
@@ -516,22 +550,13 @@ impl PersonSearchRepo {
         offset: u64,
     ) -> Statement {
         let mut values = Vec::new();
-        let mut conditions = vec![format!(
-            "tree_id = {}",
-            push_value(&mut values, backend, tree_id.to_string().into())
-        )];
-        push_word_conditions(&mut values, &mut conditions, backend, words);
-        push_person_filters(&mut values, &mut conditions, backend, filters);
-        push_event_filters(&mut values, &mut conditions, backend, tree_id, filters);
-        push_relative_filters(&mut values, &mut conditions, backend, tree_id, filters);
-        push_tag_filters(&mut values, &mut conditions, backend, tree_id, filters);
+        let conditions = filtered_conditions(&mut values, backend, tree_id, words, filters);
         let order = sort_order(&mut values, backend, words, filters, sort);
         let limit_param = push_value(&mut values, backend, (limit as i64).into());
         let offset_param = push_value(&mut values, backend, (offset as i64).into());
         let sql = format!(
             "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
-             WHERE {} ORDER BY {order} LIMIT {limit_param} OFFSET {offset_param}",
-            conditions.join(" AND ")
+             WHERE {conditions} ORDER BY {order} LIMIT {limit_param} OFFSET {offset_param}",
         );
         Statement::from_sql_and_values(backend, sql, values)
     }
@@ -1068,6 +1093,27 @@ fn push_tag_filters(
              WHERE rt.tree_id = {tree} AND rt.tag_id = {tag} AND rt.person_id IS NOT NULL)"
         ));
     }
+}
+
+/// The `WHERE` clause shared by the paged and the unpaged search, binding
+/// its values into `values`.
+fn filtered_conditions(
+    values: &mut Vec<Value>,
+    backend: DbBackend,
+    tree_id: Uuid,
+    words: &[String],
+    filters: &PersonSearchFilters,
+) -> String {
+    let mut conditions = vec![format!(
+        "tree_id = {}",
+        push_value(values, backend, tree_id.to_string().into())
+    )];
+    push_word_conditions(values, &mut conditions, backend, words);
+    push_person_filters(values, &mut conditions, backend, filters);
+    push_event_filters(values, &mut conditions, backend, tree_id, filters);
+    push_relative_filters(values, &mut conditions, backend, tree_id, filters);
+    push_tag_filters(values, &mut conditions, backend, tree_id, filters);
+    conditions.join(" AND ")
 }
 
 /// The `ORDER BY` clause of a sort.

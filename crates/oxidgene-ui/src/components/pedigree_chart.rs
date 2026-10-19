@@ -16,7 +16,7 @@ use chrono::NaiveDate;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::CroppedSource;
+use crate::api::{CroppedSource, TagSummary};
 use crate::components::cropped_image::CroppedSvgImage;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
@@ -26,6 +26,11 @@ use crate::components::tree_cache::{
     PedigreeViewState, ViewStateCache, use_track_current_person, use_view_state_cache,
 };
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::nav_history::{use_restored_view, use_saved_view};
+use highlight::{
+    CardMark, HighlightTool, TagHighlight, card_mark, dim_class, highlight_marks, mark_dot,
+    mark_stroke, use_carriers, use_chart_highlight,
+};
 
 use oxidgene_core::projection::{Pedigree, ProfileEvent};
 use oxidgene_core::types::{
@@ -45,6 +50,7 @@ mod circular;
 mod controls;
 mod descent;
 mod event_panel;
+mod highlight;
 mod lineage;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
@@ -3608,6 +3614,10 @@ pub struct PedigreeChartProps {
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
+    /// The tree's tag vocabulary, for the highlight list. The page fetches
+    /// it with the tree, so the chart does not wait for it.
+    #[props(default)]
+    pub tags: Vec<TagSummary>,
     #[props(default)]
     pub center_gen: u32,
     pub on_person_click: EventHandler<(Uuid, f64, f64)>,
@@ -3989,6 +3999,7 @@ fn render_person_card(
     let i18n = &card.i18n;
     let (nx, ny) = (node.x, node.y);
     let is_focus = pid == root_person_id;
+    let mark = card_mark(pid);
     let bg = card_bg(is_focus, node.is_sibling);
     // The lifespan is secondary to the name, and every theme gives it a
     // colour of its own for that; on the root card both sit on the
@@ -3999,11 +4010,15 @@ fn render_person_card(
         ("var(--pn-text)", "var(--pn-text-muted)")
     };
     let stroke = gender_stroke(node.sex);
-    let card_class = if is_focus {
-        "ped-card ped-card-focus"
-    } else {
-        "ped-card"
-    };
+    let card_class = format!(
+        "{} {}",
+        if is_focus {
+            "ped-card ped-card-focus"
+        } else {
+            "ped-card"
+        },
+        dim_class(mark),
+    );
     let tooltip_value = card_tooltip(node, i18n);
     let tooltip_name = tooltip_value.name.clone();
     let CardGeometry {
@@ -4034,7 +4049,8 @@ fn render_person_card(
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             ..mini_tooltip.map(|tooltip| tooltip_listeners(tooltip, tooltip_value)).unwrap_or_default(),
-            {card_outline(node, geo, theme, bg)}
+            {card_outline(node, geo, theme, bg, mark)}
+            {mark_dot(mark, geo.rect_w + theme.metrics.padding - 3.0, theme.metrics.padding + 3.0, 4.0)}
             if let Some(gl) = gender_line {
                 path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
             }
@@ -4092,18 +4108,30 @@ fn card_tooltip(node: &LayoutNode, i18n: &I18n) -> MiniPedigreeTooltipValue {
 }
 
 /// A person card's outline filled with `bg`, and a cartouche's inner rule.
-fn card_outline(node: &LayoutNode, geo: &CardGeometry, theme: &PedigreeTheme, bg: &str) -> Element {
+fn card_outline(
+    node: &LayoutNode,
+    geo: &CardGeometry,
+    theme: &PedigreeTheme,
+    bg: &str,
+    mark: Option<CardMark>,
+) -> Element {
     let padding = theme.metrics.padding;
     let border_radius = theme.metrics.border_radius;
     let (rw, rh) = (geo.rect_w, geo.rect_h);
     // The classic card shows sex on a short rule beside the portrait and
     // keeps a neutral outline; a cartouche is heavy enough to carry the
-    // colour itself, and drops the rule.
-    let frame_stroke = match theme.card.frame_stroke {
-        FrameStroke::Border => "var(--pn-border)",
-        FrameStroke::Gender => gender_stroke(node.sex),
+    // colour itself, and drops the rule. A carrier of the highlighted tag
+    // is outlined in the tag's colour instead.
+    let (frame_stroke, frame_width) = match mark_stroke(mark) {
+        Some(colour) => (colour, 3.0),
+        None => (
+            match theme.card.frame_stroke {
+                FrameStroke::Border => "var(--pn-border)",
+                FrameStroke::Gender => gender_stroke(node.sex),
+            },
+            theme.card.frame_width,
+        ),
     };
-    let frame_width = theme.card.frame_width;
     let inner = match geo.frame {
         CardFrame::Plain => None,
         CardFrame::Cartouche { inner_inset } => Some((
@@ -4767,6 +4795,16 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     use_track_current_person(tid_parsed, Some(selected_person_id()));
     use_chart_portraits(props.portraits.as_ref());
 
+    // ── Highlighted tag (docs/ui-genealogy-tree.md), kept in the tree page's history entry ──
+    let restored_highlight = use_restored_view::<Option<TagHighlight>>().flatten();
+    let highlight = use_signal(move || restored_highlight);
+    use_saved_view(move || *highlight.read());
+    let carriers = use_carriers(tid_parsed, highlight);
+    let tags = props.tags.clone();
+    let marks = highlight_marks(highlight(), &tags, &carriers.read_unchecked());
+    let carriers_failed = matches!(&*carriers.read_unchecked(), Some(Err(_)));
+    use_chart_highlight(marks);
+
     // ── Event panel collapse (persisted via localStorage) ──
     let last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
     let panel_collapsed = use_signal(|| false);
@@ -4883,6 +4921,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 on_pedigree_view: move |_| {},
                 on_add_person: props.on_add_person,
                 controls::PedigreeTools { view, saver, viewport_rect, max_zoom, fit_target }
+                HighlightTool { highlight, tags: tags.clone(), carriers_failed }
             }
 
             button {

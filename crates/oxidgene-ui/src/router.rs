@@ -85,7 +85,7 @@ pub enum Route {
     Dictionary { tree_id: String },
 
     /// The Dictionary opened on the Tags tab, unfolded on one tag (a chip or
-    /// a dot elsewhere, docs/tags.md §6.3).
+    /// a dot elsewhere, docs/ui-common.md §4.18).
     #[route("/trees/:tree_id/dictionary/tags/:tag")]
     DictionaryTag { tree_id: String, tag: String },
 

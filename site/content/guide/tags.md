@@ -21,6 +21,21 @@ The picker lists the tree's tags, with the ones already on the record first:
 
 Two spellings that differ only by case or accents are one tag: typing *a verifier* finds the tag you created as *À vérifier*.
 
+## Tag several persons at once
+
+Two actions tag a group of persons in one step.
+
+- **Tag a branch…** is in the pencil menu of a person in the tree. It asks which persons to tag: the ancestors, the descendants, or both. You also choose how many generations (empty for all, up to 30), whether to include the person and, for descendants, whether to include their spouses. **Continue** opens the picker on those persons. A person who is both an ancestor and a spouse of a descendant is counted once.
+- **Tag the results…** is in the search results toolbar. It tags every person that the search and its filters return, not only the page on screen. It is unavailable when there is no result.
+
+The picker then lists each tag with how many of these persons carry it, as *3 of 12*. **Add to all** puts the tag on every person of the group who lacks it, and **Remove from all** takes it off those who carry it. Each button applies at once, and the audit log records one entry for it. When more than 100 persons are concerned, OxidGene asks you to confirm first. Tab moves between the buttons and Enter presses the focused one. To create a tag, use the picker of a single person first: the bulk picker only lists the tags that exist.
+
+## Highlight a tag in the tree
+
+To see where the persons of a tag sit in the tree, press **Highlight a tag** in the tree's left sidebar and choose a tag from the list. The list shows the tags that at least one person carries. Each of these persons gets a dot in the tag's colour at the top corner of their card and a border in that colour, in every chart: the tree, the wheel, the fan, the lineage, the hourglass and the bowtie. The other cards are dimmed; untick **Dim the others** to leave them as they are. A chip under the button shows the tag, and its × ends the highlight.
+
+The highlight stays while the page is open, and when you come back to the page with the history buttons. It is not saved in the settings. Printing keeps the marks, not the dimming.
+
 ## Where tags show
 
 Tags take no room on a record that has none.

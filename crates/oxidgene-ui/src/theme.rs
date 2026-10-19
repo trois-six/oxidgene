@@ -258,7 +258,7 @@ theme_tokens! {
     pn_hover_bg => "pn-hover-bg",
 
     // ── Tags ────────────────────────────────────────────────────────────
-    /// The colour slots a tag takes, `--tag-0` to `--tag-11` (docs/tags.md §6.6).
+    /// The colour slots a tag takes, `--tag-0` to `--tag-11` (docs/ui-common.md §4.18).
     tag_0 => "tag-0",
     tag_1 => "tag-1",
     tag_2 => "tag-2",
