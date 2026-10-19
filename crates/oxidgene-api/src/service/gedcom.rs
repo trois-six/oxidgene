@@ -501,8 +501,8 @@ async fn insert_standalone_records(
     Ok(())
 }
 
-/// Inserts the tags the file's persons, couples and documents carry, and the
-/// links to them (docs/api.md, OxidGene extensions). A tag the tree already has under the same
+/// Inserts the tags the file's persons, couples, documents, events, sources and
+/// citations carry, and the links to them (docs/api.md, OxidGene extensions). A tag the tree already has under the same
 /// folded label is joined rather than duplicated, and keeps its own colour; a
 /// new one takes the colour the file gave it.
 async fn insert_tags(
@@ -516,6 +516,9 @@ async fn insert_tags(
         .flat_map(|person| &person.tags)
         .chain(result.families.iter().flat_map(|family| &family.tags))
         .chain(result.media.iter().flat_map(|item| &item.tags))
+        .chain(result.events.iter().flat_map(|event| &event.tags))
+        .chain(result.sources.iter().flat_map(|source| &source.tags))
+        .chain(result.citations.iter().flat_map(|citation| &citation.tags))
         .map(|tag| tag.id)
         .collect();
     let mut stored: HashMap<Uuid, Uuid> = HashMap::new();
@@ -568,6 +571,42 @@ async fn insert_tags(
                 .filter_map(link)
                 .map(|model| record_tag::ActiveModel {
                     media_id: Set(Some(item.id)),
+                    ..model
+                }),
+        );
+    }
+    for event in &result.events {
+        links.extend(
+            event
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    event_id: Set(Some(event.id)),
+                    ..model
+                }),
+        );
+    }
+    for source in &result.sources {
+        links.extend(
+            source
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    source_id: Set(Some(source.id)),
+                    ..model
+                }),
+        );
+    }
+    for citation in &result.citations {
+        links.extend(
+            citation
+                .tags
+                .iter()
+                .filter_map(link)
+                .map(|model| record_tag::ActiveModel {
+                    citation_id: Set(Some(citation.id)),
                     ..model
                 }),
         );

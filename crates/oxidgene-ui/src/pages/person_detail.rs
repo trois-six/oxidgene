@@ -15,7 +15,7 @@ use crate::components::person_profile::{
     timeline_placeholder, timeline_section, use_ancestor_pedigree, use_mini_pedigree,
     use_page_pictures, use_tree_resource,
 };
-use crate::components::tags::TagsButton;
+use crate::components::tags::{RecordTagMenu, TagsButton, use_record_menu};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
@@ -63,6 +63,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let mut show_edit_person = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
     let mut media_revision = use_signal(|| 0_u32);
+    let record_menu = use_record_menu();
 
     // ── Resources ────────────────────────────────────────────────────
 
@@ -227,6 +228,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         tree_id,
         sosa_ancestors: &sosa_ancestors,
         media_revision,
+        record_menu,
         gallery: page_gallery(&pictures_resource),
     });
 
@@ -251,6 +253,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             content_class: "pd-content",
 
         // Person edit modal (civil status, names, birth/death — see PersonForm).
+        if let Some(tid) = tree_id_parsed() {
+            RecordTagMenu {
+                tree_id: tid,
+                menu: record_menu,
+                on_changed: move |()| media_revision += 1,
+            }
+        }
         if let (true, Some(tid)) = (show_edit_person(), tree_id_parsed()) {
             PersonForm {
                 tree_id: tid,

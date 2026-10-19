@@ -1074,6 +1074,192 @@ pub fn TagDots(tree_id: String, tags: Vec<TagRef>) -> Element {
     }
 }
 
+/// How long a touch must hold before it opens a record menu, in milliseconds.
+const LONG_PRESS_MS: u32 = 500;
+
+/// Places the menu beside the row, read from the page: the row's left edge and
+/// its bottom. Sends nothing when neither the row nor one of its controls holds
+/// the focus, so a key pressed outside the row does not open its menu.
+fn anchor_script(row_id: &str) -> String {
+    let id = serde_json::to_string(row_id).unwrap_or_default();
+    format!(
+        "const row = document.getElementById({id});\n\
+         if (row && row.contains(document.activeElement)) {{\n\
+             const rect = row.getBoundingClientRect();\n\
+             dioxus.send([rect.left + 24, rect.bottom]);\n\
+         }} else {{\n\
+             dioxus.send(null);\n\
+         }}"
+    )
+}
+
+/// Gives the focus to the row with this DOM id, when a menu or picker that
+/// the row opened closes without a choice that moves the focus elsewhere.
+fn focus_row(row_id: &str) {
+    let _ = document::eval(&format!(
+        "document.getElementById({})?.focus();",
+        serde_json::to_string(row_id).unwrap_or_default()
+    ));
+}
+
+/// The record a menu is open for: its kind and id, the tags it carries now,
+/// and the DOM id of the row that holds the focus while the menu is open.
+#[derive(Clone, PartialEq)]
+pub struct MenuTarget {
+    pub kind: RecordKind,
+    pub record_id: Uuid,
+    pub tags: Vec<TagRef>,
+    pub row_id: String,
+}
+
+/// The menu state of one list of records (docs/ui-common.md §4.18). The rows
+/// of a list are not components, so the page holds one [`RecordMenu`] (see
+/// [`use_record_menu`]), wires each row to it, and renders one
+/// [`RecordTagMenu`] for the list.
+#[derive(Clone, Copy, PartialEq)]
+pub struct RecordMenu {
+    /// Where the menu opens, in client coordinates; `None` while closed.
+    at: Signal<Option<(f64, f64)>>,
+    target: Signal<Option<MenuTarget>>,
+    /// Counts the touches that began and ended, so a long press that was
+    /// lifted before its time out does not open the menu.
+    press: Signal<u32>,
+}
+
+/// The menu state of a list, created by the page component.
+pub fn use_record_menu() -> RecordMenu {
+    RecordMenu {
+        at: use_signal(|| None),
+        target: use_signal(|| None),
+        press: use_signal(|| 0),
+    }
+}
+
+impl RecordMenu {
+    fn open(mut self, target: MenuTarget, point: (f64, f64)) {
+        self.target.set(Some(target));
+        self.at.set(Some(point));
+    }
+
+    /// Opens the menu of `target` where a right click landed.
+    pub fn open_at_pointer(self, event: &Event<MouseData>, target: MenuTarget) {
+        event.prevent_default();
+        event.stop_propagation();
+        let point = event.client_coordinates();
+        self.open(target, (point.x, point.y));
+    }
+
+    /// Opens the menu of `target` beside its row for the context-menu key and
+    /// Shift+F10, when the row or one of its controls holds the focus.
+    pub fn open_from_keyboard(self, event: &Event<KeyboardData>, target: MenuTarget) {
+        let opens = match event.key() {
+            Key::ContextMenu => true,
+            Key::F10 => event.modifiers().shift(),
+            _ => false,
+        };
+        if !opens {
+            return;
+        }
+        event.prevent_default();
+        event.stop_propagation();
+        spawn(async move {
+            let mut anchor = document::eval(&anchor_script(&target.row_id));
+            if let Ok(Some(point)) = anchor.recv::<Option<(f64, f64)>>().await {
+                self.open(target, point);
+            }
+        });
+    }
+
+    /// Starts a long press when a touch begins on a row: the menu opens where
+    /// the touch landed once [`LONG_PRESS_MS`] pass, unless the touch ends first.
+    pub fn press_start(mut self, event: &Event<PointerData>, target: MenuTarget) {
+        if event.pointer_type() != "touch" {
+            return;
+        }
+        event.stop_propagation();
+        let point = event.client_coordinates();
+        let started = *self.press.peek() + 1;
+        self.press.set(started);
+        spawn(async move {
+            crate::utils::sleep_ms(LONG_PRESS_MS).await;
+            if *self.press.peek() == started {
+                self.open(target, (point.x, point.y));
+            }
+        });
+    }
+
+    /// Ends a touch: a long press not yet due no longer opens the menu.
+    pub fn press_end(mut self) {
+        self.press += 1;
+    }
+}
+
+/// The menu of the record a [`RecordMenu`] is open for: one entry, Tags…,
+/// which closes it and opens the shared [`TagPicker`] beside it. Rendered once
+/// per list, beside the rows it serves.
+#[component]
+pub fn RecordTagMenu(tree_id: Uuid, menu: RecordMenu, on_changed: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    let mut at = menu.at;
+    let mut target = menu.target;
+    let mut picker_at = use_signal(|| None::<(f64, f64)>);
+    let open = at();
+    let picked = picker_at();
+    let current = target();
+    let menu_row_id = current
+        .as_ref()
+        .map(|t| t.row_id.clone())
+        .unwrap_or_default();
+
+    rsx! {
+        if let (Some((x, y)), Some(_)) = (open, current.as_ref()) {
+            ContextMenuSurface {
+                x,
+                y,
+                menu_class: "record-tag-menu",
+                on_close: move |()| {
+                    // Dismissed without a choice: the row that opened the menu
+                    // takes the focus back. Tags… hands it to the picker.
+                    focus_row(&menu_row_id);
+                    at.set(None);
+                    target.set(None);
+                },
+                button {
+                    class: "context-menu-item",
+                    r#type: "button",
+                    onmounted: move |event: Event<MountedData>| {
+                        spawn(async move {
+                            let _ = event.set_focus(true).await;
+                        });
+                    },
+                    onclick: move |_| {
+                        picker_at.set(open);
+                        at.set(None);
+                    },
+                    {i18n.t("tag.picker.open")}
+                }
+            }
+        }
+        if let (Some((x, y)), Some(current)) = (picked, current) {
+            TagPicker {
+                tree_id,
+                kind: current.kind,
+                record_id: current.record_id,
+                tags: current.tags,
+                x,
+                y,
+                on_close: move |()| {
+                    // The row that opened the menu takes the focus back.
+                    focus_row(&current.row_id);
+                    picker_at.set(None);
+                    target.set(None);
+                },
+                on_changed: move |_: Vec<TagRef>| on_changed.call(()),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1303,5 +1489,12 @@ mod tests {
     fn the_confirmation_threshold_is_more_than_one_hundred_persons() {
         assert!(!needs_confirmation(CONFIRM_ABOVE));
         assert!(needs_confirmation(CONFIRM_ABOVE + 1));
+    }
+
+    #[test]
+    fn a_menu_anchors_on_its_row_while_a_control_in_the_row_has_the_focus() {
+        let script = anchor_script("row-1");
+        assert!(script.contains("row.contains(document.activeElement)"));
+        assert!(script.contains("\"row-1\""));
     }
 }

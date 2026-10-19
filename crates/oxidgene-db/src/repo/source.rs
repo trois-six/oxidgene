@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Source};
+use oxidgene_core::types::{Connection, RecordKind, Source};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -12,6 +12,7 @@ use crate::entities::{citation, media_link, note, source_repository};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Repository for source CRUD operations.
 pub struct SourceRepo;
@@ -41,7 +42,12 @@ impl SourceRepo {
         if let Some(title) = title {
             query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
         }
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let sources = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, source) in page.edges.iter_mut().zip(hydrate(db, sources).await?) {
+            edge.node = source;
+        }
+        Ok(page)
     }
 
     /// How many live sources a tree has.
@@ -68,12 +74,13 @@ impl SourceRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// Get a single source by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Source, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let source = find_live(db, id).await.map(into_domain)?;
+        hydrate_one(db, source).await
     }
 
     /// Get multiple sources from one tree (excludes soft-deleted).
@@ -82,7 +89,7 @@ impl SourceRepo {
         tree_id: Uuid,
         ids: &[Uuid],
     ) -> Result<Vec<Source>, OxidGeneError> {
-        in_chunks(ids, |chunk| async move {
+        let sources = in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::TreeId.eq(tree_id))
                 .filter(Column::Id.is_in(chunk))
@@ -92,7 +99,8 @@ impl SourceRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        hydrate(db, sources).await
     }
 
     /// Get multiple sources by ID, whatever their tree (excludes
@@ -102,7 +110,7 @@ impl SourceRepo {
         db: &impl ConnectionTrait,
         ids: &[Uuid],
     ) -> Result<Vec<Source>, OxidGeneError> {
-        in_chunks(ids, |chunk| async move {
+        let sources = in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
                 .filter(Column::DeletedAt.is_null())
@@ -111,7 +119,8 @@ impl SourceRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        hydrate(db, sources).await
     }
 
     /// Create a new source.
@@ -143,7 +152,7 @@ impl SourceRepo {
             deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Update an existing source.
@@ -177,7 +186,7 @@ impl SourceRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Soft-delete a source.
@@ -264,10 +273,30 @@ fn into_domain(m: source::Model) -> Source {
         publisher: m.publisher,
         abbreviation: m.abbreviation,
         agency: m.agency,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Fill the tags of each source from one grouped read.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    mut sources: Vec<Source>,
+) -> Result<Vec<Source>, OxidGeneError> {
+    let ids: Vec<Uuid> = sources.iter().map(|source| source.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Source, &ids).await?;
+    for source in &mut sources {
+        source.tags = tags.remove(&source.id).unwrap_or_default();
+    }
+    Ok(sources)
+}
+
+/// [`hydrate`] for one source.
+async fn hydrate_one(db: &impl ConnectionTrait, source: Source) -> Result<Source, OxidGeneError> {
+    let mut sources = hydrate(db, vec![source]).await?;
+    Ok(sources.remove(0))
 }
 
 /// Row `id`, unless it is missing or soft-deleted.

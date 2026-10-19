@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::Confidence;
-use crate::types::Event;
+use crate::types::{Event, TagRef};
 
 /// A citation linking a source to a person, event, or family.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +19,9 @@ pub struct Citation {
     pub confidence: Option<Confidence>,
     /// Extracted text from the source.
     pub text: Option<String>,
+    /// The tags the citation carries, sorted by folded label (docs/tags.md, §2).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -57,6 +60,7 @@ mod tests {
             page: None,
             confidence: None,
             text: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
         }
@@ -66,6 +70,7 @@ mod tests {
         let now = Utc::now();
         Event {
             classification: None,
+            tags: Vec::new(),
             id,
             tree_id: Uuid::nil(),
             event_type: EventType::Birth,

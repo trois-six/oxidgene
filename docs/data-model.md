@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 
@@ -228,6 +228,11 @@ smallest unit (`34y` is any day from the 34th birthday to the eve of the 35th),
 `<` and `>` open one side, `CHILD` is under eight years, `INFANT` under one and
 `STILLBORN` zero days.
 
+**Tags.** An event's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. A tag put on or taken off an event refreshes the profiles that
+show it: the owning person's, or both spouses' for a family event.
+
 `Event::year()` / `oxidgene_core::types::year_from_date` provide the shared display-year logic (prefer `date_sort`, fall back to the first 4-digit token of `date_value`) used by pedigree cards, the person narrative, dictionary usage lists, and search results.
 
 Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
@@ -296,6 +301,11 @@ The repositories holding a source are `SourceRepository` links, not a field
 of the source. A cleanup delete (`only_if_unused`) keeps a source a citation,
 note, media link or repository link still names.
 
+**Tags.** A source's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. A source's tags are its own: its citations and events carry
+theirs separately.
+
 ### Repository
 
 An archive, library or registry office holding sources (GEDCOM `REPO`).
@@ -347,6 +357,10 @@ restoring it brings them back.
 | `text` | String? | Extracted text |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
+
+**Tags.** A citation's labels are [RecordTag](#recordtag) links to the tree's
+[Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
+by folded label. They are the citation's own, not its event's or its source's.
 
 ### Media
 
@@ -487,12 +501,13 @@ by a `CHECK` constraint.
   since no key reaches the tree for every kind.
 - Writing a link does not touch the tagged record's `updated_at` nor version it.
 
-The interface tags persons, couples (families) and documents. A bulk change over
-persons ([API Contract](api.md), Tags) adds or removes their links in one
-transaction: it writes only the links that change, so the count it returns and
-audits is exact, and a link already present or already absent is not counted.
-The model accepts all nine kinds, so the other kinds need no schema change when
-their interface arrives ([Tags §5](tags.md#5-phases)).
+The interface tags persons, couples (families), documents, events, sources and
+citations. A bulk change over persons ([API Contract](api.md), Tags) adds or
+removes their links in one transaction: it writes only the links that change, so
+the count it returns and audits is exact, and a link already present or already
+absent is not counted. The model accepts all nine kinds, so places, repositories
+and notes need no schema change when their interface arrives
+([Tags §5](tags.md#5-phases)).
 
 ### Vignette
 

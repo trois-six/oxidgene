@@ -16,8 +16,8 @@ use oxidgene_core::Sex;
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType, SpouseRole};
 use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{
-    Event as DomainEvent, Note, Person, PersonName, PortraitRef, QualifiedYear, TagRef, Tree,
-    Vignette,
+    Event as DomainEvent, Note, Person, PersonName, PortraitRef, QualifiedYear, RecordKind, TagRef,
+    Tree, Vignette,
 };
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
-use crate::components::tags::TagChips;
+use crate::components::tags::{MenuTarget, RecordMenu, TagChips, TagDots};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
 use crate::router::{Route, push_tree_route};
@@ -152,8 +152,10 @@ pub(crate) struct Profile {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EventCitation {
+    pub citation_id: Uuid,
     pub text: String,
     pub archive: Option<ArchiveOffer>,
+    pub tags: Vec<TagRef>,
 }
 
 impl Profile {
@@ -785,12 +787,14 @@ fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCit
             .entry(eid)
             .or_default()
             .push(EventCitation {
+                citation_id: citation.id,
                 text,
                 archive: ArchiveOffer::of(
                     source.id,
                     Some(citation.id),
                     citation_evidence(detail, source, citation, eid),
                 ),
+                tags: citation.tags.clone(),
             });
     }
     citations_by_event
@@ -1211,8 +1215,10 @@ pub(crate) struct SectionContext<'a> {
     pub i18n: I18n,
     pub tree_id: Uuid,
     pub sosa_ancestors: &'a HashSet<Uuid>,
-    /// Bumped when a gallery changes what is attached, so the page reloads.
+    /// Bumped when a gallery or a tag changes what is attached, so the page reloads.
     pub media_revision: Signal<u32>,
+    /// The menu of the timeline's rows, rendered once by the page.
+    pub record_menu: RecordMenu,
     /// The page's pictures, every gallery of it reading the same one; empty
     /// until they arrive, after the text.
     pub gallery: Arc<GalleryBundle>,
@@ -1748,6 +1754,7 @@ pub(crate) fn timeline_section(
     let i18n = ctx.i18n;
     let tree_id = ctx.tree_id;
     let mut media_revision = ctx.media_revision;
+    let menu = ctx.record_menu;
     rsx! {
         div { class: "card pd-section",
             div { class: "section-header",
@@ -1787,6 +1794,13 @@ pub(crate) fn timeline_section(
                                 EventOrigin::Individual | EventOrigin::ConjugalFamily
                             );
                             let li_class = if is_direct { "pd-ev-direct" } else { "" };
+                            let row_id = format!("pd-event-{eid}");
+                            let event_target = MenuTarget {
+                                kind: RecordKind::Event,
+                                record_id: eid,
+                                tags: event.tags.clone(),
+                                row_id: row_id.clone(),
+                            };
                             let event_sources = profile.citations_by_event.get(&eid);
                             let evidence = profile
                                 .evidence_by_event
@@ -1795,7 +1809,25 @@ pub(crate) fn timeline_section(
                                 .cloned();
 
                             rsx! {
-                                li { key: "{eid}", class: "{li_class}",
+                                li {
+                                    key: "{eid}",
+                                    id: "{row_id}",
+                                    class: "{li_class}",
+                                    tabindex: "0",
+                                    oncontextmenu: {
+                                        let target = event_target.clone();
+                                        move |event: Event<MouseData>| menu.open_at_pointer(&event, target.clone())
+                                    },
+                                    onkeydown: {
+                                        let target = event_target.clone();
+                                        move |event: Event<KeyboardData>| menu.open_from_keyboard(&event, target.clone())
+                                    },
+                                    onpointerdown: {
+                                        let target = event_target.clone();
+                                        move |event: Event<PointerData>| menu.press_start(&event, target.clone())
+                                    },
+                                    onpointerup: move |_| menu.press_end(),
+                                    onpointercancel: move |_| menu.press_end(),
                                     span { class: "pd-ev-date",
                                         {opt_str(&format_event_date(&i18n, event)).unwrap_or_else(|| "--".to_string())}
                                     }
@@ -1813,6 +1845,7 @@ pub(crate) fn timeline_section(
                                                     span { class: "text-muted", " \u{2014} {age}" }
                                                 }
                                             }
+                                            TagDots { tree_id: tree_id.to_string(), tags: event.tags.clone() }
                                         }
                                         div { class: "pd-ev-origin", "{origin_display}" }
                                         if let Some(agency) = &agency {
@@ -1825,19 +1858,48 @@ pub(crate) fn timeline_section(
                                                 {i18n.t("person.sources_section")}
                                                 ": "
                                                 for (index, source) in sources.iter().enumerate() {
-                                                    span { key: "{index}",
-                                                        if index > 0 { "; " }
-                                                        if let Some(offer) = &source.archive {
-                                                            ArchiveSourceLink {
-                                                                tree_id,
-                                                                offer: offer.clone(),
-                                                                text: source.text.clone(),
-                                                                event_id: eid,
-                                                                event_label: event_type_label.clone(),
-                                                                on_attached: move |()| media_revision += 1,
+                                                    {
+                                                        let citation_row_id = format!("pd-citation-{}", source.citation_id);
+                                                        let citation_target = MenuTarget {
+                                                            kind: RecordKind::Citation,
+                                                            record_id: source.citation_id,
+                                                            tags: source.tags.clone(),
+                                                            row_id: citation_row_id.clone(),
+                                                        };
+                                                        rsx! {
+                                                            span {
+                                                                key: "{index}",
+                                                                id: "{citation_row_id}",
+                                                                tabindex: "0",
+                                                                oncontextmenu: {
+                                                                    let target = citation_target.clone();
+                                                                    move |event: Event<MouseData>| menu.open_at_pointer(&event, target.clone())
+                                                                },
+                                                                onkeydown: {
+                                                                    let target = citation_target.clone();
+                                                                    move |event: Event<KeyboardData>| menu.open_from_keyboard(&event, target.clone())
+                                                                },
+                                                                onpointerdown: {
+                                                                    let target = citation_target.clone();
+                                                                    move |event: Event<PointerData>| menu.press_start(&event, target.clone())
+                                                                },
+                                                                onpointerup: move |_| menu.press_end(),
+                                                                onpointercancel: move |_| menu.press_end(),
+                                                                if index > 0 { "; " }
+                                                                if let Some(offer) = &source.archive {
+                                                                    ArchiveSourceLink {
+                                                                        tree_id,
+                                                                        offer: offer.clone(),
+                                                                        text: source.text.clone(),
+                                                                        event_id: eid,
+                                                                        event_label: event_type_label.clone(),
+                                                                        on_attached: move |()| media_revision += 1,
+                                                                    }
+                                                                } else {
+                                                                    "{source.text}"
+                                                                }
+                                                                TagDots { tree_id: tree_id.to_string(), tags: source.tags.clone() }
                                                             }
-                                                        } else {
-                                                            "{source.text}"
                                                         }
                                                     }
                                                 }

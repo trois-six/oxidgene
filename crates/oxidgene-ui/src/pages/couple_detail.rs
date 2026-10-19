@@ -20,7 +20,7 @@ use crate::components::person_profile::{
     family_section, header_section, media_event_links, notes_section, page_gallery, page_portraits,
     refresh_button, timeline_section, union_line, use_page_pictures, use_tree_resource,
 };
-use crate::components::tags::{TagChips, TagsButton};
+use crate::components::tags::{RecordTagMenu, TagChips, TagsButton, use_record_menu};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
@@ -121,6 +121,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let load_trace = use_ui_load_trace(UiPage::CoupleDetail);
     let mut refresh = use_signal(|| 0u32);
     let media_revision = use_signal(|| 0_u32);
+    let record_menu = use_record_menu();
     let mut show_edit_couple = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
 
@@ -259,6 +260,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         tree_id,
         sosa_ancestors: &sosa_ancestors,
         media_revision,
+        record_menu,
         gallery: page_gallery(&pictures),
     });
     let selected_person_id = left_id().or(right_id());
@@ -288,6 +290,16 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
             },
             content_class: "pd-content cp-content",
 
+        if let Some(tid) = tree_id_parsed() {
+            RecordTagMenu {
+                tree_id: tid,
+                menu: record_menu,
+                on_changed: move |()| {
+                    let mut revision = media_revision;
+                    revision += 1;
+                },
+            }
+        }
         // The existing couple edit modal: both spouses, the union's events,
         // its children (detachable), its media — and deleting the couple.
         if let (true, Some(tid), Some(fid)) = (show_edit_couple(), tree_id_parsed(), family_id_parsed()) {

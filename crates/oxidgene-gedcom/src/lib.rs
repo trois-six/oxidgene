@@ -48,8 +48,9 @@ pub struct ImportResult {
     pub notes: Vec<Note>,
     /// The tag vocabulary the file carries: one tag per folded label, its
     /// first spelling and colour as read first, each with the id the records
-    /// carrying it name in [`Person::tags`], [`Family::tags`] and
-    /// [`Media::tags`] (docs/api.md, OxidGene extensions).
+    /// carrying it name in [`Person::tags`], [`Family::tags`], [`Media::tags`],
+    /// [`Event::tags`], [`Source::tags`] and [`Citation::tags`]
+    /// (docs/api.md, OxidGene extensions).
     pub tags: Vec<TagRef>,
     /// The tree the records were read for.
     pub tree_id: uuid::Uuid,

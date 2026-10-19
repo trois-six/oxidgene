@@ -3,7 +3,7 @@
 use chrono::Utc;
 use oxidgene_core::enums::Confidence;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Citation, Connection};
+use oxidgene_core::types::{Citation, Connection, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter,
@@ -17,6 +17,7 @@ use crate::entities::source;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Optional entity filters for listing citations.
 #[derive(Debug, Clone, Default)]
@@ -56,10 +57,15 @@ impl CitationRepo {
             query = query.filter(Column::SourceId.eq(source_id));
         }
 
-        paginate(db, query, Column::Id, params, |model| {
+        let mut page = paginate(db, query, Column::Id, params, |model| {
             (model.id, into_domain(model))
         })
-        .await
+        .await?;
+        let citations = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, citation) in page.edges.iter_mut().zip(hydrate(db, citations).await?) {
+            edge.node = citation;
+        }
+        Ok(page)
     }
 
     /// List all citations belonging to sources in one tree.
@@ -74,7 +80,7 @@ impl CitationRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// List citations directly linked to any of the given persons.
@@ -82,7 +88,7 @@ impl CitationRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
-        in_chunks(person_ids, |chunk| async move {
+        let citations = in_chunks(person_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::PersonId.is_in(chunk))
                 .all(db)
@@ -90,7 +96,8 @@ impl CitationRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        hydrate(db, citations).await
     }
 
     /// Citations directly attached to a person or one of the supplied events.
@@ -155,7 +162,7 @@ impl CitationRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// List citations for multiple sources.
@@ -163,7 +170,7 @@ impl CitationRepo {
         db: &impl ConnectionTrait,
         source_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
-        in_chunks(source_ids, |chunk| async move {
+        let citations = in_chunks(source_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::SourceId.is_in(chunk))
                 .all(db)
@@ -171,12 +178,13 @@ impl CitationRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        hydrate(db, citations).await
     }
 
     /// Get a single citation by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Citation, OxidGeneError> {
-        Entity::find_by_id(id)
+        let citation = Entity::find_by_id(id)
             .one(db)
             .await
             .map_err(db_err)?
@@ -184,7 +192,26 @@ impl CitationRepo {
             .ok_or(OxidGeneError::NotFound {
                 entity: "Citation",
                 id,
-            })
+            })?;
+        hydrate_one(db, citation).await
+    }
+
+    /// The citations among `ids`, one read per bounded slice of ids. Their
+    /// tags are not filled: this serves the labels and owners of many records
+    /// at once. A missing id is absent.
+    pub async fn get_many_untagged(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create a new citation.
@@ -217,7 +244,7 @@ impl CitationRepo {
             updated_at: Set(now),
         };
         let result = model.insert(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Update a citation.
@@ -258,7 +285,7 @@ impl CitationRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Hard-delete a citation.
@@ -274,6 +301,28 @@ impl CitationRepo {
     }
 }
 
+/// Fill the tags of each citation from one grouped read.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    mut citations: Vec<Citation>,
+) -> Result<Vec<Citation>, OxidGeneError> {
+    let ids: Vec<Uuid> = citations.iter().map(|citation| citation.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Citation, &ids).await?;
+    for citation in &mut citations {
+        citation.tags = tags.remove(&citation.id).unwrap_or_default();
+    }
+    Ok(citations)
+}
+
+/// [`hydrate`] for one citation.
+async fn hydrate_one(
+    db: &impl ConnectionTrait,
+    citation: Citation,
+) -> Result<Citation, OxidGeneError> {
+    let mut citations = hydrate(db, vec![citation]).await?;
+    Ok(citations.remove(0))
+}
+
 fn into_domain(m: citation::Model) -> Citation {
     Citation {
         id: m.id,
@@ -284,6 +333,7 @@ fn into_domain(m: citation::Model) -> Citation {
         page: m.page,
         confidence: m.confidence.map(Into::into),
         text: m.text,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
     }

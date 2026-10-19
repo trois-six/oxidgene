@@ -3130,6 +3130,7 @@ fn add_event(
         family_id,
         related_family_id: None,
         description: description.map(str::to_owned),
+        tags: Vec::new(),
         created_at: now,
         updated_at: now,
         deleted_at: None,

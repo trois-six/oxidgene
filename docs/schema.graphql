@@ -770,6 +770,10 @@ type GqlCitation {
 	"""
 	confidence: GqlConfidence
 	text: String
+	"""
+	The tags the citation carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 }
@@ -992,6 +996,10 @@ type GqlEvent {
 	personId: ID
 	familyId: ID
 	description: String
+	"""
+	The tags the event carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""
@@ -2656,6 +2664,10 @@ type GqlSource {
 	The organisation responsible for the source's data.
 	"""
 	agency: String
+	"""
+	The tags the source carries, sorted by label.
+	"""
+	tags: [GqlTagRef!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""

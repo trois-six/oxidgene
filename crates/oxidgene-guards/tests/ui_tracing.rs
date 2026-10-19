@@ -15,7 +15,11 @@
 use oxidgene_guards::{files, line_of, read, relative};
 
 /// The `UiPage` of a route whose page is not named after it.
-const PAGE_NAMES: &[(&str, &str)] = &[("TreeDetail", "Pedigree"), ("DictionaryTag", "Dictionary")];
+const PAGE_NAMES: &[(&str, &str)] = &[
+    ("TreeDetail", "Pedigree"),
+    ("DictionaryTag", "Dictionary"),
+    ("DictionarySources", "Dictionary"),
+];
 
 /// Files allowed a plain `use_resource(`, with why.
 const PLAIN_RESOURCES: &[(&str, &str)] = &[

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 
@@ -165,7 +165,8 @@ it.
 - **Couple events**: the union's own events (marriage, contract, divorce…) and
   its children's births, baptisms, deaths, and burials. A family event carries
   no partner name here. The timeline otherwise matches the person profile's,
-  with its sources and evidence galleries.
+  with its sources and evidence galleries, and its event rows and citation
+  entries carry the same tag dots and *Tags…* menu.
 - **Couple media**: the canonical read-only `MediaGallery` for the family. Its
   `+` opens `DocumentForm` for the family, with the union's events offered as
   evidence targets.

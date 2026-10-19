@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-18T21:08:05Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 
@@ -352,6 +352,11 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text) |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness; a witness of another event is `not_found` (GraphQL: the optional `eventId`) |
 
+Every event read carries `tags`, the labels put on the event as `[{id, label,
+color}]` sorted by folded label (GraphQL `Event.tags { id label color }`). Tags
+are put on and taken off through the tag endpoints of **Tags**, not through the
+event's `PUT`, so one editor's save never overwrites another's tags.
+
 An event's `age` (GEDCOM `AGE`) is accepted in GEDCOM's syntax, read
 leniently (`1y6m`, `34 Y`, a bare `34`), and returned in canonical form
 (`1y 6m`, `34y`); a value that is not an age, or any age on a family event
@@ -396,6 +401,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
 | `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a cited source opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …, "parts": …}`, `citation_id` naming a citation of the source whose page, text and event complete what the source and its repositories say ([Archive Portals §5.1](archives.md#51-citation-recognition)), and whose person — the person it is attached to, or its individual event's principal — gives the surname an index of persons searched by name may be sent, read from the tree and never from the body ([Archive Portals §5.3](archives.md#53-api)), `view` one view of the cited register to resolve instead of the cited ones, and `parts`, `{"locality", "act", "year", "view"}` all optional, what the reader completed in the "Find in the archives" dialog, `act` a document kind's code. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view, parts: ArchivePartsInput)` |
+
+Every source read carries `tags`, the labels put on the source as `[{id, label,
+color}]` sorted by folded label (GraphQL `Source.tags { id label color }`),
+put on and taken off through the tag endpoints of **Tags**.
 
 `archive-target` reads nothing it writes, but may query the archive's portal,
 once per call: it is a `POST` so that nothing caches or prefetches it. The
@@ -472,6 +481,11 @@ record, a link versions its source.
 | `POST` | `/trees/{tree_id}/citations` | Create a citation |
 | `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation — including `source_id`, which repoints it at another source in place |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
+
+Every citation read carries `tags`, the labels put on the citation as `[{id,
+label, color}]` sorted by folded label (GraphQL `Citation.tags { id label color }`),
+put on and taken off through the tag endpoints of **Tags**. They are the
+citation's own, not its event's or its source's.
 
 A citation's `confidence` is optional: `null` (or omitted at creation) means
 the evidence is not assessed. An update leaves it alone when the field is
@@ -1722,15 +1736,19 @@ import puts each one back at its position.
 
 #### `_OXIDGENE_TAG`
 
-One tag beneath each `INDI` and `FAM` record that carries tags, and beneath
-the first `OBJE` of a document that carries them. Its value is a versioned
-JSON value, `{"v":1,"label":…,"color":…}`, the label as entered and the
-colour as its index in the tree's palette (0 to 11). Labels that fold alike
-are one tag on import, the first spelling and colour read winning; the line
-is read into the tag vocabulary and is not kept as untyped GEDCOM, so a
-re-export writes each tag once. The tags of other records (events, sources,
-citations, places, repositories, notes) are not written by this version. See
-[Tags](tags.md) for the kinds still to come.
+One tag beneath each `INDI` and `FAM` record that carries tags, beneath the
+first `OBJE` of a document that carries them, beneath each `SOUR` record that
+carries tags, beneath each citation's `SOUR` pointer that carries them (the
+structure under the event, person or family that cites the source), and beneath
+each event or attribute structure that carries them, an LDS ordinance included.
+Its value is a versioned JSON value, `{"v":1,"label":…,"color":…}`, the label as
+entered and the colour as its index in the tree's palette (0 to 11). Labels
+that fold alike are one tag on import, the first spelling and colour read
+winning; the line is read into the tag vocabulary and is not kept as untyped
+GEDCOM, so a re-export writes each tag once. A tag line beneath any other
+structure is kept as it was read. The tags of places, repositories and notes
+are not written by this version. See [Tags](tags.md) for the kinds still to
+come.
 
 ### Kept GEDCOM
 

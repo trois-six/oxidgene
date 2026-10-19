@@ -1501,6 +1501,7 @@ mod tests {
             family_id: None,
             related_family_id: None,
             description: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
             deleted_at: None,

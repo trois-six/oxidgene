@@ -1166,6 +1166,7 @@ impl ExportIndex<'_> {
             }),
             notes: self.all_notes(self.notes_by_source.get(&src.id)),
             repositories: self.repository_citations(src.id),
+            extra: tag_nodes(self.tag_tag, &src.tags).into(),
             ..Default::default()
         }
     }
@@ -1559,7 +1560,7 @@ impl ExportIndex<'_> {
         cites
             .into_iter()
             .flatten()
-            .filter_map(|c| to_ged_citation(c, &self.xrefs.source, warnings))
+            .filter_map(|c| to_ged_citation(c, &self.xrefs.source, self.tag_tag, warnings))
             .collect()
     }
 
@@ -1611,6 +1612,7 @@ impl ExportIndex<'_> {
             .citations(self.cites_by_event.get(&evt.id), warnings)
             .into();
         ordinance.notes = self.all_notes(self.notes_by_event.get(&evt.id));
+        ordinance.extra = tag_nodes(self.tag_tag, &evt.tags).into();
         Some(ordinance)
     }
 
@@ -1630,6 +1632,7 @@ impl ExportIndex<'_> {
             citations: self
                 .citations(self.cites_by_event.get(&evt.id), warnings)
                 .into(),
+            extra: tag_nodes(self.tag_tag, &evt.tags).into(),
             ..GedEvent::default()
         };
         let notes: Vec<GedNote> = self.all_notes(self.notes_by_event.get(&evt.id));
@@ -2651,6 +2654,7 @@ fn to_ged_attribute_detail(
 fn to_ged_citation(
     cite: &Citation,
     source_xref: &HashMap<Uuid, XrefId>,
+    tag: TagId,
     warnings: &mut Vec<String>,
 ) -> Option<GedCitation> {
     let Some(&xref) = source_xref.get(&cite.source_id) else {
@@ -2664,6 +2668,7 @@ fn to_ged_citation(
     let mut citation = GedCitation {
         source: CitationSource::Pointer(xref),
         page: cite.page.as_deref().map(Text::from),
+        extra: tag_nodes(tag, &cite.tags).into(),
         ..Default::default()
     };
     // The transcript of what the source says, GEDCOM's `DATA.TEXT`.
@@ -2875,6 +2880,7 @@ mod tests {
             publisher: None,
             abbreviation: None,
             agency: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -2888,6 +2894,7 @@ mod tests {
             page: Some("folio 12".to_string()),
             confidence: Some(Confidence::High),
             text: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
         };
@@ -3425,6 +3432,7 @@ mod tests {
             family_id: None,
             related_family_id: None,
             description: None,
+            tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
@@ -3497,6 +3505,7 @@ mod tests {
             family_id: None,
             related_family_id: None,
             description: Some("Baker, Miller".to_string()),
+            tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,

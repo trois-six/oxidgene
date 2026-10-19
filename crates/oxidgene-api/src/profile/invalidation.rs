@@ -99,6 +99,31 @@ pub async fn affected_persons_for_event(
     }
 }
 
+/// [`affected_persons_for_event`] for many events at once, each given as its
+/// `(person_id, family_id)` owners. Person-owned events take
+/// [`affected_persons_of_all`]; family-owned ones one grouped spouse read. The
+/// queries do not grow with the number of events.
+pub async fn affected_persons_for_events(
+    db: &impl ConnectionTrait,
+    owners: &[(Option<Uuid>, Option<Uuid>)],
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let person_ids = sorted_unique(owners.iter().filter_map(|(person, _)| *person));
+    let family_ids = sorted_unique(owners.iter().filter_map(|(person, family)| match person {
+        None => *family,
+        Some(_) => None,
+    }));
+    let mut persons = if person_ids.is_empty() {
+        Vec::new()
+    } else {
+        affected_persons_of_all(db, &person_ids).await?
+    };
+    if !family_ids.is_empty() {
+        let spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
+        persons.extend(spouses.iter().map(|spouse| spouse.person_id));
+    }
+    Ok(sorted_unique(persons))
+}
+
 /// Compute the affected set for deleting a family.
 ///
 /// Wider than [`affected_persons_for_family`], which is right for a family

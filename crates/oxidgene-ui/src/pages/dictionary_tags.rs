@@ -400,6 +400,41 @@ fn TaggedRecordRow(tree_id: Uuid, record: TaggedRecord) -> Element {
                 }
             }
         },
+        // An event or a citation is shown on its owner's profile.
+        RecordKind::Event | RecordKind::Citation if record.person_id.is_some() => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::PersonDetail {
+                        tree_id: tree,
+                        person_id: record.person_id.map(|id| id.to_string()).unwrap_or_default(),
+                    },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
+        RecordKind::Event | RecordKind::Citation if record.family_id.is_some() => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::CoupleDetail {
+                        tree_id: tree,
+                        family_id: record.family_id.map(|id| id.to_string()).unwrap_or_default(),
+                    },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
+        // A source is edited in the Sources tab of this dictionary.
+        RecordKind::Source => rsx! {
+            div { class: "dict-accordion-item",
+                Link {
+                    to: Route::DictionarySources { tree_id: tree },
+                    class: "dict-accordion-name",
+                    "{record.label}"
+                }
+            }
+        },
         _ => rsx! {
             div { class: "dict-accordion-item",
                 span { class: "dict-accordion-name", "{record.label}" }

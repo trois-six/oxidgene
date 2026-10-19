@@ -298,10 +298,27 @@ fn is_inline_medium(structure: &Structure) -> bool {
 /// `TYPE` under an association names the kind of record its pointer names,
 /// which the pointer itself says, and the export writes none.
 fn is_understood_beneath(parent: &Structure, child: &Structure) -> bool {
+    if child.tag.as_str() == crate::export::TAG_TAG {
+        return is_tagged_structure(parent.tag.as_str());
+    }
     matches!(
         (parent.tag.as_str(), child.tag.as_str()),
         ("REPO", "CALN") | ("ASSO" | "_ASSO", "TYPE")
     )
+}
+
+/// Whether a structure is one the export writes an `_OXIDGENE_TAG` line
+/// beneath, and the import reads it from: an event or attribute structure
+/// (`BIRT`, `OCCU`), an LDS ordinance, a military service or separation (`MILI`,
+/// `SEP`, which the import reads as generic events), a `SOUR` (a source record,
+/// or the pointer a citation is written as). Any other structure holds no tag
+/// line the import reads, so one there is kept.
+fn is_tagged_structure(tag: &str) -> bool {
+    tag == "SOUR"
+        || tag == "EVEN"
+        || matches!(tag, "MILI" | "SEP")
+        || is_lds_ordinance(tag)
+        || EventKind::parse(tag).is_known()
 }
 
 /// Whether a `TEXT` beneath a citation `SOUR` (a pointerless `SOUR` at
@@ -341,8 +358,10 @@ fn tagged_text(structure: &Structure) -> bool {
 /// as the cause, and an `_OXIDGENE_TAG` line directly beneath an `INDI`, `FAM`
 /// or `OBJE` record, which the import reads into the tag vocabulary and the
 /// export writes from it (a folded duplicate, or a tag the export has no place
-/// for, is left out). A tag line anywhere else is not read, so it is kept. An
-/// association is judged by [`is_understood_association`].
+/// for, is left out). The tag lines of a `SOUR` record, of an event, an
+/// attribute or a citation are judged by [`is_understood_beneath`], as the
+/// structures they sit beneath. A tag line anywhere else is not read, so it is
+/// kept. An association is judged by [`is_understood_association`].
 fn is_understood(child: &Structure, depth: usize, record_tag: &str) -> bool {
     // An age is stored, or left out with a warning, and an empty one says
     // nothing: none is kept.

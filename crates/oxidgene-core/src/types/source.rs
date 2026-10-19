@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::types::TagRef;
+
 /// A bibliographic source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Source {
@@ -15,6 +17,9 @@ pub struct Source {
     /// `SOUR.DATA.AGNC`).
     #[serde(default)]
     pub agency: Option<String>,
+    /// The tags the source carries, sorted by folded label (docs/tags.md, §2).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

@@ -10,7 +10,7 @@ use crate::pages::tools::Tools;
 use crate::pages::{
     app_settings::AppSettings,
     couple_detail::CoupleDetail,
-    dictionary::{Dictionary, DictionaryTag},
+    dictionary::{Dictionary, DictionarySources, DictionaryTag},
     home::Home,
     kinship::Kinship,
     media_viewer::Media,
@@ -89,6 +89,11 @@ pub enum Route {
     #[route("/trees/:tree_id/dictionary/tags/:tag")]
     DictionaryTag { tree_id: String, tag: String },
 
+    /// The Dictionary opened on the Sources tab: what a source's link in the
+    /// Tags tab follows (docs/ui-dictionary.md §20).
+    #[route("/trees/:tree_id/dictionary/sources")]
+    DictionarySources { tree_id: String },
+
     /// One document of a tree, in the media viewer (the Tags tab links to it).
     #[route("/trees/:tree_id/media/:media_id")]
     Media { tree_id: String, media_id: String },
@@ -133,6 +138,7 @@ impl Route {
             | Route::Kinship { tree_id, .. }
             | Route::Dictionary { tree_id }
             | Route::DictionaryTag { tree_id, .. }
+            | Route::DictionarySources { tree_id }
             | Route::Media { tree_id, .. }
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
@@ -152,7 +158,9 @@ impl Route {
             Route::PersonHistory { .. } => "history.breadcrumb",
             Route::CoupleDetail { .. } => "nav_history.page.couple",
             Route::Kinship { .. } => "kinship.breadcrumb",
-            Route::Dictionary { .. } | Route::DictionaryTag { .. } => "dictionary.breadcrumb",
+            Route::Dictionary { .. }
+            | Route::DictionaryTag { .. }
+            | Route::DictionarySources { .. } => "dictionary.breadcrumb",
             Route::Media { .. } => "dictionary.tab.media",
             Route::Statistics { .. } => "stats.breadcrumb",
             Route::Tools { .. } => "tools.breadcrumb",
@@ -259,6 +267,7 @@ mod tests {
                 tree_id: tree(),
                 tag: "t".into(),
             },
+            Route::DictionarySources { tree_id: tree() },
             Route::Media {
                 tree_id: tree(),
                 media_id: "m".into(),
@@ -288,6 +297,7 @@ mod tests {
             "/trees/t/kinship?from=p&to=",
             "/trees/t/dictionary",
             "/trees/t/dictionary/tags/0195c0de-0000-7000-8000-000000000001",
+            "/trees/t/dictionary/sources",
             "/trees/t/media/0195c0de-0000-7000-8000-000000000002",
             "/trees/t/statistics",
             "/trees/t/tools",

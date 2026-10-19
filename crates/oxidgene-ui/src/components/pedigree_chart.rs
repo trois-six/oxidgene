@@ -390,6 +390,7 @@ fn profile_event_to_domain(
         // places the pedigree pulled in, so the name is kept here as the
         // fallback the panel reads when the id resolves to nothing.
         description: pe.description.clone().or_else(|| pe.place_name.clone()),
+        tags: Vec::new(),
         created_at: now,
         updated_at: now,
         deleted_at: None,
@@ -6476,6 +6477,7 @@ mod geometry_golden_tests {
                         family_id: None,
                         related_family_id: None,
                         description: None,
+                        tags: Vec::new(),
                         created_at: epoch(),
                         updated_at: epoch(),
                         deleted_at: None,
@@ -6636,6 +6638,7 @@ mod geometry_golden_tests {
                 family_id: Some(family),
                 related_family_id: None,
                 description: None,
+                tags: Vec::new(),
                 created_at: epoch(),
                 updated_at: epoch(),
                 deleted_at: None,

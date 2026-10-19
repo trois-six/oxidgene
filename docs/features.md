@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -49,6 +49,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Tags on persons and couples: one vocabulary per tree, each tag with a colour, put on or taken off from a shared picker and shown as chips on the page ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
 - Bulk tagging of persons: tag a branch of the tree (ancestors, descendants or both, with their spouses if asked) from a person's menu, or every result of a search from the results toolbar, with a count per tag and one audit entry per change ([Genealogy Tree](ui-genealogy-tree.md), [Search Results §4](ui-search-results.md#4-results-toolbar), [API Contract](api.md#tags)).
 - Highlighting a tag in the tree: its carriers get a dot and a border in the tag's colour in every chart, and the others are dimmed unless turned off ([Genealogy Tree](ui-genealogy-tree.md)).
+- Tags on events, sources and citations: a dot and a *Tags…* menu on each event row and citation entry of the timelines, and on each source of the Dictionary's Sources tab ([Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md), [Dictionary](ui-dictionary.md), [Tags](tags.md)).
 
 ![Couple page with the wedding photograph](../assets/screenshots/couple.webp)
 
@@ -134,7 +135,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Photos, scans, PDFs and videos attached to persons, couples, events and sources, uploaded or given by address ([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
 - Multi-page documents with page order, a document viewer and a ZIP of every page ([API Contract](api.md#media)).
 - Identifying someone on part of an image, and using that crop as their portrait ([Data Model](data-model.md#vignette)).
-- Dates, places, tags and categories on media ([API Contract](api.md#media)), the tags of a document and of a person or couple shared through one vocabulary ([Tags](tags.md)).
+- Dates, places, tags and categories on media ([API Contract](api.md#media)), the tags of a document, a person, a couple, an event, a source or a citation shared through one vocabulary ([Tags](tags.md)).
 - Filesystem storage, or S3-compatible object storage for stateless web deployments ([Architecture §8.1](architecture.md#81-web-deployment)).
 
 ## 11. Archives

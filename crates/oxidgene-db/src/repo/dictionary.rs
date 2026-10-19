@@ -18,8 +18,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::{
     enums::{DateQualifier, EventType},
     types::{
-        Place, Source, join_surname_particle, split_surname_at_head, split_surname_particle,
-        year_from_date,
+        Place, RecordKind, Source, join_surname_particle, split_surname_at_head,
+        split_surname_particle, year_from_date,
     },
 };
 use sea_orm::ConnectionTrait;
@@ -35,6 +35,7 @@ use crate::entities::{
 };
 use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
+use crate::repo::record_tag::RecordTagRepo;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
 /// persons carrying it.
@@ -297,11 +298,15 @@ impl DictionaryRepo {
             }
         }
 
+        let ids: Vec<Uuid> = sources.iter().map(|m| m.id).collect();
+        let mut tags = RecordTagRepo::tags_of(db, RecordKind::Source, &ids).await?;
         let mut out: Vec<(Source, i64)> = sources
             .into_iter()
             .map(|m| {
                 let count = counts.get(&m.id).copied().unwrap_or(0);
-                (into_source(m), count)
+                let mut source = into_source(m);
+                source.tags = tags.remove(&source.id).unwrap_or_default();
+                (source, count)
             })
             .collect();
         out.sort_by_cached_key(|(a, _)| a.title.to_lowercase());
@@ -1098,6 +1103,7 @@ fn into_source(m: source::Model) -> Source {
         publisher: m.publisher,
         abbreviation: m.abbreviation,
         agency: m.agency,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

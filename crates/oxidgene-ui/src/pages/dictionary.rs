@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use dioxus::prelude::*;
-use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
+use oxidgene_core::types::{RecordKind, split_surname_at_head, split_surname_particle};
 use uuid::Uuid;
 
 use crate::api::SuggestionField;
@@ -22,6 +22,7 @@ use crate::components::print::PrintPageNote;
 use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
+use crate::components::tags::{MenuTarget, RecordMenu, RecordTagMenu, TagDots, use_record_menu};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
@@ -294,18 +295,26 @@ type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: None } }
+    rsx! { DictionaryPage { tree_id, tag: None, sources: false } }
 }
 
 /// The Dictionary page opened on the Tags tab, unfolded on one tag.
 #[component]
 pub fn DictionaryTag(tree_id: String, tag: String) -> Element {
     use_ui_load_trace(UiPage::Dictionary);
-    rsx! { DictionaryPage { tree_id, tag: Some(tag) } }
+    rsx! { DictionaryPage { tree_id, tag: Some(tag), sources: false } }
+}
+
+/// The Dictionary page opened on the Sources tab (a source's link in the
+/// Tags tab).
+#[component]
+pub fn DictionarySources(tree_id: String) -> Element {
+    use_ui_load_trace(UiPage::Dictionary);
+    rsx! { DictionaryPage { tree_id, tag: None, sources: true } }
 }
 
 #[component]
-fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
+fn DictionaryPage(tree_id: String, tag: Option<String>, sources: bool) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     // The trace the route component opened is provided above this page.
@@ -325,15 +334,16 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
 
     // The view the reader left here, when coming back through the history.
     let restored = use_restored_view::<DictionaryView>().unwrap_or_default();
-    let mut active_tab = use_signal(|| {
-        if requested_tag.is_some() {
-            DictTab::Tags
-        } else {
-            restored.tab
-        }
-    });
+    // The tab the page opens on, unless a tag asks for the Tags tab: the
+    // Sources tab when the route asks for it, else the tab the reader left.
+    let landing_tab = if sources {
+        DictTab::Sources
+    } else {
+        restored.tab
+    };
+    let mut active_tab = use_signal(|| requested_tag.map_or(landing_tab, |_| DictTab::Tags));
     // The same page asked for another tag while it is open.
-    if requested_tag.is_some() && requested_tag != applied_tag() {
+    if requested_tag.is_some_and(|tag| applied_tag() != Some(tag)) {
         applied_tag.set(requested_tag);
         active_tab.set(DictTab::Tags);
     }
@@ -356,7 +366,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
     });
 
     // Reset filters/pagination/expansion when switching tabs.
-    let mut prev_tab = use_signal(|| restored.tab);
+    let mut prev_tab = use_signal(|| landing_tab);
     if prev_tab() != active_tab() {
         prev_tab.set(active_tab());
         quick_filter.clone().set(String::new());
@@ -393,7 +403,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
 
     // Each tab asks for its data the first time it is opened, not when the
     // page opens: a tree's dictionary is four aggregations over all of it.
-    let opened = use_opened_tabs(restored.tab);
+    let opened = use_opened_tabs(landing_tab);
 
     let mut family_names_resource =
         use_traced_resource(load_trace.clone(), "family_names", move || {
@@ -498,6 +508,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
     let filed_occupations = use_filed_values(occupations_resource, sort_particles);
     let filed_places = use_filed_places(places_resource);
 
+    let record_menu = use_record_menu();
     let ctx = TabContext {
         i18n,
         tree_id: &tree_id,
@@ -509,6 +520,7 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
         },
         expanded,
         usage_people: usage_resource,
+        record_menu,
     };
 
     // ── Render ──
@@ -580,6 +592,14 @@ fn DictionaryPage(tree_id: String, tag: Option<String>) -> Element {
                         }
                     }
                 }),
+            }
+
+            if let Some(tid) = tree_id_parsed() {
+                RecordTagMenu {
+                    tree_id: tid,
+                    menu: record_menu,
+                    on_changed: move |()| sources_view_resource.restart(),
+                }
             }
 
             if let (Some(source_id), Some(tid)) = (source_edit(), tree_id_parsed()) {
@@ -1089,6 +1109,8 @@ struct TabContext<'a> {
     filters: ListFilters,
     expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    /// The menu of the sources' rows, rendered once by the page.
+    record_menu: RecordMenu,
 }
 
 /// A tab of plain values with their counts: family names or occupations.
@@ -1291,6 +1313,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         filters,
         mut expanded,
         usage_people,
+        ..
     } = ctx;
     let ListFilters {
         quick: quick_filter,
@@ -1564,6 +1587,7 @@ fn render_sources_list(
         filters,
         mut expanded,
         usage_people,
+        record_menu,
     } = ctx;
     let mut quick_filter = filters.quick;
     let quick = quick_filter();
@@ -1617,30 +1641,70 @@ fn render_sources_list(
                             .collect::<Vec<_>>()
                             .join(" \u{00B7} ");
                         let source_id = entry.source.id;
+                        let row_id = format!("dict-source-{source_id}");
+                        let source_target = MenuTarget {
+                            kind: RecordKind::Source,
+                            record_id: source_id,
+                            tags: entry.source.tags.clone(),
+                            row_id: row_id.clone(),
+                        };
+                        let tree_text = tree_id.to_string();
+                        // A click, or Enter or Space on the row, expands it or folds it.
+                        let toggle = {
+                            let key = key.clone();
+                            move || {
+                                if expanded() == Some(key.clone()) {
+                                    expanded.set(None);
+                                } else {
+                                    expanded.set(Some(key.clone()));
+                                }
+                            }
+                        };
                         rsx! {
                             div { key: "{entry.source.id}",
                                 div {
                                     class: "dict-row",
-                                    onclick: {
-                                        let key = key.clone();
-                                        move |_| {
-                                            if expanded() == Some(key.clone()) {
-                                                expanded.set(None);
+                                    id: "{row_id}",
+                                    tabindex: "0",
+                                    oncontextmenu: {
+                                        let target = source_target.clone();
+                                        move |event: Event<MouseData>| record_menu.open_at_pointer(&event, target.clone())
+                                    },
+                                    onkeydown: {
+                                        let target = source_target.clone();
+                                        let mut toggle = toggle.clone();
+                                        move |event: Event<KeyboardData>| {
+                                            if is_enter_or_space(&event) {
+                                                event.prevent_default();
+                                                toggle();
                                             } else {
-                                                expanded.set(Some(key.clone()));
+                                                record_menu.open_from_keyboard(&event, target.clone());
                                             }
                                         }
+                                    },
+                                    onpointerdown: {
+                                        let target = source_target.clone();
+                                        move |event: Event<PointerData>| record_menu.press_start(&event, target.clone())
+                                    },
+                                    onpointerup: move |_| record_menu.press_end(),
+                                    onpointercancel: move |_| record_menu.press_end(),
+                                    onclick: {
+                                        let mut toggle = toggle.clone();
+                                        move |_| toggle()
                                     },
                                     div { class: "dict-row-main",
                                         span { class: "dict-row-value", "{entry.source.title}" }
                                         if !meta.is_empty() {
                                             span { class: "dict-row-meta", "{meta}" }
                                         }
+                                        TagDots { tree_id: tree_text, tags: entry.source.tags.clone() }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.citation_count", entry.count as usize)} }
                                     button {
                                         class: "dict-row-action",
                                         title: "{i18n.t(\"common.edit\")}",
+                                        onkeydown: stop_row_activation,
+                                        onpointerdown: stop_row_press,
                                         onclick: move |e: Event<MouseData>| {
                                             e.stop_propagation();
                                             source_edit.set(Some(source_id));
@@ -1650,6 +1714,8 @@ fn render_sources_list(
                                     button {
                                         class: "dict-row-action",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
+                                        onkeydown: stop_row_activation,
+                                        onpointerdown: stop_row_press,
                                         if is_open { "\u{25B2}" } else { "\u{25BC}" }
                                     }
                                 }
@@ -1663,6 +1729,29 @@ fn render_sources_list(
             }
         }
     }
+}
+
+/// Whether a key press is Enter or Space, the keys that activate a row.
+fn is_enter_or_space(event: &Event<KeyboardData>) -> bool {
+    match event.key() {
+        Key::Enter => true,
+        Key::Character(typed) => typed == " ",
+        _ => false,
+    }
+}
+
+/// Enter and Space on a button inside a source row act on that button alone:
+/// the row's own activation does not also fire.
+fn stop_row_activation(event: Event<KeyboardData>) {
+    if is_enter_or_space(&event) {
+        event.stop_propagation();
+    }
+}
+
+/// A touch on a button inside a source row does not also start the row's
+/// long press, which would open its record menu.
+fn stop_row_press(event: Event<PointerData>) {
+    event.stop_propagation();
 }
 
 fn render_sources_tab(
@@ -1724,6 +1813,7 @@ fn render_places_tab(
         filters,
         mut expanded,
         usage_people,
+        ..
     } = ctx;
     let ListFilters {
         quick: quick_filter,

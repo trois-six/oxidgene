@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -399,7 +399,9 @@ of record, replacing the media-only tags.
   history; the MCP `list_tags` tool.
 - [x] Phase 2: highlighting a tag in the tree views; bulk tagging from the
   tree and from search results.
-- [ ] Phase 3: tags on events, sources and citations.
+- [x] Phase 3: tags on events, sources and citations: the `tags` of their
+  reads, the record menus and dots of the timelines and the Sources tab, and
+  their GEDCOM `_OXIDGENE_TAG` placements.
 - [ ] Phase 4: tags on places, repositories and notes.
 - [ ] Phase 5: statistics and anomalies limited to a tag; export of the
   persons carrying a tag, with the subtree export (§7b).

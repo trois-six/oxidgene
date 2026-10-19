@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-19T06:41:24Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:24:49Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -991,6 +991,15 @@ that carries tags ([Tags](tags.md)):
   dot is a link to the same place, with the tag's label as its tooltip and
   accessible name and a visible focus ring. A row that is itself a link places
   its dots beside the link, since links cannot nest.
+- **RecordMenu** is the shared context menu of a record row that has none of
+  its own (the timeline's event rows and citation entries, and the Dictionary's
+  Sources rows). The page holds one menu state for its list and renders one
+  **RecordTagMenu** for it, a context-menu surface with a single *Tags…* entry
+  that closes and opens the TagPicker beside it. The row opens it by a right
+  click, by the context-menu key or Shift+F10 while the row or one of its
+  controls holds the focus (placed beside the row), or by a touch held for half
+  a second; a touch lifted earlier opens nothing. A menu dismissed without a
+  choice, and a closed picker, return the focus to the row.
 
 Each colour is a theme token, `--tag-0` to `--tag-11`,
 applied through the dot's inline style.

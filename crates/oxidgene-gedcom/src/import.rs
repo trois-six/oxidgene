@@ -631,6 +631,7 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
             publisher: None,
             abbreviation: None,
             agency: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -1074,6 +1075,7 @@ fn import_sources(
             continue;
         };
         let id = ctx.source_map[xref];
+        let tags = read_tags(src.extra(), &mut result.tags, &mut result.warnings);
         result.sources.push(Source {
             id,
             tree_id: ctx.tree_id,
@@ -1082,6 +1084,7 @@ fn import_sources(
             publisher: opt(src.publication()),
             abbreviation: opt(src.abbreviation()),
             agency: src.data().and_then(|data| non_blank(data.agency())),
+            tags,
             created_at: ctx.now,
             updated_at: ctx.now,
             deleted_at: None,
@@ -1600,7 +1603,10 @@ impl<'d> EventView<'d> {
     }
 
     fn extra(self) -> Option<Items<'d, Node>> {
-        self.event().map(|v| v.extra())
+        match self {
+            Self::Event(e) => Some(e.extra()),
+            Self::Ordinance(o) => Some(o.extra()),
+        }
     }
 
     /// The event structure, unless an ordinance.
@@ -2514,6 +2520,16 @@ fn read_tags(
         }
     }
     sorted_tags(found)
+}
+
+/// The tags beneath an event, attribute or LDS ordinance structure, read into
+/// the file's vocabulary (docs/tags.md, §2.1). A structure with no extension
+/// node reads none.
+fn event_tags(extra: Option<Items<'_, Node>>, result: &mut ImportResult) -> Vec<TagRef> {
+    match extra {
+        Some(extra) => read_tags(extra, &mut result.tags, &mut result.warnings),
+        None => Vec::new(),
+    }
 }
 
 /// Tags sorted by folded label, as a record carries them (docs/data-model.md, Tag).
@@ -3756,6 +3772,7 @@ fn import_event_detail(
     let event_id = Uuid::now_v7();
     // A family event states each spouse's age instead (`HUSB.AGE`).
     let age = import_age(event.age(), owner, &mut result.warnings).filter(|_| family_id.is_none());
+    let tags = event_tags(event.extra(), result);
     result.events.push(Event {
         id: event_id,
         tree_id: ctx.tree_id,
@@ -3775,6 +3792,7 @@ fn import_event_detail(
         family_id,
         related_family_id,
         description,
+        tags,
         created_at: ctx.now,
         updated_at: ctx.now,
         deleted_at: None,
@@ -3919,6 +3937,7 @@ fn import_attribute_detail(
         _ => vec![description],
     };
 
+    let tags = event_tags(attribute.extra(), result);
     for description in descriptions {
         let event_id = Uuid::now_v7();
         result.events.push(Event {
@@ -3940,6 +3959,7 @@ fn import_attribute_detail(
             family_id: owner.family_id,
             related_family_id: None,
             description,
+            tags: tags.clone(),
             created_at: ctx.now,
             updated_at: ctx.now,
             deleted_at: None,
@@ -4040,6 +4060,7 @@ fn import_citation(
         .flat_map(|v| v.texts())
         .chain(cite.texts())
         .find_map(|source_text| opt(Some(source_text.text())));
+    let tags = read_tags(cite.extra(), &mut result.tags, &mut result.warnings);
 
     result.citations.push(Citation {
         id: Uuid::now_v7(),
@@ -4050,6 +4071,7 @@ fn import_citation(
         page: opt(cite.page()),
         confidence: convert_quay(cite.quality().as_ref()),
         text,
+        tags,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     });

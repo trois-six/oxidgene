@@ -1282,6 +1282,8 @@ pub struct GqlEvent {
     pub person_id: Option<ID>,
     pub family_id: Option<ID>,
     pub description: Option<String>,
+    /// The tags the event carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1362,6 +1364,7 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             person_id: e.person_id.map(|id| ID(id.to_string())),
             family_id: e.family_id.map(|id| ID(id.to_string())),
             description: e.description,
+            tags: e.tags.into_iter().map(Into::into).collect(),
             created_at: e.created_at,
             updated_at: e.updated_at,
         }
@@ -1463,6 +1466,8 @@ pub struct GqlSource {
     pub abbreviation: Option<String>,
     /// The organisation responsible for the source's data.
     pub agency: Option<String>,
+    /// The tags the source carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1775,6 +1780,7 @@ impl From<oxidgene_core::types::Source> for GqlSource {
             publisher: s.publisher,
             abbreviation: s.abbreviation,
             agency: s.agency,
+            tags: s.tags.into_iter().map(Into::into).collect(),
             created_at: s.created_at,
             updated_at: s.updated_at,
         }
@@ -1804,6 +1810,8 @@ pub struct GqlCitation {
     /// Null when the evidence is not assessed.
     pub confidence: Option<GqlConfidence>,
     pub text: Option<String>,
+    /// The tags the citation carries, sorted by label.
+    pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1819,6 +1827,7 @@ impl From<oxidgene_core::types::Citation> for GqlCitation {
             page: c.page,
             confidence: c.confidence.map(Into::into),
             text: c.text,
+            tags: c.tags.into_iter().map(Into::into).collect(),
             created_at: c.created_at,
             updated_at: c.updated_at,
         }

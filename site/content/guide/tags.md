@@ -1,16 +1,18 @@
 +++
 title = "Tags"
-description = "Label persons, couples and documents with tags of your own, colour them, find them in search and manage them in the Dictionary."
+description = "Label persons, couples, documents, events, sources and citations with tags of your own, colour them, find them in search and manage them in the Dictionary."
 weight = 75
 +++
 
 A tag is a short label you put on records to find them again: *to verify*, *record not found*, *Soldiers 1914–1918*. Tags are your own vocabulary. OxidGene ships none, and it never translates the ones you write. A tree has one vocabulary: a tag created on one person is the same tag on every other record.
 
-For now, tags go on **persons**, **couples** and **documents** (photos, scans and PDFs). Events, sources, citations, places, repositories and notes will be taggable later.
+Tags go on **persons**, **couples**, **documents** (photos, scans and PDFs), **events**, **sources** and **citations**. Places, repositories and notes will be taggable later.
 
 ## Add or remove a tag
 
 On a person's page, click the **Tags…** button in the header. On a couple's page, it is in the actions row. On a document, use **Tags…** in the media viewer's menu or in the tile's menu.
+
+On an event, open **Tags…** from the event's row in the timeline: right-click the row, or press the context-menu key or Shift+F10 when the row has the focus. A citation in the timeline's sources line and a source in the Dictionary's **Sources** tab open the same menu.
 
 The picker lists the tree's tags, with the ones already on the record first:
 
@@ -42,11 +44,12 @@ Tags take no room on a record that has none.
 
 - On a person's or couple's page, their tags appear as chips under the header, each with its colour dot.
 - In search results, each person's tags appear as small dots after the name. Hover over a dot to read its tag.
+- On the timeline, an event or a citation shows its dots after its text. In the Dictionary's **Sources** tab, a source shows its dots after its title.
 - Click a chip or a dot to open the Dictionary's **Tags** tab on that tag.
 
 ## The Tags tab
 
-Open the **Dictionary** from the left sidebar and choose the **Tags** tab. Each row is a tag, with its colour and the number of records that carry it, by kind: persons, couples, documents and so on. Click the arrow of a row to list those records, grouped by kind, and open any of them.
+Open the **Dictionary** from the left sidebar and choose the **Tags** tab. Each row is a tag, with its colour and the number of records that carry it, by kind: persons, couples, documents and so on. Click the arrow of a row to list those records, grouped by kind, and open any of them. An event or a citation opens the profile of its person or couple, and a source opens the **Sources** tab.
 
 - **Edit** (the pencil) changes the label and the colour. If the new label is the same as another tag's, OxidGene offers to **merge** the two: every record carrying either tag then carries the merged tag once.
 - **Delete** (the ×) removes the tag from every record that carries it. The confirmation says how many records that is. It cannot be undone.

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T17:33:32Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:12:35Z }
 ---
 
 
@@ -244,7 +244,8 @@ Each row shows:
 - Author, then the names of the repositories holding the source (secondary muted text, if present; the list endpoint returns them as `repositories`)
 - Usage count badge: number of `Citation` rows referencing this source
 - Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
-- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents
+- Tag dots after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
+- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons keep their own Enter and Space
 
 The expanded list holds the persons the citations concern, each linking to the person: those cited directly, the person of a cited individual event, and the spouses of a cited family or of a cited family event (a marriage's citation lists both spouses; the list has no separate couple row, like the Places tab). A citation is one use, so the count counts citations and the list counts persons: a cited source never lists nobody, and a person cited several times appears once. Deleted persons, events and families are left out.
 
@@ -422,7 +423,9 @@ authoritative and kept at exact key parity
 
 - Route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`;
   `Route::DictionaryTag { tree_id, tag }` → `/trees/:tree_id/dictionary/tags/:tag`
-  opens the Tags tab on a tag; `Route::Media { tree_id, media_id }` →
+  opens the Tags tab on a tag; `Route::DictionarySources { tree_id }` →
+  `/trees/:tree_id/dictionary/sources` opens the Sources tab (a source's link
+  in the Tags tab); `Route::Media { tree_id, media_id }` →
   `/trees/:tree_id/media/:media_id` opens one document in the media viewer
 - Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
 
@@ -666,7 +669,9 @@ The tree's tag vocabulary, one row per tag: its colour dot, label and the count 
 with no alphabet index and no pagination. The chevron unfolds the records
 carrying the tag, grouped by kind; a kind shows 25 at a time with *Load more*.
 Person, couple and media records link to their pages; a media record opens the
-media viewer on its own route (`/trees/{id}/media/{media_id}`).
+media viewer on its own route (`/trees/{id}/media/{media_id}`). An event or a
+citation links to the profile of its owner, a person or a couple; a source links
+to this dictionary's Sources tab.
 
 - **Edit** (✎) opens a dialog with the label and the twelve colours. A label
   folding to another tag's offers a merge into it, with a sentence stating

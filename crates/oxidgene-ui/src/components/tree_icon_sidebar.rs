@@ -236,7 +236,9 @@ impl TreePage {
             (self, route),
             (
                 TreePage::Dictionary,
-                Route::Dictionary { .. } | Route::DictionaryTag { .. }
+                Route::Dictionary { .. }
+                    | Route::DictionaryTag { .. }
+                    | Route::DictionarySources { .. }
             ) | (TreePage::Statistics, Route::Statistics { .. })
                 | (TreePage::Tools, Route::Tools { .. })
                 | (TreePage::Settings, Route::Settings { .. })

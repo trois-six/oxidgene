@@ -3,7 +3,7 @@
 use chrono::{NaiveDate, Utc};
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Event};
+use oxidgene_core::types::{Connection, Event, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -14,6 +14,7 @@ use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::event_spouse_age::EventSpouseAgeRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
+use crate::repo::record_tag::RecordTagRepo;
 
 /// Optional filters for listing events.
 #[derive(Debug, Clone, Default)]
@@ -94,11 +95,7 @@ impl EventRepo {
 
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let events = page.edges.iter().map(|edge| edge.node.clone()).collect();
-        for (edge, event) in page
-            .edges
-            .iter_mut()
-            .zip(EventSpouseAgeRepo::attach(db, events).await?)
-        {
+        for (edge, event) in page.edges.iter_mut().zip(hydrate(db, events).await?) {
             edge.node = event;
         }
         Ok(page)
@@ -115,7 +112,7 @@ impl EventRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        EventSpouseAgeRepo::attach(db, models.into_iter().map(into_domain).collect()).await
+        hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// List all events attached to any of the given persons.
@@ -123,7 +120,7 @@ impl EventRepo {
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<Vec<Event>, OxidGeneError> {
-        in_chunks(person_ids, |chunk| async move {
+        let events = in_chunks(person_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::PersonId.is_in(chunk))
                 .filter(Column::DeletedAt.is_null())
@@ -132,7 +129,8 @@ impl EventRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        hydrate(db, events).await
     }
 
     /// List all events attached to any of the given families (excludes soft-deleted).
@@ -150,13 +148,32 @@ impl EventRepo {
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await?;
-        EventSpouseAgeRepo::attach(db, events).await
+        hydrate(db, events).await
     }
 
     /// Get a single event by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Event, OxidGeneError> {
         let event = find_live(db, id).await.map(into_domain)?;
-        with_spouse_ages(db, event).await
+        hydrate_one(db, event).await
+    }
+
+    /// The live events among `ids`, one read per bounded slice of ids. Their
+    /// tags and spouse ages are not filled: this serves the labels and owners
+    /// of many records at once. A missing or soft-deleted id is absent.
+    pub async fn get_many_untagged(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Event>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
     }
 
     /// Create a new event.
@@ -204,7 +221,7 @@ impl EventRepo {
             deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Update an existing event.
@@ -256,7 +273,7 @@ impl EventRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        with_spouse_ages(db, into_domain(result)).await
+        hydrate_one(db, into_domain(result)).await
     }
 
     /// Soft-delete an event.
@@ -290,15 +307,31 @@ fn into_domain(m: event::Model) -> Event {
         family_id: m.family_id,
         related_family_id: m.related_family_id,
         description: m.description,
+        tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
 }
 
-/// `event` with its spouse ages, when it is a family event.
-async fn with_spouse_ages(db: &impl ConnectionTrait, event: Event) -> Result<Event, OxidGeneError> {
-    let mut events = EventSpouseAgeRepo::attach(db, vec![event]).await?;
+/// Fill the derived parts of `events` in one grouped read each: the spouse
+/// ages of the family events and the tags of every event.
+async fn hydrate(
+    db: &impl ConnectionTrait,
+    events: Vec<Event>,
+) -> Result<Vec<Event>, OxidGeneError> {
+    let mut events = EventSpouseAgeRepo::attach(db, events).await?;
+    let ids: Vec<Uuid> = events.iter().map(|event| event.id).collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Event, &ids).await?;
+    for event in &mut events {
+        event.tags = tags.remove(&event.id).unwrap_or_default();
+    }
+    Ok(events)
+}
+
+/// [`hydrate`] for one event.
+async fn hydrate_one(db: &impl ConnectionTrait, event: Event) -> Result<Event, OxidGeneError> {
+    let mut events = hydrate(db, vec![event]).await?;
     Ok(events.remove(0))
 }
 

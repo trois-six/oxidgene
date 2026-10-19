@@ -140,3 +140,67 @@ async fn a_tag_the_tree_already_has_is_joined_and_keeps_its_colour() {
         "the couple is linked to the existing tag"
     );
 }
+
+/// A birth tagged beneath its `BIRT`, and its citation of a source tagged
+/// beneath the citation's `SOUR` pointer, with the source tagged beneath its
+/// own record (docs/tags.md, §2.1). All data is fictitious.
+const EVENT_TAGGED_GEDCOM: &str = "0 HEAD\n\
+1 GEDC\n\
+2 VERS 5.5.1\n\
+2 FORM LINEAGE-LINKED\n\
+1 CHAR UTF-8\n\
+0 @I1@ INDI\n\
+1 NAME Sample /Person/\n\
+1 BIRT\n\
+2 _OXIDGENE_TAG {\"v\":1,\"label\":\"Approximate date\",\"color\":2}\n\
+2 SOUR @S1@\n\
+3 _OXIDGENE_TAG {\"v\":1,\"label\":\"Doubtful reading\",\"color\":8}\n\
+0 @S1@ SOUR\n\
+1 TITL Parish register of Sample-ville\n\
+1 _OXIDGENE_TAG {\"v\":1,\"label\":\"Fully abstracted\",\"color\":6}\n\
+0 TRLR\n";
+
+#[tokio::test]
+async fn a_file_tags_its_events_sources_and_citations() {
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let tree_id = new_tree(&app, "Event Tags Tree").await;
+    let tree = Uuid::parse_str(&tree_id).expect("tree id");
+    import_gedcom(&app, &db, &tree_id, EVENT_TAGGED_GEDCOM).await;
+
+    let links = tree_links(&db, tree).await;
+    assert_eq!(
+        links.iter().filter(|link| link.event_id.is_some()).count(),
+        1,
+        "the birth is linked to its tag"
+    );
+    assert_eq!(
+        links.iter().filter(|link| link.source_id.is_some()).count(),
+        1,
+        "the source is linked to its tag"
+    );
+    assert_eq!(
+        links
+            .iter()
+            .filter(|link| link.citation_id.is_some())
+            .count(),
+        1,
+        "the citation is linked to its tag"
+    );
+    assert_eq!(links.len(), 3);
+
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let exported = body["gedcom"].as_str().expect("gedcom text");
+    assert_eq!(
+        exported.matches("_OXIDGENE_TAG").count(),
+        3,
+        "each carried tag is written once, beneath its structure"
+    );
+}

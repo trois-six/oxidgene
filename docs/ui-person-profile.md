@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-19T08:24:49Z }
 ---
 
 
@@ -264,6 +264,14 @@ Each event shows:
 
 The person's own events and those of their unions are marked as direct; the
 others give family context.
+
+**Tags.** An event's tags are dots after its badge line, nothing drawn for an
+untagged event ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+Its row, and each citation entry of its **Sources** line, carries the shared
+record menu: a right click, the context-menu key or Shift+F10 on the focused row or one of its controls,
+or a touch held for half a second opens *Tags…*, which opens the tag picker beside
+it. A citation's dots follow its text. The row takes the focus back when the
+menu or picker closes, and the timeline reloads when a tag changes.
 
 An event's recorded age — at a family event, this
 person's own — follows its place and description in words — "aged 34 years", "aged under 1 year 6 months",

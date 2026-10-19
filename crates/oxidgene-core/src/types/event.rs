@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{Calendar, DateQualifier, EventType};
+use crate::types::TagRef;
 
 /// A genealogical event (birth, death, marriage, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,6 +59,9 @@ pub struct Event {
     /// whose `TYPE` is its description.
     #[serde(default)]
     pub classification: Option<String>,
+    /// The tags the event carries, sorted by folded label (docs/tags.md, §2).
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -248,6 +252,7 @@ mod tests {
             related_family_id: None,
             description: None,
             classification: None,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
             deleted_at: None,

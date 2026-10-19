@@ -211,15 +211,16 @@ pub async fn tagged_records(
     let page = RecordTagRepo::records_of_tag(db, tree_id, tag_id, kind, params).await?;
     let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node).collect();
     let labels = labels_of(db, tree_id, kind, &ids).await?;
+    let owners = match kind {
+        RecordKind::Person | RecordKind::Family => HashMap::new(),
+        _ => subjects_of(db, kind, &ids).await?,
+    };
     let mut edges = Vec::with_capacity(page.edges.len());
     for edge in page.edges {
-        let (person_id, family_id) = match kind {
-            RecordKind::Person | RecordKind::Family => (None, None),
-            _ => match subject_of(db, kind, edge.node).await? {
-                Some((AuditSubject::Person, id)) => (Some(id), None),
-                Some((AuditSubject::Family, id)) => (None, Some(id)),
-                _ => (None, None),
-            },
+        let (person_id, family_id) = match owners.get(&edge.node) {
+            Some((AuditSubject::Person, id)) => (Some(*id), None),
+            Some((AuditSubject::Family, id)) => (None, Some(*id)),
+            _ => (None, None),
         };
         edges.push(Edge {
             cursor: edge.cursor,
@@ -310,17 +311,16 @@ async fn event_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let mut labels = HashMap::new();
-    for id in ids {
-        let event = EventRepo::get(db, *id).await?;
-        let spelling = serde_json::to_value(event.event_type)
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_owned));
-        if let Some(spelling) = spelling {
-            labels.insert(*id, spelling);
-        }
-    }
-    Ok(labels)
+    let events = EventRepo::get_many_untagged(db, ids).await?;
+    Ok(events
+        .into_iter()
+        .filter_map(|event| {
+            let spelling = serde_json::to_value(event.event_type)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned))?;
+            Some((event.id, spelling))
+        })
+        .collect())
 }
 
 /// A note's label: its text.
@@ -328,11 +328,8 @@ async fn note_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let mut labels = HashMap::new();
-    for id in ids {
-        labels.insert(*id, NoteRepo::get(db, *id).await?.text);
-    }
-    Ok(labels)
+    let notes = NoteRepo::get_many(db, ids).await?;
+    Ok(notes.into_iter().map(|note| (note.id, note.text)).collect())
 }
 
 /// A citation's label: its text, when it has one.
@@ -340,13 +337,11 @@ async fn citation_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let mut labels = HashMap::new();
-    for id in ids {
-        if let Some(text) = CitationRepo::get(db, *id).await?.text {
-            labels.insert(*id, text);
-        }
-    }
-    Ok(labels)
+    let citations = CitationRepo::get_many_untagged(db, ids).await?;
+    Ok(citations
+        .into_iter()
+        .filter_map(|citation| citation.text.map(|text| (citation.id, text)))
+        .collect())
 }
 
 async fn set_record_tag(
@@ -442,43 +437,78 @@ async fn subject_of(
     kind: RecordKind,
     id: Uuid,
 ) -> Result<Option<(AuditSubject, Uuid)>, OxidGeneError> {
+    Ok(subjects_of(db, kind, &[id]).await?.remove(&id))
+}
+
+/// [`subject_of`] for each of `ids`, all of one kind, in a fixed number of
+/// grouped reads. A record with no subject, or one that does not exist, is
+/// absent from the map.
+async fn subjects_of(
+    db: &impl ConnectionTrait,
+    kind: RecordKind,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, (AuditSubject, Uuid)>, OxidGeneError> {
+    let own = |subject: AuditSubject| -> HashMap<Uuid, (AuditSubject, Uuid)> {
+        ids.iter().map(|id| (*id, (subject, *id))).collect()
+    };
     Ok(match kind {
-        RecordKind::Person => Some((AuditSubject::Person, id)),
-        RecordKind::Family => Some((AuditSubject::Family, id)),
-        RecordKind::Place => Some((AuditSubject::Place, id)),
-        RecordKind::Source => Some((AuditSubject::Source, id)),
-        RecordKind::Repository => Some((AuditSubject::Repository, id)),
-        RecordKind::Media => Some((AuditSubject::Media, id)),
-        RecordKind::Event => {
-            let event = EventRepo::get(db, id).await?;
-            owner_subject(event.person_id, event.family_id, None)
-        }
+        RecordKind::Person => own(AuditSubject::Person),
+        RecordKind::Family => own(AuditSubject::Family),
+        RecordKind::Place => own(AuditSubject::Place),
+        RecordKind::Source => own(AuditSubject::Source),
+        RecordKind::Repository => own(AuditSubject::Repository),
+        RecordKind::Media => own(AuditSubject::Media),
+        RecordKind::Event => event_owners(db, ids).await?,
         RecordKind::Citation => {
-            let citation = CitationRepo::get(db, id).await?;
-            let event_owner = match citation.event_id {
-                Some(event_id) => {
-                    let event = EventRepo::get(db, event_id).await?;
-                    owner_subject(event.person_id, event.family_id, None)
-                }
-                None => None,
-            };
-            owner_subject(citation.person_id, citation.family_id, event_owner)
-                .or(Some((AuditSubject::Source, citation.source_id)))
+            let citations = CitationRepo::get_many_untagged(db, ids).await?;
+            let event_ids: Vec<Uuid> = citations.iter().filter_map(|c| c.event_id).collect();
+            let owners = event_owners(db, &event_ids).await?;
+            citations
+                .into_iter()
+                .map(|citation| {
+                    let event_owner = citation
+                        .event_id
+                        .and_then(|event_id| owners.get(&event_id).cloned());
+                    let subject =
+                        owner_subject(citation.person_id, citation.family_id, event_owner)
+                            .unwrap_or((AuditSubject::Source, citation.source_id));
+                    (citation.id, subject)
+                })
+                .collect()
         }
         RecordKind::Note => {
-            let note = NoteRepo::get(db, id).await?;
-            let event_owner = match note.event_id {
-                Some(event_id) => {
-                    let event = EventRepo::get(db, event_id).await?;
-                    owner_subject(event.person_id, event.family_id, None)
-                }
-                None => None,
-            };
-            owner_subject(note.person_id, note.family_id, event_owner).or(note
-                .source_id
-                .map(|source_id| (AuditSubject::Source, source_id)))
+            let notes = NoteRepo::get_many(db, ids).await?;
+            let event_ids: Vec<Uuid> = notes.iter().filter_map(|n| n.event_id).collect();
+            let owners = event_owners(db, &event_ids).await?;
+            notes
+                .into_iter()
+                .filter_map(|note| {
+                    let event_owner = note
+                        .event_id
+                        .and_then(|event_id| owners.get(&event_id).cloned());
+                    owner_subject(note.person_id, note.family_id, event_owner)
+                        .or(note
+                            .source_id
+                            .map(|source_id| (AuditSubject::Source, source_id)))
+                        .map(|subject| (note.id, subject))
+                })
+                .collect()
         }
     })
+}
+
+/// The person, else the family, of each live event among `ids`.
+async fn event_owners(
+    db: &impl ConnectionTrait,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, (AuditSubject, Uuid)>, OxidGeneError> {
+    let events = EventRepo::get_many_untagged(db, ids).await?;
+    Ok(events
+        .into_iter()
+        .filter_map(|event| {
+            owner_subject(event.person_id, event.family_id, None).map(|owner| (event.id, owner))
+        })
+        .collect())
 }
 
 /// The person of a record, else its family, else `fallback`.
@@ -514,12 +544,11 @@ async fn carrier_persons(
             .all(db)
             .await
             .map_err(db_err)?;
-        for event in events {
-            persons.extend(
-                invalidation::affected_persons_for_event(db, event.person_id, event.family_id)
-                    .await?,
-            );
-        }
+        let owners: Vec<(Option<Uuid>, Option<Uuid>)> = events
+            .iter()
+            .map(|event| (event.person_id, event.family_id))
+            .collect();
+        persons.extend(invalidation::affected_persons_for_events(db, &owners).await?);
     }
     Ok(sorted_unique(persons))
 }

@@ -74,6 +74,24 @@ impl NoteRepo {
         find_live(db, id).await.map(into_domain)
     }
 
+    /// The live notes among `ids`, one read per bounded slice of ids. A
+    /// missing or soft-deleted id is absent.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
+    }
+
     /// List all notes in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
         db: &impl ConnectionTrait,

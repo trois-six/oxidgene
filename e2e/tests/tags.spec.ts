@@ -135,3 +135,49 @@ test("asks before a bulk change over 100 persons", async ({ page, request }) => 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(row.locator(".tag-bulk-count")).toHaveText("101 of 101");
 });
+
+test("tags an event and a source from the keyboard menu, and sees the dots", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional doubt");
+    await createTag(request, tree.treeId, "Fictional checked");
+
+    // The birth of the fixture's root, in the timeline of the person profile.
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    const birth = page.locator("li[id^='pd-event-']").filter({ hasText: "Birth" }).first();
+    await expect(birth).toBeVisible();
+    await expect(birth.locator(".tag-dots")).toHaveCount(0);
+
+    // Shift+F10 on the focused row opens its menu; Tags… (focused) opens the picker.
+    await birth.focus();
+    await page.keyboard.press("Shift+F10");
+    const tagsEntry = page.locator(".record-tag-menu").getByRole("button", { name: "Tags…", exact: true });
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Enter");
+    const filter = page.getByRole("textbox", { name: "Filter or create a tag" });
+    await expect(filter).toBeFocused();
+    await page.keyboard.type("Fictional doubt");
+    await expect(page.getByRole("option", { name: "Fictional doubt" })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(birth.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional doubt");
+    await page.keyboard.press("Escape");
+    await expect(filter).toBeHidden();
+    await expect(birth).toBeFocused();
+
+    // The source of the same fixture, in the Sources tab of the dictionary.
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    const source = page.locator(".dict-row").filter({ hasText: "Parish register 0" }).first();
+    await expect(source).toBeVisible();
+    await expect(source.locator(".tag-dot-link")).toHaveCount(0);
+
+    await source.focus();
+    await page.keyboard.press("Shift+F10");
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(filter).toBeFocused();
+    await page.keyboard.type("Fictional checked");
+    await expect(page.getByRole("option", { name: "Fictional checked" })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(source.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional checked");
+    await page.keyboard.press("Escape");
+    await expect(source).toBeFocused();
+});

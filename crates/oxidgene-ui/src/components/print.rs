@@ -53,6 +53,7 @@ pub fn is_printable(route: &Route) -> bool {
         | Route::Kinship { .. }
         | Route::Dictionary { .. }
         | Route::DictionaryTag { .. }
+        | Route::DictionarySources { .. }
         | Route::Statistics { .. }
         | Route::Tools { .. } => true,
     }
