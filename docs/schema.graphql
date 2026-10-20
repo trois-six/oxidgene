@@ -631,6 +631,11 @@ type GqlAuditDetails {
 	version: Int
 	otherLabel: String
 	newLabel: String
+	"""
+	The scope an export was limited to, as its target JSON text; absent
+	for the whole tree.
+	"""
+	scope: String
 }
 
 """
@@ -3616,7 +3621,7 @@ type MutationRoot {
 	A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
 	GEDCOM's.
 	"""
-	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean): GqlBackgroundJobStarted!
+	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean, scope: TagTargetInput): GqlBackgroundJobStarted!
 	"""
 	Encode a Geneanet wizard session as a base64 archive.
 	"""
@@ -3942,9 +3947,10 @@ type QueryRoot {
 	A tree's statistics, time series filed by year. `approximate` lets
 	ages and averages use dates about, calculated or estimated;
 	`language` names places' countries, regions and subdivisions
-	(English when omitted).
+	(English when omitted); `tag` limits the figures about persons to
+	those carrying it (the whole tree when omitted).
 	"""
-	treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
+	treeStatistics(treeId: ID!, approximate: Boolean, language: String, tag: ID): TreeStatistics!
 	"""
 	How many persons a tree held over the days it was worked on, day by
 	day, with its imports.
@@ -3958,9 +3964,10 @@ type QueryRoot {
 	ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
 	"""
 	The tree's anomalies: dates, filiations, unions, witnesses and
-	records that are impossible or unlikely, by rule.
+	records that are impossible or unlikely, by rule. `tag` keeps only
+	the anomalies that name a person carrying it.
 	"""
-	treeAnomalies(treeId: ID!): TreeAnomalies!
+	treeAnomalies(treeId: ID!, tag: ID): TreeAnomalies!
 	"""
 	The pairs of records of the tree that may be one person, best first.
 	"""
@@ -4115,7 +4122,7 @@ type QueryRoot {
 	writes its media's references: only a GEDZIP (`startExportJob`),
 	standard GEDCOM 7.0, leaves the media out.
 	"""
-	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean): GqlExportGedcomResult!
+	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean, scope: TagTargetInput): GqlExportGedcomResult!
 	"""
 	Poll a durable GEDZIP export created by `startExportJob`.
 	"""
@@ -4368,9 +4375,9 @@ input TagSearchTargetInput {
 }
 
 """
-The persons a bulk tag change or a tag count reads. Exactly one of
-`persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf` or
-`search` is set.
+The persons a bulk tag change, a tag count or an export reads. Exactly one
+of `persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf`,
+`search` or `tag` is set.
 """
 input TagTargetInput {
 	"""
@@ -4406,6 +4413,10 @@ input TagTargetInput {
 	Every person the search returns, not one page of it.
 	"""
 	search: TagSearchTargetInput
+	"""
+	Every person carrying this tag.
+	"""
+	tag: ID
 }
 
 """

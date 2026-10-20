@@ -84,6 +84,9 @@ pub struct GqlAuditDetails {
     pub version: Option<i32>,
     pub other_label: Option<String>,
     pub new_label: Option<String>,
+    /// The scope an export was limited to, as its target JSON text; absent
+    /// for the whole tree.
+    pub scope: Option<String>,
 }
 
 impl From<AuditDetails> for GqlAuditDetails {
@@ -96,6 +99,7 @@ impl From<AuditDetails> for GqlAuditDetails {
             version: d.version,
             other_label: d.other_label,
             new_label: d.new_label,
+            scope: d.scope,
         }
     }
 }

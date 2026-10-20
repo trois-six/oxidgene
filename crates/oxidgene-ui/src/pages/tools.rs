@@ -22,6 +22,7 @@ use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
+use crate::components::tags::{TagSelect, use_tag_filter};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::date_words::{self, Form, YearStart, Ymd};
@@ -319,9 +320,12 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let mut category = use_signal(|| None::<&'static str>);
+    // The tag whose persons the anomalies name, all persons when none is chosen.
+    let mut tag = use_tag_filter(Some(tree_id));
     let anomalies = use_ui_resource("tools_anomalies", move || {
         let api = api.clone();
-        async move { api.tree_anomalies(tree_id).await }
+        let chosen = tag.chosen();
+        async move { api.tree_anomalies(tree_id, chosen).await }
     });
 
     let body = match &*anomalies.read() {
@@ -371,6 +375,16 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
     rsx! {
         section { class: "stats-section",
             {heading(&i18n, "anomalies")}
+            div { class: "tools-tag-filter",
+                label { class: "stats-option", r#for: "tools-anomalies-tag", {i18n.t("tools.anomalies.tag")} }
+                TagSelect {
+                    id: "tools-anomalies-tag",
+                    tags: tag.carried(),
+                    selected: tag.chosen(),
+                    placeholder: i18n.t("tools.anomalies.tag_all"),
+                    on_change: move |value| tag.choose(value),
+                }
+            }
             {body}
         }
     }

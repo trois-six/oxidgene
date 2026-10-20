@@ -89,6 +89,16 @@ Le choix de la destination ne vaut que pour cet export ; il n’est pas conserv�
 
 Ces options ne valent que pour l’export suivant, et reprennent leur valeur par défaut quand vous rechargez la page.
 
+### Étendue de l’export
+
+Le sélecteur **Étendue** limite l’export à une partie de l’arbre :
+
+- **Tout l’arbre**, par défaut.
+- **Une branche** : choisissez la personne racine, puis si vous prenez ses descendants, ses ascendants, ou les deux. Indiquez le nombre de générations (vide pour toutes) et si vous incluez la personne racine et, pour les descendants, leurs conjoints. Le fichier garde ces personnes, les familles auxquelles elles appartiennent, et les sources, lieux, notes et médias qu’elles atteignent.
+- **Personnes portant une étiquette** : choisissez une étiquette. Le fichier garde les personnes qui la portent, avec leurs familles et les fiches qu’elles atteignent.
+
+Une branche ou une étiquette doit être choisie avant de lancer l’export. L’étendue ne vaut que pour l’export suivant, comme les autres options.
+
 ### L’émetteur
 
 La carte **Émetteur** indique de qui proviennent les fichiers exportés : **Nom**, **Courriel** et **Adresse**, enregistrés par **Enregistrer**. Sans nom, le fichier désigne la personne choisie comme **Qui suis-je ?** (voir [Les arbres](@/guide/trees.fr.md)), et à défaut « Not Provided ». Lors d’un import, les champs encore vides sont remplis à partir de l’émetteur du fichier.

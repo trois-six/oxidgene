@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-19T12:15:20Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 ---
 
 
@@ -1191,7 +1191,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `repository`, `media`, `tree` |
 | `subject_id` | UUID? | That record |
 | `label` | String? | The subject's display name at the time — it outlives a later rename or deletion |
-| `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label`, `new_label` (the name a family-name rename gave) — only what applies |
+| `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label`, `new_label` (the name a family-name rename gave), `scope` (the target JSON text an export was limited to) — only what applies |
 
 What is recorded:
 

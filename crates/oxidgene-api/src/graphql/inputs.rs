@@ -1104,9 +1104,9 @@ impl TryFrom<MediaListFilterInput> for crate::service::media_library::MediaListF
 
 // ── Tag Target Inputs ────────────────────────────────────────────────
 
-/// The persons a bulk tag change or a tag count reads. Exactly one of
-/// `persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf` or
-/// `search` is set.
+/// The persons a bulk tag change, a tag count or an export reads. Exactly one
+/// of `persons`, `ancestorsOf`, `descendantsOf`, `ancestorsAndDescendantsOf`,
+/// `search` or `tag` is set.
 #[derive(Debug, InputObject)]
 pub struct TagTargetInput {
     /// Persons named by id, at most 1,000.
@@ -1126,6 +1126,8 @@ pub struct TagTargetInput {
     pub include_spouses: Option<bool>,
     /// Every person the search returns, not one page of it.
     pub search: Option<TagSearchTargetInput>,
+    /// Every person carrying this tag.
+    pub tag: Option<ID>,
 }
 
 /// A person search as a tag target: the query and the filters of the search.
@@ -1202,5 +1204,6 @@ pub(crate) fn tag_target_spec(
         include_self: input.include_self.unwrap_or(false),
         include_spouses: input.include_spouses.unwrap_or(false),
         search,
+        tag: opt_uuid(input.tag.as_ref())?,
     })
 }

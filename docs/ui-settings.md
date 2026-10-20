@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-20T15:00:00Z }
 ---
 
 
@@ -464,10 +464,25 @@ the chosen format.
 | Include media (GEDZIP only) | On by default: the archive carries the photos and documents. When disabled, the archive holds `gedcom.ged` alone, and that GEDCOM has no `OBJE` record, no link to one and no identification (vignette) — not even a `FILE` reference to a file left behind, which an import would keep as a medium without its bytes. A plain GEDCOM never carries file bytes and always writes its media's references, so the option is not shown for it |
 | Include contemporary persons (planned) | Leaves out the persons the contemporary-person rules hide. It waits for those rules ([§8](#contemporary-persons-planned)) and is not shown |
 
-The options and the destination travel with the export request — the
-GEDCOM request, or the GEDZIP export job, which keeps its options until a
-worker packs the archive ([API Contract](api.md)). The export's audit entry
-records its format only.
+### Scope
+
+Under the options, a **Scope** select limits the export to part of the tree
+([API Contract, Export scope](api.md#export-scope)). Its options:
+
+| Scope | Option label | Keeps |
+|---|---|---|
+| Whole tree (default) | Translated ("Whole tree") | Every record |
+| A branch | Translated ("A branch") | A **root person** (a person picker, required), the **side** of the branch (descendants by default, ancestors, or ancestors and descendants), the **generations** (a number from 1 to 30; empty for all of them), an **Include the root person** checkbox (on by default) and, for descendants, an **Include the spouses of the descendants** checkbox |
+| Persons carrying a tag | Translated ("Persons carrying a tag") | The persons carrying the chosen tag, from a select of the tree's tags whose labels are shown as they were written |
+
+A branch or a tag is required before the export starts: until one is chosen,
+the export shows a message saying so and makes no request. The generations
+field shows what was typed; a value that is neither empty nor a whole number
+from 1 to 30 shows a message beside the field and blocks the export the same
+way until it is corrected. The scope applies to
+the next export only and is not stored, as the other options; a reload restores
+the whole tree. The export's audit entry records its format and, when it is
+limited, its scope.
 
 Export is triggered by the download button beside the format select
 ("Download .ged" or "Download .gdz").

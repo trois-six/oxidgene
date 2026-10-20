@@ -1,9 +1,9 @@
 ---
 type: "Product Specification"
 title: "Tags"
-description: "Planned uses of tags beyond finding: statistics, anomalies and export limited to a tag."
+description: "Principles of tags shared by every kind of record, and where their uses beyond finding (statistics, anomalies and export limited to a tag) are specified."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 ---
 
 # Tags
@@ -20,9 +20,9 @@ specified where they apply: the vocabulary and the link in
 [Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), and each record's
 menu and dots in [Person Profile](ui-person-profile.md),
 [Couple Profile](ui-couple-profile.md) and [Dictionary](ui-dictionary.md). This
-document keeps the principles that hold for every use of tags, and the uses
-beyond finding that are still planned. Their delivery status is in
-[Roadmap §11b](roadmap.md#11b-planned-tags).
+document keeps the principles that hold for every use of tags, and points to
+the specifications of the uses beyond finding. All five phases of the tags
+work are delivered ([Roadmap §11b](roadmap.md#11b-tags)).
 
 ---
 
@@ -53,13 +53,23 @@ eight languages. Tag labels are user content and are never translated.
 
 ## 2. Uses beyond finding
 
-- Statistics and anomalies limited to a tag ([Statistics](ui-statistics.md),
-  [Tools §3](ui-tools.md#3-anomalies)).
-- An export of the persons carrying a tag, with the subtree export of the
-  [Roadmap](roadmap.md#7b-planned-subtree-export).
+Each use is specified on the surface it belongs to. Its counting and selection
+rules are in the API contract, its page in the UI specification.
 
-## 3. Tests still to write
+### 2.1 Statistics limited to a tag
 
-- Statistics and anomalies limited to a tag, and the export of the persons
-  carrying a tag, each with its REST and GraphQL coverage.
-- Test data is fictitious ([Cross-cutting Rules](cross-cutting.md)).
+The tag select of the [Statistics](ui-statistics.md) page, and the rules of
+the figures a tag limits: [API Contract, Statistics](api.md#statistics).
+
+### 2.2 Anomalies limited to a tag
+
+The tag select of [Tools §3](ui-tools.md#3-anomalies), and the rule of an
+anomaly that names a tagged person: [API Contract, Tools](api.md#tools).
+
+### 2.3 Exporting part of the tree
+
+This is also the subtree export of [Roadmap §7b](roadmap.md#7b-subtree-export).
+The scope of an export is a bulk tagging target ([API Contract, Tags](api.md#tags))
+with the addition of a tag, chosen in the export section of
+[Tree Settings, Scope](ui-settings.md#scope). Its rules, what an export keeps and
+the audit entry it writes are in [API Contract, Export scope](api.md#export-scope).

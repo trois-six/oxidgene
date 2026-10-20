@@ -183,6 +183,26 @@ impl RecordTagRepo {
         Ok(counts)
     }
 
+    /// The persons of `tree_id` carrying `tag_id`, by id, deleted ones
+    /// included: the caller keeps the live ones.
+    pub async fn persons_with_tag(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        tag_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let rows: Vec<(Option<Uuid>,)> = record_tag::Entity::find()
+            .select_only()
+            .column(record_tag::Column::PersonId)
+            .filter(record_tag::Column::TreeId.eq(tree_id))
+            .filter(record_tag::Column::TagId.eq(tag_id))
+            .filter(record_tag::Column::PersonId.is_not_null())
+            .into_tuple::<(Option<Uuid>,)>()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(rows.into_iter().filter_map(|(id,)| id).collect())
+    }
+
     /// The tags of each of `record_ids`, all of one kind, sorted by folded
     /// label. A record without tags is absent from the map. One grouped query
     /// per bounded slice of ids, whatever their number.

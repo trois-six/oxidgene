@@ -56,8 +56,9 @@ pub fn record_key(name: &str, path: &str) -> Option<&'static str> {
         "allowed_link_id" | "left_out_media_links" => "media_link_id",
         "entry_id" => "entry_id",
         "record_id" => "record_id",
-        // A tag, or the tag a merge moves its links onto.
-        "tag_id" | "tags" | "into" => "tag_id",
+        // A tag, the tag a merge moves its links onto, or the tag a scope
+        // limits a read to.
+        "tag_id" | "tags" | "into" | "tag" => "tag_id",
         _ => return None,
     })
 }

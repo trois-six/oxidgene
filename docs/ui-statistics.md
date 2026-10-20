@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: human:maintainer, at: 2026-10-01T23:57:17Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -87,6 +87,15 @@ truncates a long value rather than push its count out of the card.
 The **approximate dates** box, in the topbar, lets ages and averages also
 use dates about, calculated or estimated (§7); it is off by default and
 applies to every tab.
+
+The **tag** select, beside it, limits the figures to the persons carrying a
+tag ([Tags §2.1](tags.md#21-statistics-limited-to-a-tag)): *All persons*
+(the default), then the tags carried by at least one person, by label, each
+with its colour. Every figure computed from persons counts only those persons;
+the sources and the Growth tab stay whole, and a note under their heading says
+so. The choice is kept with the page's history entry, not per viewer: going back
+to the page takes it up again, a page opened anew starts on all persons, and a tag
+the tree no longer carries is forgotten.
 
 The Population and Families tabs open on a bar that governs their period
 charts (§6). Its **interval** selector (10, 25, 50 or 100 years; 25 by

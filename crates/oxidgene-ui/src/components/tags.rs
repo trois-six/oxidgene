@@ -13,6 +13,7 @@ use crate::api::{ApiClient, ApiError, BulkTagAction, TagSummary, TagTarget};
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::modal::Modal;
 use crate::i18n::{I18n, use_i18n};
+use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 
@@ -1072,6 +1073,105 @@ pub fn TagDots(tree_id: String, tags: Vec<TagRef>) -> Element {
             }
         }
     }
+}
+
+/// A select of the tree's tags: a first option `placeholder` with no value,
+/// then one option per tag, its label in the tag's colour. Choosing the
+/// placeholder reports `None`. Shared by the Statistics and Tools pages and
+/// the export scope (docs/tags.md §2).
+#[component]
+pub fn TagSelect(
+    id: String,
+    tags: Vec<TagSummary>,
+    selected: Option<Uuid>,
+    placeholder: String,
+    on_change: EventHandler<Option<Uuid>>,
+    /// Added to the select's own class, for the page it sits on.
+    #[props(default)]
+    class: String,
+) -> Element {
+    rsx! {
+        select {
+            id: "{id}",
+            class: "tag-select {class}",
+            onchange: move |e: Event<FormData>| on_change.call(e.value().parse::<Uuid>().ok()),
+            option { value: "", selected: selected.is_none(), "{placeholder}" }
+            for tag in tags.iter() {
+                option {
+                    key: "{tag.id}",
+                    value: "{tag.id}",
+                    selected: selected == Some(tag.id),
+                    style: "color: {tag_colour(tag.color)};",
+                    "\u{25CF} {tag.label}"
+                }
+            }
+        }
+    }
+}
+
+/// The tag a page limits its figures to (docs/tags.md §2.1, §2.2): kept with
+/// the page's history entry, and forgotten once the tree no longer carries
+/// it. `None` is every person.
+#[derive(Clone, Copy)]
+pub(crate) struct TagFilter {
+    chosen: Signal<Option<Uuid>>,
+    tags: Resource<Vec<TagSummary>>,
+}
+
+impl TagFilter {
+    /// The tag chosen, if any.
+    pub(crate) fn chosen(&self) -> Option<Uuid> {
+        (self.chosen)()
+    }
+
+    /// Chooses a tag, or every person with `None`; the history entry keeps it.
+    pub(crate) fn choose(&mut self, value: Option<Uuid>) {
+        self.chosen.set(value);
+    }
+
+    /// The tags carried by at least one person, by label as the tree lists them.
+    pub(crate) fn carried(&self) -> Vec<TagSummary> {
+        carried_tags(self.tags.read().as_deref().unwrap_or_default())
+    }
+}
+
+/// The tags of a vocabulary that at least one person carries, in the order
+/// given. Every person-tag select offers only these (docs/tags.md §2).
+pub(crate) fn carried_tags(tags: &[TagSummary]) -> Vec<TagSummary> {
+    tags.iter()
+        .filter(|tag| tag.counts.persons > 0)
+        .cloned()
+        .collect()
+}
+
+/// The tag filter of a tree page. Going back to the page's history entry
+/// takes up the tag the reader left; a page opened anew starts on every person.
+pub(crate) fn use_tag_filter(tree_id: Option<Uuid>) -> TagFilter {
+    let api = use_context::<ApiClient>();
+    let restored = use_restored_view::<Option<Uuid>>().flatten();
+    let mut chosen = use_signal(move || restored);
+    use_saved_view(move || *chosen.read());
+    let tags = use_ui_resource("tag_filter_tags", move || {
+        let api = api.clone();
+        async move {
+            match tree_id {
+                Some(tid) => api.list_tags(tid).await.unwrap_or_default(),
+                None => Vec::new(),
+            }
+        }
+    });
+    // A tag the tree no longer carries would empty every figure: it is
+    // forgotten once the tags are known.
+    use_effect(move || {
+        if let (Some(id), Some(list)) = (chosen(), tags.read().as_ref())
+            && !list
+                .iter()
+                .any(|tag| tag.id == id && tag.counts.persons > 0)
+        {
+            chosen.set(None);
+        }
+    });
+    TagFilter { chosen, tags }
 }
 
 /// How long a touch must hold before it opens a record menu, in milliseconds.

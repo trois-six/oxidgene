@@ -493,6 +493,9 @@ pub struct FileImportStartedResponse {
 pub struct StartExportJobQuery {
     pub include_notes_and_sources: Option<bool>,
     pub include_media: Option<bool>,
+    /// The target the export is limited to, as JSON (see
+    /// [`ExportGedcomQuery::scope`]).
+    pub scope: Option<String>,
 }
 
 impl StartExportJobQuery {
@@ -503,6 +506,20 @@ impl StartExportJobQuery {
             self.include_notes_and_sources,
             self.include_media,
         )
+    }
+
+    /// The scope the query names, `None` for the whole tree.
+    ///
+    /// # Errors
+    ///
+    /// A validation error for a scope that is not a target as JSON.
+    pub fn scope(
+        &self,
+    ) -> Result<Option<crate::service::tag_bulk::TagTargetSpec>, oxidgene_core::OxidGeneError> {
+        self.scope
+            .as_deref()
+            .map(crate::service::tag_bulk::parse_scope)
+            .transpose()
     }
 }
 
@@ -537,9 +554,29 @@ pub struct ExportGedcomQuery {
     /// GEDZIP only: a plain GEDCOM always writes its media's references.
     /// Defaults to `true`.
     pub include_media: Option<bool>,
+    /// The target the export is limited to, as JSON and URL-encoded: the
+    /// bulk tagging target (`persons`, `ancestors_of`, `descendants_of`,
+    /// `ancestors_and_descendants_of`, `search` or `tag`, with `depth`,
+    /// `include_self`, `include_spouses` and the search filters). Absent,
+    /// the whole tree is exported.
+    pub scope: Option<String>,
 }
 
 impl ExportGedcomQuery {
+    /// The scope the query names, `None` for the whole tree.
+    ///
+    /// # Errors
+    ///
+    /// A validation error for a scope that is not a target as JSON.
+    pub fn scope(
+        &self,
+    ) -> Result<Option<crate::service::tag_bulk::TagTargetSpec>, oxidgene_core::OxidGeneError> {
+        self.scope
+            .as_deref()
+            .map(crate::service::tag_bulk::parse_scope)
+            .transpose()
+    }
+
     /// The choices these options make; an option left out keeps the
     /// complete export, standard GEDCOM 5.5.1.
     ///

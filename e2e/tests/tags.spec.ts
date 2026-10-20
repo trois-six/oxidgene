@@ -1,28 +1,5 @@
-import { apiUrl, expect, importGedcom, test } from "./fixtures";
+import { apiUrl, createTag, expect, importGedcom, personIdOf, tagPerson, test } from "./fixtures";
 import type { APIRequestContext } from "@playwright/test";
-
-/// Create the tag `label` in `treeId` and return its id.
-async function createTag(request: APIRequestContext, treeId: string, label: string): Promise<string> {
-    const created = await request.post(`${apiUrl}/api/v1/trees/${treeId}/tags`, { data: { label } });
-    expect(created.ok(), await created.text()).toBeTruthy();
-    return (await created.json()).id as string;
-}
-
-/// Put the tag on a person, through the record route the picker uses.
-async function tagPerson(request: APIRequestContext, treeId: string, tagId: string, personId: string): Promise<void> {
-    const put = await request.put(`${apiUrl}/api/v1/trees/${treeId}/tags/${tagId}/records/person/${personId}`);
-    expect(put.status()).toBe(204);
-}
-
-/// The id of the fixture person whose given names are `given`.
-async function personIdOf(request: APIRequestContext, treeId: string, given: string): Promise<string> {
-    const page = (await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/profiles?first=100`)).json()) as {
-        edges: Array<{ node: { person_id: string; primary_name?: { given_names?: string } } }>;
-    };
-    const id = page.edges.map((edge) => edge.node).find((p) => p.primary_name?.given_names === given)?.person_id;
-    expect(id, `the fixture's ${given}`).toBeTruthy();
-    return id as string;
-}
 
 /// Create one source per title in `treeId`, in batches, and return their ids in
 /// the order of `titles`.

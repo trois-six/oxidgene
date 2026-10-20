@@ -234,6 +234,10 @@ pub struct AuditDetails {
     /// one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_label: Option<String>,
+    /// The scope an export was limited to, as its target JSON text (absent
+    /// for the whole tree).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl AuditDetails {

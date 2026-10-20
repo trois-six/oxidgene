@@ -22,6 +22,7 @@ use crate::components::charts::{
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
+use crate::components::tags::{TagSelect, use_tag_filter};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
@@ -135,6 +136,8 @@ pub fn Statistics(tree_id: String) -> Element {
     // has its own, every other tab shares the statistics. Each is asked the
     // first time a tab needs it, never before.
     let statistics_wanted = use_signal(|| false);
+    // The tag the figures count persons of, all persons when none is chosen.
+    let mut tag = use_tag_filter(tid);
     let growth_wanted = use_signal(|| false);
     // The base map is drawn by the Places tab alone: 1.6 MB of outlines
     // nobody else needs.
@@ -175,11 +178,14 @@ pub fn Statistics(tree_id: String) -> Element {
         let approximate = approximate();
         let lang = language().reference_code();
         let wanted = statistics_wanted();
+        let chosen = tag.chosen();
         async move {
             if !wanted {
                 return None;
             }
-            api.tree_statistics(tid?, approximate?, lang).await.ok()
+            api.tree_statistics(tid?, approximate?, lang, chosen)
+                .await
+                .ok()
         }
     });
     let api_growth = api.clone();
@@ -224,6 +230,8 @@ pub fn Statistics(tree_id: String) -> Element {
         })
     });
 
+    let limited = tag.chosen().is_some();
+    let carried = tag.carried();
     let stats_read = stats.read();
     let stats_value = stats_read.as_ref().and_then(Option::as_ref);
     let growth_read = growth.read();
@@ -238,6 +246,14 @@ pub fn Statistics(tree_id: String) -> Element {
             page_class: "stats-page",
             content_class: "stats-content",
             topbar: rsx! {
+                label { class: "stats-option", r#for: "stats-tag", {i18n.t("stats.tag")} }
+                TagSelect {
+                    id: "stats-tag",
+                    tags: carried.clone(),
+                    selected: tag.chosen(),
+                    placeholder: i18n.t("stats.tag_all"),
+                    on_change: move |value| tag.choose(value),
+                }
                 label {
                     class: "stats-option",
                     title: "{i18n.t(\"stats.approximate_hint\")}",
@@ -267,13 +283,13 @@ pub fn Statistics(tree_id: String) -> Element {
                 (Some(StatsTab::Growth), _) => match growth_value {
                     None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
                     Some(value) => measure_ui("statistics_growth", || {
-                        render_growth(value, Utc::now().date_naive(), &i18n)
+                        render_growth(value, Utc::now().date_naive(), limited, &i18n)
                     }),
                 },
                 (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
                 (Some(current), Some(value)) => rsx! {
                     match current {
-                        StatsTab::Overview => render_overview(value, &i18n),
+                        StatsTab::Overview => render_overview(value, limited, &i18n),
                         StatsTab::Population => rsx! {
                             PeriodCharts { stats, interval, range, view: PeriodView::Population }
                         },
@@ -406,7 +422,7 @@ fn by_sex(i18n: &I18n, men: &StatSummary, women: &StatSummary) -> Vec<String> {
     )]
 }
 
-fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
+fn render_overview(stats: &TreeStatistics, limited: bool, i18n: &I18n) -> Element {
     let count = |key: &str, value: i64| tile(key, value.to_string(), i18n.t(key), Vec::new());
     let share = |key: &str, part: i64| {
         tile(
@@ -449,6 +465,9 @@ fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
                 {tile("stats.years_covered", years, i18n.t("stats.years_covered"), Vec::new())}
                 {count("stats.surnames", stats.surnames)}
                 {count("stats.given_names", stats.given_names)}
+            }
+            if limited {
+                p { class: "stats-note", {i18n.t("stats.tag.sources_whole")} }
             }
         })}
         {block(i18n, "completeness", rsx! {
@@ -1247,7 +1266,7 @@ fn period_index(
     (date < granularity.next(periods[index].start)).then_some(index)
 }
 
-fn render_growth(growth: &TreeGrowth, today: NaiveDate, i18n: &I18n) -> Element {
+fn render_growth(growth: &TreeGrowth, today: NaiveDate, limited: bool, i18n: &I18n) -> Element {
     let i18n = *i18n;
     let Some((granularity, periods)) = growth_periods(&growth.days, today) else {
         return block(
@@ -1324,6 +1343,9 @@ fn render_growth(growth: &TreeGrowth, today: NaiveDate, i18n: &I18n) -> Element 
     rsx! {
         {block(&i18n, "growth", rsx! {
             p { class: "stats-note", "{span}" }
+            if limited {
+                p { class: "stats-note", {i18n.t("stats.tag.growth_whole")} }
+            }
             div { class: "stats-grid",
                 ChartCard {
                     title: i18n.t("stats.chart.growth_persons"),

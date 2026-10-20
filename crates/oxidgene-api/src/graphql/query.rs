@@ -920,22 +920,26 @@ impl QueryRoot {
     /// A tree's statistics, time series filed by year. `approximate` lets
     /// ages and averages use dates about, calculated or estimated;
     /// `language` names places' countries, regions and subdivisions
-    /// (English when omitted).
+    /// (English when omitted); `tag` limits the figures about persons to
+    /// those carrying it (the whole tree when omitted).
     async fn tree_statistics(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         approximate: Option<bool>,
         language: Option<String>,
+        tag: Option<ID>,
     ) -> Result<crate::service::statistics::TreeStatistics> {
         boxed(async move {
             let lang = crate::service::statistics::language(language.as_deref())?;
+            let tag = tag.as_ref().map(uuid).transpose()?;
             Ok(crate::service::statistics::load(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
                 approximate.unwrap_or(false),
                 lang,
+                tag,
             )
             .await?)
         })
@@ -982,17 +986,21 @@ impl QueryRoot {
     }
 
     /// The tree's anomalies: dates, filiations, unions, witnesses and
-    /// records that are impossible or unlikely, by rule.
+    /// records that are impossible or unlikely, by rule. `tag` keeps only
+    /// the anomalies that name a person carrying it.
     async fn tree_anomalies(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
+        tag: Option<ID>,
     ) -> Result<crate::service::anomalies::TreeAnomalies> {
         boxed(async move {
+            let tag = tag.as_ref().map(uuid).transpose()?;
             Ok(crate::service::anomalies::load(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
+                tag,
             )
             .await?)
         })
@@ -1678,6 +1686,7 @@ impl QueryRoot {
         tree_id: ID,
         destination: Option<String>,
         include_notes_and_sources: Option<bool>,
+        scope: Option<TagTargetInput>,
     ) -> Result<GqlExportGedcomResult> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -1686,11 +1695,13 @@ impl QueryRoot {
                 include_notes_and_sources,
                 None,
             )?;
+            let scope = scope.map(tag_target_spec).transpose()?;
             let data = crate::service::gedcom::export_gedcom(
                 // Writes the export's audit entry.
                 db_from_ctx(ctx),
                 tree_id,
                 choices,
+                scope.as_ref(),
             )
             .await?;
             Ok(GqlExportGedcomResult {

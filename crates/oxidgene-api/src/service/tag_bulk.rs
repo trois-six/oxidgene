@@ -43,7 +43,7 @@ const LOOKUP_CHUNK: usize = 5_000;
 /// The persons a bulk change or a target read names. Exactly one of
 /// `persons`, `ancestors_of`, `descendants_of`, `ancestors_and_descendants_of`
 /// or `search` is set; a request with none or several is `validation_error`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TagTargetSpec {
     /// Persons named by id, at most [`MAX_LISTED_PERSONS`].
@@ -63,10 +63,12 @@ pub struct TagTargetSpec {
     pub include_spouses: bool,
     /// Every person the search returns, not one page of it.
     pub search: Option<SearchTarget>,
+    /// Every person carrying this tag.
+    pub tag: Option<Uuid>,
 }
 
 /// A person search as a target: the query and the filters of the search.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SearchTarget {
     pub q: String,
@@ -122,7 +124,7 @@ pub async fn bulk_tag(
     let txn = begin_tx(db).await?;
     require_live_tree(&txn, tree_id).await?;
     let tag = TagRepo::get(&txn, tree_id, tag_id).await?;
-    let ids = resolve(&txn, tree_id, spec).await?;
+    let ids = resolve(&txn, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
     let (changed, audit_action) = match action {
         BulkAction::Add => (
             RecordTagRepo::add_persons(&txn, tree_id, tag.id, &ids).await?,
@@ -158,7 +160,7 @@ pub async fn target_counts(
     spec: &TagTargetSpec,
 ) -> Result<TargetCounts, OxidGeneError> {
     require_live_tree(db, tree_id).await?;
-    let ids = resolve(db, tree_id, spec).await?;
+    let ids = resolve(db, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
     let counts = RecordTagRepo::person_tag_counts(db, tree_id, &ids).await?;
     let mut tags: Vec<TagTargetCount> = counts
         .into_iter()
@@ -172,58 +174,103 @@ pub async fn target_counts(
 }
 
 /// The live persons of `tree_id` that `spec` names, sorted, without
-/// duplicates. Fails with `validation_error` on a malformed or oversized
-/// target, and with `not_found` on a listed or walked-from person that is not
-/// a live person of the tree.
+/// duplicates. Fails with `validation_error` on a malformed target, or on one
+/// holding more than `bound` persons when a bound is given, and with
+/// `not_found` on a listed or walked-from person, or on a tag, that is not
+/// live in the tree. A bulk change and a count are bounded by
+/// [`MAX_TARGET_PERSONS`]; an export is not.
 async fn resolve(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     spec: &TagTargetSpec,
+    bound: Option<usize>,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
-    let ids = match (
-        &spec.persons,
-        spec.ancestors_of,
-        spec.descendants_of,
-        spec.ancestors_and_descendants_of,
-        &spec.search,
-    ) {
-        (Some(persons), None, None, None, None) => listed_persons(db, tree_id, persons).await?,
-        (None, Some(root), None, None, None) => {
-            branch(db, tree_id, root, spec, Direction::Up).await?
-        }
-        (None, None, Some(root), None, None) => {
-            branch(db, tree_id, root, spec, Direction::Down).await?
-        }
-        (None, None, None, Some(root), None) => both_sides(db, tree_id, root, spec).await?,
-        (None, None, None, None, Some(search)) => {
-            let limit = search_limit(MAX_TARGET_PERSONS);
-            PersonSearchRepo::search_ids(db, tree_id, &search.q, &search.filters, limit).await?
-        }
-        _ => {
-            return Err(OxidGeneError::Validation(
-                "a target names exactly one of persons, ancestors_of, descendants_of, ancestors_and_descendants_of or search"
-                    .to_owned(),
-            ));
-        }
+    let named = [
+        spec.persons.is_some(),
+        spec.ancestors_of.is_some(),
+        spec.descendants_of.is_some(),
+        spec.ancestors_and_descendants_of.is_some(),
+        spec.search.is_some(),
+        spec.tag.is_some(),
+    ];
+    if named.iter().filter(|&&set| set).count() != 1 {
+        return Err(OxidGeneError::Validation(
+            "a target names exactly one of persons, ancestors_of, descendants_of, ancestors_and_descendants_of, search or tag"
+                .to_owned(),
+        ));
+    }
+    let ids = if let Some(persons) = &spec.persons {
+        listed_persons(db, tree_id, persons).await?
+    } else if let Some(root) = spec.ancestors_of {
+        branch(db, tree_id, root, spec, Direction::Up).await?
+    } else if let Some(root) = spec.descendants_of {
+        branch(db, tree_id, root, spec, Direction::Down).await?
+    } else if let Some(root) = spec.ancestors_and_descendants_of {
+        both_sides(db, tree_id, root, spec).await?
+    } else if let Some(search) = &spec.search {
+        PersonSearchRepo::search_ids(db, tree_id, &search.q, &search.filters, search_limit(bound))
+            .await?
+    } else if let Some(tag) = spec.tag {
+        tagged_persons(db, tree_id, tag).await?
+    } else {
+        return Err(OxidGeneError::Validation(
+            "a target names exactly one of persons, ancestors_of, descendants_of, ancestors_and_descendants_of, search or tag"
+                .to_owned(),
+        ));
     };
-    enforce_bound(ids, MAX_TARGET_PERSONS)
+    enforce_bound(ids, bound)
 }
 
-/// The rows a search target fetches: one past `max`, so that a search which
-/// returns more is refused without reading the rest of it.
-fn search_limit(max: usize) -> u64 {
-    (max + 1) as u64
-}
-
-/// The sorted, unique ids of a target, refused when there are more than `max`.
-fn enforce_bound(ids: Vec<Uuid>, max: usize) -> Result<Vec<Uuid>, OxidGeneError> {
-    let ids = sorted_unique(ids);
-    if ids.len() > max {
-        return Err(OxidGeneError::Validation(format!(
-            "a target holds at most {max} persons"
-        )));
+/// The persons an export's `spec` keeps: the target, unbounded. A scope
+/// holding no person is a `validation_error`.
+pub async fn export_persons(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    spec: &TagTargetSpec,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let ids = resolve(db, tree_id, spec, None).await?;
+    if ids.is_empty() {
+        return Err(OxidGeneError::Validation(
+            "a scope holds no person".to_owned(),
+        ));
     }
     Ok(ids)
+}
+
+/// A target as the JSON text a query or a job carries it in, parsed.
+pub fn parse_scope(text: &str) -> Result<TagTargetSpec, OxidGeneError> {
+    serde_json::from_str(text)
+        .map_err(|error| OxidGeneError::Validation(format!("a scope is a target as JSON: {error}")))
+}
+
+/// The rows a search target fetches: one past `bound`, so that a search which
+/// returns more is refused without reading the rest of it. Unbounded, the
+/// largest count a row limit takes.
+fn search_limit(bound: Option<usize>) -> u64 {
+    bound.map_or(i64::MAX as u64, |max| (max + 1) as u64)
+}
+
+/// The sorted, unique ids of a target, refused when there are more than
+/// `bound`.
+fn enforce_bound(ids: Vec<Uuid>, bound: Option<usize>) -> Result<Vec<Uuid>, OxidGeneError> {
+    let ids = sorted_unique(ids);
+    match bound {
+        Some(max) if ids.len() > max => Err(OxidGeneError::Validation(format!(
+            "a target holds at most {max} persons"
+        ))),
+        _ => Ok(ids),
+    }
+}
+
+/// The live persons carrying `tag`, which must be a tag of the tree.
+async fn tagged_persons(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    tag: Uuid,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    TagRepo::get(db, tree_id, tag).await?;
+    let carriers = RecordTagRepo::persons_with_tag(db, tree_id, tag).await?;
+    live_only(db, tree_id, carriers).await
 }
 
 /// The direction a branch target walks from its root.
@@ -381,15 +428,18 @@ mod tests {
 
     #[test]
     fn a_search_target_fetches_one_past_the_bound() {
-        assert_eq!(search_limit(MAX_TARGET_PERSONS), 10_001);
-        assert_eq!(search_limit(3), 4);
+        assert_eq!(search_limit(Some(MAX_TARGET_PERSONS)), 10_001);
+        assert_eq!(search_limit(Some(3)), 4);
     }
 
     #[test]
     fn a_target_at_the_bound_is_accepted_and_one_past_it_is_refused() {
-        assert_eq!(enforce_bound(ids(3), 3).map(|ids| ids.len()).ok(), Some(3));
+        assert_eq!(
+            enforce_bound(ids(3), Some(3)).map(|ids| ids.len()).ok(),
+            Some(3)
+        );
         assert!(matches!(
-            enforce_bound(ids(4), 3),
+            enforce_bound(ids(4), Some(3)),
             Err(OxidGeneError::Validation(message)) if message == "a target holds at most 3 persons"
         ));
     }
@@ -398,6 +448,9 @@ mod tests {
     fn duplicate_ids_do_not_count_towards_the_bound() {
         let mut doubled = ids(3);
         doubled.extend(ids(3));
-        assert_eq!(enforce_bound(doubled, 3).map(|ids| ids.len()).ok(), Some(3));
+        assert_eq!(
+            enforce_bound(doubled, Some(3)).map(|ids| ids.len()).ok(),
+            Some(3)
+        );
     }
 }

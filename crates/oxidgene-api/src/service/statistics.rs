@@ -481,7 +481,10 @@ pub(crate) fn person_ref(profile: &PersonProfile) -> PersonRef {
 /// first dated family event.
 struct Union<'a> {
     family_id: Uuid,
+    /// The spouses in the statistics' scope.
     spouses: Vec<(Uuid, SpouseRole)>,
+    /// Every spouse of the union, out of scope ones included.
+    spouse_ids: Vec<Uuid>,
     date: Option<&'a ProfileEvent>,
     /// A divorce or an annulment.
     end: Option<NaiveDate>,
@@ -492,12 +495,14 @@ struct Union<'a> {
 struct Tree<'a> {
     profiles: &'a [PersonProfile],
     by_id: HashMap<Uuid, &'a PersonProfile>,
+    /// The spouses out of scope, read for their dates only.
+    others: HashMap<Uuid, &'a PersonProfile>,
     dates: Dates,
     unions: Vec<Union<'a>>,
 }
 
 impl<'a> Tree<'a> {
-    fn new(profiles: &'a [PersonProfile], dates: Dates) -> Self {
+    fn new(profiles: &'a [PersonProfile], others: &'a [PersonProfile], dates: Dates) -> Self {
         let mut by_family: HashMap<Uuid, Union<'a>> = HashMap::new();
         for profile in profiles {
             for link in &profile.families_as_spouse {
@@ -518,6 +523,7 @@ impl<'a> Tree<'a> {
                     Union {
                         family_id: link.family_id,
                         spouses: Vec::new(),
+                        spouse_ids: Vec::new(),
                         date,
                         end,
                         children: link.children_ids.clone(),
@@ -526,6 +532,11 @@ impl<'a> Tree<'a> {
                 if !union.spouses.iter().any(|(id, _)| *id == profile.person_id) {
                     union.spouses.push((profile.person_id, link.role));
                 }
+                for id in std::iter::once(profile.person_id).chain(link.spouse_id) {
+                    if !union.spouse_ids.contains(&id) {
+                        union.spouse_ids.push(id);
+                    }
+                }
             }
         }
         let mut unions: Vec<_> = by_family.into_values().collect();
@@ -533,6 +544,7 @@ impl<'a> Tree<'a> {
         Self {
             profiles,
             by_id: profiles.iter().map(|p| (p.person_id, p)).collect(),
+            others: others.iter().map(|p| (p.person_id, p)).collect(),
             dates,
             unions,
         }
@@ -562,15 +574,26 @@ impl<'a> Tree<'a> {
             .map(|(date, _)| date)
     }
 
+    /// A spouse's death, whether or not the spouse is in scope.
+    fn spouse_death(&self, id: &Uuid) -> Option<NaiveDate> {
+        self.person(id)
+            .or_else(|| self.others.get(id).copied())
+            .and_then(|p| self.death(p))
+            .map(|(date, _)| date)
+    }
+
     /// When a union ended: the first death of a spouse, or a divorce or an
     /// annulment, whichever came first. A union with one known spouse only
     /// ends by a divorce or an annulment.
     fn union_end(&self, union: &Union<'_>) -> Option<NaiveDate> {
-        let deaths: Option<Vec<NaiveDate>> =
-            union.spouses.iter().map(|(id, _)| self.died(id)).collect();
+        let deaths: Option<Vec<NaiveDate>> = union
+            .spouse_ids
+            .iter()
+            .map(|id| self.spouse_death(id))
+            .collect();
         match (deaths.and_then(|d| d.into_iter().min()), union.end) {
             (Some(d), Some(e)) => Some(d.min(e)),
-            (Some(d), None) if union.spouses.len() == 2 => Some(d),
+            (Some(d), None) if union.spouse_ids.len() == 2 => Some(d),
             (None, Some(e)) => Some(e),
             _ => None,
         }
@@ -700,7 +723,9 @@ pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::Oxid
 /// Loads what a tree's statistics are computed from, and computes them off
 /// the async workers: the person projections, the place usages, the source
 /// count, and the place dictionary to locate places and name their country,
-/// region and subdivision in `lang`.
+/// region and subdivision in `lang`. With `tag`, the figures about persons
+/// are those of the persons carrying it (see [`limit_to_tag`]); the source
+/// count stays the whole tree's.
 #[tracing::instrument(name = "statistics.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
@@ -708,11 +733,19 @@ pub async fn load(
     tree_id: Uuid,
     approximate: bool,
     lang: ReferenceLang,
+    tag: Option<Uuid>,
 ) -> Result<TreeStatistics, oxidgene_core::OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
+    if let Some(tag) = tag {
+        oxidgene_db::repo::TagRepo::get(db, tree_id, tag).await?;
+    }
     let persons = profiles.get_all_persons(tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
     let sources = oxidgene_db::repo::SourceRepo::count_in_tree(db, tree_id).await?;
+    let (persons, others, places) = match tag {
+        Some(tag) => limit_to_tag(persons, places, tag),
+        None => (persons, Vec::new(), places),
+    };
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!(
         "statistics.compute",
@@ -722,6 +755,7 @@ pub async fn load(
     crate::service::blocking::run(span, move || {
         compute(
             &persons,
+            &others,
             &places,
             i64::try_from(sources).unwrap_or(i64::MAX),
             today,
@@ -730,6 +764,72 @@ pub async fn load(
         )
     })
     .await
+}
+
+/// Whether a person carries the tag `tag`.
+pub(crate) fn carries(profile: &PersonProfile, tag: Uuid) -> bool {
+    profile.tags.iter().any(|t| t.id == tag)
+}
+
+/// The persons carrying `tag`, the untagged spouses of their unions (read for
+/// their dates alone, so that a union ends as it does in the whole tree), and
+/// the places as the events of those persons use them: each event counted
+/// once, though a family event is held by both spouses. Media are not counted,
+/// as they are not on a person's projection.
+fn limit_to_tag(
+    persons: Vec<PersonProfile>,
+    places: Vec<(Place, i64)>,
+    tag: Uuid,
+) -> (Vec<PersonProfile>, Vec<PersonProfile>, Vec<(Place, i64)>) {
+    let (persons, rest): (Vec<PersonProfile>, Vec<PersonProfile>) =
+        persons.into_iter().partition(|p| carries(p, tag));
+    let spouses: HashSet<Uuid> = persons
+        .iter()
+        .flat_map(|p| {
+            p.families_as_spouse
+                .iter()
+                .filter_map(|link| link.spouse_id)
+        })
+        .collect();
+    let others: Vec<PersonProfile> = rest
+        .into_iter()
+        .filter(|p| spouses.contains(&p.person_id))
+        .collect();
+    let mut seen = HashSet::new();
+    let mut uses: HashMap<Uuid, i64> = HashMap::new();
+    for event in persons.iter().flat_map(events_of) {
+        if let Some(place) = event.place_id.filter(|_| seen.insert(event.event_id)) {
+            *uses.entry(place).or_insert(0) += 1;
+        }
+    }
+    let places = places
+        .into_iter()
+        .map(|(place, _)| {
+            let count = uses.get(&place.id).copied().unwrap_or(0);
+            (place, count)
+        })
+        .collect();
+    (persons, others, places)
+}
+
+/// Every event a person's projection holds: their own, and the family events
+/// of each union they are a spouse of.
+fn events_of(profile: &PersonProfile) -> impl Iterator<Item = &ProfileEvent> {
+    [
+        profile.birth.as_ref(),
+        profile.death.as_ref(),
+        profile.baptism.as_ref(),
+        profile.burial.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(profile.other_events.iter())
+    .chain(
+        profile
+            .families_as_spouse
+            .iter()
+            .flat_map(|link| link.marriage.iter().chain(link.events.iter())),
+    )
 }
 
 /// The figures read from each person's lifespan.
@@ -1039,20 +1139,23 @@ fn count_event_types(profiles: &[PersonProfile]) -> (Vec<CountEntry>, (i32, i32)
     (event_types, years)
 }
 
-/// Computes the statistics of a tree.
+/// Computes the statistics of a tree. `others` are the spouses out of scope
+/// of the persons under a tag, read for their dates only: a union ends by
+/// their death too.
 ///
 /// `locate` places the tree's place names, with how often each is used, in
 /// the place dictionary; `approximate` lets ages and averages use dates
 /// about, calculated or estimated.
 pub fn compute(
     profiles: &[PersonProfile],
+    others: &[PersonProfile],
     places: &[(Place, i64)],
     sources: i64,
     today: NaiveDate,
     approximate: bool,
     locate: impl FnOnce(&[(&str, i64)]) -> Vec<PlaceLocation>,
 ) -> TreeStatistics {
-    let tree = Tree::new(profiles, Dates { approximate });
+    let tree = Tree::new(profiles, others, Dates { approximate });
     let unions = &tree.unions;
 
     let Lives {
@@ -1481,7 +1584,7 @@ mod tests {
     }
 
     fn stats(people: &[PersonProfile]) -> TreeStatistics {
-        compute(people, &[], 0, today(), false, nowhere)
+        compute(people, &[], &[], 0, today(), false, nowhere)
     }
 
     fn record<'a>(stats: &'a TreeStatistics, kind: &str) -> &'a StatRecord {
@@ -1597,7 +1700,7 @@ mod tests {
             (place("Place C", None), 1),
             (place("Place D", None), 0),
         ];
-        let stats = compute(&people, &places, 0, today(), false, |labels| {
+        let stats = compute(&people, &[], &places, 0, today(), false, |labels| {
             labels
                 .iter()
                 .map(|(name, _)| PlaceLocation {
@@ -1732,8 +1835,8 @@ mod tests {
             event.date_qualifier = DateQualifier::About;
         }
         people.push(guessed);
-        let exact = compute(&people, &[], 0, today(), false, nowhere);
-        let approximate = compute(&people, &[], 0, today(), true, nowhere);
+        let exact = compute(&people, &[], &[], 0, today(), false, nowhere);
+        let approximate = compute(&people, &[], &[], 0, today(), true, nowhere);
         assert_eq!(exact.lifespan.men.count, 1);
         assert_eq!(approximate.lifespan.men.count, 2);
         // Counting events by year takes every dated one either way.
@@ -1758,7 +1861,7 @@ mod tests {
                 birth.place_id = Some(place.id);
             }
         }
-        let stats = compute(&people, &[(place, 4)], 0, today(), false, |labels| {
+        let stats = compute(&people, &[], &[(place, 4)], 0, today(), false, |labels| {
             vec![
                 PlaceLocation {
                     spot: Some((47.0, -1.0)),

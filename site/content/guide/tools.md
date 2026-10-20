@@ -25,6 +25,8 @@ The **Anomalies** tab checks the whole tree for dates, filiations, unions, witne
 
 A rule lists at most 500 anomalies and says how many more it found. A tree without any anomaly says so, with the number of persons checked.
 
+Use the **Tag** list above the anomalies to keep only those naming a person who carries the tag. The counts follow the choice.
+
 ### How dates are read
 
 The checks are designed not to cry wolf:

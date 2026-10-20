@@ -27,7 +27,7 @@ use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A row of the `person_search_fts` table.
@@ -108,7 +108,7 @@ pub struct PersonSearchPage {
 /// named fields — REST query strings, and anything else speaking JSON — reads
 /// them straight into this one type instead of restating the field list. An
 /// absent field is no constraint.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default)]
 pub struct PersonSearchFilters {

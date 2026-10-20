@@ -245,6 +245,7 @@ async fn scaling_statistics() {
         black_box(statistics::compute(
             profiles,
             &[],
+            &[],
             0,
             today(),
             false,

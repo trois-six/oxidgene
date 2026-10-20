@@ -18,7 +18,10 @@ pub async fn start(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<StartExportJobQuery>,
 ) -> Result<(StatusCode, Json<ExportJobStartedResponse>), ApiError> {
-    let job_id = background_job::start_export_job(&state.db, tree_id, query.choices()).await?;
+    let scope = query.scope()?;
+    let job_id =
+        background_job::start_export_job(&state.db, tree_id, query.choices(), scope.as_ref())
+            .await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(ExportJobStartedResponse { job_id }),

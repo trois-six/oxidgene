@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -259,14 +259,14 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [ ] Add the recursive view to the existing Dictionary page and specification.
 - [ ] Cover SOSA badges, limits, empty states, and large surname groups.
 
-## 7b. Planned: subtree export
+## 7b. Subtree export
 
-- [ ] Export a selected subtree — a person's ancestors, descendants, or both,
+- [x] Export a selected subtree — a person's ancestors, descendants, or both,
   to a chosen depth — as GEDCOM or GEDZIP, on REST and GraphQL alike, from
-  the export section of [Settings](ui-settings.md). `oxidged` 0.3 can cut
-  it from the exported dataset: `Dataset::ancestors` and `descendants` walk
-  the generations, and `Dataset::subset` keeps the chosen persons with the
-  families and records they need, dropping the pointers to the rest.
+  the export section of [Settings](ui-settings.md). The export keeps the
+  chosen persons with the families and records they reach and drops the
+  pointers to the rest, as `oxidged`'s `Dataset::subset` does, applied to the
+  records the exporter takes ([Tags §2.3](tags.md#23-exporting-part-of-the-tree)).
 
 ## 8. Planned: security, release, and deployment
 
@@ -388,7 +388,7 @@ processed locally only, desktop first.
 Before phase 2 and 3: confirm the licences of PhyloTree Build 17 and of the
 HapMap genetic map.
 
-## 11b. Planned: tags
+## 11b. Tags
 
 Specified in [Tags](tags.md): one vocabulary per tree, shared by every kind
 of record, replacing the media-only tags.
@@ -406,8 +406,10 @@ of record, replacing the media-only tags.
   reads, the record menus and dots of the Dictionary's Places and Repositories
   tabs and of the Notes cards, and their GEDCOM placements, including the
   `PLAC` rule.
-- [ ] Phase 5: statistics and anomalies limited to a tag; export of the
-  persons carrying a tag, with the subtree export (§7b).
+- [x] Phase 5: statistics and anomalies limited to a tag; export of the
+  persons carrying a tag, with the subtree export (§7b): the tag of the
+  statistics and anomalies APIs and pages, and the scope of the exports, on
+  REST and GraphQL alike ([Tags §2](tags.md#2-uses-beyond-finding)).
 
 ## 12. Asynchronous processing
 

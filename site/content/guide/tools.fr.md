@@ -25,6 +25,8 @@ L'onglet **Anomalies** passe tout l'arbre au crible à la recherche de dates, fi
 
 Une règle liste au plus 500 anomalies et indique combien d'autres elle a trouvées. Un arbre sans anomalie l'annonce, avec le nombre de personnes vérifiées.
 
+Utilisez la liste **Étiquette** au-dessus des anomalies pour ne garder que celles qui nomment une personne portant l’étiquette. Les compteurs suivent ce choix.
+
 ### Comment les dates sont lues
 
 Les contrôles sont conçus pour ne pas crier au loup :

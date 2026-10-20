@@ -8,11 +8,12 @@ use oxidgene_core::enums::{
     Calendar, DateDisplayFormat, DateInputFormat, DateQualifier, TreeDefaultPrivacy,
 };
 use oxidgene_core::types::QualifiedYear;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::{
     ApiClient, ApiError, ArchiveChoices, DestinationReport, DownloadableExport, ExportChoices,
-    ExportDestination, UpdateTreeBody,
+    ExportDestination, TagSummary, UpdateTreeBody,
 };
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
@@ -22,6 +23,7 @@ use crate::components::history_diff::format_timestamp;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::person_picker::PersonPicker;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::tags::{TagSelect, carried_tags};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{DateStyle, I18n, Language, use_i18n};
@@ -437,6 +439,7 @@ pub fn Settings(tree_id: String) -> Element {
     let mut export_report = use_signal(|| None::<DestinationReport>);
     let export_notes_and_sources = use_signal(|| true);
     let export_media = use_signal(|| true);
+    let export_scope = use_signal(ExportScope::default);
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
     let mut last_export = use_kept_export(&api, tree_id_parsed, active_section);
 
@@ -454,14 +457,25 @@ pub fn Settings(tree_id: String) -> Element {
         };
         let api = api_export.clone();
         let is_gedzip = export_format() == "gedzip";
+        let Some(scope) = export_scope().target() else {
+            let key = if export_scope().depth_error() {
+                "settings.export_scope_depth_invalid"
+            } else {
+                "settings.export_scope_incomplete"
+            };
+            export_error.set(Some(i18n.t(key)));
+            return;
+        };
         // The destination is a plain GEDCOM's, the media a GEDZIP's.
         let choices = ExportChoices {
             destination: export_destination(),
             include_notes_and_sources: export_notes_and_sources(),
+            scope: scope.clone(),
         };
         let archive_choices = ArchiveChoices {
             include_notes_and_sources: export_notes_and_sources(),
             include_media: export_media(),
+            scope,
         };
         let extension = if is_gedzip { "gdz" } else { "ged" };
         let file_name = format!("{base_name}.{extension}");
@@ -588,6 +602,7 @@ pub fn Settings(tree_id: String) -> Element {
                             report: export_report(),
                             notes_and_sources: export_notes_and_sources,
                             media: export_media,
+                            scope: export_scope,
                         }
                     },
                     "appearance" => rsx! { AppearanceSection { theme_state } },
@@ -1345,6 +1360,8 @@ fn ExportSection(
     report: Option<DestinationReport>,
     notes_and_sources: Signal<bool>,
     media: Signal<bool>,
+    /// What the export is limited to.
+    scope: Signal<ExportScope>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
@@ -1405,17 +1422,22 @@ fn ExportSection(
                 if !is_gedzip {
                     DestinationPicker { destination, destinations: destinations.clone() }
                 }
+                if let Some(tid) = tree_id.parse::<Uuid>().ok() {
+                    ExportScopePicker { scope, tree_id: tid }
+                }
                 ExportToggle {
-                    value: notes_and_sources,
-                    label: "settings.export_notes_and_sources",
-                    description: "settings.export_notes_and_sources_desc",
+                    checked: notes_and_sources(),
+                    label: i18n.t("settings.export_notes_and_sources"),
+                    description: Some(i18n.t("settings.export_notes_and_sources_desc")),
+                    on_change: move |checked: bool| notes_and_sources.set(checked),
                     first: is_gedzip,
                 }
                 if is_gedzip {
                     ExportToggle {
-                        value: media,
-                        label: "settings.export_media",
-                        description: "settings.export_media_desc",
+                        checked: media(),
+                        label: i18n.t("settings.export_media"),
+                        description: Some(i18n.t("settings.export_media_desc")),
+                        on_change: move |checked: bool| media.set(checked),
                     }
                 }
                 if let Some(description) = &downloadable {
@@ -1447,6 +1469,334 @@ fn ExportSection(
             if let (Ok(tid), Some(Some(Ok(tree)))) = (tree_id.parse::<Uuid>(), &*tree_resource.read()) {
                 SubmitterCard { key: "{tid}", tree_id: tid, tree: tree.clone() }
             }
+        }
+    }
+}
+
+/// The side of a branch's root person a branch export walks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BranchMode {
+    Descendants,
+    Ancestors,
+    Both,
+}
+
+/// What an export is limited to (docs/tags.md §2.3), as the export section
+/// holds it until the export is made.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ExportScope {
+    /// Every person of the tree.
+    #[default]
+    Whole,
+    /// A root person and the persons on one side of them.
+    Branch {
+        root: Option<Uuid>,
+        mode: BranchMode,
+        /// Generations walked; `None` for all of them.
+        depth: Option<i64>,
+        /// The typed generations are neither empty nor a number from 1 to
+        /// 30: the export stays blocked until they are corrected.
+        depth_error: bool,
+        include_self: bool,
+        include_spouses: bool,
+    },
+    /// The persons carrying a tag.
+    Tag(Option<Uuid>),
+}
+
+impl ExportScope {
+    /// The branch scope a select of `branch` picks, with the defaults of a
+    /// branch: all descendants, the root included.
+    fn branch() -> Self {
+        Self::Branch {
+            root: None,
+            mode: BranchMode::Descendants,
+            depth: None,
+            depth_error: false,
+            include_self: true,
+            include_spouses: false,
+        }
+    }
+
+    /// Whether the generations typed for a branch are out of range.
+    fn depth_error(self) -> bool {
+        matches!(
+            self,
+            Self::Branch {
+                depth_error: true,
+                ..
+            }
+        )
+    }
+
+    /// The target the export sends: `Some(None)` for the whole tree, and
+    /// `None` while the scope names no root person or no tag, or while the
+    /// typed generations are invalid.
+    fn target(self) -> Option<Option<String>> {
+        let target = match self {
+            Self::Whole => return Some(None),
+            Self::Tag(tag) => json!({ "tag": tag? }),
+            Self::Branch {
+                root,
+                mode,
+                depth,
+                depth_error,
+                include_self,
+                include_spouses,
+            } => {
+                if depth_error {
+                    return None;
+                }
+                let key = match mode {
+                    BranchMode::Descendants => "descendants_of",
+                    BranchMode::Ancestors => "ancestors_of",
+                    BranchMode::Both => "ancestors_and_descendants_of",
+                };
+                let mut target = json!({ (key): root?, "include_self": include_self });
+                if let Some(depth) = depth {
+                    target["depth"] = json!(depth);
+                }
+                if mode == BranchMode::Descendants {
+                    target["include_spouses"] = json!(include_spouses);
+                }
+                target
+            }
+        };
+        Some(Some(target.to_string()))
+    }
+}
+
+/// The label of a branch's root person in the picker: the person's row once
+/// their profile has loaded, their id until then, or while unknown.
+fn root_person_row(
+    root: Uuid,
+    loaded: &Option<Option<PersonSearchSummary>>,
+    i18n: &I18n,
+) -> Element {
+    let summary = match loaded {
+        Some(Some(summary)) => summary.clone(),
+        Some(None) => PersonSearchSummary::placeholder(root, i18n.t("common.unknown")),
+        None => PersonSearchSummary::placeholder(root, i18n.t("common.loading")),
+    };
+    render_person_search_summary(&summary, None, i18n)
+}
+
+/// The scope picker of the export section: the whole tree, a branch of one
+/// person, or the persons carrying a tag.
+#[component]
+fn ExportScopePicker(mut scope: Signal<ExportScope>, tree_id: Uuid) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let load_trace = use_context::<UiLoadTrace>();
+    let tags_api = api.clone();
+    let tags = use_ui_resource("export_scope_tags", move || {
+        let api = tags_api.clone();
+        async move { api.list_tags(tree_id).await.unwrap_or_default() }
+    });
+    let root_api = api.clone();
+    let root_person = use_traced_resource(load_trace, "export_scope_root", move || {
+        let api = root_api.clone();
+        let root = match scope() {
+            ExportScope::Branch { root, .. } => root,
+            _ => None,
+        };
+        async move {
+            let root = root?;
+            api.get_person_profile(tree_id, root)
+                .await
+                .ok()
+                .map(PersonSearchSummary::from)
+        }
+    });
+
+    let current = scope();
+    let kind = match current {
+        ExportScope::Whole => "whole",
+        ExportScope::Branch { .. } => "branch",
+        ExportScope::Tag(_) => "tag",
+    };
+    rsx! {
+        div { class: "settings-check-first",
+            label { class: "settings-check-label", r#for: "export-scope",
+                {i18n.t("settings.export_scope")}
+            }
+            select {
+                id: "export-scope",
+                class: "settings-date-select",
+                onchange: move |e: Event<FormData>| {
+                    scope.set(match e.value().as_str() {
+                        "branch" => ExportScope::branch(),
+                        "tag" => ExportScope::Tag(None),
+                        _ => ExportScope::Whole,
+                    });
+                },
+                option { value: "whole", selected: kind == "whole", {i18n.t("settings.export_scope_whole")} }
+                option { value: "branch", selected: kind == "branch", {i18n.t("settings.export_scope_branch")} }
+                option { value: "tag", selected: kind == "tag", {i18n.t("settings.export_scope_tag")} }
+            }
+            if let ExportScope::Branch { root, mode, depth, depth_error, include_self, include_spouses } = current {
+                ExportBranchFields {
+                    scope,
+                    tree_id,
+                    root,
+                    root_person,
+                    mode,
+                    depth,
+                    depth_error,
+                    include_self,
+                    include_spouses,
+                }
+            }
+            if let ExportScope::Tag(chosen) = current {
+                ExportTagSelect { scope, chosen, tags }
+            }
+        }
+    }
+}
+
+/// The fields of a branch scope: the root person, the side walked, the
+/// generations and the two inclusions.
+#[component]
+fn ExportBranchFields(
+    mut scope: Signal<ExportScope>,
+    tree_id: Uuid,
+    root: Option<Uuid>,
+    root_person: Resource<Option<PersonSearchSummary>>,
+    mode: BranchMode,
+    depth: Option<i64>,
+    depth_error: bool,
+    include_self: bool,
+    include_spouses: bool,
+) -> Element {
+    let i18n = use_i18n();
+    // The field shows what was typed, so an invalid value stays visible.
+    let mut depth_text = use_signal(|| depth.map(|depth| depth.to_string()).unwrap_or_default());
+    let selected = root.map(|root| root_person_row(root, &root_person.read(), &i18n));
+    rsx! {
+        PersonPicker {
+            tree_id,
+            selected,
+            search_placeholder: i18n.t("settings.export_scope_search"),
+            change_label: i18n.t("settings.export_scope_change"),
+            on_change: move |person: Option<Uuid>| {
+                scope.with_mut(|scope| {
+                    if let ExportScope::Branch { root, .. } = scope {
+                        *root = person;
+                    }
+                });
+            },
+        }
+        label { class: "settings-check-label", r#for: "export-scope-mode",
+            {i18n.t("settings.export_scope_mode")}
+        }
+        select {
+            id: "export-scope-mode",
+            class: "settings-date-select",
+            onchange: move |e: Event<FormData>| {
+                let mode = match e.value().as_str() {
+                    "ancestors" => BranchMode::Ancestors,
+                    "both" => BranchMode::Both,
+                    _ => BranchMode::Descendants,
+                };
+                scope.with_mut(|scope| {
+                    if let ExportScope::Branch { mode: current, .. } = scope {
+                        *current = mode;
+                    }
+                });
+            },
+            option { value: "descendants", selected: mode == BranchMode::Descendants, {i18n.t("settings.export_scope_descendants")} }
+            option { value: "ancestors", selected: mode == BranchMode::Ancestors, {i18n.t("settings.export_scope_ancestors")} }
+            option { value: "both", selected: mode == BranchMode::Both, {i18n.t("settings.export_scope_both")} }
+        }
+        label { class: "settings-check-label", r#for: "export-scope-depth",
+            {i18n.t("settings.export_scope_depth")}
+        }
+        input {
+            id: "export-scope-depth",
+            class: "settings-date-select",
+            r#type: "number",
+            min: "1",
+            max: "30",
+            placeholder: i18n.t("settings.export_scope_depth_all"),
+            value: "{depth_text}",
+            onchange: move |e: Event<FormData>| {
+                let text = e.value();
+                let (depth, depth_error) = parse_depth(text.trim());
+                depth_text.set(text);
+                scope.with_mut(|scope| {
+                    if let ExportScope::Branch { depth: current, depth_error: error, .. } = scope {
+                        *current = depth;
+                        *error = depth_error;
+                    }
+                });
+            },
+        }
+        if depth_error {
+            p { class: "field-hint field-hint-warn", {i18n.t("settings.export_scope_depth_invalid")} }
+        }
+        ExportToggle {
+            checked: include_self,
+            label: i18n.t("settings.export_scope_include_self"),
+            on_change: move |checked: bool| {
+                scope.with_mut(|scope| {
+                    if let ExportScope::Branch { include_self, .. } = scope {
+                        *include_self = checked;
+                    }
+                });
+            },
+        }
+        if mode == BranchMode::Descendants {
+            ExportToggle {
+                checked: include_spouses,
+                label: i18n.t("settings.export_scope_include_spouses"),
+                on_change: move |checked: bool| {
+                    scope.with_mut(|scope| {
+                        if let ExportScope::Branch { include_spouses, .. } = scope {
+                            *include_spouses = checked;
+                        }
+                    });
+                },
+            }
+        }
+    }
+}
+
+/// The generations a branch walks, from the text typed for them: `None` for
+/// an empty field (all of them), and an error for anything that is neither
+/// empty nor a number from 1 to 30.
+fn parse_depth(text: &str) -> (Option<i64>, bool) {
+    if text.is_empty() {
+        return (None, false);
+    }
+    match text.parse::<i64>() {
+        Ok(depth) if (1..=30).contains(&depth) => (Some(depth), false),
+        _ => (None, true),
+    }
+}
+
+/// The tag a tag scope names: a select of the tags carried by at least one
+/// person, the labels as they were written.
+#[component]
+fn ExportTagSelect(
+    mut scope: Signal<ExportScope>,
+    chosen: Option<Uuid>,
+    tags: Resource<Vec<TagSummary>>,
+) -> Element {
+    let i18n = use_i18n();
+    let options = carried_tags(tags.read().as_deref().unwrap_or_default());
+    let empty = options.is_empty();
+    rsx! {
+        label { class: "settings-check-label", r#for: "export-scope-tag", {i18n.t("stats.tag")} }
+        TagSelect {
+            id: "export-scope-tag",
+            tags: options,
+            selected: chosen,
+            placeholder: i18n.t("settings.export_scope_pick_tag"),
+            on_change: move |value| scope.set(ExportScope::Tag(value)),
+            class: "settings-date-select",
+        }
+        if empty {
+            p { class: "settings-check-desc", {i18n.t("settings.export_scope_no_tag")} }
         }
     }
 }
@@ -1590,28 +1940,29 @@ fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>)
     }
 }
 
-/// One export option: a checkbox with the translations of its label and
-/// description. The first of the options is set off from the format row
-/// above it.
+/// A checkbox with its label and, when it has one, the description beneath
+/// it. The first of the options is set off from the format row above it.
 #[component]
 fn ExportToggle(
-    mut value: Signal<bool>,
-    label: &'static str,
-    description: &'static str,
+    checked: bool,
+    label: String,
+    description: Option<String>,
+    on_change: EventHandler<bool>,
     #[props(default)] first: bool,
 ) -> Element {
-    let i18n = use_i18n();
     rsx! {
         label {
             class: if first { "settings-check settings-check-first" } else { "settings-check" },
             input {
                 r#type: "checkbox",
-                checked: value(),
-                onchange: move |e: Event<FormData>| value.set(e.checked()),
+                checked,
+                onchange: move |e: Event<FormData>| on_change.call(e.checked()),
             }
             div {
-                div { class: "settings-check-label", {i18n.t(label)} }
-                p { class: "settings-check-desc", {i18n.t(description)} }
+                div { class: "settings-check-label", "{label}" }
+                if let Some(description) = description {
+                    p { class: "settings-check-desc", "{description}" }
+                }
             }
         }
     }

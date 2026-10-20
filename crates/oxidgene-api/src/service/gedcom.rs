@@ -5,6 +5,9 @@
 //! half — `persist_import_result_in` — is format-agnostic: it takes the
 //! output of the GEDCOM, GEDZIP and GeneWeb readers alike.
 
+mod export_scope;
+
+use crate::service::tag_bulk::{self, TagTargetSpec};
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::TagRef;
@@ -1035,7 +1038,9 @@ pub fn export_destinations() -> Vec<ExportDestination> {
         .collect()
 }
 
-/// Tree `tree_id` as GEDCOM text, the export recorded in its audit log.
+/// Tree `tree_id` as GEDCOM text, the export recorded in its audit log. A
+/// `scope` keeps only the persons it names and what they reach (see
+/// [`load_and_export`]); the audit entry names it.
 ///
 /// The media keep their producers' paths: there is no archive to point
 /// into, and leaving the media out is a GEDZIP's choice, so
@@ -1045,14 +1050,26 @@ pub async fn export_gedcom(
     db: &DatabaseConnection,
     tree_id: Uuid,
     choices: ExportChoices,
+    scope: Option<&TagTargetSpec>,
 ) -> Result<ExportData, OxidGeneError> {
     let choices = ExportChoices {
         include_media: true,
         ..choices
     };
-    let data = load_and_export(db, tree_id, choices, false).await?;
-    crate::service::history::record_export(db, tree_id, "gedcom", None).await?;
+    let data = load_and_export(db, tree_id, choices, scope, false).await?;
+    crate::service::history::record_export(db, tree_id, "gedcom", None, scope_details(scope)?)
+        .await?;
     Ok(data)
+}
+
+/// The scope of an export as its audit entry names it: the target as JSON
+/// text, absent for a whole-tree export.
+pub fn scope_details(scope: Option<&TagTargetSpec>) -> Result<Option<String>, OxidGeneError> {
+    scope
+        .map(|spec| {
+            serde_json::to_string(spec).map_err(|error| OxidGeneError::Internal(error.to_string()))
+        })
+        .transpose()
 }
 
 /// Load all entities from a tree and export them as a GEDCOM string: a
@@ -1064,17 +1081,24 @@ pub async fn export_gedcom(
 /// holds and how it writes it: the destination program (a `.ged`'s only),
 /// the notes and sources or the media left out (see
 /// `oxidgene_gedcom::export::export_gedcom`). An archive without its media
-/// packs no file.
+/// packs no file. A `scope` keeps the persons it names and the records they
+/// reach, and no record pointing at one left out (`export_scope`); the media
+/// of a GEDZIP are those kept.
 #[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
 pub async fn load_and_export(
     db: &DatabaseConnection,
     tree_id: Uuid,
     choices: ExportChoices,
+    scope: Option<&TagTargetSpec>,
     for_archive: bool,
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists; its "Who am I?" person names the submitter.
     let tree = TreeRepo::get(db, tree_id).await?;
-    let records = TreeRecords::load(db, tree_id).await?;
+    let mut records = TreeRecords::load(db, tree_id).await?;
+    if let Some(spec) = scope {
+        let persons = tag_bulk::export_persons(db, tree_id, spec).await?;
+        export_scope::cut_to(&mut records, &persons, tree.self_person_id);
+    }
 
     // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
     // archive rather than the paths whatever produced the record used. Media

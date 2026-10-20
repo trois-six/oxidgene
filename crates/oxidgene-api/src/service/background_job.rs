@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
 
+use super::tag_bulk::{self, TagTargetSpec};
 use super::{gedcom, geneanet, history};
 use crate::error_contract::error_kind;
 use crate::media::MediaStore;
@@ -651,11 +652,18 @@ impl BackgroundJobWorker {
         }
         let scratch = self.scratch(job.id)?;
         self.progress(job.id, "loading", 0, 0).await?;
+        let scope = scope_of(job)?;
         let data = self
             .with_heartbeat(
                 job.id,
                 "loading",
-                gedcom::load_and_export(&self.db, job.tree_id, choices_of(job), true),
+                gedcom::load_and_export(
+                    &self.db,
+                    job.tree_id,
+                    choices_of(job),
+                    scope.as_ref(),
+                    true,
+                ),
             )
             .await?;
 
@@ -675,7 +683,14 @@ impl BackgroundJobWorker {
                 export.format = "gedzip"
             ))
             .await?;
-        history::record_export(&self.db, job.tree_id, &job.format, None).await?;
+        history::record_export(
+            &self.db,
+            job.tree_id,
+            &job.format,
+            None,
+            gedcom::scope_details(scope.as_ref())?,
+        )
+        .await?;
         let result = serde_json::to_string(&ExportReceipt {
             warnings: data.warnings,
             size_bytes: Some(stored.size),
@@ -1555,8 +1570,13 @@ pub async fn start_export_job(
     db: &DatabaseConnection,
     tree_id: Uuid,
     choices: ArchiveChoices,
+    scope: Option<&TagTargetSpec>,
 ) -> Result<Uuid, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
+    if let Some(spec) = scope {
+        // Refused now rather than by the worker: a scope holding no person.
+        tag_bulk::export_persons(db, tree_id, spec).await?;
+    }
     let job_id = Uuid::now_v7();
     let ArchiveChoices {
         include_notes_and_sources,
@@ -1570,7 +1590,10 @@ pub async fn start_export_job(
             kind: BackgroundJobKind::Export,
             format: "gedzip".into(),
             source_key: None,
-            payload_json: None,
+            payload_json: scope
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
             original_filename: None,
             include_notes_and_sources,
             include_media,
@@ -1578,6 +1601,16 @@ pub async fn start_export_job(
     )
     .await?;
     Ok(job_id)
+}
+
+/// The scope export job `job` was queued with, `None` for the whole tree.
+fn scope_of(job: &BackgroundJob) -> Result<Option<TagTargetSpec>, OxidGeneError> {
+    job.payload_json
+        .as_deref()
+        .map(|text| {
+            serde_json::from_str(text).map_err(|error| OxidGeneError::Internal(error.to_string()))
+        })
+        .transpose()
 }
 
 /// The choices export job `job` was queued with.

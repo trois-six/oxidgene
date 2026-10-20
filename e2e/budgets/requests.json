@@ -69,7 +69,7 @@
     "requests": 5,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 173120
+    "bytes": 173340
   },
   "history": {
     "requests": 2,
@@ -81,7 +81,7 @@
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 227243
+    "bytes": 227523
   },
   "kinship": {
     "requests": 5,
@@ -96,16 +96,16 @@
     "bytes": 1130
   },
   "statistics": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 38446
+    "bytes": 38448
   },
   "tools": {
-    "requests": 2,
+    "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 2975
+    "bytes": 2977
   },
   "settings": {
     "requests": 4,
@@ -141,7 +141,7 @@
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 167304
+    "bytes": 167524
   },
   "pedigree<-search": {
     "requests": 3,
@@ -159,19 +159,19 @@
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 172486
+    "bytes": 172706
   },
   "person<-couple": {
     "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 29585
+    "bytes": 29805
   },
   "person<-kinship": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 167304
+    "bytes": 167524
   },
   "pedigree<-dictionary": {
     "requests": 3,
@@ -180,16 +180,16 @@
     "bytes": 53426
   },
   "pedigree<-statistics": {
-    "requests": 3,
+    "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53426
+    "bytes": 53424
   },
   "pedigree<-tools": {
-    "requests": 3,
+    "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53426
+    "bytes": 53424
   },
   "pedigree<-settings": {
     "requests": 3,
@@ -207,13 +207,13 @@
     "requests": 1,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 1363
+    "bytes": 1403
   },
   "dictionary:Places": {
     "requests": 1,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 1281
+    "bytes": 1331
   },
   "dictionary:Occupations": {
     "requests": 1,

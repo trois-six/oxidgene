@@ -14,18 +14,25 @@ use crate::service::duplicates::{self, PotentialDuplicates};
 use crate::service::statistics::PlaceUsage;
 
 #[derive(Debug, Deserialize)]
+pub struct AnomaliesQuery {
+    /// Only the anomalies naming a person who carries this tag.
+    pub tag: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AncestryQuery {
     /// Generations to cover, the root's included; 8 when omitted.
     pub generations: Option<i64>,
 }
 
-/// GET /api/v1/trees/:tree_id/anomalies
+/// GET /api/v1/trees/:tree_id/anomalies?tag=<tag_id>
 pub async fn tree_anomalies(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
+    Query(query): Query<AnomaliesQuery>,
 ) -> Result<Json<TreeAnomalies>, ApiError> {
     Ok(Json(
-        anomalies::load(&state.reader, &state.profiles, tree_id).await?,
+        anomalies::load(&state.reader, &state.profiles, tree_id, query.tag).await?,
     ))
 }
 

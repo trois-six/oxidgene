@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -110,6 +110,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Demographic charts per period under a year ruler: births and deaths, length of life, unions and children ([Statistics §6](ui-statistics.md#6-charts)).
 - Records and notable lists: the extremes of the tree, the latest events, the longest lives, the largest families ([Statistics §8](ui-statistics.md#8-records)).
 - The growth of the tree over the days it was worked on ([Statistics §10](ui-statistics.md#10-growth)).
+- Every figure limited to the persons carrying a tag, the sources and the growth staying whole ([Tags §2.1](tags.md#21-statistics-limited-to-a-tag)).
 
 ![Statistics: names and occupations](../assets/screenshots/statistics-charts.webp)
 
@@ -117,7 +118,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 ![Anomalies of the tree](../assets/screenshots/tools-anomalies.webp)
 
-- Anomalies of dates, filiations, unions, witnesses and records, by rule, with their catalogue ([Tools §3](ui-tools.md#3-anomalies)).
+- Anomalies of dates, filiations, unions, witnesses and records, by rule, with their catalogue ([Tools §3](ui-tools.md#3-anomalies)), kept to the persons carrying a tag when one is chosen ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)).
 - Places the statistics cannot locate, with their uses and a way to correct them ([Tools §4](ui-tools.md#4-places-not-located)).
 - Ancestry completeness, generation by generation from the SOSA root ([Tools §5](ui-tools.md#5-ancestry-completeness)).
 - Potential duplicates to merge or keep apart ([Tools §6](ui-tools.md#6-potential-duplicates)).
@@ -167,6 +168,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - A guided desktop import of a Geneanet tree that recovers its photos and documents and their links to persons ([Geneanet Media Import](geneanet-media-import.md), [Import §9](ui-import.md#9-from-geneanet-tab)).
 - An import receipt counting persons, families, events, sources, places, notes, images, documents and pages, with its warnings ([Import](ui-import.md#result)).
 - Export options: the destination program, notes and sources, media; a submitter; and a kept archive downloadable again for an hour ([Tree Settings §12](ui-settings.md#12-section-export)).
+- Export of part of the tree: a branch (ancestors, descendants or both, to a depth) or the persons carrying a tag, with the families and records they reach ([Tags §2.3](tags.md#23-exporting-part-of-the-tree)).
 - Imports and exports run as durable background jobs ([Architecture §6](architecture.md#6-asynchronous-processing)).
 
 ## 14. Places and entry help

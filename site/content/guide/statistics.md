@@ -18,6 +18,8 @@ Each chart has a title and a **?** hint that explains how its values are counted
 
 By default, ages and averages only use exact dates. Tick **Approximate dates** in the top bar to also use dates recorded as about, calculated or estimated. The setting applies to every tab. Dates recorded as before, after, perhaps, or between two dates are never used for ages.
 
+To count only the persons carrying a tag, choose it in the **Tag** list in the top bar: every figure then counts those persons alone. Sources and the Growth tab always cover the whole tree, and say so.
+
 Wherever a birth date is missing, the baptism stands in for it; wherever a death date is missing, the burial does.
 
 ## Overview

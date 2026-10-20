@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::reference::{PlaceLocation, ReferenceLang};
 use crate::service::event_date;
-use crate::service::statistics::{PersonRef, PlaceUsage, locate_used, person_ref};
+use crate::service::statistics::{PersonRef, PlaceUsage, carries, locate_used, person_ref};
 
 // ── Thresholds (`docs/ui-tools.md` §3.2) ──────────────────────────────────
 
@@ -176,14 +176,20 @@ impl Anomaly {
     }
 }
 
-/// Loads a tree's projections and witness links and finds its anomalies.
+/// Loads a tree's projections and witness links and finds its anomalies, or
+/// with `tag` only those that name a person carrying it (see
+/// [`compute`]).
 #[tracing::instrument(name = "anomalies.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
     tree_id: Uuid,
+    tag: Option<Uuid>,
 ) -> Result<TreeAnomalies, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
+    if let Some(tag) = tag {
+        oxidgene_db::repo::TagRepo::get(db, tree_id, tag).await?;
+    }
     let persons = profiles.get_all_persons(tree_id).await?;
     let witnesses = oxidgene_db::repo::EventWitnessRepo::list_by_tree(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
@@ -192,7 +198,10 @@ pub async fn load(
         person.count = persons.len(),
         witness.count = witnesses.len(),
     );
-    crate::service::blocking::run(span, move || compute(&persons, &witnesses, today)).await
+    crate::service::blocking::run(span, move || {
+        compute_for_tag(&persons, &witnesses, today, tag)
+    })
+    .await
 }
 
 /// Loads a tree's used places and returns those that cannot be located, most
@@ -337,6 +346,15 @@ impl Findings {
         self.0.entry(rule).or_default().push(anomaly);
     }
 
+    /// Keeps only the anomalies `keep` accepts; a rule left with none is
+    /// dropped.
+    fn retain(&mut self, keep: impl Fn(&Anomaly) -> bool) {
+        for items in self.0.values_mut() {
+            items.retain(&keep);
+        }
+        self.0.retain(|_, items| !items.is_empty());
+    }
+
     fn into_rules(mut self) -> Vec<AnomalyRule> {
         RULES
             .iter()
@@ -393,6 +411,18 @@ pub fn compute(
     witnesses: &[EventWitness],
     today: NaiveDate,
 ) -> TreeAnomalies {
+    compute_for_tag(profiles, witnesses, today, None)
+}
+
+/// Finds a tree's anomalies, or with `tag` only those that name a person
+/// carrying it (a union names its spouses). Every person is examined first,
+/// so a rule about a couple or a witness sees the whole family.
+pub fn compute_for_tag(
+    profiles: &[PersonProfile],
+    witnesses: &[EventWitness],
+    today: NaiveDate,
+    tag: Option<Uuid>,
+) -> TreeAnomalies {
     let mut sorted: Vec<&PersonProfile> = profiles.iter().collect();
     sorted.sort_by_key(|p| p.person_id);
     let lives: HashMap<Uuid, Life<'_>> =
@@ -409,6 +439,19 @@ pub fn compute(
     unions(&sorted, &lives, &mut found);
     lineage(&sorted, &lives, &mut found);
     witnessing(&sorted, &lives, witnesses, &mut found);
+    if let Some(tag) = tag {
+        let tagged: HashSet<String> = profiles
+            .iter()
+            .filter(|p| carries(p, tag))
+            .map(|p| p.person_id.to_string())
+            .collect();
+        found.retain(|anomaly| {
+            anomaly
+                .persons
+                .iter()
+                .any(|person| tagged.contains(&person.person_id))
+        });
+    }
 
     TreeAnomalies {
         persons: profiles.len() as i64,

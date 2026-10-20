@@ -18,9 +18,11 @@ pub struct StatisticsQuery {
     /// The language places' countries, regions and subdivisions are named
     /// in; English when omitted.
     pub lang: Option<String>,
+    /// Only the persons carrying this tag; the whole tree when omitted.
+    pub tag: Option<Uuid>,
 }
 
-/// GET /api/v1/trees/:tree_id/statistics?approximate=false&lang=en
+/// GET /api/v1/trees/:tree_id/statistics?approximate=false&lang=en&tag=<tag_id>
 pub async fn statistics(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
@@ -34,6 +36,7 @@ pub async fn statistics(
             tree_id,
             query.approximate,
             lang,
+            query.tag,
         )
         .await?,
     ))

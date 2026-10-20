@@ -89,6 +89,16 @@ The choice of destination applies to that export only; it is not saved. A GEDZIP
 
 These options apply to the next export only, and come back to their defaults when you reload the page.
 
+### Export scope
+
+The **Scope** select limits the export to part of the tree:
+
+- **Whole tree**, the default.
+- **A branch**: choose the root person, then whether to take their descendants, their ancestors, or both. Set the number of generations (empty for all of them), and whether to include the root person and, for descendants, their spouses. The file keeps those persons, the families they belong to, and the sources, places, notes and media they reach.
+- **Persons carrying a tag**: choose a tag. The file keeps the persons carrying it, with their families and the records they reach.
+
+A branch or a tag must be chosen before the export starts. The scope applies to the next export only, like the other options.
+
 ### The submitter
 
 The **Submitter** card says who the exported files come from: **Name**, **Email** and **Address**, saved with **Save**. Without a name, the file names the person you set as **Who am I?** (see [Trees](@/guide/trees.md)), or otherwise “Not Provided”. When you import a file, it fills in those fields that are still empty from the file's own submitter.

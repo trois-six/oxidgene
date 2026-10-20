@@ -36,16 +36,18 @@ pub async fn export_destinations() -> Json<Vec<gedcom::ExportDestination>> {
 /// media; it takes no destination. Pass `?include_notes_and_sources=false`
 /// to leave the notes and the sources out, and
 /// `?format=gedzip&include_media=false` to leave the media out of an
-/// archive. Either way the export is recorded in the tree's audit log, as
-/// GraphQL's `exportGedcom` records it.
+/// archive. `?scope=` (the target as JSON, URL-encoded) limits the export
+/// to the persons it names and what they reach. Either way the export is
+/// recorded in the tree's audit log, as GraphQL's `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
     let choices = query.choices()?;
+    let scope = query.scope()?;
     if query.format.as_deref() != Some("gedzip") {
-        let data = gedcom::export_gedcom(&state.db, tree_id, choices).await?;
+        let data = gedcom::export_gedcom(&state.db, tree_id, choices, scope.as_ref()).await?;
         return Ok(Json(ExportGedcomResponse {
             gedcom: data.gedcom,
             warnings: data.warnings,
@@ -59,7 +61,7 @@ pub async fn export_gedcom_handler(
         )));
     }
 
-    let data = gedcom::load_and_export(&state.db, tree_id, choices, true).await?;
+    let data = gedcom::load_and_export(&state.db, tree_id, choices, scope.as_ref(), true).await?;
     // The whole reason to choose this format over `.ged`. A medium whose
     // bytes have gone missing from the store is skipped rather than fatal:
     // the rest of the archive is still a correct export, and refusing to
@@ -88,7 +90,14 @@ pub async fn export_gedcom_handler(
     let bytes = tracing::info_span!("export.package", export.format = "gedzip")
         .in_scope(|| oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files))
         .map_err(OxidGeneError::Gedcom)?;
-    history::record_export(&state.db, tree_id, "gedzip", None).await?;
+    history::record_export(
+        &state.db,
+        tree_id,
+        "gedzip",
+        None,
+        gedcom::scope_details(scope.as_ref())?,
+    )
+    .await?;
 
     Ok((
         [

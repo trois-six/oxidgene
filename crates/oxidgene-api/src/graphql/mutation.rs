@@ -1506,9 +1506,11 @@ impl MutationRoot {
         tree_id: ID,
         include_notes_and_sources: Option<bool>,
         include_media: Option<bool>,
+        scope: Option<TagTargetInput>,
     ) -> Result<GqlBackgroundJobStarted> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
+            let scope = scope.map(tag_target_spec).transpose()?;
             let job_id = crate::service::background_job::start_export_job(
                 db_from_ctx(ctx),
                 tree_id,
@@ -1516,6 +1518,7 @@ impl MutationRoot {
                     include_notes_and_sources,
                     include_media,
                 ),
+                scope.as_ref(),
             )
             .await?;
             Ok(GqlBackgroundJobStarted {

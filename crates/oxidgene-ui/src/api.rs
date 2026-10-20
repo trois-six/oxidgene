@@ -2220,6 +2220,10 @@ pub struct ExportChoices {
     /// Write the notes, and the sources with their citations and
     /// repositories.
     pub include_notes_and_sources: bool,
+    /// The target the export is limited to, as JSON text; absent for the
+    /// whole tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// A program a GEDCOM export can be written for.
@@ -2274,13 +2278,17 @@ pub struct ExportLimit {
 
 /// What a GEDZIP export holds, sent as its job's query options. A GEDZIP is
 /// standard GEDCOM 7.0: it has no destination.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ArchiveChoices {
     /// Write the notes, and the sources with their citations and
     /// repositories.
     pub include_notes_and_sources: bool,
     /// Pack the media, and write their records and links.
     pub include_media: bool,
+    /// The target the export is limited to, as JSON text; absent for the
+    /// whole tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -5651,21 +5659,23 @@ impl ApiClient {
 
     /// A tree's statistics, time series filed by year; `approximate` lets
     /// ages and averages use approximate dates, and places are named in
-    /// `lang`.
+    /// `lang`. `tag` limits them to the persons carrying it.
     pub async fn tree_statistics(
         &self,
         tree_id: Uuid,
         approximate: bool,
         lang: &str,
+        tag: Option<Uuid>,
     ) -> Result<TreeStatistics, ApiError> {
-        self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/statistics"),
-            &[
-                ("approximate", approximate.to_string()),
-                ("lang", lang.to_string()),
-            ],
-        )
-        .await
+        let mut query = vec![
+            ("approximate", approximate.to_string()),
+            ("lang", lang.to_string()),
+        ];
+        if let Some(tag) = tag {
+            query.push(("tag", tag.to_string()));
+        }
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/statistics"), &query)
+            .await
     }
 
     /// How many persons a tree held over the days it was worked on.
@@ -5683,9 +5693,18 @@ impl ApiClient {
             .await
     }
 
-    /// A tree's anomalies, by rule.
-    pub async fn tree_anomalies(&self, tree_id: Uuid) -> Result<TreeAnomalies, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/anomalies"))
+    /// A tree's anomalies, by rule; `tag` keeps those naming a person who
+    /// carries it.
+    pub async fn tree_anomalies(
+        &self,
+        tree_id: Uuid,
+        tag: Option<Uuid>,
+    ) -> Result<TreeAnomalies, ApiError> {
+        let query: Vec<(&str, String)> = tag
+            .map(|tag| ("tag", tag.to_string()))
+            .into_iter()
+            .collect();
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/anomalies"), &query)
             .await
     }
 

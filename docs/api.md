@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-19T15:51:25Z }
+generated: { by: human:maintainer, at: 2026-10-20T09:40:00Z }
 ---
 
 
@@ -787,7 +787,9 @@ of `{tagId, count}` (`GqlTagTargetCounts`), where REST returns `{total, tags: [{
   With `ancestors_and_descendants_of` the two sides are one set of persons: a
   person named on both sides is counted once;
 - `search`: `{q, …PersonSearchFilters}`, every person the search returns, not
-  one page of it.
+  one page of it;
+- `tag`: a tag id, which must be a tag of the tree; one of another tree is
+  `404 not_found`. Every live person carrying the tag.
 
 A target that names none of these or several, a depth outside 1–30, a listing
 of more than 1 000 persons, or more than 10 000 persons in all is
@@ -935,7 +937,8 @@ kind of row written (`person_name`, `event`,
 `record_tag`, …) and `subject` the record the write is about (`person`,
 `family`, `place`, `source`, `media`, `tree`). `label` is the subject's display
 name when the write happened. `details` carries only what applies: `format`,
-`file_name` and `count` for imports and exports, `count` for a tag's merge
+`file_name` and `count` for imports and exports, `scope` for an export limited
+to a target (the target as JSON text, see [Export scope](#export-scope)), `count` for a tag's merge
 (links moved) and delete (links removed), `event_type` for event writes,
 `version` for a restore, `other_label` for the person a merge absorbed or, on a
 tag merge, the label of the tag kept, `new_label` for the name a family-name
@@ -962,7 +965,17 @@ request from the person projections and place usages; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/statistics?approximate=false&lang=en` | The tree's statistics, time series filed by year; `approximate=true` lets ages and averages use dates about, calculated or estimated; `lang` (an interface language, `en` by default) names the places' countries, regions and subdivisions. 400 for another language, 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/statistics?approximate=false&lang=en` | The tree's statistics, time series filed by year; `approximate=true` lets ages and averages use dates about, calculated or estimated; `lang` (an interface language, `en` by default) names the places' countries, regions and subdivisions; `tag` (a tag id of the tree) limits the figures about persons to the persons carrying it, the sources and the growth staying whole. 400 for another language, 404 for an unknown tree or tag |
+
+With `tag`, the figures about persons count only the persons carrying the tag
+(GraphQL `treeStatistics(treeId, approximate, language, tag)`). A union counts when one of its spouses carries
+the tag, with its names, ages and lifespans counted from those spouses alone;
+its end (a divorce, an annulment, or the death of its spouses) reads the
+dates of every spouse, the untagged ones included, and no untagged spouse is
+listed. The places are those the tagged persons' events use, each event
+counted once; media are not counted. The sources and the growth
+(`GET /trees/{tree_id}/statistics/growth`) stay whole. No person carrying the tag gives
+the empty statistics of a tree without persons.
 
 The response carries:
 
@@ -1031,7 +1044,7 @@ from the person projections; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/anomalies` | The tree's anomalies by rule; 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/anomalies?tag=<tag_id>` | The tree's anomalies by rule; with `tag`, only those naming a person who carries it (a union names its spouses; an anomaly naming no person is never kept), every person still examined so that a rule about a couple or a witness sees its whole family, and `persons` counting the whole tree; GraphQL `treeAnomalies(treeId, tag)`; 404 for an unknown tree or tag |
 | `GET` | `/trees/{tree_id}/duplicates` | The pairs of records that may be one person, best first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/unlocated-places` | The used places the statistics cannot locate, most used first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/ancestry-completeness?generations=8` | Generation by generation from the tree's SOSA root, the ancestors found and missing and their key facts; `generations` counts the root's, 8 by default, from 1 to 15 (400 otherwise); 404 for an unknown tree |
@@ -1104,12 +1117,40 @@ writes one to a `.gw`.
 |---|---|---|
 | `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
 | `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, geneanet_result?, error? }`. File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A completed status retains the import receipt, `result` for a file import: `{ persons_count, families_count, events_count, sources_count, places_count, notes_count, images_count, documents_count, document_pages_count, warnings }`, or `geneanet_result` for a Geneanet import, the same fields and its own. Media are counted alike for every import, over the records it stored: a record of one page is an image, any other a document, whose pages `document_pages_count` totals. GraphQL: `importJobStatus`, with the same fields in camel case; failure exposes a stable error code rather than internal details |
-| `POST` | `/trees/{tree_id}/export-jobs?include_notes_and_sources=bool&include_media=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker. The options are those `GET /gedcom/export` below reads for a GEDZIP; the job keeps them until its worker packs the archive. A GEDZIP takes no destination: it is standard GEDCOM 7.0 (see [GEDZIP](#gedzip)) |
+| `POST` | `/trees/{tree_id}/export-jobs?include_notes_and_sources=bool&include_media=bool&scope=json` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker. The options are those `GET /gedcom/export` below reads for a GEDZIP; the job keeps them until its worker packs the archive, with its `scope` ([Export scope](#export-scope)), validated when the job is created. A GEDZIP takes no destination: it is standard GEDCOM 7.0 (see [GEDZIP](#gedzip)) |
 | `GET` | `/trees/{tree_id}/export-jobs/downloadable` | The tree's most recently completed export whose archive can still be downloaded: `{ job_id, format, download_url, expires_at, size_bytes?, include_notes_and_sources, include_media }`, or `null` (`200`) when there is none — none completed, all past their hour, or the archive gone from storage. `size_bytes` is absent for an archive recorded without it. Lets a page that did not start the export offer it again. GraphQL: `downloadableExport(treeId)`, nullable |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, expires_at?, size_bytes?, warnings, error? }`. `download_url` and `expires_at` (RFC 3339, an hour after completion) appear together, only while the completed artifact can be downloaded. `size_bytes` is the completed archive's size. A job ended more than a day ago is gone (`404`) |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete. The artifact can be downloaded any number of times for an hour after completion, then answers `404` and is deleted by the workers' next maintenance pass |
-| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&destination=id&include_notes_and_sources=bool&include_media=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`: a GEDCOM 7.0 `gedcom.ged` and the media files, see [GEDZIP](#gedzip)). The text is written for `destination`, an [export destination](#export-destinations)'s id (default `generic-551`, standard GEDCOM 5.5.1); an unknown id is `400 validation_error`. It answers `{ gedcom, warnings, report }`, `report` being what writing for the destination lost: `{ destination, losses: [{ kind, record?, detail }], limits: [{ record?, detail }] }`. A GEDZIP takes no destination (`400 validation_error` with one). `include_notes_and_sources` (default `true`), when `false`, leaves out every note, every source with its citations, and every repository. `include_media` (default `true`) is read for a GEDZIP only: when `false`, the archive holds `gedcom.ged` alone, without any `OBJE` record, media link or vignette; a plain GEDCOM always writes its media's references. Either way no pointer is left dangling. GraphQL: `exportGedcom(treeId, destination, includeNotesAndSources)`, plain GEDCOM only |
+| `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&destination=id&include_notes_and_sources=bool&include_media=bool&scope=json` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`: a GEDCOM 7.0 `gedcom.ged` and the media files, see [GEDZIP](#gedzip)). The text is written for `destination`, an [export destination](#export-destinations)'s id (default `generic-551`, standard GEDCOM 5.5.1); an unknown id is `400 validation_error`. It answers `{ gedcom, warnings, report }`, `report` being what writing for the destination lost: `{ destination, losses: [{ kind, record?, detail }], limits: [{ record?, detail }] }`. A GEDZIP takes no destination (`400 validation_error` with one). `include_notes_and_sources` (default `true`), when `false`, leaves out every note, every source with its citations, and every repository. `include_media` (default `true`) is read for a GEDZIP only: when `false`, the archive holds `gedcom.ged` alone, without any `OBJE` record, media link or vignette; a plain GEDCOM always writes its media's references. Either way no pointer is left dangling. `scope` (default: the whole tree) limits the export to a target, see [Export scope](#export-scope). GraphQL: `exportGedcom(treeId, destination, includeNotesAndSources, scope)`, plain GEDCOM only |
 | `GET` | `/gedcom/export-destinations` | The [export destinations](#export-destinations), standard versions first, then the programs by name: `[{ id, label, version, standard, to_be_verified }]`. GraphQL: `exportDestinations` |
+
+### Export scope
+
+`scope` on `GET /trees/{tree_id}/gedcom/export`, on `POST /trees/{tree_id}/export-jobs`
+(as a query parameter, the target as URL-encoded JSON) and as the `scope`
+argument of GraphQL `exportGedcom` and `startExportJob` (a `TagTargetInput`,
+the same target as the bulk tagging, see [Tags](#tags)) names the persons an
+export keeps. Absent, the export is the whole tree, as before; a scope holding
+no person is `400 validation_error`, and an unknown tag is `404 not_found`. An
+export is not bounded to 10 000 persons.
+
+The export keeps the chosen persons; every family one of them belongs to as a
+spouse or a child, with the spouse and child links of the chosen persons only;
+the events of those persons and families; the citations on them and the sources
+they cite; the repositories of those sources; the media linked to a kept
+person, family, event or source, with the pages of those documents and their
+parents; the places of the events and media kept; the notes, vignettes and
+kept GEDCOM of the records kept, except the kept GEDCOM of a record OxidGene
+has no entity for, which may point at records left out. Nothing written points
+at a record left out, and tags travel with the records kept. A GEDZIP packs
+only the media kept. The export's audit entry names the scope in `details.scope`, over GraphQL too (`auditEntries { edges { node { details { scope } } } }`).
+
+A scope that leaves out the tree's "Who am I?" person keeps that person's
+names, so the submitter's name falls back to them as in a whole-tree export;
+no record is written for that person. The kept GEDCOM of a record OxidGene
+has no entity for is left out of a scoped export, while the submitter's is
+kept.
+
 
 A tree holds at most one queued or running import or export job at a time.
 Starting another while one is active answers `409 conflict` (GraphQL

@@ -18,6 +18,8 @@ Chaque graphique porte un titre et une aide **?** qui explique comment ses valeu
 
 Par défaut, âges et moyennes n'utilisent que les dates exactes. Cochez **Dates approximatives** dans la barre du haut pour y inclure aussi les dates notées vers, calculées ou estimées. Le réglage vaut pour tous les onglets. Les dates notées avant, après, peut-être, ou entre deux dates, ne servent jamais au calcul d'un âge.
 
+Pour ne compter que les personnes portant une étiquette, choisissez-la dans la liste **Étiquette** de la barre du haut : chaque chiffre ne porte alors que sur ces personnes. Les sources et l’onglet Croissance couvrent toujours tout l’arbre, et l’indiquent.
+
 Quand une date de naissance manque, celle du baptême la remplace ; quand une date de décès manque, celle de l'inhumation la remplace.
 
 ## Vue d'ensemble
