@@ -373,48 +373,51 @@ pub(crate) fn MediaStage(
         }
         {children}
         div {
-            id: "{stage_id}",
-            class: stage_class((zoom.level)(), (zoom.overflow)(), dragging()),
-            onmounted: move |_| {
-                let id = wheel_id.clone();
-                async move {
-                    crate::listeners::forward_wheel(&id, true, |turn| {
-                        let current = *zoom.level.peek();
-                        let next = if turn.delta_y > 0.0 { zoom_out(current) } else { zoom_in(current) };
-                        apply_zoom.call((next, ZoomAnchor::Pointer(turn.client_x, turn.client_y)));
-                    })
-                    .await;
-                }
-            },
-            onpointerdown: move |event| {
-                if is_picture {
-                    event.prevent_default();
-                    let point = event.client_coordinates();
-                    drag_from.set((point.x, point.y));
-                    dragging.set(true);
-                }
-            },
-            ondragstart: move |event| event.prevent_default(),
-            onpointerup: move |_| dragging.set(false),
-            onpointerleave: move |_| dragging.set(false),
+            class: "gesture-listeners",
             ..drag_moves,
-            match picture {
-                Some(picture) => rsx! {
-                    div { class: "media-viewer-image-frame",
-                        img {
-                            id: "{image_id}",
-                            class: "media-viewer-image media-viewer-static-image",
-                            src: "{picture.url}",
-                            alt: "{picture.alt}",
-                            draggable: "false",
-                            style: image_style((zoom.level)(), (zoom.fitted)()),
-                            onload: move |_| fit.call(()),
-                            onerror: move |_| on_picture_error.call(()),
-                        }
-                        {overlays}
+            div {
+                id: "{stage_id}",
+                class: stage_class((zoom.level)(), (zoom.overflow)(), dragging()),
+                onmounted: move |_| {
+                    let id = wheel_id.clone();
+                    async move {
+                        crate::listeners::forward_wheel(&id, true, |turn| {
+                            let current = *zoom.level.peek();
+                            let next = if turn.delta_y > 0.0 { zoom_out(current) } else { zoom_in(current) };
+                            apply_zoom.call((next, ZoomAnchor::Pointer(turn.client_x, turn.client_y)));
+                        })
+                        .await;
                     }
                 },
-                None => fallback,
+                onpointerdown: move |event| {
+                    if is_picture {
+                        event.prevent_default();
+                        let point = event.client_coordinates();
+                        drag_from.set((point.x, point.y));
+                        dragging.set(true);
+                    }
+                },
+                ondragstart: move |event| event.prevent_default(),
+                onpointerup: move |_| dragging.set(false),
+                onpointerleave: move |_| dragging.set(false),
+                match picture {
+                    Some(picture) => rsx! {
+                        div { class: "media-viewer-image-frame",
+                            img {
+                                id: "{image_id}",
+                                class: "media-viewer-image media-viewer-static-image",
+                                src: "{picture.url}",
+                                alt: "{picture.alt}",
+                                draggable: "false",
+                                style: image_style((zoom.level)(), (zoom.fitted)()),
+                                onload: move |_| fit.call(()),
+                                onerror: move |_| on_picture_error.call(()),
+                            }
+                            {overlays}
+                        }
+                    },
+                    None => fallback,
+                }
             }
         }
     }

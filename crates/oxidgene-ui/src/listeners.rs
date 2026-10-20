@@ -16,8 +16,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use dioxus::prelude::*;
 
-/// `listeners` while `active`, none otherwise: what an element spreads
+/// `listeners` while `active`, none otherwise: what a wrapper spreads
 /// (`..while_active(…)`) to listen to moves during a gesture only.
+///
+/// The wrapper is a `div` of class `gesture-listeners`, which has no box,
+/// around the element the gesture starts on, and holds no other listener.
+/// Dioxus 0.7 takes an element's `data-dioxus-id` away with any listener
+/// removed from it, even when others remain, and an event whose target has
+/// no id of its own is found by the nearest element that has one: spread on
+/// the pressed element, the listeners would leave it deaf, once the first
+/// gesture ended, to every press on a descendant without listeners of its
+/// own — the background of a chart, a picture.
 pub fn while_active(active: bool, listeners: impl FnOnce() -> Vec<Attribute>) -> Vec<Attribute> {
     if !active {
         return Vec::new();

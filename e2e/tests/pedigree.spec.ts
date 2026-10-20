@@ -44,6 +44,66 @@ test("closes the person form on Escape and on a press outside it", async ({ page
     await expect(form).toBeHidden();
 });
 
+test("pans the chart from anywhere on the canvas, again and again", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}`);
+    const card = page.locator("g.ped-card").filter({ hasText: /Bernard\s*ASHDOWN/ }).first();
+    await expect(card).toBeVisible();
+    const inner = page.locator(".pedigree-viewport .pedigree-inner");
+    const offset = async () =>
+        inner.evaluate(element => {
+            const matrix = new DOMMatrix(getComputedStyle(element).transform);
+            return [matrix.e, matrix.f];
+        });
+    // At a hand's pace: the chart follows the pointer from the frame after
+    // the press.
+    const drag = async ([x, y]: number[]) => {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        for (let step = 1; step <= 6; step++) {
+            await page.mouse.move(x + 5 * step, y + (10 * step) / 3);
+            await page.waitForTimeout(20);
+        }
+        await page.mouse.up();
+    };
+    const pans = async (from: () => Promise<number[]>) => {
+        const before = await offset();
+        await drag(await from());
+        await expect.poll(async () => (await offset())[0] - before[0]).toBeCloseTo(30, 0);
+        expect((await offset())[1] - before[1]).toBeCloseTo(20, 0);
+    };
+    // A point of the chart between the cards, where nothing listens of its own.
+    const between = () =>
+        page.evaluate(() => {
+            const svg = document.querySelector(".pedigree-viewport svg");
+            const rect = svg?.getBoundingClientRect();
+            if (!svg || !rect) return [];
+            for (let y = rect.top + 4; y < rect.bottom; y += 7) {
+                for (let x = rect.left + 4; x < rect.right; x += 7) {
+                    if (document.elementFromPoint(x, y) === svg) return [x, y];
+                }
+            }
+            return [];
+        });
+    const corner = async () => {
+        const box = await page.locator(".pedigree-viewport").boundingBox();
+        return box ? [box.x + 8, box.y + 8] : [];
+    };
+    const onCard = async () => {
+        const box = await card.boundingBox();
+        return box ? [box.x + box.width / 2, box.y + box.height / 2] : [];
+    };
+
+    // Each drag ends by removing its move listeners: the next one, wherever
+    // it starts, must still be heard.
+    await pans(between);
+    await pans(between);
+    await pans(corner);
+    await pans(onCard);
+    await pans(between);
+    // Dragging a card pans without making the person the focus.
+    await expect(page).not.toHaveURL(/person=/);
+});
+
 test("goes back to each person made the focus, one at a time", async ({ page, tree }) => {
     await page.goto(`/trees/${tree.treeId}`);
     const cards = page.locator("g.ped-card");

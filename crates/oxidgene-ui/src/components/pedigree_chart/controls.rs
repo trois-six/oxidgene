@@ -319,31 +319,34 @@ pub(super) fn PanZoomViewport(
     });
     rsx! {
         div {
-            id,
-            class,
-            onmounted: move |_| {
-                let id = wheel_id.clone();
-                async move {
-                    crate::listeners::forward_wheel(&id, false, |turn| {
-                        wheel_zoom(turn, saver, viewport_rect, animating, max_zoom);
-                    })
-                    .await;
-                }
-            },
-            onpointerdown: move |evt| {
-                // Direct manipulation tracks the pointer 1:1 — the CSS
-                // transition is only for programmatic jumps (fit/center).
-                animating.set(false);
-                let coords = evt.client_coordinates();
-                let current = transform();
-                drag.set(Some(Drag {
-                    pointer: (coords.x, coords.y),
-                    origin: (current.x, current.y),
-                }));
-            },
-            onpointerleave: move |_| end_drag(),
+            class: "gesture-listeners",
             ..dragging,
-            {children}
+            div {
+                id,
+                class,
+                onmounted: move |_| {
+                    let id = wheel_id.clone();
+                    async move {
+                        crate::listeners::forward_wheel(&id, false, |turn| {
+                            wheel_zoom(turn, saver, viewport_rect, animating, max_zoom);
+                        })
+                        .await;
+                    }
+                },
+                onpointerdown: move |evt| {
+                    // Direct manipulation tracks the pointer 1:1 — the CSS
+                    // transition is only for programmatic jumps (fit/center).
+                    animating.set(false);
+                    let coords = evt.client_coordinates();
+                    let current = transform();
+                    drag.set(Some(Drag {
+                        pointer: (coords.x, coords.y),
+                        origin: (current.x, current.y),
+                    }));
+                },
+                onpointerleave: move |_| end_drag(),
+                {children}
+            }
         }
     }
 }

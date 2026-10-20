@@ -958,87 +958,90 @@ pub fn HeatMap(
         .collect();
     rsx! {
         div { class: "stats-map",
-            svg {
-                class: "stats-map-svg",
-                "viewBox": "{current.view_box()}",
-                "preserveAspectRatio": "xMidYMid meet",
-                role: "img",
-                "aria-label": "{i18n.t(\"stats.map_title\")}",
-                id: map_id,
-                onmounted: move |_| {
-                    let id = wheel_id.clone();
-                    async move {
-                        crate::listeners::forward_wheel(&id, true, |turn| {
-                            let factor = if turn.delta_y > 0.0 { 1.2 } else { 1.0 / 1.2 };
-                            let zoomed = view.peek().zoomed(factor);
-                            view.set(zoomed);
-                        })
-                        .await;
-                    }
-                },
-                onmousedown: move |e: Event<MouseData>| {
-                    let point = e.client_coordinates();
-                    drag.set(Some((point.x, point.y, view())));
-                },
-                onmouseup: move |_| drag.set(None),
-                onmouseleave: move |_| drag.set(None),
+            div {
+                class: "gesture-listeners",
                 ..dragging,
-                defs {
-                    radialGradient { id: "stats-heat",
-                        stop { offset: "0%", style: "stop-color: var(--red); stop-opacity: 0.55" }
-                        stop { offset: "45%", style: "stop-color: var(--orange); stop-opacity: 0.3" }
-                        stop { offset: "100%", style: "stop-color: var(--orange); stop-opacity: 0" }
-                    }
-                }
-                for (index, d) in paths.read().iter().enumerate() {
-                    path { key: "{index}", class: "stats-map-land", d: "{d}" }
-                }
-                for (index, (x, y, count)) in located.iter().enumerate() {
-                    circle {
-                        key: "h{index}",
-                        cx: "{x}",
-                        cy: "{y}",
-                        r: "{radius(*count)}",
-                        fill: "url(#stats-heat)",
-                    }
-                }
-                g { class: "stats-map-cities",
-                    for (index, city) in labels.iter().enumerate() {
-                        g { key: "c{index}",
-                            circle {
-                                class: "stats-map-city-dot",
-                                cx: "{city.x}",
-                                cy: "{city.y}",
-                                r: "{city_font * 0.2}",
-                            }
-                            text {
-                                class: "stats-map-city",
-                                x: "{city.x + city_font * 0.45}",
-                                y: "{city.y + city_font * 0.35}",
-                                "font-size": "{city_font}",
-                                "{city.name}"
-                            }
+                svg {
+                    class: "stats-map-svg",
+                    "viewBox": "{current.view_box()}",
+                    "preserveAspectRatio": "xMidYMid meet",
+                    role: "img",
+                    "aria-label": "{i18n.t(\"stats.map_title\")}",
+                    id: map_id,
+                    onmounted: move |_| {
+                        let id = wheel_id.clone();
+                        async move {
+                            crate::listeners::forward_wheel(&id, true, |turn| {
+                                let factor = if turn.delta_y > 0.0 { 1.2 } else { 1.0 / 1.2 };
+                                let zoomed = view.peek().zoomed(factor);
+                                view.set(zoomed);
+                            })
+                            .await;
+                        }
+                    },
+                    onmousedown: move |e: Event<MouseData>| {
+                        let point = e.client_coordinates();
+                        drag.set(Some((point.x, point.y, view())));
+                    },
+                    onmouseup: move |_| drag.set(None),
+                    onmouseleave: move |_| drag.set(None),
+                    defs {
+                        radialGradient { id: "stats-heat",
+                            stop { offset: "0%", style: "stop-color: var(--red); stop-opacity: 0.55" }
+                            stop { offset: "45%", style: "stop-color: var(--orange); stop-opacity: 0.3" }
+                            stop { offset: "100%", style: "stop-color: var(--orange); stop-opacity: 0" }
                         }
                     }
-                }
-                for (number, x, y, target) in markers.iter().copied() {
-                    g {
-                        key: "m{number}",
-                        class: "stats-map-marker-group",
-                        onclick: move |_| focus.set(target),
+                    for (index, d) in paths.read().iter().enumerate() {
+                        path { key: "{index}", class: "stats-map-land", d: "{d}" }
+                    }
+                    for (index, (x, y, count)) in located.iter().enumerate() {
                         circle {
-                            class: "stats-map-marker",
+                            key: "h{index}",
                             cx: "{x}",
                             cy: "{y}",
-                            r: "{marker_radius}",
+                            r: "{radius(*count)}",
+                            fill: "url(#stats-heat)",
                         }
-                        text {
-                            class: "stats-map-marker-text",
-                            x: "{x}",
-                            y: "{y + marker_radius * 0.4}",
-                            "font-size": "{marker_radius * 1.2}",
-                            "text-anchor": "middle",
-                            "{number}"
+                    }
+                    g { class: "stats-map-cities",
+                        for (index, city) in labels.iter().enumerate() {
+                            g { key: "c{index}",
+                                circle {
+                                    class: "stats-map-city-dot",
+                                    cx: "{city.x}",
+                                    cy: "{city.y}",
+                                    r: "{city_font * 0.2}",
+                                }
+                                text {
+                                    class: "stats-map-city",
+                                    x: "{city.x + city_font * 0.45}",
+                                    y: "{city.y + city_font * 0.35}",
+                                    "font-size": "{city_font}",
+                                    "{city.name}"
+                                }
+                            }
+                        }
+                    }
+                    for (number, x, y, target) in markers.iter().copied() {
+                        g {
+                            key: "m{number}",
+                            class: "stats-map-marker-group",
+                            onclick: move |_| focus.set(target),
+                            circle {
+                                class: "stats-map-marker",
+                                cx: "{x}",
+                                cy: "{y}",
+                                r: "{marker_radius}",
+                            }
+                            text {
+                                class: "stats-map-marker-text",
+                                x: "{x}",
+                                y: "{y + marker_radius * 0.4}",
+                                "font-size": "{marker_radius * 1.2}",
+                                "text-anchor": "middle",
+                                "{number}"
+                            }
                         }
                     }
                 }

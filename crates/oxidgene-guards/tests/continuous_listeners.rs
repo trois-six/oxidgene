@@ -56,3 +56,49 @@ fn no_element_listens_to_moves_or_wheel_turns_while_idle() {
         found.join("\n")
     );
 }
+
+/// Each set of gesture listeners is spread on a wrapper of its own (see
+/// `crate::listeners::while_active`): spread on an element holding other
+/// listeners, its removal at the end of the gesture leaves that element deaf
+/// to presses on its descendants.
+///
+/// Fixing a failure: wrap the element in
+/// `div { class: "gesture-listeners", ..listeners, element { … } }`.
+#[test]
+fn gesture_listeners_are_spread_on_a_wrapper_of_their_own() {
+    let mut found = Vec::new();
+    for path in files("crates/oxidgene-ui/src", "rs") {
+        let file = relative(&path);
+        let source = read(&file);
+        for (offset, _) in source.match_indices("listeners::while_active(") {
+            let Some(name) = source[..offset]
+                .rsplit("let ")
+                .next()
+                .and_then(|binding| binding.split('=').next())
+                .map(str::trim)
+            else {
+                continue;
+            };
+            let spread = format!("..{name},");
+            let wrapped = source.match_indices(&spread).all(|(at, _)| {
+                let before: Vec<&str> = source[..at]
+                    .lines()
+                    .rev()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .take(2)
+                    .collect();
+                before == ["class: \"gesture-listeners\",", "div {"]
+            });
+            if !wrapped || !source.contains(&spread) {
+                found.push(format!("{file}:{}: {name}", line_of(&source, offset)));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "gesture listeners not spread on a `gesture-listeners` wrapper \
+         (see this guard's test for the fix):\n{}",
+        found.join("\n")
+    );
+}

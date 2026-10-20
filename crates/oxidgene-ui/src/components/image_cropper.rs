@@ -159,67 +159,70 @@ fn CropStage(
     });
     rsx! {
         div {
-            class: "cropper-stage",
-            // Measured rather than assumed: the image is laid out by
-            // CSS (`max-height`, aspect ratio), so only the engine
-            // knows what size it ended up.
-            onmounted: move |e| async move {
-                if let Ok(rect) = e.get_client_rect().await {
-                    displayed.set((rect.size.width, rect.size.height));
-                }
-            },
-            onresize: move |e| {
-                let size = e.get_content_box_size().unwrap_or_default();
-                if size.width > 0.0 {
-                    displayed.set((size.width, size.height));
-                }
-            },
-            onmousedown: move |e: Event<MouseData>| {
-                let p = e.element_coordinates();
-                drag_start.set(Some((p.x, p.y)));
-                drag_rect.set(None);
-            },
-            onmouseup: move |_| drag_start.set(None),
-            onmouseleave: move |_| drag_start.set(None),
+            class: "gesture-listeners",
             ..drawing,
+            div {
+                class: "cropper-stage",
+                // Measured rather than assumed: the image is laid out by
+                // CSS (`max-height`, aspect ratio), so only the engine
+                // knows what size it ended up.
+                onmounted: move |e| async move {
+                    if let Ok(rect) = e.get_client_rect().await {
+                        displayed.set((rect.size.width, rect.size.height));
+                    }
+                },
+                onresize: move |e| {
+                    let size = e.get_content_box_size().unwrap_or_default();
+                    if size.width > 0.0 {
+                        displayed.set((size.width, size.height));
+                    }
+                },
+                onmousedown: move |e: Event<MouseData>| {
+                    let p = e.element_coordinates();
+                    drag_start.set(Some((p.x, p.y)));
+                    drag_rect.set(None);
+                },
+                onmouseup: move |_| drag_start.set(None),
+                onmouseleave: move |_| drag_start.set(None),
 
-            if let Some(image_url) = image_url {
-                img {
-                    id: "{image_element_id}",
-                    class: "cropper-image",
-                    src: "{image_url}",
-                    alt: "{file_name}",
-                    // The browser would otherwise start its own drag of the
-                    // image, which cancels ours halfway through.
-                    draggable: "false",
-                    // The only place a remote picture's pixel size can
-                    // be learnt: it has just been decoded, right here.
-                    onload: move |_| {
-                        let Some(script) = measure.clone() else { return };
-                        spawn(async move {
-                            if let Some(size) = natural_size(&script).await {
-                                measured.set(Some(size));
-                            }
-                        });
-                    },
+                if let Some(image_url) = image_url {
+                    img {
+                        id: "{image_element_id}",
+                        class: "cropper-image",
+                        src: "{image_url}",
+                        alt: "{file_name}",
+                        // The browser would otherwise start its own drag of the
+                        // image, which cancels ours halfway through.
+                        draggable: "false",
+                        // The only place a remote picture's pixel size can
+                        // be learnt: it has just been decoded, right here.
+                        onload: move |_| {
+                            let Some(script) = measure.clone() else { return };
+                            spawn(async move {
+                                if let Some(size) = natural_size(&script).await {
+                                    measured.set(Some(size));
+                                }
+                            });
+                        },
+                    }
                 }
-            }
 
-            // Crops already on this page, so the user can see what is
-            // covered while drawing the next one.
-            for existing in existing.iter().filter(|_| s > 0.0) {
-                div {
-                    key: "{existing.id}",
-                    class: "cropper-existing",
-                    style: "left:{existing.x as f64 * s}px;top:{existing.y as f64 * s}px;\
-                            width:{existing.width as f64 * s}px;height:{existing.height as f64 * s}px",
+                // Crops already on this page, so the user can see what is
+                // covered while drawing the next one.
+                for existing in existing.iter().filter(|_| s > 0.0) {
+                    div {
+                        key: "{existing.id}",
+                        class: "cropper-existing",
+                        style: "left:{existing.x as f64 * s}px;top:{existing.y as f64 * s}px;\
+                                width:{existing.width as f64 * s}px;height:{existing.height as f64 * s}px",
+                    }
                 }
-            }
 
-            if let Some((x, y, w, h)) = drag_rect() {
-                div {
-                    class: "cropper-selection",
-                    style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px",
+                if let Some((x, y, w, h)) = drag_rect() {
+                    div {
+                        class: "cropper-selection",
+                        style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px",
+                    }
                 }
             }
         }

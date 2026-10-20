@@ -1188,7 +1188,13 @@ scrolling included, since the engine moves the pointer over the content it
 scrolls. No element keeps one while nothing needs it:
 
 - A drag (panning a chart or a map, drawing a crop) listens to moves and to
-  the release only from the press to the release (`listeners::while_active`).
+  the release only from the press to the release (`listeners::while_active`),
+  on a wrapper without a box of its own (`gesture-listeners`) around the
+  element pressed. The renderer takes an element's identity away with any
+  listener removed from it, so listeners spread on the pressed element itself
+  would, once a drag ended, leave it deaf to presses on whatever inside it has
+  no listener of its own: the chart's background between the cards, a
+  picture.
 - A wheel that zooms is read by a listener of the page's own, which sends each
   turn on without waiting (`listeners::forward_wheel`).
 - A hover card opens beside the point where the pointer entered its target and
@@ -1196,7 +1202,8 @@ scrolls. No element keeps one while nothing needs it:
 
 Entering and leaving an element (`mouseenter`, `pointerleave`…) do not bubble,
 are listened to on the element alone, and are free to use. A repository guard
-(`continuous_listeners`) fails on a continuous listener written in the markup.
+(`continuous_listeners`) fails on a continuous listener written in the markup,
+and on gesture listeners spread elsewhere than on their wrapper.
 
 ## 7. Printing
 
