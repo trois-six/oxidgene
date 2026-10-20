@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Resaltar una etiqueta",
     "tag.highlight.dim": "Atenuar las demás",
     "tag.highlight.empty": "Ninguna persona tiene aún una etiqueta.",
+    "tag.highlight.filter": "Filtrar las etiquetas",
+    "tag.highlight.no_match": "Ninguna etiqueta coincide.",
     "tag.highlight.failed": "No se pudieron leer las personas etiquetadas. Inténtelo de nuevo.",
     "tag.highlight.clear": "Quitar el resaltado de «{label}»",
     "tag.highlight.unknown": "Etiqueta resaltada",

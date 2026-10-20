@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T13:34:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:46:39Z }
 ---
 
 
@@ -516,7 +516,7 @@ which they find from the page's route, and show as current on their own page
 
 This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart**, **Wrench** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, Tools, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.
 
-On the tree page the sidebar also holds **Highlight a tag**. It opens the list of the tags that at least one person carries; the chosen tag is shown as a chip under the button, whose × ends the highlight. Every card of a person carrying the tag gets a dot in the tag's colour at its top corner and a border in that colour, in every chart of the page, and the other cards are dimmed to 45 % unless **Dim the others** is off. The highlight belongs to the page's history entry, not to the settings, and printing keeps the marks without the dimming. Outside the highlight, cards draw no tags ([Visual Indicators](#visual-indicators)).
+On the tree page the sidebar also holds **Highlight a tag**. It opens the list of the tags that at least one person carries; the chosen tag is shown as a chip under the button, whose × ends the highlight. When more than ten tags are listed, the dialog opens with a search field above the list, focused: it keeps the tags whose label contains the typed text, with case and accents ignored as in the [tag picker](ui-common.md#418-tags-picker-and-badges), and a text that matches none shows *No matching tag.*. The title and the dimming checkbox stay in place while the list scrolls. Ten tags or fewer, the dialog has no field. Every card of a person carrying the tag gets a dot in the tag's colour at its top corner and a border in that colour, in every chart of the page, and the other cards are dimmed to 45 % unless **Dim the others** is off. The highlight belongs to the page's history entry, not to the settings, and printing keeps the marks without the dimming. Outside the highlight, cards draw no tags ([Visual Indicators](#visual-indicators)).
 
 **Depth selector — hover panel**:
 

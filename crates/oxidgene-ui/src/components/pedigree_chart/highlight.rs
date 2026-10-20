@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, TagSummary};
 use crate::components::modal::Modal;
-use crate::components::tags::{dot_style, tag_colour};
+use crate::components::tags::{dot_style, filter_matches, tag_colour};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 
@@ -24,6 +24,25 @@ const CARRIER_PAGE_SIZE: u64 = 100;
 /// The class of a card drawn dimmed while a tag is highlighted. Printing
 /// resets it, so a printed chart keeps its marks and not its dimming.
 pub(super) const DIM_CLASS: &str = "ped-tag-dim";
+
+/// The list of tags above which the dialog gets a search field. A shorter
+/// list stays as plain as it was.
+const SEARCH_MIN_TAGS: usize = 10;
+
+/// Whether a list of `count` tags gets its search field.
+pub(super) fn shows_search(count: usize) -> bool {
+    count > SEARCH_MIN_TAGS
+}
+
+/// The tags of `carried` that the search field `typed` leaves, in their order.
+/// An empty filter leaves them all.
+pub(super) fn listed_tags(carried: &[TagSummary], typed: &str) -> Vec<TagSummary> {
+    carried
+        .iter()
+        .filter(|tag| filter_matches(&tag.label, typed))
+        .cloned()
+        .collect()
+}
 
 /// The highlight the reader chose: the tag and whether the other cards are
 /// dimmed. Kept in the tree page's history entry, not in the settings.
@@ -222,6 +241,8 @@ pub(super) fn HighlightTool(
     // The "Dim the others" choice made before a tag is picked; once a tag is
     // highlighted, the choice is the highlight's own.
     let mut dim_pending = use_signal(|| true);
+    // The search field's text, cleared each time the dialog opens.
+    let mut query = use_signal(String::new);
 
     let choice = highlight();
     let dim = choice.map_or(dim_pending(), |choice| choice.dim);
@@ -238,6 +259,12 @@ pub(super) fn HighlightTool(
         .cloned()
         .collect();
     let open_label = i18n.t("tag.highlight.open");
+    let search = shows_search(carried.len());
+    // The text only filters while the field shows: a list that shrinks back
+    // to the plain size is never left filtered by a text nobody can see.
+    let typed = if search { query() } else { String::new() };
+    let listed = listed_tags(&carried, &typed);
+    let filter_label = i18n.t("tag.highlight.filter");
     let button_class = if choice.is_some() {
         "isb-btn isb-btn-active"
     } else {
@@ -251,7 +278,10 @@ pub(super) fn HighlightTool(
             title: "{open_label}",
             "aria-label": "{open_label}",
             "aria-haspopup": "dialog",
-            onclick: move |_| open.set(true),
+            onclick: move |_| {
+                query.set(String::new());
+                open.set(true);
+            },
             svg {
                 width: "16",
                 height: "16",
@@ -307,28 +337,49 @@ pub(super) fn HighlightTool(
                 if carried.is_empty() {
                     p { class: "tag-picker-empty", {i18n.t("tag.highlight.empty")} }
                 } else {
-                    div { class: "tag-highlight-list",
-                        for tag in carried.iter() {
-                            {
-                                let tag_id = tag.id;
-                                let pressed = choice.is_some_and(|choice| choice.tag_id == tag_id);
-                                let count = i18n.t_plural("tag.count.persons", tag.counts.persons as usize);
-                                rsx! {
-                                    button {
-                                        key: "{tag_id}",
-                                        class: if pressed { "tag-highlight-option is-active" } else { "tag-highlight-option" },
-                                        r#type: "button",
-                                        "aria-pressed": "{pressed}",
-                                        onclick: move |_| {
-                                            // The dimming the reader sees: the current highlight's own
-                                            // choice when one is set, the pending choice otherwise.
-                                            let dim = highlight().map_or(dim_pending(), |choice| choice.dim);
-                                            highlight.set(Some(TagHighlight { tag_id, dim }));
-                                            open.set(false);
-                                        },
-                                        span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
-                                        span { class: "tag-highlight-label", "{tag.label}" }
-                                        span { class: "tag-highlight-count", "{count}" }
+                    if search {
+                        input {
+                            r#type: "text",
+                            class: "tag-picker-input",
+                            placeholder: "{filter_label}",
+                            aria_label: "{filter_label}",
+                            autocomplete: "off",
+                            spellcheck: "false",
+                            value: "{typed}",
+                            onmounted: move |event: Event<MountedData>| {
+                                spawn(async move {
+                                    let _ = event.set_focus(true).await;
+                                });
+                            },
+                            oninput: move |event: Event<FormData>| query.set(event.value()),
+                        }
+                    }
+                    if listed.is_empty() {
+                        p { class: "tag-picker-empty", {i18n.t("tag.highlight.no_match")} }
+                    } else {
+                        div { class: "tag-highlight-list",
+                            for tag in listed.iter() {
+                                {
+                                    let tag_id = tag.id;
+                                    let pressed = choice.is_some_and(|choice| choice.tag_id == tag_id);
+                                    let count = i18n.t_plural("tag.count.persons", tag.counts.persons as usize);
+                                    rsx! {
+                                        button {
+                                            key: "{tag_id}",
+                                            class: if pressed { "tag-highlight-option is-active" } else { "tag-highlight-option" },
+                                            r#type: "button",
+                                            "aria-pressed": "{pressed}",
+                                            onclick: move |_| {
+                                                // The dimming the reader sees: the current highlight's own
+                                                // choice when one is set, the pending choice otherwise.
+                                                let dim = highlight().map_or(dim_pending(), |choice| choice.dim);
+                                                highlight.set(Some(TagHighlight { tag_id, dim }));
+                                                open.set(false);
+                                            },
+                                            span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
+                                            span { class: "tag-highlight-label", "{tag.label}" }
+                                            span { class: "tag-highlight-count", "{count}" }
+                                        }
                                     }
                                 }
                             }
@@ -369,6 +420,40 @@ mod tests {
                 notes: 0,
             },
         }
+    }
+
+    fn named(id: u128, label: &str) -> TagSummary {
+        TagSummary {
+            label: label.to_string(),
+            ..tag(id, 1)
+        }
+    }
+
+    #[test]
+    fn the_search_field_shows_only_above_ten_tags() {
+        assert!(!shows_search(3));
+        assert!(!shows_search(10));
+        assert!(shows_search(11));
+    }
+
+    #[test]
+    fn the_search_leaves_the_tags_whose_folded_label_contains_the_filter() {
+        let carried = [
+            named(1, "À vérifier"),
+            named(2, "Soldats 1914"),
+            named(3, "Zoé"),
+        ];
+        let labels = |typed: &str| -> Vec<String> {
+            listed_tags(&carried, typed)
+                .into_iter()
+                .map(|tag| tag.label)
+                .collect()
+        };
+        assert_eq!(labels("a verifier"), ["À vérifier"]);
+        assert_eq!(labels("SOLDATS"), ["Soldats 1914"]);
+        assert_eq!(labels("zoe"), ["Zoé"]);
+        assert_eq!(labels(""), ["À vérifier", "Soldats 1914", "Zoé"]);
+        assert!(labels("inconnu").is_empty());
     }
 
     #[test]

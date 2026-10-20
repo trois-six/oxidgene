@@ -34,7 +34,7 @@ The picker then lists each tag with how many of these persons carry it, as *3 of
 
 ## Highlight a tag in the tree
 
-To see where the persons of a tag sit in the tree, press **Highlight a tag** in the tree's left sidebar and choose a tag from the list. The list shows the tags that at least one person carries. Each of these persons gets a dot in the tag's colour at the top corner of their card and a border in that colour, in every chart: the tree, the wheel, the fan, the lineage, the hourglass and the bowtie. The other cards are dimmed; untick **Dim the others** to leave them as they are. A chip under the button shows the tag, and its × ends the highlight.
+To see where the persons of a tag sit in the tree, press **Highlight a tag** in the tree's left sidebar and choose a tag from the list. The list shows the tags that at least one person carries. When the tree has more than ten of them, a search field at the top of the list is focused as the list opens: type part of a label to narrow it, and accents and capital letters do not matter. Each of these persons gets a dot in the tag's colour at the top corner of their card and a border in that colour, in every chart: the tree, the wheel, the fan, the lineage, the hourglass and the bowtie. The other cards are dimmed; untick **Dim the others** to leave them as they are. A chip under the button shows the tag, and its × ends the highlight.
 
 The highlight stays while the page is open, and when you come back to the page with the history buttons. It is not saved in the settings. Printing keeps the marks, not the dimming.
 

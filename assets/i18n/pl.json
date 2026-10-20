@@ -8556,6 +8556,8 @@
     "tag.highlight.title": "Wyróżnij znacznik",
     "tag.highlight.dim": "Przyciemnij pozostałe",
     "tag.highlight.empty": "Żadna osoba nie ma jeszcze znacznika.",
+    "tag.highlight.filter": "Filtruj znaczniki",
+    "tag.highlight.no_match": "Brak pasującego znacznika.",
     "tag.highlight.failed": "Nie udało się odczytać oznaczonych osób. Spróbuj ponownie.",
     "tag.highlight.clear": "Zakończ wyróżnianie znacznika „{label}”",
     "tag.highlight.unknown": "Wyróżniony znacznik",

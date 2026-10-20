@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Highlight a tag",
     "tag.highlight.dim": "Dim the others",
     "tag.highlight.empty": "No person carries a tag yet.",
+    "tag.highlight.filter": "Filter the tags",
+    "tag.highlight.no_match": "No matching tag.",
     "tag.highlight.failed": "The tagged persons could not be read. Try again.",
     "tag.highlight.clear": "End the highlight of “{label}”",
     "tag.highlight.unknown": "Highlighted tag",

@@ -73,6 +73,70 @@ test("highlights a tag's carriers in the tree and in another chart", async ({ pa
     await expect(page.locator(".ped-tag-dim").first()).toBeAttached();
 });
 
+test("filters a long tag list from a field focused on opening, folding case and accents", async ({ page, request, tree }) => {
+    // Twelve tags, past the threshold of the search field. Each one sits on
+    // the anchor, so each one is listed; only the accented one also sits on
+    // Dorian.
+    const labels = ["À vérifier", ...Array.from({ length: 11 }, (_, index) => `Fictional tag ${index + 1}`)];
+    const ids: string[] = [];
+    for (const label of labels) {
+        ids.push(await createTag(request, tree.treeId, label));
+    }
+    for (const tagId of ids) {
+        await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    }
+    await tagPerson(request, tree.treeId, ids[0], await personIdOf(request, tree.treeId, "Dorian"));
+
+    await page.goto(`/trees/${tree.treeId}`);
+    const cards = page.locator("g.ped-card");
+    const dorian = cards.filter({ hasText: /Dorian\s*ASHDOWN/ }).first();
+    await expect(dorian).toBeVisible();
+
+    const dialog = page.getByRole("dialog", { name: "Highlight a tag" });
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    const field = dialog.getByRole("textbox", { name: "Filter the tags" });
+    await expect(field).toBeVisible();
+    await expect(field).toBeFocused();
+    await expect(dialog.locator(".tag-highlight-option")).toHaveCount(12);
+
+    // Part of a label, in other case and without the accents, leaves the one tag.
+    await field.fill("A VERIFIER");
+    await expect(dialog.locator(".tag-highlight-option")).toHaveCount(1);
+    await expect(dialog.locator(".tag-highlight-option")).toContainText("À vérifier");
+
+    // A text that matches no tag says so, and the title and the dimming
+    // checkbox stay in the dialog.
+    await field.fill("zzz");
+    await expect(dialog.locator(".tag-highlight-option")).toHaveCount(0);
+    await expect(dialog.getByText("No matching tag.")).toBeVisible();
+    await expect(dialog.getByRole("checkbox", { name: "Dim the others" })).toBeVisible();
+
+    await field.fill("a verifier");
+    await dialog.locator(".tag-highlight-option", { hasText: "À vérifier" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator(".tag-highlight-chip")).toContainText("À vérifier");
+    await expect(dorian.locator(".ped-tag-dot")).toHaveCount(1);
+    await expect(dorian).not.toHaveClass(/ped-tag-dim/);
+
+    // Reopening the dialog shows the whole list again, with the field empty.
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.getByRole("textbox", { name: "Filter the tags" })).toHaveValue("");
+    await expect(dialog.locator(".tag-highlight-option")).toHaveCount(12);
+});
+
+test("keeps the highlight dialog plain for three tags, with no search field", async ({ page, request, tree }) => {
+    for (const label of ["Fictional one", "Fictional two", "Fictional three"]) {
+        await tagPerson(request, tree.treeId, await createTag(request, tree.treeId, label), tree.anchorId);
+    }
+
+    await page.goto(`/trees/${tree.treeId}`);
+    const dialog = page.getByRole("dialog", { name: "Highlight a tag" });
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.locator(".tag-highlight-option")).toHaveCount(3);
+    await expect(dialog.getByRole("textbox", { name: "Filter the tags" })).toHaveCount(0);
+    await expect(dialog.getByRole("checkbox", { name: "Dim the others" })).toBeVisible();
+});
+
 test("tags the search results from the keyboard", async ({ page, request, tree }) => {
     const tagId = await createTag(request, tree.treeId, "Fictional kin");
     await page.goto(`/trees/${tree.treeId}/search?last=Ashdown&first=&origin=`);

@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Evidenzia un’etichetta",
     "tag.highlight.dim": "Attenua le altre",
     "tag.highlight.empty": "Nessuna persona ha ancora un’etichetta.",
+    "tag.highlight.filter": "Filtra le etichette",
+    "tag.highlight.no_match": "Nessuna etichetta corrisponde.",
     "tag.highlight.failed": "Impossibile leggere le persone etichettate. Riprova.",
     "tag.highlight.clear": "Termina l’evidenziazione di «{label}»",
     "tag.highlight.unknown": "Etichetta evidenziata",

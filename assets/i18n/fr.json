@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Mettre une étiquette en évidence",
     "tag.highlight.dim": "Estomper les autres",
     "tag.highlight.empty": "Aucune personne n’a encore d’étiquette.",
+    "tag.highlight.filter": "Filtrer les étiquettes",
+    "tag.highlight.no_match": "Aucune étiquette ne correspond.",
     "tag.highlight.failed": "Les personnes étiquetées n’ont pas pu être lues. Réessayez.",
     "tag.highlight.clear": "Arrêter la mise en évidence de « {label} »",
     "tag.highlight.unknown": "Étiquette mise en évidence",

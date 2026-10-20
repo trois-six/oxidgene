@@ -5778,6 +5778,10 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: var(--text-80);
         color: var(--text-primary);
     }
+    .tag-highlight-card .tag-picker-input {
+        width: 100%;
+        margin: 0 0 var(--space-3);
+    }
     .tag-highlight-list {
         display: flex;
         flex-direction: column;

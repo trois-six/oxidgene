@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Ein Schlagwort hervorheben",
     "tag.highlight.dim": "Die übrigen abdunkeln",
     "tag.highlight.empty": "Noch keine Person hat ein Schlagwort.",
+    "tag.highlight.filter": "Schlagwörter filtern",
+    "tag.highlight.no_match": "Kein passendes Schlagwort.",
     "tag.highlight.failed": "Die Personen mit dem Schlagwort konnten nicht geladen werden. Versuchen Sie es erneut.",
     "tag.highlight.clear": "Hervorhebung von „{label}“ beenden",
     "tag.highlight.unknown": "Hervorgehobenes Schlagwort",

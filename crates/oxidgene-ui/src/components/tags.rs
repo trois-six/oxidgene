@@ -95,6 +95,12 @@ fn folded(label: &str) -> String {
     fold_words(label)
 }
 
+/// Whether the filter `typed` leaves the tag `label`: the folded label
+/// contains the folded filter, so case and accents do not matter.
+pub(crate) fn filter_matches(label: &str, typed: &str) -> bool {
+    folded(label).contains(&folded(typed))
+}
+
 /// Keeps a record's tags in the order the vocabulary lists them.
 fn sort_tags(tags: &mut [TagRef]) {
     tags.sort_by_key(|tag| folded(&tag.label));
@@ -112,7 +118,7 @@ fn picker_options(
     let needle = folded(typed);
     let mut options: Vec<TagSummary> = vocabulary
         .iter()
-        .filter(|tag| folded(&tag.label).contains(&needle))
+        .filter(|tag| filter_matches(&tag.label, typed))
         .cloned()
         .collect();
     // The tags the record carries come first; the stable sort keeps the

@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Een tag markeren",
     "tag.highlight.dim": "De andere dimmen",
     "tag.highlight.empty": "Nog geen persoon heeft een tag.",
+    "tag.highlight.filter": "Tags filteren",
+    "tag.highlight.no_match": "Geen overeenkomende tag.",
     "tag.highlight.failed": "De gelabelde personen konden niet worden gelezen. Probeer het opnieuw.",
     "tag.highlight.clear": "Markering van “{label}” beëindigen",
     "tag.highlight.unknown": "Gemarkeerde tag",

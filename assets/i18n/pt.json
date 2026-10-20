@@ -8413,6 +8413,8 @@
     "tag.highlight.title": "Realçar uma etiqueta",
     "tag.highlight.dim": "Escurecer as outras",
     "tag.highlight.empty": "Nenhuma pessoa tem ainda uma etiqueta.",
+    "tag.highlight.filter": "Filtrar as etiquetas",
+    "tag.highlight.no_match": "Nenhuma etiqueta corresponde.",
     "tag.highlight.failed": "Não foi possível ler as pessoas etiquetadas. Tente novamente.",
     "tag.highlight.clear": "Terminar o realce de “{label}”",
     "tag.highlight.unknown": "Etiqueta realçada",
