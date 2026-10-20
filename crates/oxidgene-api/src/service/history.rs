@@ -803,8 +803,10 @@ pub async fn recently_modified_persons(
     profiles.search_entries(tree_id, &person_ids).await
 }
 
-/// The most trees one request may ask the recent persons of.
-pub const MAX_RECENT_PERSON_TREES: usize = 64;
+/// The most trees one request may ask the recent persons of: a page of the
+/// tree list holds at most 100, and the home page asks for all its cards at
+/// once.
+pub const MAX_RECENT_PERSON_TREES: usize = 100;
 
 /// One tree's most recently modified persons, in a batch.
 #[derive(Debug, Clone, serde::Serialize)]

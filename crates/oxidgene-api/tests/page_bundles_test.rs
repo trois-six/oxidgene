@@ -490,6 +490,54 @@ async fn the_recent_persons_of_several_trees_come_in_one_answer() {
     assert_eq!(trees[0]["persons"][0]["personId"], f.anchor);
 }
 
+/// The home page asks the recent persons of every tree of its list, up to a
+/// page of 100: the batch takes as many, and refuses one more on both
+/// surfaces.
+#[tokio::test]
+async fn the_recent_persons_batch_takes_a_whole_page_of_trees() {
+    let f = fixture().await;
+    let page: Vec<String> = (0..100).map(|_| uuid::Uuid::now_v7().to_string()).collect();
+    let (status, _) = send(
+        &f.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/recent-persons?tree_ids={}&limit=3",
+            page.join(",")
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let data = gql_ok(
+        &f.app,
+        r#"query($ids: [ID!]!) { recentPersonsOfTrees(treeIds: $ids, limit: 3) { treeId } }"#,
+        json!({ "ids": page }),
+    )
+    .await;
+    assert!(data["recentPersonsOfTrees"].as_array().unwrap().is_empty());
+
+    let mut over = page.clone();
+    over.push(uuid::Uuid::now_v7().to_string());
+    let (status, _) = send(
+        &f.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/recent-persons?tree_ids={}&limit=3",
+            over.join(",")
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let response = common::gql(
+        &f.app,
+        r#"query($ids: [ID!]!) { recentPersonsOfTrees(treeIds: $ids, limit: 3) { treeId } }"#,
+        json!({ "ids": over }),
+    )
+    .await;
+    assert_eq!(common::gql_error_code(&response), "VALIDATION_ERROR");
+}
+
 #[tokio::test]
 async fn the_last_source_level_comes_with_its_sources() {
     let f = fixture().await;
