@@ -12,7 +12,7 @@ One form creates or edits a person, whatever the context: a new spouse, child, s
 
 | To… | Do this |
 |---|---|
-| Edit a person | In the tree view, click the pencil under their card (or right-click the card) and choose **Edit individual**; on their page, click **Edit** |
+| Edit a person | In the tree view, click the **⋮** under their selected card (or right-click the card) and choose **Edit individual**; on their page, click **Edit** |
 | Add a spouse, a child or a sibling | In the tree view's action picker, choose **Add spouse**, **Add child** or **Add sibling** |
 | Add a parent | In the tree view, click the **+** of the dashed empty slot where the father or mother should be |
 | Add a person with no family link | Click **Add person** in the left sidebar |

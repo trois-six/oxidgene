@@ -49,7 +49,7 @@ Une carte en pointillés marquée d’un **+** tient la place d’un parent que 
 
 ## Se déplacer dans l’arbre
 
-- **Changer de personne centrale.** Cliquez sur une carte. Le graphique se recentre sur elle, un crayon apparaît sous sa carte et le panneau des événements affiche ses événements.
+- **Changer de personne centrale.** Cliquez sur une carte. Le graphique se recentre sur elle, un bouton **⋮** apparaît sous sa carte et le panneau des événements affiche ses événements.
 - **Faire glisser.** Glissez n’importe où sur le canevas, cartes comprises.
 - **Zoomer.** Utilisez la molette ou le pincement pour zoomer autour du pointeur, ou les boutons **Zoom avant** et **Zoom arrière** de la barre latérale gauche. La vue arbre zoome de 0,3× à 4×.
 - **Ajuster.** **Ajuster à l’écran** cadre tout le graphique dans la fenêtre. Si l’arbre est trop grand pour tenir, il est centré sur la personne centrale.
@@ -69,7 +69,7 @@ Tapez un nombre seul dans **Nom / # SOSA** pour aller directement à ce numéro 
 
 ## Agir sur une personne
 
-Cliquez sur le crayon sous la carte centrale, ou faites un clic droit sur n’importe quelle carte, pour ouvrir le choix d’actions :
+Cliquez sur le **⋮** sous la carte sélectionnée, ou faites un clic droit sur n’importe quelle carte, pour ouvrir le choix d’actions. Au clavier, donnez le focus au graphique puis appuyez sur la touche du menu contextuel ou sur Maj+F10 ; sur un écran tactile, maintenez le doigt appuyé sur une carte :
 
 | Action | Effet |
 |---|---|
@@ -121,6 +121,7 @@ Chaque graphique conserve la barre du haut, la barre latérale, le panneau des �
 - Les graphiques qui ne dessinent que des ancêtres masquent le compteur des descendants de **Profondeur des générations**, et ceux qui ne dessinent que des descendants masquent celui des ancêtres.
 - Dans les roues et les éventails, le côté paternel occupe la première moitié de chaque couronne et le côté maternel la seconde. Un parent manquant est un segment en pointillés, avec un **+** quand la place le permet. Les couronnes éloignées sont écrites plus petit : zoomez (jusqu’à 16×) pour les lire. Survolez un segment pour lire le nom complet et les dates.
 - Dans la roue et l’éventail des descendants, une fine couronne entre deux générations nomme chaque conjoint ; cliquez dessus pour passer à ce conjoint.
+- Dans les roues et les éventails, cliquez sur la personne au centre pour la sélectionner ; son bouton **⋮**, affiché au centre du disque, ouvre le choix d’actions.
 - Dans la lignée, un bouton **‹** à côté de la carte centrale liste ses conjoints et ses enfants ; choisissez-en un pour passer à lui. Dans les autres graphiques, utilisez **Aller à…** dans le choix d’actions.
 
 {{ <screenshot name="hourglass-medieval" alt="Sablier de la famille Landrevel dans le thème médiéval" lang={lang} /> }}
@@ -141,6 +142,6 @@ Cliquez sur **Imprimer** dans la barre latérale gauche, ou appuyez sur Ctrl+P (
 - Quand tout le graphique est à l’écran, il s’imprime directement sur une feuille en paysage, avec le nom de l’arbre et la date en en-tête.
 - Quand une partie déborde de l’écran et qu’il dépasse une feuille au zoom actuel, OxidGene demande d’abord quoi imprimer : **Ce qui est à l'écran** (une feuille) ou **Tout le graphique à ce zoom**, avec le nombre de feuilles nécessaires. Les feuilles se chevauchent d’1 cm jusqu’à un trait pointillé : coupez ou alignez sur ce trait pour les assembler. Au-delà de 50 feuilles, dézoomez pour en imprimer moins.
 
-Les barres latérales, les commandes de zoom et de profondeur, le panneau des événements et le crayon ne s’impriment pas. Pour imprimer plus ou moins de l’arbre, zoomez ou déplacez-vous d’abord.
+Les barres latérales, les commandes de zoom et de profondeur, le panneau des événements et le bouton **⋮** ne s’impriment pas. Pour imprimer plus ou moins de l’arbre, zoomez ou déplacez-vous d’abord.
 
 Pour aller plus loin : [spécification de l’arbre généalogique](@/tech/ui-genealogy-tree.md) (en anglais).

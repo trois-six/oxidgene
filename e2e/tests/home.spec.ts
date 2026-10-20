@@ -14,8 +14,8 @@ test("creates, renames and deletes a tree from the home page", async ({ page }) 
     const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: name }) });
     await expect(card).toHaveCount(1);
 
-    await card.getByTitle("Tree actions").click();
-    await page.getByRole("button", { name: "Rename" }).click();
+    await card.getByRole("button", { name: `Actions for ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
     const renameDialog = page.locator(".home-create-modal");
     await expect(renameDialog.getByRole("heading", { name: "Rename Tree" })).toBeVisible();
     await renameDialog.getByPlaceholder("e.g. Martin Family Tree").fill(renamed);
@@ -27,8 +27,8 @@ test("creates, renames and deletes a tree from the home page", async ({ page }) 
         .filter({ has: page.locator(".tree-card-name", { hasText: renamed }) });
     await expect(renamedCard).toHaveCount(1);
 
-    await renamedCard.getByTitle("Tree actions").click();
-    await page.getByRole("button", { name: "Delete" }).click();
+    await renamedCard.getByRole("button", { name: `Actions for ${renamed}` }).click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
     await expect(page.getByText(`Delete "${renamed}"? This action cannot be undone.`)).toBeVisible();
     await page.locator(".modal-actions, .confirm-dialog").getByRole("button", { name: "Delete" }).click();
     await expect(renamedCard).toHaveCount(0);
@@ -58,4 +58,19 @@ test("sorts the trees by name either way and lays them out as a list", async ({ 
     await page.getByRole("button", { name: "List of trees" }).click();
     await expect(grid).toHaveClass(/trees-list/);
     await expect(page.getByRole("button", { name: "List of trees" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a tree card shows its ⋮ without hover, and the menu opens from it", async ({ page, tree }) => {
+    await page.goto("/");
+    const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: tree.name }) });
+    await expect(card).toHaveCount(1);
+
+    await page.mouse.move(0, 0);
+    const trigger = card.getByRole("button", { name: `Actions for ${tree.name}` });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
 });

@@ -11,14 +11,12 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, TagCounts, TagSummary, TaggedEvent, TaggedRecord};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::context_menu::{MenuButton, MenuClose, use_menu_shortcut};
 use crate::components::date_input::format_date;
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
-use crate::components::tags::{
-    dot_style, error_message, is_enter_or_space, next_color, stop_row_activation,
-};
-use crate::components::trash_icon::TrashIcon;
+use crate::components::tags::{dot_style, error_message, is_enter_or_space, next_color};
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::{
     DEFAULT_PER_PAGE, ListFilters, PageSize, available_letters, matches_filters, paginate,
@@ -295,6 +293,7 @@ fn TagRow(
     let removed = tag.clone();
     let edit_label = i18n.t("common.edit");
     let delete_label = i18n.t("common.delete");
+    let shortcut = use_menu_shortcut();
     rsx! {
         div {
             div {
@@ -306,8 +305,14 @@ fn TagRow(
                     if is_enter_or_space(&event) {
                         event.prevent_default();
                         on_toggle.call(id);
+                    } else {
+                        shortcut.key(&event);
                     }
                 },
+                oncontextmenu: move |event: Event<MouseData>| shortcut.right_click(&event),
+                onpointerdown: move |event: Event<PointerData>| shortcut.press_start(&event),
+                onpointerup: move |_| shortcut.press_end(),
+                onpointercancel: move |_| shortcut.press_end(),
                 div { class: "dict-row-main",
                     div { class: "dict-row-line",
                         span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
@@ -315,35 +320,43 @@ fn TagRow(
                     }
                 }
                 span { class: "dict-row-count", {counts} }
-                button {
-                    class: "dict-row-action",
-                    r#type: "button",
-                    title: "{edit_label}",
-                    aria_label: "{edit_label}",
-                    onkeydown: stop_row_activation,
-                    onclick: move |e: Event<MouseData>| {
-                        e.stop_propagation();
-                        on_edit.call(edited.clone());
+                MenuButton {
+                    name: tag.label.clone(),
+                    shortcut: Some(shortcut),
+                    items: {
+                        let edited = edited.clone();
+                        let removed = removed.clone();
+                        move |menu: MenuClose| rsx! {
+                            button {
+                                role: "menuitem",
+                                class: "context-menu-item",
+                                onclick: {
+                                    let edited = edited.clone();
+                                    move |_| {
+                                        menu.close.call(());
+                                        on_edit.call(edited.clone());
+                                    }
+                                },
+                                "{edit_label}"
+                            }
+                            button {
+                                role: "menuitem",
+                                class: "context-menu-item context-menu-danger",
+                                onclick: {
+                                    let removed = removed.clone();
+                                    move |_| {
+                                        menu.hand_off.call(());
+                                        on_delete.call(removed.clone());
+                                    }
+                                },
+                                "{delete_label}"
+                            }
+                        }
                     },
-                    "\u{270E}"
                 }
-                button {
-                    class: "dict-row-action",
-                    r#type: "button",
-                    title: "{delete_label}",
-                    aria_label: "{delete_label}",
-                    onkeydown: stop_row_activation,
-                    onclick: move |e: Event<MouseData>| {
-                        e.stop_propagation();
-                        on_delete.call(removed.clone());
-                    },
-                    TrashIcon {}
-                }
-                button {
-                    class: "dict-row-action",
-                    r#type: "button",
+                span {
+                    class: "dict-row-chevron",
                     title: i18n.t("dictionary.view_usage"),
-                    onkeydown: stop_row_activation,
                     if open { "\u{25B2}" } else { "\u{25BC}" }
                 }
             }

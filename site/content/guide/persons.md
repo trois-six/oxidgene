@@ -82,7 +82,7 @@ The [Sources and archives](@/guide/sources-archives.md) page explains how citati
 
 - Click a tile to open the media viewer.
 - Click the **+** beside the title to add a document.
-- Right-click a tile and choose **Link an event** to say which of the person's events it documents, or **Unlink an event** to undo it.
+- Open the **⋮** menu of a tile (or right-click it) and choose **Link an event** to say which of the person's events it documents, or **Unlink an event** to undo it.
 
 Rearranging what is attached (choosing the portrait, cropping, removing a document from the person) is done in the person form. See [Photos and documents](@/guide/media.md) for the viewer and the document form.
 

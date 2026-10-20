@@ -56,7 +56,7 @@ test("the tree's entry options shape the person form and the linking panel", asy
     await page.goto(`/trees/${tree.treeId}`);
     const card = page.locator("g.ped-card").filter({ hasText: /Bernard\s*ASHDOWN/ }).first();
     await card.click({ button: "right" });
-    await page.locator(".context-menu").getByRole("button", { name: "Edit individual" }).click();
+    await page.locator(".context-menu").getByRole("menuitem", { name: "Edit individual", exact: true }).click();
     const form = page.locator(".person-form-modal");
     await expect(form.locator(".pf-date-row").first().locator(".pf-date-part").first()).toHaveAttribute("placeholder", "YYYY");
     const surname = form.locator(".form-group", { hasText: "Birth name *" }).locator("input").first();
@@ -74,7 +74,7 @@ test("the tree's entry options shape the person form and the linking panel", asy
     // Adding a spouse only offers a new person.
     await page.goto(`/trees/${tree.treeId}`);
     await card.click({ button: "right" });
-    await page.locator(".context-menu").getByRole("button", { name: "Add spouse" }).click();
+    await page.locator(".context-menu").getByRole("menuitem", { name: "Add spouse", exact: true }).click();
     const panel = page.locator(".linking-card");
     await expect(panel.getByRole("button", { name: "Create New Person as Spouse" })).toBeVisible();
     await expect(panel.locator(".search-person")).toHaveCount(0);

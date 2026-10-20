@@ -43,7 +43,7 @@ Paper always uses the light colours, whatever the theme on screen. Through the p
 
 ## 4. Find how two persons are related
 
-1. In the tree, right-click a person's card (or click its pencil) and choose **Relationship with…**.
+1. In the tree, click the **⋮** under a person's selected card (or right-click the card) and choose **Relationship with…**.
 2. Pick the other person: **Myself**, the tree's **SOSA root**, or anyone found with the search.
 3. The relationship page opens. It names what the second person is to the first ("First cousin", "Second cousin – 1 generation apart") and draws the path generation by generation, from the common ancestors down to both persons.
 

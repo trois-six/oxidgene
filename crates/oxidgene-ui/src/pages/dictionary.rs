@@ -4,6 +4,7 @@
 //! `docs/ui-dictionary.md`.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
 use oxidgene_core::types::{RecordKind, split_surname_at_head, split_surname_particle};
@@ -14,6 +15,7 @@ use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
+use crate::components::context_menu::{MenuButton, MenuClose, use_menu_shortcut};
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::pager::Pager;
@@ -982,7 +984,7 @@ fn DictionaryPage(
                     },
                 ),
                 DictTab::Sources => {
-                    render_sources_tab(ctx, source_history, sources_view_resource, source_edit)
+                    render_sources_tab(ctx, source_history, sources_view_resource)
                 }
                 // Its own module: a list of its own, edited in place.
                 DictTab::Repositories => tree_module(tree_id_parsed(), |tree_id| {
@@ -1016,9 +1018,11 @@ fn DictionaryPage(
                     tree_id: tid,
                     menu: record_menu,
                     on_changed: move |()| {
-                    sources_view_resource.restart();
-                    places_resource.restart();
-                },
+                        sources_view_resource.restart();
+                        places_resource.restart();
+                    },
+                    edits: vec![RecordKind::Source],
+                    on_edit: move |target: MenuTarget| source_edit.set(Some(target.record_id)),
                 }
             }
 
@@ -1760,6 +1764,85 @@ fn render_usage_accordion(
 
 // ── Family Names / Occupations tab (plain value + count) ────────────────
 
+/// One value of the Family Names or Occupations tab: its label and count, the
+/// Edit menu of a family name, and its fold state. A click or Enter folds it.
+/// On the family-name tab a right click, the menu key, Shift+F10 and a long
+/// press open the same Edit menu as its trigger.
+#[component]
+fn ValueRow(
+    entry: DictionaryEntry,
+    label: String,
+    count: String,
+    is_open: bool,
+    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
+    on_toggle: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let shortcut = use_menu_shortcut();
+    let edit_label = i18n.t("common.edit");
+    rsx! {
+        div {
+            class: "dict-row",
+            tabindex: "0",
+            onclick: move |_| on_toggle.call(()),
+            onkeydown: move |event: Event<KeyboardData>| {
+                if is_enter_or_space(&event) {
+                    event.prevent_default();
+                    on_toggle.call(());
+                } else if family_name_edit.is_some() {
+                    shortcut.key(&event);
+                }
+            },
+            oncontextmenu: move |event: Event<MouseData>| {
+                if family_name_edit.is_some() {
+                    shortcut.right_click(&event);
+                }
+            },
+            onpointerdown: move |event: Event<PointerData>| {
+                if family_name_edit.is_some() {
+                    shortcut.press_start(&event);
+                }
+            },
+            onpointerup: move |_| shortcut.press_end(),
+            onpointercancel: move |_| shortcut.press_end(),
+            div { class: "dict-row-main",
+                span { class: "dict-row-value", "{label}" }
+            }
+            span { class: "dict-row-count", "{count}" }
+            if let Some(mut family_name_edit) = family_name_edit {
+                MenuButton {
+                    name: label.clone(),
+                    shortcut: Some(shortcut),
+                    items: {
+                        let entry = entry.clone();
+                        let edit_label = edit_label.clone();
+                        move |menu: MenuClose| rsx! {
+                            button {
+                                role: "menuitem",
+                                class: "context-menu-item",
+                                onclick: {
+                                    let entry = entry.clone();
+                                    move |_| {
+                                        // The editor it opens takes the focus itself.
+                                        menu.hand_off.call(());
+                                        family_name_edit.set(Some(FamilyNameEdit::new(&entry)));
+                                    }
+                                },
+                                "{edit_label}"
+                            }
+                        }
+                    },
+                }
+            }
+            span {
+                class: "dict-row-chevron",
+                title: "{i18n.t(\"dictionary.view_usage\")}",
+                if is_open { "\u{25B2}" } else { "\u{25BC}" }
+            }
+        }
+    }
+}
+
 fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
     let TabContext {
         i18n,
@@ -1831,11 +1914,15 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
                         let label = row_label(entry, file_by_root);
                         rsx! {
                             div { key: "{entry.value}",
-                                div {
-                                    class: "dict-row",
-                                    onclick: {
+                                ValueRow {
+                                    entry: (*entry).clone(),
+                                    label,
+                                    count: i18n.t_plural("dictionary.person_count", entry.count as usize),
+                                    is_open,
+                                    family_name_edit,
+                                    on_toggle: {
                                         let key = key.clone();
-                                        move |_| {
+                                        move |()| {
                                             if expanded() == Some(key.clone()) {
                                                 expanded.set(None);
                                             } else {
@@ -1843,32 +1930,6 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
                                             }
                                         }
                                     },
-                                    div { class: "dict-row-main",
-                                        span { class: "dict-row-value", "{label}" }
-                                    }
-                                    span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
-                                    if let Some(mut family_name_edit) = family_name_edit {
-                                        button {
-                                            class: "dict-row-action",
-                                            title: "{i18n.t(\"dictionary.family_name.edit\")}",
-                                            onclick: {
-                                                let entry = (*entry).clone();
-                                                move |e: Event<MouseData>| {
-                                                    // Without this the row's own
-                                                    // handler would also toggle the
-                                                    // usage accordion underneath.
-                                                    e.stop_propagation();
-                                                    family_name_edit.set(Some(FamilyNameEdit::new(&entry)));
-                                                }
-                                            },
-                                            "\u{270E}"
-                                        }
-                                    }
-                                    button {
-                                        class: "dict-row-action",
-                                        title: "{i18n.t(\"dictionary.view_usage\")}",
-                                        if is_open { "\u{25B2}" } else { "\u{25BC}" }
-                                    }
                                 }
                                 if is_open {
                                     {render_usage_accordion(i18n, tree_id, &key, usage_people)}
@@ -2043,11 +2104,7 @@ fn render_sources_groups(
 
 /// Renders the final flat list once the current prefix matches
 /// <= `SOURCES_DRILL_THRESHOLD` sources — no pagination, everything shown.
-fn render_sources_list(
-    ctx: TabContext,
-    sources: &[SourceDictionaryEntry],
-    mut source_edit: Signal<Option<Uuid>>,
-) -> Element {
+fn render_sources_list(ctx: TabContext, sources: &[SourceDictionaryEntry]) -> Element {
     let TabContext {
         i18n,
         tree_id,
@@ -2169,19 +2226,16 @@ fn render_sources_list(
                                         }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.citation_count", entry.count as usize)} }
-                                    button {
-                                        class: "dict-row-action",
-                                        title: "{i18n.t(\"common.edit\")}",
-                                        onkeydown: stop_row_activation,
-                                        onpointerdown: stop_row_press,
-                                        onclick: move |e: Event<MouseData>| {
-                                            e.stop_propagation();
-                                            source_edit.set(Some(source_id));
+                                    MenuButton {
+                                        name: entry.source.title.clone(),
+                                        expanded: record_menu.is_open_for(&source_target.row_id),
+                                        on_request: {
+                                            let target = source_target.clone();
+                                            move |trigger: Rc<MountedData>| record_menu.open_from_trigger(trigger, target.clone())
                                         },
-                                        "\u{270E}"
                                     }
-                                    button {
-                                        class: "dict-row-action",
+                                    span {
+                                        class: "dict-row-chevron",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
                                         onkeydown: stop_row_activation,
                                         onpointerdown: stop_row_press,
@@ -2204,7 +2258,6 @@ fn render_sources_tab(
     ctx: TabContext,
     history: Signal<Vec<DrillStep>>,
     resource: TabResource<SourcesView>,
-    source_edit: Signal<Option<Uuid>>,
 ) -> Element {
     let TabContext { i18n, filters, .. } = ctx;
     let quick_filter = filters.quick;
@@ -2239,7 +2292,7 @@ fn render_sources_tab(
                     render_sources_groups(i18n, history, &prefix, total, &groups, quick_filter)
                 }
                 Some(SourcesView::List { sources, .. }) => {
-                    render_sources_list(ctx, &sources, source_edit)
+                    render_sources_list(ctx, &sources)
                 }
                 _ => rsx! {
                     EmptyState { p { {i18n.t("dictionary.no_entries_sources")} } }
@@ -2374,8 +2427,16 @@ fn render_places_tab(
                                         }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.reference_count", entry.count as usize)} }
-                                    button {
-                                        class: "dict-row-action",
+                                    MenuButton {
+                                        name: entry.place.name.clone(),
+                                        expanded: record_menu.is_open_for(&place_target.row_id),
+                                        on_request: {
+                                            let target = place_target.clone();
+                                            move |trigger: Rc<MountedData>| record_menu.open_from_trigger(trigger, target.clone())
+                                        },
+                                    }
+                                    span {
+                                        class: "dict-row-chevron",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
                                         onkeydown: stop_row_activation,
                                         onpointerdown: stop_row_press,

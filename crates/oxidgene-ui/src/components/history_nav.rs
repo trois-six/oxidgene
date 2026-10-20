@@ -7,7 +7,7 @@ use std::rc::Rc;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use crate::components::context_menu::ContextMenuSurface;
+use crate::components::context_menu::{ContextMenuSurface, MenuButton, focus_trigger};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{AppHistory, Entry, use_app_history};
 use crate::router::Route;
@@ -59,12 +59,20 @@ impl Direction {
     }
 }
 
-/// The list of pages open, which way, and where.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The list of pages open, which way, where, and the trigger that opened it,
+/// which takes the focus back when the list closes without a choice.
+#[derive(Clone)]
 struct HistoryList {
     direction: Direction,
     x: f64,
     y: f64,
+    from: Option<Rc<MountedData>>,
+}
+
+/// Closes the list without a choice and gives the focus back to its trigger.
+fn dismiss_list(mut list: Signal<Option<HistoryList>>) {
+    let opened_from = list.write().take().and_then(|open| open.from);
+    focus_trigger(opened_from);
 }
 
 /// Holds the list the history buttons open.
@@ -98,11 +106,33 @@ pub fn HistoryNav() -> Element {
     }
 }
 
+/// Draws the list of the pages `direction` leads to, beside `from`: the arrow
+/// or the ⋮ trigger that asked for it.
+fn open_list_beside(
+    mut list: Signal<Option<HistoryList>>,
+    direction: Direction,
+    from: Rc<MountedData>,
+) {
+    spawn(async move {
+        if let Ok(rect) = from.get_client_rect().await {
+            list.set(Some(HistoryList {
+                direction,
+                x: rect.origin.x,
+                y: rect.origin.y + rect.size.height + 4.0,
+                from: Some(from),
+            }));
+        }
+    });
+}
+
+/// One direction: the arrow that moves, and the ⋮ trigger of the list of the
+/// pages that way. A long press or a secondary click on either opens the same
+/// list as the trigger does.
 #[component]
 fn HistoryButton(direction: Direction, enabled: bool) -> Element {
     let i18n = use_i18n();
     let history = use_app_history();
-    let mut list = use_context::<Signal<Option<HistoryList>>>();
+    let list = use_context::<Signal<Option<HistoryList>>>();
     let mut element = use_signal(|| None::<Rc<MountedData>>);
     // The press under way, numbered so that a timer outliving its press
     // does nothing.
@@ -111,45 +141,29 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
     // The press opened the list: the click that ends it does not move.
     let mut listed = use_signal(|| false);
 
-    let open_list = move || {
-        let Some(element) = element() else {
-            return;
-        };
-        spawn(async move {
-            if let Ok(rect) = element.get_client_rect().await {
-                list.set(Some(HistoryList {
-                    direction,
-                    x: rect.origin.x,
-                    y: rect.origin.y + rect.size.height + 4.0,
-                }));
-            }
-        });
+    // A direction with no page to go to has no list to open, nor a menu.
+    let open_arrow_list = move || {
+        if let (true, Some(element)) = (enabled, element()) {
+            open_list_beside(list, direction, element);
+        }
     };
+    let is_listed = list().is_some_and(|open| open.direction == direction);
     let [head, shaft] = direction.arrow();
+    let label = i18n.t(direction.label_key());
 
     rsx! {
-        button {
-            class: "nav-history-btn",
-            r#type: "button",
-            disabled: !enabled,
-            title: i18n.t(direction.tooltip_key()),
-            "aria-label": i18n.t(direction.label_key()),
-            "aria-haspopup": "menu",
-            onmounted: move |e: MountedEvent| element.set(Some(e.data())),
-            onclick: move |_| {
-                if listed() {
-                    listed.set(false);
-                } else if let Some(history) = &history {
-                    history.go(direction.step());
-                }
-            },
+        div {
+            class: "nav-history-item",
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
-                open_list();
+                open_arrow_list();
             },
             onpointerdown: move |e: Event<PointerData>| {
                 listed.set(false);
                 if e.trigger_button() != Some(MouseButton::Primary) {
+                    return;
+                }
+                if !enabled {
                     return;
                 }
                 let id = presses() + 1;
@@ -160,31 +174,56 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
                     if press() == Some(id) {
                         press.set(None);
                         listed.set(true);
-                        open_list();
+                        open_arrow_list();
                     }
                 });
             },
             onpointerup: move |_| press.set(None),
             onpointerleave: move |_| press.set(None),
             onpointercancel: move |_| press.set(None),
-            onkeydown: move |e: Event<KeyboardData>| {
-                if e.key() == Key::ArrowDown {
-                    e.prevent_default();
-                    open_list();
+            button {
+                class: "nav-history-btn",
+                r#type: "button",
+                disabled: !enabled,
+                title: i18n.t(direction.tooltip_key()),
+                "aria-label": "{label}",
+                "aria-haspopup": "menu",
+                onmounted: move |e: MountedEvent| element.set(Some(e.data())),
+                onclick: move |_| {
+                    if listed() {
+                        listed.set(false);
+                    } else if let Some(history) = &history {
+                        history.go(direction.step());
+                    }
+                },
+                onkeydown: move |e: Event<KeyboardData>| {
+                    if e.key() == Key::ArrowDown {
+                        e.prevent_default();
+                        open_arrow_list();
+                    }
+                },
+                svg {
+                    width: "16",
+                    height: "16",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2",
+                    "strokeLinecap": "round",
+                    "strokeLinejoin": "round",
+                    "aria-hidden": "true",
+                    path { d: head }
+                    path { d: shaft }
                 }
-            },
-            svg {
-                width: "16",
-                height: "16",
-                fill: "none",
-                "viewBox": "0 0 24 24",
-                stroke: "currentColor",
-                "strokeWidth": "2",
-                "strokeLinecap": "round",
-                "strokeLinejoin": "round",
-                "aria-hidden": "true",
-                path { d: head }
-                path { d: shaft }
+            }
+            if enabled {
+                MenuButton {
+                    name: label.clone(),
+                    expanded: is_listed,
+                    on_request: move |trigger: Rc<MountedData>| {
+                        open_list_beside(list, direction, trigger);
+                    },
+                }
             }
         }
     }
@@ -195,9 +234,15 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
 #[component]
 pub fn HistoryListHost() -> Element {
     let i18n = use_i18n();
-    let mut list = use_context::<Signal<Option<HistoryList>>>();
+    let list = use_context::<Signal<Option<HistoryList>>>();
     let history = use_app_history();
-    let (Some(HistoryList { direction, x, y }), Some(history)) = (list(), history) else {
+    let (
+        Some(HistoryList {
+            direction, x, y, ..
+        }),
+        Some(history),
+    ) = (list(), history)
+    else {
         return VNode::empty();
     };
     let entries = history.read(|h| {
@@ -210,17 +255,11 @@ pub fn HistoryListHost() -> Element {
             .map(|(delta, entry)| (delta, entry_label(&i18n, entry)))
             .collect::<Vec<_>>()
     });
-    let close = move |()| list.set(None);
     rsx! {
-        ContextMenuSurface { x, y, menu_class: "nav-history-menu", on_close: close,
+        ContextMenuSurface { x, y, role: "none", menu_class: "nav-history-menu", on_close: move |()| dismiss_list(list),
             div {
                 role: "menu",
                 "aria-label": i18n.t(direction.list_key()),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    if e.key() == Key::Escape {
-                        list.set(None);
-                    }
-                },
                 for (n, (delta, label)) in entries.into_iter().enumerate() {
                     {menu_item(&history, list, delta, label, n == 0)}
                 }

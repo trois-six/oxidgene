@@ -43,7 +43,7 @@ Le papier utilise toujours les couleurs claires, quel que soit le thème à l'é
 
 ## 4. Trouver le lien de parenté entre deux personnes
 
-1. Dans l'arbre, faites un clic droit sur la carte d'une personne (ou cliquez sur son crayon) et choisissez **Lien de parenté avec…**.
+1. Dans l'arbre, cliquez sur le **⋮** sous la carte sélectionnée d'une personne (ou faites un clic droit sur la carte) et choisissez **Lien de parenté avec…**.
 2. Choisissez l'autre personne : **Moi**, la **Racine SOSA** de l'arbre, ou toute personne trouvée avec la recherche.
 3. La page de parenté s'ouvre. Elle indique ce qu'est la seconde personne pour la première (« Cousin germain », « Cousin issu de germain ») et dessine le chemin génération par génération, des ancêtres communs jusqu'aux deux personnes.
 

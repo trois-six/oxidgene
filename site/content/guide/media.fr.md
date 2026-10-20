@@ -32,14 +32,14 @@ Un document ajouté depuis le formulaire de la personne ou du couple est écrit 
 
 ## Organiser les documents d’une personne ou d’un couple
 
-Dans la section **Médias** du formulaire de la personne ou du couple, chaque vignette porte de petits boutons (leur nom s’affiche au survol) :
+Dans la section **Médias** du formulaire de la personne ou du couple, chaque vignette porte un bouton **⋮** à la fin de sa légende. Son menu, qui s’ouvre aussi par un clic droit, propose ces actions :
 
 - **Utiliser comme photo de profil** (★) : fait de l’image le portrait de la personne, affiché sur sa carte dans l’arbre, sur sa fiche et dans le panneau des événements. Un PDF ne peut pas servir de portrait, même quand sa vignette montre la numérisation qu’il contient.
 - **Découper une zone** (✂) : tracez un rectangle sur l’image pour n’en garder qu’une partie, comme un visage sur une photo de groupe ou un acte sur une page de registre, puis cliquez sur **Enregistrer la zone**. Vous pouvez indiquer l’événement que la zone documente.
-- **Modifier** (✎) : change le titre, la description, la date, le lieu et les autres informations du document.
+- **Modifier** : change le titre, la description, la date, le lieu et les autres informations du document.
 - **Retirer de cette fiche** (🗑) : détache le document de cette personne ou de ce couple après confirmation. Le document lui-même reste dans l’arbre.
 
-Sur la fiche de la personne, la galerie est en lecture seule, mais un clic droit sur une vignette propose **Lier un événement** pour indiquer quel événement elle documente, ou **Délier un événement**. Sous le titre de la vignette, chaque événement lié affiche sa date et son type.
+Sur la fiche de la personne, la galerie est en lecture seule, mais le **⋮** d’une vignette (ou un clic droit dessus) propose **Lier un événement** pour indiquer quel événement elle documente, ou **Délier un événement**. Sous le titre de la vignette, chaque événement lié affiche sa date et son type.
 
 ## Identifier quelqu’un sur une photo
 

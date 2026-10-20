@@ -39,7 +39,7 @@ Where a name with a particle such as "de la" or "d'" is filed depends on the **S
 
 ## Rename or merge a family name
 
-Click the pencil on a family name's row to open **Edit family name**.
+Open the **⋮** menu at the end of a family name's row and choose **Edit** to open **Edit family name**.
 
 1. Change the **Name** field. If the tree writes family names in capitals, the field does too.
 2. Read the line below it: it says how many persons will be renamed.
@@ -55,7 +55,7 @@ A rename is recorded in the tree's [history](@/guide/history.md) as one entry, a
 
 When a tree is imported, OxidGene guesses which leading words of a family name are a particle ("de", "le", "van der"…). A wrong guess affects every person with that name at once, for example "Le …" names filed under their second word. To fix it:
 
-1. Click the pencil on the family name's row.
+1. Open the **⋮** menu of the family name's row and choose **Edit**.
 2. Leave **Name** unchanged and edit the **Particle** field. Empty it when the leading word is part of the surname.
 3. Check the preview, which shows the **Particle**, the **Surname** and the letter it **Files under**.
 4. Click **Apply to all**.
@@ -78,7 +78,7 @@ Each source row shows its title, its author and the repositories that hold it, a
 
 ### Edit a source
 
-Click ✎ on a source's row to open **Edit source**:
+Open the **⋮** menu at the end of a source's row and choose **Edit** to open **Edit source**:
 
 - **Title** (required), **Author**, **Abbreviation** and **Publication**;
 - under **More details**: the **Responsible agency**, and the **Repositories** holding the source. Choose a repository of the tree, or **New repository…** to create one, then give an optional **Call number** and **Medium**, and click **Add the repository**. A source held under two call numbers at the same repository has two rows.
@@ -90,7 +90,7 @@ Repository rows are added or removed immediately; the other fields wait for **Sa
 The **Repositories** tab lists the archives, libraries and offices that hold your sources, sorted by name, with the first line of their address, their phone and their website. Type in **Filter...** to narrow the list.
 
 - Unfold a repository to see the sources it holds, with their call numbers and medium.
-- Click ✎ to edit it, or **Add a repository** to create one. A repository has a **Name** (required), an **Address**, a **Phone**, an **Email**, a **Website** and notes.
+- Choose **Edit** in a repository's **⋮** menu to edit it, or **Add a repository** to create one. A repository has a **Name** (required), an **Address**, a **Phone**, an **Email**, a **Website** and notes.
 - **Delete the repository**, at the bottom of its editor, removes it after confirmation. The sources it held stay in the tree; they are simply no longer listed as held there. Undoing the deletion from the history brings the links back.
 
 ## Places

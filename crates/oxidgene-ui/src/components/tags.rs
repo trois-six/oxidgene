@@ -3,6 +3,7 @@
 //! tags. The picker is one component for every kind of record.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
 use oxidgene_core::search::fold_words;
@@ -10,7 +11,9 @@ use oxidgene_core::types::{RecordKind, TAG_COLOR_SLOTS, TagRef};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, BulkTagAction, TagSummary, TagTarget};
-use crate::components::context_menu::ContextMenuSurface;
+use crate::components::context_menu::{
+    ContextMenuSurface, LONG_PRESS_MS, focus_trigger, trigger_point,
+};
 use crate::components::modal::Modal;
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
@@ -1235,9 +1238,6 @@ pub(crate) fn use_tag_filter(tree_id: Option<Uuid>) -> TagFilter {
     TagFilter { chosen, tags }
 }
 
-/// How long a touch must hold before it opens a record menu, in milliseconds.
-const LONG_PRESS_MS: u32 = 500;
-
 /// Places the menu beside the row, read from the page: the row's left edge and
 /// its bottom. Sends nothing when neither the row nor one of its controls holds
 /// the focus, so a key pressed outside the row does not open its menu.
@@ -1282,6 +1282,9 @@ pub struct RecordMenu {
     /// Where the menu opens, in client coordinates; `None` while closed.
     at: Signal<Option<(f64, f64)>>,
     target: Signal<Option<MenuTarget>>,
+    /// The ⋮ trigger that opened the menu, which takes the focus back when the
+    /// menu closes; `None` when a pointer or the keyboard opened it.
+    trigger: Signal<Option<Rc<MountedData>>>,
     /// Counts the touches that began and ended, so a long press that was
     /// lifted before its time out does not open the menu.
     press: Signal<u32>,
@@ -1292,14 +1295,38 @@ pub fn use_record_menu() -> RecordMenu {
     RecordMenu {
         at: use_signal(|| None),
         target: use_signal(|| None),
+        trigger: use_signal(|| None),
         press: use_signal(|| 0),
     }
 }
 
 impl RecordMenu {
+    /// Whether the menu is open for the row with this DOM id. The page calls
+    /// it while rendering the row, so the row's ⋮ trigger reads as expanded.
+    pub fn is_open_for(self, row_id: &str) -> bool {
+        self.at.read().is_some()
+            && self
+                .target
+                .read()
+                .as_ref()
+                .is_some_and(|target| target.row_id == row_id)
+    }
+
     fn open(mut self, target: MenuTarget, point: (f64, f64)) {
         self.target.set(Some(target));
         self.at.set(Some(point));
+        self.trigger.set(None);
+    }
+
+    /// Opens the menu of `target` beside the ⋮ trigger that was activated. The
+    /// focus returns to the trigger when the menu closes.
+    pub fn open_from_trigger(mut self, trigger: Rc<MountedData>, target: MenuTarget) {
+        spawn(async move {
+            if let Some(point) = trigger_point(&trigger).await {
+                self.open(target, point);
+                self.trigger.set(Some(trigger));
+            }
+        });
     }
 
     /// Opens the menu of `target` where a right click landed.
@@ -1378,18 +1405,33 @@ pub(crate) fn stop_row_press(event: Event<PointerData>) {
     event.stop_propagation();
 }
 
-/// The menu of the record a [`RecordMenu`] is open for: one entry, Tags…,
-/// which closes it and opens the shared [`TagPicker`] beside it. Rendered once
-/// per list, beside the rows it serves.
+/// The menu of the record a [`RecordMenu`] is open for: Edit, when the page
+/// edits its records (`on_edit`), then Tags…, which closes it and opens the
+/// shared [`TagPicker`] beside it. Rendered once per list, beside the rows it
+/// serves.
 #[component]
-pub fn RecordTagMenu(tree_id: Uuid, menu: RecordMenu, on_changed: EventHandler<()>) -> Element {
+pub fn RecordTagMenu(
+    tree_id: Uuid,
+    menu: RecordMenu,
+    on_changed: EventHandler<()>,
+    /// Opens the editor of the record the menu is open for, for the kinds in
+    /// `edits`: a kind the page does not edit gets no Edit entry.
+    #[props(default)]
+    on_edit: Option<EventHandler<MenuTarget>>,
+    #[props(default)] edits: Vec<RecordKind>,
+) -> Element {
     let i18n = use_i18n();
     let mut at = menu.at;
     let mut target = menu.target;
+    let mut trigger = menu.trigger;
     let mut picker_at = use_signal(|| None::<(f64, f64)>);
     let open = at();
     let picked = picker_at();
     let current = target();
+    let edit_target = current
+        .clone()
+        .filter(|target| edits.contains(&target.kind));
+    let has_edit = on_edit.is_some() && edit_target.is_some();
     let menu_row_id = current
         .as_ref()
         .map(|t| t.row_id.clone())
@@ -1402,16 +1444,47 @@ pub fn RecordTagMenu(tree_id: Uuid, menu: RecordMenu, on_changed: EventHandler<(
                 y,
                 menu_class: "record-tag-menu",
                 on_close: move |()| {
-                    // Dismissed without a choice: the row that opened the menu
-                    // takes the focus back. Tags… hands it to the picker.
-                    focus_row(&menu_row_id);
+                    // Dismissed without a choice: the ⋮ trigger that opened the
+                    // menu, or else the row, takes the focus back. Tags… hands
+                    // it to the picker.
+                    let opened_from = trigger.write().take();
+                    if opened_from.is_some() {
+                        focus_trigger(opened_from);
+                    } else {
+                        focus_row(&menu_row_id);
+                    }
                     at.set(None);
                     target.set(None);
                 },
+                if let (Some(on_edit), Some(edited)) = (on_edit, edit_target) {
+                    button {
+                        role: "menuitem",
+                        class: "context-menu-item",
+                        r#type: "button",
+                        onmounted: move |event: Event<MountedData>| {
+                            spawn(async move {
+                                let _ = event.set_focus(true).await;
+                            });
+                        },
+                        onclick: move |_| {
+                            // The editor it opens takes the focus itself.
+                            trigger.write().take();
+                            at.set(None);
+                            target.set(None);
+                            on_edit.call(edited.clone());
+                        },
+                        {i18n.t("common.edit")}
+                    }
+                }
                 button {
+                    role: "menuitem",
                     class: "context-menu-item",
                     r#type: "button",
                     onmounted: move |event: Event<MountedData>| {
+                        // The first entry takes the focus: Edit, when there is one.
+                        if has_edit {
+                            return;
+                        }
                         spawn(async move {
                             let _ = event.set_focus(true).await;
                         });

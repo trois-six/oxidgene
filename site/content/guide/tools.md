@@ -95,7 +95,7 @@ After either answer, the list is computed again.
 The merge wizard combines two records of the same person into one. Open it:
 
 - with **Compare** on a pair of potential duplicates (it opens directly on the comparison);
-- with **Merge with…** in the pedigree's action menu (right-click a card, or its pencil);
+- with **Merge with…** in the pedigree's action menu (right-click a card, or its **⋮**);
 - with **Merge with…** in the header of a person's profile.
 
 The wizard has three steps.

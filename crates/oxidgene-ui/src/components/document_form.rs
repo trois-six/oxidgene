@@ -32,6 +32,7 @@ use crate::api::{
     MediaUpload, UpdateMediaBody,
 };
 use crate::archive_viewer::{ArchiveRegister, ViewPage};
+use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{MediaClassification, MediaEventsChecklist, MediaOwner};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
@@ -791,15 +792,30 @@ fn PendingPageRow(
                     "\u{2193}"
                 }
                 // Only an address can be retyped, so only an address offers
-                // the pencil.
+                // the ⋮ menu holding its edit. Its secondary action lives in
+                // the shared menu, as every element's secondary actions do.
                 if remote {
-                    button {
-                        class: "pf-row-btn",
-                        r#type: "button",
-                        disabled: busy,
-                        title: i18n.t("media.edit_url"),
-                        onclick: move |_| on_retype.call((index, address.clone())),
-                        "\u{270E}"
+                    MenuButton {
+                        name: label.clone(),
+                        items: {
+                            let edit_label = i18n.t("media.edit_url");
+                            move |menu: MenuClose| rsx! {
+                                button {
+                                    role: "menuitem",
+                                    class: "context-menu-item",
+                                    disabled: busy,
+                                    onclick: {
+                                        let address = address.clone();
+                                        move |_| {
+                                            // The address field it opens takes the focus itself.
+                                            menu.hand_off.call(());
+                                            on_retype.call((index, address.clone()));
+                                        }
+                                    },
+                                    "{edit_label}"
+                                }
+                            }
+                        },
                     }
                 }
                 button {

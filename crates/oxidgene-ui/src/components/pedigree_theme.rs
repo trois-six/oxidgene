@@ -655,8 +655,8 @@ pub struct CardStyle {
     pub sosa_cy: f64,
     pub sosa_r: f64,
 
-    pub edit_fab_r: f64,
-    pub edit_fab_gap: f64,
+    pub menu_r: f64,
+    pub menu_gap: f64,
     /// Baseline position of the "+" that marks relations outside the layout.
     pub more_relations_x: f64,
     pub more_relations_y_full: f64,
@@ -773,8 +773,8 @@ impl PedigreeTheme {
             sosa_cy: 57.5,
             sosa_r: 7.5,
 
-            edit_fab_r: 14.0,
-            edit_fab_gap: 16.0,
+            menu_r: 14.0,
+            menu_gap: 16.0,
             more_relations_x: 10.0,
             more_relations_y_full: 3.0,
             more_relations_y_compact: 3.0,
@@ -881,8 +881,8 @@ impl PedigreeTheme {
             sosa_cy: 86.0,
             sosa_r: 9.0,
 
-            edit_fab_r: 14.0,
-            edit_fab_gap: 16.0,
+            menu_r: 14.0,
+            menu_gap: 16.0,
             // Left of the cartouche, level with its bottom point and clear of
             // the ruled connector that enters that point at the centre.
             more_relations_x: 30.0,

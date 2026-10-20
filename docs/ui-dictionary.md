@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T16:48:31Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:02:24Z }
 ---
 
 
@@ -131,14 +131,14 @@ Grouped by the first letter each surname files under (see below), with a sticky 
 
 - The surname exactly as spelled. A row is one full surname — particle and root joined — compared character for character, so "Cruz" and "de la Cruz" are two rows, and so are "Martin" and "MARTIN". The list does not fold spellings together; the [family-name editor](#71-family-name-editor)'s rename is how the user unifies them.
 - Usage count badge: number of persons carrying that surname on any `PersonName`, primary or not
-- A pencil — opens the [family-name editor](#71-family-name-editor)
+- A ⋮ trigger at its trailing edge, whose menu holds **Edit**, which opens the [family-name editor](#71-family-name-editor). A right click on the row, the context-menu key, Shift+F10 and a long press open the same menu
 - A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. The list matches the same full surname as the row, however each name is cut between particle and root, so a name whose particle was corrected by hand is listed like any other. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
 
 Which letter a surname files under depends on the viewer's "sort particles" preference. With particles included, "d'Aubigné" files under D and reads as written. With particles ignored it files under A, and the row then reads **root first, particle parenthesised** — `Aubigné (d')` — so the A group is scannable by the word it was actually sorted on. The boundary is taken from the entry's `sort_key` (the root the backend filed it under), never re-detected client-side, so a particle the user corrected by hand still displays where they put it. When the rows of one surname are cut in more than one way, the entry files under the cut most of them have.
 
 ### 7.1 Family-Name Editor
 
-The pencil on a row opens the **Edit family name** modal. It does two things at the level of the name rather than person by person through the [person edit modal](ui-person-edit-modal.md): renaming the surname of everyone who carries it, and correcting where it splits between particle and root. Particle detection at import is a guess (see `oxidgene-core`'s `split_surname_particle`), and a wrong guess lands on every person carrying the name at once — a tree full of Breton "Le …" surnames wrongly filed under their root is the motivating case for the second.
+The **Edit** entry of a family name's ⋮ menu opens the modal. It does two things at the level of the name rather than person by person through the [person edit modal](ui-person-edit-modal.md): renaming the surname of everyone who carries it, and correcting where it splits between particle and root. Particle detection at import is a guess (see `oxidgene-core`'s `split_surname_particle`), and a wrong guess lands on every person carrying the name at once — a tree full of Breton "Le …" surnames wrongly filed under their root is the motivating case for the second.
 
 The modal holds:
 
@@ -245,9 +245,9 @@ Each row shows:
 - Source title
 - Author, then the names of the repositories holding the source (secondary muted text, if present; the list endpoint returns them as `repositories`)
 - Usage count badge: number of `Citation` rows referencing this source
-- Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
-- Tag badges after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
-- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons and the tag badges keep their own Enter and Space
+- The row's ⋮ trigger, whose record menu holds **Edit** — opens the source editor ([§8.11](#811-source-editor)) — then **Tags…**
+- Tag badges after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Edit* and *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
+- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ⋮ trigger and the tag badges keep their own Enter and Space
 
 The expanded list holds the persons the citations concern, each linking to the person: those cited directly, the person of a cited individual event, and the spouses of a cited family or of a cited family event (a marriage's citation lists both spouses; the list has no separate couple row, like the Places tab). A citation is one use, so the count counts citations and the list counts persons: a cited source never lists nobody, and a person cited several times appears once. Deleted persons, events and families are left out.
 
@@ -697,7 +697,7 @@ the translation tables (section 13).
 Every repository of the tree — the archives, libraries and offices holding
 its sources — sorted by name, narrowed by the quick filter, without the
 alphabet index or pagination. Each row shows the name and, muted, the first
-address line, the phone and the website; **Edit** (✎) opens the repository
+address line, the phone and the website; the row's ⋮ menu holds **Edit**, which opens the repository
 editor, and the chevron unfolds the live sources it holds, "title — call
 number · medium", sorted by title. **Add a repository** opens the editor
 empty.
@@ -710,8 +710,9 @@ in the tree, no longer listed as held there (the links are kept and come back
 if the deletion is undone from the history).
 
 Each row takes the same record menu and tag badges as a source row (§8): the
-row is a tab stop, and *Tags…* opens the tag picker beside it; the ✎ and ▼
-buttons and the tag badges keep their own Enter and Space.
+row is a tab stop, and *Edit* and *Tags…* are the menu's entries, in that
+order; the ⋮ trigger and the tag badges keep their own Enter and Space. A
+place row has no *Edit*: its menu holds *Tags…* alone.
 
 The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
 tab, and loads the repositories the first time it opens.
@@ -725,8 +726,8 @@ toolbar is the shared one: the alphabet strip, the quick filter, the page size
 and the entry count, with the pages of 25 and the same empty and no-match
 states. A row is the shared Dictionary row (`dict-row`): the tag's colour dot
 inline before its label, the counts as muted text on the right (*12 persons ·
-3 sources*, or *No record yet*), the edit (✎) and delete (trash) icon buttons
-and the chevron. A row is focusable and folds on Enter or Space, as the other
+3 sources*, or *No record yet*), a ⋮ trigger whose menu holds *Edit* and
+*Delete*, and the chevron. A row is focusable and folds on Enter or Space, as the other
 tabs' rows do. Rows are filed by label and narrowed by the quick filter, which
 folds case and accents. The tab is its own module
 (`pages/dictionary_tags.rs`) and loads the vocabulary the first time it opens;
@@ -773,11 +774,11 @@ belongs to.
   tooltip and label read "Remove <record> from <tag>". While the line leaves,
   the focus moves to the next line's button, else the previous line's, else the
   tag's row.
-- **Edit** (✎) opens a dialog with the label and the twelve colours. A label
+- **Edit** (the row's ⋮ menu) opens a dialog with the label and the twelve colours. A right click on the row, the context-menu key, Shift+F10 and a long press open the same menu. A label
   folding to another tag's offers a merge into it, with a sentence stating
   that a record carrying either tag carries the merged one once.
-- **Delete** (trash) asks for confirmation, naming the number of records the
-  tag leaves.
+- **Delete** (the row's ⋮ menu) asks for confirmation, naming the number of
+  records the tag leaves.
 - **New tag** sits in the toolbar's filter row, beside the quick filter, where
   the Repositories tab puts its add button. It creates a tag without putting it
   on a record.

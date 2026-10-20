@@ -95,7 +95,7 @@ Après l'une ou l'autre réponse, la liste est recalculée.
 L'assistant de fusion réunit deux fiches d'une même personne en une seule. Pour l'ouvrir :
 
 - **Comparer** sur une paire de doublons potentiels (il s'ouvre directement sur la comparaison) ;
-- **Fusionner avec…** dans le menu d'actions du pedigree (clic droit sur une carte, ou son crayon) ;
+- **Fusionner avec…** dans le menu d'actions du pedigree (clic droit sur une carte, ou son **⋮**) ;
 - **Fusionner avec…** dans l'en-tête de la fiche d'une personne.
 
 L'assistant compte trois étapes.

@@ -82,7 +82,7 @@ La page [Sources et archives](@/guide/sources-archives.fr.md) explique comment l
 
 - Cliquez sur une vignette pour l’ouvrir dans la visionneuse.
 - Cliquez sur le **+** à côté du titre pour ajouter un document.
-- Faites un clic droit sur une vignette et choisissez **Lier un événement** pour indiquer quel événement de la personne elle documente, ou **Délier un événement** pour annuler ce lien.
+- Ouvrez le **⋮** d’une vignette (ou faites un clic droit dessus) et choisissez **Lier un événement** pour indiquer quel événement de la personne elle documente, ou **Délier un événement** pour annuler ce lien.
 
 La réorganisation de ce qui est rattaché (choix du portrait, découpage, retrait d’un document de la personne) se fait dans le formulaire de la personne. La page [Photos et documents](@/guide/media.fr.md) décrit la visionneuse et le formulaire de document.
 

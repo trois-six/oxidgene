@@ -8,6 +8,7 @@
 //! union they share out of both columns, and draws it once across the two.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
@@ -28,6 +29,7 @@ use crate::api::{
 use oxidgene_archives::{CitationEvidence, HeldAt};
 
 use crate::archive_viewer::{ArchiveOffer, ArchiveSourceLink};
+use crate::components::context_menu::MenuButton;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
@@ -1491,6 +1493,14 @@ pub(crate) fn notes_section(
                                 dangerous_inner_html: note_html_for_display(&note.text),
                             }
                             TagBadges { tree_id: tree_id.to_string(), tags: note.tags.clone() }
+                            MenuButton {
+                                name: i18n.t("history.entity.note"),
+                                expanded: menu.is_open_for(&target.row_id),
+                                on_request: {
+                                    let target = target.clone();
+                                    move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
+                                },
+                            }
                         }
                             }
                         }
@@ -1878,6 +1888,14 @@ pub(crate) fn timeline_section(
                                                 }
                                             }
                                             TagBadges { tree_id: tree_id.to_string(), tags: event.tags.clone() }
+                                            MenuButton {
+                                                name: event_type_label.clone(),
+                                                expanded: menu.is_open_for(&event_target.row_id),
+                                                on_request: {
+                                                    let target = event_target.clone();
+                                                    move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
+                                                },
+                                            }
                                         }
                                         div { class: "pd-ev-origin", "{origin_display}" }
                                         if let Some(agency) = &agency {
@@ -1931,6 +1949,14 @@ pub(crate) fn timeline_section(
                                                                     "{source.text}"
                                                                 }
                                                                 TagBadges { tree_id: tree_id.to_string(), tags: source.tags.clone() }
+                                                                MenuButton {
+                                                                    name: i18n.t("history.entity.citation"),
+                                                                    expanded: menu.is_open_for(&citation_target.row_id),
+                                                                    on_request: {
+                                                                        let target = citation_target.clone();
+                                                                        move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
+                                                                    },
+                                                                }
                                                             }
                                                         }
                                                     }

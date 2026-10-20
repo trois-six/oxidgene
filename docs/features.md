@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:02:52Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -71,7 +71,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 - An interactive pedigree: up to ten ancestor and ten descendant generations, Reingold-Tilford layout, pan, zoom and fit ([Genealogy Tree §1](ui-genealogy-tree.md#1-general-structure)).
 - An events panel listing the selected person's events and those of their family, year by year ([Genealogy Tree §6](ui-genealogy-tree.md#6-events-sidebar-right)).
-- An action picker and context menu on every card: edit, add a relative, merge, trace a relationship ([Genealogy Tree §3](ui-genealogy-tree.md#pencil-icon--action-picker)).
+- An action picker and context menu on every card: edit, add a relative, merge, trace a relationship ([Genealogy Tree §3](ui-genealogy-tree.md#menu-button--action-picker)).
 - Eight other charts of the same pedigree: ancestor wheel, fan chart, descendant wheel, descendant fan, lineage, descendant lineage, hourglass and bowtie ([Genealogy Tree §10](ui-genealogy-tree.md#10-views)).
 - Two pedigree themes: the classic card and a heraldic medieval escutcheon ([Genealogy Tree §9](ui-genealogy-tree.md#9-themes)).
 - Every content page prints, the pedigree whole over several sheets when it is larger than one ([Common UI §7](ui-common.md#7-printing)).

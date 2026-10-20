@@ -21,7 +21,7 @@ const DESCENDANT_KEY_BASE: u64 = 1 << 40;
 /// Gap between two spouse boxes.
 const SPOUSE_GAP: f64 = 4.0;
 /// Gap between a card and the first spouse box under it: room for the
-/// pencil the focus card carries at its foot.
+/// "⋮" trigger the selected card carries at its foot.
 const UNDER_CARD_GAP: f64 = 14.0;
 
 /// Which way a side of the chart runs from the root.
@@ -152,7 +152,7 @@ pub(super) fn finish(
             }
         })
         .collect();
-    // Every box as large as a card, the badges and the pencil overhanging
+    // Every box as large as a card, the badges and the "⋮" trigger overhanging
     // it: culling may draw too much, never too little.
     let (reach_w, reach_h) = (
         half_w + CARD_OVERHANG,

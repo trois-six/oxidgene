@@ -691,7 +691,12 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     let data = pedigree_data.clone();
                     move |action| overlays.act(action, data.as_ref(), roots)
                 },
-                on_close: move |_| context_menu.set(None),
+                on_close: move |_| {
+                    context_menu.set(None);
+                    // Escape or a click outside gives the focus back to the card that
+                    // opened the menu; an action moves it itself.
+                    crate::components::context_menu::focus_element(".ped-card-menu .menu-button");
+                },
             }
         }
 
@@ -708,6 +713,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         portraits: photos_resource.read().clone(),
                         tags: tags.clone(),
                         center_gen: center_gen(),
+                        menu_person_id: context_menu().map(|(pid, _, _)| pid),
                         on_person_click: move |(pid, x, y)| {
                             context_menu.set(Some((pid, x, y)));
                         },

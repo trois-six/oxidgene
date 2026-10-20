@@ -301,6 +301,12 @@ fn render_slim_box(
         return render_slim_slot(entry, &key, (x, y, box_w, h), actions);
     };
     let text = slim_text(node, size, (box_w - 26.0) as f32, dates);
+    let menu_name = text.name.clone();
+    // The trigger sits in the room the name leaves free at the right edge.
+    let (menu_x, menu_y) = (
+        x + box_w - CHART_MENU_SIZE,
+        centre.1 - CHART_MENU_SIZE / 2.0,
+    );
     let name_y = if text.dates.is_some() {
         y + 18.0
     } else {
@@ -321,6 +327,21 @@ fn render_slim_box(
             style: "cursor:pointer",
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
+            onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
+            if *actions.selected_person_id.read() == pid {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: menu_name.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
+                }
+            }
             rect {
                 class: "ped-card-rect",
                 x: "{x:.2}", y: "{y:.2}", width: "{box_w:.2}", height: "{h}",
@@ -413,6 +434,10 @@ fn render_spouse_box(
         ),
         None => ("?".to_string(), i18n.t("couple.unknown_spouse")),
     };
+    let (menu_x, menu_y) = (
+        x + box_w - CHART_MENU_SIZE,
+        centre.1 - CHART_MENU_SIZE / 2.0,
+    );
     rsx! {
         g {
             key: "lu-{entry.sosa}",
@@ -420,6 +445,11 @@ fn render_spouse_box(
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
+                }
+            },
+            onpointerdown: move |evt: Event<PointerData>| {
+                if let Some(pid) = spouse {
+                    actions.press_start(pid, &evt);
                 }
             },
             oncontextmenu: move |evt: Event<MouseData>| {
@@ -439,6 +469,20 @@ fn render_spouse_box(
                 dangerous_inner_html: "{svg_title(&title)}",
             }
             {mark_dot(tag, x + box_w - 3.0, y + 3.0, 4.0)}
+            if let Some(pid) = spouse.filter(|pid| *actions.selected_person_id.read() == *pid) {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: name.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
+                }
+            }
             text {
                 class: "ped-card-name-text",
                 x: "{x + 8.0:.2}", y: "{centre.1 + 4.0:.2}",
@@ -592,6 +636,7 @@ pub(super) fn LineageFamilyMenu(
             for spouse in spouses {
                 button {
                     key: "s-{spouse}",
+                    role: "menuitem",
                     class: "context-menu-item",
                     onclick: move |_| on_pick.call(spouse),
                     {label(spouse)}
@@ -603,6 +648,7 @@ pub(super) fn LineageFamilyMenu(
             for child in children {
                 button {
                     key: "c-{child.id}",
+                    role: "menuitem",
                     class: if child.has_children { "context-menu-item lineage-child-with-children" } else { "context-menu-item" },
                     onclick: move |_| on_pick.call(child.id),
                     {label(child.id)}

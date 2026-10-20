@@ -12,7 +12,7 @@ Tags go on **persons**, **couples**, **documents** (photos, scans and PDFs), **e
 
 On a person's page, click the **Tags…** button in the header. On a couple's page, it is in the actions row. On a document, use **Tags…** in the media viewer's menu or in the tile's menu.
 
-On an event, open **Tags…** from the event's row in the timeline: right-click the row, or press the context-menu key or Shift+F10 when the row has the focus. A citation in the timeline's sources line and a source in the Dictionary's **Sources** tab open the same menu. A place in the **Places** tab and a repository in the **Repositories** tab do too, and so does a note in a person's or a couple's page: right-click it, or press the context-menu key or Shift+F10 when it has the focus.
+On an event, open **Tags…** from the event's row in the timeline: click the **⋮** at the end of the row, or right-click the row, or press the context-menu key or Shift+F10 when the row has the focus. A citation in the timeline's sources line and a source in the Dictionary's **Sources** tab open the same menu. A place in the **Places** tab and a repository in the **Repositories** tab do too, and so does a note in a person's or a couple's page: right-click it, or press the context-menu key or Shift+F10 when it has the focus.
 
 The picker lists the tree's tags, with the ones already on the record first:
 
@@ -27,7 +27,7 @@ Two spellings that differ only by case or accents are one tag: typing *a verifie
 
 Two actions tag a group of persons in one step.
 
-- **Tag a branch…** is in the pencil menu of a person in the tree. It asks which persons to tag: the ancestors, the descendants, or both. You also choose how many generations (empty for all, up to 30), whether to include the person and, for descendants, whether to include their spouses. **Continue** opens the picker on those persons. A person who is both an ancestor and a spouse of a descendant is counted once.
+- **Tag a branch…** is in the **⋮** menu under the selected person in the tree. It asks which persons to tag: the ancestors, the descendants, or both. You also choose how many generations (empty for all, up to 30), whether to include the person and, for descendants, whether to include their spouses. **Continue** opens the picker on those persons. A person who is both an ancestor and a spouse of a descendant is counted once.
 - **Tag the results…** is in the search results toolbar. It tags every person that the search and its filters return, not only the page on screen. It is unavailable when there is no result.
 
 The picker then lists each tag with how many of these persons carry it, as *3 of 12*. **Add to all** puts the tag on every person of the group who lacks it, and **Remove from all** takes it off those who carry it. Each button applies at once, and the audit log records one entry for it. When more than 100 persons are concerned, OxidGene asks you to confirm first. Tab moves between the buttons and Enter presses the focused one. To create a tag, use the picker of a single person first: the bulk picker only lists the tags that exist.
@@ -53,8 +53,8 @@ Tags take no room on a record that has none. Each tag of a record shows as a sma
 Open the **Dictionary** from the left sidebar and choose the **Tags** tab. It works like the other tabs: a row per tag, its colour dot before the label, and on the right the number of records that carry it, by kind (*4 persons · 3 sources*). The alphabet strip, the quick filter, the page size and the entry count are those of the other tabs. Click the arrow of a row to list those records, grouped by kind. An event reads its type, translated, then its description, its date and its place, and the person it belongs to, or the two spouses of its couple, each with the name and lifespan as the Occupations tab shows them. A citation reads its source and page, a note the start of its text, and each names the person or couple it belongs to. A couple reads its two spouses with their lifespans. Open any of them: an event or a citation opens the profile of its person or couple, a source opens its row in the **Sources** tab, a place its row in the **Places** tab and a repository its row in the **Repositories** tab. A note opens the profile of the person or couple it belongs to.
 
 - **Remove** (the × beside a record) takes the tag off that record at once, with no confirmation. The record leaves the list and the counts follow. To put the tag back, open the record's own **Tags…** menu and check the tag again.
-- **Edit** (the pencil) changes the label and the colour. If the new label is the same as another tag's, OxidGene offers to **merge** the two: every record carrying either tag then carries the merged tag once.
-- **Delete** (the trash can) removes the tag from every record that carries it. The confirmation says how many records that is. It cannot be undone.
+- **Edit** (the **⋮** menu of the tag's row) changes the label and the colour. If the new label is the same as another tag's, OxidGene offers to **merge** the two: every record carrying either tag then carries the merged tag once.
+- **Delete** (the **⋮** menu of the tag's row) removes the tag from every record that carries it. The confirmation says how many records that is. It cannot be undone.
 - **New tag**, beside the quick filter, creates a tag that you will put on records later.
 
 The **Media** tab keeps its tag cloud, which lists the tags carried by documents.

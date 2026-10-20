@@ -32,14 +32,14 @@ A document added from the person or couple form is written when you save the doc
 
 ## Arrange the documents of a person or couple
 
-In the **Media** section of the person form or the couple form, each tile has small buttons (their name shows on hover):
+In the **Media** section of the person form or the couple form, each tile has a **⋮** button at the end of its caption. Its menu, which a right click also opens, holds these actions:
 
 - **Use as profile image** (★): makes the image the person's portrait, shown on their tree card, page and events panel. A PDF cannot be a portrait, even when its tile shows the scan it holds.
 - **Crop a region** (✂): drag a rectangle on the image to keep only part of it, such as a face on a group photo or one entry on a register page, then click **Save region**. You can say which event the region documents.
-- **Edit** (✎): changes the document's title, description, date, place and other details.
+- **Edit**: changes the document's title, description, date, place and other details.
 - **Remove from this record** (🗑): detaches the document from this person or couple after a confirmation. The document itself stays in the tree.
 
-On the person page, the gallery is read-only, but you can right-click a tile and choose **Link an event** to say which event it documents, or **Unlink an event**. Under the tile's title, each linked event shows its date and type.
+On the person page, the gallery is read-only, but you can open the **⋮** menu of a tile (or right-click it) and choose **Link an event** to say which event it documents, or **Unlink an event**. Under the tile's title, each linked event shows its date and type.
 
 ## Identify someone on a photo
 

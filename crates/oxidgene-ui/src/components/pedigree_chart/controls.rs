@@ -10,6 +10,7 @@ use super::{
     VIEWPORT_DEFAULT_W, ViewStateCache, ViewportRect, ViewportTransform,
     WAIT_FOR_EVENT_PANEL_TRANSITION_JS, ZOOM_FACTOR, fit_graph_in_viewport, zoom_about, zoom_step,
 };
+use crate::components::context_menu::opens_menu;
 use crate::i18n::use_i18n;
 
 /// Where the chart saves its view, and what it saves: the pan and zoom of a
@@ -270,6 +271,12 @@ pub(super) async fn refit_after_resize(
     needs_fit.set(true);
 }
 
+/// Counts a step of the chart's touch, so that a long press under way ends.
+fn bump_press(mut press: Signal<u32>) {
+    let next = *press.peek() + 1;
+    press.set(next);
+}
+
 /// Where a drag started: the pointer, and the pan it started from.
 #[derive(Clone, Copy, PartialEq)]
 struct Drag {
@@ -289,6 +296,11 @@ pub(super) fn PanZoomViewport(
     viewport_rect: Signal<ViewportRect>,
     animating: Signal<bool>,
     max_zoom: f64,
+    /// The long-press counter of the chart's elements: a drag cancels a long
+    /// press that a touch on an element has started, so the pan wins.
+    press: Signal<u32>,
+    /// Asked by the context-menu key or Shift+F10 while the canvas has focus.
+    menu_key: EventHandler<()>,
     children: Element,
 ) -> Element {
     let mut drag = use_signal(|| None::<Drag>);
@@ -307,6 +319,7 @@ pub(super) fn PanZoomViewport(
                 let Some(Drag { pointer, origin }) = *drag.peek() else {
                     return;
                 };
+                bump_press(press);
                 let coords = evt.client_coordinates();
                 transform.set(ViewportTransform {
                     x: origin.0 + coords.x - pointer.0,
@@ -314,7 +327,10 @@ pub(super) fn PanZoomViewport(
                     ..transform()
                 });
             }),
-            dioxus::html::events::onpointerup(move |_: Event<PointerData>| end_drag()),
+            dioxus::html::events::onpointerup(move |_: Event<PointerData>| {
+                bump_press(press);
+                end_drag();
+            }),
         ]
     });
     rsx! {
@@ -324,6 +340,16 @@ pub(super) fn PanZoomViewport(
             div {
                 id,
                 class,
+                // Focusable, so that the keyboard reaches the chart's menu key.
+                tabindex: "0",
+                // menu-guard: delegates to the focus person's ⋮ trigger, which the menu key clicks.
+                onkeydown: move |evt: Event<KeyboardData>| {
+                    if opens_menu(&evt) {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                        menu_key.call(());
+                    }
+                },
                 onmounted: move |_| {
                     let id = wheel_id.clone();
                     async move {
@@ -344,7 +370,10 @@ pub(super) fn PanZoomViewport(
                         origin: (current.x, current.y),
                     }));
                 },
-                onpointerleave: move |_| end_drag(),
+                onpointerleave: move |_| {
+                    bump_press(press);
+                    end_drag();
+                },
                 {children}
             }
         }

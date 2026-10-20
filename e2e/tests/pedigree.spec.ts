@@ -13,12 +13,33 @@ test("draws the SOSA root's ancestors and opens a card's context menu", async ({
     const menu = page.locator(".context-menu");
     await expect(menu).toBeVisible();
     for (const item of ["Edit individual", "Add spouse", "Add child", "Add sibling", "Relationship with…"]) {
-        await expect(menu.getByRole("button", { name: item })).toBeVisible();
+        await expect(menu.getByRole("menuitem", { name: item, exact: true })).toBeVisible();
     }
 
     // Clicking outside the menu closes it.
     await page.locator(".context-menu-backdrop").click({ position: { x: 5, y: 5 } });
     await expect(menu).toBeHidden();
+});
+
+test("opens the selected card's menu from its trigger, and gives the focus back on Escape", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}`);
+
+    // The focus card is selected at first: its trigger is shown, and only it.
+    const trigger = page.locator("g.ped-card-focus").getByRole("button", { name: /^Actions for / });
+    await expect(trigger).toHaveCount(1);
+    await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await trigger.click();
+    const menu = page.locator(".context-menu");
+    await expect(menu).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(menu.getByRole("menuitem", { name: "Edit individual", exact: true })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("closes the person form on Escape and on a press outside it", async ({ page, tree }) => {
@@ -27,7 +48,7 @@ test("closes the person form on Escape and on a press outside it", async ({ page
     const form = page.locator(".person-form-modal");
 
     await card.click({ button: "right" });
-    await page.locator(".context-menu").getByRole("button", { name: "Edit individual" }).click();
+    await page.locator(".context-menu").getByRole("menuitem", { name: "Edit individual", exact: true }).click();
     await expect(form).toBeVisible();
     await expect(form.getByRole("heading", { name: "Bernard Ashdown" })).toBeVisible();
     // Escape reaches the form from any control in it, a name field included:
@@ -37,7 +58,7 @@ test("closes the person form on Escape and on a press outside it", async ({ page
     await expect(form).toBeHidden();
 
     await card.click({ button: "right" });
-    await page.locator(".context-menu").getByRole("button", { name: "Edit individual" }).click();
+    await page.locator(".context-menu").getByRole("menuitem", { name: "Edit individual", exact: true }).click();
     await expect(form).toBeVisible();
     // The backdrop dismisses on press, so press its corner, away from the form.
     await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
@@ -120,4 +141,35 @@ test("goes back to each person made the focus, one at a time", async ({ page, tr
     await expect(focus).toContainText(/Anchor\s*Ashdown/i);
     await page.goForward();
     await expect(focus).toContainText(/Bernard\s*Ashdown/i);
+});
+
+test("opens the selected card's menu from the keyboard, with the context-menu key on the canvas", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}`);
+
+    await page.locator(".pedigree-viewport").focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = page.locator(".context-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Edit individual", exact: true })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+});
+
+test("clicking the root's disc of the wheel selects it without a new page of history", async ({ page, tree }) => {
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Pedigree", exact: true }).click();
+    await page.getByRole("button", { name: /^Ancestor wheel/ }).click();
+    await page.goto(`/trees/${tree.treeId}`);
+
+    const root = page.locator("g.fan-root");
+    await expect(root).toHaveCount(1);
+    const box = await root.boundingBox();
+    expect(box).not.toBeNull();
+    const before = await page.evaluate(() => history.length);
+
+    // Inside the disc, clear of the ⋮ trigger at its centre.
+    await page.mouse.click(box!.x + box!.width * 0.75, box!.y + box!.height / 2);
+    await expect(page.locator(".context-menu")).toBeHidden();
+    expect(await page.evaluate(() => history.length)).toBe(before);
 });

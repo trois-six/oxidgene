@@ -52,7 +52,7 @@ The dictionary lists each family name exactly as spelled, so variants stand out:
 
 1. Open the [dictionary](@/guide/dictionary.md) with the book icon in the left icon sidebar. It opens on the **Family Names** tab.
 2. Scan the list, using the letter index and the filter. Open a row to see who carries the name.
-3. Click the pencil on the variant to correct. The **Edit family name** dialog opens.
+3. Open the **⋮** menu of the variant's row to correct and choose **Edit**. The **Edit family name** dialog opens.
 4. Type the correct spelling in **Name**. If that name already exists, the dialog warns that the two will be merged.
 5. Click **Rename**. Every person who carries the variant as their main name now carries the correct one.
 

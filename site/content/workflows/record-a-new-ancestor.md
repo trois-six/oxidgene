@@ -49,7 +49,7 @@ The form then closes. Jean-Marie now stands above Étienne in the tree and becom
 
 ## 5. Add a baptism, witnesses or other details
 
-Click the pencil under Jean-Marie's card and choose **Edit individual**. Now that he exists, the form offers more:
+Click the **⋮** under Jean-Marie's selected card and choose **Edit individual**. Now that he exists, the form offers more:
 
 - **Baptism.** Under **Other Events**, click **Add Event**, choose **Baptism** as the **Type**, fill in the **Date** and **Place**, type the source as in step 3 (for example `Paroisse de Quimper, registre des baptêmes 1866, folio 12`), then click **Create Event**.
 - **Witnesses.** If the act names witnesses who are already in the tree, click **Add a witness** in the **Birth** section, type their role in the relation field, then search for them and pick them.

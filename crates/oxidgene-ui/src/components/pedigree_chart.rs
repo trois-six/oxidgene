@@ -17,6 +17,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{CroppedSource, TagSummary};
+use crate::components::context_menu::{LONG_PRESS_MS, MenuButton, click_element, trigger_point};
 use crate::components::cropped_image::CroppedSvgImage;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
@@ -2793,12 +2794,12 @@ fn compute_layout(
         };
         bounds.add(tn.x + desc_tx, tn.y + desc_ty, metrics.card_w, ch);
     }
-    // The focus card's edit button hangs below it; a fit must frame it too.
+    // The focus card's "⋮" trigger hangs below it; a fit must frame it too.
     bounds.add(
         asc_root_x,
         asc_root_y,
         metrics.card_w,
-        metrics.card_h + theme.card.edit_fab_gap + 2.0 * theme.card.edit_fab_r,
+        metrics.card_h + theme.card.menu_gap + 2.0 * theme.card.menu_r,
     );
     // Include root biological siblings in bounding box.
     for node in &extra_asc_nodes {
@@ -3448,6 +3449,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         on_person_navigate: props.on_person_navigate,
         on_person_click: EventHandler::new(|_: (Uuid, f64, f64)| {}),
         on_empty_slot: EventHandler::new(|_: (Uuid, bool)| {}),
+        menu: false,
+        menu_open: None,
+        press: use_signal(|| 0),
     };
     let preferred_scale = props.scale;
     use_chart_portraits(props.portraits.as_ref());
@@ -3625,6 +3629,10 @@ pub struct PedigreeChartProps {
     pub tags: Vec<TagSummary>,
     #[props(default)]
     pub center_gen: u32,
+    /// The person whose action menu the page is showing, if any: their trigger
+    /// reads as expanded while it is open.
+    #[props(default)]
+    pub menu_person_id: Option<Uuid>,
     pub on_person_click: EventHandler<(Uuid, f64, f64)>,
     pub on_person_navigate: EventHandler<Uuid>,
     pub on_empty_slot: EventHandler<(Uuid, bool)>,
@@ -3711,10 +3719,9 @@ struct CardGeometry {
     surname_font_px: f32,
     given_font_px: f32,
     date_font_px: f32,
-    /// Centre and radius of the edit button hanging below the focused card.
-    fab_x: f64,
-    fab_y: f64,
-    fab_r: f64,
+    /// Centre of the "⋮" trigger hanging below a card that is selected.
+    trigger_x: f64,
+    trigger_y: f64,
     /// Baseline position of the "+" marking relations outside the layout.
     more_relations_x: f64,
     more_relations_y: f64,
@@ -3864,9 +3871,8 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
         surname_font_px: card.surname_font_px,
         given_font_px: card.given_font_px,
         date_font_px: card.date_font_px,
-        fab_x: metrics.padding + rect_w / 2.0,
-        fab_y: metrics.padding + rect_h + card.edit_fab_gap,
-        fab_r: card.edit_fab_r,
+        trigger_x: metrics.padding + rect_w / 2.0,
+        trigger_y: metrics.padding + rect_h + card.menu_gap,
         more_relations_x: card.more_relations_x,
         more_relations_y: if is_compact {
             card.more_relations_y_compact
@@ -3887,6 +3893,14 @@ struct ChartActions {
     on_person_navigate: EventHandler<Uuid>,
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
+    /// Whether the chart opens the person menu from a selected card. A mini
+    /// fragment has no menu, so its cards show no trigger.
+    menu: bool,
+    /// The person whose menu the page is showing: their trigger reads as expanded.
+    menu_open: Option<Uuid>,
+    /// Counts the touches that began and the moves and ends that followed, so
+    /// a long press that a move or a release overtook does not open the menu.
+    press: Signal<u32>,
 }
 
 impl ChartActions {
@@ -3896,15 +3910,60 @@ impl ChartActions {
         self.on_person_navigate.call(pid);
     }
 
+    /// Selects `pid` without moving the focus or the page's history, for an
+    /// element that is already the focus.
+    fn select(mut self, pid: Uuid) {
+        self.selected_person_id.set(pid);
+    }
+
     /// Selects `pid` and opens the action picker where `evt` happened.
-    fn pick(mut self, pid: Uuid, evt: &Event<MouseData>) {
+    fn pick(self, pid: Uuid, evt: &Event<MouseData>) {
         evt.prevent_default();
         evt.stop_propagation();
-        self.selected_person_id.set(pid);
         let coords = evt.client_coordinates();
-        self.on_person_click.call((pid, coords.x, coords.y));
+        self.open_menu_at(pid, coords.x, coords.y);
+    }
+
+    /// Selects `pid` and opens the action picker at a point of the page: what
+    /// a right click and a long press both do.
+    fn open_menu_at(mut self, pid: Uuid, x: f64, y: f64) {
+        self.selected_person_id.set(pid);
+        self.on_person_click.call((pid, x, y));
+    }
+
+    /// A touch that holds on `pid` for [`LONG_PRESS_MS`] opens its action
+    /// picker where it landed. The touch still reaches the canvas, so a drag
+    /// that starts on the element pans, and a move cancels the press.
+    fn press_start(mut self, pid: Uuid, evt: &Event<PointerData>) {
+        if evt.pointer_type() != "touch" {
+            return;
+        }
+        let point = evt.client_coordinates();
+        let started = *self.press.peek() + 1;
+        self.press.set(started);
+        spawn(async move {
+            crate::utils::sleep_ms(LONG_PRESS_MS).await;
+            if *self.press.peek() == started {
+                self.open_menu_at(pid, point.x, point.y);
+            }
+        });
+    }
+
+    /// Selects `pid` and opens the same action picker beside the "⋮" trigger
+    /// that asked for it, once the trigger has its place on screen.
+    fn open_menu_from(mut self, pid: Uuid, trigger: Rc<MountedData>) {
+        self.selected_person_id.set(pid);
+        spawn(async move {
+            if let Some((x, y)) = trigger_point(&trigger).await {
+                self.on_person_click.call((pid, x, y));
+            }
+        });
     }
 }
+
+/// Side of the "⋮" trigger that a selected chart element shows, in its own
+/// SVG units.
+const CHART_MENU_SIZE: f64 = 28.0;
 
 /// The viewport a canvas is drawn in: its pan and zoom, its size on screen,
 /// and whether a move is being animated — what decides which part of the
@@ -3985,7 +4044,7 @@ fn render_pedigree_card(
 }
 
 /// The card of the person `pid`: outline, portrait, SOSA mark, name and
-/// lifespan, plus the edit button on the focus card and the "+" marking
+/// lifespan, plus the "⋮" trigger of the selected card and the "+" marking
 /// relations outside the layout.
 fn render_person_card(
     node: &LayoutNode,
@@ -4026,6 +4085,8 @@ fn render_person_card(
     );
     let tooltip_value = card_tooltip(node, i18n);
     let tooltip_name = tooltip_value.name.clone();
+    let menu_x = geo.trigger_x - CHART_MENU_SIZE / 2.0;
+    let menu_y = geo.trigger_y - CHART_MENU_SIZE / 2.0;
     let CardGeometry {
         gender_line,
         gender_line_width,
@@ -4035,9 +4096,6 @@ fn render_person_card(
         photo_h: ph_h,
         photo_round,
         photo_mat,
-        fab_x,
-        fab_y,
-        fab_r,
         more_relations_x,
         more_relations_y,
         ..
@@ -4053,6 +4111,7 @@ fn render_person_card(
             "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
+            onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             ..mini_tooltip.map(|tooltip| tooltip_listeners(tooltip, tooltip_value)).unwrap_or_default(),
             {card_outline(node, geo, theme, bg, mark)}
             {mark_dot(mark, geo.rect_w + theme.metrics.padding - 3.0, theme.metrics.padding + 3.0, 4.0)}
@@ -4065,18 +4124,18 @@ fn render_person_card(
             CardPortrait { person: pid, sex: node.sex, x: *ph_x, y: *ph_y, width: *ph_w, height: *ph_h }
             {sosa_mark(node, geo)}
             {card_text(geo, text_fill, date_fill)}
-            if is_focus {
-                g {
-                    class: "no-print",
-                    transform: "translate({fab_x},{fab_y})",
-                    style: "cursor:pointer",
-                    onclick: move |evt: Event<MouseData>| {
-                        evt.stop_propagation();
-                        let coords = evt.client_coordinates();
-                        actions.on_person_click.call((pid, coords.x, coords.y));
-                    },
-                    circle { r: "{fab_r}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
-                    text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+            if actions.menu && *actions.selected_person_id.read() == pid {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: tooltip_name.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
                 }
             }
             if node.has_more_relations {
@@ -4282,7 +4341,7 @@ fn empty_slot_outline(geo: &CardGeometry, theme: &PedigreeTheme, style: &str) ->
 
 // ── Drawing only what can be seen ──────────────────────────────────────
 
-/// Room around a card for what it draws past its frame: the edit button under
+/// Room around a card for what it draws past its frame: the "⋮" trigger under
 /// the focus card, badges on its corners, a stroke's width.
 const CARD_OVERHANG: f64 = 64.0;
 
@@ -4559,6 +4618,15 @@ fn PedigreeCard(
     let (nodes, prefix) = match side {
         CardSide::Ascending => (&layout.asc_nodes, "an"),
         CardSide::Descending => (&layout.desc_nodes, "dn"),
+    };
+    // The descending layer draws the root again; the ascending layer owns the
+    // root's trigger, so the root has exactly one.
+    let actions = match side {
+        CardSide::Descending if nodes[index].id == Some(root_person_id) => ChartActions {
+            menu: false,
+            ..actions
+        },
+        _ => actions,
     };
     let card = CardContext {
         root_person_id,
@@ -4893,11 +4961,15 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let max_zoom = scene.max_zoom();
     let fit_target = scene.fit_target(&theme.metrics);
 
+    let press = use_signal(|| 0);
     let actions = ChartActions {
         selected_person_id,
         on_person_navigate: props.on_person_navigate,
         on_person_click: props.on_person_click,
         on_empty_slot: props.on_empty_slot,
+        menu: true,
+        menu_open: props.menu_person_id,
+        press,
     };
     let viewport = ViewportSignals {
         transform: viewport_transform,
@@ -4943,6 +5015,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 viewport_rect,
                 animating,
                 max_zoom,
+                press,
+                menu_key: move |_| click_element(".ped-card-menu .menu-button"),
                 PedigreeTransform {
                     transform: viewport_transform,
                     animating,
@@ -5337,7 +5411,7 @@ mod zoom_tests {
 
     /// Shield cards, a couple with two empty parent slots: filling the canvas
     /// would draw them at more than 200 %. The fit stops at the card cap,
-    /// and frames the whole extent — the edit button under the focus card
+    /// and frames the whole extent — the "⋮" trigger under the selected card
     /// included — inside the canvas with its margins.
     #[test]
     fn a_shield_couple_with_empty_parents_is_capped_and_fully_framed() {
@@ -5349,12 +5423,15 @@ mod zoom_tests {
         let theme = &PedigreeTheme::MEDIEVAL;
         let (layout, fit) = fitted(&data, theme, 1);
         let m = &theme.metrics;
-        let fab_bottom = layout.root_cy - m.card_h / 2.0
+        let trigger_bottom = layout.root_cy - m.card_h / 2.0
             + m.card_h
-            + theme.card.edit_fab_gap
-            + 2.0 * theme.card.edit_fab_r;
+            + theme.card.menu_gap
+            + 2.0 * theme.card.menu_r;
         let content_bottom = layout.content_cy + layout.content_h / 2.0;
-        assert!(content_bottom >= fab_bottom - 1e-9, "edit button is framed");
+        assert!(
+            content_bottom >= trigger_bottom - 1e-9,
+            "the menu trigger is framed"
+        );
 
         let rect = screen_rect();
         assert!(
@@ -6612,7 +6689,7 @@ mod geometry_golden_tests {
     }
 
     /// Culling draws a subset of the cards and connectors; this checks it is
-    /// never too small a one. Every card's real drawing — frame, edit button
+    /// never too small a one. Every card's real drawing — frame, menu trigger
     /// and all — and every connector must lie inside the extent culling tests,
     /// so anything touching the view is in the DOM.
     /// A union's marriage year keeps its precision mark, as every year shown
@@ -6690,7 +6767,7 @@ mod geometry_golden_tests {
                         x0: x,
                         y0: y,
                         x1: x + 2.0 * theme.metrics.padding + geo.rect_w,
-                        y1: y + geo.fab_y + 2.0 * theme.card.edit_fab_gap,
+                        y1: y + geo.trigger_y + 2.0 * theme.card.menu_gap,
                     };
                     assert!(extent.contains(&drawn), "{:?} outside {extent:?}", node.id);
                 }
@@ -6810,7 +6887,7 @@ mod geometry_golden_tests {
         format!(
             "{label} rect=({:.4},{:.4}) line={} photo_x={:.4} text_x={:.4} \
              sosa=({:.4},{:.4}) given={:?}@{:.4} surname={:?}@{:.4} \
-             date={:?}@{:.4} squeeze={:?} fab=({:.4},{:.4}) plus=({:.4},{:.4})\n",
+             date={:?}@{:.4} squeeze={:?} trigger=({:.4},{:.4}) plus=({:.4},{:.4})\n",
             geo.rect_w,
             geo.rect_h,
             geo.gender_line.as_deref().unwrap_or("-"),
@@ -6825,8 +6902,8 @@ mod geometry_golden_tests {
             geo.date_text,
             geo.date_y,
             geo.date_squeeze,
-            geo.fab_x,
-            geo.fab_y,
+            geo.trigger_x,
+            geo.trigger_y,
             geo.slot_plus_x,
             geo.slot_plus_y,
         )
@@ -7539,8 +7616,8 @@ asc link[10] M145.5,206 L145.5,188 72.75,188 72.75,170
 asc link[11] M145.5,206 L145.5,188 218.25,188 218.25,170
 asc link[12] M727.5,550 L727.5,568 903.25,568 903.25,586
 canvas total=(1140.2500,1358.0000) root=(579.2500,733.0000)
-root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@110.0000 surname="BRANCH_A"@128.0000 date="ca 1849-< 1917"@146.0000 squeeze=None fab=(97.0000,196.0000) plus=(97.0000,107.0000)
-compact-named rect=(108.0000,160.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@110.0000 surname="BRANCH_A"@128.0000 date=""@146.0000 squeeze=None fab=(72.0000,194.0000) plus=(72.0000,106.0000)
+root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@110.0000 surname="BRANCH_A"@128.0000 date="ca 1849-< 1917"@146.0000 squeeze=None trigger=(97.0000,196.0000) plus=(97.0000,107.0000)
+compact-named rect=(108.0000,160.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@110.0000 surname="BRANCH_A"@128.0000 date=""@146.0000 squeeze=None trigger=(72.0000,194.0000) plus=(72.0000,106.0000)
 "#;
 
     const EXPECTED_RULED_LINKS: &str = r#"
@@ -7565,14 +7642,14 @@ desc link[4] M185,178.5 L185,222.5 185,222.5 185,240
 "#;
 
     const EXPECTED_CARD_INTERIOR: &str = r#"
-root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
-dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
-empty-compact-slot rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given=""@81.0000 surname=""@81.0000 date=""@81.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
-empty-slot rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given=""@21.0000 surname=""@21.0000 date=""@21.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
-compact-named rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Given_1"@81.0000 surname="BRANCH_A"@95.0000 date=""@109.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
-compact-overflowing rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximilian_A…"@81.0000 surname="BRANCH_LO…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=None fab=(46.0000,136.0000) plus=(46.0000,70.5000)
-full-overflowing rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Maximilian_Alexander"@21.0000 surname="BRANCH_LONGNA…"@35.0000 date=".. 1691-.. 1745"@49.0000 squeeze=None fab=(92.5000,88.0000) plus=(92.5000,46.5000)
-narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximili…"@81.0000 surname="BRANCH…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=Some(50.0) fab=(35.0000,136.0000) plus=(35.0000,70.5000)
+root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
+dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
+empty-compact-slot rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given=""@81.0000 surname=""@81.0000 date=""@81.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
+empty-slot rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given=""@21.0000 surname=""@21.0000 date=""@21.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
+compact-named rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Given_1"@81.0000 surname="BRANCH_A"@95.0000 date=""@109.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
+compact-overflowing rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximilian_A…"@81.0000 surname="BRANCH_LO…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
+full-overflowing rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Maximilian_Alexander"@21.0000 surname="BRANCH_LONGNA…"@35.0000 date=".. 1691-.. 1745"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
+narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximili…"@81.0000 surname="BRANCH…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=Some(50.0) trigger=(35.0000,136.0000) plus=(35.0000,70.5000)
 "#;
 
     #[test]

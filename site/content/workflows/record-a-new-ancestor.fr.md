@@ -49,7 +49,7 @@ Le formulaire se ferme alors. Jean-Marie figure désormais au-dessus d’Étienn
 
 ## 5. Ajouter un baptême, des témoins ou d’autres détails
 
-Cliquez sur le crayon sous la carte de Jean-Marie et choisissez **Modifier l’individu**. Maintenant qu’il existe, le formulaire en propose davantage :
+Cliquez sur le **⋮** sous la carte sélectionnée de Jean-Marie et choisissez **Modifier l’individu**. Maintenant qu’il existe, le formulaire en propose davantage :
 
 - **Baptême.** Sous **Autres événements**, cliquez sur **Ajouter un événement**, choisissez **Baptême** comme **Type**, remplissez la **Date** et le **Lieu**, tapez la source comme à l’étape 3 (par exemple `Paroisse de Quimper, registre des baptêmes 1866, folio 12`), puis cliquez sur **Créer l’événement**.
 - **Témoins.** Si l’acte nomme des témoins déjà présents dans l’arbre, cliquez sur **Ajouter un témoin** dans la section **Naissance**, indiquez leur rôle dans le champ de relation, puis recherchez-les et choisissez-les.

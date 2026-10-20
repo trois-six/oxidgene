@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
-use crate::components::context_menu::ContextMenuSurface;
+use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::empty_state::EmptyState;
 use crate::components::import_modal::ImportModal;
 use crate::components::modal::Modal;
@@ -98,9 +98,6 @@ pub fn Home() -> Element {
     let action_error = use_signal(|| None::<String>);
     let mut renaming = use_signal(|| None::<(Uuid, String)>);
     let duplicating_tree_id = use_signal(|| None::<Uuid>);
-    // Tree card whose action menu is open, with the fixed menu's viewport
-    // coordinates. Only one card menu may be open at a time.
-    let open_menu = use_signal(|| None::<(String, f64, f64)>);
     let search_query = use_signal(String::new);
     let sort_mode = use_signal(|| "recent".to_string());
     let list_view = use_signal(|| false);
@@ -161,7 +158,6 @@ pub fn Home() -> Element {
                             query: search_query(),
                             sort: sort_mode(),
                             list: list_view(),
-                            open_menu,
                             duplicating: duplicating_tree_id(),
                             on_create: move |_| show_create.set(true),
                             on_rename: move |tree| renaming.set(Some(tree)),
@@ -447,7 +443,6 @@ fn TreesGrid(
     sort: String,
     /// One card per row rather than as many as fit.
     list: bool,
-    open_menu: Signal<Option<(String, f64, f64)>>,
     duplicating: Option<Uuid>,
     on_create: EventHandler<()>,
     on_rename: EventHandler<(Uuid, String)>,
@@ -506,7 +501,6 @@ fn TreesGrid(
                     tree_id: tree.id.to_string(),
                     duplicating: duplicating == Some(tree.id),
                     importing: tree.importing,
-                    open_menu,
                     on_rename: {
                         let tree = (tree.id, tree.name.clone());
                         move |_| on_rename.call(tree.clone())
@@ -725,9 +719,6 @@ fn TreeCard(
     tree_id: String,
     duplicating: bool,
     importing: bool,
-    /// Id of the card whose dropdown is open, owned by [`Home`] so the
-    /// click-outside backdrop can be rendered outside the animated grid.
-    open_menu: Signal<Option<(String, f64, f64)>>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
     on_delete: EventHandler<()>,
@@ -735,17 +726,8 @@ fn TreeCard(
 ) -> Element {
     let i18n = use_i18n();
     let nav = use_navigator();
-    let mut open_menu = open_menu;
-    let menu_position = (!importing)
-        .then(|| {
-            open_menu
-                .read()
-                .as_ref()
-                .and_then(|(id, x, y)| (id == &tree_id).then_some((*x, *y)))
-        })
-        .flatten();
-    let menu_open = menu_position.is_some();
-    let toggle_id = tree_id.clone();
+    // Lifted above its neighbours while its menu is shown.
+    let mut menu_open = use_signal(|| false);
 
     let diff = Utc::now().signed_duration_since(updated_at);
     let time_ago = modified_ago(&i18n, diff);
@@ -755,7 +737,7 @@ fn TreeCard(
     // Lift the card above the backdrop while its dropdown is open.
     let card_class = if importing {
         "tree-card is-importing"
-    } else if menu_open {
+    } else if menu_open() {
         "tree-card tree-card-menu-open"
     } else {
         "tree-card"
@@ -780,88 +762,68 @@ fn TreeCard(
             div { class: "tree-card-body",
                 div { class: "tree-card-header",
                     div { class: "tree-card-name", "{name}" }
-                    // Three-dot menu
                     if !importing {
-                        div { class: "tree-card-menu-wrapper",
-                            button {
-                                class: "tree-card-menu-btn",
-                                title: i18n.t("home.tree_actions"),
-                                "aria-label": i18n.t("home.tree_actions"),
-                                "aria-haspopup": "menu",
-                                "aria-expanded": menu_open,
-                                onclick: move |e: Event<MouseData>| {
-                                    e.stop_propagation();
-                                    if menu_open {
-                                        open_menu.set(None);
-                                    } else {
-                                        let point = e.client_coordinates();
-                                        open_menu.set(Some((
-                                            toggle_id.clone(),
-                                            point.x,
-                                            point.y + 18.0,
-                                        )));
+                        MenuButton {
+                            name: name.clone(),
+                            on_open_change: move |open: bool| menu_open.set(open),
+                            items: {
+                                let open_route = card_route.clone();
+                                let settings_route = Route::Settings { tree_id: tree_id.clone() };
+                                move |menu: MenuClose| rsx! {
+                                    Link {
+                                        to: open_route.clone(),
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        onclick: move |_| menu.close.call(()),
+                                        {i18n.t("common.open")}
                                     }
-                                },
-                                "⋮"
-                            }
-                            if let Some((x, y)) = menu_position {
-                            ContextMenuSurface {
-                                x,
-                                y,
-                                menu_class: "context-menu-anchor-right".to_string(),
-                                on_close: move |_| open_menu.set(None),
-                                Link {
-                                    to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                                    class: "context-menu-item",
-                                    onclick: move |_| open_menu.set(None),
-                                    {i18n.t("common.open")}
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        onclick: move |_| {
+                                            menu.hand_off.call(());
+                                            on_rename.call(());
+                                        },
+                                        {i18n.t("common.rename")}
+                                    }
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        disabled: duplicating,
+                                        onclick: move |_| {
+                                            menu.hand_off.call(());
+                                            on_duplicate.call(());
+                                        },
+                                        if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
+                                    }
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        onclick: move |_| {
+                                            menu.hand_off.call(());
+                                            on_import.call(());
+                                        },
+                                        {i18n.t("common.import")}
+                                    }
+                                    Link {
+                                        to: settings_route.clone(),
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        onclick: move |_| menu.close.call(()),
+                                        {i18n.t("common.settings")}
+                                    }
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item context-menu-danger",
+                                        onclick: move |_| {
+                                            menu.hand_off.call(());
+                                            on_delete.call(());
+                                        },
+                                        {i18n.t("common.delete")}
+                                    }
                                 }
-                                button {
-                                    class: "context-menu-item",
-                                    onclick: move |e: Event<MouseData>| {
-                                        e.stop_propagation();
-                                        open_menu.set(None);
-                                        on_rename.call(());
-                                    },
-                                    {i18n.t("common.rename")}
-                                }
-                                button {
-                                    class: "context-menu-item",
-                                    disabled: duplicating,
-                                    onclick: move |e: Event<MouseData>| {
-                                        e.stop_propagation();
-                                        open_menu.set(None);
-                                        on_duplicate.call(());
-                                    },
-                                    if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
-                                }
-                                button {
-                                    class: "context-menu-item",
-                                    onclick: move |e: Event<MouseData>| {
-                                        e.stop_propagation();
-                                        open_menu.set(None);
-                                        on_import.call(());
-                                    },
-                                    {i18n.t("common.import")}
-                                }
-                                Link {
-                                    to: Route::Settings { tree_id: tree_id.clone() },
-                                    class: "context-menu-item",
-                                    onclick: move |_| open_menu.set(None),
-                                    {i18n.t("common.settings")}
-                                }
-                                button {
-                                    class: "context-menu-item context-menu-danger",
-                                    onclick: move |e: Event<MouseData>| {
-                                        e.stop_propagation();
-                                        open_menu.set(None);
-                                        on_delete.call(());
-                                    },
-                                    {i18n.t("common.delete")}
-                                }
-                            }
+                            },
                         }
-                    }
                     }
                 }
                 if !description.is_empty() {
@@ -1270,28 +1232,6 @@ const HOME_STYLES: &str = r#"
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .tree-card-menu-wrapper {
-        position: relative;
-        flex-shrink: 0;
-    }
-
-    .tree-card-menu-btn {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: var(--text-120);
-        cursor: pointer;
-        padding: var(--space-1) var(--space-3);
-        border-radius: var(--radius-sm);
-        line-height: 1;
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .tree-card-menu-btn:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
     }
 
     /* The card whose menu is open stays still and above its neighbours. */

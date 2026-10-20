@@ -52,7 +52,7 @@ Le dictionnaire liste chaque nom de famille exactement tel qu'il est écrit : le
 
 1. Ouvrez le [dictionnaire](@/guide/dictionary.fr.md) avec l'icône de livre de la barre d'icônes à gauche. Il s'ouvre sur l'onglet **Noms de famille**.
 2. Parcourez la liste à l'aide de l'index alphabétique et du filtre. Dépliez une ligne pour voir qui porte le nom.
-3. Cliquez sur le crayon de la variante à corriger. La fenêtre **Modifier le nom de famille** s'ouvre.
+3. Ouvrez le menu **⋮** de la ligne de la variante à corriger et choisissez **Modifier**. La fenêtre **Modifier le nom de famille** s'ouvre.
 4. Tapez la bonne graphie dans **Nom**. Si ce nom existe déjà, la fenêtre prévient que les deux seront fusionnés.
 5. Cliquez sur **Renommer**. Toutes les personnes qui portaient la variante comme nom principal portent désormais la bonne graphie.
 

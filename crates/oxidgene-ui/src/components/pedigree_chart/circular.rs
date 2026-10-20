@@ -760,6 +760,7 @@ fn render_person_segment(
     let band = mark_colour(&entry.node);
     let mark = card_mark(pid);
     let (dot_x, dot_y) = segment_corner(segment);
+    let (menu_x, menu_y) = segment_menu_origin(segment);
     let class = format!("{} {}", sex_class(entry.node.sex), dim_class(mark));
     rsx! {
         g {
@@ -767,6 +768,7 @@ fn render_person_segment(
             class: "{class}",
             onclick: move |_| actions.navigate(pid),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
+            onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             path { class: "fan-seg-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
             if let Some(colour) = band {
                 path { class: "fan-seg-band", d: "{segment.band}", style: "stroke:{colour}" }
@@ -776,8 +778,29 @@ fn render_person_segment(
             }
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
             {mark_dot(mark, dot_x, dot_y, 4.0)}
+            if *actions.selected_person_id.read() == pid {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: title.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
+                }
+            }
         }
     }
+}
+
+/// The top-left corner of the "⋮" trigger of a selected segment, at the
+/// segment's centre.
+fn segment_menu_origin(segment: &Segment) -> (f64, f64) {
+    let (cx, cy) = segment.centroid;
+    (cx - CHART_MENU_SIZE / 2.0, cy - CHART_MENU_SIZE / 2.0)
 }
 
 /// Where a segment's tag dot sits: near its outer corner at the start of
@@ -800,6 +823,7 @@ fn render_union_segment(
     let spouse = entry.node.id;
     let mark = spouse.and_then(card_mark);
     let (dot_x, dot_y) = segment_corner(segment);
+    let (menu_x, menu_y) = segment_menu_origin(segment);
     let class = format!("fan-union {}", dim_class(mark));
     rsx! {
         g {
@@ -808,6 +832,11 @@ fn render_union_segment(
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
+                }
+            },
+            onpointerdown: move |evt: Event<PointerData>| {
+                if let Some(pid) = spouse {
+                    actions.press_start(pid, &evt);
                 }
             },
             oncontextmenu: move |evt: Event<MouseData>| {
@@ -825,6 +854,20 @@ fn render_union_segment(
             }
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
             {mark_dot(mark, dot_x, dot_y, 4.0)}
+            if let Some(pid) = spouse.filter(|pid| *actions.selected_person_id.read() == *pid) {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: title.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
+                }
+            }
         }
     }
 }
@@ -869,8 +912,9 @@ fn render_empty_segment(
     }
 }
 
-/// The root's disc. Clicking it opens the action picker: the chart is
-/// already rooted on this person, so there is nowhere to navigate to.
+/// The root's disc. Clicking it selects the root without a new page of the
+/// history, since the chart is already centred on it; its "⋮" trigger opens
+/// the action picker, as on every card.
 fn render_root(
     layout: &CircularLayout,
     theme: &PedigreeTheme,
@@ -888,11 +932,15 @@ fn render_root(
     let mark = card_mark(pid);
     let class = format!("fan-seg fan-root {}", dim_class(mark));
     let (dot_x, dot_y) = layout.root_dot;
+    // The root's disc has no centre of its own to hang the trigger on: it
+    // sits at the disc's centre, over the root's label.
+    let (menu_x, menu_y) = (-CHART_MENU_SIZE / 2.0, -CHART_MENU_SIZE / 2.0);
     rsx! {
         g {
             class: "{class}",
-            onclick: pick,
+            onclick: move |_| actions.select(pid),
             oncontextmenu: pick,
+            onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             path { class: "fan-seg-shape", d: "{layout.root_path}", dangerous_inner_html: "{title}" }
             if let Some(colour) = band {
                 path { class: "fan-root-ring", d: "{layout.root_path}", style: "stroke:{colour}" }
@@ -904,6 +952,20 @@ fn render_root(
                 {render_label(label, theme, "var(--white)", "var(--white)")}
             }
             {mark_dot(mark, dot_x, dot_y, 5.0)}
+            if *actions.selected_person_id.read() == pid {
+                foreignObject {
+                    class: "no-print ped-card-menu",
+                    x: "{menu_x}",
+                    y: "{menu_y}",
+                    width: "{CHART_MENU_SIZE}",
+                    height: "{CHART_MENU_SIZE}",
+                    MenuButton {
+                        name: title.clone(),
+                        expanded: actions.menu_open == Some(pid),
+                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
+                    }
+                }
+            }
         }
     }
 }

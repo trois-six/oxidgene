@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T14:41:27Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:44:22Z }
 ---
 
 
@@ -159,7 +159,7 @@ Horizontal arrangement: avatar on the left, text information on the right.
 ```
 
 The card is drawn as SVG primitives inside one `<g>`, with no HTML; the
-`.ped-card*` classes carry its hover and theming.
+`.ped-card*` classes carry its theming.
 
 **Portrait**:
 - 50×50px, square in the classic theme; shape, size, and whether a mat is
@@ -253,8 +253,8 @@ narrow form overruns: dropping characters off a date would change what it says.
   whose frame is heavy enough may carry the colour on the outline instead and
   draw no rule — the medieval theme does
 - **Focus person**: filled with `var(--pn-root-bg)` and set in white, not
-  outlined. Hovering any card fills it with `var(--pn-hover-bg)` and strokes it
-  with `var(--pn-root-bg)`
+  outlined. A card has no hover styling of its own: the pointer changes
+  nothing on it
 - **Tags**: a card draws no tags of its own, in any chart: a card is small
   and a tree holds hundreds of them. The tags of the persons show through
   **Highlight a tag** ([§5](#left-sidebar-isb)), and the selected person's in
@@ -281,12 +281,12 @@ a spouse a couple does not name.
 When a card is clicked:
 - It becomes the new **focus** of the graph, the layout is recalculated centered on it
 - The focus card is filled rather than outlined (see Visual Indicators)
-- A **pencil icon** appears just below the card, centered
-- The pencil icon disappears as soon as another card is selected or the canvas is clicked
+- A **⋮ menu button** ([Common UI §4.8](ui-common.md#48-contextmenu)) appears just below the card, centered, on the selected card only. The cards carry no ⋮ and no hover hint
+- The ⋮ disappears as soon as another card is selected or the canvas is clicked
 
-### Pencil Icon — Action Picker
+### Menu Button — Action Picker
 
-Clicking the pencil icon opens a small **action picker modal** (not a full-screen modal). It presents the available actions for the selected person as a list of labeled options:
+Clicking the ⋮ under the selected card opens a small **action picker modal** (not a full-screen modal), the same menu a right click on any card opens for that card. It presents the available actions for the selected person as a list of labeled options:
 
 | Action | Description |
 |---|---|
@@ -301,7 +301,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Tag a branch…** | Opens the branch dialog: the ancestors, the descendants or both, the generations (all by default, up to 30), whether to include the person and, for descendants, their spouses. Then the bulk picker opens on those persons ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges), [API Contract](api.md#tags)) |
 | **Go to…** | In the wheels, fans and lineage (§10): opens a list of the person's relatives the chart does not draw around them — spouses and children in an ancestor chart, parents and spouses in a descendant one — under a heading per kind, each with their lifespan; choosing one makes them the focus. The chart's own focus is left out, and so is the entry when the list would be empty. Not offered on the tree, which draws them all |
 
-The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
+The picker is a compact overlay anchored just below the ⋮ button, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
 
 ### Edit Union — Sub-list
 
@@ -414,7 +414,7 @@ shown — the area the canvas shows, less
 what the events panel covers, trimmed to the cards drawn — scaled to one
 landscape sheet under the printed header. The sidebars, the depth and zoom
 controls, and the events panel do not print, nor do the chart's own controls
-— the pencil under the focus card, the "+" of an empty slot for a missing
+— the ⋮ under the selected card, the "+" of an empty slot for a missing
 parent, the lineage view's children button — while the empty slot's dashed
 outline still shows the missing parent. To print more or less of the tree,
 zoom or pan before printing.
@@ -542,13 +542,15 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 
 | Action | Behavior |
 |---|---|
-| Click on a card | New focus + pencil icon + events sidebar updated |
+| Click on a card | New focus + ⋮ under the card + events sidebar updated |
 | Right-click on a card | Opens the same action picker at the pointer |
+| Context-menu key or Shift+F10, with the canvas focused | Opens the action picker of the selected element, as its ⋮ does, beside its trigger |
+| Long press on an element (touch) | Opens the same action picker at the touch point; a move of the canvas before it ends cancels the press |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan — starting on a card, a segment or the root disc as well: a press that moves more than 5 px before its release pans and is not a click, in every view |
 | Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x (up to 16x in the wheel and the fan, as their narrowest labels need) |
 | Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
-| FIT button | Reframes the entire tree in the window, filling the free canvas whatever the number of cards, unless that would draw a card taller than 112 px on screen: the cap is on the cards' drawn size, not on the scale, so it holds whatever the card theme — a shield card (162 px tall in the layout) stops at about 0.69x, a classic card (67 px) only past 1.6x, so five full generations of classic cards fill the window while a couple or a few shield cards keep a reasonable size, centred in the free canvas (in the wheel and the fan, the card is a ring of names along the arc, 64 px deep); the framed extent includes the edit button under the focus card and keeps a margin on every side (the automatic fit on opening and on a depth, view or sidebar change shares this cap); a tree too large to fit at 0.3x is centred on the focus person — in the lineage view, whose focus person is its left edge, it keeps them centred vertically and starts at the left margin when wider than the window (centred across otherwise) |
+| FIT button | Reframes the entire tree in the window, filling the free canvas whatever the number of cards, unless that would draw a card taller than 112 px on screen: the cap is on the cards' drawn size, not on the scale, so it holds whatever the card theme — a shield card (162 px tall in the layout) stops at about 0.69x, a classic card (67 px) only past 1.6x, so five full generations of classic cards fill the window while a couple or a few shield cards keep a reasonable size, centred in the free canvas (in the wheel and the fan, the card is a ring of names along the arc, 64 px deep); the framed extent includes the ⋮ menu trigger under the focus card and keeps a margin on every side (the automatic fit on opening and on a depth, view or sidebar change shares this cap); a tree too large to fit at 0.3x is centred on the focus person — in the lineage view, whose focus person is its left edge, it keeps them centred vertically and starts at the left margin when wider than the window (centred across otherwise) |
 | Depth selector | Recalculates layout, recenters on current focus |
 
 A zoom holds one point of the canvas still and moves everything else around it.
@@ -870,8 +872,11 @@ circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
   reduced label needs to reach its classic size (at most 16x).
 - **Interactions.** Clicking an ancestor's segment makes them the focus and
   redraws the chart around them, as clicking a card does; a right click opens
-  the action picker. The root's disc has nowhere to navigate to, so clicking
-  it opens the action picker.
+  the action picker. A selected segment shows the shared **⋮** trigger
+  ([Common UI §4.8](ui-common.md#48-contextmenu)) at its centre, which opens
+  the same action picker. The root's disc is the focus: a click selects it
+  like any segment, and its **⋮** trigger, over the root's label, opens the
+  action picker.
 - Only the segments near the viewport are drawn, as the tree view's cards
   are (§1); the root's disc always is.
 
@@ -904,8 +909,8 @@ left to right as in the tree.
   that leads to the tree's SOSA 1.
 - **Interactions.** Clicking a person makes them the focus; clicking a
   union makes the spouse the focus; a right click opens the action picker;
-  the root's disc opens the action picker. Only the segments near the
-  viewport are drawn.
+  a click on the root's disc selects it, and its **⋮** trigger opens the
+  action picker. Only the segments near the viewport are drawn.
 - A person who turns out to be their own descendant, in erroneous data, is
   not expanded again, so the chart always ends.
 
@@ -919,7 +924,7 @@ descendants gives each person as much height as their descendants take.
 - **Descendant lineage** (Gramps' Descendant Tree): the focus person on the
   left, each generation of descendants a column to the right. Under each
   person's card, one slim box per union names the spouse (`⚭ SURNAME Given`,
-  *?* when unknown), leaving room for the pencil under the focus card; a line
+  *?* when unknown), leaving room for the ⋮ under the focus card; a line
   joins that box to the union's children in the next column, stacked in the
   order of the unions and centred on their part, which the person's block is
   centred on too. Full cards while the chart stays within 1,600 px, slim
@@ -952,7 +957,7 @@ and its mother below by right-angled elbow lines.
 - **Boxes.** A column whose rows have room for them holds the pedigree
   theme's own cards (§3): portrait, names, lifespan with its precision marks,
   the SOSA 1 and self badges (not the direct-ancestor badge, which every box
-  would carry, as in the wheel), the pencil under the focus card and the dashed empty
+  would carry, as in the wheel), the ⋮ under the focus card and the dashed empty
   card for a missing parent. While the whole chart stays within 1,600 px at
   full cards, every column holds them. Deeper, the last column's rows tighten
   to 30 px and the columns without room for a card hold slim boxes instead,
@@ -978,7 +983,7 @@ and its mother below by right-angled elbow lines.
   the wheel and the fan.
 - **Interactions.** Clicking a card or a box makes that person the focus — the
   same as Gramps' buttons jumping to a father or mother; a right click, or the
-  pencil under the focus card, opens the action picker.
+  ⋮ under the selected card, opens the action picker.
 - Only the boxes and lines near the viewport are drawn, as the tree view's
   cards are (§1); a chart ten generations deep is read by zooming and
   panning, as a deep tree is.

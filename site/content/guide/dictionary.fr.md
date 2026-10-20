@@ -39,7 +39,7 @@ Le classement d'un nom à particule comme « de la » ou « d' » dépend de l'o
 
 ## Renommer ou fusionner un nom de famille
 
-Cliquez sur le crayon d'une ligne de nom de famille pour ouvrir **Modifier le nom de famille**.
+Ouvrez le menu **⋮** en bout de ligne d’un nom de famille et choisissez **Modifier** pour ouvrir **Modifier le nom de famille**.
 
 1. Modifiez le champ **Nom**. Si l'arbre écrit les noms de famille en capitales, le champ le fait aussi.
 2. Lisez la ligne en dessous : elle indique combien de personnes seront renommées.
@@ -55,7 +55,7 @@ Un renommage est inscrit dans l'[historique](@/guide/history.fr.md) de l'arbre c
 
 À l'import d'un arbre, OxidGene devine quels premiers mots d'un nom de famille forment une particule (« de », « le », « van der »…). Une erreur touche d'un coup toutes les personnes qui portent ce nom, par exemple des noms en « Le … » classés à leur second mot. Pour la corriger :
 
-1. Cliquez sur le crayon de la ligne du nom de famille.
+1. Ouvrez le menu **⋮** de la ligne du nom de famille et choisissez **Modifier**.
 2. Laissez le **Nom** inchangé et modifiez le champ **Particule**. Videz-le quand le premier mot fait partie du nom.
 3. Vérifiez l'aperçu, qui montre la **Particule**, le **Nom** et la lettre de classement (**Classé à**).
 4. Cliquez sur **Appliquer à tous**.
@@ -78,7 +78,7 @@ Chaque ligne de source affiche son titre, son auteur et les dépôts qui la cons
 
 ### Modifier une source
 
-Cliquez sur ✎ dans la ligne d'une source pour ouvrir **Modifier la source** :
+Ouvrez le menu **⋮** en bout de ligne d’une source et choisissez **Modifier** pour ouvrir **Modifier la source** :
 
 - **Titre** (obligatoire), **Auteur**, **Abréviation** et **Publication** ;
 - sous **Plus de détails** : l'**Organisme responsable** et les **Dépôts** qui conservent la source. Choisissez un dépôt de l'arbre, ou **Nouveau dépôt…** pour en créer un, indiquez au besoin une **Cote** et un **Support**, puis cliquez sur **Ajouter le dépôt**. Une source conservée sous deux cotes dans le même dépôt a deux lignes.
@@ -90,7 +90,7 @@ Les lignes de dépôt sont ajoutées ou retirées immédiatement ; les autres ch
 L'onglet **Dépôts** liste les services d'archives, bibliothèques et administrations qui conservent vos sources, triés par nom, avec la première ligne de leur adresse, leur téléphone et leur site web. Tapez dans **Filtrer...** pour resserrer la liste.
 
 - Dépliez un dépôt pour voir les sources qu'il conserve, avec leurs cotes et leur support.
-- Cliquez sur ✎ pour le modifier, ou sur **Ajouter un dépôt** pour en créer un. Un dépôt a un **Nom** (obligatoire), une **Adresse**, un **Téléphone**, un **Courriel**, un **Site web** et des notes.
+- Choisissez **Modifier** dans le menu **⋮** d’un dépôt pour le modifier, ou sur **Ajouter un dépôt** pour en créer un. Un dépôt a un **Nom** (obligatoire), une **Adresse**, un **Téléphone**, un **Courriel**, un **Site web** et des notes.
 - **Supprimer le dépôt**, en bas de son formulaire, le supprime après confirmation. Les sources qu'il conservait restent dans l'arbre ; elles n'y sont simplement plus rattachées. Annuler la suppression depuis l'historique rétablit ces liens.
 
 ## Lieux

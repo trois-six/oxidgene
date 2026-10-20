@@ -1,9 +1,9 @@
 //! The media grid that sits in a person's or a couple's edit modal.
 //!
-//! A tile per file, then the upload cell. Clicking a tile's pencil opens an
-//! inline panel under the grid rather than a second modal: the gallery already
-//! lives inside a modal, and stacking one on another leaves the user with two
-//! Cancel buttons and no way to tell which closes what.
+//! A tile per file, then the upload cell. Choosing Edit in a tile's ⋮ menu
+//! opens an inline panel under the grid rather than a second modal: the
+//! gallery already lives inside a modal, and stacking one on another leaves
+//! the user with two Cancel buttons and no way to tell which closes what.
 //!
 //! # What the grid shows without one request per tile
 //!
@@ -19,6 +19,7 @@
 //! what an `<img>` onto a 404 gives you.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use chrono::NaiveDate;
 use dioxus::prelude::*;
@@ -32,7 +33,9 @@ use crate::api::{
     UpdateVignetteBody,
 };
 use crate::components::confirm_dialog::ConfirmDialog;
-use crate::components::context_menu::ContextMenuSurface;
+use crate::components::context_menu::{
+    ContextMenuSurface, MenuButton, focus_trigger, long_press_end, long_press_start, trigger_point,
+};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::document_form::DocumentForm;
@@ -911,15 +914,18 @@ fn MediaTile(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
 
-    let confirming = use_signal(|| false);
+    let mut confirming = use_signal(|| false);
     let busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut delete_confirming = use_signal(|| false);
     let mut checking_delete = use_signal(|| false);
     let mut deleting = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
-    // Where the right-click menu sits, if it is open.
+    // Where the tile's menu sits, if it is open: beside its ⋮ trigger, or at the
+    // pointer after a right click.
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
+    // The ⋮ trigger that opened the menu, which takes the focus back on close.
+    let mut menu_trigger = use_signal(|| None::<Rc<MountedData>>);
     let mut event_menu = use_signal(|| None::<MediaEventMenu>);
     let mut event_menu_offset = use_signal(|| 0_usize);
     // Where the tag picker sits, if it is open.
@@ -1031,9 +1037,31 @@ fn MediaTile(
         media_event_ids.is_empty(),
     );
     let tags = tile.media.tags.clone();
+    // The right click and a long press are shortcuts to the ⋮ menu of the
+    // tile, which holds the thumbnail and its caption alike.
+    let press = use_signal(|| 0_u32);
+    let mut open_at = move |point: (f64, f64)| {
+        event_menu.set(None);
+        event_menu_offset.set(0);
+        menu_trigger.set(None);
+        menu_at.set(Some(point));
+    };
 
     rsx! {
         div { class: if is_open { "media-tile is-open" } else { "media-tile" },
+            oncontextmenu: move |e: Event<MouseData>| {
+                e.prevent_default();
+                let point = e.client_coordinates();
+                open_at((point.x, point.y));
+            },
+            onpointerdown: move |e: Event<PointerData>| {
+                if e.pointer_type() == "touch" {
+                    let point = e.client_coordinates();
+                    long_press_start(press, (point.x, point.y), open_at);
+                }
+            },
+            onpointerup: move |_| long_press_end(press),
+            onpointercancel: move |_| long_press_end(press),
             div {
                 class: "media-thumb",
                 role: "button",
@@ -1048,13 +1076,6 @@ fn MediaTile(
                 // makes while *looking* at their photographs, and sending
                 // them to the edit modal to do it means leaving the page that
                 // prompted it. Every other action stays behind the modal.
-                oncontextmenu: move |e: Event<MouseData>| {
-                    e.prevent_default();
-                    let point = e.client_coordinates();
-                    event_menu.set(None);
-                    event_menu_offset.set(0);
-                    menu_at.set(Some((point.x, point.y)));
-                },
                 {tile_picture(
                     &look,
                     &document_previews,
@@ -1063,37 +1084,28 @@ fn MediaTile(
                     look.pdf_preview.map(|page| (tree_id, page)),
                 )}
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
-                if !read_only {
-                    TileActions {
-                        tile: tile.clone(),
-                        show_profile: menu.profile_button,
-                        is_portrait,
-                        busy: busy(),
-                        confirming,
-                        on_profile: move |_| toggle_profile.call(()),
-                        on_crop,
-                        on_edit,
-                        on_detach: {
-                            let api = api.clone();
-                            move |_| {
-                                let api = api.clone();
-                                let mut confirming = confirming;
-                                spawn(tile_action(busy, error, on_changed, async move {
-                                    api.delete_media_link(tree_id, link_id).await?;
-                                    confirming.set(false);
-                                    Ok(())
-                                }));
+            }
+            div { class: "media-caption-row",
+                div { class: "media-caption", title: "{caption}", "{caption}" }
+                TagBadges { tree_id: tree_id.to_string(), tags: tags.clone() }
+                MenuButton {
+                    name: caption.clone(),
+                    expanded: menu_at().is_some(),
+                    on_request: move |trigger: Rc<MountedData>| {
+                        event_menu.set(None);
+                        event_menu_offset.set(0);
+                        menu_trigger.set(Some(trigger.clone()));
+                        spawn(async move {
+                            if let Some(point) = trigger_point(&trigger).await {
+                                menu_at.set(Some(point));
                             }
-                        },
-                    }
+                        });
+                    },
                 }
             }
             TileCaption {
-                tree_id,
-                caption,
                 footnotes,
                 linked_events: linked_events.clone(),
-                tags: tags.clone(),
                 error: error(),
             }
 
@@ -1102,7 +1114,10 @@ fn MediaTile(
                     x,
                     y,
                     menu_class: if event_menu().is_some() { "context-menu-events".to_string() } else { String::new() },
-                    on_close: move |_| menu_at.set(None),
+                    on_close: move |_| {
+                        menu_at.set(None);
+                        focus_trigger(menu_trigger.write().take());
+                    },
                     if event_menu().is_some() {
                         TileEventPicker {
                             events: unlinked_events(&profile_event_links, &linked_events),
@@ -1127,6 +1142,23 @@ fn MediaTile(
                             // anyway.
                             profile: menu.profile,
                             is_portrait,
+                            croppable: tile.is_croppable(),
+                            editable: !read_only,
+                            on_crop: {
+                                let tile = tile.clone();
+                                move |()| {
+                                    menu_at.set(None);
+                                    on_crop.call(tile.clone());
+                                }
+                            },
+                            on_edit: move |()| {
+                                menu_at.set(None);
+                                on_edit.call(media_id);
+                            },
+                            on_detach: move |()| {
+                                menu_at.set(None);
+                                confirming.set(true);
+                            },
                             can_link_event: menu.link_event,
                             linked_event: media_event_ids.first().copied(),
                             can_delete: read_only,
@@ -1165,6 +1197,32 @@ fn MediaTile(
                     on_changed: move |_now: Vec<TagRef>| on_changed.call(()),
                 }
             }
+            if confirming() {
+                ConfirmDialog {
+                    title: i18n.t("media.detach"),
+                    message: i18n.t("media.detach_confirm"),
+                    confirm_label: i18n.t("media.detach"),
+                    confirm_class: "btn btn-danger",
+                    error: error(),
+                    busy: busy(),
+                    on_confirm: {
+                        let api = api.clone();
+                        move |()| {
+                            let api = api.clone();
+                            let mut confirming = confirming;
+                            spawn(tile_action(busy, error, on_changed, async move {
+                                api.delete_media_link(tree_id, link_id).await?;
+                                confirming.set(false);
+                                Ok(())
+                            }));
+                        }
+                    },
+                    on_cancel: move |()| {
+                        confirming.set(false);
+                        error.set(None);
+                    },
+                }
+            }
             if delete_confirming() {
                 ConfirmDialog {
                     title: i18n.t("media.delete_title"),
@@ -1191,8 +1249,6 @@ struct TileMenuOffer {
     /// back. A PDF cannot represent somebody: the card would draw the
     /// silhouette anyway.
     profile: bool,
-    /// The portrait button over an editable tile.
-    profile_button: bool,
     /// Linking an event, when there are events and none is linked yet.
     link_event: bool,
 }
@@ -1207,7 +1263,6 @@ impl TileMenuOffer {
     ) -> Self {
         Self {
             profile: show_profile && (look.may_portray || is_portrait),
-            profile_button: show_profile && look.may_portray,
             link_event: has_events && unlinked,
         }
     }
@@ -1217,18 +1272,11 @@ impl TileMenuOffer {
 /// its linked events, and the last error.
 #[component]
 fn TileCaption(
-    tree_id: Uuid,
-    caption: String,
     footnotes: Vec<String>,
     linked_events: Vec<MediaEventLinkOption>,
-    tags: Vec<TagRef>,
     error: Option<String>,
 ) -> Element {
     rsx! {
-        div { class: "media-caption-row",
-            div { class: "media-caption", title: "{caption}", "{caption}" }
-            TagBadges { tree_id: tree_id.to_string(), tags }
-        }
         for (index, line) in footnotes.iter().enumerate() {
             div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
         }
@@ -1409,88 +1457,6 @@ fn unlinked_events(
 
 /// The editing buttons over a tile: portrait, crop, edit and detach, with the
 /// detach asked again before it happens.
-#[component]
-fn TileActions(
-    tile: MediaWithLink,
-    show_profile: bool,
-    is_portrait: bool,
-    busy: bool,
-    confirming: Signal<bool>,
-    on_profile: EventHandler<()>,
-    on_crop: EventHandler<MediaWithLink>,
-    on_edit: EventHandler<Uuid>,
-    on_detach: EventHandler<()>,
-) -> Element {
-    let i18n = use_i18n();
-    let media_id = tile.media.id;
-    let croppable = tile.is_croppable();
-    rsx! {
-        div {
-            class: "media-tile-actions",
-            onclick: move |e| e.stop_propagation(),
-            if show_profile {
-                button {
-                    class: if is_portrait { "media-act is-on" } else { "media-act" },
-                    r#type: "button",
-                    disabled: busy,
-                    title: i18n.t("media.set_profile_image"),
-                    onclick: move |_| on_profile.call(()),
-                    "\u{2605}"
-                }
-            }
-            if croppable {
-                button {
-                    class: "media-act",
-                    r#type: "button",
-                    title: i18n.t("media.crop"),
-                    onclick: move |_| on_crop.call(tile.clone()),
-                    "\u{2702}"
-                }
-            }
-            button {
-                class: "media-act",
-                r#type: "button",
-                title: i18n.t("common.edit"),
-                onclick: move |_| on_edit.call(media_id),
-                "\u{270E}"
-            }
-            // No "open the file" link here any more. It navigated straight
-            // to the API's own URL in a new tab, which put the backend's
-            // surface in front of the user for something the viewer already
-            // does better — and the viewer's own download covers the formats
-            // a browser will not render.
-            button {
-                class: "media-act is-danger",
-                r#type: "button",
-                disabled: busy,
-                title: i18n.t("media.detach"),
-                onclick: move |_| confirming.set(true),
-                "\u{1F5D1}"
-            }
-        }
-        if confirming() {
-            div { class: "media-confirm",
-                span { {i18n.t("media.detach_confirm")} }
-                div { class: "media-confirm-actions",
-                    button {
-                        class: "pf-row-btn is-danger",
-                        r#type: "button",
-                        disabled: busy,
-                        onclick: move |_| on_detach.call(()),
-                        {i18n.t("common.confirm")}
-                    }
-                    button {
-                        class: "pf-row-btn",
-                        r#type: "button",
-                        onclick: move |_| confirming.set(false),
-                        {i18n.t("common.cancel")}
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// How many events the picker lists at once.
 const EVENT_PICKER_ROWS: usize = 5;
 
@@ -1521,6 +1487,7 @@ fn TileEventPicker(
         .collect::<Vec<_>>();
     rsx! {
         button {
+            role: "menuitem",
             class: "context-menu-item context-menu-back",
             r#type: "button",
             onclick: move |_| on_back.call(()),
@@ -1542,6 +1509,7 @@ fn TileEventPicker(
                 for (event_id, label) in visible {
                     button {
                         key: "{event_id}",
+                        role: "menuitem",
                         class: "context-menu-item context-menu-event-item",
                         r#type: "button",
                         disabled: busy,
@@ -1571,15 +1539,22 @@ fn TileEventPicker(
 fn TileMenu(
     profile: bool,
     is_portrait: bool,
+    /// Whether the tile's picture can be cropped, and whether its record may
+    /// be edited or detached: the actions a read-only gallery hides.
+    croppable: bool,
+    editable: bool,
     can_link_event: bool,
     linked_event: Option<Uuid>,
     can_delete: bool,
     busy: bool,
     checking_delete: bool,
     on_profile: EventHandler<()>,
+    on_crop: EventHandler<()>,
+    on_edit: EventHandler<()>,
     on_link_event: EventHandler<()>,
     on_unlink_event: EventHandler<Uuid>,
     on_tags: EventHandler<()>,
+    on_detach: EventHandler<()>,
     on_delete: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
@@ -1591,6 +1566,7 @@ fn TileMenu(
     rsx! {
         if profile {
             button {
+                role: "menuitem",
                 class: "context-menu-item",
                 r#type: "button",
                 disabled: busy,
@@ -1598,8 +1574,27 @@ fn TileMenu(
                 {i18n.t(profile_label)}
             }
         }
+        if editable && croppable {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                r#type: "button",
+                onclick: move |_| on_crop.call(()),
+                {i18n.t("media.crop")}
+            }
+        }
+        if editable {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                r#type: "button",
+                onclick: move |_| on_edit.call(()),
+                {i18n.t("common.edit")}
+            }
+        }
         if can_link_event {
             button {
+                role: "menuitem",
                 class: "context-menu-item",
                 r#type: "button",
                 onclick: move |_| on_link_event.call(()),
@@ -1608,6 +1603,7 @@ fn TileMenu(
         }
         if let Some(event_id) = linked_event {
             button {
+                role: "menuitem",
                 class: "context-menu-item context-menu-danger",
                 r#type: "button",
                 onclick: move |_| on_unlink_event.call(event_id),
@@ -1615,13 +1611,24 @@ fn TileMenu(
             }
         }
         button {
+            role: "menuitem",
             class: "context-menu-item",
             r#type: "button",
             onclick: move |_| on_tags.call(()),
             {i18n.t("tag.picker.open")}
         }
+        if editable {
+            button {
+                role: "menuitem",
+                class: "context-menu-item context-menu-danger",
+                r#type: "button",
+                onclick: move |_| on_detach.call(()),
+                {i18n.t("media.detach")}
+            }
+        }
         if can_delete {
             button {
+                role: "menuitem",
                 class: "context-menu-item context-menu-danger",
                 r#type: "button",
                 disabled: checking_delete,
@@ -1656,10 +1663,20 @@ fn VignetteTile(
     let api = use_context::<ApiClient>();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    // Where the menu sits, beside its ⋮ trigger or at the pointer.
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
+    // The ⋮ trigger that opened the menu, which takes the focus back on close.
+    let mut menu_trigger = use_signal(|| None::<Rc<MountedData>>);
 
     let vignette_id = vignette.id;
     let caption = i18n.t("media.vignette");
+    // The right click and a long press are shortcuts to the ⋮ menu, which
+    // exists only for a vignette that identifies a person.
+    let press = use_signal(|| 0_u32);
+    let mut open_at = move |point: (f64, f64)| {
+        menu_trigger.set(None);
+        menu_at.set(Some(point));
+    };
 
     let toggle_portrait = use_callback({
         let api = api.clone();
@@ -1707,7 +1724,24 @@ fn VignetteTile(
     };
 
     rsx! {
-        div { class: "media-tile",
+        div {
+            class: "media-tile",
+            oncontextmenu: move |e: Event<MouseData>| {
+                if person_id.is_none() {
+                    return;
+                }
+                e.prevent_default();
+                let point = e.client_coordinates();
+                open_at((point.x, point.y));
+            },
+            onpointerdown: move |e: Event<PointerData>| {
+                if person_id.is_some() && e.pointer_type() == "touch" {
+                    let point = e.client_coordinates();
+                    long_press_start(press, (point.x, point.y), open_at);
+                }
+            },
+            onpointerup: move |_| long_press_end(press),
+            onpointercancel: move |_| long_press_end(press),
             div {
                 class: "media-thumb is-vignette",
                 role: "button",
@@ -1730,14 +1764,6 @@ fn VignetteTile(
                         });
                     }
                 },
-                oncontextmenu: move |e: Event<MouseData>| {
-                    if person_id.is_none() {
-                        return;
-                    }
-                    e.prevent_default();
-                    let point = e.client_coordinates();
-                    menu_at.set(Some((point.x, point.y)));
-                },
                 BundledVignetteImage {
                     image: image.clone(),
                     alt: caption.clone(),
@@ -1749,7 +1775,23 @@ fn VignetteTile(
                 // like two photographs of the same thing.
                 span { class: "media-vignette-badge", title: i18n.t("media.vignette"), "\u{2702}" }
             }
-            div { class: "media-caption", title: "{caption}", "{caption}" }
+            div { class: "media-caption-row",
+                div { class: "media-caption", title: "{caption}", "{caption}" }
+                if person_id.is_some() {
+                    MenuButton {
+                        name: caption.clone(),
+                        expanded: menu_at().is_some(),
+                        on_request: move |trigger: Rc<MountedData>| {
+                            menu_trigger.set(Some(trigger.clone()));
+                            spawn(async move {
+                                if let Some(point) = trigger_point(&trigger).await {
+                                    menu_at.set(Some(point));
+                                }
+                            });
+                        },
+                    }
+                }
+            }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
@@ -1758,8 +1800,12 @@ fn VignetteTile(
                 ContextMenuSurface {
                     x,
                     y,
-                    on_close: move |_| menu_at.set(None),
+                    on_close: move |_| {
+                        menu_at.set(None);
+                        focus_trigger(menu_trigger.write().take());
+                    },
                     button {
+                        role: "menuitem",
                         class: "context-menu-item",
                         r#type: "button",
                         disabled: busy(),
@@ -1774,6 +1820,7 @@ fn VignetteTile(
                         }
                     }
                     button {
+                        role: "menuitem",
                         class: "context-menu-item context-menu-danger",
                         r#type: "button",
                         disabled: busy(),
@@ -4211,6 +4258,7 @@ fn RelationMenu(
             on_close: move |_| on_close.call(()),
             if let Some(on_identify) = on_identify {
                 button {
+                    role: "menuitem",
                     class: "context-menu-item",
                     r#type: "button",
                     onclick: move |_| on_identify.call(()),
@@ -4220,6 +4268,7 @@ fn RelationMenu(
             for (scope, mode, label) in attachment_choices(is_document).iter().copied() {
                 button {
                     key: "{label}",
+                    role: "menuitem",
                     class: "context-menu-item",
                     r#type: "button",
                     onclick: move |_| on_attach.call((scope, mode)),
@@ -4227,6 +4276,7 @@ fn RelationMenu(
                 }
             }
             button {
+                role: "menuitem",
                 class: "context-menu-item",
                 r#type: "button",
                 onclick: move |_| on_tags.call(at),

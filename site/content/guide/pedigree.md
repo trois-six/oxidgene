@@ -49,7 +49,7 @@ A dashed card with a **+** stands for a parent the tree does not record yet, at 
 
 ## Move around the tree
 
-- **Change the focus.** Click a card. The chart recentres on that person, a pencil appears under their card, and the events panel shows their events.
+- **Change the focus.** Click a card. The chart recentres on that person, a **⋮** button appears under their card, and the events panel shows their events.
 - **Pan.** Drag anywhere on the canvas, cards included.
 - **Zoom.** Use the mouse wheel or a pinch to zoom around the pointer, or the **Zoom in** and **Zoom out** buttons of the left sidebar. The tree view zooms from 0.3× to 4×.
 - **Fit.** **Fit to screen** frames the whole chart in the window. When the tree is too large to fit, it is centred on the focus person.
@@ -69,7 +69,7 @@ Type a number alone in **Last name / # SOSA** to jump to that SOSA number. The [
 
 ## Act on a person
 
-Click the pencil under the focus card, or right-click any card, to open the action picker:
+Click the **⋮** under the selected card, or right-click any card, to open the action picker. With the keyboard, focus the chart and press the context-menu key or Shift+F10; on a touch screen, press and hold a card:
 
 | Action | What it does |
 |---|---|
@@ -121,6 +121,7 @@ Every chart keeps the top bar, the sidebar, the events panel and the action pick
 - Charts that draw only ancestors hide the descendant counter of **Generation depth**, and those that draw only descendants hide the ancestor counter.
 - In the wheels and fans, the father's side fills the first half of every ring and the mother's side the second. A missing parent is a dashed segment with a **+** when there is room for it. Deep rings use smaller text: zoom in (up to 16×) to read them. Hover a segment for the full name and dates.
 - In the descendant wheel and fan, a thin ring between generations names each spouse; click it to move to that spouse.
+- In the wheels and fans, click the centre person to select them; their **⋮** button, shown at the centre of the disc, opens the action picker.
 - In the lineage chart, a **‹** button beside the focus card lists their spouses and children; pick one to move to them. In the other charts, use **Go to…** in the action picker.
 
 {{ <screenshot name="hourglass-medieval" alt="Hourglass chart of the Landrevel family in the medieval theme" lang={lang} /> }}
@@ -141,6 +142,6 @@ Click **Print** in the left sidebar, or press Ctrl+P (Cmd+P on a Mac).
 - When the whole chart is on screen, it prints at once on one landscape sheet, with the tree name and the date as a header.
 - When part of it is off screen and it is larger than a sheet at the current zoom, OxidGene first asks what to print: **What the screen shows** (one sheet) or **The whole chart at this zoom**, with the number of sheets it takes. The sheets overlap by 1 cm up to a dashed line, so you can cut or align them on that line to assemble the chart. Beyond 50 sheets, zoom out to print fewer.
 
-The sidebars, the zoom and depth controls, the events panel and the pencil do not print. To print more or less of the tree, zoom or pan first.
+The sidebars, the zoom and depth controls, the events panel and the **⋮** button do not print. To print more or less of the tree, zoom or pan first.
 
 Learn more: [genealogy tree specification](@/tech/ui-genealogy-tree.md).

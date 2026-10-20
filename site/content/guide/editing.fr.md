@@ -12,7 +12,7 @@ Un même formulaire crée ou modifie une personne, quel que soit le contexte : n
 
 | Pour… | Faites ceci |
 |---|---|
-| Modifier une personne | Dans la vue arbre, cliquez sur le crayon sous sa carte (ou faites un clic droit sur la carte) et choisissez **Modifier l’individu** ; sur sa fiche, cliquez sur **Modifier** |
+| Modifier une personne | Dans la vue arbre, cliquez sur le **⋮** sous sa carte sélectionnée (ou faites un clic droit sur la carte) et choisissez **Modifier l’individu** ; sur sa fiche, cliquez sur **Modifier** |
 | Ajouter un conjoint, un enfant, un frère ou une sœur | Dans le choix d’actions de la vue arbre, choisissez **Ajouter un conjoint**, **Ajouter un enfant** ou **Ajouter un frère/sœur** |
 | Ajouter un parent | Dans la vue arbre, cliquez sur le **+** de la case vide en pointillés, à la place du père ou de la mère |
 | Ajouter une personne sans lien familial | Cliquez sur **Ajouter une personne** dans la barre latérale gauche |

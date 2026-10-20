@@ -8,7 +8,7 @@ La page de parenté répond à la question « quel est le lien entre ces deux pe
 
 ## Trouver le lien entre deux personnes
 
-1. Dans l'arbre, faites un clic droit sur la carte de la première personne, ou cliquez sur le crayon de la carte sélectionnée, puis choisissez **Lien de parenté avec…**.
+1. Dans l'arbre, faites un clic droit sur la carte de la première personne, ou cliquez sur le **⋮** sous la carte sélectionnée, puis choisissez **Lien de parenté avec…**.
 2. Choisissez la seconde personne dans le panneau qui s'ouvre :
    - **Moi**, la personne qui vous représente dans les paramètres de l'arbre (**Qui suis-je ?**) ;
    - **Racine SOSA**, la racine SOSA de l'arbre ;

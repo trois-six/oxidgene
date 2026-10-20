@@ -8,7 +8,7 @@ The relationship page answers the question "how are these two persons related?" 
 
 ## Find how two persons are related
 
-1. In the pedigree, right-click the card of the first person, or click the pencil of the selected card, and choose **Relationship with…**.
+1. In the pedigree, right-click the card of the first person, or click the **⋮** under the selected card, and choose **Relationship with…**.
 2. Choose the second person in the panel that opens:
    - **Myself**, the person set as you in the tree settings (**Who am I?**);
    - **SOSA root**, the tree's SOSA root;

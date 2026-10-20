@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Kinship"
 description: "Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none."
 tags: [oxidgene, specification, ui, ux, kinship]
-generated: { by: human:maintainer, at: 2026-10-02T04:20:16Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:02:52Z }
 ---
 
 # Visual & Functional Specifications — Kinship
@@ -20,8 +20,8 @@ persons of a tree, not only those the pedigree window happens to show. It is a
 routed page, `/trees/{tree_id}/kinship?from={person_id}&to={person_id}`, so a
 result can be bookmarked, shared, and left with the browser's back button.
 
-It is opened from the pedigree: right-clicking a card, or its pencil action
-picker, offers **Relationship with…**. The second person is chosen right there,
+It is opened from the pedigree: right-clicking a card, or the ⋮ menu of the selected
+card, offers **Relationship with…**. The second person is chosen right there,
 in the pedigree's person panel, before the page opens:
 
 - shortcuts for **Myself** — the person the tree identifies as the user — and

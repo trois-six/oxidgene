@@ -207,7 +207,7 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     // Shift+F10 on the focused row opens its menu; Tags… (focused) opens the picker.
     await birth.focus();
     await page.keyboard.press("Shift+F10");
-    const tagsEntry = page.locator(".record-tag-menu").getByRole("button", { name: "Tags…", exact: true });
+    const tagsEntry = page.locator(".record-tag-menu").getByRole("menuitem", { name: "Tags…", exact: true });
     await expect(tagsEntry).toBeFocused();
     await page.keyboard.press("Enter");
     const filter = page.getByRole("textbox", { name: "Filter or create a tag" });
@@ -227,8 +227,10 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await expect(source).toBeVisible();
     await expect(source.locator(".tag-badge")).toHaveCount(0);
 
+    // A source's menu opens on Edit, so Tags… is reached by its own focus.
     await source.focus();
     await page.keyboard.press("Shift+F10");
+    await page.locator(".record-tag-menu").getByRole("menuitem", { name: "Tags…", exact: true }).focus();
     await expect(tagsEntry).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(filter).toBeFocused();
@@ -248,7 +250,7 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     });
     expect(note.status()).toBe(201);
     const filter = page.getByRole("textbox", { name: "Filter or create a tag" });
-    const tagsEntry = page.locator(".record-tag-menu").getByRole("button", { name: "Tags…", exact: true });
+    const tagsEntry = page.locator(".record-tag-menu").getByRole("menuitem", { name: "Tags…", exact: true });
 
     // The note of the person's profile, in the Notes card.
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
@@ -814,7 +816,7 @@ test("draws the Tags tab's rows and unfolded lists with the Occupations tab's cl
         value: await looksOf(occupation.locator(".dict-row-value")),
         main: await looksOf(occupation.locator(".dict-row-main")),
         count: await looksOf(occupation.locator(".dict-row-count")),
-        chevron: await looksOf(occupation.locator(".dict-row-action")),
+        chevron: await looksOf(occupation.locator(".dict-row-chevron")),
         list: await looksOf(occupationList),
         item: await looksOf(occupationList.locator("a.dict-accordion-item").first()),
         name: await looksOf(occupationList.locator("a.dict-accordion-item").first().locator(".dict-accordion-name")),
@@ -833,7 +835,7 @@ test("draws the Tags tab's rows and unfolded lists with the Occupations tab's cl
         value: await looksOf(tag.locator(".dict-row-value")),
         main: await looksOf(tag.locator(".dict-row-main")),
         count: await looksOf(tag.locator(".dict-row-count")),
-        chevron: await looksOf(tag.locator(".dict-row-action").last()),
+        chevron: await looksOf(tag.locator(".dict-row-chevron")),
         list: await looksOf(tagList),
         item: await looksOf(dorian),
         name: await looksOf(dorian.locator(".dict-accordion-name")),
@@ -869,9 +871,9 @@ test("puts the colour dot inline before the label, and asks before the tag is de
     expect(Math.abs(dotCentre - labelCentre)).toBeLessThan(label!.height / 2);
     expect(dot!.x + dot!.width).toBeLessThanOrEqual(label!.x + 1);
 
-    // The delete button is the trash icon, and it asks before it deletes.
-    const remove = row.getByRole("button", { name: "Delete", exact: true });
-    await remove.click();
+    // Delete is in the row's ⋮ menu, and it asks before it deletes.
+    await row.getByRole("button", { name: /^Actions for / }).click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Delete the tag" });
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -930,4 +932,155 @@ test("lists a tagged event with its translated type, date, place, description an
     await page.getByRole("button", { name: "Remove Occupation — Fictional inspector · 1938 · Fictionville from Fictional ledger", exact: true }).click();
     await expect(occupationLine).toHaveCount(0);
     await expect(marriageLine).toBeVisible();
+});
+
+test("a dictionary source row shows its ⋮ without hover and opens the same tag menu", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional trigger");
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    const source = page.locator(".dict-row").filter({ hasText: "Parish register 0" }).first();
+    await expect(source).toBeVisible();
+
+    // The trigger is visible while the pointer is away from the row.
+    await page.mouse.move(0, 0);
+    const trigger = source.getByRole("button", { name: /^Actions for / });
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    // The menu holds Edit, then Tags…, in the order every record menu uses.
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const menu = page.locator(".record-tag-menu");
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(["Edit", "Tags…"]);
+    const editEntry = menu.getByRole("menuitem", { name: "Edit", exact: true });
+    await expect(editEntry).toBeFocused();
+    const tagsEntry = menu.getByRole("menuitem", { name: "Tags…", exact: true });
+    await page.keyboard.press("Escape");
+    await expect(tagsEntry).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(source.locator(".dict-row-action")).toHaveCount(0);
+    await expect(source.locator(".tag-badge")).toHaveCount(0);
+});
+
+test("a tag row's ⋮ and its right click, Shift+F10 and long press open the same Edit and Delete menu", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional tag menu");
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: "Fictional tag menu" }).first();
+    await expect(row).toBeVisible();
+
+    await page.mouse.move(0, 0);
+    const trigger = row.getByRole("button", { name: "Actions for Fictional tag menu", exact: true });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const menu = page.locator(".menu-button-wrap .context-menu");
+    const fromTrigger = await menu.getByRole("menuitem").allInnerTexts();
+    expect(fromTrigger).toEqual(["Edit", "Delete"]);
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+
+    await row.click({ button: "right" });
+    await expect(menu).toBeVisible();
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(fromTrigger);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    await row.focus();
+    await page.keyboard.press("Shift+F10");
+    await expect(menu).toBeVisible();
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(fromTrigger);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+});
+
+test("a family name's ⋮ opens its Edit menu, as a right click does", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Family Names", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: /ashdown/i }).first();
+    await expect(row).toBeVisible();
+
+    await page.mouse.move(0, 0);
+    const trigger = row.getByRole("button", { name: /^Actions for / });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    const menu = page.locator(".menu-button-wrap .context-menu");
+    const fromTrigger = await menu.getByRole("menuitem").allInnerTexts();
+    expect(fromTrigger).toEqual(["Edit"]);
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+
+    await row.click({ button: "right" });
+    await expect(menu).toBeVisible();
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(fromTrigger);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+});
+
+test("a dictionary place and repository row show their ⋮ without hover, and it opens the menu a right click opens", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional place trigger");
+    const repository = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, {
+        data: { name: "Fictional trigger archive" },
+    });
+    expect(repository.status()).toBe(201);
+
+    const rows: Array<[tab: string, text: string]> = [
+        ["Places", "Northfield"],
+        ["Repositories", "Fictional trigger archive"],
+    ];
+    for (const [tab, text] of rows) {
+        await page.goto(`/trees/${tree.treeId}/dictionary`);
+        await page.getByRole("tab", { name: tab, exact: true }).click();
+        const row = page.locator(".dict-row").filter({ hasText: text }).first();
+        await expect(row).toBeVisible();
+
+        // The trigger is visible while the pointer is away from the row.
+        await page.mouse.move(0, 0);
+        const trigger = row.getByRole("button", { name: /^Actions for / });
+        await expect(trigger).toBeVisible();
+        await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+        // The ⋮ opens the tag menu, and a right click on the row opens the same entries.
+        await trigger.click();
+        await expect(trigger).toHaveAttribute("aria-expanded", "true");
+        const menu = page.locator(".record-tag-menu");
+        const fromTrigger = await menu.getByRole("menuitem").allInnerTexts();
+        await page.keyboard.press("Escape");
+        await expect(menu).toBeHidden();
+        await expect(trigger).toBeFocused();
+
+        await row.click({ button: "right" });
+        await expect(menu).toBeVisible();
+        expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(fromTrigger);
+        await page.keyboard.press("Escape");
+        await expect(menu).toBeHidden();
+    }
+});
+
+test("a profile event shows its ⋮ and the same tag menu as Shift+F10", async ({ page, request, tree }) => {
+    await createTag(request, tree.treeId, "Fictional menu twin");
+
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    const birth = page.locator("li[id^='pd-event-']").filter({ hasText: "Birth" }).first();
+    await expect(birth).toBeVisible();
+
+    await page.mouse.move(0, 0);
+    const trigger = birth.getByRole("button", { name: "Actions for Birth", exact: true });
+    await expect(trigger).toBeVisible();
+
+    // The ⋮ opens the menu that Shift+F10 opens on the same row.
+    await trigger.click();
+    const tagsEntry = page.locator(".record-tag-menu").getByRole("menuitem", { name: "Tags…", exact: true });
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+
+    await birth.focus();
+    await page.keyboard.press("Shift+F10");
+    await expect(tagsEntry).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(birth).toBeFocused();
 });

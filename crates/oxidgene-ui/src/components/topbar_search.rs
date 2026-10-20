@@ -360,6 +360,7 @@ pub fn TopbarSearch(
                 ContextMenuSurface {
                     x: anchor().0,
                     y: anchor().1,
+                    role: "group".to_string(),
                     menu_class: "context-menu-anchor-right td-suggest".to_string(),
                     on_close: move |()| {
                         open.set(false);

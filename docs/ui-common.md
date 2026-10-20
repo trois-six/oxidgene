@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-20T15:12:45Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:53:58Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -100,7 +100,9 @@ and offers it on every page: the desktop window has no browser around it.
   navbar where the page shows it, else the contextual topbar, before the
   logo. Each is an arrow icon button with a localized accessible name and a
   tooltip naming its shortcut and its list; one with nowhere to go is
-  disabled. They do not print.
+  disabled. Beside each arrow a ⋮ trigger ([§4.8](#48-contextmenu)), labelled
+  "Actions for Back" or "Actions for Forward", opens the same list; a direction
+  with no page that way has no trigger. They do not print.
 - **Several steps at once.** A long press (half a second) or a secondary
   click on either button, or **Down** while it has the focus, lists the pages
   that way, nearest first, on the shared contextual surface
@@ -295,7 +297,7 @@ files rather than being repeated here.
 | `--pn-self` | `#006ac4` | `#006ac4` | Selected-person marker |
 | `--pn-text` | `#111111` | `#e8dfc8` | Pedigree card text |
 | `--pn-text-muted` | `#555555` | `#7a8da8` | Pedigree card dates |
-| `--pn-hover-bg` | `#cfe3fa` | `#2b4364` | Hovered pedigree card |
+| `--pn-hover-bg` | `#cfe3fa` | `#2b4364` | Hovered pedigree segment |
 
 The pedigree chart themes ([Genealogy Tree](ui-genealogy-tree.md#9-themes))
 are a separate choice that overrides `--pn-*` on the chart itself; they are
@@ -696,10 +698,11 @@ assembling them is the last thing done before committing.
 A page is either a file or an address somebody else serves, and the two may be
 mixed in one document. Both are added the same way, from two cells at the end of
 the page grid: the shared upload cell, and a link cell drawn identically that
-opens an address field when clicked. An address stays editable afterwards — a
-remote page carries a pencil action that reopens the same field on that page —
-because a mistyped URL is found after it has been added far more often than
-while it is being typed. Pages may be reordered and removed before saving.
+opens an address field when clicked. An address stays editable afterwards: a
+remote page's row holds a `MenuButton` (§4.8) whose single entry, *Change this
+address*, reopens that field, because a mistyped URL is found after it has been
+added far more often than while it is being typed. Pages may be reordered and
+removed before saving.
 
 A caller that has already assembled a document opens the same form
 prefilled rather than a form of its own: attaching an archive's cited views
@@ -783,6 +786,45 @@ spacing, as the homepage does.
 One shared context menu implementation serves tree cards, person cards, media,
 and vignettes. It supports keyboard navigation, focus restoration, viewport
 collision handling, disabled actions, separators, and destructive styling.
+
+Every element with secondary actions shows one trigger, `MenuButton`
+(`components/context_menu.rs`): a "⋮" at its trailing edge, always visible and
+muted, and stronger while the pointer or the focus is on its own element or on
+the row, card or tile that holds it (the row rules next to the trigger's style
+in `components/layout.rs`). It is labelled "Actions for <name>" and carries
+`aria-haspopup="menu"` and `aria-expanded`; `aria-controls` names the menu's
+`role="menu"` element while the menu is open. A click, Enter, Space or
+ArrowDown opens the shared menu right-aligned below it; its first entry takes
+the focus. Escape or a click outside closes it and returns the focus to the
+trigger. A trigger whose menu the page draws reads as expanded while that menu
+is open: the page reports it through `expanded`. The menu's surface has
+`role="menu"` and each entry `role="menuitem"`, so assistive technology
+announces a menu that behaves as one. The trigger is hidden in print.
+
+`MenuButton` is the trigger alone. Each element that opens this menu from a
+right click, the context-menu key, Shift+F10 or a long press shares a
+`MenuShortcut` (`use_menu_shortcut`) with it, passed as the trigger's
+`shortcut`: the element's listeners call its `right_click`, `key` and
+`press_start`/`press_end` (a touch held for half a second is `long_press_start`
+and `long_press_end`, the same helpers a plain element uses), and the trigger
+opens its own menu, the same one a click opens. So the trigger is never the only route. The Dictionary's tag rows
+and family-name rows wire it this way; the record rows that hold a page menu
+wire theirs to it (§4.18). Markup that opens a context menu from a right click,
+the menu key (`shortcut.key`, `opens_menu`), a long press or a listener
+(`oncontextmenu`) without a `MenuButton` in its element fails the `menu_buttons`
+guard (`crates/oxidgene-guards/tests/menu_buttons.rs`). The one exception is a
+chart canvas whose menu key clicks the focus person's trigger; its element
+documents that with a `menu-guard: delegates to` comment.
+
+A trigger may instead hand its menu to the page (`on_request`) when the page
+draws the menu for its shortcuts too. The page measures the trigger with
+`trigger_point`, opens its menu beside it, and returns the focus to the trigger
+with `focus_trigger` when the menu closes. Record rows (`RecordMenu`, §4.18)
+and media tiles and vignettes use this form, so a right click, a long press
+and the ⋮ open the same menu. A media tile's ⋮ sits at the trailing edge of its caption row
+and holds its secondary actions in this order: set or clear the profile image,
+crop, Edit, Link an event, Unlink an event, Tags…, Detach (asked for in a
+confirmation), Delete. Only opening the viewer stays a direct action.
 
 Its surface (`ContextMenuSurface`) is also the one every anchored overlay uses,
 the topbar search panel included. It closes on a click outside, on a context
@@ -1037,8 +1079,16 @@ that carries tags ([Tags](tags.md)):
   that closes and opens the TagPicker beside it. The row opens it by a right
   click, by the context-menu key or Shift+F10 while the row or one of its
   controls holds the focus (placed beside the row), or by a touch held for half
-  a second; a touch lifted earlier opens nothing. A menu dismissed without a
-  choice, and a closed picker, return the focus to the row.
+  a second; a touch lifted earlier opens nothing. Each such row also shows a
+  **MenuButton** ([§4.8](#48-contextmenu)) at its trailing edge, which opens
+  the same menu beside it, so the menu is never reachable only by a shortcut.
+  The menu's entries are *Edit*, when the page edits that kind of record
+  (`RecordTagMenu`'s `edits`), then *Tags…*, in that order everywhere. The
+  Dictionary's Sources and Repositories rows offer *Edit*; its Places rows
+  offer *Tags…* alone, as no place is edited there. The Edit entry opens the
+  record's editor, and the focus goes to that editor, not back to the row.
+  A menu dismissed without a choice returns the focus to its ⋮ trigger, or to
+  the row when a shortcut opened it; a closed picker returns it to the row.
 
 Each colour is a theme token, `--tag-0` to `--tag-11`,
 applied through the dot's inline style.

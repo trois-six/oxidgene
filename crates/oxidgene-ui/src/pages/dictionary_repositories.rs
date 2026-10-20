@@ -2,11 +2,14 @@
 //! the tree holding sources, each row unfolding into the sources it holds,
 //! editable, and a button adding one. See `docs/ui-dictionary.md`.
 
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use oxidgene_core::types::Repository;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, HeldSource};
+use crate::api::{ApiClient, ApiError, HeldSource};
+use crate::components::context_menu::MenuButton;
 use crate::components::empty_state::EmptyState;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
 use crate::components::tags::{
@@ -26,6 +29,28 @@ enum Editing {
 }
 
 /// The repository's address, phone and website on one line.
+/// Opens the editor of the repository of the list with this id.
+fn open_editor_of(
+    mut editing: Signal<Option<Editing>>,
+    list: &Option<Result<Vec<Repository>, ApiError>>,
+    id: Uuid,
+) {
+    if let Some(repository) = listed_repository(list, id) {
+        editing.set(Some(Editing::Existing(Box::new(repository))));
+    }
+}
+
+/// The repository of the list with this id, for its editor.
+fn listed_repository(
+    list: &Option<Result<Vec<Repository>, ApiError>>,
+    id: Uuid,
+) -> Option<Repository> {
+    match list {
+        Some(Ok(list)) => list.iter().find(|r| r.id == id).cloned(),
+        _ => None,
+    }
+}
+
 fn repository_meta(repository: &Repository) -> String {
     let first_address_line = repository
         .address
@@ -156,7 +181,6 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                             let id = repository.id;
                             let is_open = expanded() == Some(id);
                             let meta = repository_meta(&repository);
-                            let edited = repository.clone();
                             let row_id = format!("dict-repository-{id}");
                             let target = MenuTarget {
                                 kind: RecordKind::Repository,
@@ -203,16 +227,13 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                                                 span { class: "dict-row-meta", "{meta}" }
                                             }
                                         }
-                                        button {
-                                            class: "dict-row-action",
-                                            title: "{i18n.t(\"common.edit\")}",
-                                            onkeydown: stop_row_activation,
-                                            onpointerdown: stop_row_press,
-                                            onclick: move |e: Event<MouseData>| {
-                                                e.stop_propagation();
-                                                editing.set(Some(Editing::Existing(Box::new(edited.clone()))));
+                                        MenuButton {
+                                            name: repository.name.clone(),
+                                            expanded: record_menu.is_open_for(&target.row_id),
+                                            on_request: {
+                                                let target = target.clone();
+                                                move |trigger: Rc<MountedData>| record_menu.open_from_trigger(trigger, target.clone())
                                             },
-                                            "\u{270E}"
                                         }
                                         button {
                                             class: "dict-row-action",
@@ -236,6 +257,10 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
             tree_id,
             menu: record_menu,
             on_changed: move |()| repositories.restart(),
+            edits: vec![RecordKind::Repository],
+            on_edit: move |target: MenuTarget| {
+                open_editor_of(editing, &repositories.read(), target.record_id);
+            },
         }
         if let Some(edit) = editing() {
             RepositoryEditor {

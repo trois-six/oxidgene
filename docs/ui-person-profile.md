@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T12:36:03Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:41:54Z }
 ---
 
 
@@ -271,10 +271,11 @@ others give family context.
 
 **Tags.** An event's tags are badges after its label, nothing drawn for an
 untagged event ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
-Its row, and each citation entry of its **Sources** line, carries the shared
-record menu: a right click, the context-menu key or Shift+F10 on the focused row or one of its controls,
-or a touch held for half a second opens *Tags…*, which opens the tag picker beside
-it. A citation's badges follow its text. The row takes the focus back when the
+Its row carries the shared record menu, opened by a **⋮** at the row's trailing
+edge ([Common UI §4.8](ui-common.md#48-contextmenu)). A right click, the context-menu
+key or Shift+F10 on the focused row or one of its controls, or a touch held for
+half a second opens the same menu. Each citation entry of its **Sources** line
+takes the same menu. The menu's *Tags…* opens the tag picker beside it. A citation's badges follow its text. The row takes the focus back when the
 menu or picker closes, and the timeline reloads when a tag changes.
 
 An event's recorded age — at a family event, this
@@ -413,8 +414,8 @@ Events are ordered by `date_sort`; events without one come first, with no
 separate heading. An event reached through several relations is listed once.
 
 Attached event media appear inline as compact `44 x 44 px` thumbnails without
-titles. Clicking a thumbnail opens the media viewer; its context menu remains
-available on right-click for media and event-link actions.
+titles. Clicking a thumbnail opens the media viewer; its **⋮** at the tile's trailing edge,
+or a right click on it, opens the media and event-link actions.
 
 ---
 
@@ -469,7 +470,7 @@ families; it never loads the tree snapshot. Read-only media facts fetch only
 the media's referenced place. The complete place list is loaded only after
 opening the edit form, where it supplies the place selector.
 
-Right-clicking a media tile opens **Link an event**, listing this person's own
+Right-clicking a media tile, or its ⋮ menu, opens **Link an event**, listing this person's own
 events and the events of their conjugal families. A linked event is removable
 from the same menu through **Unlink an event**. Under the media title, each
 linked event shows its date (as `dd/mm/yyyy` for an exact Gregorian date) and
@@ -640,9 +641,9 @@ line breaks; the markup was sanitized when the note was written.
 
 **Tags.** A note's tags are badges under its text, nothing drawn for an untagged
 note ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)). A note
-takes the same record menu as a timeline row: a right click, the context-menu
-key or Shift+F10 with the note focused, or a long touch opens it, and *Tags…*
-opens the tag picker beside the note. The menu closes back onto the note.
+takes the same record menu as a timeline row: a **⋮** at its trailing edge opens
+it, as does a right click, the context-menu key or Shift+F10 with the note
+focused, or a long touch. *Tags…* opens the tag picker beside the note. The menu closes back onto the note.
 
 There is no separate sources card. Sources appear only in the events timeline,
 as the **Sources** line of each event they are cited for (§6), without their

@@ -435,6 +435,11 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
+    .nav-history-item {
+        display: inline-flex;
+        align-items: center;
+    }
+
     .nav-history-btn {
         display: inline-flex;
         align-items: center;
@@ -2003,8 +2008,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pedigree-viewport:active { cursor: grabbing; }
 
-    .ped-card:hover .ped-card-rect { fill: var(--pn-hover-bg) !important; stroke: var(--pn-root-bg) !important; }
-    .ped-card-focus:hover .ped-card-name-text, .ped-card-focus:hover .ped-card-name-text tspan { fill: var(--pn-text) !important; }
 
     /* ── Wheel and fan charts, ancestor and descendant ───────────────
        A segment is tinted by sex from the same tokens as a card's rule, a
@@ -2413,6 +2416,70 @@ pub const LAYOUT_STYLES: &str = r#"
        opened from a control on the right edge stays aligned with it whatever
        its own width is. */
     .context-menu-anchor-right { transform: translateX(-100%); }
+
+    /* The ⋮ trigger of every element with secondary actions (MenuButton). It
+       is always shown, muted, and stronger on the hover or focus of its own
+       element or of the row, card or tile that holds it. */
+    .menu-button-wrap {
+        position: relative;
+        display: inline-flex;
+        flex-shrink: 0;
+    }
+
+    .menu-button {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: var(--text-120);
+        cursor: pointer;
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius-sm);
+        line-height: 1;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .menu-button:hover,
+    .menu-button:focus-visible,
+    .menu-button[aria-expanded="true"] {
+        background: var(--bg-card-hover);
+        color: var(--text-primary);
+    }
+
+    /* The rows, cards and tiles that hold a MenuButton raise its colour when
+       the pointer or the focus is anywhere in them. */
+    .dict-row:hover .menu-button,
+    .dict-row:focus-within .menu-button,
+    .media-tile:hover .menu-button,
+    .media-tile:focus-within .menu-button,
+    .media-caption-row:hover .menu-button,
+    .note-entry:hover .menu-button,
+    .note-entry:focus-within .menu-button,
+    .pd-ev-row:hover .menu-button,
+    .pd-ev-row:focus-within .menu-button,
+    .nav-history-item:hover .menu-button,
+    .nav-history-item:focus-within .menu-button,
+    .tree-card:hover .menu-button,
+    .tree-card:focus-within .menu-button {
+        color: var(--text-primary);
+    }
+
+    /* The "⋮" trigger of a selected pedigree element, drawn inside an SVG
+       foreignObject: a round target filling the element's centre mark. */
+    .ped-card-menu .menu-button-wrap,
+    .ped-card-menu .menu-button {
+        width: 100%;
+        height: 100%;
+    }
+
+    .ped-card-menu .menu-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border-radius: 50%;
+        background: var(--pn-root-bg, var(--bg-card));
+        color: var(--white);
+    }
 
     .context-menu-events { width: 250px; }
 
@@ -4575,6 +4642,13 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--orange);
     }
 
+    /* The ▲/▼ of a row that unfolds: a row click does it, so it is not a control. */
+    .dict-row-chevron {
+        color: var(--text-muted);
+        font-size: var(--text-90);
+        padding: var(--space-2);
+    }
+
     /* Bulk surname-particle editor, opened from a family-name row. */
     /* The Dictionary's editors: a family name, a source, a repository. */
     .dict-edit-modal {
@@ -4774,6 +4848,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .media-tile {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
@@ -4896,58 +4971,6 @@ pub const LAYOUT_STYLES: &str = r#"
         pointer-events: none;
     }
 
-    /* Controls appear on hover and, crucially, on keyboard focus — a row of
-       buttons reachable only by pointer is unreachable on a touch screen and
-       invisible to a keyboard. */
-    .media-tile-actions {
-        position: absolute;
-        inset: auto 0 0 0;
-        display: flex;
-        justify-content: center;
-        gap: var(--space-1);
-        padding: var(--space-2);
-        background: linear-gradient(transparent, color-mix(in srgb, var(--scrim) 72%, transparent));
-        opacity: 0;
-        transition: opacity 0.15s ease;
-    }
-
-    .media-thumb:hover .media-tile-actions,
-    .media-tile-actions:focus-within { opacity: 1; }
-
-    .media-act {
-        background: none;
-        border: none;
-        color: var(--media-caption);
-        font-size: var(--text-80);
-        line-height: 1;
-        padding: var(--space-2) 5px;
-        border-radius: var(--radius-xs);
-        cursor: pointer;
-        text-decoration: none;
-    }
-
-    .media-act:hover { background: color-mix(in srgb, var(--on-accent) 16%, transparent); }
-    .media-act.is-on { color: var(--orange); }
-    .media-act.is-danger:hover { background: var(--red); color: var(--on-accent); }
-    .media-act:disabled { opacity: 0.45; cursor: default; }
-
-    .media-confirm {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--space-4);
-        padding: var(--space-4);
-        text-align: center;
-        font-size: var(--text-70);
-        background: color-mix(in srgb, var(--media-bg) 90%, transparent);
-        color: var(--text-primary);
-    }
-
-    .media-confirm-actions { display: flex; gap: var(--space-3); }
-
     /* Under the caption in a listing: what the record is, how often used. */
     .media-footnote {
         margin-top: -4px;
@@ -4978,6 +5001,8 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 0;
     }
     .media-caption-row .tag-badges { flex: 0 1 6rem; width: auto; margin-left: var(--space-2); }
+    /* The tile's ⋮ sits at the trailing edge of its caption row. */
+    .media-caption-row > .menu-button-wrap { margin-left: auto; }
 
     .media-event-link {
         font-size: var(--text-70);
@@ -6351,7 +6376,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .doc-pages .media-drop { aspect-ratio: 3 / 4; }
 
     /* The address field under that grid, shown while a link cell or a page's
-       pencil has it open. */
+       edit button has it open. */
     .doc-page-url {
         display: flex;
         gap: var(--space-4);
@@ -6598,8 +6623,6 @@ pub const LAYOUT_STYLES: &str = r#"
         .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .cropper-backdrop { padding: 0; }
         .cropper-panel { max-height: 100vh; border-radius: 0; }
-        /* Controls that only appear on hover are unreachable by touch. */
-        .media-tile-actions { opacity: 1; }
     }
 
     /* ── Import modal (file + Geneanet wizard) ───────────────────── */
@@ -8374,9 +8397,9 @@ pub const LAYOUT_STYLES: &str = r#"
         .ref-tooltip, .mini-pedigree-tooltip, .pedigree-depth-popover,
         .import-overlay, .cropper-backdrop,
         .btn, .td-btn, .td-search-btn, .isb-btn, .pd-header-buttons, .cp-actions,
-        .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action,
+        .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action, .dict-row-chevron,
         .dict-letter-strip, .dict-filter-row, .dict-page-size,
-        .media-act, .media-upload-icon-btn, .media-drop-btn,
+        .media-upload-icon-btn, .media-drop-btn,
         .media-identification-delete,
         .sr-filters-toggle, .sr-filters, .sr-sort, .view-toggle,
         .sr-filter-actions, .sr-clear-filters, .pager, .stats-option,

@@ -242,10 +242,10 @@ for (const language of LANGUAGES) {
         await pin(page, language, "light");
         await page.goto("/");
         const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: "Landrevel family" }) });
-        await card.getByTitle(t(language, "home.tree_actions")).click();
+        await card.getByRole("button", { name: t(language, "common.actions_for", { name: "Landrevel family" }) }).click();
         // The menu keeps measuring its place under the pinned clock, which
         // Playwright reads as never stable: the click is dispatched.
-        await page.getByRole("button", { name: t(language, "common.import"), exact: true }).dispatchEvent("click");
+        await page.getByRole("menuitem", { name: t(language, "common.import"), exact: true }).dispatchEvent("click");
         await expect(page.getByText(t(language, "import.tab_geneanet"))).toBeVisible();
         await shoot(page, language, "import");
     });
@@ -358,7 +358,8 @@ for (const language of LANGUAGES) {
         await page.goto(`/trees/${ids.treeId}/dictionary`);
         await expect(page.getByText("LANDREVEL").first()).toBeVisible();
         await page.getByPlaceholder(t(language, "dictionary.filter_placeholder")).fill("LANDREVEL");
-        await page.getByRole("button", { name: "▼" }).first().click();
+        // A click on the row unfolds it: the row is the control, not a chevron.
+        await page.locator(".dict-row", { hasText: "LANDREVEL" }).first().click();
         await shoot(page, language, "dictionary");
         await page.getByRole("tab", { name: t(language, "dictionary.tab.media") }).click();
         await shoot(page, language, "media-library");
