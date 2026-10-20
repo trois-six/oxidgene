@@ -572,8 +572,8 @@ pub struct BulkTagPickerProps {
 
 /// The picker in bulk mode (docs/ui-common.md §4.18). For each tag of the tree it
 /// shows how many of the target's persons carry it, and two actions: Add to
-/// all, Remove from all. A change over more than [`CONFIRM_ABOVE`] persons
-/// asks first. Each change is one request, so it is written at once.
+/// all, Remove from all. A change over more than a hundred persons asks
+/// first. Each change is one request, so it is written at once.
 #[component]
 pub fn BulkTagPicker(props: BulkTagPickerProps) -> Element {
     let i18n = use_i18n();
@@ -1332,7 +1332,7 @@ impl RecordMenu {
     }
 
     /// Starts a long press when a touch begins on a row: the menu opens where
-    /// the touch landed once [`LONG_PRESS_MS`] pass, unless the touch ends first.
+    /// the touch landed once the long-press delay passes, unless the touch ends first.
     pub fn press_start(mut self, event: &Event<PointerData>, target: MenuTarget) {
         if event.pointer_type() != "touch" {
             return;

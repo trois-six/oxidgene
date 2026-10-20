@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-18T13:04:20Z }
+generated: { by: human:maintainer, at: 2026-10-20T18:23:42Z }
 ---
 
 # Development Environment and Workflows
@@ -73,7 +73,8 @@ the repository root.
 | `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). |
 | `just duplication [--report]` | Fail when the duplicated share of the Rust code grows past its budget; `--report` lists the duplicate blocks (§2.8). |
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
-| `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
+| `just doc-check` | Build the rustdoc the documentation site publishes with warnings denied, so a broken or private intra-doc link fails locally rather than in the Pages job. Part of `just check`. |
+| `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, the rustdoc check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |

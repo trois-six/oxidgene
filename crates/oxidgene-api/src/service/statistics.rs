@@ -724,8 +724,8 @@ pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::Oxid
 /// the async workers: the person projections, the place usages, the source
 /// count, and the place dictionary to locate places and name their country,
 /// region and subdivision in `lang`. With `tag`, the figures about persons
-/// are those of the persons carrying it (see [`limit_to_tag`]); the source
-/// count stays the whole tree's.
+/// are those of the persons carrying it, a union counting when a spouse
+/// does; the source count stays the whole tree's.
 #[tracing::instrument(name = "statistics.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,

@@ -109,8 +109,14 @@ fmt-check:
 cyclomatic:
     uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
 
-# Run all checks (fmt + clippy + cyclomatic + test)
-check: fmt-check clippy cyclomatic test
+# Build the rustdoc the documentation site publishes, warnings denied, so a
+# broken or private intra-doc link fails here rather than in the Pages job
+# (scripts/site.py documents the same crates).
+doc-check:
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p oxidgene-core -p oxidgene-db -p oxidgene-gedcom -p oxidgene-geneanet -p oxidgene-archives -p oxidgene-observability -p oxidgene-api -p oxidgene-ui
+
+# Run all checks (fmt + clippy + cyclomatic + rustdoc + test)
+check: fmt-check clippy cyclomatic doc-check test
 
 # Time the tree-wide computations on a tree and on one eight times larger, in
 # release mode, and fail on any that grows markedly faster than linear (see
