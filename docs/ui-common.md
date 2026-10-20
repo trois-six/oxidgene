@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-20T13:34:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T15:12:45Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -133,13 +133,15 @@ and offers it on every page: the desktop window has no browser around it.
   keys keep their editing meaning.
 - **What going back finds.** A history entry reopens its page as the reader
   left it. What the page is about is in its route: the pedigree names the
-  person it is drawn around (`?person=`), replacing its route as the reader
-  moves about the chart rather than adding pages, so going back to it reopens
-  it on that person ([Tree View §1](ui-genealogy-tree.md#1-general-structure)). The view of a
+  person it is drawn around (`?person=`), and each person the reader makes
+  its focus is a page of its own, so going back returns to the person before
+  ([Tree View §1](ui-genealogy-tree.md#1-general-structure)). The view of a
   page — its tab, filters, page and open rows — is not an address: it is kept
   with the page's history entry, as a browser keeps a page's state, and taken
   up again when the reader comes back to that entry, while a page opened anew
-  starts from its defaults. The [Dictionary](ui-dictionary.md#4-tabs) keeps
+  starts from its defaults. A page that stays open while the history moves on,
+  as the pedigree does from person to person, keeps its view in each entry it
+  shows. The [Dictionary](ui-dictionary.md#4-tabs) keeps
   its view this way. That view is held in memory, and a reload of the web page
   forgets it.
 

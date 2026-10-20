@@ -230,12 +230,7 @@ fn use_overlays() -> Overlays {
 
 impl Overlays {
     /// Runs a context menu action on the person the menu was opened on.
-    fn act(
-        mut self,
-        action: PersonAction,
-        data: Option<&SharedPedigree>,
-        mut selected_root: Signal<Option<Uuid>>,
-    ) {
+    fn act(mut self, action: PersonAction, data: Option<&SharedPedigree>, roots: RootSelection) {
         let Some((pid, x, y)) = (self.context_menu)() else {
             return;
         };
@@ -259,7 +254,7 @@ impl Overlays {
             PersonAction::Kinship => self.linking.set(Some(LinkingMode::Kinship(pid))),
             PersonAction::Tags => self.tagging.set(Some((pid, x, y))),
             PersonAction::TagBranch => self.tagging_branch.set(Some(pid)),
-            PersonAction::GoTo(relative) => selected_root.set(Some(relative)),
+            PersonAction::GoTo(relative) => roots.go_to(relative),
             PersonAction::Delete => {
                 self.confirm_delete.set(Some(pid));
                 self.delete_error.set(None);
@@ -357,6 +352,17 @@ struct RootSelection {
     center_gen: Signal<u32>,
     /// Whether this render moved to another tree.
     tree_changed: bool,
+    /// Set by [`go_to`](Self::go_to) until the route names the new root.
+    as_new_page: Signal<bool>,
+}
+
+impl RootSelection {
+    /// Makes `pid` the chart's root as a new page of the history, as the
+    /// reader does by clicking a card or going to a relative.
+    fn go_to(mut self, pid: Uuid) {
+        self.as_new_page.set(true);
+        self.selected_root.set(Some(pid));
+    }
 }
 
 fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
@@ -404,33 +410,47 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
         prev_person_raw.set(person_raw.clone());
         let written_here = std::mem::take(&mut *rewritten.write()) == Some(person_raw);
         if !written_here {
-            if initial_person.is_some() {
-                selected_root.set(initial_person);
+            // Within a tree, a route naming nobody is its default root, as
+            // the history entry from before the first click shows it; another
+            // tree opens on its saved view.
+            let root = if tree_changed { initial_person } else { named };
+            if root.is_some() || !tree_changed {
+                selected_root.set(root);
             }
             center_gen += 1;
         }
     }
-    use_root_in_route(tree_id_parsed, selected_root, prev_person_raw, rewritten);
+    let as_new_page = use_signal(|| false);
+    use_root_in_route(
+        tree_id_parsed,
+        selected_root,
+        prev_person_raw,
+        rewritten,
+        as_new_page,
+    );
 
     RootSelection {
         tree_id: tree_id_parsed,
         selected_root,
         center_gen,
         tree_changed,
+        as_new_page,
     }
 }
 
 /// Keeps the route naming the person the chart is drawn around, whichever
-/// way they became its root — a click on a card, a relative gone to, a
-/// merge — so that the history entry reopens the chart on them. The route
-/// is replaced rather than pushed: moving about the chart is not a new
-/// page. The page notes the route it wrote, so that reading it back does
-/// not re-centre a chart the click has already moved.
+/// way they became its root, so that the history entry reopens the chart on
+/// them. A root the reader went to — a click on a card, a relative gone to
+/// — is a new page of the history, which going back leaves; any other — a
+/// merge, a deletion, the tree's default root — replaces the route of the
+/// page shown. The page notes the route it wrote, so that reading it back
+/// does not re-centre a chart the click has already moved.
 fn use_root_in_route(
     tree_id: Signal<Option<Uuid>>,
     selected_root: Signal<Option<Uuid>>,
     route_person: Signal<Option<String>>,
     mut rewritten: Signal<Option<Option<String>>>,
+    mut as_new_page: Signal<bool>,
 ) {
     let nav = navigator();
     use_effect(move || {
@@ -441,12 +461,21 @@ fn use_root_in_route(
         // Without a root of its own the chart is on the tree's default one,
         // and the route names nobody — not a person deleted since.
         let root = selected_root();
+        let new_page = *as_new_page.peek();
+        if new_page {
+            as_new_page.set(false);
+        }
         let root_raw = root.map(|root| root.to_string());
         if named == root_raw {
             return;
         }
         rewritten.set(Some(root_raw));
-        nav.replace(pedigree_route(tid.to_string(), root));
+        let route = pedigree_route(tid.to_string(), root);
+        if new_page {
+            nav.push(route);
+        } else {
+            nav.replace(route);
+        }
     });
 }
 
@@ -479,12 +508,14 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let view_cache = use_view_state_cache();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
 
+    let roots = use_root_selection(&tree_id, person.as_ref());
     let RootSelection {
         tree_id: tree_id_parsed,
-        mut selected_root,
+        selected_root,
         center_gen,
         tree_changed,
-    } = use_root_selection(&tree_id, person.as_ref());
+        ..
+    } = roots;
     let overlays = use_overlays();
     let Overlays {
         mut context_menu,
@@ -658,7 +689,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 go_to: go_to_relatives(data, pid, root_person_id, view, &i18n),
                 on_action: {
                     let data = pedigree_data.clone();
-                    move |action| overlays.act(action, data.as_ref(), selected_root)
+                    move |action| overlays.act(action, data.as_ref(), roots)
                 },
                 on_close: move |_| context_menu.set(None),
             }
@@ -680,9 +711,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         on_person_click: move |(pid, x, y)| {
                             context_menu.set(Some((pid, x, y)));
                         },
-                        on_person_navigate: move |pid| {
-                            selected_root.set(Some(pid));
-                        },
+                        on_person_navigate: move |pid| roots.go_to(pid),
                         on_empty_slot: move |(child_id, is_father)| {
                             creating_person.set(Some(add_parent_context(&data, child_id, is_father)));
                         },

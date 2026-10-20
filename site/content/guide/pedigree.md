@@ -55,7 +55,7 @@ A dashed card with a **+** stands for a parent the tree does not record yet, at 
 - **Fit.** **Fit to screen** frames the whole chart in the window. When the tree is too large to fit, it is centred on the focus person.
 - **Change the depth.** Hover **Generation depth** in the left sidebar. A small panel opens with two counters, ancestors (up arrow) and descendants (down arrow), each from 0 to 10. Every **+** or **−** redraws the chart at once.
 
-The depth a new tree opens with is 4 generations of ancestors and 3 of descendants; change it under **Pedigree depth** in the application [settings](@/guide/settings.md). Once you have moved around a tree, its view (focus person, depths, pan and zoom) is kept for as long as the window is open: leave for another page and come back, and the chart is as you left it. The **Back** button also brings you back to the person the chart was drawn around.
+The depth a new tree opens with is 4 generations of ancestors and 3 of descendants; change it under **Pedigree depth** in the application [settings](@/guide/settings.md). Once you have moved around a tree, its view (focus person, depths, pan and zoom) is kept for as long as the window is open: leave for another page and come back, and the chart is as you left it. Each person you make the focus by clicking a card, or by going to a relative, is a page of the history: **Back** returns to the person before, and **Forward** comes back again. A long press on either button lists these persons by name.
 
 ## Find a person from the top bar
 

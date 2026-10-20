@@ -574,14 +574,20 @@ pub fn use_restored_view<T: Clone + 'static>() -> Option<T> {
     })
 }
 
-/// Keeps `view()` as the view of the history entry the page opened on,
-/// whenever what it reads changes.
+/// Keeps `view()` as the view of the history entry the page shows, whenever
+/// what it reads changes, and in each entry the page reaches while it stays
+/// open — the pedigree going from person to person — so that every entry
+/// reopens on the view it was left with.
 pub fn use_saved_view<T: 'static>(view: impl Fn() -> T + 'static) {
     let history = use_app_history();
-    let id = use_hook(|| history.as_ref().map(|history| history.current_id()));
+    let current = history.as_ref().map(|history| history.current_id());
+    let mut id = use_signal(|| current);
+    if *id.peek() != current {
+        id.set(current);
+    }
     use_effect(move || {
         let view = view();
-        if let (Some(history), Some(id)) = (history.as_ref(), id) {
+        if let (Some(history), Some(id)) = (history.as_ref(), id()) {
             history.set_state(id, Rc::new(view));
         }
     });
@@ -802,6 +808,50 @@ mod tests {
         assert!(!History::can_go_forward(&history));
         history.go(-3);
         assert_eq!(history.current_route(), "/");
+    }
+
+    /// The page providing the history, and the one keeping its view in it.
+    fn page_with_history(history: Rc<AppHistory>) -> Element {
+        use_hook(|| provide_context(history));
+        rsx! { ViewKeeper {} }
+    }
+
+    #[component]
+    fn ViewKeeper() -> Element {
+        use_saved_view(|| 7_u8);
+        rsx! {}
+    }
+
+    /// Renders until nothing is left to render and no effect is left to run.
+    fn settle(dom: &mut VirtualDom) {
+        for _ in 0..4 {
+            dom.process_events();
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+    }
+
+    /// A page that stays open while the history moves on — the pedigree
+    /// going from person to person — keeps its view in each entry it shows,
+    /// not only in the one it opened on.
+    #[test]
+    fn a_view_follows_the_page_into_each_entry_it_shows() {
+        use dioxus::history::MemoryHistory;
+        let history = Rc::new(AppHistory::new(Rc::new(MemoryHistory::default())));
+        History::push(&*history, "/trees/t?person=a".to_string());
+        let opened = history.current_id();
+        let mut dom = VirtualDom::new_with_props(page_with_history, history.clone());
+        dom.rebuild_in_place();
+        settle(&mut dom);
+        assert_eq!(history.current_state::<u8>(), Some(7));
+
+        History::push(&*history, "/trees/t?person=b".to_string());
+        assert_ne!(history.current_id(), opened);
+        dom.mark_all_dirty();
+        settle(&mut dom);
+        assert_eq!(history.current_state::<u8>(), Some(7));
+        history.go(-1);
+        assert_eq!(history.current_id(), opened);
+        assert_eq!(history.current_state::<u8>(), Some(7));
     }
 
     #[test]

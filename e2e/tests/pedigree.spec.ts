@@ -43,3 +43,21 @@ test("closes the person form on Escape and on a press outside it", async ({ page
     await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
     await expect(form).toBeHidden();
 });
+
+test("goes back to each person made the focus, one at a time", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}`);
+    const cards = page.locator("g.ped-card");
+    const focus = page.locator(".ev-panel .evp-person");
+
+    await cards.filter({ hasText: /Bernard\s*ASHDOWN/ }).first().click();
+    await expect(focus).toContainText(/Bernard\s*Ashdown/i);
+    await cards.filter({ hasText: /Dorian\s*ASHDOWN/ }).first().click();
+    await expect(focus).toContainText(/Dorian\s*Ashdown/i);
+
+    await page.goBack();
+    await expect(focus).toContainText(/Bernard\s*Ashdown/i);
+    await page.goBack();
+    await expect(focus).toContainText(/Anchor\s*Ashdown/i);
+    await page.goForward();
+    await expect(focus).toContainText(/Bernard\s*Ashdown/i);
+});
