@@ -446,8 +446,26 @@ mod tests {
         }
     }
 
+    /// A dispatcher that stays registered for the whole test binary.
+    ///
+    /// tracing-core keeps one interest per callsite for the whole process, and
+    /// `set_default` only rebuilds it for the callsites already registered. The
+    /// sqlx acquisition callsite is first reached by whichever test connects
+    /// first, possibly on a thread without a subscriber. When this test's
+    /// thread-local subscriber is the only dispatcher registered, tracing-core
+    /// takes a fast path that judges that first registration against the
+    /// registering thread's own default, which is none, so the callsite is
+    /// cached as `never` and this test never sees its events. A second live
+    /// dispatcher makes tracing-core judge every registration against the
+    /// shared, lock-protected dispatcher list instead.
+    fn second_dispatcher() -> &'static tracing::Dispatch {
+        static SECOND: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
+        SECOND.get_or_init(|| tracing::Dispatch::new(tracing_subscriber::registry()))
+    }
+
     #[tokio::test]
     async fn every_pool_acquisition_reports_its_wait() {
+        let _second = second_dispatcher();
         let times = AcquireTimes::default();
         let _guard =
             tracing::subscriber::set_default(tracing_subscriber::registry().with(times.clone()));
