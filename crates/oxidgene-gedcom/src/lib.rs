@@ -13,6 +13,8 @@ mod keeping;
 pub mod kept;
 
 #[cfg(test)]
+mod place_tests;
+#[cfg(test)]
 mod tag_tests;
 
 use serde::{Deserialize, Serialize};

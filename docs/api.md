@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-20T09:40:00Z }
+generated: { by: human:maintainer, at: 2026-10-20T10:29:23Z }
 ---
 
 
@@ -1813,6 +1813,14 @@ coordinates when it has them, and the `_OXIDGENE_TAG` lines of the place beneath
 the `PLAC`. An import reads it as a place of that name, which joins a place of
 the same name already read, and gives the place those tags and coordinates.
 Other software may ignore it.
+
+**Place identity on import.** One name gives one place, whichever record names
+it: an event's `PLAC`, an `_OXIDGENE_PLACE` record, or the place of a document
+(`_OXIDGENE_DOC` metadata). The name is compared trimmed, so names that differ
+only in leading or trailing blanks are one place. Each place takes the union of
+the tags its records carry, and the first non-empty latitude and longitude read
+for it; a later record does not replace them. The same rule applies to a `.ged`
+and to a GEDZIP.
 
 #### `_OXIDGENE_TAG`
 

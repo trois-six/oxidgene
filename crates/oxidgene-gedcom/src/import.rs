@@ -17,7 +17,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use oxidged::gedzip::GedzipReader;
 use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Crop, Dataset,
@@ -583,31 +583,10 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     };
     import_submitter(data, &mut result);
 
-    // Place name → UUID (dedup by exact name match)
-    let mut place_map: HashMap<String, Uuid> = HashMap::new();
     // Free-text SOUR description → UUID of a synthesized Source (dedup by
     // exact text match) — see `get_or_create_text_source` below.
     let mut text_source_map: HashMap<String, Uuid> = HashMap::new();
-
-    // ── Helper: get or create a Place by name ───────────────────────
-    let mut get_or_create_place = |name: &str, result: &mut ImportResult| -> Uuid {
-        if let Some(&id) = place_map.get(name) {
-            return id;
-        }
-        let id = Uuid::now_v7();
-        place_map.insert(name.to_string(), id);
-        result.places.push(Place {
-            tags: Vec::new(),
-            id,
-            tree_id,
-            name: name.to_string(),
-            latitude: None,
-            longitude: None,
-            created_at: now,
-            updated_at: now,
-        });
-        id
-    };
+    let mut place_names = PlaceNames::new(tree_id, now, &[]);
 
     // ── Helper: get or create a Source from a free-text SOUR description ──
     //
@@ -644,7 +623,7 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     import_sources(data, &ctx, &mut repositories, &mut result);
     let page_map = import_multimedia(data, &ctx, &mut result);
     let mut lookups = Lookups {
-        place: &mut get_or_create_place,
+        place: &mut place_names,
         text_source: &mut get_or_create_text_source,
     };
     for indi in data.individuals() {
@@ -673,8 +652,65 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
 
 /// The places and the sources named by text, created on first use.
 struct Lookups<'l> {
-    place: &'l mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    place: &'l mut PlaceNames,
     text_source: &'l mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+}
+
+/// The places of one import, keyed by name: a name, trimmed, is one place
+/// whichever record names it, an event's `PLAC`, a standalone
+/// `_OXIDGENE_PLACE` or a document's metadata. Every place the import creates
+/// goes through [`PlaceNames::id_of`], so the identity rule is one rule.
+struct PlaceNames {
+    ids: HashMap<String, Uuid>,
+    tree_id: Uuid,
+    now: DateTime<Utc>,
+}
+
+impl PlaceNames {
+    /// Names the places already in `existing`, so that a name they hold is
+    /// not created again.
+    fn new(tree_id: Uuid, now: DateTime<Utc>, existing: &[Place]) -> Self {
+        Self {
+            ids: existing
+                .iter()
+                .map(|place| (place.name.trim().to_string(), place.id))
+                .collect(),
+            tree_id,
+            now,
+        }
+    }
+
+    /// The place `name` names, created in `places` on first use. `None` when
+    /// the name is blank.
+    fn id_of(&mut self, name: &str, places: &mut Vec<Place>) -> Option<Uuid> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        if let Some(&id) = self.ids.get(name) {
+            return Some(id);
+        }
+        let id = Uuid::now_v7();
+        self.ids.insert(name.to_string(), id);
+        places.push(Place {
+            tags: Vec::new(),
+            id,
+            tree_id: self.tree_id,
+            name: name.to_string(),
+            latitude: None,
+            longitude: None,
+            created_at: self.now,
+            updated_at: self.now,
+        });
+        Some(id)
+    }
+}
+
+/// Gives a place the coordinates a record names, each one the place does not
+/// have yet: the first non-empty value read wins.
+fn give_coordinates(place: &mut Place, latitude: Option<f64>, longitude: Option<f64>) {
+    place.latitude = place.latitude.or(latitude);
+    place.longitude = place.longitude.or(longitude);
 }
 
 /// What every record of one import is converted against: the tree, the
@@ -2606,23 +2642,18 @@ fn import_standalone_places(data: &Dataset, lookups: &mut Lookups<'_>, result: &
                 .push("_OXIDGENE_PLACE without a PLAC — skipped".to_string());
             continue;
         };
-        let Some(name) = node_text(plac).map(|text| text.trim().to_string()) else {
+        let Some(name) = node_text(plac) else {
             continue;
         };
-        if name.is_empty() {
+        let Some(id) = lookups.place.id_of(&name, &mut result.places) else {
             continue;
-        }
-        let id = match result.places.iter().find(|place| place.name == name) {
-            Some(place) => place.id,
-            None => (lookups.place)(&name, result),
         };
         let tags = read_tags(plac.children(), &mut result.tags, &mut result.warnings);
         let coordinates = map_coordinates(plac);
         if let Some(place) = result.places.iter_mut().find(|place| place.id == id) {
             add_tags(&mut place.tags, tags);
             if let Some((latitude, longitude)) = coordinates {
-                place.latitude = Some(latitude);
-                place.longitude = Some(longitude);
+                give_coordinates(place, Some(latitude), Some(longitude));
             }
         }
     }
@@ -2870,6 +2901,7 @@ fn regroup_document_pages(
     by_token: HashMap<String, Vec<(Uuid, DocumentExtension)>>,
 ) -> HashMap<Uuid, Uuid> {
     let mut dropped: HashMap<Uuid, Uuid> = HashMap::new();
+    let mut places = PlaceNames::new(result.tree_id, Utc::now(), &result.places);
     for (token, mut pages) in by_token {
         pages.sort_by_key(|(_, container)| container.index);
         // The document to keep is the one written for the first page, because
@@ -2898,7 +2930,7 @@ fn regroup_document_pages(
 
         let page_count = pages.len() as i32;
         let meta = pages.into_iter().find_map(|(_, container)| container.meta);
-        apply_document_metadata(result, keeper, page_count, meta);
+        apply_document_metadata(result, &mut places, keeper, page_count, meta);
     }
     dropped
 }
@@ -2962,6 +2994,7 @@ fn document_of(result: &ImportResult, page_id: Uuid) -> Option<Uuid> {
 /// Write what a document says about itself onto its row.
 fn apply_document_metadata(
     result: &mut ImportResult,
+    places: &mut PlaceNames,
     document_id: Uuid,
     page_count: i32,
     meta: Option<crate::DocumentMetadataExtension>,
@@ -2974,35 +3007,10 @@ fn apply_document_metadata(
     };
 
     let place_id = meta.place.as_ref().and_then(|place| {
-        if place.name.trim().is_empty() {
-            return None;
+        let id = places.id_of(&place.name, &mut result.places)?;
+        if let Some(existing) = result.places.iter_mut().find(|item| item.id == id) {
+            give_coordinates(existing, place.latitude, place.longitude);
         }
-        if let Some(existing) = result
-            .places
-            .iter_mut()
-            .find(|item| item.name == place.name)
-        {
-            existing.latitude = existing.latitude.or(place.latitude);
-            existing.longitude = existing.longitude.or(place.longitude);
-            return Some(existing.id);
-        }
-        let id = Uuid::now_v7();
-        let now = Utc::now();
-        let tree_id = result
-            .media
-            .iter()
-            .find(|item| item.id == document_id)
-            .map(|item| item.tree_id)?;
-        result.places.push(Place {
-            tags: Vec::new(),
-            id,
-            tree_id,
-            name: place.name.clone(),
-            latitude: place.latitude,
-            longitude: place.longitude,
-            created_at: now,
-            updated_at: now,
-        });
         Some(id)
     });
 
@@ -4106,30 +4114,27 @@ fn import_attribute_detail(
 /// its `MAP` when it has them.
 fn import_place(
     plac: Option<View<'_, GedPlace>>,
-    get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    places: &mut PlaceNames,
     result: &mut ImportResult,
 ) -> Option<Uuid> {
     let plac = plac?;
-    let name = opt(Some(plac.name()))?;
-    let pid = get_or_create_place(&name, result);
+    let pid = places.id_of(&opt(Some(plac.name()))?, &mut result.places)?;
     // Every PLAC of a place repeats its tags, and the place takes their union
     // (docs/api.md, `_OXIDGENE_TAG` and `_OXIDGENE_PLACE`).
     let tags = read_tags(plac.extra(), &mut result.tags, &mut result.warnings);
-    if !tags.is_empty()
-        && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
-    {
-        add_tags(&mut place.tags, tags);
-    }
-    if let Some(map) = plac.map()
-        && let (Some(lat_str), Some(lon_str)) = (map.latitude(), map.longitude())
-        && let (Ok(lat), Ok(lon)) = (
-            parse_gedcom_coord(&lat_str.to_str()),
-            parse_gedcom_coord(&lon_str.to_str()),
-        )
-        && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
-    {
-        place.latitude = Some(lat);
-        place.longitude = Some(lon);
+    let coordinates = plac.map().and_then(|map| {
+        let (lat_str, lon_str) = (map.latitude()?, map.longitude()?);
+        let latitude = parse_gedcom_coord(&lat_str.to_str()).ok()?;
+        let longitude = parse_gedcom_coord(&lon_str.to_str()).ok()?;
+        Some((latitude, longitude))
+    });
+    if let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid) {
+        if !tags.is_empty() {
+            add_tags(&mut place.tags, tags);
+        }
+        if let Some((latitude, longitude)) = coordinates {
+            give_coordinates(place, Some(latitude), Some(longitude));
+        }
     }
     Some(pid)
 }
