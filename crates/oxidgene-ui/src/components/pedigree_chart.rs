@@ -35,6 +35,7 @@ use highlight::{
 use oxidgene_core::projection::{Pedigree, ProfileEvent};
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place, QualifiedYear,
+    TagRef,
 };
 use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
@@ -390,7 +391,7 @@ fn profile_event_to_domain(
         // places the pedigree pulled in, so the name is kept here as the
         // fallback the panel reads when the id resolves to nothing.
         description: pe.description.clone().or_else(|| pe.place_name.clone()),
-        tags: Vec::new(),
+        tags: pe.tags.clone(),
         created_at: now,
         updated_at: now,
         deleted_at: None,
@@ -406,6 +407,7 @@ struct PersonSummary<'a> {
     surname: &'a Option<String>,
     birth: Option<&'a ProfileEvent>,
     death: Option<&'a ProfileEvent>,
+    tags: Vec<TagRef>,
 }
 
 /// The synthetic domain records built from [`PersonSummary`]s: a person, one
@@ -441,7 +443,7 @@ impl SummarisedPeople {
                 privacy: Privacy::default(),
                 portrait_media_id: None,
                 portrait_vignette_id: None,
-                tags: Vec::new(),
+                tags: summary.tags.clone(),
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
@@ -598,6 +600,7 @@ impl PedigreeData {
                 surname: &node.surname,
                 birth: node.birth.as_ref(),
                 death: node.death.as_ref(),
+                tags: node.tags.clone(),
             });
         }
 
@@ -636,6 +639,7 @@ impl PedigreeData {
                 surname: &member.surname,
                 birth: member.birth.as_ref(),
                 death: member.death.as_ref(),
+                tags: Vec::new(),
             });
         }
 

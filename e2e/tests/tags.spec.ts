@@ -138,7 +138,7 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     const birth = page.locator("li[id^='pd-event-']").filter({ hasText: "Birth" }).first();
     await expect(birth).toBeVisible();
-    await expect(birth.locator(".tag-dots")).toHaveCount(0);
+    await expect(birth.locator(".tag-badges")).toHaveCount(0);
 
     // Shift+F10 on the focused row opens its menu; Tags… (focused) opens the picker.
     await birth.focus();
@@ -151,7 +151,7 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await page.keyboard.type("Fictional doubt");
     await expect(page.getByRole("option", { name: "Fictional doubt" })).toBeVisible();
     await page.keyboard.press("Enter");
-    await expect(birth.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional doubt");
+    await expect(birth.locator(".tag-badge")).toHaveAttribute("title", "Fictional doubt");
     await page.keyboard.press("Escape");
     await expect(filter).toBeHidden();
     await expect(birth).toBeFocused();
@@ -161,7 +161,7 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await page.getByRole("tab", { name: "Sources", exact: true }).click();
     const source = page.locator(".dict-row").filter({ hasText: "Parish register 0" }).first();
     await expect(source).toBeVisible();
-    await expect(source.locator(".tag-dot-link")).toHaveCount(0);
+    await expect(source.locator(".tag-badge")).toHaveCount(0);
 
     await source.focus();
     await page.keyboard.press("Shift+F10");
@@ -171,7 +171,7 @@ test("tags an event and a source from the keyboard menu, and sees the dots", asy
     await page.keyboard.type("Fictional checked");
     await expect(page.getByRole("option", { name: "Fictional checked" })).toBeVisible();
     await page.keyboard.press("Enter");
-    await expect(source.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional checked");
+    await expect(source.locator(".tag-badge")).toHaveAttribute("title", "Fictional checked");
     await page.keyboard.press("Escape");
     await expect(source).toBeFocused();
 });
@@ -190,7 +190,7 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     const entry = page.locator("[id^='note-entry-']").filter({ hasText: "Fictional note about the root" }).first();
     await expect(entry).toBeVisible();
-    await expect(entry.locator(".tag-dots")).toHaveCount(0);
+    await expect(entry.locator(".tag-badges")).toHaveCount(0);
 
     await entry.focus();
     await page.keyboard.press("Shift+F10");
@@ -200,7 +200,7 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await page.keyboard.type("Fictional note mark");
     await expect(page.getByRole("option", { name: "Fictional note mark" })).toBeVisible();
     await page.keyboard.press("Enter");
-    await expect(entry.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional note mark");
+    await expect(entry.locator(".tag-badge")).toHaveAttribute("title", "Fictional note mark");
     await page.keyboard.press("Escape");
     await expect(entry).toBeFocused();
 
@@ -209,7 +209,7 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await page.getByRole("tab", { name: "Places", exact: true }).click();
     const place = page.locator(".dict-row").filter({ hasText: "Northfield" }).first();
     await expect(place).toBeVisible();
-    await expect(place.locator(".tag-dot-link")).toHaveCount(0);
+    await expect(place.locator(".tag-badge")).toHaveCount(0);
 
     await place.focus();
     await page.keyboard.press("Shift+F10");
@@ -219,7 +219,7 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await page.keyboard.type("Fictional place mark");
     await expect(page.getByRole("option", { name: "Fictional place mark" })).toBeVisible();
     await page.keyboard.press("Enter");
-    await expect(place.locator(".tag-dot-link")).toHaveAttribute("title", "Fictional place mark");
+    await expect(place.locator(".tag-badge")).toHaveAttribute("title", "Fictional place mark");
     await page.keyboard.press("Escape");
     await expect(place).toBeFocused();
 });
@@ -265,6 +265,37 @@ test("opens a tagged source, place and repository on their own rows from the Tag
         await expect(row).toBeFocused({ timeout: 15_000 });
         await expect(row).toContainText("▲");
     }
+});
+
+test("a click or long press on a source's tag badge opens the tag without toggling the row", async ({ page, request, tree }) => {
+    const [sourceId] = await seedSources(request, tree.treeId, ["Fictional badge register"]);
+    const tagId = await createTag(request, tree.treeId, "Fictional badge mark");
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/source/${sourceId}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    const row = page.locator(`#dict-source-${sourceId}`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText("▼");
+    const badge = row.locator(".tag-badge");
+    await expect(badge).toHaveAttribute("title", "Fictional badge mark");
+
+    // A long press on the badge does not open the row's record menu.
+    const box = await badge.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await expect(page.locator(".record-tag-menu")).toHaveCount(0);
+    await page.mouse.up();
+
+    // The click opens the tag's page; the row was not unfolded on the way.
+    await expect(page).toHaveURL(new RegExp(`/dictionary/tags/${tagId}$`));
+    await page.goBack();
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    await expect(page.locator(`#dict-source-${sourceId}`)).toContainText("▼");
+    await expect(page.locator(`#dict-source-${sourceId}`)).not.toContainText("▲");
 });
 
 test("opens a record's link on the tab root when the id is not a record's", async ({ page, tree }) => {
@@ -475,4 +506,111 @@ test("opens a tagged source whose exact title sits beside its siblings in the dr
     await expect(row).toBeFocused({ timeout: 15_000 });
     await expect(row).toContainText("▲");
     await expect(page.locator(".dict-src-breadcrumb .dict-src-crumb.active")).toHaveText("Titled exactly “FICTIONAL LEDGER”");
+});
+
+test("shows the selected person's badges and each tagged event's in the events panel", async ({ page, request, tree }) => {
+    const personTag = await createTag(request, tree.treeId, "Fictional panel person");
+    await tagPerson(request, tree.treeId, personTag, tree.anchorId);
+    const eventTag = await createTag(request, tree.treeId, "Fictional panel event");
+    const profile = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/profiles/${tree.anchorId}`)).json()) as {
+        birth: { event_id: string };
+    };
+    const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${eventTag}/records/event/${profile.birth.event_id}`);
+    expect(put.status()).toBe(204);
+
+    await page.goto(`/trees/${tree.treeId}`);
+    const panel = page.locator(".ev-panel");
+    await expect(panel.locator(".evp-name .tag-badge").first()).toHaveAttribute("title", "Fictional panel person");
+    const taggedEvent = panel.locator(".ev-item").filter({ has: page.locator(".tag-badge[title='Fictional panel event']") });
+    await expect(taggedEvent).toHaveCount(1);
+    await expect(taggedEvent.locator(".tag-badge")).toHaveCount(1);
+});
+
+test("shows a person's twelve long tags as three badges and a +9 without changing row heights", async ({ page, request, tree }) => {
+    const searchRow = () => page.locator(".search-person-entry").filter({ hasText: "Anchor" }).first();
+    const birthRow = () => page.locator("li[id^='pd-event-']").filter({ hasText: "Birth" }).first();
+    const header = () => page.locator(".pd-header-actions .tag-badges.is-wrap");
+
+    // The untagged heights are the reference: the badges must not change them.
+    await page.goto(`/trees/${tree.treeId}/search?last=Ashdown&first=&origin=`);
+    await expect(searchRow()).toBeVisible();
+    const searchBefore = (await searchRow().boundingBox())?.height ?? 0;
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await expect(birthRow()).toBeVisible();
+    const birthBefore = (await birthRow().boundingBox())?.height ?? 0;
+
+    // Twelve tags of long labels, on the person and on the birth.
+    const profile = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/profiles/${tree.anchorId}`)).json()) as {
+        birth: { event_id: string };
+    };
+    for (let index = 1; index <= 12; index += 1) {
+        const tagId = await createTag(request, tree.treeId, `Fictional long badge label number ${index}`);
+        await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+        const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/event/${profile.birth.event_id}`);
+        expect(put.status()).toBe(204);
+    }
+
+    await page.goto(`/trees/${tree.treeId}/search?last=Ashdown&first=&origin=`);
+    await expect(searchRow()).toBeVisible();
+    await expect(searchRow().locator(".tag-badge")).toHaveCount(3);
+    await expect(searchRow().locator(".tag-badge-more")).toHaveText("+9");
+    const searchAfter = (await searchRow().boundingBox())?.height ?? 0;
+    expect(Math.abs(searchAfter - searchBefore)).toBeLessThan(1);
+
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await expect(birthRow()).toBeVisible();
+    await expect(birthRow().locator(".tag-badge")).toHaveCount(3);
+    await expect(birthRow().locator(".tag-badge-more")).toHaveText("+9");
+    const birthAfter = (await birthRow().boundingBox())?.height ?? 0;
+    expect(Math.abs(birthAfter - birthBefore)).toBeLessThan(1);
+
+    // The header shows two badges in at most two lines, then a toggle below them.
+    await expect(header().locator(".tag-badge")).toHaveCount(2);
+    const rowHeight = (await header().boundingBox())?.height ?? 0;
+    expect(rowHeight).toBeLessThan(60);
+    const toggle = page.getByRole("button", { name: "+10 more", exact: true });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(header().locator(".tag-badge")).toHaveCount(12);
+    await expect(page.getByRole("button", { name: "Show fewer tags", exact: true })).toHaveAttribute("aria-expanded", "true");
+
+    // At a phone width the toggle stays visible and clickable, collapsed and expanded.
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await expect(header().locator(".tag-badge")).toHaveCount(2);
+    const phoneToggle = page.getByRole("button", { name: "+10 more", exact: true });
+    await expect(phoneToggle).toBeVisible();
+    await expect(phoneToggle).toBeInViewport();
+    await phoneToggle.click();
+    await expect(header().locator(".tag-badge")).toHaveCount(12);
+    await expect(page.getByRole("button", { name: "Show fewer tags", exact: true })).toBeVisible();
+
+    // At a desktop width the badges sit in the trailing column, between the
+    // SOSA badges and the buttons, and the name keeps its own box.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await expect(header().locator(".tag-badge")).toHaveCount(2);
+    const boxOf = async (selector: string) => (await page.locator(selector).first().boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const sosaBox = await boxOf(".pd-header-sosa");
+    const chipsBox = await boxOf(".pd-header-actions .tag-badges-header");
+    const buttonsBox = await boxOf(".pd-header-buttons");
+    const nameBox = await boxOf(".pd-header-main h1");
+    const actionsBox = await boxOf(".pd-header-actions");
+    expect(chipsBox.y).toBeGreaterThanOrEqual(sosaBox.y + sosaBox.height - 1);
+    expect(chipsBox.y + chipsBox.height).toBeLessThanOrEqual(buttonsBox.y + 1);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(actionsBox.x + 1);
+
+    // No page scrolls sideways, at a phone width or a desktop one.
+    for (const viewport of [
+        { width: 360, height: 800 },
+        { width: 1280, height: 800 },
+    ]) {
+        await page.setViewportSize(viewport);
+        for (const path of [`/trees/${tree.treeId}/search?last=Ashdown&first=&origin=`, `/trees/${tree.treeId}/persons/${tree.anchorId}`]) {
+            await page.goto(path);
+            await page.waitForLoadState("networkidle");
+            const scroll = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+            expect(scroll[0], `sideways scroll on ${path} at ${viewport.width}px`).toBeLessThanOrEqual(scroll[1] + 1);
+        }
+    }
 });

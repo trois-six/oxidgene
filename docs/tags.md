@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Tags"
 description: "Principles of tags shared by every kind of record, and where their uses beyond finding (statistics, anomalies and export limited to a tag) are specified."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
 ---
 
 # Tags
@@ -13,12 +13,12 @@ generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
 > [Common UI](ui-common.md) · [Dictionary](ui-dictionary.md) ·
 > [Genealogy Tree](ui-genealogy-tree.md) · [Roadmap](roadmap.md)
 
-The tags themselves, their menus, dots, reads and GEDCOM placements are
+The tags themselves, their menus, badges, reads and GEDCOM placements are
 specified where they apply: the vocabulary and the link in
 [Data Model](data-model.md) (Tag, RecordTag), the endpoints in
-[API Contract](api.md) (Tags, OxidGene extensions), the picker, chips and dots in
-[Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), and each record's
-menu and dots in [Person Profile](ui-person-profile.md),
+[API Contract](api.md) (Tags, OxidGene extensions), the picker and the badges in
+[Common UI §4.18](ui-common.md#418-tags-picker-and-badges), and each record's
+menu and badges in [Person Profile](ui-person-profile.md),
 [Couple Profile](ui-couple-profile.md) and [Dictionary](ui-dictionary.md). This
 document keeps the principles that hold for every use of tags, and points to
 the specifications of the uses beyond finding. All five phases of the tags

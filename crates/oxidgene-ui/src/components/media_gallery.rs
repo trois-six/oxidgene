@@ -43,7 +43,7 @@ use crate::components::pager::Pager;
 use crate::components::pdf_viewer::{PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
-use crate::components::tags::{TagChips, TagDots, TagPicker};
+use crate::components::tags::{TagBadges, TagPicker};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiCommand, measure_ui, trace_ui_action, use_ui_resource};
@@ -1227,7 +1227,7 @@ fn TileCaption(
     rsx! {
         div { class: "media-caption-row",
             div { class: "media-caption", title: "{caption}", "{caption}" }
-            TagDots { tree_id: tree_id.to_string(), tags }
+            TagBadges { tree_id: tree_id.to_string(), tags }
         }
         for (index, line) in footnotes.iter().enumerate() {
             div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
@@ -2674,7 +2674,6 @@ fn MediaFacts(
     displayed_media_id: Uuid,
     document_media_id: Option<Uuid>,
     attachment_revision: u32,
-    tags: Vec<TagRef>,
     vignettes: Vec<Vignette>,
     person_names: Vec<PersonName>,
     events: Vec<(Uuid, String)>,
@@ -2759,12 +2758,6 @@ fn MediaFacts(
     rsx! {
         div { class: "media-facts",
             MediaFact { label: i18n.t("media.title"), value: media.title.clone() }
-            if !tags.is_empty() {
-                div { class: "form-group media-fact",
-                    label { {i18n.t("media.tags")} }
-                    TagChips { tree_id: tree_id.to_string(), tags: tags.clone() }
-                }
-            }
             MediaFact {
                 label: i18n.t("media.created_at"),
                 value: Some(media.created_at.format("%Y-%m-%d %H:%M UTC").to_string()),
@@ -3977,7 +3970,6 @@ fn MediaViewer(
                             displayed_media_id: content_media_id,
                             document_media_id: shown.map(|_| current_media.id),
                             attachment_revision: attachment_revision(),
-                            tags: current_media.tags.clone(),
                             vignettes: content_vignettes.clone(),
                             person_names: person_names.clone(),
                             events: events.clone(),
@@ -3993,6 +3985,7 @@ fn MediaViewer(
                         // it. Sending them to the edit modal to type a date
                         // means leaving the page that prompted them.
                         div { class: "media-facts-actions",
+                            TagBadges { tree_id: tree_id.to_string(), tags: current_media.tags.clone(), header: true }
                             if is_document {
                                 button {
                                     class: "btn btn-outline media-facts-pages",

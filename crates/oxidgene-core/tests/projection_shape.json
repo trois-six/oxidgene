@@ -211,5 +211,5 @@
     "tree_id": "string",
     "updated_at": "string"
   },
-  "schema_version": 8
+  "schema_version": 9
 }

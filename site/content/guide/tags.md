@@ -40,13 +40,13 @@ The highlight stays while the page is open, and when you come back to the page w
 
 ## Where tags show
 
-Tags take no room on a record that has none.
+Tags take no room on a record that has none. Each tag of a record shows as a small badge: its colour dot and its label, shortened with an ellipsis when it is long. The full label is in the badge's tooltip. Click a badge to open the Dictionary's **Tags** tab on that tag.
 
-- On a person's or couple's page, their tags appear as chips under the header, each with its colour dot.
-- In search results, each person's tags appear as small dots after the name. Hover over a dot to read its tag.
-- On the timeline, an event or a citation shows its dots after its text. In the Dictionary's **Sources** tab, a source shows its dots after its title. In the **Places** and **Repositories** tabs, a place or a repository shows its dots after its name.
-- A note shows its dots under its text in a person's or a couple's page, and nothing at all when it has no tag.
-- Click a chip or a dot to open the Dictionary's **Tags** tab on that tag.
+- In every list (search results, the timeline, citations, notes, Dictionary rows and media tiles), a row shows up to three badges on its line. A `+n` after them stands for the tags it does not show: hover over it to read their labels. In a narrow row, the labels give way to the dots and the `+n`.
+- On a person's or couple's page, and in a media viewer's facts, two badges show beside the header's actions, right-aligned, then **+n more**. Click it to show every tag, and **Show fewer tags** to fold them back. The badges never move the name.
+- In the tree's events panel, the selected person's badges show under the name, and each tagged event shows its badges on its row.
+- The tree's cards show no tags, so that a large tree stays readable: to mark every card of one tag, use **Highlight a tag**; the selected person's tags show in the events panel.
+- A note shows its badges under its text, and nothing at all when it has no tag.
 
 ## The Tags tab
 

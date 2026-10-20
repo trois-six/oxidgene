@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:34:38Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -543,8 +543,8 @@ The canonical gallery owns tiles, viewer opening, edit actions, document
 paging, portraits, and context menus. Pages do not implement alternate media
 grids. A listing of documents that are nobody's gallery — the
 [Dictionary](ui-dictionary.md)'s Media tab — uses the same module's library
-grid: the same tiles, bundle and viewer, the tiles read-only, with tag dots
-([§4.18](#418-tags-picker-chips-and-dots)) and optional footnote lines under the caption. With no attachment to spare, the viewer's
+grid: the same tiles, bundle and viewer, the tiles read-only, with tag badges
+([§4.18](#418-tags-picker-and-badges)) and optional footnote lines under the caption. With no attachment to spare, the viewer's
 delete there only ever removes a document nothing references.
 
 The initial grid loads tile thumbnails, the first four document-page previews
@@ -945,7 +945,7 @@ inline ring in the button's text colour (`.btn-spinner`), which turns with
 the same animation. For a reader who asks for reduced motion it turns three
 times slower.
 
-### 4.18 Tags: picker, chips and dots
+### 4.18 Tags: picker and badges
 
 One set of components, in `components/tags.rs`, serves every kind of record
 that carries tags ([Tags](tags.md)):
@@ -961,10 +961,47 @@ that carries tags ([Tags](tags.md)):
   unchecks it and shows the translated reason under the field. Arrows move,
   Space or Enter toggles, Escape closes and returns the focus to what opened
   the picker.
-- **TagChips** draws a record's tags as chips, a colour dot and a label, in a
-  wrapping row; nothing is drawn for a record without tags. Each chip is a link
-  to the Dictionary's Tags tab on its tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
-  Chips carry no remove control.
+- **TagBadges** is the one way a record's tags are shown, in every list, every
+  profile header and the tree's events side panel; the tree's cards draw none,
+  the highlight mode marking them instead
+  ([Genealogy tree §3](ui-genealogy-tree.md#3-person-card)). Each badge
+  is a colour dot and the tag's label, truncated with an ellipsis at a fixed
+  maximum width; its tooltip and accessible name carry the full label. Each
+  badge is a link to the Dictionary's Tags tab on its tag
+  ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
+  Nothing is drawn for a record without tags. Badges carry no remove control.
+  - **List rows** show at most three badges on one line, the height of the row,
+    flex-shrinking so that the row never wraps and never scrolls the page. Past
+    three, a `+n` (not a link) whose tooltip and accessible name list the
+    hidden labels. Below a narrow width of the row itself (a container query,
+    not the window), the labels give way and only the dots and the `+n` remain.
+  - **Profile headers** (person and couple) show the first two badges of the
+    record, whatever the width of the header: the count is the rule, not the
+    lines. The two badges wrap onto a second line when the header is narrow, and
+    a badge is at most the width of the row, its label truncated. Beyond two, a
+    *+n more* toggle below the row, a button with `aria-expanded`, shows the rest;
+    *Show fewer tags* folds them back. The toggle sits outside the badge row, so
+    no width clips it. The badges sit in the header's trailing column, right-aligned between the SOSA and *Me* badges and the
+    action buttons, and the column keeps its own width while it holds tags, so
+    the name's width does not depend on their number. Below 900 px the actions
+    move to their own row, and the badges take the room between its SOSA badges
+    and its buttons. The media viewer's facts show their tags the same way, on
+    the row of its actions, before the buttons. Neither layout scrolls the page.
+  - **Events side panel** (the tree's events sidebar,
+    [Genealogy tree §6](ui-genealogy-tree.md#6-events-sidebar-right)) shows the
+    selected person's badges under the name, and each tagged event's badges
+    on its row, as list rows do: one line, at most three and then `+n`.
+  - Dictionary rows place their badges on the value's line, so a tagged row is
+    no taller than an untagged one.
+  - A badge inside a clickable or long-press row (Dictionary rows, the
+    repositories' rows) stops its own click and press from reaching the row:
+    the click opens the tag, and neither toggles the row nor opens its menu.
+  - The search page's *Tags* filter shows its chosen tags as removable chips
+    (`.tag-chip`, with a `×` button). That chip is a separate control: it is a
+    filter, not a record's tag, so it carries no link and no `+n`. Its dot and
+    its label carry the badge markup (`.tag-dot`, `.tag-badge-label`), so the
+    label truncates with an ellipsis; the chip's own `.tag-chip` family caps its
+    width.
 - **BulkTagPicker** is the picker in bulk mode, a dialog over a set of persons
   (the routes are in [API Contract](api.md#tags)). It lists each tag of the tree
   with how many of the persons carry it, read from the server
@@ -987,11 +1024,9 @@ that carries tags ([Tags](tags.md)):
   the scope (ancestors, descendants, or both), the generations (empty for all,
   up to 30), and the two inclusions. Its *Continue* opens the bulk picker on the
   persons it names.
-- **TagDots** draws up to three colour dots after a row's text, then `+n`. Each
-  dot is a link to the same place, with the tag's label as its tooltip and
-  accessible name and a visible focus ring; Enter on a focused dot follows its
-  link and does not also activate the row holding it. A row that is itself a
-  link places its dots beside the link, since links cannot nest.
+  A row that is itself a link places its badges beside the link, since links
+  cannot nest; Enter on a focused badge follows its link and does not also
+  activate the row holding it.
 - **RecordMenu** is the shared context menu of a record row that has none of
   its own (the timeline's event rows and citation entries, the Notes cards of
   a person or a couple, and the Dictionary's Sources, Places and Repositories

@@ -10,7 +10,7 @@ use crate::api::{ApiClient, HeldSource};
 use crate::components::empty_state::EmptyState;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
 use crate::components::tags::{
-    MenuTarget, RecordTagMenu, TagDots, is_enter_or_space, stop_row_activation, stop_row_press,
+    MenuTarget, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation, stop_row_press,
     use_record_menu,
 };
 use crate::i18n::{I18n, use_i18n};
@@ -195,11 +195,13 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                                         onpointercancel: move |_| record_menu.press_end(),
                                         onclick: move |_| fold(),
                                         div { class: "dict-row-main", onkeydown: stop_row_activation,
-                                            span { class: "dict-row-value", "{repository.name}" }
+                                            div { class: "dict-row-line",
+                                                span { class: "dict-row-value", "{repository.name}" }
+                                                TagBadges { tree_id: tree_text, tags: repository.tags.clone() }
+                                            }
                                             if !meta.is_empty() {
                                                 span { class: "dict-row-meta", "{meta}" }
                                             }
-                                            TagDots { tree_id: tree_text, tags: repository.tags.clone() }
                                         }
                                         button {
                                             class: "dict-row-action",

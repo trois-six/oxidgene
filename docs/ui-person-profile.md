@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:36:03Z }
 ---
 
 
@@ -122,9 +122,13 @@ Full-width card at the top of the content area.
 **Dates**: birth and death with symbols (* / +), place names included. Calculated age displayed if both dates are known.
 
 **Tags**: a **Tags…** icon button among the header's icon actions opens the
-tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
-The person's tags sit in a row of chips under the dates, shown only when the
-person has some; each chip opens the Dictionary's Tags tab on its tag
+tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
+The person's tags are shown as badges in the header's trailing column, right-aligned
+between the SOSA and **Me** badges and the action buttons, and only when the
+person has some. Two badges show, wrapping onto a second line when the header is
+narrow; beyond two, a **+n more** toggle expands the rest (**Show fewer tags**
+folds them back). The column's width does not depend on how many tags there are. Each
+badge opens the Dictionary's Tags tab on its tag
 ([Dictionary §20](ui-dictionary.md#20-tags-tab)).
 
 The dates are written out in full through `format_date`, qualifier included — « vers 1796 », « entre 11 nov. 1691 et 20 août 1693 » — not reduced to a year. Birth falls back to **baptism** and death to **burial** when the primary event carries no date, matching the pedigree card and its side panel; see [Tree View](ui-genealogy-tree.md). The label follows the event actually displayed: a baptism reads « Baptisé(e) le » rather than « Né(e) le », and a burial reads « Inhumé(e) le » rather than « Décédé(e) le ».
@@ -265,12 +269,12 @@ Each event shows:
 The person's own events and those of their unions are marked as direct; the
 others give family context.
 
-**Tags.** An event's tags are dots after its badge line, nothing drawn for an
-untagged event ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+**Tags.** An event's tags are badges after its label, nothing drawn for an
+untagged event ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
 Its row, and each citation entry of its **Sources** line, carries the shared
 record menu: a right click, the context-menu key or Shift+F10 on the focused row or one of its controls,
 or a touch held for half a second opens *Tags…*, which opens the tag picker beside
-it. A citation's dots follow its text. The row takes the focus back when the
+it. A citation's badges follow its text. The row takes the focus back when the
 menu or picker closes, and the timeline reloads when a tag changes.
 
 An event's recorded age — at a family event, this
@@ -634,8 +638,8 @@ A failed read shows its error in place of the card.
 Each note attached to the person is shown in full, with its formatting and
 line breaks; the markup was sanitized when the note was written.
 
-**Tags.** A note's tags are dots under its text, nothing drawn for an untagged
-note ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)). A note
+**Tags.** A note's tags are badges under its text, nothing drawn for an untagged
+note ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)). A note
 takes the same record menu as a timeline row: a right click, the context-menu
 key or Shift+F10 with the note focused, or a long touch opens it, and *Tags…*
 opens the tag picker beside the note. The menu closes back onto the note.
@@ -651,7 +655,8 @@ confidence.
 - Content max-width: 1200px, responsive padding
 - Below **900px**: the identity header actions move to a separate horizontal
      row. The SOSA and **Me** badges stay at its leading edge, the icon-only
-     buttons at its trailing edge.
+     buttons at its trailing edge, and the tag badges take the room between them,
+     two lines at most with their toggle.
 - Below **640px**: reduced padding. The primary name remains beside the compact
      avatar, while alternate names and the birth, death, age, place, and occupation
      summary use the full card width below them. Family narratives and person chips

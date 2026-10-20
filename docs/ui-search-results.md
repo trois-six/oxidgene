@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
 ---
 
 
@@ -82,9 +82,9 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. The search fields ar
 The toolbar reports the exact total returned by the server, exposes the sort
 selector, and switches between list and pedigree-grid views. Its **Tag the
 results…** button opens the bulk tag picker on every person the current search
-and filters return, not only the page shown ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+and filters return, not only the page shown ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
 It is disabled when there is no result. The picker's changes refresh the results,
-so their tag dots follow.
+so their tag badges follow.
 
 ---
 
@@ -198,7 +198,7 @@ projections; loading cells show a placeholder message.
 |---|---|
 | **Click a result** | Opens that person in the kind of view the search was started from (below) |
 | **Hover** | Subtle highlight, pointer cursor |
-| **Click a tag dot** | Opens the Dictionary's Tags tab on that tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)). The dots sit beside the row's link, not inside it, and each has the tag's name as its accessible name |
+| **Click a tag badge** | Opens the Dictionary's Tags tab on that tag ([Dictionary §20](ui-dictionary.md#20-tags-tab)). The badges sit beside the row's link, not inside it, and each has the tag's full label as its accessible name |
 
 A result leads back to the kind of view the search was started from. The
 results page records it in the `origin` query parameter of its address

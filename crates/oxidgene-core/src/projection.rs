@@ -47,7 +47,10 @@ use crate::types::{PortraitRef, TagRef};
 ///
 /// 8: the profile and each of its events carry the tags put on them
 /// (`PersonProfile::tags`, `ProfileEvent::tags`), which were not projected.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 8;
+///
+/// 9: a pedigree node carries its person's tags (`PedigreeNode::tags`), which
+/// the events panel shows beside the selected person.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 9;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -296,6 +299,9 @@ pub struct PedigreeNode {
     /// ancestry.
     #[serde(default)]
     pub sosa_ancestor: bool,
+    /// The tags put on the person, in the vocabulary's order.
+    #[serde(default)]
+    pub tags: Vec<TagRef>,
 }
 
 /// A parent-child edge in the pedigree.

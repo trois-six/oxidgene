@@ -40,13 +40,13 @@ La mise en évidence reste tant que la page est ouverte, et quand vous revenez s
 
 ## Où les étiquettes apparaissent
 
-Les étiquettes ne prennent aucune place sur une fiche qui n’en a pas.
+Les étiquettes ne prennent aucune place sur une fiche qui n’en a pas. Chaque étiquette s’affiche en petite pastille : son point de couleur et son libellé, raccourci par des points de suspension quand il est long. Le libellé complet apparaît dans l’infobulle de la pastille. Cliquez sur une pastille pour ouvrir l’onglet **Étiquettes** du Dictionnaire sur cette étiquette.
 
-- Sur la fiche d’une personne ou d’un couple, leurs étiquettes apparaissent sous l’en-tête, sous forme de pastilles avec leur couleur.
-- Dans les résultats de recherche, les étiquettes d’une personne apparaissent sous forme de petits points après le nom. Survolez un point pour lire son étiquette.
-- Dans la frise chronologique, un événement ou une citation affiche ses points après son texte. Dans l’onglet **Sources** du Dictionnaire, une source affiche ses points après son titre. Dans les onglets **Lieux** et **Dépôts**, un lieu ou un dépôt affiche ses points après son nom.
-- Une note affiche ses points sous son texte, sur la fiche d’une personne ou d’un couple, et rien du tout quand elle n’a pas d’étiquette.
-- Cliquez sur une pastille ou un point pour ouvrir l’onglet **Étiquettes** du Dictionnaire sur cette étiquette.
+- Dans chaque liste (résultats de recherche, frise chronologique, citations, notes, lignes du Dictionnaire et vignettes des médias), une ligne affiche jusqu’à trois pastilles. Un `+n` après elles désigne les étiquettes non affichées : survolez-le pour lire leurs libellés. Dans une ligne étroite, les libellés cèdent la place aux points et au `+n`.
+- Sur la fiche d’une personne ou d’un couple, et dans les informations d’un document, deux pastilles s’affichent à côté des actions de l’en-tête, alignées à droite, puis **+n de plus**. Cliquez dessus pour voir toutes les étiquettes, et sur **Afficher moins** pour les replier. Les pastilles ne déplacent jamais le nom.
+- Dans le panneau des événements de l’arbre, les pastilles de la personne sélectionnée s’affichent sous son nom, et chaque événement étiqueté affiche les siennes sur sa ligne.
+- Les cartes de l’arbre n’affichent pas d’étiquettes, pour qu’un grand arbre reste lisible : pour marquer toutes les cartes d’une étiquette, utilisez **Mettre une étiquette en évidence** ; les étiquettes de la personne sélectionnée s’affichent dans le panneau des événements.
+- Une note affiche ses pastilles sous son texte, et rien du tout quand elle n’a pas d’étiquette.
 
 ## L’onglet Étiquettes
 

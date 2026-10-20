@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:34:38Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -394,22 +394,25 @@ Specified in [Tags](tags.md): one vocabulary per tree, shared by every kind
 of record, replacing the media-only tags.
 
 - [x] Phase 1: `tag` and `record_tag` replacing `media_tag`; tags on persons,
-  couples and media; the shared tag picker, chips and dots; the Dictionary's
+  couples and media; the shared tag picker and badges; the Dictionary's
   Tags tab; the person-search tag filter; GEDCOM and GEDZIP extensions;
   history; the MCP `list_tags` tool.
 - [x] Phase 2: highlighting a tag in the tree views; bulk tagging from the
   tree and from search results.
 - [x] Phase 3: tags on events, sources and citations: the `tags` of their
-  reads, the record menus and dots of the timelines and the Sources tab, and
+  reads, the record menus and badges of the timelines and the Sources tab, and
   their GEDCOM `_OXIDGENE_TAG` placements.
 - [x] Phase 4: tags on places, repositories and notes: the `tags` of their
-  reads, the record menus and dots of the Dictionary's Places and Repositories
+  reads, the record menus and badges of the Dictionary's Places and Repositories
   tabs and of the Notes cards, and their GEDCOM placements, including the
   `PLAC` rule.
 - [x] Phase 5: statistics and anomalies limited to a tag; export of the
   persons carrying a tag, with the subtree export (§7b): the tag of the
   statistics and anomalies APIs and pages, and the scope of the exports, on
   REST and GraphQL alike ([Tags §2](tags.md#2-uses-beyond-finding)).
+- [x] Tags shown as badges while browsing: every list, the profile headers
+  and the tree's events side panel; the tree's cards keep the highlight mode
+  ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
 
 ## 12. Asynchronous processing
 

@@ -2047,6 +2047,10 @@ type GqlPedigreeNode {
 	Whether the person is the tree's SOSA root or one of its ancestors.
 	"""
 	sosaAncestor: Boolean!
+	"""
+	The tags put on the person.
+	"""
+	tags: [GqlTagRef!]!
 }
 
 """

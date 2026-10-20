@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T15:51:25Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
 ---
 
 
@@ -101,7 +101,7 @@ Each tab loads its data the first time it is opened, not when the page opens: th
 
 At phone width the tabs share the row; when they do not fit, as on the [Statistics](ui-statistics.md) page, the strip scrolls sideways rather than squeezing their labels into each other.
 
-A tag chip or dot elsewhere ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)) opens the page on the Tags tab with that tag's row unfolded. The tag is the last segment of the route, `/trees/:tree_id/dictionary/tags/:tag`; a page already open takes the new tag on the same route, and the history entry reopens the tab as it was left.
+A tag chip or badge elsewhere ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)) opens the page on the Tags tab with that tag's row unfolded. The tag is the last segment of the route, `/trees/:tree_id/dictionary/tags/:tag`; a page already open takes the new tag on the same route, and the history entry reopens the tab as it was left.
 
 A record's link in the Tags tab opens the page on that record's own row, on the tab that holds it: the route is the tab's route followed by the record's id (§14). A page already open takes the new record on the same route, and a record link opens its tab on that row rather than on the view the reader left there.
 
@@ -246,8 +246,8 @@ Each row shows:
 - Author, then the names of the repositories holding the source (secondary muted text, if present; the list endpoint returns them as `repositories`)
 - Usage count badge: number of `Citation` rows referencing this source
 - Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
-- Tag dots after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
-- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons and the tag dots keep their own Enter and Space
+- Tag badges after the title, when the source carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Tags…* by a right click, by the context-menu key or Shift+F10 on the row or on one of its buttons, or by a long touch
+- Chevron — clicking **expands the row inline** to show full metadata and the persons the source documents. The row is a tab stop, and Enter or Space on the focused row expands or folds it like a click; the ✎ and ▼ buttons and the tag badges keep their own Enter and Space
 
 The expanded list holds the persons the citations concern, each linking to the person: those cited directly, the person of a cited individual event, and the spouses of a cited family or of a cited family event (a marriage's citation lists both spouses; the list has no separate couple row, like the Places tab). A citation is one use, so the count counts citations and the list counts persons: a cited source never lists nobody, and a person cited several times appears once. Deleted persons, events and families are left out.
 
@@ -356,7 +356,7 @@ Grouped by first letter of the place name (same pattern as section 7). Each row:
 - Place name as entered, shown as a full free-text hierarchy
 - A small pin icon (📍-style, filled) when `latitude`/`longitude` are set, outline/muted when not
 - Usage count badge: number of `Event` + `Media` rows referencing this place
-- Tag dots after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the row's record menu offers *Tags…* exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag dot takes Enter or Space to its tag instead)
+- Tag badges after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Tags…* exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag badge takes Enter or Space to its tag instead)
 
 Clicking a row expands it inline (same accordion pattern as Sources) listing the persons the place's events and media concern — a couple's event its spouses, a media the persons it is linked to or shows — each linking to the person, so a place with uses never lists nobody.
 
@@ -654,13 +654,13 @@ each tile's caption (its title, else its file name):
 - how much it is used — "Linked to N records", counting the distinct persons,
   families, events and sources it is attached to by media links on it or its
   pages, or "Not linked". Crops and portraits are not counted;
-- its tags, as colour dots under the caption when it has any
-  ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)).
+- its tags, as badges under the caption when it has any
+  ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)).
 
 The tiles are read-only: nothing here is somebody's attachment to detach or
 make a portrait. The viewer keeps its metadata editing, and its tags are put
 on and taken off through the tag picker of its relation menu
-([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); any change
+([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); any change
 there refreshes the grid and the cloud. Its delete, like the tile's menu, only
 removes a document nothing references.
 
@@ -709,9 +709,9 @@ repository's editor ends with a delete confirmation: the sources it held stay
 in the tree, no longer listed as held there (the links are kept and come back
 if the deletion is undone from the history).
 
-Each row takes the same record menu and tag dots as a source row (§8): the
+Each row takes the same record menu and tag badges as a source row (§8): the
 row is a tab stop, and *Tags…* opens the tag picker beside it; the ✎ and ▼
-buttons and the tag dots keep their own Enter and Space.
+buttons and the tag badges keep their own Enter and Space.
 
 The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
 tab, and loads the repositories the first time it opens.
@@ -739,4 +739,4 @@ the profile of the person or couple it belongs to (a note of a source, a reposit
 - **New tag** creates a tag without putting it on a record.
 
 The tab is its own module (`pages/dictionary_tags.rs`) and loads the vocabulary
-the first time it opens. A tag opened from a chip or dot starts unfolded.
+the first time it opens. A tag opened from a chip or badge starts unfolded.

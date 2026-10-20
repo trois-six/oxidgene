@@ -25,7 +25,7 @@ use crate::components::person_form::FormSection;
 use crate::components::print::{PrintPageNote, search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
-use crate::components::tags::{BulkTagPicker, TagDots, dot_style};
+use crate::components::tags::{BulkTagPicker, TagBadges, dot_style};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::components::view_toggle::ViewToggle;
@@ -1018,11 +1018,11 @@ fn TagFilter(tree_id: Uuid, tags: Signal<Vec<TagRef>>, on_change: EventHandler<(
                 }
             }
             if !chosen.is_empty() {
-                div { class: "tag-chips sr-tag-filter-chips",
+                div { class: "sr-tag-filter-chips",
                     for tag in chosen {
                         span { key: "{tag.id}", class: "tag-chip",
                             span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
-                            span { class: "tag-chip-label", "{tag.label}" }
+                            span { class: "tag-badge-label", "{tag.label}" }
                             button {
                                 class: "tag-chip-remove",
                                 r#type: "button",
@@ -1232,7 +1232,7 @@ fn render_result_item(
         }
     };
 
-    // The dots are links of their own, so they sit beside the row's link, not
+    // The badges are links of their own, so they sit beside the row's link, not
     // inside it: a link cannot hold another.
     rsx! {
         div { class: "search-person-entry",
@@ -1241,7 +1241,7 @@ fn render_result_item(
                 class: "search-person-result {sex_class}",
                 {render_person_search_summary(&summary, portrait.cloned(), i18n)}
             }
-            TagDots { tree_id: tree_id.to_string(), tags: entry.tags.clone() }
+            TagBadges { tree_id: tree_id.to_string(), tags: entry.tags.clone() }
         }
     }
 }

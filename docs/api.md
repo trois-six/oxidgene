@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-20T10:29:23Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:20:09Z }
 ---
 
 
@@ -356,6 +356,10 @@ Every event read carries `tags`, the labels put on the event as `[{id, label,
 color}]` sorted by folded label (GraphQL `Event.tags { id label color }`). Tags
 are put on and taken off through the tag endpoints of **Tags**, not through the
 event's `PUT`, so one editor's save never overwrites another's tags.
+
+A pedigree node carries `tags` the same way, the labels put on its person
+(GraphQL `GqlPedigreeNode.tags { id label color }`), and its birth and death
+events carry their own tags. The events panel of the tree shows them.
 
 An event's `age` (GEDCOM `AGE`) is accepted in GEDCOM's syntax, read
 leniently (`1y6m`, `34 Y`, a bare `34`), and returned in canonical form

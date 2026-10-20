@@ -646,6 +646,19 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: var(--space-3);
     }
 
+    /* Tags sit in the trailing column, between the SOSA badges and the
+       buttons, right-aligned. The column has its own width while it holds
+       tags, so the name's width does not depend on how many there are. */
+    @media (min-width: 901px) {
+        .pd-header-actions:has(.tag-badges-header) { width: min(22rem, 40%); }
+        .pd-header-actions .tag-badges-header {
+            flex: none;
+            width: 100%;
+            align-items: flex-end;
+        }
+        .pd-header-actions .tag-badges.is-wrap { justify-content: flex-end; }
+    }
+
     /* Icon buttons at every width: the tooltip and accessible name carry
        the label, so the actions stay compact at the right of the header. */
     .pd-header-buttons {
@@ -1194,6 +1207,11 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: space-between;
     }
     .cp-grid .pd-header-sosa { min-height: 0; justify-content: flex-start; }
+    .cp-actions .tag-badges-header {
+        flex: 0 1 auto;
+        width: min(22rem, 60%);
+        align-items: flex-end;
+    }
     .cp-unknown {
         align-items: center;
         justify-content: center;
@@ -2260,7 +2278,7 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    .evp-name span { font-size: var(--text-75); color: var(--text-secondary); }
+    .evp-name > span { font-size: var(--text-75); color: var(--text-secondary); }
 
     .evp-list { flex: 1; overflow-y: auto; padding: var(--space-3) 0; }
 
@@ -2718,16 +2736,18 @@ pub const LAYOUT_STYLES: &str = r#"
         border-radius: var(--radius);
     }
 
-    /* A search row and the tag dots beside it (docs/ui-common.md §4.18): the dots
-       are links of their own, so they cannot sit inside the row's link. */
+    /* A search row and the tag badges beside it (docs/ui-common.md#418-tags-picker-and-badges):
+       the badges are links of their own, so they cannot sit inside the row's link. */
     .search-person-entry {
         display: flex;
         align-items: center;
         gap: var(--space-3);
         padding-right: var(--space-4);
     }
+    /* The link takes the room left by the badges: its basis is zero, so the
+       badges keep their own basis and do not shrink to dots on a wide row. */
     .search-person-entry > .search-person-result {
-        flex: 1 1 auto;
+        flex: 1 1 0;
         min-width: 0;
     }
     .search-person-results.sr-results-page .search-person-entry {
@@ -4507,6 +4527,21 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
+    /* The value and its badges share one line, so a tagged row is no taller
+       than an untagged one. */
+    .dict-row-line {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+    }
+    .dict-row-line > .dict-row-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .dict-row-meta {
         font-size: var(--text-75);
         color: var(--text-muted);
@@ -4920,7 +4955,7 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: center;
         min-width: 0;
     }
-    .media-caption-row .tag-dots { flex: 0 0 auto; margin-left: var(--space-2); }
+    .media-caption-row .tag-badges { flex: 0 1 6rem; width: auto; margin-left: var(--space-2); }
 
     .media-event-link {
         font-size: var(--text-70);
@@ -5434,7 +5469,14 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     /* Tags on records (docs/ui-common.md §4.18). Each colour is a --tag-N
-       token of the theme; a dot or chip always carries its label too. */
+       token of the theme; a badge always carries its label too. */
+    /* In the events panel the badges of a person and of an event sit on a
+       line of their own, under the name or the place. */
+    .evp-name > .tag-badges,
+    .ev-info > .tag-badges {
+        flex: none;
+        margin-top: var(--space-2);
+    }
     .tag-dot {
         display: inline-block;
         flex: none;
@@ -5442,37 +5484,111 @@ pub const LAYOUT_STYLES: &str = r#"
         height: 0.6em;
         border-radius: 50%;
     }
-    .tag-dots {
-        display: inline-flex;
+    /* A row of badges stays on one line, the height of its row: labels
+       truncate, and a narrow row keeps the dots and the +n only. */
+    .tag-badges {
+        display: flex;
+        flex: 0 1 15rem;
         align-items: center;
-        gap: 3px;
-        margin-left: var(--space-3);
-        vertical-align: middle;
+        gap: var(--space-2);
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        container: tag-badges / inline-size;
     }
-    /* A dot and a chip are links to the tag in the Dictionary: a ring marks
-       the keyboard focus. */
-    .tag-dot-link {
+    .tag-badge {
         display: inline-flex;
-        border-radius: 50%;
+        flex: 0 1 auto;
+        align-items: center;
+        gap: var(--space-2);
+        min-width: 0;
+        max-width: 9rem;
+        padding: 0 var(--space-3);
+        font-family: var(--font-sans);
+        font-size: var(--text-65);
+        line-height: 1.6;
+        white-space: nowrap;
+        text-decoration: none;
+        color: var(--text-secondary);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
     }
-    .tag-dot-link:focus-visible,
+    .tag-badge > .tag-dot {
+        width: 0.5em;
+        height: 0.5em;
+    }
+    .tag-badge-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .tag-badge-more {
+        flex: none;
+        font-size: var(--text-65);
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+    /* A profile header shows its first two badges (wrapping when narrow),
+       with each label truncated, and a toggle below the row that expands
+       the rest. */
+    .tag-badges-header {
+        display: flex;
+        flex: 1 1 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-1);
+        min-width: 0;
+        max-width: 100%;
+    }
+    .tag-badges.is-wrap {
+        flex: none;
+        flex-wrap: wrap;
+        width: 100%;
+        overflow: visible;
+        row-gap: var(--space-2);
+    }
+    .tag-badges.is-wrap .tag-badge {
+        max-width: 14rem;
+    }
+    .tag-badges-toggle {
+        padding: 0 var(--space-2);
+        background: none;
+        border: none;
+        font-family: var(--font-sans);
+        font-size: var(--text-65);
+        color: var(--orange);
+        cursor: pointer;
+    }
+    /* A badge's ring sits inside its own box: a single-line badge row clips
+       its overflow, so an outline drawn outside the badge would be cut. */
+    .tag-badge:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: -2px;
+    }
+    .tag-badges-toggle:focus-visible,
     .tag-chip:focus-visible {
         outline: 2px solid var(--orange);
         outline-offset: 2px;
     }
-    .tag-dots-more {
-        font-size: var(--text-65);
-        color: var(--text-muted);
-    }
-    .tag-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--space-2);
+    /* Under the width, a badge is its dot: the labels give way to the dots. */
+    @container tag-badges (width < 9rem) {
+        .tag-badge {
+            max-width: none;
+            padding: 0;
+            background: none;
+            border: none;
+        }
+        .tag-badge-label {
+            display: none;
+        }
     }
     .tag-chip {
         display: inline-flex;
         align-items: center;
         gap: var(--space-2);
+        max-width: 14rem;
         text-decoration: none;
         font-family: var(--font-sans);
         font-size: var(--text-75);
@@ -5732,6 +5848,9 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--sel-bg);
     }
     .sr-tag-filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
         margin-top: 0;
     }
     .tag-chip-remove {
@@ -6316,6 +6435,15 @@ pub const LAYOUT_STYLES: &str = r#"
             min-height: 0;
             align-items: center;
             justify-content: flex-start;
+        }
+
+        /* On the actions row, the tags take the room between the SOSA
+           badges and the buttons, and their two lines never widen it. */
+        .pd-header-actions .tag-badges-header {
+            flex: 1 1 0;
+            min-width: 0;
+            width: auto;
+            align-items: flex-end;
         }
 
     }

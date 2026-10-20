@@ -810,6 +810,7 @@ pub fn build_pedigree_node(
         // Filled by the assembly, which reads them for the whole window.
         portrait: None,
         sosa_ancestor: false,
+        tags: person.tags.clone(),
     }
 }
 

@@ -20,7 +20,7 @@ use crate::components::person_profile::{
     family_section, header_section, media_event_links, notes_section, page_gallery, page_portraits,
     refresh_button, timeline_section, union_line, use_page_pictures, use_tree_resource,
 };
-use crate::components::tags::{RecordTagMenu, TagChips, TagsButton, use_record_menu};
+use crate::components::tags::{RecordTagMenu, TagBadges, TagsButton, use_record_menu};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
@@ -478,6 +478,7 @@ fn couple_actions(
 ) -> Element {
     rsx! {
         div { class: "cp-actions",
+            TagBadges { tree_id: tags.tree_id.to_string(), tags: tags.tags.clone(), header: true }
             TagsButton {
                 tree_id: tags.tree_id,
                 kind: RecordKind::Family,
@@ -485,7 +486,6 @@ fn couple_actions(
                 tags: tags.tags.clone(),
                 on_changed: move |()| refresh += 1,
             }
-            TagChips { tree_id: tags.tree_id.to_string(), tags: tags.tags.clone() }
             button {
                 class: "btn btn-outline pd-header-action-btn",
                 title: i18n.t("couple.edit"),

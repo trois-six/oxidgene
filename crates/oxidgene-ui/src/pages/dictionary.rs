@@ -23,7 +23,7 @@ use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
 use crate::components::tags::{
-    MenuTarget, RecordMenu, RecordTagMenu, TagDots, is_enter_or_space, stop_row_activation,
+    MenuTarget, RecordMenu, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation,
     stop_row_press, use_record_menu,
 };
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
@@ -2126,11 +2126,13 @@ fn render_sources_list(
                                         move |_| toggle()
                                     },
                                     div { class: "dict-row-main", onkeydown: stop_row_activation,
-                                        span { class: "dict-row-value", "{entry.source.title}" }
+                                        div { class: "dict-row-line",
+                                            span { class: "dict-row-value", "{entry.source.title}" }
+                                            TagBadges { tree_id: tree_text, tags: entry.source.tags.clone() }
+                                        }
                                         if !meta.is_empty() {
                                             span { class: "dict-row-meta", "{meta}" }
                                         }
-                                        TagDots { tree_id: tree_text, tags: entry.source.tags.clone() }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.citation_count", entry.count as usize)} }
                                     button {
@@ -2329,11 +2331,13 @@ fn render_places_tab(
                                         move |_| toggle()
                                     },
                                     div { class: "dict-row-main", onkeydown: stop_row_activation,
-                                        span { class: if has_coords { "dict-row-value dict-pin" } else { "dict-row-value" },
-                                            if has_coords { "\u{1F4CD} " } else { "" }
-                                            "{entry.place.name}"
+                                        div { class: "dict-row-line",
+                                            span { class: if has_coords { "dict-row-value dict-pin" } else { "dict-row-value" },
+                                                if has_coords { "\u{1F4CD} " } else { "" }
+                                                "{entry.place.name}"
+                                            }
+                                            TagBadges { tree_id: tree_text, tags: entry.place.tags.clone() }
                                         }
-                                        TagDots { tree_id: tree_text, tags: entry.place.tags.clone() }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.reference_count", entry.count as usize)} }
                                     button {

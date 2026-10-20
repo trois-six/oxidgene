@@ -3844,6 +3844,8 @@ pub struct GqlPedigreeNode {
     pub portrait: Option<GqlPortraitRef>,
     /// Whether the person is the tree's SOSA root or one of its ancestors.
     pub sosa_ancestor: bool,
+    /// The tags put on the person.
+    pub tags: Vec<GqlTagRef>,
 }
 
 /// An edge connecting a parent to a child within a family.
@@ -3907,6 +3909,7 @@ impl From<oxidgene_core::projection::PedigreeNode> for GqlPedigreeNode {
             sosa_number: n.sosa_number.map(|s| s.to_string()),
             portrait: n.portrait.map(Into::into),
             sosa_ancestor: n.sosa_ancestor,
+            tags: n.tags.into_iter().map(Into::into).collect(),
         }
     }
 }

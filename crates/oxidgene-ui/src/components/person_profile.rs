@@ -35,7 +35,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
-use crate::components::tags::{MenuTarget, RecordMenu, TagChips, TagDots};
+use crate::components::tags::{MenuTarget, RecordMenu, TagBadges};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
 use crate::router::{Route, push_tree_route};
@@ -1313,7 +1313,6 @@ pub(crate) fn header_section(
                     if !profile.vitals.is_empty() {
                         {vitals_line(&profile.vitals, person_sex, &i18n)}
                     }
-                    TagChips { tree_id: ctx.tree_id.to_string(), tags }
                 }
             }
             div { class: "pd-header-actions",
@@ -1330,6 +1329,7 @@ pub(crate) fn header_section(
                         }
                     }
                 }
+                TagBadges { tree_id: ctx.tree_id.to_string(), tags, header: true }
                 div { class: "pd-header-buttons", {actions} }
             }
         }
@@ -1490,7 +1490,7 @@ pub(crate) fn notes_section(
                                 class: "note-html",
                                 dangerous_inner_html: note_html_for_display(&note.text),
                             }
-                            TagDots { tree_id: tree_id.to_string(), tags: note.tags.clone() }
+                            TagBadges { tree_id: tree_id.to_string(), tags: note.tags.clone() }
                         }
                             }
                         }
@@ -1877,7 +1877,7 @@ pub(crate) fn timeline_section(
                                                     span { class: "text-muted", " \u{2014} {age}" }
                                                 }
                                             }
-                                            TagDots { tree_id: tree_id.to_string(), tags: event.tags.clone() }
+                                            TagBadges { tree_id: tree_id.to_string(), tags: event.tags.clone() }
                                         }
                                         div { class: "pd-ev-origin", "{origin_display}" }
                                         if let Some(agency) = &agency {
@@ -1930,7 +1930,7 @@ pub(crate) fn timeline_section(
                                                                 } else {
                                                                     "{source.text}"
                                                                 }
-                                                                TagDots { tree_id: tree_id.to_string(), tags: source.tags.clone() }
+                                                                TagBadges { tree_id: tree_id.to_string(), tags: source.tags.clone() }
                                                             }
                                                         }
                                                     }

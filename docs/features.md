@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -46,11 +46,11 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Sources and citations of each event, with the age the record gives, the agency that kept it, and an optional confidence ([Data Model](data-model.md#citation)).
 - A couple page: both spouses side by side, with the union, its events, media and notes drawn once across the two ([Couple Profile](ui-couple-profile.md)).
 - Witnesses and godparents linked to events as persons of the tree ([Data Model](data-model.md#eventwitness)).
-- Tags on persons and couples: one vocabulary per tree, each tag with a colour, put on or taken off from a shared picker and shown as chips on the page ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
+- Tags on persons and couples: one vocabulary per tree, each tag with a colour, put on or taken off from a shared picker and shown as badges on the page ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
 - Bulk tagging of persons: tag a branch of the tree (ancestors, descendants or both, with their spouses if asked) from a person's menu, or every result of a search from the results toolbar, with a count per tag and one audit entry per change ([Genealogy Tree](ui-genealogy-tree.md), [Search Results §4](ui-search-results.md#4-results-toolbar), [API Contract](api.md#tags)).
 - Highlighting a tag in the tree: its carriers get a dot and a border in the tag's colour in every chart, and the others are dimmed unless turned off ([Genealogy Tree](ui-genealogy-tree.md)).
-- Tags on events, sources and citations: a dot and a *Tags…* menu on each event row and citation entry of the timelines, and on each source of the Dictionary's Sources tab ([Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md), [Dictionary](ui-dictionary.md), [Tags](tags.md)).
-- Tags on places, repositories and notes: a dot and a *Tags…* menu on each place of the Dictionary's Places tab, each repository of its Repositories tab, and each note of a person's or couple's page ([Dictionary](ui-dictionary.md), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
+- Tags on events, sources and citations: a badge and a *Tags…* menu on each event row and citation entry of the timelines, and on each source of the Dictionary's Sources tab ([Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md), [Dictionary](ui-dictionary.md), [Tags](tags.md)).
+- Tags on places, repositories and notes: a badge and a *Tags…* menu on each place of the Dictionary's Places tab, each repository of its Repositories tab, and each note of a person's or couple's page ([Dictionary](ui-dictionary.md), [Person Profile](ui-person-profile.md), [Couple Profile](ui-couple-profile.md)).
 
 ![Couple page with the wedding photograph](../assets/screenshots/couple.webp)
 
@@ -87,7 +87,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Quick search from the topbar by surname, given name or SOSA number ([Common UI §2.3](ui-common.md#23-person-search)).
 - A results page filtered by sex, occupation, birth, death and event years, place, event type, spouse, father, mother and media ([Search Results §5](ui-search-results.md#5-filters)).
 - Results sorted by name or birth, as a list or as a grid of mini pedigrees ([Search Results §7](ui-search-results.md#7-view-modes)).
-- A tag filter that keeps the persons carrying every chosen tag, and a dot per tag on each result ([Search Results §5](ui-search-results.md#5-filters)).
+- A tag filter that keeps the persons carrying every chosen tag, and a badge per tag on each result ([Search Results §5](ui-search-results.md#5-filters)).
 - Matching that ignores case, accents and punctuation, in every language ([Cross-cutting Rules §3.6](cross-cutting.md#36-comparing-words)).
 
 ## 7. Dictionary

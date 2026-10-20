@@ -154,6 +154,27 @@ async function seed(request: APIRequestContext): Promise<Ids> {
         }
     }
 
+    // Tags on a few persons, so the tree cards, the side panel and the profile
+    // headers show badges. Same vocabulary as the media tags above.
+    const personTags: Array<[string, string[]]> = [
+        [grandfather, ["Weaver", "Locronan"]],
+        [mother, ["Dressmaker"]],
+        [spouse, ["Milliner", "Lorient"]],
+        [father, ["Mutual aid society"]],
+        [root, ["Headmaster", "Researcher"]],
+    ];
+    for (const [person, labels] of personTags) {
+        for (const label of labels) {
+            let tagId = tagIds.get(label);
+            if (tagId === undefined) {
+                tagId = (await json<{ id: string }>(request, "post", `/trees/${tree.id}/tags`, { label })).id;
+                tagIds.set(label, tagId);
+            }
+            const response = await request.put(`${apiUrl}/api/v1/trees/${tree.id}/tags/${tagId}/records/person/${person}`);
+            expect(response.ok(), `put tag ${label} on ${person}`).toBeTruthy();
+        }
+    }
+
     const other = await json<{ id: string }>(request, "post", "/trees", {
         name: "Ashdown and Birchley",
         description: "Three unrelated families, imported from GEDCOM",

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-18T20:53:10Z }
+generated: { by: human:maintainer, at: 2026-10-20T13:34:38Z }
 ---
 
 
@@ -255,6 +255,10 @@ narrow form overruns: dropping characters off a date would change what it says.
 - **Focus person**: filled with `var(--pn-root-bg)` and set in white, not
   outlined. Hovering any card fills it with `var(--pn-hover-bg)` and strokes it
   with `var(--pn-root-bg)`
+- **Tags**: a card draws no tags of its own, in any chart: a card is small
+  and a tree holds hundreds of them. The tags of the persons show through
+  **Highlight a tag** ([§5](#left-sidebar-isb)), and the selected person's in
+  the events side panel ([§6](#6-events-sidebar-right))
 - **Spouse cards** use `var(--pn-spouse-bg)`, other cards `var(--pn-bg)`
 - **Additional relations**: a small blue `+` marks a person whose other
   relationships are outside the current layout. It stays clear of connectors;
@@ -293,8 +297,8 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Add child** | The same panel, for a child |
 | **Add sibling** | The same panel, for a sibling |
 | **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |
-| **Tags…** | Opens the tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)); the person's tags are not drawn on the card |
-| **Tag a branch…** | Opens the branch dialog: the ancestors, the descendants or both, the generations (all by default, up to 30), whether to include the person and, for descendants, their spouses. Then the bulk picker opens on those persons ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots), [API Contract](api.md#tags)) |
+| **Tags…** | Opens the tag picker on the person ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the person's tags show in the events side panel ([§6](#6-events-sidebar-right)) |
+| **Tag a branch…** | Opens the branch dialog: the ancestors, the descendants or both, the generations (all by default, up to 30), whether to include the person and, for descendants, their spouses. Then the bulk picker opens on those persons ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges), [API Contract](api.md#tags)) |
 | **Go to…** | In the wheels, fans and lineage (§10): opens a list of the person's relatives the chart does not draw around them — spouses and children in an ancestor chart, parents and spouses in a descendant one — under a heading per kind, each with their lifespan; choosing one makes them the focus. The chart's own focus is left out, and so is the entry when the list would be empty. Not offered on the tree, which draws them all |
 
 The picker is a compact overlay anchored just below the pencil icon, with a subtle backdrop. It closes on outside click or Escape. Choosing an action closes the picker and opens the relevant modal.
@@ -512,7 +516,7 @@ which they find from the page's route, and show as current on their own page
 
 This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart**, **Wrench** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, Tools, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.
 
-On the tree page the sidebar also holds **Highlight a tag**. It opens the list of the tags that at least one person carries; the chosen tag is shown as a chip under the button, whose × ends the highlight. Every card of a person carrying the tag gets a dot in the tag's colour at its top corner and a border in that colour, in every chart of the page, and the other cards are dimmed to 45 % unless **Dim the others** is off. The highlight belongs to the page's history entry, not to the settings, and printing keeps the marks without the dimming. Cards draw nothing for tags while no tag is highlighted.
+On the tree page the sidebar also holds **Highlight a tag**. It opens the list of the tags that at least one person carries; the chosen tag is shown as a chip under the button, whose × ends the highlight. Every card of a person carrying the tag gets a dot in the tag's colour at its top corner and a border in that colour, in every chart of the page, and the other cards are dimmed to 45 % unless **Dim the others** is off. The highlight belongs to the page's history entry, not to the settings, and printing keeps the marks without the dimming. Outside the highlight, cards draw no tags ([Visual Indicators](#visual-indicators)).
 
 **Depth selector — hover panel**:
 
@@ -593,6 +597,12 @@ The **events below keep their own full-text dates** (« entre 11 nov. 1691 et
 extracted year: a year string cannot hold the day, the month, the far end of a
 range, or the calendar, and dropping them is what once made a birth on 2 Nov
 1788 show as a bare "1788".
+
+The selected person's **tags** are shown as badges under the name, and each
+tagged event shows its tags as badges on its own row, in the shared format of
+[Common UI §4.18](ui-common.md#418-tags-picker-and-badges): one line, at most
+three badges and then a `+n`, a badge opening its tag in the Dictionary. The
+pedigree carries each person's tags (`PedigreeNode::tags`) and each event's.
 
 ```
 +------------------------------+

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:36:03Z }
 ---
 
 
@@ -84,7 +84,7 @@ card is omitted when the couple has none. A notes card that failed to load
 still shows its error.
 
 The notes of the couple and of each spouse take the record menu and the tag
-dots of the person profile's notes ([Person Profile §8](ui-person-profile.md#8-notes)).
+badges of the person profile's notes ([Person Profile §8](ui-person-profile.md#8-notes)).
 
 ### Placement
 
@@ -127,9 +127,11 @@ column, and the ⚭ sign is centered in the gutter between the two.
   couple removes the union only, and the page then returns to the tree view,
   centered on the spouse that was displayed.
 - **Tags…**, an icon button in the actions row, opens the tag picker on the
-  couple ([Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots)). The
-  couple's tags sit as chips beside it, shown only when there are some; each
-  chip opens the Dictionary's Tags tab on its tag.
+  couple ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)). The
+  couple's tags sit as badges before it, right-aligned in the same row, shown
+  only when there are some. Two badges show, wrapping onto a second line when
+  the header is narrow; beyond two, a *+n more* toggle expands the rest. Each badge opens the Dictionary's Tags tab
+  on its tag.
 - **Refresh**, on the web build only, reloads the page's data.
 
 At 1080px and below, as the columns collapse, each selector takes its own line
@@ -169,7 +171,7 @@ it.
   its children's births, baptisms, deaths, and burials. A family event carries
   no partner name here. The timeline otherwise matches the person profile's,
   with its sources and evidence galleries, and its event rows and citation
-  entries carry the same tag dots and *Tags…* menu.
+  entries carry the same tag badges and *Tags…* menu.
 - **Couple media**: the canonical read-only `MediaGallery` for the family. Its
   `+` opens `DocumentForm` for the family, with the union's events offered as
   evidence targets.

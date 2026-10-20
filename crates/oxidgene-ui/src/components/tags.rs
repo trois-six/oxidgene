@@ -17,8 +17,11 @@ use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 
-/// Dots a row shows before the `+n` that counts the rest.
-const DOT_LIMIT: usize = 3;
+/// Badges a list row shows before the `+n` that counts the rest.
+pub(crate) const ROW_BADGE_BUDGET: usize = 3;
+/// Badges a profile header shows before its toggle expands the rest (the count
+/// rule of docs/ui-common.md §4.18).
+const HEADER_BADGE_BUDGET: usize = 2;
 
 /// The colour of each palette slot, as a `var()` reference to its theme
 /// token. The references are spelled out here so the stylesheet guard
@@ -1012,8 +1015,8 @@ pub fn TagsButton(
     }
 }
 
-/// The route that opens the Dictionary's Tags tab on a tag: what a chip or a
-/// dot follows (docs/ui-common.md §4.18).
+/// The route that opens the Dictionary's Tags tab on a tag: what a badge
+/// follows (docs/ui-common.md §4.18).
 fn tag_route(tree_id: &str, tag: &TagRef) -> Route {
     Route::DictionaryTag {
         tree_id: tree_id.to_string(),
@@ -1021,56 +1024,108 @@ fn tag_route(tree_id: &str, tag: &TagRef) -> Route {
     }
 }
 
-/// The tags of a record as chips: a colour dot and the label, one after the
-/// other, each opening the Tags tab on its tag. Nothing is drawn for a record
-/// without tags (docs/ui-common.md §4.18). Chips carry no remove button.
+/// The tags of a record as badges: a colour dot and the label, truncated, each
+/// a link to the tag in the Dictionary (docs/ui-common.md §4.18). A list row
+/// shows [`ROW_BADGE_BUDGET`] of them and a `+n` whose tooltip names the rest.
+/// A profile header (`header`) shows its first [`HEADER_BADGE_BUDGET`] badges,
+/// wrapping onto a second line when the header is narrow, and a toggle below
+/// the row that expands the rest, whatever the width.
+/// Nothing is drawn for a record without tags.
 #[component]
-pub fn TagChips(tree_id: String, tags: Vec<TagRef>) -> Element {
+pub fn TagBadges(tree_id: String, tags: Vec<TagRef>, #[props(default)] header: bool) -> Element {
     let i18n = use_i18n();
+    let mut expanded = use_signal(|| false);
     if tags.is_empty() {
         return rsx! {};
     }
-    rsx! {
-        div { class: "tag-chips",
-            for tag in tags.iter() {
+    let budget = if header {
+        HEADER_BADGE_BUDGET
+    } else {
+        ROW_BADGE_BUDGET
+    };
+    let is_open = header && expanded();
+    let shown = if is_open {
+        tags.len()
+    } else {
+        budget.min(tags.len())
+    };
+    let rest = tags.len() - shown;
+    let row_class = if header {
+        "tag-badges is-wrap"
+    } else {
+        "tag-badges"
+    };
+    let row = rsx! {
+        // The badges may sit in a clickable or long-press row: a click or a
+        // press on them opens the tag (or nothing, for the +n) and must not
+        // also toggle or open that row. One handler on the group covers all.
+        div {
+            class: "{row_class}",
+            onclick: move |e: Event<MouseData>| e.stop_propagation(),
+            onpointerdown: stop_row_press,
+            for tag in tags.iter().take(shown) {
                 Link {
                     key: "{tag.id}",
                     to: tag_route(&tree_id, tag),
-                    class: "tag-chip",
+                    class: "tag-badge",
+                    title: "{tag.label}",
                     aria_label: i18n.t_args("tag.open", &[("label", &tag.label)]),
                     span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
-                    span { class: "tag-chip-label", "{tag.label}" }
+                    span { class: "tag-badge-label", "{tag.label}" }
+                }
+            }
+            if !header && rest > 0 {
+                {more_badge(&tags[shown..], rest, &i18n)}
+            }
+        }
+    };
+    if !header {
+        return row;
+    }
+    // The toggle sits outside the badge row, so the row never clips it.
+    let (label, aria_expanded) = if is_open {
+        (i18n.t("tag.less"), "true")
+    } else {
+        (
+            i18n.t_args("tag.more", &[("count", &rest.to_string())]),
+            "false",
+        )
+    };
+    rsx! {
+        div { class: "tag-badges-header",
+            {row}
+            if rest > 0 || is_open {
+                button {
+                    class: "tag-badges-toggle",
+                    r#type: "button",
+                    aria_expanded,
+                    onclick: move |_| expanded.set(!is_open),
+                    "{label}"
                 }
             }
         }
     }
 }
 
-/// The tags of a record as dots, at most three and then `+n`. Each dot opens
-/// the Tags tab on its tag; its label is in the tooltip and the accessible
-/// name, so a dot never carries its tag by colour alone (docs/ui-common.md §4.18).
-#[component]
-pub fn TagDots(tree_id: String, tags: Vec<TagRef>) -> Element {
-    let i18n = use_i18n();
-    if tags.is_empty() {
-        return rsx! {};
-    }
-    let rest = tags.len().saturating_sub(DOT_LIMIT);
+/// The `+n` of a list row: a non-link badge whose tooltip and accessible
+/// name list the labels it hides.
+fn more_badge(hidden: &[TagRef], rest: usize, i18n: &I18n) -> Element {
+    let labels = hidden
+        .iter()
+        .map(|tag| tag.label.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let overflow = i18n.t_args(
+        "tag.overflow",
+        &[("count", &rest.to_string()), ("labels", &labels)],
+    );
     rsx! {
-        span { class: "tag-dots",
-            for tag in tags.iter().take(DOT_LIMIT) {
-                Link {
-                    key: "{tag.id}",
-                    to: tag_route(&tree_id, tag),
-                    class: "tag-dot-link",
-                    title: "{tag.label}",
-                    aria_label: i18n.t_args("tag.open", &[("label", &tag.label)]),
-                    span { class: "tag-dot", style: dot_style(tag.color) }
-                }
-            }
-            if rest > 0 {
-                span { class: "tag-dots-more", "+{rest}" }
-            }
+        span {
+            class: "tag-badge-more",
+            role: "img",
+            title: "{overflow}",
+            aria_label: "{overflow}",
+            "+{rest}"
         }
     }
 }

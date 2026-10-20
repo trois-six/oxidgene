@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-20T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-20T12:25:28Z }
 ---
 
 
@@ -474,8 +474,8 @@ schema change plus a data-entry campaign. Every picker that sets it says so.
 ### Tag
 
 The tree's vocabulary: one row per label, shared by every kind of record. The
-links are [RecordTag](#recordtag) rows; the picker and the dots are in
-[Common UI §4.18](ui-common.md#418-tags-picker-chips-and-dots).
+links are [RecordTag](#recordtag) rows; the picker and the badges are in
+[Common UI §4.18](ui-common.md#418-tags-picker-and-badges).
 
 | Column | Type | Notes |
 |---|---|---|

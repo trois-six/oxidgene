@@ -17,6 +17,7 @@ use crate::api::CroppedSource;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::format_event_date;
 use crate::components::event_icon::EventIcon;
+use crate::components::tags::TagBadges;
 use crate::i18n::{I18n, use_i18n};
 
 /// The events of a life that its family's panel shows too.
@@ -268,6 +269,11 @@ fn EventPanelBody(data: SharedPedigree, selected: Uuid, tree_id: String) -> Elem
         data.qualified_death_year(selected),
     );
     let groups = events_by_year(&selected_person_events(&data, selected), &i18n);
+    let person_tags = data
+        .persons
+        .get(&selected)
+        .map(|person| person.tags.clone())
+        .unwrap_or_default();
     rsx! {
         div { class: "evp-hd", {i18n.t("pedigree.events")} }
         div { class: "evp-person",
@@ -283,6 +289,7 @@ fn EventPanelBody(data: SharedPedigree, selected: Uuid, tree_id: String) -> Elem
                 if !dates.is_empty() {
                     span { "{dates}" }
                 }
+                TagBadges { tree_id: tree_id.clone(), tags: person_tags }
             }
         }
         div { class: "evp-list",
@@ -358,6 +365,9 @@ fn PedigreeEventRow(
                 }
                 if !place.is_empty() {
                     div { class: "ev-place", "{place}" }
+                }
+                if !event.tags.is_empty() {
+                    TagBadges { tree_id: tree_id.clone(), tags: event.tags.clone() }
                 }
             }
         }
