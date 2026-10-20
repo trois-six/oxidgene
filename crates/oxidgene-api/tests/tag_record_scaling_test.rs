@@ -200,3 +200,171 @@ async fn reading_tagged_places_repositories_and_notes_costs_the_same_on_many_as_
         .unwrap();
     assert_eq!(listed.edges.len(), 30);
 }
+
+/// Creates a record of `path` in `tree`, with `body`, and returns its id.
+async fn created(app: &Router, tree: &str, path: &str, body: serde_json::Value) -> String {
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/{path}"),
+        Some(body),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// Puts tag `tag_id` on the record `kind` `id` of `tree`.
+async fn tag_on(app: &Router, tree: &str, tag_id: &str, kind: &str, id: &str) {
+    let (status, body) = send(
+        app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}/tags/{tag_id}/records/{kind}/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+}
+
+/// Makes a couple of `husband` and `wife` in `tree`, and returns its id.
+async fn couple_of(app: &Router, tree: &str, husband: &str, wife: &str) -> String {
+    let family = created(app, tree, "families", json!({})).await;
+    for (order, (member, role)) in [(husband, "husband"), (wife, "wife")]
+        .into_iter()
+        .enumerate()
+    {
+        ok(
+            app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/families/{family}/spouses"),
+            Some(json!({ "person_id": member, "role": role, "sort_order": order })),
+        )
+        .await;
+    }
+    family
+}
+
+/// Creates the owned records of the `index`th owner of a tree: a person with
+/// a spouse, an occupation of theirs with its place, the couple, a citation of
+/// the occupation and a note of the person, each tagged `tag_id`.
+async fn owned_records_at(app: &Router, tree: &str, tag_id: &str, source: &str, index: usize) {
+    let person = new_person(app, tree).await;
+    let spouse = new_person(app, tree).await;
+    let place = created(
+        app,
+        tree,
+        "places",
+        json!({ "name": format!("Place {index}") }),
+    )
+    .await;
+    let event = created(
+        app,
+        tree,
+        "events",
+        json!({
+            "event_type": "occupation",
+            "person_id": person,
+            "place_id": place,
+            "date_value": "1900",
+            "description": format!("Clerk {index}"),
+        }),
+    )
+    .await;
+    let family = couple_of(app, tree, &person, &spouse).await;
+    let citation = created(
+        app,
+        tree,
+        "citations",
+        json!({ "source_id": source, "event_id": event, "page": format!("folio {index}") }),
+    )
+    .await;
+    let note = created(
+        app,
+        tree,
+        "notes",
+        json!({ "text": format!("Note {index}"), "person_id": person }),
+    )
+    .await;
+    tag_on(app, tree, tag_id, "event", &event).await;
+    tag_on(app, tree, tag_id, "family", &family).await;
+    tag_on(app, tree, tag_id, "citation", &citation).await;
+    tag_on(app, tree, tag_id, "note", &note).await;
+}
+
+/// A tree with `count` owned records of each kind the tag's list reads
+/// through the persons they show: an occupation event with its place, a couple
+/// with its two spouses, a citation of its event and a note of its person, each
+/// tagged `Ledger`, a tag of that tree. Returns the tree and the tag ids.
+async fn owned_records_tree(app: &Router, label: &str, count: usize) -> (Uuid, Uuid) {
+    let tree = new_tree(app, label).await;
+    let tag_id = created(app, &tree, "tags", json!({ "label": "Ledger" })).await;
+    let source = created(app, &tree, "sources", json!({ "title": "Register" })).await;
+    for index in 0..count {
+        owned_records_at(app, &tree, &tag_id, &source, index).await;
+    }
+    (
+        Uuid::parse_str(&tree).unwrap(),
+        Uuid::parse_str(&tag_id).unwrap(),
+    )
+}
+
+#[tokio::test]
+async fn reading_tagged_events_couples_citations_and_notes_costs_the_same_on_many_as_on_few() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+
+    let db: DatabaseConnection = setup_db().await;
+    let app = app_on(db.clone());
+    let (small, small_tag) = owned_records_tree(&app, "Tags Owned Scaling Few", 1).await;
+    let (large, large_tag) = owned_records_tree(&app, "Tags Owned Scaling Many", 30).await;
+    let params = PaginationParams {
+        first: 100,
+        after: None,
+    };
+
+    for kind in [
+        RecordKind::Event,
+        RecordKind::Family,
+        RecordKind::Citation,
+        RecordKind::Note,
+    ] {
+        let few = statements(&counter, || async {
+            let page = tag::tagged_records(&db, small, small_tag, kind, &params)
+                .await
+                .unwrap();
+            assert_eq!(page.edges.len(), 1, "{kind:?}");
+            assert!(
+                page.edges[0]
+                    .node
+                    .persons
+                    .as_ref()
+                    .is_some_and(|persons| !persons.is_empty()),
+                "{kind:?} shows its persons"
+            );
+        })
+        .await;
+        let many = statements(&counter, || async {
+            let page = tag::tagged_records(&db, large, large_tag, kind, &params)
+                .await
+                .unwrap();
+            assert_eq!(page.edges.len(), 30, "{kind:?}");
+            assert!(
+                page.edges.iter().all(|edge| edge
+                    .node
+                    .persons
+                    .as_ref()
+                    .is_some_and(|persons| !persons.is_empty())),
+                "{kind:?} shows its persons"
+            );
+        })
+        .await;
+        assert!(few > 0, "no statement counted for {kind:?}");
+        assert_eq!(
+            many, few,
+            "listing 30 tagged {kind:?} records costs {many}, one costs {few}"
+        );
+    }
+}

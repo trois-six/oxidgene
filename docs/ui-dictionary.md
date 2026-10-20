@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T14:56:16Z }
+generated: { by: human:maintainer, at: 2026-10-20T16:48:31Z }
 ---
 
 
@@ -737,12 +737,32 @@ The chevron unfolds the records carrying the tag, grouped by kind under a
 heading in the group-header style, each kind 25 at a time with *Load more*. A
 person line is the usage list's own (§10): "SURNAME Given names" with the
 muted lifespan, linking to the person on the tree page. Every other line is the
-usage list's link style too (`dict-accordion-item`). A couple and a document
-link to their pages; an event or a citation links to the profile of its owner,
-a person or a couple; a source, a place and a repository open their row in
-their tab of this dictionary, each on that record's own row (§14); a note links
-to the profile of the person or couple it belongs to. A note of a source, a
-repository or a document is shown as text.
+usage list's link style too (`dict-accordion-item`), and names what the record
+is before the persons it shows, each with the same name and muted lifespan:
+
+- An event reads its translated type, then its description after a dash, then
+  its date written as the timeline writes it (qualifier included) and its place,
+  each after a dot: *Occupation — Police inspector · 1938 · Paris*. Then the
+  person it belongs to, or the two spouses of its couple, after a dash. Its
+  sources are not shown.
+- A citation reads its source's title and its page, then the person or the
+  couple of its event. A citation whose source is gone reads as untitled.
+- A note reads the start of its text, one line cut with an ellipsis, then the
+  person or the couple it belongs to. A note of a source, a repository or a
+  document has no person and is shown as text. A note of blank text reads as
+  an empty note.
+- A couple reads its two spouses with their lifespans, and has no text of its
+  own.
+- A source, a place, a repository and a document read their titles or names.
+
+The dash and the dot are translated strings, and so are the untitled and empty
+texts: a line never shows a record's id or a raw enumeration value.
+
+A couple and a document link to their pages; an event or a citation links to
+the profile of its owner, a person or a couple; a source, a place and a
+repository open their row in their tab of this dictionary, each on that
+record's own row (§14); a note links to the profile of the person or couple it
+belongs to.
 
 - **Remove** (× in the shared remove-control style) beside each record line
   takes the record off the tag with no confirmation; the record's own tag menu

@@ -8,9 +8,10 @@
 use std::collections::HashMap;
 
 use oxidgene_core::collections::sorted_unique;
+use oxidgene_core::enums::{Calendar, DateQualifier, EventType};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditSubject};
-use oxidgene_core::types::{Connection, Edge, FamilySpouse, RecordKind};
+use oxidgene_core::types::{Citation, Connection, Edge, Event, FamilySpouse, RecordKind};
 use oxidgene_db::entities::{event, record_tag};
 use oxidgene_db::repo::{
     CitationRepo, DictionaryRepo, EventRepo, FamilySpouseRepo, MediaRepo, NoteRepo,
@@ -190,18 +191,56 @@ pub async fn untag_record(
 /// A live record carrying a tag, as the tag's list shows it: its id, its kind,
 /// a label to show, and for an event, citation or note the person or family
 /// it belongs to. For a person, its name parts and lifespan, as the
-/// dictionary's usage lists show them.
+/// dictionary's usage lists show them. For an event, its own details; for a
+/// citation, its source and page; for an event, citation or note, and for a
+/// couple, the persons it shows.
 #[derive(Debug, Clone, Serialize)]
 pub struct TaggedRecord {
     pub id: Uuid,
     pub kind: RecordKind,
+    /// The text the record is named by: a person's name is in `person`, an
+    /// event's in `event`, a citation's source in `citation`. Empty when the
+    /// record has no text to show (a note with blank text, a citation whose
+    /// source is gone, a couple).
     pub label: String,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub person: Option<PersonUsageEntry>,
+    /// For an event: its type, dates, place and description, without sources.
+    pub event: Option<TaggedEvent>,
+    /// For a citation: its source's title and its page, without the event.
+    pub citation: Option<TaggedCitation>,
+    /// For an event, citation or note: the person it belongs to, or the two
+    /// spouses of the couple it belongs to. For a couple: its spouses, in
+    /// their order. Empty when nothing owns the record; `None` for the other
+    /// kinds.
+    pub persons: Option<Vec<PersonUsageEntry>>,
+}
+
+/// An event as a tag's list shows it: what happened, when and where, and what
+/// the event says about it. Its sources are not part of it.
+#[derive(Debug, Clone, Serialize)]
+pub struct TaggedEvent {
+    pub event_type: EventType,
+    pub date_value: Option<String>,
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: Calendar,
+    pub place_name: Option<String>,
+    pub description: Option<String>,
+}
+
+/// A citation as a tag's list shows it: the title of its source, and its page
+/// when it has one. Both are `None` when the source is gone.
+#[derive(Debug, Clone, Serialize)]
+pub struct TaggedCitation {
+    pub source_title: Option<String>,
+    pub page: Option<String>,
 }
 
 /// One page of the live records of `kind` carrying tag `tag_id` of `tree_id`.
+/// The reads behind the page are a fixed number of grouped queries, whatever
+/// the number of records on it.
 pub async fn tagged_records(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -212,41 +251,16 @@ pub async fn tagged_records(
     TagRepo::get(db, tree_id, tag_id).await?;
     let page = RecordTagRepo::records_of_tag(db, tree_id, tag_id, kind, params).await?;
     let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node).collect();
-    let labels = labels_of(db, tree_id, kind, &ids).await?;
-    let persons: HashMap<Uuid, PersonUsageEntry> = match kind {
-        RecordKind::Person => DictionaryRepo::resolve_person_usage_entries(db, &ids)
-            .await?
-            .into_iter()
-            .map(|entry| (entry.person_id, entry))
-            .collect(),
-        _ => HashMap::new(),
-    };
-    let owners = match kind {
-        RecordKind::Person | RecordKind::Family => HashMap::new(),
-        _ => subjects_of(db, kind, &ids).await?,
-    };
-    let mut edges = Vec::with_capacity(page.edges.len());
-    for edge in page.edges {
-        let (person_id, family_id) = match owners.get(&edge.node) {
-            Some((AuditSubject::Person, id)) => (Some(*id), None),
-            Some((AuditSubject::Family, id)) => (None, Some(*id)),
-            _ => (None, None),
-        };
-        edges.push(Edge {
+    let details = page_details(db, tree_id, kind, &ids).await?;
+    let persons = persons_of(db, kind, &ids, &details.owners).await?;
+    let edges = page
+        .edges
+        .into_iter()
+        .map(|edge| Edge {
+            node: tagged_node(kind, edge.node, &details, &persons),
             cursor: edge.cursor,
-            node: TaggedRecord {
-                id: edge.node,
-                kind,
-                label: labels
-                    .get(&edge.node)
-                    .cloned()
-                    .unwrap_or_else(|| edge.node.to_string()),
-                person_id,
-                family_id,
-                person: persons.get(&edge.node).cloned(),
-            },
-        });
-    }
+        })
+        .collect();
     Ok(Connection {
         edges,
         page_info: page.page_info,
@@ -254,13 +268,220 @@ pub async fn tagged_records(
     })
 }
 
-/// The label to show for each of `ids`, all records of `kind`. A record with
-/// no text to show is absent from the map.
+/// What a page of records of one kind shows about each of them, read in a
+/// fixed number of grouped queries.
+struct PageDetails {
+    labels: HashMap<Uuid, String>,
+    owners: HashMap<Uuid, (AuditSubject, Uuid)>,
+    events: HashMap<Uuid, TaggedEvent>,
+    citations: HashMap<Uuid, TaggedCitation>,
+}
+
+/// The labels, owners and details of the page `ids` of records of `kind`. An
+/// event or a citation is read once: its owner, its label and its details all
+/// come from the same rows.
+async fn page_details(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    kind: RecordKind,
+    ids: &[Uuid],
+) -> Result<PageDetails, OxidGeneError> {
+    let event_rows = match kind {
+        RecordKind::Event => EventRepo::get_many_untagged(db, ids).await?,
+        _ => Vec::new(),
+    };
+    let citation_rows = match kind {
+        RecordKind::Citation => CitationRepo::get_many_untagged(db, ids).await?,
+        _ => Vec::new(),
+    };
+    let labels = labels_of(db, tree_id, kind, ids, &event_rows).await?;
+    let owners = match kind {
+        RecordKind::Person | RecordKind::Family => HashMap::new(),
+        RecordKind::Event => event_owner_map(&event_rows),
+        RecordKind::Citation => citation_owner_map(db, &citation_rows).await?,
+        _ => subjects_of(db, kind, ids).await?,
+    };
+    let events = match kind {
+        RecordKind::Event => event_details(db, event_rows).await?,
+        _ => HashMap::new(),
+    };
+    let citations = match kind {
+        RecordKind::Citation => citation_details(db, tree_id, citation_rows).await?,
+        _ => HashMap::new(),
+    };
+    Ok(PageDetails {
+        labels,
+        owners,
+        events,
+        citations,
+    })
+}
+
+/// The entry of record `id` of `kind` on a page, from its details.
+fn tagged_node(
+    kind: RecordKind,
+    id: Uuid,
+    details: &PageDetails,
+    persons: &PagePersons,
+) -> TaggedRecord {
+    let (person_id, family_id) = match details.owners.get(&id) {
+        Some((AuditSubject::Person, person)) => (Some(*person), None),
+        Some((AuditSubject::Family, family)) => (None, Some(*family)),
+        _ => (None, None),
+    };
+    let citation = details.citations.get(&id).cloned();
+    let label = citation
+        .as_ref()
+        .and_then(|citation| citation.source_title.clone())
+        .or_else(|| details.labels.get(&id).cloned())
+        .unwrap_or_default();
+    TaggedRecord {
+        id,
+        kind,
+        person_id,
+        family_id,
+        person: match kind {
+            RecordKind::Person => persons.entries.get(&id).cloned(),
+            _ => None,
+        },
+        event: details.events.get(&id).cloned(),
+        label,
+        citation,
+        persons: shows_persons(kind).then(|| persons.list_of(&id)),
+    }
+}
+
+/// Whether a record of `kind` shows persons in the tag's list: a couple its
+/// spouses, an event, citation or note its owner or owning couple.
+fn shows_persons(kind: RecordKind) -> bool {
+    matches!(
+        kind,
+        RecordKind::Family | RecordKind::Event | RecordKind::Citation | RecordKind::Note
+    )
+}
+
+/// The persons a page of records shows, each resolved once.
+struct PagePersons {
+    /// The usage entry of every person named in `members`, or of every
+    /// person record on the page.
+    entries: HashMap<Uuid, PersonUsageEntry>,
+    /// The persons each record shows, in their order.
+    members: HashMap<Uuid, Vec<Uuid>>,
+}
+
+impl PagePersons {
+    /// The entries of the persons a record shows, empty when it shows none.
+    fn list_of(&self, id: &Uuid) -> Vec<PersonUsageEntry> {
+        self.members
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter_map(|person| self.entries.get(person).cloned())
+            .collect()
+    }
+}
+
+/// The persons of a page of records of `kind`, read in a fixed number of
+/// grouped queries: the persons themselves for a page of persons, else the
+/// spouses of the couples the records show.
+async fn persons_of(
+    db: &impl ConnectionTrait,
+    kind: RecordKind,
+    ids: &[Uuid],
+    owners: &HashMap<Uuid, (AuditSubject, Uuid)>,
+) -> Result<PagePersons, OxidGeneError> {
+    let families: Vec<Uuid> = match kind {
+        RecordKind::Family => ids.to_vec(),
+        _ => owners
+            .values()
+            .filter(|(subject, _)| matches!(subject, AuditSubject::Family))
+            .map(|(_, id)| *id)
+            .collect(),
+    };
+    let couples = couples_of(db, &families).await?;
+    let members: HashMap<Uuid, Vec<Uuid>> = ids
+        .iter()
+        .filter_map(|id| {
+            let owner = match kind {
+                RecordKind::Family => Some((AuditSubject::Family, *id)),
+                _ => owners.get(id).cloned(),
+            };
+            let shown = match owner {
+                Some((AuditSubject::Person, person)) => vec![person],
+                Some((AuditSubject::Family, family)) => {
+                    couples.get(&family).cloned().unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            shows_persons(kind).then_some((*id, shown))
+        })
+        .collect();
+    let wanted: Vec<Uuid> = match kind {
+        RecordKind::Person => ids.to_vec(),
+        _ => members.values().flatten().copied().collect(),
+    };
+    let entries = DictionaryRepo::resolve_person_usage_entries(db, &sorted_unique(wanted))
+        .await?
+        .into_iter()
+        .map(|entry| (entry.person_id, entry))
+        .collect();
+    Ok(PagePersons { entries, members })
+}
+
+/// The spouses of each of `families`, in their order.
+async fn couples_of(
+    db: &impl ConnectionTrait,
+    families: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<Uuid>>, OxidGeneError> {
+    let mut spouses = FamilySpouseRepo::list_by_families(db, families).await?;
+    spouses.sort_by_key(|spouse| spouse.sort_order);
+    let mut couples: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for spouse in spouses {
+        couples
+            .entry(spouse.family_id)
+            .or_default()
+            .push(spouse.person_id);
+    }
+    Ok(couples)
+}
+
+/// The details of each of `events`, its place named.
+async fn event_details(
+    db: &impl ConnectionTrait,
+    events: Vec<Event>,
+) -> Result<HashMap<Uuid, TaggedEvent>, OxidGeneError> {
+    let place_ids: Vec<Uuid> = events.iter().filter_map(|event| event.place_id).collect();
+    let places: HashMap<Uuid, String> = PlaceRepo::get_many_untagged(db, &place_ids)
+        .await?
+        .into_iter()
+        .map(|place| (place.id, place.name))
+        .collect();
+    Ok(events
+        .into_iter()
+        .map(|event| {
+            let detail = TaggedEvent {
+                event_type: event.event_type,
+                date_value: event.date_value,
+                date_qualifier: event.date_qualifier,
+                date_value2: event.date_value2,
+                calendar: event.calendar,
+                place_name: event.place_id.and_then(|id| places.get(&id).cloned()),
+                description: event.description.filter(|text| !text.trim().is_empty()),
+            };
+            (event.id, detail)
+        })
+        .collect())
+}
+
+/// The label to show for each of `ids`, all records of `kind`; `events` are
+/// their event rows when `kind` is events. A record with no text to show is
+/// absent from the map.
 async fn labels_of(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     kind: RecordKind,
     ids: &[Uuid],
+    events: &[Event],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
     let mut labels: HashMap<Uuid, String> = match kind {
         RecordKind::Person => display_names(db, ids).await?,
@@ -285,15 +506,18 @@ async fn labels_of(
             .into_iter()
             .map(|media| (media.id, media.title.unwrap_or(media.file_name)))
             .collect(),
-        RecordKind::Event => event_labels(db, ids).await?,
-        RecordKind::Citation => citation_labels(db, ids).await?,
+        RecordKind::Event => event_labels(events),
+        // A citation is named by its source, read with its details.
+        RecordKind::Citation => HashMap::new(),
         RecordKind::Note => note_labels(db, ids).await?,
     };
     labels.retain(|_, label| !label.trim().is_empty());
     Ok(labels)
 }
 
-/// A couple's label: its spouses' names, in their order.
+/// A couple's label: its spouses' names, in their order, joined by a middle
+/// dot. This is the one joined line the API writes; the UI shows the spouses
+/// themselves and never this label.
 async fn family_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
@@ -318,40 +542,75 @@ async fn family_labels(
 }
 
 /// An event's label: its type, as the wire spells it.
-async fn event_labels(
-    db: &impl ConnectionTrait,
-    ids: &[Uuid],
-) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let events = EventRepo::get_many_untagged(db, ids).await?;
-    Ok(events
-        .into_iter()
+fn event_labels(events: &[Event]) -> HashMap<Uuid, String> {
+    events
+        .iter()
         .filter_map(|event| {
             let spelling = serde_json::to_value(event.event_type)
                 .ok()
                 .and_then(|value| value.as_str().map(str::to_owned))?;
             Some((event.id, spelling))
         })
-        .collect())
+        .collect()
 }
+/// The longest start of a note's text that a tag's list shows, in characters.
+const NOTE_EXCERPT_CHARS: usize = 100;
 
-/// A note's label: its text.
+/// A note's label: the start of its text, its first line cut to
+/// [`NOTE_EXCERPT_CHARS`] characters, with an ellipsis when cut.
 async fn note_labels(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, String>, OxidGeneError> {
     let notes = NoteRepo::get_many_untagged(db, ids).await?;
-    Ok(notes.into_iter().map(|note| (note.id, note.text)).collect())
+    Ok(notes
+        .into_iter()
+        .filter_map(|note| note_excerpt(&note.text).map(|excerpt| (note.id, excerpt)))
+        .collect())
 }
 
-/// A citation's label: its text, when it has one.
-async fn citation_labels(
+/// The first non-empty line of `text`, cut to [`NOTE_EXCERPT_CHARS`]
+/// characters, with an ellipsis when it was cut.
+fn note_excerpt(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    if line.chars().count() <= NOTE_EXCERPT_CHARS {
+        return Some(line.to_owned());
+    }
+    let cut: String = line.chars().take(NOTE_EXCERPT_CHARS).collect();
+    Some(format!("{cut}\u{2026}"))
+}
+
+/// The details of each of `citations`: the title of its source, which is
+/// absent when the source is gone, and its page, when it has one.
+async fn citation_details(
     db: &impl ConnectionTrait,
-    ids: &[Uuid],
-) -> Result<HashMap<Uuid, String>, OxidGeneError> {
-    let citations = CitationRepo::get_many_untagged(db, ids).await?;
+    tree_id: Uuid,
+    citations: Vec<Citation>,
+) -> Result<HashMap<Uuid, TaggedCitation>, OxidGeneError> {
+    let source_ids: Vec<Uuid> = citations
+        .iter()
+        .map(|citation| citation.source_id)
+        .collect();
+    let titles: HashMap<Uuid, String> = SourceRepo::get_many(db, tree_id, &source_ids)
+        .await?
+        .into_iter()
+        .map(|source| (source.id, source.title))
+        .collect();
     Ok(citations
         .into_iter()
-        .filter_map(|citation| citation.text.map(|text| (citation.id, text)))
+        .map(|citation| {
+            let detail = TaggedCitation {
+                source_title: titles
+                    .get(&citation.source_id)
+                    .filter(|title| !title.trim().is_empty())
+                    .cloned(),
+                page: citation
+                    .page
+                    .map(|page| page.trim().to_owned())
+                    .filter(|page| !page.is_empty()),
+            };
+            (citation.id, detail)
+        })
         .collect())
 }
 
@@ -470,23 +729,9 @@ async fn subjects_of(
         RecordKind::Source => own(AuditSubject::Source),
         RecordKind::Repository => own(AuditSubject::Repository),
         RecordKind::Media => own(AuditSubject::Media),
-        RecordKind::Event => event_owners(db, ids).await?,
+        RecordKind::Event => event_owner_map(&EventRepo::get_many_untagged(db, ids).await?),
         RecordKind::Citation => {
-            let citations = CitationRepo::get_many_untagged(db, ids).await?;
-            let event_ids: Vec<Uuid> = citations.iter().filter_map(|c| c.event_id).collect();
-            let owners = event_owners(db, &event_ids).await?;
-            citations
-                .into_iter()
-                .map(|citation| {
-                    let event_owner = citation
-                        .event_id
-                        .and_then(|event_id| owners.get(&event_id).cloned());
-                    let subject =
-                        owner_subject(citation.person_id, citation.family_id, event_owner)
-                            .unwrap_or((AuditSubject::Source, citation.source_id));
-                    (citation.id, subject)
-                })
-                .collect()
+            citation_owner_map(db, &CitationRepo::get_many_untagged(db, ids).await?).await?
         }
         RecordKind::Note => {
             let notes = NoteRepo::get_many_untagged(db, ids).await?;
@@ -515,16 +760,43 @@ async fn subjects_of(
     })
 }
 
+/// The person, else the family, of each of `events`.
+fn event_owner_map(events: &[Event]) -> HashMap<Uuid, (AuditSubject, Uuid)> {
+    events
+        .iter()
+        .filter_map(|event| {
+            owner_subject(event.person_id, event.family_id, None).map(|owner| (event.id, owner))
+        })
+        .collect()
+}
+
 /// The person, else the family, of each live event among `ids`.
 async fn event_owners(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, (AuditSubject, Uuid)>, OxidGeneError> {
-    let events = EventRepo::get_many_untagged(db, ids).await?;
-    Ok(events
-        .into_iter()
-        .filter_map(|event| {
-            owner_subject(event.person_id, event.family_id, None).map(|owner| (event.id, owner))
+    Ok(event_owner_map(
+        &EventRepo::get_many_untagged(db, ids).await?,
+    ))
+}
+
+/// The subject of each of `citations`: its person, else its family, else the
+/// owning event's, else its source.
+async fn citation_owner_map(
+    db: &impl ConnectionTrait,
+    citations: &[Citation],
+) -> Result<HashMap<Uuid, (AuditSubject, Uuid)>, OxidGeneError> {
+    let event_ids: Vec<Uuid> = citations.iter().filter_map(|c| c.event_id).collect();
+    let owners = event_owners(db, &event_ids).await?;
+    Ok(citations
+        .iter()
+        .map(|citation| {
+            let event_owner = citation
+                .event_id
+                .and_then(|event_id| owners.get(&event_id).cloned());
+            let subject = owner_subject(citation.person_id, citation.family_id, event_owner)
+                .unwrap_or((AuditSubject::Source, citation.source_id));
+            (citation.id, subject)
         })
         .collect())
 }

@@ -880,3 +880,54 @@ test("puts the colour dot inline before the label, and asks before the tag is de
     const tags = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`)).json()) as Array<{ id: string }>;
     expect(tags.map((tag) => tag.id)).toContain(tagId);
 });
+
+test("lists a tagged event with its translated type, date, place, description and persons, and × takes it off", async ({ page, request, tree }) => {
+    const created = async (path: string, data: object): Promise<string> => {
+        const response = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}${path}`, { data });
+        expect(response.ok(), await response.text()).toBeTruthy();
+        return (await response.json()).id as string;
+    };
+    const tagId = await createTag(request, tree.treeId, "Fictional ledger");
+    const dorian = await personIdOf(request, tree.treeId, "Dorian");
+    const bernard = await personIdOf(request, tree.treeId, "Bernard");
+    const place = await created("/places", { name: "Fictionville" });
+    const occupation = await created("/events", {
+        event_type: "occupation",
+        person_id: dorian,
+        date_value: "1938",
+        date_qualifier: "exact",
+        place_id: place,
+        description: "Fictional inspector",
+    });
+    const family = await created("/families", {});
+    await created(`/families/${family}/spouses`, { person_id: bernard, role: "husband", sort_order: 0 });
+    await created(`/families/${family}/spouses`, { person_id: dorian, role: "wife", sort_order: 1 });
+    const marriage = await created("/events", { event_type: "marriage", family_id: family, date_value: "1860", date_qualifier: "exact" });
+    for (const event of [occupation, marriage]) {
+        const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/event/${event}`);
+        expect(put.status()).toBe(204);
+    }
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
+    await page.locator(".dict-row").filter({ hasText: "Fictional ledger" }).click();
+
+    // Each event line names its type translated, its date and place, its
+    // description, then the person, or both spouses of the couple, with the
+    // lifespan a person line shows. No raw enum value is listed.
+    const occupationLine = page.locator(".dict-accordion-line").filter({ hasText: "Fictional inspector" });
+    const marriageLine = page.locator(".dict-accordion-line").filter({ hasText: "Marriage" });
+    await expect(occupationLine).toContainText("Occupation — Fictional inspector · 1938 · Fictionville");
+    await expect(occupationLine).toContainText("ASHDOWN Dorian");
+    await expect(occupationLine.locator(".dict-accordion-dates")).toHaveText("1840-1900");
+    await expect(marriageLine).toContainText("Marriage · 1860");
+    await expect(marriageLine.locator(".dict-accordion-name")).toHaveCount(3);
+    await expect(marriageLine).toContainText("ASHDOWN Bernard");
+    await expect(marriageLine).toContainText("ASHDOWN Dorian");
+    await expect(page.locator(".dict-accordion-group")).not.toContainText(/occupation|marriage/);
+
+    // The × takes the event off the tag, named by the line's own text.
+    await page.getByRole("button", { name: "Remove Occupation — Fictional inspector · 1938 · Fictionville from Fictional ledger", exact: true }).click();
+    await expect(occupationLine).toHaveCount(0);
+    await expect(marriageLine).toBeVisible();
+});

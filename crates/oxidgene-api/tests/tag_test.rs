@@ -1294,3 +1294,314 @@ async fn citations_of_a_deleted_source_leave_the_counts_over_graphql() {
     .await;
     assert_eq!(listed["taggedRecords"]["totalCount"], 0);
 }
+
+/// Two persons and their marriage, an occupation of the first with a place,
+/// a description and a source, a citation and a note on that occupation, and
+/// a note on the marriage. Returns the ids the summary tests read.
+struct SummaryFixture {
+    f: Fixture,
+    tag: String,
+    husband: String,
+    wife: String,
+    family: String,
+    occupation: String,
+    marriage: String,
+    citation: String,
+    note: String,
+}
+
+impl SummaryFixture {
+    async fn new(name: &str) -> Self {
+        let f = Fixture::new(name).await;
+        let tag = f.post("/tags", json!({ "label": "Ledger" })).await;
+        let husband = f.named_person("Piers", "Hollowell").await;
+        let wife = f.named_person("Ada", "Marrow").await;
+        let family = f.post("/families", json!({})).await;
+        couple(&f, &family, &husband, &wife).await;
+        let place = f.post("/places", json!({ "name": "Paris" })).await;
+        let occupation = f
+            .post(
+                "/events",
+                json!({
+                    "event_type": "occupation",
+                    "person_id": husband,
+                    "date_value": "1938",
+                    "date_qualifier": "about",
+                    "place_id": place,
+                    "description": "Police inspector",
+                }),
+            )
+            .await;
+        let marriage = f
+            .post(
+                "/events",
+                json!({ "event_type": "marriage", "family_id": family, "date_value": "1913" }),
+            )
+            .await;
+        let source = f
+            .post("/sources", json!({ "title": "Parish register" }))
+            .await;
+        let citation = f
+            .post(
+                "/citations",
+                json!({ "source_id": source, "event_id": occupation, "page": "folio 12" }),
+            )
+            .await;
+        let note = f
+            .post(
+                "/notes",
+                json!({ "text": "First line of the remark\nSecond line", "event_id": occupation }),
+            )
+            .await;
+        let marriage_note = f
+            .post(
+                "/notes",
+                json!({ "text": "Marriage remark", "event_id": marriage }),
+            )
+            .await;
+        let fixture = Self {
+            f,
+            tag,
+            husband,
+            wife,
+            family,
+            occupation,
+            marriage,
+            citation,
+            note,
+        };
+        tag_summaries(&fixture, &marriage_note).await;
+        fixture
+    }
+
+    /// The listed item of `kind` with `id` on the tag's first page.
+    async fn node_over_rest(&self, kind: &str, id: &str) -> Value {
+        let page = ok(
+            &self.f.app,
+            Method::GET,
+            &self
+                .f
+                .path(&format!("/tags/{}/records?kind={kind}", self.tag)),
+            None,
+        )
+        .await;
+        page["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| edge["node"].clone())
+            .find(|node| node["id"] == id)
+            .unwrap_or_else(|| panic!("{kind} {id} is listed: {page}"))
+    }
+}
+
+#[tokio::test]
+async fn tagged_records_carry_their_summaries_over_rest() {
+    let s = SummaryFixture::new("Tags REST Summaries").await;
+
+    let occupation = s.node_over_rest("event", &s.occupation).await;
+    assert_eq!(occupation["event"]["event_type"], "occupation");
+    assert_eq!(occupation["event"]["date_value"], "1938");
+    assert_eq!(occupation["event"]["date_qualifier"], "about");
+    assert_eq!(occupation["event"]["calendar"], "gregorian");
+    assert_eq!(occupation["event"]["place_name"], "Paris");
+    assert_eq!(occupation["event"]["description"], "Police inspector");
+    // The event's sources are not part of its summary.
+    assert!(occupation["event"].get("citations").is_none());
+    assert_eq!(occupation["persons"][0]["person_id"], s.husband.as_str());
+    assert_eq!(occupation["persons"][0]["given_names"], "Piers");
+    assert_eq!(occupation["persons"][0]["surname"], "Hollowell");
+    assert_eq!(occupation["persons"].as_array().unwrap().len(), 1);
+    assert!(occupation["person"].is_null());
+
+    let marriage = s.node_over_rest("event", &s.marriage).await;
+    assert_eq!(marriage["event"]["event_type"], "marriage");
+    assert_eq!(marriage["event"]["date_value"], "1913");
+    assert_eq!(marriage["event"]["date_qualifier"], "exact");
+    assert!(marriage["event"]["place_name"].is_null());
+    assert!(marriage["event"]["description"].is_null());
+    // Both spouses of the couple, in their order.
+    assert_eq!(marriage["persons"][0]["person_id"], s.husband.as_str());
+    assert_eq!(marriage["persons"][1]["person_id"], s.wife.as_str());
+
+    let citation = s.node_over_rest("citation", &s.citation).await;
+    assert_eq!(citation["label"], "Parish register");
+    assert_eq!(citation["citation"]["source_title"], "Parish register");
+    assert_eq!(citation["citation"]["page"], "folio 12");
+    assert_eq!(citation["persons"][0]["person_id"], s.husband.as_str());
+    assert!(citation["event"].is_null());
+    assert!(occupation["citation"].is_null());
+
+    let note = s.node_over_rest("note", &s.note).await;
+    assert_eq!(note["label"], "First line of the remark");
+    assert_eq!(note["persons"][0]["person_id"], s.husband.as_str());
+    assert!(note["citation"].is_null());
+
+    let family = s.node_over_rest("family", &s.family).await;
+    assert!(family["event"].is_null());
+    assert_eq!(family["persons"][0]["person_id"], s.husband.as_str());
+    assert_eq!(family["persons"][1]["surname"], "Marrow");
+    assert_eq!(family["persons"][1]["given_names"], "Ada");
+
+    let person = s.node_over_rest("person", &s.husband).await;
+    assert!(person["persons"].is_null());
+    assert!(person["event"].is_null());
+    assert_eq!(person["person"]["given_names"], "Piers");
+}
+
+#[tokio::test]
+async fn a_long_note_is_listed_by_its_first_line_cut_to_an_excerpt() {
+    let f = Fixture::new("Tags Note Excerpt").await;
+    let tag = f.post("/tags", json!({ "label": "Ledger" })).await;
+    let long = "x".repeat(150);
+    let note = f
+        .post("/notes", json!({ "text": format!("  {long}\nsecond") }))
+        .await;
+    let (status, body) = send(
+        &f.app,
+        Method::PUT,
+        &f.path(&format!("/tags/{tag}/records/note/{note}")),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let page = ok(
+        &f.app,
+        Method::GET,
+        &f.path(&format!("/tags/{tag}/records?kind=note")),
+        None,
+    )
+    .await;
+    let label = page["edges"][0]["node"]["label"].as_str().unwrap();
+    assert_eq!(label, format!("{}\u{2026}", "x".repeat(100)));
+    assert!(
+        page["edges"][0]["node"]["persons"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn tagged_records_carry_their_summaries_over_graphql() {
+    let s = SummaryFixture::new("Tags GraphQL Summaries").await;
+    let data = gql_ok(
+        &s.f.app,
+        r#"query($tree: ID!, $tag: ID!) {
+            events: taggedRecords(treeId: $tree, tagId: $tag, kind: "event") {
+                edges { node { id label event { eventType dateValue dateQualifier dateValue2 calendar placeName description } persons { personId givenNames surname birthYear birthQualifier deathYear } } }
+            }
+            citations: taggedRecords(treeId: $tree, tagId: $tag, kind: "citation") {
+                edges { node { id label citation { sourceTitle page } event { eventType } persons { personId givenNames surname } } }
+            }
+            notes: taggedRecords(treeId: $tree, tagId: $tag, kind: "note") {
+                edges { node { id label persons { personId } } }
+            }
+            families: taggedRecords(treeId: $tree, tagId: $tag, kind: "family") {
+                edges { node { id label event { eventType } persons { personId givenNames surname } } }
+            }
+            people: taggedRecords(treeId: $tree, tagId: $tag, kind: "person") {
+                edges { node { id person { givenNames } persons { personId } event { eventType } } }
+            }
+        }"#,
+        json!({ "tree": s.f.tree, "tag": s.tag }),
+    )
+    .await;
+    let node = |connection: &str, id: &str| -> Value {
+        data[connection]["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| edge["node"].clone())
+            .find(|node| node["id"] == id)
+            .unwrap_or_else(|| panic!("{connection} {id} is listed: {data}"))
+    };
+
+    let occupation = node("events", &s.occupation);
+    assert_eq!(occupation["event"]["eventType"], "OCCUPATION");
+    assert_eq!(occupation["event"]["dateValue"], "1938");
+    assert_eq!(occupation["event"]["dateQualifier"], "ABOUT");
+    assert_eq!(occupation["event"]["calendar"], "GREGORIAN");
+    assert_eq!(occupation["event"]["placeName"], "Paris");
+    assert_eq!(occupation["event"]["description"], "Police inspector");
+    assert!(occupation["event"]["dateValue2"].is_null());
+    assert_eq!(occupation["persons"][0]["personId"], s.husband.as_str());
+    assert_eq!(occupation["persons"][0]["givenNames"], "Piers");
+    assert_eq!(occupation["persons"][0]["surname"], "Hollowell");
+
+    let marriage = node("events", &s.marriage);
+    assert_eq!(marriage["event"]["eventType"], "MARRIAGE");
+    assert!(marriage["event"]["placeName"].is_null());
+    assert_eq!(marriage["persons"][0]["personId"], s.husband.as_str());
+    assert_eq!(marriage["persons"][1]["personId"], s.wife.as_str());
+
+    let citation = node("citations", &s.citation);
+    assert_eq!(citation["label"], "Parish register");
+    assert_eq!(citation["citation"]["sourceTitle"], "Parish register");
+    assert_eq!(citation["citation"]["page"], "folio 12");
+    assert_eq!(citation["persons"][0]["personId"], s.husband.as_str());
+
+    let note = node("notes", &s.note);
+    assert_eq!(note["label"], "First line of the remark");
+    assert_eq!(note["persons"][0]["personId"], s.husband.as_str());
+
+    let family = node("families", &s.family);
+    assert!(family["event"].is_null());
+    assert_eq!(family["persons"][0]["personId"], s.husband.as_str());
+    assert_eq!(family["persons"][1]["surname"], "Marrow");
+
+    let person = node("people", &s.husband);
+    assert_eq!(person["person"]["givenNames"], "Piers");
+    assert!(person["persons"].is_null());
+    assert!(person["event"].is_null());
+}
+
+/// Makes `husband` and `wife` the spouses of `family`, in that order.
+async fn couple(f: &Fixture, family: &str, husband: &str, wife: &str) {
+    for (person, role, order) in [(husband, "husband", 0), (wife, "wife", 1)] {
+        f.post(
+            &format!("/families/{family}/spouses"),
+            json!({ "person_id": person, "role": role, "sort_order": order }),
+        )
+        .await;
+    }
+}
+
+/// Puts the tag of `fixture` on its husband, its events, its citation, its
+/// notes and its couple.
+async fn tag_summaries(fixture: &SummaryFixture, marriage_note: &str) {
+    for (kind, id) in [
+        ("person", fixture.husband.as_str()),
+        ("event", fixture.occupation.as_str()),
+        ("event", fixture.marriage.as_str()),
+        ("citation", fixture.citation.as_str()),
+        ("note", fixture.note.as_str()),
+        ("note", marriage_note),
+        ("family", fixture.family.as_str()),
+    ] {
+        let (status, body) = send(
+            &fixture.f.app,
+            Method::PUT,
+            &fixture
+                .f
+                .path(&format!("/tags/{}/records/{kind}/{id}", fixture.tag)),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn a_note_with_blank_text_is_refused_so_no_list_shows_an_empty_note() {
+    let f = Fixture::new("Tags Blank Note").await;
+    let (status, body) = send(
+        &f.app,
+        Method::POST,
+        &f.path("/notes"),
+        Some(json!({ "text": "  \n \t" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}

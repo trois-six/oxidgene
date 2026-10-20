@@ -1448,6 +1448,38 @@ pub struct TaggedRecord {
     /// For a person: its name parts and lifespan.
     #[serde(default)]
     pub person: Option<PersonUsageEntry>,
+    /// For an event: its type, dates, place and description, without sources.
+    #[serde(default)]
+    pub event: Option<TaggedEvent>,
+    /// For a citation: its source's title and its page, without the event.
+    #[serde(default)]
+    pub citation: Option<TaggedCitation>,
+    /// For an event, citation or note: the person or the two spouses it shows.
+    /// For a couple: its spouses. `None` for the other kinds.
+    #[serde(default)]
+    pub persons: Option<Vec<PersonUsageEntry>>,
+}
+
+/// A citation on a tag's list: its source's title, when the source exists,
+/// and its page.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TaggedCitation {
+    pub source_title: Option<String>,
+    pub page: Option<String>,
+}
+
+/// An event on a tag's list, as the list shows it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TaggedEvent {
+    pub event_type: EventType,
+    pub date_value: Option<String>,
+    #[serde(default)]
+    pub date_qualifier: DateQualifier,
+    pub date_value2: Option<String>,
+    #[serde(default)]
+    pub calendar: Calendar,
+    pub place_name: Option<String>,
+    pub description: Option<String>,
 }
 
 /// The number of persons a bulk tagging changed (docs/api.md, Tags).

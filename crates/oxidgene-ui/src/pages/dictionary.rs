@@ -1701,17 +1701,25 @@ pub(crate) fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
 /// A person of a usage list: "SURNAME Given names" and the muted lifespan,
 /// linking to the person on the tree page.
 pub(crate) fn person_usage_link(i18n: I18n, tree_id: &str, entry: &PersonUsageEntry) -> Element {
-    let (birth, death) = entry.lifespan_years();
-    let lifespan = format_lifespan(i18n.dates(), birth, death);
     rsx! {
         Link {
             key: "{entry.person_id}",
             to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(entry.person_id.to_string()) },
             class: "dict-accordion-item",
-            span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
-            if !lifespan.is_empty() {
-                span { class: "dict-accordion-dates", "{lifespan}" }
-            }
+            {person_usage_parts(i18n, entry)}
+        }
+    }
+}
+
+/// The name and the muted lifespan of a person, as a usage list line shows
+/// them. Shared by the links to a person and the persons a line names.
+pub(crate) fn person_usage_parts(i18n: I18n, entry: &PersonUsageEntry) -> Element {
+    let (birth, death) = entry.lifespan_years();
+    let lifespan = format_lifespan(i18n.dates(), birth, death);
+    rsx! {
+        span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
+        if !lifespan.is_empty() {
+            span { class: "dict-accordion-dates", "{lifespan}" }
         }
     }
 }

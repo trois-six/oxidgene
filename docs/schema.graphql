@@ -2952,6 +2952,28 @@ type GqlTagTargetCounts {
 }
 
 """
+A citation on a tag's list: its source's title and its page.
+"""
+type GqlTaggedCitation {
+	sourceTitle: String
+	page: String
+}
+
+"""
+An event on a tag's list: what happened, when and where, and what the
+event says about it, without its sources.
+"""
+type GqlTaggedEvent {
+	eventType: GqlEventType!
+	dateValue: String
+	dateQualifier: GqlDateQualifier!
+	dateValue2: String
+	calendar: GqlCalendar!
+	placeName: String
+	description: String
+}
+
+"""
 A live record carrying a tag, with a label to show it by.
 """
 type GqlTaggedRecord {
@@ -2970,6 +2992,20 @@ type GqlTaggedRecord {
 	For a person: its name parts and lifespan, as the usage lists show them.
 	"""
 	person: GqlPersonUsageEntry
+	"""
+	For an event: its type, dates, place and description, without sources.
+	"""
+	event: GqlTaggedEvent
+	"""
+	For a citation: its source's title and its page, without the event.
+	"""
+	citation: GqlTaggedCitation
+	"""
+	For an event, citation or note: the person it belongs to, or the two
+	spouses of the couple it belongs to. For a couple: its spouses. Empty
+	when nothing owns the record; null for the other kinds.
+	"""
+	persons: [GqlPersonUsageEntry!]
 }
 
 type GqlTaggedRecordConnection {

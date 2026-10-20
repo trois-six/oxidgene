@@ -4041,6 +4041,14 @@ pub struct GqlTaggedRecord {
     pub family_id: Option<ID>,
     /// For a person: its name parts and lifespan, as the usage lists show them.
     pub person: Option<GqlPersonUsageEntry>,
+    /// For an event: its type, dates, place and description, without sources.
+    pub event: Option<GqlTaggedEvent>,
+    /// For a citation: its source's title and its page, without the event.
+    pub citation: Option<GqlTaggedCitation>,
+    /// For an event, citation or note: the person it belongs to, or the two
+    /// spouses of the couple it belongs to. For a couple: its spouses. Empty
+    /// when nothing owns the record; null for the other kinds.
+    pub persons: Option<Vec<GqlPersonUsageEntry>>,
 }
 
 impl From<crate::service::tag::TaggedRecord> for GqlTaggedRecord {
@@ -4052,6 +4060,54 @@ impl From<crate::service::tag::TaggedRecord> for GqlTaggedRecord {
             person_id: record.person_id.map(|id| ID(id.to_string())),
             family_id: record.family_id.map(|id| ID(id.to_string())),
             person: record.person.map(GqlPersonUsageEntry::from),
+            event: record.event.map(GqlTaggedEvent::from),
+            citation: record.citation.map(GqlTaggedCitation::from),
+            persons: record
+                .persons
+                .map(|persons| persons.into_iter().map(GqlPersonUsageEntry::from).collect()),
+        }
+    }
+}
+
+/// A citation on a tag's list: its source's title and its page.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTaggedCitation {
+    pub source_title: Option<String>,
+    pub page: Option<String>,
+}
+
+impl From<crate::service::tag::TaggedCitation> for GqlTaggedCitation {
+    fn from(citation: crate::service::tag::TaggedCitation) -> Self {
+        Self {
+            source_title: citation.source_title,
+            page: citation.page,
+        }
+    }
+}
+
+/// An event on a tag's list: what happened, when and where, and what the
+/// event says about it, without its sources.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTaggedEvent {
+    pub event_type: GqlEventType,
+    pub date_value: Option<String>,
+    pub date_qualifier: GqlDateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: GqlCalendar,
+    pub place_name: Option<String>,
+    pub description: Option<String>,
+}
+
+impl From<crate::service::tag::TaggedEvent> for GqlTaggedEvent {
+    fn from(event: crate::service::tag::TaggedEvent) -> Self {
+        Self {
+            event_type: event.event_type.into(),
+            date_value: event.date_value,
+            date_qualifier: event.date_qualifier.into(),
+            date_value2: event.date_value2,
+            calendar: event.calendar.into(),
+            place_name: event.place_name,
+            description: event.description,
         }
     }
 }

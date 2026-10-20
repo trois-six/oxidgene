@@ -9,8 +9,9 @@ use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{RecordKind, TAG_LABEL_MAX};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, TagCounts, TagSummary, TaggedRecord};
+use crate::api::{ApiClient, TagCounts, TagSummary, TaggedEvent, TaggedRecord};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::date_input::format_date;
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
@@ -21,11 +22,12 @@ use crate::components::trash_icon::TrashIcon;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::{
     DEFAULT_PER_PAGE, ListFilters, PageSize, available_letters, matches_filters, paginate,
-    person_usage_link, render_clear_filters, render_pagination, render_toolbar_with, total_pages,
-    with_headers,
+    person_usage_link, person_usage_parts, render_clear_filters, render_pagination,
+    render_toolbar_with, surname_first, total_pages, with_headers,
 };
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
+use crate::utils::event_type_label_key;
 
 /// Records a kind shows per page, in the unfolded row.
 const RECORDS_PAGE: u64 = 25;
@@ -477,9 +479,10 @@ fn TaggedKind(
                         .or_else(|| index.checked_sub(1).and_then(|before| items.get(before)))
                         .map(|next| untag_button_id(next.id))
                         .unwrap_or_else(|| row_focus.clone());
+                    let record_name = record_plain(i18n, record);
                     let remove_label = i18n.t_args(
                         "tag.untag.label",
-                        &[("record", &record.label), ("tag", &tag_label)],
+                        &[("record", &record_name), ("tag", &tag_label)],
                     );
                     let api = api.clone();
                     rsx! {
@@ -487,7 +490,7 @@ fn TaggedKind(
                             if let Some(entry) = &record.person {
                                 {person_usage_link(i18n, &tree, entry)}
                             } else {
-                                {record_link(&tree, record)}
+                                {record_link(i18n, &tree, record)}
                             }
                             button {
                                 id: "{untag_button_id(record_id)}",
@@ -586,17 +589,135 @@ fn record_route(tree: &str, record: &TaggedRecord) -> Option<Route> {
 
 /// A record's line, as the usage lists show one: the link of its page in the
 /// usage list's style, or its text when it has no page.
-fn record_link(tree: &str, record: &TaggedRecord) -> Element {
+fn record_link(i18n: I18n, tree: &str, record: &TaggedRecord) -> Element {
     match record_route(tree, record) {
         Some(to) => rsx! {
             Link { to, class: "dict-accordion-item",
-                span { class: "dict-accordion-name", "{record.label}" }
+                {record_line(i18n, record)}
             }
         },
         None => rsx! {
-            span { class: "dict-accordion-name", "{record.label}" }
+            span { class: "dict-accordion-item",
+                {record_line(i18n, record)}
+            }
         },
     }
+}
+
+/// The contents of a record's line: what the record is, then the persons it
+/// shows, each with the lifespan a person line gives. A dash joins the
+/// persons to what the record is, a dot joins one person to the next.
+fn record_line(i18n: I18n, record: &TaggedRecord) -> Element {
+    let text = record_text(i18n, record).or_else(|| record_fallback(i18n, record));
+    let has_text = text.is_some();
+    let persons = record.persons.as_deref().unwrap_or_default();
+    rsx! {
+        if let Some(text) = text {
+            span { class: "dict-accordion-name", "{text}" }
+        }
+        for (index, entry) in persons.iter().enumerate() {
+            if let Some(separator) = separator_before(i18n, index, has_text) {
+                span { "{separator}" }
+            }
+            {person_usage_parts(i18n, entry)}
+        }
+    }
+}
+
+/// The separator written before the person at `index` of a line: a dash
+/// after the record's own text, a dot between two persons.
+fn separator_before(i18n: I18n, index: usize, has_text: bool) -> Option<String> {
+    match (index, has_text) {
+        (0, true) => Some(i18n.t("tag.record.dash")),
+        (0, false) => None,
+        _ => Some(i18n.t("tag.record.dot")),
+    }
+}
+
+/// The text a record's line leads with, or `None` for a couple, which shows
+/// its spouses instead. A record with no text of its own is named by what it
+/// is, never by its id or its raw value.
+fn record_text(i18n: I18n, record: &TaggedRecord) -> Option<String> {
+    let text = match (record.kind, record.label.trim()) {
+        (RecordKind::Family, _) => return None,
+        (RecordKind::Event, _) => record.event.as_ref().map(|event| event_text(i18n, event)),
+        (RecordKind::Citation, _) => Some(citation_text(i18n, record)),
+        (RecordKind::Note, "") => return Some(i18n.t("tag.record.empty_note")),
+        (_, label) if !label.is_empty() => Some(label.to_owned()),
+        _ => None,
+    };
+    Some(text.unwrap_or_else(|| i18n.t("tag.record.untitled")))
+}
+
+/// The text of a record line with no text of its own and no persons either:
+/// the untitled text, so that a couple with no spouse still reads.
+fn record_fallback(i18n: I18n, record: &TaggedRecord) -> Option<String> {
+    let has_persons = record
+        .persons
+        .as_ref()
+        .is_some_and(|persons| !persons.is_empty());
+    (record.kind == RecordKind::Family && !has_persons).then(|| i18n.t("tag.record.untitled"))
+}
+
+/// A record's name as plain text, for the remove control's label: the text the
+/// record's line leads with, or for a couple, its spouses' names.
+fn record_plain(i18n: I18n, record: &TaggedRecord) -> String {
+    if let Some(text) = record_text(i18n, record) {
+        return text;
+    }
+    let dot = i18n.t("tag.record.dot");
+    let names = record
+        .persons
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|entry| surname_first(entry, &i18n))
+        .collect::<Vec<_>>()
+        .join(&dot);
+    if names.is_empty() {
+        i18n.t("tag.record.untitled")
+    } else {
+        names
+    }
+}
+
+/// A citation's text: its source's title and its page, or the untitled text
+/// when its source is gone.
+fn citation_text(i18n: I18n, record: &TaggedRecord) -> String {
+    let Some(citation) = &record.citation else {
+        return i18n.t("tag.record.untitled_citation");
+    };
+    match (&citation.source_title, &citation.page) {
+        (Some(title), Some(page)) => i18n.t_args(
+            "tag.record.citation_page",
+            &[("title", title), ("page", page)],
+        ),
+        (Some(title), None) => title.clone(),
+        (None, _) => i18n.t("tag.record.untitled_citation"),
+    }
+}
+
+/// An event's text, as the timeline words it: its translated type, its
+/// description after a dash, then its date and its place after dots, without
+/// its sources.
+fn event_text(i18n: I18n, event: &TaggedEvent) -> String {
+    let kind = i18n.t(event_type_label_key(event.event_type));
+    let head = match &event.description {
+        Some(description) => format!("{kind}{}{description}", i18n.t("tag.record.dash")),
+        None => kind,
+    };
+    let date = format_date(
+        &i18n,
+        event.calendar,
+        event.date_qualifier,
+        event.date_value.as_deref(),
+        event.date_value2.as_deref(),
+    );
+    let dot = i18n.t("tag.record.dot");
+    [date, event.place_name.clone().unwrap_or_default()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .fold(head, |text, part| format!("{text}{dot}{part}"))
 }
 
 /// The tag's editor: its label and its colour. A label folding to another
