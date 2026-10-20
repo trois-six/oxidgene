@@ -41,6 +41,7 @@ pub mod suggest_input;
 pub mod tabs;
 pub mod tags;
 pub mod topbar_search;
+pub mod trash_icon;
 pub mod tree_cache;
 pub mod tree_icon_sidebar;
 pub mod tree_page;

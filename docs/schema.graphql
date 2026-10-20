@@ -2966,6 +2966,10 @@ type GqlTaggedRecord {
 	For an event, citation or note: the family it belongs to.
 	"""
 	familyId: ID
+	"""
+	For a person: its name parts and lifespan, as the usage lists show them.
+	"""
+	person: GqlPersonUsageEntry
 }
 
 type GqlTaggedRecordConnection {

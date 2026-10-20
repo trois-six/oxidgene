@@ -50,11 +50,12 @@ Les étiquettes ne prennent aucune place sur une fiche qui n’en a pas. Chaque 
 
 ## L’onglet Étiquettes
 
-Ouvrez le **Dictionnaire** depuis la barre latérale de gauche et choisissez l’onglet **Étiquettes**. Chaque ligne est une étiquette, avec sa couleur et le nombre de fiches qui la portent, par type : personnes, couples, documents, etc. Cliquez sur la flèche d’une ligne pour lister ces fiches, regroupées par type, et ouvrir celle que vous voulez. Un événement ou une citation ouvre la fiche de sa personne ou de son couple, une source ouvre sa ligne dans l’onglet **Sources**, un lieu sa ligne dans l’onglet **Lieux** et un dépôt sa ligne dans l’onglet **Dépôts**. Une note ouvre la fiche de la personne ou du couple auquel elle appartient.
+Ouvrez le **Dictionnaire** depuis la barre latérale de gauche et choisissez l’onglet **Étiquettes**. Il fonctionne comme les autres onglets : une ligne par étiquette, son point de couleur devant le libellé, et à droite le nombre de fiches qui la portent, par type (*4 personnes · 3 sources*). La bande alphabétique, le filtre rapide, la taille de page et le nombre d’entrées sont ceux des autres onglets. Cliquez sur la flèche d’une ligne pour lister ces fiches, regroupées par type, chaque personne avec son nom et sa durée de vie comme l’onglet Occupations les affiche. Ouvrez celle que vous voulez : un événement ou une citation ouvre la fiche de sa personne ou de son couple, une source ouvre sa ligne dans l’onglet **Sources**, un lieu sa ligne dans l’onglet **Lieux** et un dépôt sa ligne dans l’onglet **Dépôts**. Une note ouvre la fiche de la personne ou du couple auquel elle appartient.
 
+- **Retirer** (la × à côté d’une fiche) retire l’étiquette de cette fiche aussitôt, sans confirmation. La fiche quitte la liste et les compteurs suivent. Pour la reposer, ouvrez le menu **Étiquettes…** de la fiche et cochez de nouveau l’étiquette.
 - **Modifier** (le crayon) change le libellé et la couleur. Si le nouveau libellé est celui d’une autre étiquette, OxidGene propose de **fusionner** les deux : chaque fiche portant l’une ou l’autre porte ensuite l’étiquette fusionnée, une seule fois.
-- **Supprimer** (la croix) retire l’étiquette de toutes les fiches qui la portent. La confirmation indique combien elles sont. L’opération est définitive.
-- **Nouvelle étiquette** crée une étiquette que vous poserez ensuite sur des fiches.
+- **Supprimer** (la corbeille) retire l’étiquette de toutes les fiches qui la portent. La confirmation indique combien elles sont. L’opération est définitive.
+- **Nouvelle étiquette**, à côté du filtre rapide, crée une étiquette que vous poserez ensuite sur des fiches.
 
 L’onglet **Médias** garde son nuage d’étiquettes, qui liste les étiquettes portées par les documents.
 

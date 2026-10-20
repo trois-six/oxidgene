@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
+generated: { by: human:maintainer, at: 2026-10-20T14:56:16Z }
 ---
 
 
@@ -720,23 +720,51 @@ tab, and loads the repositories the first time it opens.
 
 ## 20. Tags Tab
 
-The tree's tag vocabulary, one row per tag: its colour dot, label and the count per kind of record
-(*12 persons · 3 sources*), sorted by label and narrowed by the quick filter,
-with no alphabet index and no pagination. The chevron unfolds the records
-carrying the tag, grouped by kind; a kind shows 25 at a time with *Load more*.
-Person, couple and media records link to their pages; a media record opens the
-media viewer on its own route (`/trees/{id}/media/{media_id}`). An event or a
-citation links to the profile of its owner, a person or a couple; a source links
-to this dictionary's Sources tab, a place to its Places tab, a repository to its
-Repositories tab, each opening on that record's own row (§14); and a note to
-the profile of the person or couple it belongs to (a note of a source, a repository or a document is shown as text).
+The tree's tag vocabulary, in the shape of the other value tabs (§10). Its
+toolbar is the shared one: the alphabet strip, the quick filter, the page size
+and the entry count, with the pages of 25 and the same empty and no-match
+states. A row is the shared Dictionary row (`dict-row`): the tag's colour dot
+inline before its label, the counts as muted text on the right (*12 persons ·
+3 sources*, or *No record yet*), the edit (✎) and delete (trash) icon buttons
+and the chevron. A row is focusable and folds on Enter or Space, as the other
+tabs' rows do. Rows are filed by label and narrowed by the quick filter, which
+folds case and accents. The tab is its own module
+(`pages/dictionary_tags.rs`) and loads the vocabulary the first time it opens;
+it reuses the toolbar, pager, group headers and person usage line of
+`pages/dictionary.rs`.
 
+The chevron unfolds the records carrying the tag, grouped by kind under a
+heading in the group-header style, each kind 25 at a time with *Load more*. A
+person line is the usage list's own (§10): "SURNAME Given names" with the
+muted lifespan, linking to the person on the tree page. Every other line is the
+usage list's link style too (`dict-accordion-item`). A couple and a document
+link to their pages; an event or a citation links to the profile of its owner,
+a person or a couple; a source, a place and a repository open their row in
+their tab of this dictionary, each on that record's own row (§14); a note links
+to the profile of the person or couple it belongs to. A note of a source, a
+repository or a document is shown as text.
+
+- **Remove** (× in the shared remove-control style) beside each record line
+  takes the record off the tag with no confirmation; the record's own tag menu
+  puts it back. The line goes at once, the vocabulary is read again so the
+  counts are the server's, and a kind whose count reaches zero drops its
+  heading. A failed removal brings the line back with a translated error under
+  the kind's heading, and the focus returns to the line's button. The button's
+  tooltip and label read "Remove <record> from <tag>". While the line leaves,
+  the focus moves to the next line's button, else the previous line's, else the
+  tag's row.
 - **Edit** (✎) opens a dialog with the label and the twelve colours. A label
   folding to another tag's offers a merge into it, with a sentence stating
   that a record carrying either tag carries the merged one once.
-- **Delete** (×) asks for confirmation, naming the number of records the tag
-  leaves.
-- **New tag** creates a tag without putting it on a record.
+- **Delete** (trash) asks for confirmation, naming the number of records the
+  tag leaves.
+- **New tag** sits in the toolbar's filter row, beside the quick filter, where
+  the Repositories tab puts its add button. It creates a tag without putting it
+  on a record.
 
-The tab is its own module (`pages/dictionary_tags.rs`) and loads the vocabulary
-the first time it opens. A tag opened from a chip or badge starts unfolded.
+A tagged person record carries its name parts and lifespan on the tagged-records
+listing (`person` in REST and GraphQL, `docs/api.md`, Tags), so its line reads
+as the usage list does without a second request.
+
+The removal is audited by the API like any untag (`docs/api.md`, Tags). A tag
+opened from a chip or badge starts unfolded.

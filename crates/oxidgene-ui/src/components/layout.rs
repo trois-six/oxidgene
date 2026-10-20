@@ -1982,6 +1982,12 @@ pub const LAYOUT_STYLES: &str = r#"
         display: none;
     }
 
+    /* ── Gesture listeners ─────────────────────────────────────────
+       The element a drag's move listeners are spread on, around the one
+       pressed (crate::listeners::while_active): no box of its own. */
+
+    .gesture-listeners { display: contents; }
+
     /* ── Pedigree canvas viewport ────────────────────────────────── */
 
     .pedigree-viewport {
@@ -4684,6 +4690,22 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
         color: var(--text-muted);
         font-size: var(--text-80);
+    }
+
+    /* A line of an unfolded list that also takes its record off a tag: the
+       usage list's link, and beside it the button that removes it. */
+    .dict-accordion-line {
+        display: flex;
+        align-items: center;
+        align-self: stretch;
+        gap: var(--space-4);
+        font-size: var(--text-85);
+        color: var(--text-primary);
+    }
+
+    .dict-accordion-line > a.dict-accordion-item {
+        flex: 1;
+        min-width: 0;
     }
 
     .dict-accordion-empty {

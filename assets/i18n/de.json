@@ -8461,6 +8461,7 @@
     "tag.overflow": "{count} weitere Schlagwörter: {labels}",
     "tag.delete.message_one": "Das Tag „{label}“ wird gelöscht und von {count} Datensatz entfernt. Dies lässt sich nicht rückgängig machen.",
     "tag.delete.message_other": "Das Tag „{label}“ wird gelöscht und von {count} Datensätzen entfernt. Dies lässt sich nicht rückgängig machen.",
+    "tag.untag.label": "„{record}“ vom Schlagwort „{tag}“ entfernen",
     "tools.ancestry.choose_root": "SOSA-Wurzel wählen",
     "tools.ancestry.depth": "Generationen",
     "tools.ancestry.fact.birth": "Geburt",

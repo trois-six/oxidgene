@@ -8461,6 +8461,7 @@
     "tag.overflow": "{count} extra labels: {labels}",
     "tag.delete.message_one": "De tag “{label}” wordt verwijderd en van {count} record gehaald. Dit kan niet ongedaan worden gemaakt.",
     "tag.delete.message_other": "De tag “{label}” wordt verwijderd en van {count} records gehaald. Dit kan niet ongedaan worden gemaakt.",
+    "tag.untag.label": "„{record}” van de tag „{tag}” halen",
     "tools.ancestry.choose_root": "Een SOSA-wortel kiezen",
     "tools.ancestry.depth": "Generaties",
     "tools.ancestry.fact.birth": "Geboorte",

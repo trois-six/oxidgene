@@ -8461,6 +8461,7 @@
     "tag.overflow": "{count} altre etichette: {labels}",
     "tag.delete.message_one": "L’etichetta “{label}” viene eliminata e rimossa da {count} record. Non è reversibile.",
     "tag.delete.message_other": "L’etichetta “{label}” viene eliminata e rimossa da {count} record. Non è reversibile.",
+    "tag.untag.label": "Rimuovi «{record}» dall’etichetta «{tag}»",
     "tools.ancestry.choose_root": "Scegli una radice SOSA",
     "tools.ancestry.depth": "Generazioni",
     "tools.ancestry.fact.birth": "Nascita",

@@ -4039,6 +4039,8 @@ pub struct GqlTaggedRecord {
     pub person_id: Option<ID>,
     /// For an event, citation or note: the family it belongs to.
     pub family_id: Option<ID>,
+    /// For a person: its name parts and lifespan, as the usage lists show them.
+    pub person: Option<GqlPersonUsageEntry>,
 }
 
 impl From<crate::service::tag::TaggedRecord> for GqlTaggedRecord {
@@ -4049,6 +4051,7 @@ impl From<crate::service::tag::TaggedRecord> for GqlTaggedRecord {
             label: record.label,
             person_id: record.person_id.map(|id| ID(id.to_string())),
             family_id: record.family_id.map(|id| ID(id.to_string())),
+            person: record.person.map(GqlPersonUsageEntry::from),
         }
     }
 }

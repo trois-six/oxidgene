@@ -29,6 +29,10 @@ const rawKey = new RegExp(`\\b(?:${keyPrefixes.join("|")})\\.[a-z0-9_]+(?:\\.[a-
 /// hot-reload client, which looks for `dx serve`.
 const ignoredConsole = [/_dioxus/];
 
+/// The annotation type that lets a test expect one console error, by a part of
+/// its text, for a request the test refuses on purpose.
+export const expectedConsoleError = "expected console error";
+
 export interface SeededTree {
     treeId: string;
     /// Block 0's root, "Anchor Ashdown", the tree's SOSA root.
@@ -134,7 +138,7 @@ export const test = base.extend<Fixtures>({
         await use(await seedTree(request, `E2E ${testInfo.title.slice(0, 40)} ${testInfo.workerIndex}-${Date.now()}`));
     },
     pageGuards: [
-        async ({ page }, use) => {
+        async ({ page }, use, testInfo) => {
             // Hermetic: the debug bundle's development-toast font is the
             // only outside request, and no test may depend on the network.
             await page.route(/^https?:\/\/(?!127\.0\.0\.1[:/])/, (route) => route.abort());
@@ -155,7 +159,13 @@ export const test = base.extend<Fixtures>({
             if (!page.isClosed() && page.url().startsWith("http")) {
                 expect(await rawKeysOn(page), "untranslated keys on the page").toEqual([]);
             }
-            expect(errors, "console errors").toEqual([]);
+            // A test that refuses a request on purpose names the console line
+            // that refusal makes, as an "expected console error" annotation.
+            const expected = testInfo.annotations
+                .filter((annotation) => annotation.type === expectedConsoleError)
+                .map((annotation) => annotation.description ?? "");
+            const unexpected = errors.filter((text) => !expected.some((part) => text.includes(part)));
+            expect(unexpected, "console errors").toEqual([]);
         },
         { auto: true },
     ],

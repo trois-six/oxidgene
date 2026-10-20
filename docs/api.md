@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-20T12:20:09Z }
+generated: { by: human:maintainer, at: 2026-10-20T14:20:01Z }
 ---
 
 
@@ -763,7 +763,7 @@ tagged on the document.
 | `DELETE` | `/trees/{tree_id}/tags/{tag_id}` | Delete the tag and its links. `204` |
 | `POST` | `/trees/{tree_id}/tags/{tag_id}/bulk` | Add the tag to, or remove it from, every person of `target` (`{action: "add" \| "remove", target}`), in one transaction and one audit entry. Returns `{count}`, the persons changed |
 | `POST` | `/trees/{tree_id}/tags/target` | `{target}` in, `{total, tags: [{tag_id, count}]}` out: the persons of the target and, per tag they carry, how many. Writes nothing. The same bounds and errors as the bulk change |
-| `GET` | `/trees/{tree_id}/tags/{tag_id}/records?kind=…&first=…&after=…` | The live records of that kind carrying the tag, cursor-paginated, each as `{id, kind, label, person_id, family_id}` |
+| `GET` | `/trees/{tree_id}/tags/{tag_id}/records?kind=…&first=…&after=…` | The live records of that kind carrying the tag, cursor-paginated, each as `{id, kind, label, person_id, family_id, person}`. `person` is a person's name parts and lifespan (`{person_id, given_names, surname, birth_year, birth_qualifier, death_year, death_qualifier}`, as the dictionary's usage lists read them) and `null` for any other kind |
 | `PUT` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Put the tag on a record. Idempotent: `204` |
 | `DELETE` | `/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}` | Take the tag off a record. Idempotent: `204` |
 

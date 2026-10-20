@@ -1,7 +1,8 @@
 //! The Dictionary's Tags tab: the tree's vocabulary, each tag with its colour
-//! and its counts per kind of record. A row unfolds the records carrying the
-//! tag, grouped by kind and paged a kind at a time, and offers to edit,
-//! delete or merge the tag. See `docs/ui-dictionary.md` §20.
+//! and its counts per kind of record. It shares the other tabs' toolbar, rows
+//! and usage lists (`pages/dictionary.rs`, `docs/ui-dictionary.md` §20). A row
+//! unfolds the records carrying the tag, grouped by kind; a record's line takes
+//! the record off the tag, and the row edits or deletes the tag itself.
 
 use dioxus::prelude::*;
 use oxidgene_core::search::fold_words;
@@ -13,8 +14,16 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
-use crate::components::tags::{dot_style, error_message, next_color};
+use crate::components::tags::{
+    dot_style, error_message, is_enter_or_space, next_color, stop_row_activation,
+};
+use crate::components::trash_icon::TrashIcon;
 use crate::i18n::{I18n, use_i18n};
+use crate::pages::dictionary::{
+    DEFAULT_PER_PAGE, ListFilters, PageSize, available_letters, matches_filters, paginate,
+    person_usage_link, render_clear_filters, render_pagination, render_toolbar_with, total_pages,
+    with_headers,
+};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 
@@ -96,11 +105,37 @@ fn counts_line(i18n: &I18n, counts: &TagCounts) -> String {
     }
 }
 
+/// The DOM id of a tag's row, the focus lands on when its last line goes.
+fn tag_row_id(tag_id: Uuid) -> String {
+    format!("tag-row-{tag_id}")
+}
+
+/// The DOM id of a record's remove button, the focus lands on when the line
+/// before or after it goes.
+fn untag_button_id(record_id: Uuid) -> String {
+    format!("tag-untag-{record_id}")
+}
+
+/// The script that moves the focus to the element `id`. It runs from an
+/// effect, so the frame that removed or restored the line is already drawn.
+fn focus_script(id: &str) -> String {
+    format!("document.getElementById('{id}')?.focus();")
+}
+
 #[component]
 pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let mut quick = use_signal(String::new);
+    let quick = use_signal(String::new);
+    let letter = use_signal(|| None::<char>);
+    let page_size = use_signal(|| PageSize::Fixed(DEFAULT_PER_PAGE));
+    let page = use_signal(|| 1_usize);
+    let filters = ListFilters {
+        quick,
+        letter,
+        page_size,
+        page,
+    };
     let mut expanded = use_signal(|| open_tag);
     let mut editing = use_signal(|| None::<Editing>);
     let mut deleting = use_signal(|| None::<TagSummary>);
@@ -113,21 +148,28 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
         async move { api.list_tags(tree_id).await }
     });
 
-    let filter = fold_words(quick().trim());
-    let listed: Option<Vec<TagSummary>> = match &*vocabulary.read() {
-        Some(Ok(list)) => Some(
-            list.iter()
-                .filter(|tag| filter.is_empty() || fold_words(&tag.label).contains(&filter))
-                .cloned()
-                .collect(),
-        ),
-        _ => None,
-    };
+    let loaded = matches!(&*vocabulary.read(), Some(Ok(_)));
     let failed = matches!(&*vocabulary.read(), Some(Err(_)));
     let all_tags: Vec<TagSummary> = match &*vocabulary.read() {
         Some(Ok(list)) => list.clone(),
         _ => Vec::new(),
     };
+
+    // Filed and searched as the other tabs' are: folded, so an accent or a
+    // capital in the filter finds the label.
+    let needle = fold_words(quick().trim());
+    let letters = available_letters(all_tags.iter().map(|tag| tag.label.as_str()));
+    let letter_filter = letter();
+    let filtered: Vec<&TagSummary> = all_tags
+        .iter()
+        .filter(|tag| matches_filters(&tag.label, &fold_words(&tag.label), &needle, letter_filter))
+        .collect();
+    let total_filtered = filtered.len();
+    let per_page = page_size().as_option();
+    let current = page();
+    let pages = total_pages(total_filtered, per_page);
+    let page_items = paginate(filtered, current, per_page);
+    let rows = with_headers(&page_items, |tag| tag.label.as_str());
 
     let api_delete = api.clone();
     let confirm_delete = move |()| {
@@ -150,51 +192,50 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
         });
     };
 
-    rsx! {
-        div { class: "dict-filter-row",
-            input {
-                r#type: "text",
-                class: "dict-filter-input",
-                placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
-                value: "{quick}",
-                oninput: move |e: Event<FormData>| quick.set(e.value()),
-            }
-            button {
-                class: "pf-add-btn",
-                r#type: "button",
-                onclick: move |_| editing.set(Some(Editing::New)),
-                {i18n.t("tag.dictionary.new")}
-            }
+    let add = rsx! {
+        button {
+            class: "pf-add-btn",
+            r#type: "button",
+            onclick: move |_| editing.set(Some(Editing::New)),
+            {i18n.t("tag.dictionary.new")}
         }
-        match listed {
-            None if failed => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
-            None => rsx! { div { class: "loading", {i18n.t("dictionary.loading")} } },
-            Some(list) if list.is_empty() && all_tags.is_empty() => rsx! {
-                EmptyState { p { {i18n.t("tag.dictionary.empty")} } }
-            },
-            Some(list) if list.is_empty() => rsx! {
-                div { class: "dict-src-summary", {i18n.t_plural("dictionary.count", 0)} }
-            },
-            Some(list) => rsx! {
-                div { class: "dict-src-summary", {i18n.t_plural("dictionary.count", list.len())} }
-                div { class: "dict-list",
-                    for tag in list.into_iter() {
+    };
+    rsx! {
+        {render_toolbar_with(i18n, &letters, filters, total_filtered, Some(add))}
+        if !loaded {
+            if failed {
+                div { class: "error-msg", {i18n.t("dictionary.error")} }
+            } else {
+                div { class: "loading", {i18n.t("dictionary.loading")} }
+            }
+        } else if all_tags.is_empty() {
+            EmptyState { p { {i18n.t("tag.dictionary.empty")} } }
+        } else if rows.is_empty() {
+            {render_clear_filters(i18n, filters)}
+        } else {
+            div { class: "dict-list",
+                for (header , tag) in rows.into_iter() {
+                    div { key: "{tag.id}",
+                        if let Some(c) = header {
+                            div { class: "dict-group-header", "{c}" }
+                        }
                         TagRow {
-                            key: "{tag.id}",
                             tree_id,
                             open: expanded() == Some(tag.id),
-                            tag,
+                            tag: tag.clone(),
                             on_toggle: move |id: Uuid| expanded.set((expanded() != Some(id)).then_some(id)),
                             on_edit: move |tag: TagSummary| editing.set(Some(Editing::Existing(tag))),
                             on_delete: move |tag: TagSummary| {
                                 delete_error.set(None);
                                 deleting.set(Some(tag));
                             },
+                            on_untagged: move |()| vocabulary.restart(),
                         }
                     }
                 }
-            },
+            }
         }
+        {render_pagination(page, current, pages)}
         if let Some(edit) = editing() {
             TagEditor {
                 key: "{edit_key(&edit)}",
@@ -232,8 +273,9 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
     }
 }
 
-/// One tag of the vocabulary: its dot, label and counts, its edit and delete
-/// buttons, and, once unfolded, the records carrying it.
+/// One tag of the vocabulary: its dot and label, its counts, its edit and
+/// delete buttons, and, once unfolded, the records carrying it. The row is the
+/// shared Dictionary row: a click or Enter folds it, like the other tabs.
 #[component]
 fn TagRow(
     tree_id: Uuid,
@@ -242,28 +284,41 @@ fn TagRow(
     on_toggle: EventHandler<Uuid>,
     on_edit: EventHandler<TagSummary>,
     on_delete: EventHandler<TagSummary>,
+    on_untagged: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let id = tag.id;
     let counts = counts_line(&i18n, &tag.counts);
-    let counts_for_records = tag.counts.clone();
     let edited = tag.clone();
     let removed = tag.clone();
+    let edit_label = i18n.t("common.edit");
+    let delete_label = i18n.t("common.delete");
     rsx! {
         div {
             div {
                 class: "dict-row",
+                id: "{tag_row_id(id)}",
+                tabindex: "0",
                 onclick: move |_| on_toggle.call(id),
+                onkeydown: move |event: Event<KeyboardData>| {
+                    if is_enter_or_space(&event) {
+                        event.prevent_default();
+                        on_toggle.call(id);
+                    }
+                },
                 div { class: "dict-row-main",
-                    span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
-                    span { class: "dict-row-value", "{tag.label}" }
-                    span { class: "dict-row-meta", "{counts}" }
+                    div { class: "dict-row-line",
+                        span { class: "tag-dot", style: dot_style(tag.color), aria_hidden: "true" }
+                        span { class: "dict-row-value", "{tag.label}" }
+                    }
                 }
+                span { class: "dict-row-count", {counts} }
                 button {
                     class: "dict-row-action",
                     r#type: "button",
-                    title: "{i18n.t(\"common.edit\")}",
-                    aria_label: "{i18n.t(\"common.edit\")}",
+                    title: "{edit_label}",
+                    aria_label: "{edit_label}",
+                    onkeydown: stop_row_activation,
                     onclick: move |e: Event<MouseData>| {
                         e.stop_propagation();
                         on_edit.call(edited.clone());
@@ -273,22 +328,31 @@ fn TagRow(
                 button {
                     class: "dict-row-action",
                     r#type: "button",
-                    title: "{i18n.t(\"common.delete\")}",
-                    aria_label: "{i18n.t(\"common.delete\")}",
+                    title: "{delete_label}",
+                    aria_label: "{delete_label}",
+                    onkeydown: stop_row_activation,
                     onclick: move |e: Event<MouseData>| {
                         e.stop_propagation();
                         on_delete.call(removed.clone());
                     },
-                    "\u{00D7}"
+                    TrashIcon {}
                 }
                 button {
                     class: "dict-row-action",
                     r#type: "button",
+                    title: i18n.t("dictionary.view_usage"),
+                    onkeydown: stop_row_activation,
                     if open { "\u{25B2}" } else { "\u{25BC}" }
                 }
             }
             if open {
-                TagRecords { tree_id, tag_id: id, counts: counts_for_records }
+                TagRecords {
+                    tree_id,
+                    tag_id: id,
+                    tag_label: tag.label.clone(),
+                    counts: tag.counts.clone(),
+                    on_untagged,
+                }
             }
         }
     }
@@ -302,9 +366,16 @@ fn edit_key(edit: &Editing) -> String {
     }
 }
 
-/// The records carrying a tag, grouped by kind, once the row is unfolded.
+/// The records carrying a tag, grouped by kind, once the row is unfolded. A
+/// kind whose count is spent drops out of the list.
 #[component]
-fn TagRecords(tree_id: Uuid, tag_id: Uuid, counts: TagCounts) -> Element {
+fn TagRecords(
+    tree_id: Uuid,
+    tag_id: Uuid,
+    tag_label: String,
+    counts: TagCounts,
+    on_untagged: EventHandler<()>,
+) -> Element {
     let i18n = use_i18n();
     let kinds: Vec<RecordKind> = kind_counts(&counts)
         .into_iter()
@@ -321,38 +392,136 @@ fn TagRecords(tree_id: Uuid, tag_id: Uuid, counts: TagCounts) -> Element {
     rsx! {
         div { class: "dict-accordion",
             for kind in kinds {
-                TaggedKind { key: "{kind}", tree_id, tag_id, kind }
+                TaggedKind {
+                    key: "{kind}",
+                    tree_id,
+                    tag_id,
+                    tag_label: tag_label.clone(),
+                    kind,
+                    on_untagged,
+                }
             }
         }
     }
 }
 
-/// One kind's records carrying a tag, a page at a time.
+/// One kind's records carrying a tag, a page at a time. Each line has a
+/// button that takes its record off the tag at once; a line that fails to
+/// go comes back with the error shown.
 #[component]
-fn TaggedKind(tree_id: Uuid, tag_id: Uuid, kind: RecordKind) -> Element {
+fn TaggedKind(
+    tree_id: Uuid,
+    tag_id: Uuid,
+    tag_label: String,
+    kind: RecordKind,
+    on_untagged: EventHandler<()>,
+) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let api_page = api.clone();
     let records = use_paged_list("tag_records", move |cursor: Option<String>| {
-        let api = api.clone();
+        let api = api_page.clone();
         async move {
             api.list_tagged_records(tree_id, tag_id, kind, RECORDS_PAGE, cursor.as_deref())
                 .await
                 .map_err(|err| err.to_string())
         }
     });
-    let loading = records.first.read().is_none();
-    let failed = matches!(&*records.first.read(), Some(Err(_)));
-    let items = records.items();
+    let mut first = records.first;
+    // The lines taken off the tag, hidden until the list is read again: a
+    // successful removal reads the list, and a line the list no longer
+    // carries leaves this set, so a record put back shows again.
+    let mut taken = use_signal(Vec::<Uuid>::new);
+    let mut untag_error = use_signal(|| None::<String>);
+    // The element to focus once the frame that moved a line is drawn.
+    let mut refocus = use_signal(|| None::<String>);
+    let listed = records.clone();
+    use_effect(move || {
+        let present: Vec<Uuid> = listed.items().iter().map(|record| record.id).collect();
+        taken.with_mut(|ids| ids.retain(|id| present.contains(id)));
+    });
+    use_effect(move || {
+        let target = refocus();
+        if let Some(id) = target {
+            refocus.set(None);
+            document::eval(&focus_script(&id));
+        }
+    });
+    let loading = first.read().is_none();
+    let failed = matches!(&*first.read(), Some(Err(_)));
+    let items: Vec<TaggedRecord> = records
+        .items()
+        .into_iter()
+        .filter(|record| !taken().contains(&record.id))
+        .collect();
+    let row_focus = tag_row_id(tag_id);
+    let tree = tree_id.to_string();
     rsx! {
         div { class: "dict-accordion-group",
-            div { class: "dict-accordion-name", {i18n.t(kind_key(kind))} }
+            div { class: "dict-group-header", {i18n.t(kind_key(kind))} }
             if loading {
                 div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
             } else if failed {
                 div { class: "error-msg", {i18n.t("dictionary.error")} }
             }
-            for record in items.into_iter() {
-                TaggedRecordRow { key: "{record.id}", tree_id, record }
+            if let Some(err) = untag_error() {
+                div { class: "error-msg", role: "alert", "{err}" }
+            }
+            for (index , record) in items.iter().enumerate() {
+                {
+                    let record_id = record.id;
+                    // Focus goes to the next line's button, else the previous
+                    // one's, else the row's, once this line is gone.
+                    let focus_on = items
+                        .get(index + 1)
+                        .or_else(|| index.checked_sub(1).and_then(|before| items.get(before)))
+                        .map(|next| untag_button_id(next.id))
+                        .unwrap_or_else(|| row_focus.clone());
+                    let remove_label = i18n.t_args(
+                        "tag.untag.label",
+                        &[("record", &record.label), ("tag", &tag_label)],
+                    );
+                    let api = api.clone();
+                    rsx! {
+                        div { key: "{record_id}", class: "dict-accordion-line",
+                            if let Some(entry) = &record.person {
+                                {person_usage_link(i18n, &tree, entry)}
+                            } else {
+                                {record_link(&tree, record)}
+                            }
+                            button {
+                                id: "{untag_button_id(record_id)}",
+                                class: "tag-chip-remove",
+                                r#type: "button",
+                                title: "{remove_label}",
+                                aria_label: "{remove_label}",
+                                onclick: move |_| {
+                                    let api = api.clone();
+                                    taken.write().push(record_id);
+                                    untag_error.set(None);
+                                    // The line leaves at once, so the focus moves on with it; a
+                                    // failure brings the line back and the focus with it.
+                                    refocus.set(Some(focus_on.clone()));
+                                    spawn(async move {
+                                        match api.untag_record(tree_id, tag_id, kind, record_id).await {
+                                            Ok(()) => {
+                                                // Read again before the counts, which may drop this kind's group.
+                                                first.restart();
+                                                on_untagged.call(());
+                                            }
+                                            Err(err) => {
+                                                taken.with_mut(|ids| ids.retain(|id| *id != record_id));
+                                                untag_error.set(Some(error_message(&i18n, &err)));
+                                                refocus.set(Some(untag_button_id(record_id)));
+                                            }
+                                        }
+                                    });
+                                },
+                                "\u{00D7}"
+                            }
+                        }
+                    }
+                }
             }
             if records.has_more() {
                 button {
@@ -367,122 +536,65 @@ fn TaggedKind(tree_id: Uuid, tag_id: Uuid, kind: RecordKind) -> Element {
     }
 }
 
-/// A record carrying a tag: a link to its page, the media viewer for a
-/// document, and plain text for the kinds that have no page yet.
-#[component]
-fn TaggedRecordRow(tree_id: Uuid, record: TaggedRecord) -> Element {
-    let tree = tree_id.to_string();
+/// The page a record's line opens: a couple, a document, and a source, a
+/// place or a repository on its own row of this dictionary. An event, a
+/// citation or a note opens its owner's profile. `None` for a record with no
+/// page to open, shown as plain text.
+fn record_route(tree: &str, record: &TaggedRecord) -> Option<Route> {
+    let tree_id = tree.to_string();
+    let id = record.id.to_string();
     match record.kind {
-        RecordKind::Person => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::PersonDetail { tree_id: tree, person_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
+        RecordKind::Person => Some(Route::TreeDetail {
+            tree_id,
+            person: Some(id),
+        }),
+        RecordKind::Family => Some(Route::CoupleDetail {
+            tree_id,
+            family_id: id,
+        }),
+        RecordKind::Media => Some(Route::Media {
+            tree_id,
+            media_id: id,
+        }),
+        RecordKind::Source => Some(Route::DictionarySource {
+            tree_id,
+            source_id: id,
+        }),
+        RecordKind::Place => Some(Route::DictionaryPlace {
+            tree_id,
+            place_id: id,
+        }),
+        RecordKind::Repository => Some(Route::DictionaryRepository {
+            tree_id,
+            repository_id: id,
+        }),
+        RecordKind::Event | RecordKind::Citation | RecordKind::Note => {
+            if let Some(person) = record.person_id {
+                Some(Route::PersonDetail {
+                    tree_id,
+                    person_id: person.to_string(),
+                })
+            } else {
+                record.family_id.map(|family| Route::CoupleDetail {
+                    tree_id,
+                    family_id: family.to_string(),
+                })
             }
-        },
-        RecordKind::Family => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::CoupleDetail { tree_id: tree, family_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        RecordKind::Media => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::Media { tree_id: tree, media_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        // An event or a citation is shown on its owner's profile.
-        RecordKind::Event | RecordKind::Citation if record.person_id.is_some() => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::PersonDetail {
-                        tree_id: tree,
-                        person_id: record.person_id.map(|id| id.to_string()).unwrap_or_default(),
-                    },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        RecordKind::Event | RecordKind::Citation if record.family_id.is_some() => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::CoupleDetail {
-                        tree_id: tree,
-                        family_id: record.family_id.map(|id| id.to_string()).unwrap_or_default(),
-                    },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        // A source opens its row in the Sources tab of this dictionary.
-        RecordKind::Source => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::DictionarySource { tree_id: tree, source_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        // A place and a repository open their row in their tab of this dictionary.
-        RecordKind::Place => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::DictionaryPlace { tree_id: tree, place_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        RecordKind::Repository => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::DictionaryRepository { tree_id: tree, repository_id: record.id.to_string() },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        // A note is shown on the profile of the person or couple it belongs to.
-        RecordKind::Note if record.person_id.is_some() => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::PersonDetail {
-                        tree_id: tree,
-                        person_id: record.person_id.map(|id| id.to_string()).unwrap_or_default(),
-                    },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        RecordKind::Note if record.family_id.is_some() => rsx! {
-            div { class: "dict-accordion-item",
-                Link {
-                    to: Route::CoupleDetail {
-                        tree_id: tree,
-                        family_id: record.family_id.map(|id| id.to_string()).unwrap_or_default(),
-                    },
-                    class: "dict-accordion-name",
-                    "{record.label}"
-                }
-            }
-        },
-        _ => rsx! {
-            div { class: "dict-accordion-item",
+        }
+    }
+}
+
+/// A record's line, as the usage lists show one: the link of its page in the
+/// usage list's style, or its text when it has no page.
+fn record_link(tree: &str, record: &TaggedRecord) -> Element {
+    match record_route(tree, record) {
+        Some(to) => rsx! {
+            Link { to, class: "dict-accordion-item",
                 span { class: "dict-accordion-name", "{record.label}" }
             }
+        },
+        None => rsx! {
+            span { class: "dict-accordion-name", "{record.label}" }
         },
     }
 }

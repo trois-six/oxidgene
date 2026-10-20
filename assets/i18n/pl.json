@@ -8624,6 +8624,7 @@
     "tag.delete.message_other": "Tag „{label}” zostanie usunięty, a jego powiązania z rekordami ({count}) zostaną usunięte. Tej operacji nie można cofnąć.",
     "tag.delete.message_few": "Tag „{label}” zostanie usunięty, a jego powiązania z rekordami ({count}) zostaną usunięte. Tej operacji nie można cofnąć.",
     "tag.delete.message_many": "Tag „{label}” zostanie usunięty, a jego powiązania z rekordami ({count}) zostaną usunięte. Tej operacji nie można cofnąć.",
+    "tag.untag.label": "Usuń „{record}” ze znacznika „{tag}”",
     "tools.ancestry.choose_root": "Wybierz korzeń SOSA",
     "tools.ancestry.depth": "Pokolenia",
     "tools.ancestry.fact.birth": "Urodzenie",

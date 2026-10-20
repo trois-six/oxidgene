@@ -8461,6 +8461,7 @@
     "tag.overflow": "{count} etiquetas a mais: {labels}",
     "tag.delete.message_one": "A etiqueta “{label}” é eliminada e retirada de {count} registo. Não pode ser desfeita.",
     "tag.delete.message_other": "A etiqueta “{label}” é eliminada e retirada de {count} registos. Não pode ser desfeita.",
+    "tag.untag.label": "Remover «{record}» da etiqueta «{tag}»",
     "tools.ancestry.choose_root": "Escolher uma raiz SOSA",
     "tools.ancestry.depth": "Gerações",
     "tools.ancestry.fact.birth": "Nascimento",

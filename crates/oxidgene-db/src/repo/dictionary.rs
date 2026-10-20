@@ -61,7 +61,7 @@ pub struct DictionaryValueEntry {
 
 /// A person's name (split given/surname) plus birth/death years, resolved in
 /// bulk for a dictionary usage drill-down list.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PersonUsageEntry {
     pub person_id: Uuid,
     pub given_names: Option<String>,

@@ -42,7 +42,7 @@ use crate::ui_observability::{
 const LARGE_LIST_THRESHOLD: usize = 500;
 
 /// The page size the tabs open on, and the one a place's link opens on.
-const DEFAULT_PER_PAGE: usize = 25;
+pub(crate) const DEFAULT_PER_PAGE: usize = 25;
 
 /// One step of the Sources tab's smart drill-down (ui-dictionary.md §8.10):
 /// the group a reader clicked, which is either a branch label (the titles
@@ -109,13 +109,13 @@ impl DictTab {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PageSize {
+pub(crate) enum PageSize {
     Fixed(usize),
     All,
 }
 
 impl PageSize {
-    fn as_option(self) -> Option<usize> {
+    pub(crate) fn as_option(self) -> Option<usize> {
         match self {
             PageSize::Fixed(n) => Some(n),
             PageSize::All => None,
@@ -1395,7 +1395,12 @@ fn row_label(entry: &DictionaryEntry, file_by_root: bool) -> String {
 /// `filing` decides which letter group the entry belongs to, `display` is what
 /// the free-text box searches. They differ only for surnames filed under their
 /// root: "de la Cruz" files under C but is still found by typing "de la".
-fn matches_filters(filing: &str, display: &str, quick: &str, letter: Option<char>) -> bool {
+pub(crate) fn matches_filters(
+    filing: &str,
+    display: &str,
+    quick: &str,
+    letter: Option<char>,
+) -> bool {
     if let Some(l) = letter {
         let first = filing.chars().next().map(|c| c.to_ascii_uppercase());
         if first != Some(l) {
@@ -1466,7 +1471,7 @@ fn use_filed_places(
     })
 }
 
-fn available_letters<'a>(labels: impl Iterator<Item = &'a str>) -> HashSet<char> {
+pub(crate) fn available_letters<'a>(labels: impl Iterator<Item = &'a str>) -> HashSet<char> {
     labels
         .filter_map(|l| l.chars().next().map(|c| c.to_ascii_uppercase()))
         .collect()
@@ -1475,7 +1480,7 @@ fn available_letters<'a>(labels: impl Iterator<Item = &'a str>) -> HashSet<char>
 /// Splits a sorted, already-filtered slice into `(header_letter, item)` pairs
 /// — `header_letter` is `Some` only on the first row of each letter group
 /// within the page, so consecutive rows sharing a letter don't repeat it.
-fn with_headers<'a, T>(
+pub(crate) fn with_headers<'a, T>(
     items: &[&'a T],
     label_of: impl Fn(&T) -> &str,
 ) -> Vec<(Option<char>, &'a T)> {
@@ -1493,7 +1498,7 @@ fn with_headers<'a, T>(
     out
 }
 
-fn paginate<T>(items: Vec<T>, page: usize, per_page: Option<usize>) -> Vec<T> {
+pub(crate) fn paginate<T>(items: Vec<T>, page: usize, per_page: Option<usize>) -> Vec<T> {
     match per_page {
         None => items,
         Some(pp) => {
@@ -1503,7 +1508,7 @@ fn paginate<T>(items: Vec<T>, page: usize, per_page: Option<usize>) -> Vec<T> {
     }
 }
 
-fn total_pages(total: usize, per_page: Option<usize>) -> usize {
+pub(crate) fn total_pages(total: usize, per_page: Option<usize>) -> usize {
     match per_page {
         None => 1,
         Some(pp) => (total + pp - 1).max(1) / pp,
@@ -1513,11 +1518,11 @@ fn total_pages(total: usize, per_page: Option<usize>) -> usize {
 /// The filters the alphabetical tabs share: the quick filter, the letter,
 /// the page size and the page shown.
 #[derive(Clone, Copy)]
-struct ListFilters {
-    quick: Signal<String>,
-    letter: Signal<Option<char>>,
-    page_size: Signal<PageSize>,
-    page: Signal<usize>,
+pub(crate) struct ListFilters {
+    pub(crate) quick: Signal<String>,
+    pub(crate) letter: Signal<Option<char>>,
+    pub(crate) page_size: Signal<PageSize>,
+    pub(crate) page: Signal<usize>,
 }
 
 /// What every tab renders with: the language, the tree, the shared filters
@@ -1547,11 +1552,23 @@ struct ValueTab {
 
 // ── Shared toolbar (alphabet index + quick filter + page size + count) ──
 
-fn render_toolbar(
+pub(crate) fn render_toolbar(
     i18n: I18n,
     letters: &HashSet<char>,
     filters: ListFilters,
     total_filtered: usize,
+) -> Element {
+    render_toolbar_with(i18n, letters, filters, total_filtered, None)
+}
+
+/// The shared toolbar, with `action` (a tab's add button) in the filter row
+/// beside the quick filter.
+pub(crate) fn render_toolbar_with(
+    i18n: I18n,
+    letters: &HashSet<char>,
+    filters: ListFilters,
+    total_filtered: usize,
+    action: Option<Element>,
 ) -> Element {
     let ListFilters {
         quick: mut quick_filter,
@@ -1596,6 +1613,7 @@ fn render_toolbar(
                     current_page.set(1);
                 },
             }
+            {action}
             div { class: "dict-page-size",
                 select {
                     value: match page_size() {
@@ -1626,7 +1644,11 @@ fn render_toolbar(
     }
 }
 
-fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize) -> Element {
+pub(crate) fn render_pagination(
+    mut current_page: Signal<usize>,
+    page: usize,
+    pages: usize,
+) -> Element {
     rsx! {
         Pager {
             current: page.saturating_sub(1),
@@ -1637,7 +1659,7 @@ fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize)
     }
 }
 
-fn render_clear_filters(i18n: I18n, filters: ListFilters) -> Element {
+pub(crate) fn render_clear_filters(i18n: I18n, filters: ListFilters) -> Element {
     let ListFilters {
         quick: mut quick_filter,
         letter: mut letter_filter,
@@ -1665,7 +1687,7 @@ fn render_clear_filters(i18n: I18n, filters: ListFilters) -> Element {
 /// Renders a usage-list entry as "SURNAME Given" — surname uppercased and
 /// first, matching genealogical convention — falling back to a localized
 /// placeholder when both name parts are missing.
-fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
+pub(crate) fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
     let surname = entry.surname.as_deref().map(str::to_uppercase);
     let given = entry.given_names.as_deref();
     match (surname, given) {
@@ -1673,6 +1695,24 @@ fn surname_first(entry: &PersonUsageEntry, i18n: &I18n) -> String {
         (Some(s), None) => s,
         (None, Some(g)) => g.to_string(),
         (None, None) => i18n.t("common.unnamed"),
+    }
+}
+
+/// A person of a usage list: "SURNAME Given names" and the muted lifespan,
+/// linking to the person on the tree page.
+pub(crate) fn person_usage_link(i18n: I18n, tree_id: &str, entry: &PersonUsageEntry) -> Element {
+    let (birth, death) = entry.lifespan_years();
+    let lifespan = format_lifespan(i18n.dates(), birth, death);
+    rsx! {
+        Link {
+            key: "{entry.person_id}",
+            to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(entry.person_id.to_string()) },
+            class: "dict-accordion-item",
+            span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
+            if !lifespan.is_empty() {
+                span { class: "dict-accordion-dates", "{lifespan}" }
+            }
+        }
     }
 }
 
@@ -1693,21 +1733,7 @@ fn render_usage_accordion(
         Some(list) if !list.is_empty() => rsx! {
             div { class: "dict-accordion",
                 for entry in list.iter() {
-                    Link {
-                        key: "{entry.person_id}",
-                        to: Route::TreeDetail { tree_id: tree_id.to_string(), person: Some(entry.person_id.to_string()) },
-                        class: "dict-accordion-item",
-                        span { class: "dict-accordion-name", {surname_first(entry, &i18n)} }
-                        {
-                            let (birth, death) = entry.lifespan_years();
-                            let lifespan = format_lifespan(i18n.dates(), birth, death);
-                            if lifespan.is_empty() {
-                                rsx! {}
-                            } else {
-                                rsx! { span { class: "dict-accordion-dates", "{lifespan}" } }
-                            }
-                        }
-                    }
+                    {person_usage_link(i18n, tree_id, entry)}
                 }
             }
         },

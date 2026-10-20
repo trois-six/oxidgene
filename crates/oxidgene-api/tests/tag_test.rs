@@ -1093,6 +1093,9 @@ async fn tagged_records_are_listed_with_labels_over_rest() {
     assert_eq!(people["total_count"], 1);
     assert_eq!(people["edges"][0]["node"]["label"], "Piers Hollowell");
     assert_eq!(people["edges"][0]["node"]["kind"], "person");
+    // A person carries her name parts, as the usage lists read them.
+    assert_eq!(people["edges"][0]["node"]["person"]["given_names"], "Piers");
+    assert_eq!(people["edges"][0]["node"]["person"]["surname"], "Hollowell");
 
     let events = ok(
         &f.app,
@@ -1103,6 +1106,7 @@ async fn tagged_records_are_listed_with_labels_over_rest() {
     .await;
     assert_eq!(events["edges"][0]["node"]["id"], event.as_str());
     assert_eq!(events["edges"][0]["node"]["person_id"], person.as_str());
+    assert!(events["edges"][0]["node"]["person"].is_null());
 }
 
 #[tokio::test]
@@ -1116,7 +1120,7 @@ async fn tagged_records_are_listed_with_labels_over_graphql() {
         &f.app,
         r#"query($tree: ID!, $tag: ID!) {
             taggedRecords(treeId: $tree, tagId: $tag, kind: "person") {
-                totalCount edges { node { id kind label personId familyId } }
+                totalCount edges { node { id kind label personId familyId person { givenNames surname } } }
             }
         }"#,
         json!({ "tree": f.tree, "tag": tag }),
@@ -1127,6 +1131,8 @@ async fn tagged_records_are_listed_with_labels_over_graphql() {
     assert_eq!(node["label"], "Piers Hollowell");
     assert_eq!(node["kind"], "PERSON");
     assert_eq!(node["id"], person.as_str());
+    assert_eq!(node["person"]["givenNames"], "Piers");
+    assert_eq!(node["person"]["surname"], "Hollowell");
 }
 
 #[tokio::test]

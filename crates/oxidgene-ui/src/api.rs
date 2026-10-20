@@ -602,7 +602,7 @@ pub struct BasemapName {
 
 /// A person resolved for a dictionary usage drill-down list: name parts +
 /// birth/death years, computed server-side in one bulk query.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct PersonUsageEntry {
     pub person_id: Uuid,
     pub given_names: Option<String>,
@@ -1445,6 +1445,9 @@ pub struct TaggedRecord {
     pub label: String,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
+    /// For a person: its name parts and lifespan.
+    #[serde(default)]
+    pub person: Option<PersonUsageEntry>,
 }
 
 /// The number of persons a bulk tagging changed (docs/api.md, Tags).

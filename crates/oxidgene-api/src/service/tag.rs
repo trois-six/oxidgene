@@ -13,9 +13,9 @@ use oxidgene_core::history::{AuditAction, AuditCategory, AuditDetails, AuditEnti
 use oxidgene_core::types::{Connection, Edge, FamilySpouse, RecordKind};
 use oxidgene_db::entities::{event, record_tag};
 use oxidgene_db::repo::{
-    CitationRepo, EventRepo, FamilySpouseRepo, MediaRepo, NoteRepo, PaginationParams, PlaceRepo,
-    RecordTagRepo, RepositoryRepo, SourceRepo, TagRepo, TagUsage, checked_color, db_err,
-    display_names,
+    CitationRepo, DictionaryRepo, EventRepo, FamilySpouseRepo, MediaRepo, NoteRepo,
+    PaginationParams, PersonUsageEntry, PlaceRepo, RecordTagRepo, RepositoryRepo, SourceRepo,
+    TagRepo, TagUsage, checked_color, db_err, display_names,
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
@@ -189,7 +189,8 @@ pub async fn untag_record(
 
 /// A live record carrying a tag, as the tag's list shows it: its id, its kind,
 /// a label to show, and for an event, citation or note the person or family
-/// it belongs to.
+/// it belongs to. For a person, its name parts and lifespan, as the
+/// dictionary's usage lists show them.
 #[derive(Debug, Clone, Serialize)]
 pub struct TaggedRecord {
     pub id: Uuid,
@@ -197,6 +198,7 @@ pub struct TaggedRecord {
     pub label: String,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
+    pub person: Option<PersonUsageEntry>,
 }
 
 /// One page of the live records of `kind` carrying tag `tag_id` of `tree_id`.
@@ -211,6 +213,14 @@ pub async fn tagged_records(
     let page = RecordTagRepo::records_of_tag(db, tree_id, tag_id, kind, params).await?;
     let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node).collect();
     let labels = labels_of(db, tree_id, kind, &ids).await?;
+    let persons: HashMap<Uuid, PersonUsageEntry> = match kind {
+        RecordKind::Person => DictionaryRepo::resolve_person_usage_entries(db, &ids)
+            .await?
+            .into_iter()
+            .map(|entry| (entry.person_id, entry))
+            .collect(),
+        _ => HashMap::new(),
+    };
     let owners = match kind {
         RecordKind::Person | RecordKind::Family => HashMap::new(),
         _ => subjects_of(db, kind, &ids).await?,
@@ -233,6 +243,7 @@ pub async fn tagged_records(
                     .unwrap_or_else(|| edge.node.to_string()),
                 person_id,
                 family_id,
+                person: persons.get(&edge.node).cloned(),
             },
         });
     }

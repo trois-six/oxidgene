@@ -1,5 +1,5 @@
-import { apiUrl, createTag, expect, importGedcom, personIdOf, tagPerson, test } from "./fixtures";
-import type { APIRequestContext } from "@playwright/test";
+import { apiUrl, createTag, expect, expectedConsoleError, importGedcom, personIdOf, tagPerson, test } from "./fixtures";
+import type { APIRequestContext, Locator } from "@playwright/test";
 
 /// Create one source per title in `treeId`, in batches, and return their ids in
 /// the order of `titles`.
@@ -677,4 +677,206 @@ test("shows a person's twelve long tags as three badges and a +9 without changin
             expect(scroll[0], `sideways scroll on ${path} at ${viewport.width}px`).toBeLessThanOrEqual(scroll[1] + 1);
         }
     }
+});
+
+/// The classes and the computed styles that decide how a dictionary element
+/// looks, read from the page: what a row or a usage list is made of.
+async function looksOf(element: Locator) {
+    return element.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const properties = [
+            "display", "padding", "margin", "gap", "align-items", "color", "background-color",
+            "border-top-color", "border-top-width", "border-radius", "font-size", "font-weight",
+            "font-family", "text-decoration-line", "cursor",
+        ];
+        const computed: Record<string, string> = {};
+        for (const property of properties) computed[property] = style.getPropertyValue(property);
+        return { tag: node.tagName, classes: [...node.classList].sort(), computed };
+    });
+}
+
+test("removes a record from a tag's unfolded list from the keyboard, and drops the kind when none is left", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional kin");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    await tagPerson(request, tree.treeId, tagId, await personIdOf(request, tree.treeId, "Dorian"));
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: "Fictional kin" });
+    await expect(row.locator(".dict-row-count")).toHaveText("2 persons");
+    await row.click();
+    const dorian = page.getByRole("link", { name: /Dorian/ });
+    const anchor = page.getByRole("link", { name: /Anchor/ });
+    await expect(dorian).toBeVisible();
+    await expect(anchor).toBeVisible();
+    // Each person's line is the usage list's: the name in capitals, then the lifespan.
+    await expect(dorian.locator(".dict-accordion-name")).toContainText("ASHDOWN Dorian");
+    await expect(page.locator(".dict-accordion-group").filter({ hasText: "Persons" })).toHaveCount(1);
+
+    // Tab from the person's link reaches its remove button; Enter takes it off.
+    const removeDorian = page.getByRole("button", { name: /^Remove .*Dorian.* from Fictional kin$/ });
+    const removeAnchor = page.getByRole("button", { name: /^Remove .*Anchor.* from Fictional kin$/ });
+    await dorian.focus();
+    await page.keyboard.press("Tab");
+    await expect(removeDorian).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    // The line goes, the count reads one person, and the focus moves to the
+    // other person's remove button.
+    await expect(dorian).toHaveCount(0);
+    await expect(row.locator(".dict-row-count")).toHaveText("1 person");
+    await expect(removeAnchor).toBeFocused();
+    const kept = await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records?kind=person&first=10`);
+    const keptPage = await kept.json();
+    expect(keptPage.total_count).toBe(1);
+    expect(keptPage.edges[0].node.id).toBe(tree.anchorId);
+
+    // Removing the last record drops the Persons group, and the row says so.
+    await page.keyboard.press("Enter");
+    await expect(anchor).toHaveCount(0);
+    await expect(page.locator(".dict-accordion-group")).toHaveCount(0);
+    await expect(row.locator(".dict-row-count")).toHaveText("No record yet");
+    await expect(page.getByText("No record yet", { exact: true }).last()).toBeVisible();
+    const emptied = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records?kind=person&first=10`)).json();
+    expect(emptied.total_count).toBe(0);
+
+    // The tag itself stays in the vocabulary.
+    const tags = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`)).json()) as Array<{ id: string }>;
+    expect(tags.map((tag) => tag.id)).toContain(tagId);
+});
+
+test("brings a line back with the error and the focus when its removal is refused, and shows a record put back after a removal", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional refusal");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    await tagPerson(request, tree.treeId, tagId, await personIdOf(request, tree.treeId, "Dorian"));
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: "Fictional refusal" });
+    await row.click();
+    const dorian = page.getByRole("link", { name: /Dorian/ });
+    const anchor = page.getByRole("link", { name: /Anchor/ });
+    const removeAnchor = page.getByRole("button", { name: /^Remove .*Anchor.* from Fictional refusal$/ });
+    const removeDorian = page.getByRole("button", { name: /^Remove .*Dorian.* from Fictional refusal$/ });
+    await expect(anchor).toBeVisible();
+
+    // The server refuses the removal: the line leaves at once, then comes
+    // back with the error under the kind's heading, and the focus returns to it.
+    test.info().annotations.push({ type: expectedConsoleError, description: "status of 500" });
+    const refusedUrl = `**/api/v1/trees/${tree.treeId}/tags/${tagId}/records/person/${tree.anchorId}`;
+    await page.route(refusedUrl, async (route) => {
+        if (route.request().method() !== "DELETE") {
+            await route.fallback();
+            return;
+        }
+        await route.fulfill({
+            status: 500,
+            headers: { "access-control-allow-origin": "*" },
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "internal", message: "refused" } }),
+        });
+    });
+    await removeAnchor.click();
+    await expect(anchor).toBeVisible();
+    await expect(row.locator("xpath=..").locator(".dict-accordion").getByRole("alert")).toHaveText("The tag could not be saved. Try again.");
+    await expect(removeAnchor).toBeFocused();
+    await expect(row.locator(".dict-row-count")).toHaveText("2 persons");
+    const kept = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records?kind=person&first=10`)).json();
+    expect(kept.total_count).toBe(2);
+
+    // Once the server accepts it, the line goes; a record put back on the tag
+    // meanwhile shows again when the next removal reads the list.
+    await page.unroute(refusedUrl);
+    await removeAnchor.click();
+    await expect(anchor).toHaveCount(0);
+    await expect(row.locator("xpath=..").locator(".dict-accordion").getByRole("alert")).toHaveCount(0);
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    await removeDorian.click();
+    await expect(dorian).toHaveCount(0);
+    await expect(anchor).toBeVisible();
+    await expect(row.locator(".dict-row-count")).toHaveText("1 person");
+});
+
+test("draws the Tags tab's rows and unfolded lists with the Occupations tab's classes and styles", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional looks");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    await tagPerson(request, tree.treeId, tagId, await personIdOf(request, tree.treeId, "Dorian"));
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Occupations", exact: true }).click();
+    const occupation = page.locator(".dict-row").filter({ hasText: "Weaver" });
+    await occupation.click();
+    const occupationList = occupation.locator("xpath=..").locator(".dict-accordion");
+    await expect(occupationList.locator("a.dict-accordion-item").first()).toBeVisible();
+    await page.mouse.move(0, 0);
+    const occupationLooks = {
+        row: await looksOf(occupation),
+        value: await looksOf(occupation.locator(".dict-row-value")),
+        main: await looksOf(occupation.locator(".dict-row-main")),
+        count: await looksOf(occupation.locator(".dict-row-count")),
+        chevron: await looksOf(occupation.locator(".dict-row-action")),
+        list: await looksOf(occupationList),
+        item: await looksOf(occupationList.locator("a.dict-accordion-item").first()),
+        name: await looksOf(occupationList.locator("a.dict-accordion-item").first().locator(".dict-accordion-name")),
+        dates: await looksOf(occupationList.locator("a.dict-accordion-item").first().locator(".dict-accordion-dates")),
+    };
+
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
+    const tag = page.locator(".dict-row").filter({ hasText: "Fictional looks" });
+    await tag.click();
+    const tagList = tag.locator("xpath=..").locator(".dict-accordion");
+    const dorian = tagList.locator("a.dict-accordion-item", { hasText: "Dorian" });
+    await expect(dorian).toBeVisible();
+    await page.mouse.move(0, 0);
+    const tagLooks = {
+        row: await looksOf(tag),
+        value: await looksOf(tag.locator(".dict-row-value")),
+        main: await looksOf(tag.locator(".dict-row-main")),
+        count: await looksOf(tag.locator(".dict-row-count")),
+        chevron: await looksOf(tag.locator(".dict-row-action").last()),
+        list: await looksOf(tagList),
+        item: await looksOf(dorian),
+        name: await looksOf(dorian.locator(".dict-accordion-name")),
+        dates: await looksOf(dorian.locator(".dict-accordion-dates")),
+    };
+
+    expect(tagLooks.row).toEqual(occupationLooks.row);
+    expect(tagLooks.value).toEqual(occupationLooks.value);
+    expect(tagLooks.main).toEqual(occupationLooks.main);
+    expect(tagLooks.count).toEqual(occupationLooks.count);
+    expect(tagLooks.chevron).toEqual(occupationLooks.chevron);
+    expect(tagLooks.list).toEqual(occupationLooks.list);
+    expect(tagLooks.item).toEqual(occupationLooks.item);
+    expect(tagLooks.name).toEqual(occupationLooks.name);
+    expect(tagLooks.dates).toEqual(occupationLooks.dates);
+});
+
+test("puts the colour dot inline before the label, and asks before the tag is deleted", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional dot");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+
+    await page.goto(`/trees/${tree.treeId}/dictionary/tags/${tagId}`);
+    const row = page.locator(".dict-row").filter({ hasText: "Fictional dot" });
+    await expect(row).toBeVisible();
+
+    // The dot sits on the label's line, before the label, the way a badge's does.
+    const dot = await row.locator(".tag-dot").boundingBox();
+    const label = await row.locator(".dict-row-value").boundingBox();
+    expect(dot, "the colour dot").not.toBeNull();
+    expect(label, "the label").not.toBeNull();
+    const dotCentre = dot!.y + dot!.height / 2;
+    const labelCentre = label!.y + label!.height / 2;
+    expect(Math.abs(dotCentre - labelCentre)).toBeLessThan(label!.height / 2);
+    expect(dot!.x + dot!.width).toBeLessThanOrEqual(label!.x + 1);
+
+    // The delete button is the trash icon, and it asks before it deletes.
+    const remove = row.getByRole("button", { name: "Delete", exact: true });
+    await remove.click();
+    const dialog = page.getByRole("dialog", { name: "Delete the tag" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toBeVisible();
+    const tags = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`)).json()) as Array<{ id: string }>;
+    expect(tags.map((tag) => tag.id)).toContain(tagId);
 });
