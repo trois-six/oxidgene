@@ -1142,7 +1142,9 @@ fn more_badge(hidden: &[TagRef], rest: usize, i18n: &I18n) -> Element {
 /// A select of the tree's tags: a first option `placeholder` with no value,
 /// then one option per tag, its label in the tag's colour. Choosing the
 /// placeholder reports `None`. Shared by the Statistics and Tools pages and
-/// the export scope (docs/tags.md §2).
+/// the export scope (docs/tags.md §2). While the vocabulary is being read the
+/// placeholder says so; a failed read is named beside the select, and the
+/// first focus of the select (`on_open`) is what asks for the vocabulary.
 #[component]
 pub fn TagSelect(
     id: String,
@@ -1153,13 +1155,29 @@ pub fn TagSelect(
     /// Added to the select's own class, for the page it sits on.
     #[props(default)]
     class: String,
+    /// Whether the vocabulary is being read.
+    #[props(default)]
+    loading: bool,
+    /// The message of a failed read of the vocabulary.
+    #[props(default)]
+    failure: Option<String>,
+    /// Called when the select takes the focus, which opens it.
+    #[props(default)]
+    on_open: EventHandler<()>,
 ) -> Element {
+    let i18n = use_i18n();
+    let first = if loading {
+        i18n.t("tag.picker.loading")
+    } else {
+        placeholder
+    };
     rsx! {
         select {
             id: "{id}",
             class: "tag-select {class}",
+            onfocus: move |_| on_open.call(()),
             onchange: move |e: Event<FormData>| on_change.call(e.value().parse::<Uuid>().ok()),
-            option { value: "", selected: selected.is_none(), "{placeholder}" }
+            option { value: "", selected: selected.is_none(), "{first}" }
             for tag in tags.iter() {
                 option {
                     key: "{tag.id}",
@@ -1170,6 +1188,81 @@ pub fn TagSelect(
                 }
             }
         }
+        if let Some(message) = failure {
+            span { class: "error-msg", role: "alert", "{message}" }
+        }
+    }
+}
+
+/// What a page knows of the tree's tag vocabulary, read only when the reader
+/// opens a list that needs it (docs/tags.md §2).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Vocabulary {
+    /// Not read: no list that needs it has been opened.
+    Unread,
+    /// Being read.
+    Loading,
+    /// Read: the tree's tags, by label.
+    Ready(Vec<TagSummary>),
+    /// The read failed, with the message to show.
+    Failed(String),
+}
+
+/// The answer of a read of the vocabulary: the ask it answers, and the state.
+pub(crate) type Answer = (u32, Vocabulary);
+
+/// Reads the tree's vocabulary once a list that needs it has been asked for.
+/// `requests` counts the asks: zero until a list opens, then one per read.
+/// The read is kept for the page, so a list opened again reads nothing, and a
+/// failed read is read again by the next opening (see [`ask_vocabulary`]).
+/// Read it with [`lazy_vocabulary_of`].
+pub(crate) fn use_lazy_vocabulary(
+    tree_id: Option<Uuid>,
+    requests: Signal<u32>,
+) -> Resource<Answer> {
+    let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
+    use_ui_resource("tag_vocabulary_lazy", move || {
+        let api = api.clone();
+        let requested = requests();
+        async move {
+            if requested == 0 {
+                return (0, Vocabulary::Unread);
+            }
+            let state = match tree_id {
+                Some(tid) => match api.list_tags(tid).await {
+                    Ok(tags) => Vocabulary::Ready(tags),
+                    Err(err) => Vocabulary::Failed(error_message(&i18n, &err)),
+                },
+                None => Vocabulary::Ready(Vec::new()),
+            };
+            (requested, state)
+        }
+    })
+}
+
+/// The vocabulary a lazily read list shows now. It is `Loading` from the ask
+/// until the read of that ask has an answer, so a retry never shows the
+/// failure it replaces.
+pub(crate) fn lazy_vocabulary_of(requests: u32, read: &Resource<Answer>) -> Vocabulary {
+    if requests == 0 {
+        return Vocabulary::Unread;
+    }
+    match read.read().clone() {
+        Some((answered, state)) if answered == requests => state,
+        _ => Vocabulary::Loading,
+    }
+}
+
+/// Asks for the vocabulary when a list that needs it opens. A list is asked
+/// for once; a read that failed is asked for again, so the next opening
+/// retries. A read in progress or done is kept.
+pub(crate) fn ask_vocabulary(mut requests: Signal<u32>, read: &Resource<Answer>) {
+    if matches!(
+        lazy_vocabulary_of(requests(), read),
+        Vocabulary::Unread | Vocabulary::Failed(_)
+    ) {
+        requests.with_mut(|count| *count += 1);
     }
 }
 
@@ -1179,7 +1272,8 @@ pub fn TagSelect(
 #[derive(Clone, Copy)]
 pub(crate) struct TagFilter {
     chosen: Signal<Option<Uuid>>,
-    tags: Resource<Vec<TagSummary>>,
+    requests: Signal<u32>,
+    tags: Resource<Answer>,
 }
 
 impl TagFilter {
@@ -1193,9 +1287,31 @@ impl TagFilter {
         self.chosen.set(value);
     }
 
+    /// Reads the tree's vocabulary when the reader opens its select: the first
+    /// time, and again after a failed read. Opening it again reads nothing.
+    pub(crate) fn open(&mut self) {
+        ask_vocabulary(self.requests, &self.tags);
+    }
+
+    /// The vocabulary as the page sees it now.
+    pub(crate) fn vocabulary(&self) -> Vocabulary {
+        lazy_vocabulary_of((self.requests)(), &self.tags)
+    }
+
     /// The tags carried by at least one person, by label as the tree lists them.
     pub(crate) fn carried(&self) -> Vec<TagSummary> {
-        carried_tags(self.tags.read().as_deref().unwrap_or_default())
+        match self.vocabulary() {
+            Vocabulary::Ready(tags) => carried_tags(&tags),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The message of a failed read, if the last read failed.
+    pub(crate) fn failure(&self) -> Option<String> {
+        match self.vocabulary() {
+            Vocabulary::Failed(message) => Some(message),
+            _ => None,
+        }
     }
 }
 
@@ -1211,23 +1327,22 @@ pub(crate) fn carried_tags(tags: &[TagSummary]) -> Vec<TagSummary> {
 /// The tag filter of a tree page. Going back to the page's history entry
 /// takes up the tag the reader left; a page opened anew starts on every person.
 pub(crate) fn use_tag_filter(tree_id: Option<Uuid>) -> TagFilter {
-    let api = use_context::<ApiClient>();
     let restored = use_restored_view::<Option<Uuid>>().flatten();
     let mut chosen = use_signal(move || restored);
     use_saved_view(move || *chosen.read());
-    let tags = use_ui_resource("tag_filter_tags", move || {
-        let api = api.clone();
-        async move {
-            match tree_id {
-                Some(tid) => api.list_tags(tid).await.unwrap_or_default(),
-                None => Vec::new(),
-            }
-        }
-    });
+    // A restored tag needs the vocabulary at once for its label; otherwise it
+    // is read when the reader opens the select.
+    let requests = use_signal(move || u32::from(restored.is_some()));
+    let tags = use_lazy_vocabulary(tree_id, requests);
     // A tag the tree no longer carries would empty every figure: it is
-    // forgotten once the tags are known.
+    // forgotten once the tags are known. A failed read forgets nothing: the
+    // reader keeps the tag, and the select says why the list is missing.
     use_effect(move || {
-        if let (Some(id), Some(list)) = (chosen(), tags.read().as_ref())
+        let known = match lazy_vocabulary_of(requests(), &tags) {
+            Vocabulary::Ready(list) => Some(list),
+            _ => None,
+        };
+        if let (Some(id), Some(list)) = (chosen(), known)
             && !list
                 .iter()
                 .any(|tag| tag.id == id && tag.counts.persons > 0)
@@ -1235,7 +1350,11 @@ pub(crate) fn use_tag_filter(tree_id: Option<Uuid>) -> TagFilter {
             chosen.set(None);
         }
     });
-    TagFilter { chosen, tags }
+    TagFilter {
+        chosen,
+        requests,
+        tags,
+    }
 }
 
 /// Places the menu beside the row, read from the page: the row's left edge and

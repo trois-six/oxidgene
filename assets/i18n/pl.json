@@ -8560,6 +8560,7 @@
     "tag.highlight.failed": "Nie udało się odczytać oznaczonych osób. Spróbuj ponownie.",
     "tag.highlight.clear": "Zakończ wyróżnianie znacznika „{label}”",
     "tag.highlight.unknown": "Wyróżniony znacznik",
+    "tag.highlight.unavailable": "Znacznik niedostępny",
     "tag.record.dash": " — ",
     "tag.record.dot": " · ",
     "tag.record.citation_page": "{title} · {page}",

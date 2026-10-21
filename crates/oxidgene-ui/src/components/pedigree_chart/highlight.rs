@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, TagSummary};
 use crate::components::modal::Modal;
-use crate::components::tags::{dot_style, filter_matches, tag_colour};
-use crate::i18n::use_i18n;
+use crate::components::tags::{Vocabulary, dot_style, filter_matches, tag_colour};
+use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
 /// The tagged records read per request. The server's page size cap is 100.
@@ -68,14 +68,15 @@ pub(super) struct ChartMarks {
 pub(super) type CarrierRead = Result<Option<(Uuid, HashSet<Uuid>)>, ApiError>;
 
 /// The palette slot drawn for a highlighted tag missing from the loaded
-/// vocabulary (not loaded yet, failed to load, or deleted elsewhere): the
-/// default tag colour, so the carriers are still marked.
+/// vocabulary (deleted elsewhere since it was read): the default tag colour,
+/// so the carriers are still marked.
 const UNKNOWN_TAG_COLOR: i16 = 0;
 
 /// What the charts draw for `choice`: its tag's colour and the carriers read
 /// for it. `None` while the carriers are not known yet, or while the carriers
 /// on hand were read for another tag. A tag missing from `tags` is drawn in
-/// the default colour rather than not at all.
+/// the default colour rather than not at all. The caller passes the
+/// vocabulary only once it is read, so no mark takes a colour before then.
 pub(super) fn highlight_marks(
     choice: Option<TagHighlight>,
     tags: &[TagSummary],
@@ -227,14 +228,34 @@ pub(super) fn use_carriers(
     })
 }
 
+/// What the dialog says in place of the list while it has nothing to list: the
+/// failed read, the read in progress, or that no person carries a tag yet.
+/// `None` once there is a list to show.
+fn empty_notice(i18n: &I18n, vocabulary: &Vocabulary, none_carried: bool) -> Option<Element> {
+    match vocabulary {
+        Vocabulary::Failed(message) => Some(rsx! {
+            p { class: "tag-picker-error", role: "alert", "{message}" }
+        }),
+        Vocabulary::Loading => Some(rsx! {
+            p { class: "tag-picker-empty", {i18n.t("tag.picker.loading")} }
+        }),
+        _ if none_carried => Some(rsx! {
+            p { class: "tag-picker-empty", {i18n.t("tag.highlight.empty")} }
+        }),
+        _ => None,
+    }
+}
+
 /// The "Highlight a tag" button of the tree's sidebar, its chip while a tag
 /// is highlighted, and the list of the tags persons carry that opens from the
-/// button. `tags` is the tree's vocabulary, with its counts.
+/// button. `vocabulary` is the tree's vocabulary, with its counts, read once
+/// the list is first opened (`on_open`).
 #[component]
 pub(super) fn HighlightTool(
     highlight: Signal<Option<TagHighlight>>,
-    tags: Vec<TagSummary>,
+    vocabulary: Vocabulary,
     carriers_failed: bool,
+    on_open: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let mut open = use_signal(|| false);
@@ -243,15 +264,25 @@ pub(super) fn HighlightTool(
     let mut dim_pending = use_signal(|| true);
     // The search field's text, cleared each time the dialog opens.
     let mut query = use_signal(String::new);
+    let tags: Vec<TagSummary> = match &vocabulary {
+        Vocabulary::Ready(tags) => tags.clone(),
+        _ => Vec::new(),
+    };
 
     let choice = highlight();
     let dim = choice.map_or(dim_pending(), |choice| choice.dim);
     let chosen = choice.and_then(|choice| tags.iter().find(|tag| tag.id == choice.tag_id).cloned());
     // A highlight whose tag is missing from the loaded vocabulary (deleted
     // elsewhere, or not loaded yet) still gets its chip, so it can be ended.
+    // A failed read says the tag is unavailable; otherwise it is only unnamed.
+    let unnamed_key = if matches!(vocabulary, Vocabulary::Failed(_)) {
+        "tag.highlight.unavailable"
+    } else {
+        "tag.highlight.unknown"
+    };
     let chip_label = chosen
         .as_ref()
-        .map_or_else(|| i18n.t("tag.highlight.unknown"), |tag| tag.label.clone());
+        .map_or_else(|| i18n.t(unnamed_key), |tag| tag.label.clone());
     let chip_clear = i18n.t_args("tag.highlight.clear", &[("label", &chip_label)]);
     let carried: Vec<TagSummary> = tags
         .iter()
@@ -279,6 +310,7 @@ pub(super) fn HighlightTool(
             "aria-label": "{open_label}",
             "aria-haspopup": "dialog",
             onclick: move |_| {
+                on_open.call(());
                 query.set(String::new());
                 open.set(true);
             },
@@ -334,8 +366,8 @@ pub(super) fn HighlightTool(
                     }
                     span { {i18n.t("tag.highlight.dim")} }
                 }
-                if carried.is_empty() {
-                    p { class: "tag-picker-empty", {i18n.t("tag.highlight.empty")} }
+                if let Some(notice) = empty_notice(&i18n, &vocabulary, carried.is_empty()) {
+                    {notice}
                 } else {
                     if search {
                         input {

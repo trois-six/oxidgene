@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Tags"
 description: "Principles of tags shared by every kind of record, and where their uses beyond finding (statistics, anomalies and export limited to a tag) are specified."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
+generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
 ---
 
 # Tags
@@ -60,6 +60,13 @@ rules are in the API contract, its page in the UI specification.
 
 The tag select of the [Statistics](ui-statistics.md) page, and the rules of
 the figures a tag limits: [API Contract, Statistics](api.md#statistics).
+
+The tree's tag list these selects and the pedigree's highlight list draw on is
+read lazily: the first time a list that needs it opens (the select taking the focus,
+the highlight button being pressed), or at once when the page opens on a tag kept
+in its history entry. The read is kept for the page and not repeated on each
+opening. A failed read is read again by the next opening; until then the list
+names the failure, and a kept tag stays chosen.
 
 ### 2.2 Anomalies limited to a tag
 

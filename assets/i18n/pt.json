@@ -8417,6 +8417,7 @@
     "tag.highlight.failed": "Não foi possível ler as pessoas etiquetadas. Tente novamente.",
     "tag.highlight.clear": "Terminar o realce de “{label}”",
     "tag.highlight.unknown": "Etiqueta realçada",
+    "tag.highlight.unavailable": "Etiqueta indisponível",
     "tag.record.dash": " — ",
     "tag.record.dot": " · ",
     "tag.record.citation_page": "{title} · {page}",

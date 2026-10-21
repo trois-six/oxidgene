@@ -1,4 +1,4 @@
-import { apiUrl, createTag, expect, expectedConsoleError, importGedcom, personIdOf, tagPerson, test } from "./fixtures";
+import { apiUrl, createTag, expect, expectedConsoleError, importGedcom, personIdOf, tagPerson, tagVocabularyRequests, test } from "./fixtures";
 import type { APIRequestContext, Locator } from "@playwright/test";
 
 /// Create one source per title in `treeId`, in batches, and return their ids in
@@ -1083,4 +1083,197 @@ test("a profile event shows its ⋮ and the same tag menu as Shift+F10", async (
     await expect(tagsEntry).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(birth).toBeFocused();
+});
+
+test("the pedigree asks for the tag vocabulary only when its highlight list opens", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional mark");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    const asked = tagVocabularyRequests(page, tree.treeId);
+
+    await page.goto(`/trees/${tree.treeId}`);
+    await expect(page.locator("g.ped-card").first()).toBeVisible();
+    expect(asked).toEqual([]);
+
+    const dialog = page.getByRole("dialog", { name: "Highlight a tag" });
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.locator(".tag-highlight-option", { hasText: "Fictional mark" })).toBeVisible();
+    expect(asked).toHaveLength(1);
+    // Opening the list again reads nothing: the vocabulary stays for the page.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.locator(".tag-highlight-option", { hasText: "Fictional mark" })).toBeVisible();
+    expect(asked).toHaveLength(1);
+});
+
+test("a pedigree opened with a highlight from its history draws the marks in the tag's colour", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional mark");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    const anchor = page.locator("g.ped-card").filter({ hasText: /Anchor\s*ASHDOWN/ }).first();
+
+    // The route names the root, so the entry it is left on keeps the highlight:
+    // a route rewritten on load would clear the entry's saved view.
+    await page.goto(`/trees/${tree.treeId}?person=${tree.anchorId}`);
+    await expect(anchor).toBeVisible();
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await page
+        .getByRole("dialog", { name: "Highlight a tag" })
+        .locator(".tag-highlight-option", { hasText: "Fictional mark" })
+        .click();
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}/statistics$`));
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}(\\?|$)`));
+
+    // The restored highlight needs the tag's colour at once: the chip, the
+    // carriers' marks and their colour come back without any further choice.
+    await expect(page.locator(".tag-highlight-chip")).toContainText("Fictional mark");
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
+    const tags = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`)).json()) as Array<{ id: string; color: number }>;
+    const color = tags.find((tag) => tag.id === tagId)?.color;
+    await expect(anchor.locator(".ped-tag-dot")).toHaveAttribute("style", new RegExp(`fill:var\\(--tag-${color}\\)`));
+    await expect(page.locator("g.ped-card").filter({ hasText: /Dorian\s*ASHDOWN/ }).first()).toHaveClass(/ped-tag-dim/);
+});
+
+test("a restored highlight draws no mark in a fallback colour while the tag's colour is unread", async ({ page, request, tree }) => {
+    test.setTimeout(120_000);
+    const tagId = await createTag(request, tree.treeId, "Fictional mark");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    const anchor = page.locator("g.ped-card").filter({ hasText: /Anchor\s*ASHDOWN/ }).first();
+
+    await page.goto(`/trees/${tree.treeId}?person=${tree.anchorId}`);
+    await expect(anchor).toBeVisible();
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await page
+        .getByRole("dialog", { name: "Highlight a tag" })
+        .locator(".tag-highlight-option", { hasText: "Fictional mark" })
+        .click();
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
+
+    // Leave the page on its history entry, then let the API client's 30 s
+    // response cache expire, so going back reads the vocabulary again.
+    await page.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}/statistics$`));
+    await page.waitForTimeout(31_000);
+
+    // Hold the vocabulary of the restored page while its carriers come back:
+    // the marks must wait for the tag's colour rather than take a fallback one.
+    let arrived!: () => void;
+    const vocabularyAsked = new Promise<void>((resolve) => (arrived = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    await page.route(`**/api/v1/trees/${tree.treeId}/tags`, async (route) => {
+        arrived();
+        await released;
+        await route.continue();
+    });
+    const carriersRead = page.waitForResponse((res) => res.url().includes(`/tags/${tagId}/records`) && res.ok());
+
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}(\\?|$)`));
+    await vocabularyAsked;
+    await carriersRead;
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(0);
+    await expect(page.locator(".ped-tag-dot")).toHaveCount(0);
+
+    release();
+    await expect(page.locator(".tag-highlight-chip")).toContainText("Fictional mark");
+    const tags = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`)).json()) as Array<{ id: string; color: number }>;
+    const color = tags.find((tag) => tag.id === tagId)?.color;
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
+    await expect(anchor.locator(".ped-tag-dot")).toHaveAttribute("style", new RegExp(`fill:var\\(--tag-${color}\\)`));
+});
+
+test("the highlight list reads the vocabulary again after a refused read, and not after a good one", async ({ page, request, tree }) => {
+    const tagId = await createTag(request, tree.treeId, "Fictional mark");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    const asked = tagVocabularyRequests(page, tree.treeId);
+
+    // The first read is refused: the list says so, and the next opening asks again.
+    test.info().annotations.push({ type: expectedConsoleError, description: "status of 500" });
+    let refusals = 0;
+    await page.route(`**/api/v1/trees/${tree.treeId}/tags`, async (route) => {
+        if (route.request().method() !== "GET" || refusals++ > 0) {
+            await route.fallback();
+            return;
+        }
+        await route.fulfill({
+            status: 500,
+            headers: { "access-control-allow-origin": "*" },
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "internal", message: "refused" } }),
+        });
+    });
+
+    await page.goto(`/trees/${tree.treeId}`);
+    await expect(page.locator("g.ped-card").first()).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Highlight a tag" });
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("The tag could not be saved. Try again.");
+    expect(asked).toHaveLength(1);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.locator(".tag-highlight-option", { hasText: "Fictional mark" })).toBeVisible();
+    expect(asked).toHaveLength(2);
+    // A good read is kept: opening the list again reads nothing.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(dialog.locator(".tag-highlight-option", { hasText: "Fictional mark" })).toBeVisible();
+    expect(asked).toHaveLength(2);
+});
+
+test("a restored highlight whose tag read fails says the tag is unavailable, draws no mark, and is marked once read again", async ({ page, request, tree }) => {
+    test.setTimeout(120_000);
+    const tagId = await createTag(request, tree.treeId, "Fictional mark");
+    await tagPerson(request, tree.treeId, tagId, tree.anchorId);
+    const anchor = page.locator("g.ped-card").filter({ hasText: /Anchor\s*ASHDOWN/ }).first();
+
+    await page.goto(`/trees/${tree.treeId}?person=${tree.anchorId}`);
+    await expect(anchor).toBeVisible();
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await page
+        .getByRole("dialog", { name: "Highlight a tag" })
+        .locator(".tag-highlight-option", { hasText: "Fictional mark" })
+        .click();
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
+
+    // Leave on the history entry, let the API client's cache expire, and refuse
+    // the vocabulary on the way back.
+    await page.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}/statistics$`));
+    await page.waitForTimeout(31_000);
+    test.info().annotations.push({ type: expectedConsoleError, description: "status of 500" });
+    await page.route(`**/api/v1/trees/${tree.treeId}/tags`, async (route) => {
+        if (route.request().method() !== "GET") {
+            await route.fallback();
+            return;
+        }
+        await route.fulfill({
+            status: 500,
+            headers: { "access-control-allow-origin": "*" },
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "internal", message: "refused" } }),
+        });
+    });
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/trees/${tree.treeId}(\\?|$)`));
+
+    // The chip says the tag is unavailable and no card is marked: the marks
+    // need the tag's colour, which the refused read did not give.
+    await expect(page.locator(".tag-highlight-chip")).toContainText("Tag unavailable");
+    await expect(page.locator(".ped-tag-dot")).toHaveCount(0);
+
+    // Opening the list asks for the vocabulary again: the chip takes the label
+    // and the mark comes back in the tag's colour.
+    await page.unroute(`**/api/v1/trees/${tree.treeId}/tags`);
+    await page.getByRole("button", { name: "Highlight a tag", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Highlight a tag" }).locator(".tag-highlight-option", { hasText: "Fictional mark" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".tag-highlight-chip")).toContainText("Fictional mark");
+    await expect(anchor.locator(".ped-tag-dot")).toHaveCount(1);
 });

@@ -10,7 +10,7 @@ use oxidgene_core::types::{RecordKind, TagRef, Tree};
 use oxidgene_core::{ChildType, SpouseRole};
 use uuid::Uuid;
 
-use crate::api::{AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody, TagSummary};
+use crate::api::{AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
@@ -567,25 +567,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
     });
 
-    // ── The tree's tag vocabulary, for the chart's highlight list. Asked with
-    // the tree and the pedigree, not once the chart is drawn, so it does not
-    // add a level to the page's requests ──
-    let api_tags = api.clone();
-    let tags_resource = use_traced_resource(load_trace.clone(), "tags", move || {
-        let api = api_tags.clone();
-        let tid = tree_id_parsed();
-        async move {
-            match tid {
-                Some(tid) => api.list_tags(tid).await,
-                None => Ok(Vec::new()),
-            }
-        }
-    });
-    let tags: Vec<TagSummary> = match &*tags_resource.read() {
-        Some(Ok(tags)) => tags.clone(),
-        _ => Vec::new(),
-    };
-
     // ── The portraits of the chart's people, whose sources the pedigree
     // carries — only for a view that draws them ──
     let view_pref = try_use_context::<Signal<crate::components::pedigree_view::PedigreeView>>();
@@ -711,7 +692,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         sosa_root_person_id: tree.as_ref().and_then(|tree| tree.sosa_root_person_id),
                         sosa_ancestor_ids: sosa_ancestors(),
                         portraits: photos_resource.read().clone(),
-                        tags: tags.clone(),
                         center_gen: center_gen(),
                         menu_person_id: context_menu().map(|(pid, _, _)| pid),
                         on_person_click: move |(pid, x, y)| {

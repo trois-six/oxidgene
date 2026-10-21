@@ -22,7 +22,7 @@ use crate::components::charts::{
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
-use crate::components::tags::{TagSelect, use_tag_filter};
+use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
@@ -252,6 +252,9 @@ pub fn Statistics(tree_id: String) -> Element {
                     tags: carried.clone(),
                     selected: tag.chosen(),
                     placeholder: i18n.t("stats.tag_all"),
+                    loading: matches!(tag.vocabulary(), Vocabulary::Loading),
+                    failure: tag.failure(),
+                    on_open: move |_| tag.open(),
                     on_change: move |value| tag.choose(value),
                 }
                 label {

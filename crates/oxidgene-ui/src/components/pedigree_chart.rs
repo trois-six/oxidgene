@@ -16,13 +16,16 @@ use chrono::NaiveDate;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{CroppedSource, TagSummary};
+use crate::api::CroppedSource;
 use crate::components::context_menu::{LONG_PRESS_MS, MenuButton, click_element, trigger_point};
 use crate::components::cropped_image::CroppedSvgImage;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
 use crate::components::person_profile::{sort_unions_chronologically, union_sort_date};
+use crate::components::tags::{
+    Vocabulary, ask_vocabulary, lazy_vocabulary_of, use_lazy_vocabulary,
+};
 use crate::components::tree_cache::{
     PedigreeViewState, ViewStateCache, use_track_current_person, use_view_state_cache,
 };
@@ -3623,10 +3626,6 @@ pub struct PedigreeChartProps {
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
-    /// The tree's tag vocabulary, for the highlight list. The page fetches
-    /// it with the tree, so the chart does not wait for it.
-    #[props(default)]
-    pub tags: Vec<TagSummary>,
     #[props(default)]
     pub center_gen: u32,
     /// The person whose action menu the page is showing, if any: their trigger
@@ -4873,8 +4872,17 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let highlight = use_signal(move || restored_highlight);
     use_saved_view(move || *highlight.read());
     let carriers = use_carriers(tid_parsed, highlight);
-    let tags = props.tags.clone();
-    let marks = highlight_marks(highlight(), &tags, &carriers.read_unchecked());
+    // The tag vocabulary is read when the highlight list opens, or at once
+    // when a highlight is restored: its tag's colour and label are needed.
+    let vocabulary_requests = use_signal(move || u32::from(restored_highlight.is_some()));
+    let vocabulary = use_lazy_vocabulary(tid_parsed, vocabulary_requests);
+    let vocabulary_now = lazy_vocabulary_of(vocabulary_requests(), &vocabulary);
+    // The marks wait for the vocabulary: until it is read, the tag's colour is
+    // unknown, and a fallback colour would show as a flash before the recolour.
+    let marks = match &vocabulary_now {
+        Vocabulary::Ready(tags) => highlight_marks(highlight(), tags, &carriers.read_unchecked()),
+        _ => None,
+    };
     let carriers_failed = matches!(&*carriers.read_unchecked(), Some(Err(_)));
     use_chart_highlight(marks);
 
@@ -4998,7 +5006,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 on_pedigree_view: move |_| {},
                 on_add_person: props.on_add_person,
                 controls::PedigreeTools { view, saver, viewport_rect, max_zoom, fit_target }
-                HighlightTool { highlight, tags: tags.clone(), carriers_failed }
+                HighlightTool {
+                    highlight,
+                    vocabulary: vocabulary_now.clone(),
+                    carriers_failed,
+                    on_open: move |()| ask_vocabulary(vocabulary_requests, &vocabulary),
+                }
             }
 
             button {

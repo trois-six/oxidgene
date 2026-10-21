@@ -6,58 +6,58 @@
     "bytes": 34108
   },
   "pedigree:tree": {
-    "requests": 4,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 54060
+    "bytes": 54138
   },
   "pedigree:wheel": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 12103
+    "bytes": 12181
   },
   "pedigree:fan": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 12103
+    "bytes": 12181
   },
   "pedigree:descendant-wheel": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 12103
+    "bytes": 12181
   },
   "pedigree:descendant-fan": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 12103
+    "bytes": 12181
   },
   "pedigree:lineage": {
-    "requests": 4,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 54060
+    "bytes": 54138
   },
   "pedigree:descendant-lineage": {
-    "requests": 4,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 54060
+    "bytes": 54138
   },
   "pedigree:hourglass": {
-    "requests": 4,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 54060
+    "bytes": 54138
   },
   "pedigree:bowtie": {
-    "requests": 4,
+    "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 54060
+    "bytes": 54138
   },
   "search": {
     "requests": 3,
@@ -69,7 +69,7 @@
     "requests": 5,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 173340
+    "bytes": 173420
   },
   "history": {
     "requests": 2,
@@ -81,7 +81,7 @@
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 227523
+    "bytes": 227623
   },
   "kinship": {
     "requests": 5,
@@ -96,16 +96,16 @@
     "bytes": 1130
   },
   "statistics": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 38448
+    "bytes": 38446
   },
   "tools": {
-    "requests": 3,
+    "requests": 2,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 2977
+    "bytes": 2975
   },
   "settings": {
     "requests": 4,
@@ -126,28 +126,28 @@
     "bytes": 16918
   },
   "pedigree<-home": {
-    "requests": 4,
-    "depth": 2,
-    "duplicates": 0,
-    "bytes": 36870
-  },
-  "pedigree<-person": {
     "requests": 3,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 48244
+    "bytes": 36948
+  },
+  "pedigree<-person": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 48322
   },
   "person<-pedigree": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 167524
+    "bytes": 167604
   },
   "pedigree<-search": {
-    "requests": 3,
+    "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 38764
+    "bytes": 38842
   },
   "search<-person": {
     "requests": 2,
@@ -159,43 +159,43 @@
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 172706
+    "bytes": 172786
   },
   "person<-couple": {
     "requests": 3,
     "depth": 1,
     "duplicates": 0,
-    "bytes": 29805
+    "bytes": 29885
   },
   "person<-kinship": {
     "requests": 4,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 167524
+    "bytes": 167604
   },
   "pedigree<-dictionary": {
-    "requests": 3,
+    "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53426
+    "bytes": 53504
   },
   "pedigree<-statistics": {
     "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53424
+    "bytes": 53504
   },
   "pedigree<-tools": {
     "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 53424
+    "bytes": 53504
   },
   "pedigree<-settings": {
-    "requests": 3,
+    "requests": 2,
     "depth": 2,
     "duplicates": 0,
-    "bytes": 48244
+    "bytes": 48322
   },
   "home<-appSettings": {
     "requests": 3,

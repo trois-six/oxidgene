@@ -22,7 +22,7 @@ use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
-use crate::components::tags::{TagSelect, use_tag_filter};
+use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::date_words::{self, Form, YearStart, Ymd};
@@ -382,6 +382,9 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
                     tags: tag.carried(),
                     selected: tag.chosen(),
                     placeholder: i18n.t("tools.anomalies.tag_all"),
+                    loading: matches!(tag.vocabulary(), Vocabulary::Loading),
+                    failure: tag.failure(),
+                    on_open: move |_| tag.open(),
                     on_change: move |value| tag.choose(value),
                 }
             }

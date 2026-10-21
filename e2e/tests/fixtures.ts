@@ -101,6 +101,17 @@ export async function createTag(request: APIRequestContext, treeId: string, labe
     return (await created.json()).id as string;
 }
 
+/// Records the GET requests the page makes for the tree's tag vocabulary, in
+/// the order they start. Attach before the page is opened.
+export function tagVocabularyRequests(page: Page, treeId: string): string[] {
+    const asked: string[] = [];
+    page.on("request", (req) => {
+        const url = new URL(req.url());
+        if (req.method() === "GET" && url.pathname === `/api/v1/trees/${treeId}/tags`) asked.push(req.url());
+    });
+    return asked;
+}
+
 /// Put the tag on a person, through the record route the picker uses.
 export async function tagPerson(request: APIRequestContext, treeId: string, tagId: string, personId: string): Promise<void> {
     const put = await request.put(`${apiUrl}/api/v1/trees/${treeId}/tags/${tagId}/records/person/${personId}`);

@@ -8417,6 +8417,7 @@
     "tag.highlight.failed": "De gelabelde personen konden niet worden gelezen. Probeer het opnieuw.",
     "tag.highlight.clear": "Markering van “{label}” beëindigen",
     "tag.highlight.unknown": "Gemarkeerde tag",
+    "tag.highlight.unavailable": "Tag niet beschikbaar",
     "tag.record.dash": " — ",
     "tag.record.dot": " · ",
     "tag.record.citation_page": "{title} · {page}",

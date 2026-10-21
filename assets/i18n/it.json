@@ -8417,6 +8417,7 @@
     "tag.highlight.failed": "Impossibile leggere le persone etichettate. Riprova.",
     "tag.highlight.clear": "Termina l’evidenziazione di «{label}»",
     "tag.highlight.unknown": "Etichetta evidenziata",
+    "tag.highlight.unavailable": "Etichetta non disponibile",
     "tag.record.dash": " — ",
     "tag.record.dot": " · ",
     "tag.record.citation_page": "{title} · {page}",

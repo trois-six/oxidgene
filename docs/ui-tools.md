@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-20T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -94,7 +94,10 @@ on each request; nothing is stored.
 - A rule lists at most 500 anomalies and says how many more it found.
 - A **tag** select above the categories limits the anomalies to those naming
   a person who carries the tag ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)),
-  with the same choices and memory as the Statistics page's; the counts follow.
+  with the same choices and memory as the Statistics page's, and the same reading
+  of the tag list: read the first time the select takes the focus, or at once
+  when a kept tag is restored, and read again on the next focus after a failed
+  read, which keeps the tag chosen; the counts follow.
 - A tree with none says so, with the number of persons checked.
 
 ### 3.2 Reading dates
