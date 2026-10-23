@@ -80,9 +80,24 @@ for (const viewport of [
             expect(noteTrigger.y).toBeLessThan(body.y + 20);
             expect(noteTrigger.x + noteTrigger.width).toBeLessThanOrEqual(noteBox.x + noteBox.width);
 
-            // The ⋮ opens the same record menu as before.
+            // The ⋮ opens the same record menu as before, kept inside the
+            // window's client area, clear of its scrollbar.
             await citations.first().locator(".menu-button").click();
-            await expect(page.locator(".record-tag-menu")).toBeVisible();
+            const opened = page.locator(".record-tag-menu");
+            await expect(opened).toBeVisible();
+            // The page's content scrolls in its own box, whose scrollbar is
+            // inside the window: the menu clears that box's client area.
+            const client = await page.evaluate(() => {
+                const box = document.querySelector(".sub-page-content");
+                const rect = box!.getBoundingClientRect();
+                return Math.min(document.documentElement.clientWidth, rect.left + box!.clientLeft + box!.clientWidth);
+            });
+            await expect
+                .poll(async () => {
+                    const placed = await opened.boundingBox();
+                    return placed ? placed.x + placed.width : Infinity;
+                })
+                .toBeLessThanOrEqual(client);
             await page.keyboard.press("Escape");
 
             // The header's badges and buttons stay inside its card.

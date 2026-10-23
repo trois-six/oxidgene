@@ -509,7 +509,18 @@ pub struct ContextMenuSurfaceProps {
 
 #[component]
 pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
-    let style = format!("left: {}px; top: {}px;", props.x, props.y);
+    // How far the menu is moved to stay in view: measured once drawn,
+    // against the client area of the scrolling box that holds it — a page's
+    // content scrolls in its own box, whose scrollbar sits inside the window
+    // — or the window's.
+    let mut shift = use_signal(|| (0.0_f64, 0.0_f64));
+    let surface_id = use_hook(|| Uuid::now_v7().simple().to_string());
+    let (shift_x, shift_y) = shift();
+    let style = format!(
+        "left: {}px; top: {}px;",
+        props.x + shift_x,
+        props.y + shift_y
+    );
     let menu_class = if props.menu_class.is_empty() {
         "context-menu".to_string()
     } else {
@@ -554,6 +565,19 @@ pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
             role: "{props.role}",
             class: "{menu_class}",
             style: "{style}",
+            "data-menu-surface": "{surface_id}",
+            onmounted: move |evt: Event<MountedData>| {
+                let menu = evt.data();
+                let surface = surface_id.clone();
+                spawn(async move {
+                    if let (Ok(rect), Some(area)) = (menu.get_client_rect().await, visible_area(&surface).await) {
+                        shift.set(shift_into_window(
+                            (rect.origin.x, rect.origin.y, rect.size.width, rect.size.height),
+                            area,
+                        ));
+                    }
+                });
+            },
             onclick: move |evt: Event<MouseData>| evt.stop_propagation(),
             // Escape closes every menu the same way, whichever entry holds the
             // focus, and the close returns the focus to the trigger.
@@ -567,6 +591,59 @@ pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
             {props.children}
         }
     }
+}
+
+/// Where the menu `surface` may lie, `(left, top, width, height)` in client
+/// coordinates: the client area (scrollbars left out) of the nearest box
+/// around it that scrolls vertically, within the window's client area.
+async fn visible_area(surface: &str) -> Option<(f64, f64, f64, f64)> {
+    let script = format!(
+        r#"const menu = document.querySelector('[data-menu-surface="{surface}"]');
+        const doc = document.documentElement;
+        let [l, t, r, b] = [0, 0, doc.clientWidth, doc.clientHeight];
+        for (let box = menu && menu.parentElement; box && box !== document.body; box = box.parentElement) {{
+            const style = getComputedStyle(box);
+            // A box with a scrollbar of its own: the menu must clear it.
+            if (/(auto|scroll)/.test(style.overflowY) && box.scrollHeight > box.clientHeight) {{
+                const rect = box.getBoundingClientRect();
+                const left = rect.left + box.clientLeft;
+                const top = rect.top + box.clientTop;
+                l = Math.max(l, left);
+                t = Math.max(t, top);
+                r = Math.min(r, left + box.clientWidth);
+                b = Math.min(b, top + box.clientHeight);
+                break;
+            }}
+        }}
+        return [l, t, r - l, b - t];"#
+    );
+    let value = document::eval(&script).await.ok()?;
+    serde_json::from_value(value).ok()
+}
+
+/// The room a menu keeps from the window's edges.
+const WINDOW_MARGIN: f64 = 8.0;
+
+/// How far to move a menu drawn at `rect` (`x, y, width, height`) so that it
+/// lies inside `area` (`left, top, width, height`), a margin from its edges:
+/// back left or up by what overflows, then right or down if that crossed the
+/// other edge. A menu larger than the area keeps its start edge in view.
+fn shift_into_window(rect: (f64, f64, f64, f64), area: (f64, f64, f64, f64)) -> (f64, f64) {
+    let along = |start: f64, size: f64, from: f64, room: f64| {
+        let mut shift = 0.0;
+        let end = start + size;
+        if end > from + room - WINDOW_MARGIN {
+            shift = from + room - WINDOW_MARGIN - end;
+        }
+        if start + shift < from + WINDOW_MARGIN {
+            shift = from + WINDOW_MARGIN - start;
+        }
+        shift
+    };
+    (
+        along(rect.0, rect.2, area.0, area.2),
+        along(rect.1, rect.3, area.1, area.3),
+    )
 }
 
 /// Actions that can be triggered from the context menu.
@@ -778,7 +855,36 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::{MENU_GAP, menu_anchor};
+    use super::{MENU_GAP, menu_anchor, shift_into_window};
+
+    #[test]
+    fn a_menu_past_the_right_edge_moves_back_inside_the_client_area() {
+        // A 200 px menu drawn at x = 1500 in a scrolling box whose client
+        // area, scrollbar left out, ends at 1600 px.
+        let (x, y) = shift_into_window((1500.0, 300.0, 200.0, 80.0), (0.0, 0.0, 1600.0, 900.0));
+        assert_eq!((x, y), (-108.0, 0.0));
+    }
+
+    #[test]
+    fn a_menu_stays_inside_a_centred_scrolling_box() {
+        // The page's content scrolls in a box from x = 240 to 1440.
+        let (x, _) = shift_into_window((1400.0, 300.0, 120.0, 40.0), (240.0, 48.0, 1200.0, 800.0));
+        assert_eq!(x, -88.0);
+    }
+
+    #[test]
+    fn a_menu_past_the_bottom_and_left_edges_moves_up_and_right() {
+        let (x, y) = shift_into_window((-20.0, 850.0, 150.0, 120.0), (0.0, 0.0, 1000.0, 900.0));
+        assert_eq!((x, y), (28.0, -78.0));
+    }
+
+    #[test]
+    fn a_menu_inside_the_window_stays_where_it_is() {
+        assert_eq!(
+            shift_into_window((100.0, 100.0, 200.0, 80.0), (0.0, 0.0, 1000.0, 900.0)),
+            (0.0, 0.0)
+        );
+    }
 
     /// The menu is right-aligned to the trigger's right edge and opens below
     /// its bottom edge with the shared gap.

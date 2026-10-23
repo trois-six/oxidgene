@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-23T13:33:48Z }
+generated: { by: human:maintainer, at: 2026-10-23T15:10:09Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -786,6 +786,11 @@ spacing, as the homepage does.
 One shared context menu implementation serves tree cards, person cards, media,
 and vignettes. It supports keyboard navigation, focus restoration, viewport
 collision handling, disabled actions, separators, and destructive styling.
+Once drawn, the surface measures itself against the client area — scrollbar
+left out — of the nearest box around it that scrolls vertically, such as a
+page's content, whose scrollbar sits inside the window, or else against the
+window's, and moves back inside it, 8 px from its edges: left or up by what
+overflows, then right or down if that crossed the other edge.
 
 Every element with secondary actions shows one trigger, `MenuButton`
 (`components/context_menu.rs`): a "⋮" at its trailing edge, always visible, in
