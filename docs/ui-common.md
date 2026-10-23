@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-23T15:10:09Z }
+generated: { by: human:maintainer, at: 2026-10-23T21:40:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -837,7 +837,7 @@ draws the menu for its shortcuts too. The page measures the trigger with
 `trigger_point`, opens its menu beside it, and returns the focus to the trigger
 with `focus_trigger` when the menu closes. Record rows (`RecordMenu`, §4.18)
 and media tiles and vignettes use this form, so a right click, a long press
-and the ⋮ open the same menu. A media tile's ⋮ leads its caption row, its glyph on the picture's left edge, the caption centred in the rest of the row — the one ⋮ not at a trailing edge, as a centred, truncated caption followed by it read badly —
+and the ⋮ open the same menu. A media tile's ⋮ lies on its picture, at the bottom right, close to its right edge, its dots smaller than a row's and a dimmed white with a soft shadow, no disc behind them, so that it stays discreet yet reads on any photograph — the one ⋮ outside a line, which leaves the caption the whole width of the tile, on two lines at most, cut with an ellipsis and always two lines tall so that tiles stay level —
 and holds its secondary actions in this order: set or clear the profile image,
 crop, Edit, Link an event, Unlink an event, Tags…, Detach (asked for in a
 confirmation), Delete. Only opening the viewer stays a direct action.

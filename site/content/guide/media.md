@@ -32,7 +32,7 @@ A document added from the person or couple form is written when you save the doc
 
 ## Arrange the documents of a person or couple
 
-In the **Media** section of the person form or the couple form, each tile has a **⋮** button at the end of its caption. Its menu, which a right click also opens, holds these actions:
+In the **Media** section of the person form or the couple form, each tile has a **⋮** button in the bottom right corner of its picture. Its menu, which a right click also opens, holds these actions:
 
 - **Use as profile image** (★): makes the image the person's portrait, shown on their tree card, page and events panel. A PDF cannot be a portrait, even when its tile shows the scan it holds.
 - **Crop a region** (✂): drag a rectangle on the image to keep only part of it, such as a face on a group photo or one entry on a register page, then click **Save region**. You can say which event the region documents.

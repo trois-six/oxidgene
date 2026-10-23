@@ -1084,8 +1084,8 @@ fn MediaTile(
                     look.pdf_preview.map(|page| (tree_id, page)),
                 )}
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
-            }
-            div { class: "media-caption-row",
+                // The ⋮ lies on the picture, at its bottom right (ui-common.md
+                // §4.8); its own click and press never reach the picture.
                 MenuButton {
                     name: caption.clone(),
                     expanded: menu_at().is_some(),
@@ -1100,6 +1100,8 @@ fn MediaTile(
                         });
                     },
                 }
+            }
+            div { class: "media-caption-row",
                 div { class: "media-caption", title: "{caption}", "{caption}" }
                 TagBadges { tree_id: tree_id.to_string(), tags: tags.clone() }
             }
@@ -1774,8 +1776,6 @@ fn VignetteTile(
                 // Says what it is: without it a crop and the whole scan look
                 // like two photographs of the same thing.
                 span { class: "media-vignette-badge", title: i18n.t("media.vignette"), "\u{2702}" }
-            }
-            div { class: "media-caption-row",
                 if person_id.is_some() {
                     MenuButton {
                         name: caption.clone(),
@@ -1790,6 +1790,8 @@ fn VignetteTile(
                         },
                     }
                 }
+            }
+            div { class: "media-caption-row",
                 div { class: "media-caption", title: "{caption}", "{caption}" }
             }
             if let Some(err) = error() {

@@ -2479,7 +2479,6 @@ pub const LAYOUT_STYLES: &str = r#"
     .dict-row:focus-within .menu-button,
     .media-tile:hover .menu-button,
     .media-tile:focus-within .menu-button,
-    .media-caption-row:hover .menu-button,
     .note-entry:hover .menu-button,
     .note-entry:focus-within .menu-button,
     .pd-ev-row:hover .menu-button,
@@ -5017,11 +5016,16 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: var(--text-70);
         color: var(--text-muted);
         text-align: center;
-        /* One line, ellipsised: file names run long and a two-line caption
-           makes neighbouring tiles sit at different heights. */
+        /* Two lines, ellipsised, and always two lines tall, so that a short
+           caption does not leave its tile higher than its neighbours. */
+        line-height: 1.3;
+        min-height: 2.6em;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
     }
     /* The tags' dots follow the caption on its line, which gives way to
        them, so a tagged tile is no taller than another. */
@@ -5032,17 +5036,44 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 0;
     }
     .media-caption-row .tag-badges { flex: 0 1 6rem; width: auto; margin-left: var(--space-2); }
-    /* The tile's ⋮ leads its caption row, its glyph on the picture's left
-       edge (no padding before it); the caption takes the rest of the row,
-       centred in it, so a trailing ⋮ does not read as part of the name. */
-    .media-caption-row:has(> .menu-button-wrap) { justify-content: flex-start; }
-    .media-caption-row > .menu-button-wrap { flex: 0 0 auto; }
-    .media-caption-row > .menu-button-wrap > .menu-button {
-        justify-content: flex-start;
-        padding-left: 0;
-        padding-right: var(--space-2);
+    /* A tile's ⋮ lies on its picture, at the bottom right: discreet dots,
+       a dimmed white with a soft shadow so that they read on any
+       photograph, even a white page, without a disc behind them; the
+       caption keeps the whole width of the tile. */
+    .media-thumb > .menu-button-wrap {
+        position: absolute;
+        right: 0;
+        bottom: 4px;
     }
-    .media-caption-row > .menu-button-wrap ~ .media-caption { flex: 1 1 auto; min-width: 0; }
+    .media-thumb > .menu-button-wrap > .menu-button,
+    .media-tile:hover .media-thumb > .menu-button-wrap > .menu-button,
+    .media-tile:focus-within .media-thumb > .menu-button-wrap > .menu-button {
+        width: 26px;
+        height: 26px;
+        /* The dots close to the picture's right edge, the button keeping
+           its full width to be hit. */
+        justify-content: flex-end;
+        padding: 0 4px 0 0;
+        border-radius: 50%;
+        background: none;
+        color: color-mix(in srgb, var(--on-accent) 85%, transparent);
+        filter: drop-shadow(0 0 1.5px color-mix(in srgb, var(--scrim) 70%, transparent));
+    }
+    .media-thumb > .menu-button-wrap > .menu-button:hover,
+    .media-thumb > .menu-button-wrap > .menu-button:focus-visible,
+    .media-thumb > .menu-button-wrap > .menu-button[aria-expanded="true"] {
+        background: none;
+        color: var(--on-accent);
+    }
+    /* Smaller dots than a row's ⋮: the picture is what the tile shows. */
+    .media-thumb > .menu-button-wrap .menu-button-icon {
+        width: 3px;
+        height: 12px;
+    }
+    .media-thumb > .menu-button-wrap > .menu-button:focus-visible {
+        outline: 2px solid var(--on-accent);
+        outline-offset: -2px;
+    }
 
     .media-event-link {
         font-size: var(--text-70);

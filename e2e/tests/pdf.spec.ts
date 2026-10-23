@@ -130,15 +130,22 @@ test("at a phone's width the viewer's pager, count and pages fit its pane", asyn
     await expect.poll(() => scroll.evaluate(box => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(1);
 });
 
-test("a media tile's ⋮ starts on its picture's left edge", async ({ page, request, tree }) => {
+test("a media tile's ⋮ lies on its picture, at the bottom right, and does not open the viewer", async ({ page, request, tree }) => {
     await attachPdf(request, tree, "Fictitious register", textPdf());
 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     const tile = page.locator(".media-tile", { hasText: "Fictitious register" });
-    const picture = await tile.locator(".media-thumb").boundingBox();
-    const dots = await tile.locator(".media-caption-row .menu-button-icon").boundingBox();
-    expect(picture).not.toBeNull();
-    expect(dots).not.toBeNull();
-    // The dots, not the button's padding, line up with the picture's frame.
-    expect(Math.abs(dots!.x - picture!.x)).toBeLessThanOrEqual(1);
+    const picture = (await tile.locator(".media-thumb").boundingBox())!;
+    const trigger = tile.locator(".media-thumb .menu-button");
+    const placed = (await trigger.boundingBox())!;
+    // Inside the picture, in its bottom right corner.
+    expect(placed.x + placed.width).toBeLessThanOrEqual(picture.x + picture.width);
+    expect(placed.y + placed.height).toBeLessThanOrEqual(picture.y + picture.height);
+    expect(picture.x + picture.width - (placed.x + placed.width)).toBeLessThanOrEqual(8);
+    expect(picture.y + picture.height - (placed.y + placed.height)).toBeLessThanOrEqual(8);
+
+    // A click on it opens the tile's menu, not the viewer.
+    await trigger.click();
+    await expect(page.locator(".context-menu")).toBeVisible();
+    await expect(page.locator(".pdf-viewer")).toHaveCount(0);
 });

@@ -32,7 +32,7 @@ Un document ajouté depuis le formulaire de la personne ou du couple est écrit 
 
 ## Organiser les documents d’une personne ou d’un couple
 
-Dans la section **Médias** du formulaire de la personne ou du couple, chaque vignette porte un bouton **⋮** à la fin de sa légende. Son menu, qui s’ouvre aussi par un clic droit, propose ces actions :
+Dans la section **Médias** du formulaire de la personne ou du couple, chaque vignette porte un bouton **⋮** en bas à droite de son image. Son menu, qui s’ouvre aussi par un clic droit, propose ces actions :
 
 - **Utiliser comme photo de profil** (★) : fait de l’image le portrait de la personne, affiché sur sa carte dans l’arbre, sur sa fiche et dans le panneau des événements. Un PDF ne peut pas servir de portrait, même quand sa vignette montre la numérisation qu’il contient.
 - **Découper une zone** (✂) : tracez un rectangle sur l’image pour n’en garder qu’une partie, comme un visage sur une photo de groupe ou un acte sur une page de registre, puis cliquez sur **Enregistrer la zone**. Vous pouvez indiquer l’événement que la zone documente.
