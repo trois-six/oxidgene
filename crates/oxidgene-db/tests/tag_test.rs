@@ -532,7 +532,7 @@ async fn media_tags_filter_and_count_live_documents() {
         tags: vec![tag.id],
         ..MediaFilter::default()
     };
-    let listed = MediaLibraryRepo::list(&db, tree, &filter, &PaginationParams::default())
+    let listed = MediaLibraryRepo::list(&db, tree, &filter, &PaginationParams::default(), None)
         .await
         .unwrap();
     assert_eq!(listed.total_count, 1);

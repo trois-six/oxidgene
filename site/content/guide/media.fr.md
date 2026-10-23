@@ -73,7 +73,7 @@ Pour parcourir tous les documents d’un arbre, ouvrez le **Dictionnaire** depui
 
 - **Nuage d’étiquettes.** Toutes les étiquettes utilisées, avec le nombre de documents qui les portent ; plus une étiquette est utilisée, plus elle est grande. Cliquez sur des étiquettes pour ne garder que les documents qui les portent toutes ; cliquez à nouveau sur une étiquette sélectionnée pour la retirer, ou sur **Tout** pour tout désélectionner.
 - **Filtre par nom.** « Filtrer par titre ou nom de fichier… » cherche dans le titre du document ou le nom de fichier de l’une de ses pages.
-- **Par page.** Affichez 25, 50 ou 100 documents par page. Le nombre affiché à côté est celui des documents qui répondent à tous les filtres.
+- **Par page.** Affichez 25, 50 ou 100 documents par page. Le nombre affiché à côté est celui des documents qui répondent à tous les filtres. Les boutons de page sous la grille mènent à la première, la précédente, la suivante ou la dernière page, ou directement à une page par son numéro, comme dans toutes les listes.
 - **Filtres.** Ouvrez le panneau pour affiner la liste par **Type de fichier** (image, PDF, vidéo, audio, autre), **Catégorie**, **Personne liée** (rattachée au document, à l’un de ses couples ou à l’un de ses événements, ou identifiée sur le document), **Événement lié entre** deux années et **Ajouté entre** deux jours.
 
 Chaque filtre actif apparaît sous forme de pastille : cliquez dessus pour le retirer, ou sur **Effacer tous les filtres**. Sous chaque vignette, la légende donne le type de document et son usage, « Lié à 3 fiches » ou « Non lié ».

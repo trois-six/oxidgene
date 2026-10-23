@@ -70,6 +70,7 @@ pub async fn gallery_bundle(
 ///
 /// The tree's documents, narrowed by the query's filters, each with its
 /// usage count. `tag` may be repeated: a document must carry every one.
+/// `offset` starts the page that many documents in, in place of `after`.
 pub async fn list_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
@@ -81,7 +82,8 @@ pub async fn list_media(
         after: query.after.clone(),
     };
     let filters = query.filters(crate::rest::dto::tag_ids(pairs)?);
-    let connection = media_library::list(&state.reader, tree_id, filters, &params).await?;
+    let connection =
+        media_library::list(&state.reader, tree_id, filters, &params, query.offset).await?;
     Ok(Json(connection))
 }
 

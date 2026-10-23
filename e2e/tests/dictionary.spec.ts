@@ -1,4 +1,4 @@
-import { expect, importGedcom, test } from "./fixtures";
+import { apiUrl, expect, importGedcom, test } from "./fixtures";
 
 /// Thirty more persons, each with a family name of their own, so that the
 /// family names fill more than one page of 25.
@@ -49,4 +49,27 @@ test("switches the dictionary tabs and pages through the family names", async ({
 
     await page.getByRole("tab", { name: "Media", exact: true }).click();
     await expect(page.getByText("Parish register 0", { exact: true })).toHaveCount(0);
+});
+
+test("the media tab pages like every other list: numbered, with first and last", async ({ page, request, tree }) => {
+    for (let i = 1; i <= 30; i++) {
+        const title = `Fictitious scan ${String(i).padStart(2, "0")}`;
+        const created = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/media/document`, { data: { title } });
+        expect(created.ok()).toBeTruthy();
+    }
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Media", exact: true }).click();
+    const pager = page.locator("nav.pager");
+    await expect(pager.getByRole("button", { name: "First page", exact: true })).toBeVisible();
+    await expect(pager.getByRole("button", { name: "Last page", exact: true })).toBeVisible();
+    await expect(pager.locator(".pager-num.is-current:visible")).toHaveText("1");
+
+    // A page is jumped to, not walked to.
+    await pager.getByRole("button", { name: "Page 2", exact: true }).click();
+    await expect(pager.locator(".pager-num.is-current:visible")).toHaveText("2");
+    await expect(page.getByText("Fictitious scan 30", { exact: true })).toBeVisible();
+    await expect(page.getByText("Fictitious scan 01", { exact: true })).toHaveCount(0);
+    await pager.getByRole("button", { name: "First page", exact: true }).click();
+    await expect(page.getByText("Fictitious scan 01", { exact: true })).toBeVisible();
 });

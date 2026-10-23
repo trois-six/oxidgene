@@ -73,7 +73,7 @@ To browse every document of a tree, open the **Dictionary** from the left sideba
 
 - **Tag cloud.** Every tag in use, with the number of documents carrying it; the more used, the larger. Click tags to keep only the documents carrying all of them; click a selected tag again to drop it, or **All** to clear the selection.
 - **Name filter.** "Filter by title or file name…" matches a document's title or the file name of one of its pages.
-- **Per page.** Show 25, 50 or 100 documents per page. The count beside it is the number of documents matching every filter.
+- **Per page.** Show 25, 50 or 100 documents per page. The count beside it is the number of documents matching every filter. The page buttons below the grid go to the first, previous, next or last page, or straight to a page by its number, as in every list.
 - **Filters.** Open the panel to narrow the list by **File type** (image, PDF, video, audio, other), **Category**, **Linked person** (attached to the person, one of their couples or one of their events, or identified on the document), **Linked event between** two years, and **Added between** two days.
 
 Each active filter is shown as a chip: click it to remove that filter, or click **Clear all filters**. Under each tile, the caption gives the kind of record and how much the document is used, "Linked to 3 records" or "Not linked".

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T12:29:12Z }
+generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
 ---
 
 
@@ -233,7 +233,7 @@ Results are paginated with 25 results per page in list view (matching the API de
 
 Pagination controls at the bottom of the results are the shared pager
 ([Common UI §4.12](ui-common.md#412-pager)):
-- Previous / Next arrow buttons
+- First / Previous and Next / Last buttons
 - Page number buttons (first, last, current +/- 2, fewer in a narrow column),
   the current page marked
 

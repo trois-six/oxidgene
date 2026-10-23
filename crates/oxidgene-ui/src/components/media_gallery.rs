@@ -2992,14 +2992,6 @@ fn MediaRelations(
     let range = relation_page_range(relation_page(), relation_count);
     let current_relation_page = range.start / 5;
     let relation_pages = relation_count.div_ceil(5);
-    let range_label = i18n.t_args(
-        "media.relations_range",
-        &[
-            ("first", &(range.start + 1).to_string()),
-            ("last", &range.end.to_string()),
-            ("total", &relation_count.to_string()),
-        ],
-    );
     let visible_relations = relations
         .into_iter()
         .skip(range.start)
@@ -3149,10 +3141,6 @@ fn MediaRelations(
                 Pager {
                     current: current_relation_page,
                     total: relation_pages,
-                    numbered: false,
-                    status: range_label,
-                    previous_label: i18n.t("media.previous_relations"),
-                    next_label: i18n.t("media.next_relations"),
                     class: "media-relation-pager",
                     on_select: move |index| relation_page.set(index),
                 }
@@ -4097,14 +4085,11 @@ fn MediaViewer(
                 }
                 }
 
-                // The pager. Step buttons for reading front to back, jump
-                // buttons for the ends, and a numbered strip because "the
-                // entry is on page 27" is how a register is actually
-                // referenced — counting there with a Next button is absurd.
+                // The pager, the same as every list's: "the entry is on page
+                // 27" is how a register is actually referenced.
                 Pager {
                     current: pager_current,
                     total: pager_total,
-                    ends: true,
                     disabled: editing(),
                     class: "media-pager",
                     // The stage is keyed by the page, so the next one opens

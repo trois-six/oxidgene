@@ -4073,9 +4073,10 @@ type QueryRoot {
 	valueSuggestions(treeId: ID!, field: GqlSuggestionField!, language: String!, query: String!, limit: Int, surname: String, givenNames: String): [GqlValueSuggestion!]!
 	"""
 	List a tree's documents with cursor-based pagination, narrowed by
-	`filter`, each edge carrying the document's usage count.
+	`filter`, each edge carrying the document's usage count. `offset`
+	starts the page that many documents in, in place of `after`.
 	"""
-	mediaList(treeId: ID!, first: Int, after: String, filter: MediaListFilterInput): GqlMediaConnection!
+	mediaList(treeId: ID!, first: Int, after: String, offset: Int, filter: MediaListFilterInput): GqlMediaConnection!
 	"""
 	The tree's vocabulary: every tag with its counts per record kind,
 	sorted by folded label.

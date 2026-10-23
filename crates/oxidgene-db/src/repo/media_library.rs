@@ -84,17 +84,39 @@ pub struct MediaFacets {
     pub categories: Vec<(DocumentCategory, i64)>,
 }
 
+/// Where a page of the sorted `ids` starts: after the cursor `after`, or
+/// `offset` ids in, clamped to the end. Both at once is a validation error.
+fn page_start(
+    ids: &[Uuid],
+    after: Option<Uuid>,
+    offset: Option<u64>,
+) -> Result<usize, OxidGeneError> {
+    match (after, offset) {
+        (Some(_), Some(_)) => Err(OxidGeneError::Validation(
+            "a page starts after a cursor or at an offset, not both".into(),
+        )),
+        (Some(after), None) => Ok(ids.partition_point(|id| *id <= after)),
+        (None, offset) => Ok(usize::try_from(offset.unwrap_or(0))
+            .unwrap_or(usize::MAX)
+            .min(ids.len())),
+    }
+}
+
 /// Repository for the tree-wide media library.
 pub struct MediaLibraryRepo;
 
 impl MediaLibraryRepo {
     /// A page of the tree's documents matching `filter`, in creation order,
-    /// with `total_count` counted under the same filter.
+    /// with `total_count` counted under the same filter. The page starts
+    /// after the cursor of `params`, or `offset` documents in, so that a
+    /// numbered pager can jump to any page; giving both is a validation
+    /// error.
     pub async fn list(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         filter: &MediaFilter,
         params: &PaginationParams,
+        offset: Option<u64>,
     ) -> Result<Connection<Media>, OxidGeneError> {
         let limit = params.clamped_first() as usize;
         let after = params.decode_cursor()?;
@@ -119,7 +141,7 @@ impl MediaLibraryRepo {
         }
         ids.sort_unstable();
 
-        let start = after.map_or(0, |after| ids.partition_point(|id| *id <= after));
+        let start = page_start(&ids, after, offset)?;
         let end = ids.len().min(start + limit);
         let page_ids = &ids[start..end];
         let mut media = MediaRepo::get_many(db, page_ids).await?;

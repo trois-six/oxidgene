@@ -1,20 +1,95 @@
-//! The one pager: the step buttons, and the page numbers when a page can
-//! be jumped to.
+//! The one pager: the step and end buttons around the page numbers, the
+//! same for every paged list and document; with it, what every paged list
+//! shares: its page-size choice and its foot ([`PageSizeSelect`],
+//! [`Pagination`]).
 
 use dioxus::prelude::*;
 
+use crate::components::print::PrintPageNote;
 use crate::i18n::use_i18n;
+
+/// How many entries a page of a list holds, or all of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageSize {
+    Fixed(usize),
+    All,
+}
+
+impl PageSize {
+    pub(crate) fn as_option(self) -> Option<usize> {
+        match self {
+            PageSize::Fixed(n) => Some(n),
+            PageSize::All => None,
+        }
+    }
+}
+
+/// The page sizes a list offers.
+const PAGE_SIZES: [usize; 3] = [25, 50, 100];
+
+/// The page size a list opens on.
+pub(crate) const DEFAULT_PER_PAGE: usize = PAGE_SIZES[0];
+
+/// The choice of a list's page size: 25, 50 or 100 entries, and *All* when
+/// `with_all` — which a list the server pages, at most 100 at a time, leaves
+/// out.
+#[component]
+pub fn PageSizeSelect(
+    value: PageSize,
+    on_change: EventHandler<PageSize>,
+    #[props(default = true)] with_all: bool,
+) -> Element {
+    let i18n = use_i18n();
+    let current = match value {
+        PageSize::Fixed(n) => n.to_string(),
+        PageSize::All => "all".to_string(),
+    };
+    rsx! {
+        div { class: "dict-page-size",
+            select {
+                aria_label: i18n.t("pager.per_page"),
+                value: "{current}",
+                onchange: move |e: Event<FormData>| {
+                    on_change.call(match e.value().as_str() {
+                        "all" => PageSize::All,
+                        other => PageSize::Fixed(other.parse().unwrap_or(DEFAULT_PER_PAGE)),
+                    });
+                },
+                for size in PAGE_SIZES {
+                    option { value: "{size}", "{size}" }
+                }
+                if with_all {
+                    option { value: "all", {i18n.t("pager.page_size_all")} }
+                }
+            }
+        }
+    }
+}
+
+/// The foot of a paged list: its [`Pager`], and on paper which page was
+/// printed. `page` is the page shown, from 1, of `pages`; choosing one sets
+/// `current_page`.
+#[component]
+pub fn Pagination(mut current_page: Signal<usize>, page: usize, pages: usize) -> Element {
+    rsx! {
+        Pager {
+            current: page.saturating_sub(1),
+            total: pages,
+            on_select: move |index: usize| current_page.set(index + 1),
+        }
+        PrintPageNote { page, pages }
+    }
+}
 
 /// Moves between the `total` pages of a list or a document, `current` being
 /// the one shown (both zero-based); `on_select` receives the page asked for.
 ///
-/// The numbers strip keeps both ends and a window around the current page
-/// ([`page_window`]), narrower as the pager is ([`page_strips`]). A list read
-/// through a cursor, whose pages can only be stepped through, sets `numbered`
-/// to false and shows `status` — or « Page n of m » — between its two step
-/// buttons instead. `ends` adds the buttons to the first and the last page,
-/// which a numbered pager too narrow for them leaves to its first and last
-/// numbers.
+/// Every paged list and document draws this one form, so they all page
+/// alike: buttons to the first and the previous page, the page numbers, and
+/// buttons to the next and the last page. The numbers strip keeps both ends
+/// and a window around the current page ([`page_window`]), narrower as the
+/// pager is ([`page_strips`]); a pager too narrow for the end buttons leaves
+/// them to its first and last numbers.
 ///
 /// Draws nothing for a single page.
 #[component]
@@ -22,16 +97,8 @@ pub fn Pager(
     current: usize,
     total: usize,
     on_select: EventHandler<usize>,
-    #[props(default = true)] numbered: bool,
-    #[props(default)] ends: bool,
     #[props(default)] disabled: bool,
-    /// Shown between the step buttons of a pager without numbers.
-    status: Option<String>,
-    /// Labels of the step buttons when they move by something other than a
-    /// page.
-    previous_label: Option<String>,
-    next_label: Option<String>,
-    /// Classes added to the pager.
+    /// Classes added to the pager, to place it.
     #[props(default)]
     class: String,
 ) -> Element {
@@ -42,60 +109,35 @@ pub fn Pager(
     let last = total - 1;
     let current = current.min(last);
     let (at_start, at_end) = (disabled || current == 0, disabled || current == last);
-    let previous_label = previous_label.unwrap_or_else(|| i18n.t("pager.previous"));
-    let next_label = next_label.unwrap_or_else(|| i18n.t("pager.next"));
-    let status = status.unwrap_or_else(|| {
-        i18n.t_args(
-            "pager.page_of",
-            &[
-                ("page", &(current + 1).to_string()),
-                ("total", &total.to_string()),
-            ],
-        )
-    });
-    // A numbered pager is the container its strips and end buttons adapt to.
-    let nav_class = if numbered {
-        format!("pager is-numbered {class}")
-    } else {
-        format!("pager {class}")
-    };
     rsx! {
-        nav { class: "{nav_class}", aria_label: i18n.t("pager.label"),
-            if ends {
-                {step_button(i18n.t("pager.first"), "\u{23EE}", "pager-btn pager-end", at_start, move || on_select.call(0))}
-            }
-            {step_button(previous_label, "\u{25C0}", "pager-btn", at_start, move || on_select.call(current.saturating_sub(1)))}
-            if numbered {
-                for (slots , widths) in page_strips(current, total) {
-                    div { key: "{widths}", class: "pager-numbers {widths}",
-                        for (slot_index , slot) in slots.into_iter().enumerate() {
-                            match slot {
-                                PagerSlot::Page(index) => rsx! {
-                                    button {
-                                        key: "p{index}",
-                                        class: if index == current { "pager-num is-current" } else { "pager-num" },
-                                        r#type: "button",
-                                        disabled,
-                                        aria_label: i18n.t_args("pager.page", &[("page", &(index + 1).to_string())]),
-                                        "aria-current": if index == current { "page" } else { "false" },
-                                        onclick: move |_| on_select.call(index),
-                                        "{index + 1}"
-                                    }
-                                },
-                                PagerSlot::Gap => rsx! {
-                                    span { key: "g{slot_index}", class: "pager-gap", "aria-hidden": "true", "\u{2026}" }
-                                },
-                            }
+        nav { class: "pager {class}", aria_label: i18n.t("pager.label"),
+            {step_button(i18n.t("pager.first"), "\u{23EE}", "pager-btn pager-end", at_start, move || on_select.call(0))}
+            {step_button(i18n.t("pager.previous"), "\u{25C0}", "pager-btn", at_start, move || on_select.call(current.saturating_sub(1)))}
+            for (slots , widths) in page_strips(current, total) {
+                div { key: "{widths}", class: "pager-numbers {widths}",
+                    for (slot_index , slot) in slots.into_iter().enumerate() {
+                        match slot {
+                            PagerSlot::Page(index) => rsx! {
+                                button {
+                                    key: "p{index}",
+                                    class: if index == current { "pager-num is-current" } else { "pager-num" },
+                                    r#type: "button",
+                                    disabled,
+                                    aria_label: i18n.t_args("pager.page", &[("page", &(index + 1).to_string())]),
+                                    "aria-current": if index == current { "page" } else { "false" },
+                                    onclick: move |_| on_select.call(index),
+                                    "{index + 1}"
+                                }
+                            },
+                            PagerSlot::Gap => rsx! {
+                                span { key: "g{slot_index}", class: "pager-gap", "aria-hidden": "true", "\u{2026}" }
+                            },
                         }
                     }
                 }
-            } else {
-                span { class: "pager-status", role: "status", "{status}" }
             }
-            {step_button(next_label, "\u{25B6}", "pager-btn", at_end, move || on_select.call((current + 1).min(last)))}
-            if ends {
-                {step_button(i18n.t("pager.last"), "\u{23ED}", "pager-btn pager-end", at_end, move || on_select.call(last))}
-            }
+            {step_button(i18n.t("pager.next"), "\u{25B6}", "pager-btn", at_end, move || on_select.call((current + 1).min(last)))}
+            {step_button(i18n.t("pager.last"), "\u{23ED}", "pager-btn pager-end", at_end, move || on_select.call(last))}
         }
     }
 }
@@ -132,7 +174,7 @@ pub(crate) enum PagerSlot {
 /// The widths a numbered pager adapts to, widest first: the most slots its
 /// strip holds there, and the class of that strip. The stylesheet's container
 /// queries on the pager's own width show the strip of the width it has
-/// (`.pager.is-numbered` in `layout.rs`, whose breakpoints are the widths of
+/// (`.pager` in `layout.rs`, whose breakpoints are the widths of
 /// these slot counts).
 const WIDTHS: [(usize, &str); 3] = [(9, "fits-wide"), (7, "fits-medium"), (5, "fits-narrow")];
 

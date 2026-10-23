@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T18:02:24Z }
+generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
 ---
 
 
@@ -411,7 +411,8 @@ Message text is tab-specific (see i18n keys, section 14).
 - Below **640px**: the four category tabs remain visible on one compact line
 - Below **640px**: the alphabet index wraps onto as many rows as needed so every letter remains directly visible; letter headers stay sticky
 - Below **640px**: the pager ([Common UI §4.12](ui-common.md#412-pager)) keeps
-  only its Previous and Next controls; numbered page controls are hidden
+  its page numbers, fewer of them in a narrow column, and gives up its first
+  and last buttons to the first and last numbers
 
 ---
 
@@ -666,9 +667,13 @@ removes a document nothing references.
 
 ### 18.6 Pagination
 
-Cursor pagination cannot jump to page 5, so the shared pager
-([Common UI §4.12](ui-common.md#412-pager)) shows Previous, "Page N of M" and
-Next; Previous walks back through the cursors already seen.
+The tab pages like the others, through the shared pager
+([Common UI §4.12](ui-common.md#412-pager)): first, previous, the page numbers,
+next and last. The server sends one page at a time, asked for by its offset
+(`offset` = (page − 1) × page size, [API Contract](api.md)), so any page is
+reached at once; a change of filter or page size goes back to page 1. The
+page sizes are 25, 50 and 100: a grid of thumbnails has no *All*, and the API
+serves at most 100 per page.
 
 ### 18.7 States
 

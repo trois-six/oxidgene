@@ -324,6 +324,9 @@ pub struct MediaListQuery {
     pub first: Option<u64>,
     /// Cursor to start after (UUID string).
     pub after: Option<String>,
+    /// How many documents to skip, in place of `after`: what a numbered
+    /// pager jumps to a page by.
+    pub offset: Option<u64>,
     // `tag` may be repeated, which this map-shaped query cannot hold: the
     // handler reads it from the raw pairs (`tag_ids`).
     pub kind: Option<oxidgene_core::enums::MediaFileKind>,

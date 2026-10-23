@@ -19,10 +19,10 @@ use crate::api::{
 };
 use crate::components::empty_state::EmptyState;
 use crate::components::event_icon::EventIcon;
-use crate::components::pager::Pager;
+use crate::components::pager::Pagination;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
-use crate::components::print::{PrintPageNote, search_print_title, search_query};
+use crate::components::print::{search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::tags::{BulkTagPicker, TagBadges, dot_style};
@@ -651,8 +651,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             ResultsBody::List => results.list(portraits.as_ref()),
         }
 
-        {pagination(page, total_pages, filters.page)}
-        PrintPageNote { page, pages: total_pages }
+        Pagination { current_page: filters.page, page, pages: total_pages }
         }
     }
 }
@@ -1178,16 +1177,6 @@ fn toolbar(
                     filters.restart();
                 },
             }
-        }
-    }
-}
-
-fn pagination(page: usize, total_pages: usize, mut current_page: Signal<usize>) -> Element {
-    rsx! {
-        Pager {
-            current: page.saturating_sub(1),
-            total: total_pages,
-            on_select: move |index: usize| current_page.set(index + 1),
         }
     }
 }

@@ -1,7 +1,7 @@
 // Where the ⋮ menu triggers sit, at a desktop's width and at a phone's
 // (docs/ui-common.md §4.8): at the end of an event's line and of each of its
-// citations' lines, in one column; at a note's top right; at the left edge
-// of a media tile's picture; under the pedigree's selected card only; never
+// citations' lines, in one column; at a note's top right; at the bottom
+// right of a media tile's picture; under the pedigree's selected card only; never
 // out of the window, and never pushing the page sideways.
 
 import type { APIRequestContext, Locator, Page } from "@playwright/test";

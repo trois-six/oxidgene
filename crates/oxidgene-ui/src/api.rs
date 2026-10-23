@@ -4924,19 +4924,16 @@ impl ApiClient {
         .await
     }
 
-    /// A page of the tree's documents matching `filters`, each with its
-    /// usage count.
+    /// A page of the tree's documents matching `filters`, `offset`
+    /// documents in, each with its usage count.
     pub async fn list_media(
         &self,
         tree_id: Uuid,
         first: u64,
-        after: Option<&str>,
+        offset: u64,
         filters: &MediaListFilters,
     ) -> Result<PaginatedResponse<MediaListItem>, ApiError> {
-        let mut params = vec![("first", first.to_string())];
-        if let Some(after) = after {
-            params.push(("after", after.to_string()));
-        }
+        let mut params = vec![("first", first.to_string()), ("offset", offset.to_string())];
         params.extend(filters.query_pairs());
         self.get_with_query(&format!("/api/v1/trees/{tree_id}/media"), &params)
             .await

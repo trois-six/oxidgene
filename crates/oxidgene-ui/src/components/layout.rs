@@ -4094,13 +4094,13 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow-x: auto;
     }
 
-    /* A numbered pager fits the width it is given — a list's column, the
+    /* A pager fits the width it is given — a list's column, the
        viewer's pane — rather than the window's. It is the container of its
        strips of numbers (components/pager.rs), which hold at most nine,
        seven and five slots; each breakpoint is the width of the fuller strip
        with the step buttons, at three-digit page numbers. Below the first,
        the jump buttons go, the first and last numbers standing for them. */
-    .pager.is-numbered { container: pager / inline-size; }
+    .pager { container: pager / inline-size; }
     .pager-numbers:not(.fits-wide) { display: none; }
     @container pager (width < 480px) {
         .pager-end { display: none; }
@@ -4122,13 +4122,6 @@ pub const LAYOUT_STYLES: &str = r#"
         user-select: none;
     }
 
-    .pager-status {
-        padding: 0 var(--space-4);
-        color: var(--text-muted);
-        font-size: var(--text-80);
-        font-variant-numeric: tabular-nums;
-    }
-
     /* Under the media viewer's image, and under its list of relations. */
     .pager.media-pager {
         gap: var(--space-3);
@@ -4138,8 +4131,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .pager.media-relation-pager {
-        justify-content: space-between;
-        gap: var(--space-4);
         margin: 0;
         padding: 0;
     }
@@ -6698,10 +6689,6 @@ pub const LAYOUT_STYLES: &str = r#"
             flex: 0 0 auto;
             margin-left: 0;
         }
-        /* A list's pager keeps its step buttons; the document viewer keeps
-           its numbers, narrowed to its pane, since registers are cited by
-           page. */
-        .pager:not(.media-pager) .pager-numbers { display: none; }
         .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .cropper-backdrop { padding: 0; }
         .cropper-panel { max-height: 100vh; border-radius: 0; }

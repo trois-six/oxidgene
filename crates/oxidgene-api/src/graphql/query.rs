@@ -1295,13 +1295,15 @@ impl QueryRoot {
     // ── Media ────────────────────────────────────────────────────────
 
     /// List a tree's documents with cursor-based pagination, narrowed by
-    /// `filter`, each edge carrying the document's usage count.
+    /// `filter`, each edge carrying the document's usage count. `offset`
+    /// starts the page that many documents in, in place of `after`.
     async fn media_list(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         first: Option<u64>,
         after: Option<String>,
+        offset: Option<u64>,
         filter: Option<MediaListFilterInput>,
     ) -> Result<GqlMediaConnection> {
         boxed(async move {
@@ -1318,6 +1320,7 @@ impl QueryRoot {
                     filter.unwrap_or_default(),
                 )?,
                 &params,
+                offset,
             )
             .await?;
             Ok(conn.into())

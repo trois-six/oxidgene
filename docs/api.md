@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-20T20:01:39Z }
+generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
 ---
 
 
@@ -512,7 +512,7 @@ meaning.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/media` | List the tree's documents (cursor-paginated), narrowed by the media library filters, each with its `usage_count` — see **Media library** below |
+| `GET` | `/trees/{tree_id}/media` | List the tree's documents (cursor-paginated, or from an `offset`), narrowed by the media library filters, each with its `usage_count` — see **Media library** below |
 | `GET` | `/trees/{tree_id}/media/facets` | The values the media library filters can take: `{tags: [{id, label, color, count}], kinds: [{kind, count}], categories: [{category, count}]}` |
 | `POST` | `/trees/{tree_id}/media` | Add a page that names a file without holding it — an archive's URL, or a path a GEDCOM mentioned. `document_id` is required: bytes and addresses live on pages, and a page belongs to a document. A page held as an `http(s)` URL may also carry `thumbnail_url`, the `http(s)` address of a small picture of it its server serves, and its pixel size, `width` and `height` together. The GraphQL twin is `uploadMedia` |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
@@ -564,6 +564,11 @@ unknown `kind` or `category` is a `400` too. Each node is the document with
 sources it is attached to by media links on it or its pages — crops and
 portraits are not counted. The counts for a page are one grouped query.
 
+Besides `first` and `after`, the list takes `offset`, the number of documents
+to skip, so that a numbered pager jumps to any page without walking the
+cursors before it; the envelope and `total_count` are the same. An offset past
+the end is an empty page, and giving `offset` with `after` is a `400`.
+
 `GET .../media/facets` lists every tag carried by a live document, as
 `{id, label, color, count}` with its document count, sorted by folded label; every file kind and category held, with theirs, in their declaration
 order. With `tag` (repeatable), the tags are listed and counted among the
@@ -571,10 +576,11 @@ documents carrying every tag given, so a tag cloud offers only the tags that
 still narrow a selection; the kinds and categories always count the whole
 library, and no other listing filter applies.
 
-GraphQL mirrors both: `mediaList(treeId, first, after, filter:
+GraphQL mirrors both: `mediaList(treeId, first, after, offset, filter:
 MediaListFilterInput)` takes the same filters (`tags: [ID!]`, `kind`, `category`,
 `name`, `linkedName`, `eventFrom`, `eventTo`, `addedFrom`, `addedTo`) and puts
-the count on each edge as `usageCount`; a backwards range is a GraphQL error.
+the count on each edge as `usageCount`; a backwards range, or an `offset` with
+`after`, is a GraphQL error.
 `mediaFacets(treeId, tags: [ID!])` returns `{tags {id label color count} kinds {kind
 count} categories {category count}}`.
 
@@ -1486,6 +1492,9 @@ repositories, citations, notes, media, audit entries and their changes, record
 versions — page by cursor. They accept:
 - `first` (i32): number of items to return (default 25, clamped to 1–100).
 - `after` (String): cursor for forward pagination.
+
+The media library list also takes `offset` in place of `after`, so that its
+numbered pager can jump to a page (see **Media library** under Media).
 
 Their responses use a connection envelope:
 

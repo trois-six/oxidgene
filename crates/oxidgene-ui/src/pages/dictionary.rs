@@ -18,9 +18,8 @@ use crate::api::{
 use crate::components::context_menu::{MenuButton, MenuClose, use_menu_shortcut};
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
-use crate::components::pager::Pager;
+use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, PageSizeSelect, Pagination};
 use crate::components::pedigree_chart::format_lifespan;
-use crate::components::print::PrintPageNote;
 use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
@@ -42,9 +41,6 @@ use crate::ui_observability::{
 /// Above this many filtered entries, selecting the "All" page size shows a
 /// perf warning instead of silently rendering everything.
 const LARGE_LIST_THRESHOLD: usize = 500;
-
-/// The page size the tabs open on, and the one a place's link opens on.
-pub(crate) const DEFAULT_PER_PAGE: usize = 25;
 
 /// One step of the Sources tab's smart drill-down (ui-dictionary.md §8.10):
 /// the group a reader clicked, which is either a branch label (the titles
@@ -108,21 +104,6 @@ impl DictTab {
         (Self::Media, "dictionary.tab.media"),
         (Self::Tags, "dictionary.tab.tags"),
     ];
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PageSize {
-    Fixed(usize),
-    All,
-}
-
-impl PageSize {
-    pub(crate) fn as_option(self) -> Option<usize> {
-        match self {
-            PageSize::Fixed(n) => Some(n),
-            PageSize::All => None,
-        }
-    }
 }
 
 /// The family name the editor is open on (see [`FamilyNameEditor`]).
@@ -1618,26 +1599,12 @@ pub(crate) fn render_toolbar_with(
                 },
             }
             {action}
-            div { class: "dict-page-size",
-                select {
-                    value: match page_size() {
-                        PageSize::Fixed(n) => n.to_string(),
-                        PageSize::All => "all".to_string(),
-                    },
-                    onchange: move |e: Event<FormData>| {
-                        page_size.set(match e.value().as_str() {
-                            "50" => PageSize::Fixed(50),
-                            "100" => PageSize::Fixed(100),
-                            "all" => PageSize::All,
-                            _ => PageSize::Fixed(25),
-                        });
-                        current_page.set(1);
-                    },
-                    option { value: "25", "25" }
-                    option { value: "50", "50" }
-                    option { value: "100", "100" }
-                    option { value: "all", {i18n.t("dictionary.page_size_all")} }
-                }
+            PageSizeSelect {
+                value: page_size(),
+                on_change: move |size: PageSize| {
+                    page_size.set(size);
+                    current_page.set(1);
+                },
             }
         }
         if page_size() == PageSize::All && total_filtered > LARGE_LIST_THRESHOLD {
@@ -1645,21 +1612,6 @@ pub(crate) fn render_toolbar_with(
                 {i18n.t_args("dictionary.large_list_warning", &[("count", &total_filtered.to_string())])}
             }
         }
-    }
-}
-
-pub(crate) fn render_pagination(
-    mut current_page: Signal<usize>,
-    page: usize,
-    pages: usize,
-) -> Element {
-    rsx! {
-        Pager {
-            current: page.saturating_sub(1),
-            total: pages,
-            on_select: move |index: usize| current_page.set(index + 1),
-        }
-        PrintPageNote { page, pages }
     }
 }
 
@@ -1941,7 +1893,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
             }
         }
 
-        {render_pagination(current_page, page, pages)}
+        Pagination { current_page, page, pages }
     }
 }
 
@@ -2453,7 +2405,7 @@ fn render_places_tab(
             }
         }
 
-        {render_pagination(current_page, page, pages)}
+        Pagination { current_page, page, pages }
     }
 }
 

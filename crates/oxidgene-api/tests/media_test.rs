@@ -3760,6 +3760,44 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
         "a crop is not a link"
     );
     assert_eq!(rest["page_info"]["has_next_page"], false);
+
+    // An offset jumps to the same page, as a numbered pager asks for it.
+    let (status, jumped) = send(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?first=2&tag={village}&offset=2",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{jumped}");
+    assert_eq!(jumped["edges"], rest["edges"], "{jumped}");
+    assert_eq!(jumped["total_count"], 3);
+    assert_eq!(jumped["page_info"]["has_next_page"], false);
+    let (_, beyond) = send(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?first=2&tag={village}&offset=9",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(beyond["edges"], json!([]), "past the end: an empty page");
+    let (status, _) = send(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?first=2&tag={village}&offset=2&after={after}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a cursor and an offset");
 }
 
 #[tokio::test]

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-23T21:40:00Z }
+generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -733,10 +733,10 @@ to the event rather than rendering controls of their own.
 
 The shared viewer uses the app's sans-serif body typography throughout its
 compact facts column, with readable secondary labels rather than monospace
-metadata. Relation pagination uses one horizontal previous/range/next row
-below a bounded five-item list, not tiny vertical scroll arrows: the shared
-`Pager` ([§4.12](#412-pager)) without numbers, its range announced as a live
-status. Short lists do not reserve five empty rows.
+metadata. Relation pagination uses one horizontal row below a bounded
+five-item list, not tiny vertical scroll arrows: the shared `Pager`
+([§4.12](#412-pager)), as every list has it. Short lists do not reserve five
+empty rows.
 
 One download control serves every media kind and document ZIPs. Media and GEDZIP
 exports share a transfer implementation behind the typed client. On desktop,
@@ -920,18 +920,27 @@ last shown in this tree during the session, else the tree's SOSA root.
 
 One `Pager` moves through every paged list and document: search results, the
 dictionary tabs, the media library, a document's pages in the media viewer and
-the viewer's list of relations. It draws previous and next buttons and,
-between them, the page numbers: both ends and two pages either side of the
-current one, a gap standing for two pages or more (a single skipped page is
-shown instead). The document viewer adds buttons to the first and last pages.
-A list read through a cursor, which cannot jump to a page, shows *Page n of m*
-— or its own range — as a live status between its two step buttons instead.
+the viewer's list of relations. It has one form, with no variant, so that
+every place pages alike: buttons to the first and the previous page, the page
+numbers, and buttons to the next and the last page. The numbers are both ends
+and two pages either side of the current one, a gap standing for two pages or
+more (a single skipped page is shown instead). A list that loads one page at a
+time from the server, such as the media library, asks for a page by its
+offset, so its pages can be jumped to like any other's.
 
 Every button has a localized accessible name and tooltip (*Previous page*,
 *Page 4*…); the current page is marked `aria-current="page"`; a single page
 draws no pager.
 
-A numbered pager stays one row and fits the width its container gives it — a
+A paged list draws the pager through `Pagination`, which adds the *Page n of
+m* note a printed page carries ([§7](#7-printing)), and offers its page size
+through `PageSizeSelect`: 25, 50 or 100 entries, and *All* unless the server
+pages the list, which serves at most 100 at a time (the media library). Both
+sit beside `Pager` in `components/pager.rs`; no page draws its own. The
+document viewer and its list of relations use `Pager` alone: they are not
+printed as lists.
+
+A pager stays one row and fits the width its container gives it — a
 list's column, the viewer's pane — rather than the window's (container
 queries on the pager, [§6.2](#62-layout-invariants)). Its number strip holds
 at most nine slots (numbers and gaps) at its widest, seven below `400px` and
@@ -942,9 +951,9 @@ the current one are always shown. Below `480px` the jump buttons give way,
 the first and last numbers standing for them; the step buttons stay. The
 strips are rendered for every width and the stylesheet shows the one that
 fits, so no width is measured in code. Only narrower than the narrowest
-strip do the numbers scroll sideways, never under the step buttons. Below
-`640px` a list's pager keeps only its step buttons, while the document viewer
-keeps its numbers, registers being cited by page. Pagers do not print.
+strip do the numbers scroll sideways, never under the step buttons. A phone
+keeps the numbers, narrowed to the width it has: a list's page, like a
+register's, is reached by its number. Pagers do not print.
 
 ### 4.13 Modal
 

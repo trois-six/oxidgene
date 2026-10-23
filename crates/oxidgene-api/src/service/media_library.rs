@@ -77,15 +77,17 @@ pub struct MediaListItem {
 }
 
 /// A page of the tree's documents matching `filters`, each with its usage
-/// count. Counting the page's usage is one grouped query, whatever its size.
+/// count, starting after the cursor of `params` or `offset` documents in.
+/// Counting the page's usage is one grouped query, whatever its size.
 pub async fn list(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     filters: MediaListFilters,
     params: &PaginationParams,
+    offset: Option<u64>,
 ) -> Result<Connection<MediaListItem>, OxidGeneError> {
     let filter = filters.into_filter()?;
-    let connection = MediaLibraryRepo::list(db, tree_id, &filter, params).await?;
+    let connection = MediaLibraryRepo::list(db, tree_id, &filter, params, offset).await?;
     let ids: Vec<Uuid> = connection.edges.iter().map(|edge| edge.node.id).collect();
     let usage = MediaLibraryRepo::usage_counts(db, &ids).await?;
     Ok(Connection {

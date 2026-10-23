@@ -4910,6 +4910,38 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
     assert_eq!(rest["edges"][0]["node"]["title"], "Group photo");
     assert_eq!(rest["edges"][0]["usageCount"], 0);
     assert_eq!(rest["pageInfo"]["hasNextPage"], false);
+
+    // An offset jumps to the same page, and refuses a cursor beside it, as
+    // REST does.
+    let at = |offset: u64, after: Option<String>| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        let village = village.clone();
+        async move {
+            graphql(
+                app,
+                r#"query($tree: ID!, $offset: Int, $after: String, $village: ID!) {
+                    mediaList(treeId: $tree, first: 2, offset: $offset, after: $after, filter: { tags: [$village] }) {
+                        totalCount pageInfo { hasNextPage endCursor }
+                        edges { usageCount node { title } }
+                    }
+                }"#,
+                Some(json!({ "tree": tree_id, "offset": offset, "after": after, "village": village })),
+            )
+            .await
+        }
+    };
+    let jumped = at(2, None).await;
+    assert_eq!(
+        data(&jumped)["mediaList"]["edges"],
+        rest["edges"],
+        "{jumped}"
+    );
+    let both = at(2, first["pageInfo"]["endCursor"].as_str().map(String::from)).await;
+    assert!(
+        both["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "a cursor and an offset: {both}"
+    );
 }
 
 #[tokio::test]

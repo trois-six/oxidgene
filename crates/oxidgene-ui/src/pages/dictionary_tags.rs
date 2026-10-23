@@ -16,12 +16,13 @@ use crate::components::date_input::format_date;
 use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
+use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, Pagination};
 use crate::components::tags::{dot_style, error_message, is_enter_or_space, next_color};
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::{
-    DEFAULT_PER_PAGE, ListFilters, PageSize, available_letters, matches_filters, paginate,
-    person_usage_link, person_usage_parts, render_clear_filters, render_pagination,
-    render_toolbar_with, surname_first, total_pages, with_headers,
+    ListFilters, available_letters, matches_filters, paginate, person_usage_link,
+    person_usage_parts, render_clear_filters, render_toolbar_with, surname_first, total_pages,
+    with_headers,
 };
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
@@ -235,7 +236,7 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
                 }
             }
         }
-        {render_pagination(page, current, pages)}
+        Pagination { current_page: page, page: current, pages }
         if let Some(edit) = editing() {
             TagEditor {
                 key: "{edit_key(&edit)}",

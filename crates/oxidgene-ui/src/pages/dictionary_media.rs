@@ -3,8 +3,9 @@
 //! `docs/ui-dictionary.md` (Media Tab).
 //!
 //! Unlike the other tabs, which load a whole aggregation and page through it
-//! locally, a library can hold thousands of scans: the list is the API's
-//! cursor pagination, and every filter is sent to the server so it narrows
+//! locally, a library can hold thousands of scans: the server sends one page
+//! at a time, fetched by its offset so that the tab's pager is the other
+//! tabs' numbered one, and every filter is sent to the server so it narrows
 //! the whole library rather than the page on screen.
 
 use chrono::NaiveDate;
@@ -16,15 +17,11 @@ use uuid::Uuid;
 use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagFacet};
 use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
-use crate::components::pager::Pager;
+use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, PageSizeSelect, Pagination};
 use crate::components::tags::dot_style;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
-
-/// Page sizes offered. The API serves at most 100 per page, and a grid of
-/// thumbnails is no place for an "All".
-const PAGE_SIZES: [u64; 3] = [25, 50, 100];
 
 /// How long typing pauses before the list is asked again.
 const DEBOUNCE_MS: u32 = 250;
@@ -124,10 +121,9 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
 
     let mut draft = use_signal(Draft::default);
     let mut applied = use_signal(MediaListFilters::default);
-    let mut page_size = use_signal(|| PAGE_SIZES[0]);
-    // The `after` cursor of every page past the first, in order: cursor
-    // pagination cannot jump, so going back is popping one.
-    let mut cursors = use_signal(Vec::<String>::new);
+    let mut page_size = use_signal(|| PageSize::Fixed(DEFAULT_PER_PAGE));
+    // The page shown, from 1, as the other tabs count it.
+    let mut current_page = use_signal(|| 1_usize);
     let mut revision = use_signal(|| 0_u32);
     let mut show_filters = use_signal(|| false);
 
@@ -136,19 +132,19 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
     if *tree.peek() != tree_id {
         tree.set(tree_id);
         draft.set(Draft::default());
-        cursors.set(Vec::new());
+        current_page.set(1);
     }
 
     // Every edit reaches the list through this pause, so a word typed into
     // the name field is one request, not one per letter. A change of filters
-    // goes back to the first page: the old cursors belong to another list.
+    // goes back to the first page: the old pages belong to another list.
     let _debounce = use_ui_resource("media_filter_debounce", move || {
         let next = draft().filters();
         async move {
             crate::utils::sleep_ms(DEBOUNCE_MS).await;
             if *applied.peek() != next {
                 applied.set(next);
-                cursors.set(Vec::new());
+                current_page.set(1);
             }
         }
     });
@@ -171,12 +167,10 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         let _ = revision();
         let tree_id = tree();
         let filters = applied();
-        let first = page_size();
-        let after = cursors().last().cloned();
-        async move {
-            api.list_media(tree_id, first, after.as_deref(), &filters)
-                .await
-        }
+        // The server pages at most 100 at a time: this list offers no "All".
+        let first = page_size().as_option().unwrap_or(DEFAULT_PER_PAGE) as u64;
+        let offset = (current_page() as u64).saturating_sub(1) * first;
+        async move { api.list_media(tree_id, first, offset, &filters).await }
     });
 
     let facets_value = facets
@@ -192,15 +186,14 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
     };
 
     // ── List state ──
-    let per_page = page_size();
-    let page = cursors.read().len() + 1;
+    let per_page = page_size().as_option().unwrap_or(DEFAULT_PER_PAGE);
+    let page = current_page();
     let ListState {
         items,
         total,
-        next_cursor,
         error,
     } = ListState::of(list.read_unchecked().as_ref(), &i18n);
-    let pages = total.div_ceil(per_page as usize).max(1);
+    let pages = total.div_ceil(per_page).max(1);
     let tiles: Vec<MediaLibraryTile> = items
         .as_deref()
         .unwrap_or_default()
@@ -224,18 +217,13 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
                 value: "{current.name}",
                 oninput: move |e: Event<FormData>| draft.write().name = e.value(),
             }
-            div { class: "dict-page-size",
-                select {
-                    aria_label: i18n.t("dictionary.media.per_page"),
-                    value: "{per_page}",
-                    onchange: move |e: Event<FormData>| {
-                        page_size.set(e.value().parse().unwrap_or(PAGE_SIZES[0]));
-                        cursors.set(Vec::new());
-                    },
-                    for size in PAGE_SIZES {
-                        option { value: "{size}", "{size}" }
-                    }
-                }
+            PageSizeSelect {
+                value: page_size(),
+                with_all: false,
+                on_change: move |size: PageSize| {
+                    page_size.set(size);
+                    current_page.set(1);
+                },
             }
             span { class: "sr-count dict-media-count", {i18n.t_plural("dictionary.media.count", total)} }
         }
@@ -278,29 +266,15 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
             }
         }
 
-        // A cursor reads the library a page at a time: its pages can be
-        // stepped through, not jumped to.
-        Pager {
-            current: page - 1,
-            total: pages,
-            numbered: false,
-            on_select: move |index: usize| {
-                if index + 1 < page {
-                    cursors.write().pop();
-                } else if let Some(cursor) = next_cursor.clone() {
-                    cursors.write().push(cursor);
-                }
-            },
-        }
+        Pagination { current_page, page, pages }
     }
 }
 
-/// The media list as last loaded: its page, its size, where the next page
-/// starts, and why it could not be read.
+/// The media list as last loaded: its page, its size, and why it could not
+/// be read.
 struct ListState {
     items: Option<Vec<MediaListItem>>,
     total: usize,
-    next_cursor: Option<String>,
     error: Option<String>,
 }
 
@@ -312,7 +286,6 @@ impl ListState {
         let failed = |key: &str| Self {
             items: None,
             total: 0,
-            next_cursor: None,
             error: Some(i18n.t(key)),
         };
         match list {
@@ -325,11 +298,6 @@ impl ListState {
                         .collect(),
                 ),
                 total: connection.total_count.max(0) as usize,
-                next_cursor: connection
-                    .page_info
-                    .has_next_page
-                    .then(|| connection.page_info.end_cursor.clone())
-                    .flatten(),
                 error: None,
             },
             Some(Err(ApiError::Api { status: 400, .. })) => {
@@ -339,7 +307,6 @@ impl ListState {
             None => Self {
                 items: None,
                 total: 0,
-                next_cursor: None,
                 error: None,
             },
         }
