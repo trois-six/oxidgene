@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T18:41:54Z }
+generated: { by: human:maintainer, at: 2026-10-23T13:35:27Z }
 ---
 
 
@@ -259,9 +259,10 @@ Each event shows:
 - **Origin** — *Individual*, *Conjugal family*, *Child* or *Parental family* —
   with the spouse or relative concerned in parentheses when there is one
 - **Responsible agency** on a light meta line, when recorded
-- **Sources** — when citations are attached to the event, one line
-  `Sources: <title> — <page>; …`, one entry per citation, the page omitted
-  when the citation has none. A citation that names a catalogued archive's
+- **Sources** — when citations are attached to the event, `Sources:` then
+  one line per citation, `<title> — <page>`, the page omitted when the
+  citation has none; each line ends with the citation's **⋮**, in the column
+  of the event's own, so that a ⋮ never sits in the middle of a line. A citation that names a catalogued archive's
   register is a button that opens it (below); the others are plain text. The
   citation's confidence is not shown
 - **Documents** — the event's attached media as compact thumbnails (below)
@@ -641,7 +642,8 @@ line breaks; the markup was sanitized when the note was written.
 
 **Tags.** A note's tags are badges under its text, nothing drawn for an untagged
 note ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)). A note
-takes the same record menu as a timeline row: a **⋮** at its trailing edge opens
+takes the same record menu as a timeline row: a **⋮** at its top right, level with
+its first line, opens
 it, as does a right click, the context-menu key or Shift+F10 with the note
 focused, or a long touch. *Tags…* opens the tag picker beside the note. The menu closes back onto the note.
 
@@ -662,7 +664,10 @@ confidence.
      avatar, while alternate names and the birth, death, age, place, and occupation
      summary use the full card width below them. Family narratives and person chips
      wrap within the family card; long names and lifespan years never extend beyond
-     the viewport.
+     the viewport. The header's badges, tags and buttons wrap onto the lines they
+     need instead of overflowing the card. In the timeline, an event's date sits on
+     its own line above the event, and `Sources:` above its citations, each line
+     keeping its ⋮ at the end.
 
 ---
 

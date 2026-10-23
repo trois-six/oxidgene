@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-23T11:54:16Z }
+generated: { by: human:maintainer, at: 2026-10-23T13:33:48Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -788,8 +788,9 @@ and vignettes. It supports keyboard navigation, focus restoration, viewport
 collision handling, disabled actions, separators, and destructive styling.
 
 Every element with secondary actions shows one trigger, `MenuButton`
-(`components/context_menu.rs`): a "⋮" at its trailing edge, always visible and
-muted, and stronger while the pointer or the focus is on its own element or on
+(`components/context_menu.rs`): a "⋮" at its trailing edge, always visible, in
+a light grey (the muted text colour mixed with the card's), darker while the
+pointer or the focus is on its own element or on
 the row, card or tile that holds it (the row rules next to the trigger's style
 in `components/layout.rs`). It is labelled "Actions for <name>" and carries
 `aria-haspopup="menu"` and `aria-expanded`; `aria-controls` names the menu's

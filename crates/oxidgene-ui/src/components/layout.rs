@@ -1114,12 +1114,19 @@ pub const LAYOUT_STYLES: &str = r#"
     /* A row of controls set side by side. */
     .inline-row { display: flex; gap: var(--space-4); }
 
+    /* A note's ⋮ sits at its top right, level with the first line, as an
+       event's does at the end of its row. */
     .note-entry {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-5);
         margin-bottom: var(--space-6);
         padding: var(--space-6);
         border: 1px solid var(--border);
         border-radius: var(--radius);
     }
+    .note-body { flex: 1; min-width: 0; }
+    .note-entry > .menu-button-wrap { margin-top: calc(-1 * var(--space-1)); }
 
     .error-msg-inset { margin: 0 var(--space-8); }
     .search-person-empty { padding: var(--space-4); }
@@ -1408,12 +1415,26 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
         font-style: italic;
     }
+    /* "Sources:" then one line per citation, its ⋮ at the end of the line
+       under the event's own, in the same column. */
     .pd-ev-sources {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-2);
         font-size: var(--text-75);
         color: var(--text-muted);
         font-style: italic;
         margin-top: var(--space-1);
     }
+    .pd-ev-sources-label { flex: 0 0 auto; line-height: 24px; }
+    .pd-ev-source-list { flex: 1; min-width: 0; }
+    .pd-ev-source-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-5);
+    }
+    .pd-ev-source-text { flex: 1; min-width: 0; }
     .pd-ev-source-link {
         padding: 0;
         border: 0;
@@ -2432,7 +2453,9 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: center;
         background: none;
         border: none;
-        color: var(--text-secondary);
+        /* Light by default, so that a page of rows is not a column of
+           dots; it darkens with its row (below) and on itself. */
+        color: color-mix(in srgb, var(--text-muted) 55%, var(--bg-card));
         font-size: var(--text-120);
         cursor: pointer;
         padding: var(--space-1) var(--space-3);
@@ -2465,6 +2488,12 @@ pub const LAYOUT_STYLES: &str = r#"
     .nav-history-item:focus-within .menu-button,
     .tree-card:hover .menu-button,
     .tree-card:focus-within .menu-button {
+        color: var(--text-secondary);
+    }
+    /* The trigger itself, pointed at, focused or open, is the darkest. */
+    .menu-button-wrap > .menu-button:hover,
+    .menu-button-wrap > .menu-button:focus-visible,
+    .menu-button-wrap > .menu-button[aria-expanded="true"] {
         color: var(--text-primary);
     }
 
@@ -6559,7 +6588,18 @@ pub const LAYOUT_STYLES: &str = r#"
         .pd-header-actions {
             padding-top: var(--space-5);
             border-top: 1px solid var(--border);
+            /* The SOSA badges, the tags and the buttons take the lines
+               they need rather than overflowing the card. */
+            flex-wrap: wrap;
+            row-gap: var(--space-4);
         }
+        .pd-header-sosa .badge { white-space: nowrap; }
+        .pd-header-buttons { flex-wrap: wrap; }
+        /* A phone has no room for the date column: an event's date sits on
+           its own line above it, and "Sources:" above its citations. */
+        .pd-timeline li { flex-direction: column; gap: var(--space-2); }
+        .pd-ev-date { width: auto; }
+        .pd-ev-sources { flex-direction: column; align-items: stretch; gap: 0; }
         .pd-family-card { padding: var(--space-7); }
         .pd-family-prose,
         .pd-union-line,

@@ -1488,11 +1488,13 @@ pub(crate) fn notes_section(
                             // so nothing executable can reach here. That same
                             // pass stores line breaks as `\n`, which only shows
                             // as a break once turned back into `<br>`.
-                            div {
-                                class: "note-html",
-                                dangerous_inner_html: note_html_for_display(&note.text),
+                            div { class: "note-body",
+                                div {
+                                    class: "note-html",
+                                    dangerous_inner_html: note_html_for_display(&note.text),
+                                }
+                                TagBadges { tree_id: tree_id.to_string(), tags: note.tags.clone() }
                             }
-                            TagBadges { tree_id: tree_id.to_string(), tags: note.tags.clone() }
                             MenuButton {
                                 name: i18n.t("history.entity.note"),
                                 expanded: menu.is_open_for(&target.row_id),
@@ -1905,8 +1907,11 @@ pub(crate) fn timeline_section(
                                         }
                                         if let Some(sources) = event_sources {
                                             div { class: "pd-ev-sources",
-                                                {i18n.t("person.sources_section")}
-                                                ": "
+                                                span { class: "pd-ev-sources-label",
+                                                    {i18n.t("person.sources_section")}
+                                                    ": "
+                                                }
+                                                div { class: "pd-ev-source-list",
                                                 for (index, source) in sources.iter().enumerate() {
                                                     {
                                                         let citation_row_id = format!("pd-citation-{}", source.citation_id);
@@ -1917,8 +1922,9 @@ pub(crate) fn timeline_section(
                                                             row_id: citation_row_id.clone(),
                                                         };
                                                         rsx! {
-                                                            span {
+                                                            div {
                                                                 key: "{index}",
+                                                                class: "pd-ev-source-row",
                                                                 id: "{citation_row_id}",
                                                                 tabindex: "0",
                                                                 oncontextmenu: {
@@ -1935,18 +1941,19 @@ pub(crate) fn timeline_section(
                                                                 },
                                                                 onpointerup: move |_| menu.press_end(),
                                                                 onpointercancel: move |_| menu.press_end(),
-                                                                if index > 0 { "; " }
-                                                                if let Some(offer) = &source.archive {
-                                                                    ArchiveSourceLink {
-                                                                        tree_id,
-                                                                        offer: offer.clone(),
-                                                                        text: source.text.clone(),
-                                                                        event_id: eid,
-                                                                        event_label: event_type_label.clone(),
-                                                                        on_attached: move |()| media_revision += 1,
+                                                                span { class: "pd-ev-source-text",
+                                                                    if let Some(offer) = &source.archive {
+                                                                        ArchiveSourceLink {
+                                                                            tree_id,
+                                                                            offer: offer.clone(),
+                                                                            text: source.text.clone(),
+                                                                            event_id: eid,
+                                                                            event_label: event_type_label.clone(),
+                                                                            on_attached: move |()| media_revision += 1,
+                                                                        }
+                                                                    } else {
+                                                                        "{source.text}"
                                                                     }
-                                                                } else {
-                                                                    "{source.text}"
                                                                 }
                                                                 TagBadges { tree_id: tree_id.to_string(), tags: source.tags.clone() }
                                                                 MenuButton {
@@ -1960,6 +1967,7 @@ pub(crate) fn timeline_section(
                                                             }
                                                         }
                                                     }
+                                                }
                                                 }
                                             }
                                         }
