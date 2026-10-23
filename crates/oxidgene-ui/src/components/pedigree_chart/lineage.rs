@@ -303,10 +303,7 @@ fn render_slim_box(
     let text = slim_text(node, size, (box_w - 26.0) as f32, dates);
     let menu_name = text.name.clone();
     // The trigger sits in the room the name leaves free at the right edge.
-    let (menu_x, menu_y) = (
-        x + box_w - CHART_MENU_SIZE,
-        centre.1 - CHART_MENU_SIZE / 2.0,
-    );
+    let (menu_x, menu_y) = (x + box_w - CHART_MENU_SIZE / 2.0, centre.1);
     let name_y = if text.dates.is_some() {
         y + 18.0
     } else {
@@ -329,17 +326,14 @@ fn render_slim_box(
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             if *actions.selected_person_id.read() == pid {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: menu_name.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: menu_name.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: CHART_MENU_SIZE / 2.0,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
             rect {
@@ -434,10 +428,7 @@ fn render_spouse_box(
         ),
         None => ("?".to_string(), i18n.t("couple.unknown_spouse")),
     };
-    let (menu_x, menu_y) = (
-        x + box_w - CHART_MENU_SIZE,
-        centre.1 - CHART_MENU_SIZE / 2.0,
-    );
+    let (menu_x, menu_y) = (x + box_w - CHART_MENU_SIZE / 2.0, centre.1);
     rsx! {
         g {
             key: "lu-{entry.sosa}",
@@ -470,17 +461,14 @@ fn render_spouse_box(
             }
             {mark_dot(tag, x + box_w - 3.0, y + 3.0, 4.0)}
             if let Some(pid) = spouse.filter(|pid| *actions.selected_person_id.read() == *pid) {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: name.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: name.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: CHART_MENU_SIZE / 2.0,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
             text {

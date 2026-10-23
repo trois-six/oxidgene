@@ -129,3 +129,16 @@ test("at a phone's width the viewer's pager, count and pages fit its pane", asyn
     const scroll = viewer.locator(".pdf-viewer-scroll");
     await expect.poll(() => scroll.evaluate(box => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(1);
 });
+
+test("a media tile's ⋮ starts on its picture's left edge", async ({ page, request, tree }) => {
+    await attachPdf(request, tree, "Fictitious register", textPdf());
+
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    const tile = page.locator(".media-tile", { hasText: "Fictitious register" });
+    const picture = await tile.locator(".media-thumb").boundingBox();
+    const dots = await tile.locator(".media-caption-row .menu-button-icon").boundingBox();
+    expect(picture).not.toBeNull();
+    expect(dots).not.toBeNull();
+    // The dots, not the button's padding, line up with the picture's frame.
+    expect(Math.abs(dots!.x - picture!.x)).toBeLessThanOrEqual(1);
+});

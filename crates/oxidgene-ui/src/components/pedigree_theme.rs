@@ -774,7 +774,7 @@ impl PedigreeTheme {
             sosa_r: 7.5,
 
             menu_r: 14.0,
-            menu_gap: 16.0,
+            menu_gap: 22.0,
             more_relations_x: 10.0,
             more_relations_y_full: 3.0,
             more_relations_y_compact: 3.0,
@@ -882,7 +882,7 @@ impl PedigreeTheme {
             sosa_r: 9.0,
 
             menu_r: 14.0,
-            menu_gap: 16.0,
+            menu_gap: 22.0,
             // Left of the cartouche, level with its bottom point and clear of
             // the ruled connector that enters that point at the centre.
             more_relations_x: 30.0,

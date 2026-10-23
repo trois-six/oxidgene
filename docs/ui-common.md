@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-20T18:53:58Z }
+generated: { by: human:maintainer, at: 2026-10-23T11:54:16Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -100,9 +100,9 @@ and offers it on every page: the desktop window has no browser around it.
   navbar where the page shows it, else the contextual topbar, before the
   logo. Each is an arrow icon button with a localized accessible name and a
   tooltip naming its shortcut and its list; one with nowhere to go is
-  disabled. Beside each arrow a ⋮ trigger ([§4.8](#48-contextmenu)), labelled
-  "Actions for Back" or "Actions for Forward", opens the same list; a direction
-  with no page that way has no trigger. They do not print.
+  disabled. As a browser's, they have no ⋮ beside them: their list opens as
+  below, and they are the one exception to the visible-trigger rule of
+  [§4.8](#48-contextmenu). They do not print.
 - **Several steps at once.** A long press (half a second) or a secondary
   click on either button, or **Down** while it has the focus, lists the pages
   that way, nearest first, on the shared contextual surface
@@ -812,16 +812,26 @@ and family-name rows wire it this way; the record rows that hold a page menu
 wire theirs to it (§4.18). Markup that opens a context menu from a right click,
 the menu key (`shortcut.key`, `opens_menu`), a long press or a listener
 (`oncontextmenu`) without a `MenuButton` in its element fails the `menu_buttons`
-guard (`crates/oxidgene-guards/tests/menu_buttons.rs`). The one exception is a
-chart canvas whose menu key clicks the focus person's trigger; its element
-documents that with a `menu-guard: delegates to` comment.
+guard (`crates/oxidgene-guards/tests/menu_buttons.rs`). Two exceptions are
+documented in their element by a comment: a chart canvas whose menu key clicks
+the focus person's trigger (`menu-guard: delegates to`), and the history
+arrows (§2.4), which list their pages on a long press or a secondary click as
+a browser's do (`menu-guard: history arrows`).
+
+A chart draws the trigger of its selected element in its own SVG,
+`ChartMenuButton`, rather than a `MenuButton` in a `foreignObject`, which
+WebKitGTK places without the transforms of the groups above it: a round "⋮"
+outlined in white, under the selected card or on the selected segment, with
+the same name and keys. A click opens the chart's action picker at the click,
+as a right click does; Enter, Space or ArrowDown opens it beside the
+trigger.
 
 A trigger may instead hand its menu to the page (`on_request`) when the page
 draws the menu for its shortcuts too. The page measures the trigger with
 `trigger_point`, opens its menu beside it, and returns the focus to the trigger
 with `focus_trigger` when the menu closes. Record rows (`RecordMenu`, §4.18)
 and media tiles and vignettes use this form, so a right click, a long press
-and the ⋮ open the same menu. A media tile's ⋮ sits at the trailing edge of its caption row
+and the ⋮ open the same menu. A media tile's ⋮ leads its caption row, its glyph on the picture's left edge, the caption centred in the rest of the row — the one ⋮ not at a trailing edge, as a centred, truncated caption followed by it read badly —
 and holds its secondary actions in this order: set or clear the profile image,
 crop, Edit, Link an event, Unlink an event, Tags…, Detach (asked for in a
 confirmation), Delete. Only opening the viewer stays a direct action.

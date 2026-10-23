@@ -15,6 +15,11 @@ use oxidgene_guards::{files, line_of, read, relative};
 /// `(file under crates/oxidgene-ui/src, expression, sanitizer)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "components/context_menu.rs",
+        "\"{title}\"",
+        "escape_xml on the chart trigger's label, in ChartMenuButton",
+    ),
+    (
         "components/person_profile.rs",
         "note_html_for_display(&note.text)",
         "note bodies are sanitized by ammonia (oxidgene_db::html) when stored",

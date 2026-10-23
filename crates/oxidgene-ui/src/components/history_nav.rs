@@ -7,7 +7,7 @@ use std::rc::Rc;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{ContextMenuSurface, MenuButton, focus_trigger};
+use crate::components::context_menu::{ContextMenuSurface, focus_trigger};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{AppHistory, Entry, use_app_history};
 use crate::router::Route;
@@ -125,9 +125,9 @@ fn open_list_beside(
     });
 }
 
-/// One direction: the arrow that moves, and the ⋮ trigger of the list of the
-/// pages that way. A long press or a secondary click on either opens the same
-/// list as the trigger does.
+/// One direction: the arrow that moves. A long press or a secondary click on
+/// it, or the down arrow key, lists the pages that way, as a browser's arrows
+/// do; there is no ⋮ beside them (docs/ui-common.md §4.8).
 #[component]
 fn HistoryButton(direction: Direction, enabled: bool) -> Element {
     let i18n = use_i18n();
@@ -154,6 +154,7 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
     rsx! {
         div {
             class: "nav-history-item",
+            // menu-guard: history arrows, which list their pages as a browser's do.
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
                 open_arrow_list();
@@ -188,6 +189,7 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
                 title: i18n.t(direction.tooltip_key()),
                 "aria-label": "{label}",
                 "aria-haspopup": "menu",
+                "aria-expanded": if is_listed { "true" } else { "false" },
                 onmounted: move |e: MountedEvent| element.set(Some(e.data())),
                 onclick: move |_| {
                     if listed() {
@@ -214,15 +216,6 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
                     "aria-hidden": "true",
                     path { d: head }
                     path { d: shaft }
-                }
-            }
-            if enabled {
-                MenuButton {
-                    name: label.clone(),
-                    expanded: is_listed,
-                    on_request: move |trigger: Rc<MountedData>| {
-                        open_list_beside(list, direction, trigger);
-                    },
                 }
             }
         }

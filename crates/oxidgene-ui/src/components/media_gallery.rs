@@ -1086,8 +1086,6 @@ fn MediaTile(
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
             }
             div { class: "media-caption-row",
-                div { class: "media-caption", title: "{caption}", "{caption}" }
-                TagBadges { tree_id: tree_id.to_string(), tags: tags.clone() }
                 MenuButton {
                     name: caption.clone(),
                     expanded: menu_at().is_some(),
@@ -1102,6 +1100,8 @@ fn MediaTile(
                         });
                     },
                 }
+                div { class: "media-caption", title: "{caption}", "{caption}" }
+                TagBadges { tree_id: tree_id.to_string(), tags: tags.clone() }
             }
             TileCaption {
                 footnotes,
@@ -1776,7 +1776,6 @@ fn VignetteTile(
                 span { class: "media-vignette-badge", title: i18n.t("media.vignette"), "\u{2702}" }
             }
             div { class: "media-caption-row",
-                div { class: "media-caption", title: "{caption}", "{caption}" }
                 if person_id.is_some() {
                     MenuButton {
                         name: caption.clone(),
@@ -1791,6 +1790,7 @@ fn VignetteTile(
                         },
                     }
                 }
+                div { class: "media-caption", title: "{caption}", "{caption}" }
             }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }

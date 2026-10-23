@@ -17,7 +17,9 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::CroppedSource;
-use crate::components::context_menu::{LONG_PRESS_MS, MenuButton, click_element, trigger_point};
+use crate::components::context_menu::{
+    ChartMenuButton, LONG_PRESS_MS, click_element, trigger_point,
+};
 use crate::components::cropped_image::CroppedSvgImage;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
@@ -4084,8 +4086,7 @@ fn render_person_card(
     );
     let tooltip_value = card_tooltip(node, i18n);
     let tooltip_name = tooltip_value.name.clone();
-    let menu_x = geo.trigger_x - CHART_MENU_SIZE / 2.0;
-    let menu_y = geo.trigger_y - CHART_MENU_SIZE / 2.0;
+    let (menu_x, menu_y) = (geo.trigger_x, geo.trigger_y);
     let CardGeometry {
         gender_line,
         gender_line_width,
@@ -4124,17 +4125,14 @@ fn render_person_card(
             {sosa_mark(node, geo)}
             {card_text(geo, text_fill, date_fill)}
             if actions.menu && *actions.selected_person_id.read() == pid {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: tooltip_name.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: tooltip_name.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: theme.card.menu_r,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
             if node.has_more_relations {
@@ -5029,7 +5027,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 animating,
                 max_zoom,
                 press,
-                menu_key: move |_| click_element(".ped-card-menu .menu-button"),
+                menu_key: move |_| click_element(".chart-menu-button"),
                 PedigreeTransform {
                     transform: viewport_transform,
                     animating,
@@ -7629,8 +7627,8 @@ asc link[10] M145.5,206 L145.5,188 72.75,188 72.75,170
 asc link[11] M145.5,206 L145.5,188 218.25,188 218.25,170
 asc link[12] M727.5,550 L727.5,568 903.25,568 903.25,586
 canvas total=(1140.2500,1358.0000) root=(579.2500,733.0000)
-root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@110.0000 surname="BRANCH_A"@128.0000 date="ca 1849-< 1917"@146.0000 squeeze=None trigger=(97.0000,196.0000) plus=(97.0000,107.0000)
-compact-named rect=(108.0000,160.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@110.0000 surname="BRANCH_A"@128.0000 date=""@146.0000 squeeze=None trigger=(72.0000,194.0000) plus=(72.0000,106.0000)
+root rect=(158.0000,162.0000) line=- photo_x=64.0000 text_x=97.0000 sosa=(120.0000,86.0000) given="Root"@110.0000 surname="BRANCH_A"@128.0000 date="ca 1849-< 1917"@146.0000 squeeze=None trigger=(97.0000,202.0000) plus=(97.0000,107.0000)
+compact-named rect=(108.0000,160.0000) line=- photo_x=39.0000 text_x=72.0000 sosa=(95.0000,86.0000) given="Given_1"@110.0000 surname="BRANCH_A"@128.0000 date=""@146.0000 squeeze=None trigger=(72.0000,200.0000) plus=(72.0000,106.0000)
 "#;
 
     const EXPECTED_RULED_LINKS: &str = r#"
@@ -7655,14 +7653,14 @@ desc link[4] M185,178.5 L185,222.5 185,222.5 185,240
 "#;
 
     const EXPECTED_CARD_INTERIOR: &str = r#"
-root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
-dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
-empty-compact-slot rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given=""@81.0000 surname=""@81.0000 date=""@81.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
-empty-slot rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given=""@21.0000 surname=""@21.0000 date=""@21.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
-compact-named rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Given_1"@81.0000 surname="BRANCH_A"@95.0000 date=""@109.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
-compact-overflowing rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximilian_A…"@81.0000 surname="BRANCH_LO…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=None trigger=(46.0000,136.0000) plus=(46.0000,70.5000)
-full-overflowing rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Maximilian_Alexander"@21.0000 surname="BRANCH_LONGNA…"@35.0000 date=".. 1691-.. 1745"@49.0000 squeeze=None trigger=(92.5000,88.0000) plus=(92.5000,46.5000)
-narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximili…"@81.0000 surname="BRANCH…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=Some(50.0) trigger=(35.0000,136.0000) plus=(35.0000,70.5000)
+root rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Root"@21.0000 surname="BRANCH_A"@35.0000 date="ca 1849-< 1917"@49.0000 squeeze=None trigger=(92.5000,94.0000) plus=(92.5000,46.5000)
+dated-ancestor rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Father_1"@21.0000 surname="BRANCH_A"@35.0000 date="1820-"@49.0000 squeeze=None trigger=(92.5000,94.0000) plus=(92.5000,46.5000)
+empty-compact-slot rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given=""@81.0000 surname=""@81.0000 date=""@81.0000 squeeze=None trigger=(46.0000,142.0000) plus=(46.0000,70.5000)
+empty-slot rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given=""@21.0000 surname=""@21.0000 date=""@21.0000 squeeze=None trigger=(92.5000,94.0000) plus=(92.5000,46.5000)
+compact-named rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Given_1"@81.0000 surname="BRANCH_A"@95.0000 date=""@109.0000 squeeze=None trigger=(46.0000,142.0000) plus=(46.0000,70.5000)
+compact-overflowing rect=(82.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximilian_A…"@81.0000 surname="BRANCH_LO…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=None trigger=(46.0000,142.0000) plus=(46.0000,70.5000)
+full-overflowing rect=(175.0000,67.0000) line=M9,10 L9,60 photo_x=10.0000 text_x=70.0000 sosa=(57.5000,57.5000) given="Maximilian_Alexander"@21.0000 surname="BRANCH_LONGNA…"@35.0000 date=".. 1691-.. 1745"@49.0000 squeeze=None trigger=(92.5000,94.0000) plus=(92.5000,46.5000)
+narrow-theme-compact rect=(60.0000,115.0000) line=M19,10 L19,60 photo_x=20.0000 text_x=10.0000 sosa=(67.5000,57.5000) given="Maximili…"@81.0000 surname="BRANCH…"@95.0000 date=".. 1691-.. 1745"@109.0000 squeeze=Some(50.0) trigger=(35.0000,142.0000) plus=(35.0000,70.5000)
 "#;
 
     #[test]

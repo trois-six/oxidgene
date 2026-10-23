@@ -676,7 +676,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     context_menu.set(None);
                     // Escape or a click outside gives the focus back to the card that
                     // opened the menu; an action moves it itself.
-                    crate::components::context_menu::focus_element(".ped-card-menu .menu-button");
+                    crate::components::context_menu::focus_element(".chart-menu-button");
                 },
             }
         }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
+generated: { by: human:maintainer, at: 2026-10-23T11:36:34Z }
 ---
 
 
@@ -281,7 +281,7 @@ a spouse a couple does not name.
 When a card is clicked:
 - It becomes the new **focus** of the graph, the layout is recalculated centered on it
 - The focus card is filled rather than outlined (see Visual Indicators)
-- A **⋮ menu button** ([Common UI §4.8](ui-common.md#48-contextmenu)) appears just below the card, centered, on the selected card only. The cards carry no ⋮ and no hover hint
+- A **⋮ menu button** ([Common UI §4.8](ui-common.md#48-contextmenu)) appears below the card, centered and clear of its frame, on the selected card only; it is outlined in white so that it stays apart from the card when the chart is zoomed far out. The cards carry no ⋮ and no hover hint
 - The ⋮ disappears as soon as another card is selected or the canvas is clicked
 
 ### Menu Button — Action Picker

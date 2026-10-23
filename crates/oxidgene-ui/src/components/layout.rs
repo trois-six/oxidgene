@@ -2427,6 +2427,9 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .menu-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         background: none;
         border: none;
         color: var(--text-secondary);
@@ -2437,6 +2440,8 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1;
         transition: background 0.15s, color 0.15s;
     }
+
+    .menu-button-icon { fill: currentColor; }
 
     .menu-button:hover,
     .menu-button:focus-visible,
@@ -2463,22 +2468,19 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    /* The "⋮" trigger of a selected pedigree element, drawn inside an SVG
-       foreignObject: a round target filling the element's centre mark. */
-    .ped-card-menu .menu-button-wrap,
-    .ped-card-menu .menu-button {
-        width: 100%;
-        height: 100%;
+    /* The "⋮" of a selected chart element, drawn in the chart's own SVG
+       (context_menu.rs, ChartMenuButton): a round target on the element. */
+    .chart-menu-button { cursor: pointer; outline: none; }
+    .chart-menu-disc {
+        fill: var(--pn-root-bg, var(--bg-card));
+        stroke: var(--white);
+        stroke-width: 2;
     }
-
-    .ped-card-menu .menu-button {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        border-radius: 50%;
-        background: var(--pn-root-bg, var(--bg-card));
-        color: var(--white);
+    .chart-menu-dot { fill: var(--white); }
+    .chart-menu-button:focus-visible .chart-menu-disc,
+    .chart-menu-button[aria-expanded="true"] .chart-menu-disc {
+        stroke: var(--orange);
+        stroke-width: 2;
     }
 
     .context-menu-events { width: 250px; }
@@ -5001,8 +5003,17 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 0;
     }
     .media-caption-row .tag-badges { flex: 0 1 6rem; width: auto; margin-left: var(--space-2); }
-    /* The tile's ⋮ sits at the trailing edge of its caption row. */
-    .media-caption-row > .menu-button-wrap { margin-left: auto; }
+    /* The tile's ⋮ leads its caption row, its glyph on the picture's left
+       edge (no padding before it); the caption takes the rest of the row,
+       centred in it, so a trailing ⋮ does not read as part of the name. */
+    .media-caption-row:has(> .menu-button-wrap) { justify-content: flex-start; }
+    .media-caption-row > .menu-button-wrap { flex: 0 0 auto; }
+    .media-caption-row > .menu-button-wrap > .menu-button {
+        justify-content: flex-start;
+        padding-left: 0;
+        padding-right: var(--space-2);
+    }
+    .media-caption-row > .menu-button-wrap ~ .media-caption { flex: 1 1 auto; min-width: 0; }
 
     .media-event-link {
         font-size: var(--text-70);

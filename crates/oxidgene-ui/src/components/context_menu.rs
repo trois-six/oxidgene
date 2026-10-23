@@ -50,7 +50,11 @@ pub fn focus_element(selector: &'static str) {
 /// Clicks the first element matching `selector`, for a shortcut that opens a
 /// menu by the same route as a click on its trigger.
 pub fn click_element(selector: &'static str) {
-    let script = format!("document.querySelector('{selector}')?.click();");
+    // A dispatched click rather than `click()`, which an SVG element lacks:
+    // the chart's own menu trigger is one.
+    let script = format!(
+        "document.querySelector('{selector}')?.dispatchEvent(new MouseEvent('click', {{ bubbles: true }}));"
+    );
     spawn(async move {
         let _ = document::eval(&script).await;
     });
@@ -220,6 +224,68 @@ fn notify_open(on_open_change: Option<EventHandler<bool>>, open: bool) {
 /// click, the Enter or Space key, or ArrowDown opens the menu beside the
 /// trigger; Escape or a click outside closes it and returns the focus to the
 /// trigger. The trigger is never the only route: each element that opens this
+/// The "⋮" of the element a chart has selected, drawn in the chart's own SVG
+/// rather than as a [`MenuButton`] in a `foreignObject`: WebKitGTK, the
+/// desktop's engine, places a `foreignObject`'s content without the
+/// transforms of the groups above it, so a card's button landed elsewhere on
+/// the chart. `x` and `y` are its centre in the element's coordinates and
+/// `radius` its size, the chart's own. It
+/// hands its activation to the page, which opens the chart's action picker:
+/// a click at the click's point (`on_point`, in client coordinates, as the
+/// right click does), a key beside the trigger (`on_request`).
+#[component]
+pub fn ChartMenuButton(
+    name: String,
+    x: f64,
+    y: f64,
+    radius: f64,
+    expanded: bool,
+    on_point: EventHandler<(f64, f64)>,
+    on_request: EventHandler<Rc<MountedData>>,
+) -> Element {
+    let i18n = use_i18n();
+    let mut trigger = use_signal(|| None::<Rc<MountedData>>);
+    let label = i18n.t_args("common.actions_for", &[("name", &name)]);
+    let title = format!("<title>{}</title>", crate::utils::escape_xml(&label));
+    let request = use_callback(move |()| {
+        if let Some(button) = trigger() {
+            on_request.call(button);
+        }
+    });
+    rsx! {
+        g {
+            class: "no-print chart-menu-button",
+            transform: "translate({x},{y})",
+            role: "button",
+            tabindex: "0",
+            "aria-label": "{label}",
+            "aria-haspopup": "menu",
+            "aria-expanded": if expanded { "true" } else { "false" },
+            onmounted: move |evt: Event<MountedData>| trigger.set(Some(evt.data())),
+            // A press on the trigger is not a long press on the card under it.
+            onpointerdown: move |evt: Event<PointerData>| evt.stop_propagation(),
+            onclick: move |evt: Event<MouseData>| {
+                evt.stop_propagation();
+                let point = evt.client_coordinates();
+                on_point.call((point.x, point.y));
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                let key = evt.key();
+                if matches!(key, Key::Enter | Key::ArrowDown) || key == Key::Character(" ".to_string()) {
+                    evt.prevent_default();
+                    evt.stop_propagation();
+                    request.call(());
+                }
+            },
+            g { dangerous_inner_html: "{title}" }
+            circle { class: "chart-menu-disc", r: "{radius}" }
+            for cy in [-5.0, 0.0, 5.0] {
+                circle { key: "{cy}", class: "chart-menu-dot", cy: "{cy}", r: "1.8" }
+            }
+        }
+    }
+}
+
 /// menu from a right click, the menu key or a long press does so with the same
 /// entries. A trigger with `on_request` hands its activation to the page.
 #[component]
@@ -346,7 +412,20 @@ pub fn MenuButton(props: MenuButtonProps) -> Element {
                         arrow_down.call(());
                     }
                 },
-                "\u{22EE}"
+                // Drawn rather than typed: a font's "⋮" sits in the middle of
+                // its advance, so the dots never lined up with what the
+                // trigger leads (a media tile's picture), and fonts drew them
+                // at different weights.
+                svg {
+                    class: "menu-button-icon",
+                    width: "4",
+                    height: "16",
+                    "viewBox": "0 0 4 16",
+                    "aria-hidden": "true",
+                    circle { cx: "2", cy: "2", r: "1.75" }
+                    circle { cx: "2", cy: "8", r: "1.75" }
+                    circle { cx: "2", cy: "14", r: "1.75" }
+                }
             }
             if is_open {
                 if let (Some((x, y)), Some(items)) = (anchor(), props.items) {

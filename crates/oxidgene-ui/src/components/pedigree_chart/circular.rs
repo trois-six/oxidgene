@@ -779,28 +779,24 @@ fn render_person_segment(
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
             {mark_dot(mark, dot_x, dot_y, 4.0)}
             if *actions.selected_person_id.read() == pid {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: title.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: title.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: CHART_MENU_SIZE / 2.0,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
         }
     }
 }
 
-/// The top-left corner of the "⋮" trigger of a selected segment, at the
-/// segment's centre.
+/// The centre of the "⋮" trigger of a selected segment: the segment's
+/// centre.
 fn segment_menu_origin(segment: &Segment) -> (f64, f64) {
-    let (cx, cy) = segment.centroid;
-    (cx - CHART_MENU_SIZE / 2.0, cy - CHART_MENU_SIZE / 2.0)
+    segment.centroid
 }
 
 /// Where a segment's tag dot sits: near its outer corner at the start of
@@ -855,17 +851,14 @@ fn render_union_segment(
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
             {mark_dot(mark, dot_x, dot_y, 4.0)}
             if let Some(pid) = spouse.filter(|pid| *actions.selected_person_id.read() == *pid) {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: title.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: title.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: CHART_MENU_SIZE / 2.0,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
         }
@@ -934,7 +927,7 @@ fn render_root(
     let (dot_x, dot_y) = layout.root_dot;
     // The root's disc has no centre of its own to hang the trigger on: it
     // sits at the disc's centre, over the root's label.
-    let (menu_x, menu_y) = (-CHART_MENU_SIZE / 2.0, -CHART_MENU_SIZE / 2.0);
+    let (menu_x, menu_y) = (0.0, 0.0);
     rsx! {
         g {
             class: "{class}",
@@ -953,17 +946,14 @@ fn render_root(
             }
             {mark_dot(mark, dot_x, dot_y, 5.0)}
             if *actions.selected_person_id.read() == pid {
-                foreignObject {
-                    class: "no-print ped-card-menu",
-                    x: "{menu_x}",
-                    y: "{menu_y}",
-                    width: "{CHART_MENU_SIZE}",
-                    height: "{CHART_MENU_SIZE}",
-                    MenuButton {
-                        name: title.clone(),
-                        expanded: actions.menu_open == Some(pid),
-                        on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
-                    }
+                ChartMenuButton {
+                    name: title.clone(),
+                    x: menu_x,
+                    y: menu_y,
+                    radius: CHART_MENU_SIZE / 2.0,
+                    expanded: actions.menu_open == Some(pid),
+                    on_point: move |(x, y): (f64, f64)| actions.open_menu_at(pid, x, y),
+                    on_request: move |trigger: Rc<MountedData>| actions.open_menu_from(pid, trigger),
                 }
             }
         }

@@ -20,6 +20,11 @@
 //! in a `menu-guard: delegates to <what>` comment inside the element. The
 //! comment is the documented reason for the exception.
 //!
+//! The topbar's back and forward arrows are the other exception, named by a
+//! `menu-guard: history arrows` comment: like a browser's, they list their
+//! pages on a long press or a secondary click, with no ⋮ beside them
+//! (docs/ui-common.md §4.8).
+//!
 //! Fixing a failure: wrap the element's actions in a `MenuButton { name, items }`
 //! as the element's trailing control. Do not remove the shortcut; it opens the
 //! same menu.
@@ -40,6 +45,10 @@ const OPENERS: &[&str] = &[
 /// The comment that documents an element whose menu key delegates to the
 /// trigger of another element.
 const DELEGATION: &str = "menu-guard: delegates to";
+
+/// The comment that documents the topbar's history arrows, which list their
+/// pages the way a browser's do.
+const HISTORY_ARROWS: &str = "menu-guard: history arrows";
 
 /// The shared surface closes its menu on a right click; it opens nothing.
 const SURFACE: &str = "crates/oxidgene-ui/src/components/context_menu.rs";
@@ -225,6 +234,7 @@ fn unguarded_openers(source: &str) -> Vec<(usize, &'static str)> {
                     body.contains("MenuButton {")
                         || body.contains("MenuButton{")
                         || commented.contains(DELEGATION)
+                        || commented.contains(HISTORY_ARROWS)
                 });
             if !guarded {
                 found.push((offset, *opener));
@@ -301,4 +311,8 @@ fn every_shortcut_that_opens_a_menu_is_guarded_too() {
     // A documented delegation to another element's trigger is the exception.
     let delegated = "div { // menu-guard: delegates to the focus person's trigger\n onkeydown: move |evt| { if opens_menu(&evt) { go() } } }";
     assert!(unguarded_openers(delegated).is_empty());
+
+    // So are the history arrows, named as such.
+    let arrows = "div { // menu-guard: history arrows\n oncontextmenu: f }";
+    assert!(unguarded_openers(arrows).is_empty());
 }
