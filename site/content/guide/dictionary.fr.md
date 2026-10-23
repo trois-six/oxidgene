@@ -1,10 +1,10 @@
 +++
 title = "Dictionnaire"
-description = "Parcourir les noms de famille, sources, dépôts, lieux et professions d'un arbre, et renommer ou fusionner des noms de famille en une fois."
+description = "Parcourir les noms de famille, sources, dépôts, lieux et professions d'un arbre, et les renommer ou les fusionner en une fois."
 weight = 110
 +++
 
-Le dictionnaire recense toutes les valeurs distinctes saisies dans un arbre — noms de famille, sources, dépôts, lieux et professions —, chacune une seule fois, avec son nombre d'utilisations. C'est l'endroit où repérer un patronyme écrit de deux façons, une source citée à une douzaine d'endroits ou un lieu saisi un peu différemment à chaque fois, et où corriger un nom de famille pour toutes les personnes qui le portent à la fois.
+Le dictionnaire recense toutes les valeurs distinctes saisies dans un arbre — noms de famille, sources, dépôts, lieux et professions —, chacune une seule fois, avec son nombre d'utilisations. C'est l'endroit où repérer un patronyme écrit de deux façons, une source citée à une douzaine d'endroits ou un lieu saisi un peu différemment à chaque fois, et où les corriger pour toutes les fiches qui les utilisent à la fois : renommer ou fusionner un nom de famille ou une profession, modifier ou fusionner un lieu ou un dépôt.
 
 ## Ouvrir le dictionnaire
 
@@ -91,15 +91,37 @@ L'onglet **Dépôts** liste les services d'archives, bibliothèques et administr
 
 - Dépliez un dépôt pour voir les sources qu'il conserve, avec leurs cotes et leur support.
 - Choisissez **Modifier** dans le menu **⋮** d’un dépôt pour le modifier, ou sur **Ajouter un dépôt** pour en créer un. Un dépôt a un **Nom** (obligatoire), une **Adresse**, un **Téléphone**, un **Courriel**, un **Site web** et des notes.
+- Quand vous donnez à un dépôt le nom d'un autre (majuscules, accents et ponctuation mis à part), le formulaire propose de les fusionner : voir [Fusionner deux lieux ou deux dépôts](#fusionner-deux-lieux-ou-deux-depots).
 - **Supprimer le dépôt**, en bas de son formulaire, le supprime après confirmation. Les sources qu'il conservait restent dans l'arbre ; elles n'y sont simplement plus rattachées. Annuler la suppression depuis l'historique rétablit ces liens.
 
 ## Lieux
 
 Chaque ligne est un lieu tel qu'il a été saisi, avec une punaise pleine lorsque le lieu a des coordonnées géographiques et estompée sinon, et le nombre d'événements et de médias qui l'utilisent. Dépliez un lieu pour lister les personnes concernées : celles de ses événements (les deux conjoints pour un événement de couple) et celles liées à ses médias.
 
+### Modifier un lieu
+
+Ouvrez le menu **⋮** de la ligne d'un lieu (ou faites un clic droit dessus) et choisissez **Modifier** pour ouvrir **Modifier le lieu**. Changez son **Nom**, sa **Latitude** et sa **Longitude** (laissez-les vides pour aucune coordonnée), puis cliquez sur **Enregistrer** : chaque événement et chaque média situés en ce lieu affichent le changement.
+
+### Fusionner deux lieux ou deux dépôts
+
+Quand un lieu ou un dépôt a été saisi deux fois, donnez à l'un le nom de l'autre dans son formulaire. Les majuscules, les accents et la ponctuation ne comptent pas : « SAINT-ALBAN » correspond à « Saint Alban ». Le formulaire alors :
+
+1. Signale que ce nom est celui d'un autre lieu (avec son nombre d'utilisations) ou d'un autre dépôt. Si plusieurs correspondent, choisissez celui avec lequel fusionner dans **Fusionner avec**.
+2. Coche **Fusionner avec « … »**. La case reste décochée quand les deux portaient déjà le même nom, car deux lieux peuvent partager un nom et être différents : cochez-la vous-même pour les fusionner.
+3. Liste les détails que les deux portent différemment, le nom et les coordonnées d'un lieu, le nom, l'adresse, le téléphone, l'e-mail et le site d'un dépôt, chacun avec un choix entre **Celle-ci** et l'autre fiche. Un détail que seule l'une des deux possède est conservé.
+4. Cliquez sur **Fusionner**.
+
+L'autre fiche reste, avec les détails choisis. Un lieu fusionné reprend tous les événements et médias de celui-ci, et ses étiquettes. Un dépôt fusionné reprend les sources que celui-ci conservait, ses notes et ses étiquettes ; une source déjà conservée là sous la même cote n'apparaît pas deux fois. Celui-ci est ensuite supprimé. La fusion forme une seule entrée de l'[historique](@/guide/history.fr.md) de l'arbre.
+
 ## Professions
 
 Chaque ligne est une profession telle qu'elle a été saisie, avec le nombre de personnes qui l'ont exercée. Dépliez-la pour les lister.
+
+### Renommer ou fusionner une profession
+
+Ouvrez le menu **⋮** au bout de la ligne d'une profession et choisissez **Modifier** pour ouvrir **Modifier la profession**. Changez le champ **Profession**, lisez la ligne en dessous, qui indique combien de personnes seront concernées, et cliquez sur **Renommer**. Chaque événement de profession qui la mentionne prend le nouveau libellé. Si ce libellé existe déjà, le formulaire vous prévient que les deux seront fusionnées.
+
+Un renommage forme une seule entrée de l'[historique](@/guide/history.fr.md) de l'arbre, et chaque personne renommée reçoit une nouvelle version, que vous pouvez restaurer personne par personne.
 
 ## Imprimer une liste
 

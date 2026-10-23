@@ -115,6 +115,23 @@ pub struct FamilyNameRename {
     pub person_ids: Vec<Uuid>,
 }
 
+/// Outcome of [`DictionaryRepo::rename_occupation`].
+#[derive(Debug, Clone)]
+pub struct OccupationRename {
+    /// The occupation renamed, as it was listed.
+    pub value: String,
+    /// The label its events now carry.
+    pub new_value: String,
+    /// Occupation events rewritten.
+    pub events_updated: usize,
+    /// Distinct persons behind `events_updated`.
+    pub persons_updated: usize,
+    /// `new_value` was already listed: the renamed events joined it.
+    pub merged: bool,
+    /// The persons rewritten, for whoever records and refreshes what changed.
+    pub person_ids: Vec<Uuid>,
+}
+
 /// Above this many sources matching a prefix, the Sources tab's smart
 /// drill-down (see `DictionaryRepo::resolve_source_drill_down` and
 /// ui-dictionary.md §8) shows further branch choices instead of the final
@@ -663,6 +680,109 @@ impl DictionaryRepo {
         Ok(sorted_unique(
             events.into_iter().filter_map(|e| e.person_id),
         ))
+    }
+
+    /// The live occupation events of persons in `tree_id` whose label, trimmed,
+    /// is one of `values` — the rows [`Self::occupations`] lists under those
+    /// entries — as `(event id, person id, trimmed label)`.
+    async fn occupation_events_labelled(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        values: &[&str],
+    ) -> Result<Vec<(Uuid, Uuid, String)>, OxidGeneError> {
+        let rows: Vec<(Uuid, Option<Uuid>, Option<String>)> = event::Entity::find()
+            .select_only()
+            .column(event::Column::Id)
+            .column(event::Column::PersonId)
+            .column(event::Column::Description)
+            .filter(event::Column::TreeId.eq(tree_id))
+            .filter(event::Column::DeletedAt.is_null())
+            .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Occupation)))
+            .filter(event::Column::PersonId.is_not_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, person_id, description)| {
+                let label = trimmed(description.as_deref())?;
+                values
+                    .contains(&label.as_str())
+                    .then_some((id, person_id?, label))
+            })
+            .collect())
+    }
+
+    /// The persons of `tree_id` holding one of the occupations `values`, in
+    /// ascending order: every person a rename of those labels can rewrite,
+    /// read before it does — the history keeps the state they had.
+    pub async fn persons_holding_occupations(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        values: &[&str],
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let values: Vec<&str> = values.iter().map(|value| value.trim()).collect();
+        Ok(sorted_unique(
+            Self::occupation_events_labelled(db, tree_id, &values)
+                .await?
+                .into_iter()
+                .map(|(_, person_id, _)| person_id),
+        ))
+    }
+
+    /// Give every occupation event of `tree_id` labelled `value` (trimmed, as
+    /// [`Self::occupations`] lists it) the label `new_value`, which joins an
+    /// occupation already listed under it. Renaming a label to itself changes
+    /// nothing and reports zero events.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OxidGeneError::Validation`] if `value` or `new_value` is
+    /// blank, and [`OxidGeneError::Database`] on query failure.
+    pub async fn rename_occupation(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        value: &str,
+        new_value: &str,
+    ) -> Result<OccupationRename, OxidGeneError> {
+        let (value, new_value) = (value.trim(), new_value.trim());
+        if value.is_empty() || new_value.is_empty() {
+            return Err(OxidGeneError::Validation(
+                "an occupation is required".to_string(),
+            ));
+        }
+        let rows = Self::occupation_events_labelled(db, tree_id, &[value, new_value]).await?;
+        let unchanged = value == new_value;
+        let merged = !unchanged && rows.iter().any(|(_, _, label)| label == new_value);
+        let renamed: Vec<(Uuid, Uuid)> = if unchanged {
+            Vec::new()
+        } else {
+            rows.into_iter()
+                .filter(|(_, _, label)| label == value)
+                .map(|(id, person_id, _)| (id, person_id))
+                .collect()
+        };
+        let event_ids: Vec<Uuid> = renamed.iter().map(|(id, _)| *id).collect();
+        let now = Utc::now();
+        for chunk in event_ids.chunks(MAX_BOUND_IDS) {
+            event::Entity::update_many()
+                .col_expr(event::Column::Description, Expr::value(new_value))
+                .col_expr(event::Column::UpdatedAt, Expr::value(now))
+                .filter(event::Column::Id.is_in(chunk.to_vec()))
+                .exec(db)
+                .await
+                .map_err(db_err)?;
+        }
+        let person_ids = sorted_unique(renamed.into_iter().map(|(_, person_id)| person_id));
+        Ok(OccupationRename {
+            value: value.to_string(),
+            new_value: new_value.to_string(),
+            events_updated: event_ids.len(),
+            persons_updated: person_ids.len(),
+            merged,
+            person_ids,
+        })
     }
 
     /// Distinct persons carrying a given surname in a tree.

@@ -277,8 +277,11 @@ test("tags a note and a place from the keyboard menu, and sees the dots", async 
     await expect(place).toBeVisible();
     await expect(place.locator(".tag-badge")).toHaveCount(0);
 
+    // A place's menu opens on Edit, as a source's does.
     await place.focus();
     await page.keyboard.press("Shift+F10");
+    await expect(page.locator(".record-tag-menu").getByRole("menuitem", { name: "Edit", exact: true })).toBeFocused();
+    await tagsEntry.focus();
     await expect(tagsEntry).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(filter).toBeFocused();

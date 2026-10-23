@@ -5,7 +5,8 @@
 //! and records the change, in one transaction.
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::history::AuditEntity;
+use oxidgene_core::collections::sorted_unique;
+use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
 use oxidgene_core::types::Place;
 use oxidgene_db::repo::PlaceRepo;
 use oxidgene_db::sea_orm::DatabaseConnection;
@@ -34,6 +35,18 @@ pub struct PlacePatch {
     pub latitude: Option<Option<f64>>,
     #[serde(default, deserialize_with = "double_option")]
     pub longitude: Option<Option<f64>>,
+}
+
+/// Place `id` folded into place `into`, which takes the fields given: the
+/// ones the merge chose, field by field, from either place.
+#[derive(Debug, Deserialize)]
+pub struct PlaceMerge {
+    pub into: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
 }
 
 /// Create a place in `tree_id`. A blank name is refused.
@@ -104,6 +117,58 @@ pub async fn delete_place(
         .await?;
     pending.record(&txn).await?;
     commit_tx(txn).await
+}
+
+/// Merge place `id` of `tree_id` into place `merge.into`: the events and media
+/// at `id` move there, its tags join, and `id` is deleted; `into` takes the
+/// fields chosen. A blank name, or a place merged into itself, is refused.
+pub async fn merge_place(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    id: Uuid,
+    merge: PlaceMerge,
+) -> Result<Place, OxidGeneError> {
+    require_name(&merge.name)?;
+    if merge.into == id {
+        return Err(OxidGeneError::Validation(
+            "a place cannot be merged into itself".to_string(),
+        ));
+    }
+    let txn = begin_tx(db).await?;
+    require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
+    require_tree_resource(&txn, tree_id, TreeResource::Place, merge.into).await?;
+    // Read before the merge moves the events: the persons both places show
+    // on, and the name the absorbed place leaves in the history.
+    let mut affected = invalidation::affected_persons_for_place(&txn, id).await?;
+    affected.extend(invalidation::affected_persons_for_place(&txn, merge.into).await?);
+    let affected = sorted_unique(affected);
+    let absorbed = PlaceRepo::get(&txn, id).await?;
+    let pending = Change::new(tree_id, AuditAction::Merge, AuditEntity::Place, merge.into)
+        .place(merge.into)
+        .place(id)
+        .persons(affected.iter().copied())
+        .details(AuditDetails {
+            other_label: Some(absorbed.name),
+            ..AuditDetails::default()
+        })
+        .prepare(&txn)
+        .await?;
+    PlaceRepo::absorb(&txn, tree_id, merge.into, id).await?;
+    let place = PlaceRepo::update(
+        &txn,
+        merge.into,
+        Some(merge.name),
+        Some(merge.latitude),
+        Some(merge.longitude),
+    )
+    .await?;
+    profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await?;
+    pending.record(&txn).await?;
+    commit_tx(txn).await?;
+    Ok(place)
 }
 
 fn require_name(name: &str) -> Result<(), OxidGeneError> {

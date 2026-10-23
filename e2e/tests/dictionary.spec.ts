@@ -73,3 +73,81 @@ test("the media tab pages like every other list: numbered, with first and last",
     await pager.getByRole("button", { name: "First page", exact: true }).click();
     await expect(page.getByText("Fictitious scan 01", { exact: true })).toBeVisible();
 });
+
+test("an occupation is renamed on every event recording it, from its ⋮", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Occupations", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: "Weaver" }).first();
+    await row.getByRole("button", { name: /^Actions for / }).click();
+    await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Edit occupation" });
+    await dialog.getByRole("textbox").fill("Fictitious hand weaver");
+    await expect(dialog.getByText(/Renames the occupation of/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Rename", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator(".dict-row").filter({ hasText: "Fictitious hand weaver" })).toBeVisible();
+    await expect(page.locator(".dict-row-value", { hasText: /^Weaver$/ })).toHaveCount(0);
+});
+
+test("a place entered twice is merged from its editor, keeping the coordinates only one had", async ({ page, request, tree }) => {
+    const created = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/places`, {
+        data: { name: "NORTHFIELD, SHIRE", latitude: 47.25, longitude: -1.5 },
+    });
+    expect(created.status()).toBe(201);
+    const duplicate = (await created.json()).id as string;
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Places", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: /NORTHFIELD, SHIRE/ });
+    await row.getByRole("button", { name: /^Actions for / }).click();
+    await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Edit place" });
+    await expect(dialog.getByText(/is another place of the tree/)).toBeVisible();
+    // The two already shared the name: merging is the user's choice.
+    const toggle = dialog.getByRole("checkbox", { name: /Merge with/ });
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    // The name is picked, the coordinates only this one has are kept.
+    await dialog.getByRole("radio").nth(1).check();
+    await dialog.getByRole("button", { name: "Merge", exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    await expect(page.locator(".dict-row").filter({ hasText: /northfield, shire/i })).toHaveCount(1);
+    expect((await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/places/${duplicate}`)).status()).toBe(404);
+    const kept = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/places?name=Northfield, Shire`)).json()) as {
+        edges: Array<{ node: { name: string; latitude: number | null } }>;
+    };
+    expect(kept.edges.map((edge) => [edge.node.name, edge.node.latitude])).toEqual([["Northfield, Shire", 47.25]]);
+});
+
+test("a repository renamed to another's name is merged into it", async ({ page, request, tree }) => {
+    for (const data of [
+        { name: "Fictional county archive", address: "1 Imaginary Road" },
+        { name: "Old fictional archive", phone: "000 000" },
+    ]) {
+        const created = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, { data });
+        expect(created.status()).toBe(201);
+    }
+
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    await page.getByRole("tab", { name: "Repositories", exact: true }).click();
+    const row = page.locator(".dict-row").filter({ hasText: "Old fictional archive" });
+    await row.getByRole("button", { name: /^Actions for / }).click();
+    await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Edit repository" });
+    await dialog.getByRole("textbox").first().fill("Fictional County Archive");
+    // A rename into another's name proposes the merge.
+    await expect(dialog.getByRole("checkbox", { name: /Merge with/ })).toBeChecked();
+    await dialog.getByRole("button", { name: "Merge", exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    const listed = (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`)).json()) as {
+        edges: Array<{ node: { name: string; address: string | null; phone: string | null } }>;
+    };
+    expect(listed.edges.map((edge) => edge.node)).toEqual([
+        expect.objectContaining({ name: "Fictional county archive", address: "1 Imaginary Road", phone: "000 000" }),
+    ]);
+});

@@ -8,6 +8,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::place::{self, ActiveModel, Column, Entity};
+use crate::entities::{event, media};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
@@ -185,6 +186,33 @@ impl PlaceRepo {
 
         let result = active.update(db).await.map_err(db_err)?;
         hydrate_one(db, into_domain(result)).await
+    }
+
+    /// Fold place `absorbed` into place `kept`, both of `tree_id`: every event
+    /// and media at `absorbed` moves to `kept`, which gains its tags, and
+    /// `absorbed` is deleted. `kept`'s own fields are left as they are.
+    pub async fn absorb(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        kept: Uuid,
+        absorbed: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        event::Entity::update_many()
+            .col_expr(event::Column::PlaceId, Expr::value(kept))
+            .filter(event::Column::TreeId.eq(tree_id))
+            .filter(event::Column::PlaceId.eq(absorbed))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        media::Entity::update_many()
+            .col_expr(media::Column::PlaceId, Expr::value(kept))
+            .filter(media::Column::TreeId.eq(tree_id))
+            .filter(media::Column::PlaceId.eq(absorbed))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        RecordTagRepo::move_tags(db, tree_id, RecordKind::Place, absorbed, kept).await?;
+        Self::delete(db, absorbed).await
     }
 
     /// Hard-delete a place.

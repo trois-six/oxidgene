@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
-description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
+description: "Index of family names, sources, places, and occupations with usage counts, and the bulk editors: family names (rename, merge, particle), occupations (rename, merge), places and repositories (edit, merge field by field)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -18,10 +18,14 @@ generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
 
 The Dictionary page (`/trees/{id}/dictionary`) is a dedicated full-page view for browsing the distinct values entered across a tree for four fields: **family names**, **sources**, **places**, and **occupations**. Each value is shown once alongside a usage count, so recurring or inconsistent entries (a surname spelled two ways, a source cited from a dozen places, a place name entered slightly differently each time) are easy to spot.
 
-The page is read-only except for the family-name editor (§7.1), which renames
-a family name across the persons carrying it and corrects where it splits
-between particle and root. The other tabs surface inconsistent values without
-offering a merge or rename operation.
+Besides the source and repository editors, the page holds the bulk editors
+that unify what the tabs surface: the family-name editor (§7.1) renames a
+family name across the persons carrying it and corrects where it splits
+between particle and root; the occupation editor (§10.1) renames an
+occupation on every event recording it; the place editor (§9.1) and the
+repository editor (§19) rename a record and merge it into the one its new
+name matches, choosing field by field what the merged record keeps. Renaming
+into a value or a record already listed always merges the two.
 
 It is reached via the **Book/index icon** in the shared left icon sidebar (`TreeIconSidebar`), which makes it accessible identically from the [Genealogy Tree](ui-genealogy-tree.md) (pedigree canvas) and from the [Person Profile](ui-person-profile.md) page — the same component renders that icon in both places.
 
@@ -356,11 +360,35 @@ Grouped by first letter of the place name (same pattern as section 7). Each row:
 - Place name as entered, shown as a full free-text hierarchy
 - A small pin icon (📍-style, filled) when `latitude`/`longitude` are set, outline/muted when not
 - Usage count badge: number of `Event` + `Media` rows referencing this place
-- Tag badges after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Tags…* exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag badge takes Enter or Space to its tag instead)
+- Tag badges after the name, when the place carries tags ([Common UI §4.18](ui-common.md#418-tags-picker-and-badges)); the row's record menu offers *Edit*, which opens the [place editor](#91-place-editor), and *Tags…*, in that order, exactly as a source row does ([§8](#8-sources-tab--intelligent-navigation-drill-down)): a right click, the context-menu key or Shift+F10 on the row, a long touch, and Enter or Space on the row unfolds it like a click (a tag badge takes Enter or Space to its tag instead)
 
 Clicking a row expands it inline (same accordion pattern as Sources) listing the persons the place's events and media concern — a couple's event its spouses, a media the persons it is linked to or shows — each linking to the person, so a place with uses never lists nobody.
 
 A place's record link (section 14, Tags tab section 20) opens the tab on the place's letter and on the page holding the place, the row unfolded, scrolled into view and focused, as section 17 describes. A place id that is not a place of the tree opens the tab's root.
+
+### 9.1 Place Editor
+
+The **Edit** entry of a place's menu opens a dialog editing the place itself,
+which every event and media at it shows: its **Name** (the shared
+`ValueInput`, suggesting the tree's place names) and its **Latitude** and
+**Longitude** (empty for none; a comma reads as a decimal point, anything else
+not a number is refused before saving). **Save** writes them with the place's
+`PUT`.
+
+When the name matches another place of the tree — the same once trimmed,
+ignoring case, accents and punctuation — a warning names it with its use
+count, a select chooses it among several, and a **Merge with « Y »** checkbox
+decides whether to fold this place into it. The box starts checked when the
+name was changed to the other's, and unchecked when the two already shared
+it: two places may bear one name and be two places. Merging, the dialog lists
+the fields the two places hold differently — the name and the coordinates,
+taken as a pair — with a radio on each place's value; a field only one place
+fills keeps that value. Each choice starts on the place merged into. The
+button then reads **Merge** and calls the place merge of the [API
+Contract](api.md): the events and media move to the other place, which gains
+the tags, takes the chosen fields, and stays; this one is deleted. Its
+history entry names the place absorbed, and the persons the two places show
+on each get a version.
 
 ---
 
@@ -370,8 +398,22 @@ Grouped by first letter of the occupation label (same pattern as section 7). Eac
 
 - Occupation label (`Event.description` for `event_type = Occupation`)
 - Usage count badge: number of persons holding that occupation
+- A ⋮ trigger at its trailing edge, whose menu holds **Edit**, which opens the [occupation editor](#101-occupation-editor); a right click on the row, the context-menu key, Shift+F10 and a long press open the same menu, as on a family name (§7)
 
 Clicking a row expands it inline listing the persons with that occupation, each a link to their [Person Profile](ui-person-profile.md). There is no dedicated search filter for occupation today, so — unlike Family Names — this does not redirect to Search Results.
+
+### 10.1 Occupation Editor
+
+The **Edit** entry opens a dialog renaming the occupation on every
+occupation event recording it, as the family-name editor renames a surname
+(§7.1). Its **Label** field is the shared `ValueInput` with occupation
+suggestions. Once the label changes, a scope line says how many persons hold
+it, and a label already listed is announced as a merge: « Y » already exists
+(M persons), the two will be merged. **Rename** calls the occupation rename of
+the [API Contract](api.md); a label is matched as the tab lists it, trimmed.
+The holders' profiles are refreshed at once; the change is one *occupation*
+entry of the history, reading "X · N persons · renamed to Y", and each holder
+gets a version, restored one person at a time.
 
 ---
 
@@ -709,7 +751,16 @@ empty.
 
 The repository editor holds the **Name** (required), the **Address** over
 several lines, **Phone**, **Email**, **Website** and a **Notes** field (the
-repository's first note; the others stay as imported). An existing
+repository's first note; the others stay as imported). When an existing
+repository's name matches another repository of the tree — trimmed, ignoring
+case, accents and punctuation — the editor offers to merge into it exactly as
+the [place editor](#91-place-editor) does: a warning, a select among several
+(each named with the first line of its address), the **Merge with « Y »**
+checkbox, and the fields the two hold differently — name, address, phone,
+email, website — each picked from either repository. Merging saves the note
+first, then calls the repository merge of the [API Contract](api.md): the
+sources held here become held there (a link it already has is not doubled),
+the notes and tags move there, and this repository is deleted. An existing
 repository's editor ends with a delete confirmation: the sources it held stay
 in the tree, no longer listed as held there (the links are kept and come back
 if the deletion is undone from the history).
@@ -717,7 +768,8 @@ if the deletion is undone from the history).
 Each row takes the same record menu and tag badges as a source row (§8): the
 row is a tab stop, and *Edit* and *Tags…* are the menu's entries, in that
 order; the ⋮ trigger and the tag badges keep their own Enter and Space. A
-place row has no *Edit*: its menu holds *Tags…* alone.
+place row's menu holds the same two entries, its *Edit* opening the [place
+editor](#91-place-editor).
 
 The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
 tab, and loads the repositories the first time it opens.

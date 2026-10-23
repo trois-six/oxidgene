@@ -3634,6 +3634,29 @@ impl From<oxidgene_db::repo::FamilyNameRename> for GqlFamilyNameRename {
     }
 }
 
+/// Result of the dictionary's occupation rename.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlOccupationRename {
+    pub value: String,
+    pub new_value: String,
+    pub events_updated: i32,
+    pub persons_updated: i32,
+    /// `newValue` was already listed: the renamed events joined it.
+    pub merged: bool,
+}
+
+impl From<oxidgene_db::repo::OccupationRename> for GqlOccupationRename {
+    fn from(r: oxidgene_db::repo::OccupationRename) -> Self {
+        Self {
+            value: r.value,
+            new_value: r.new_value,
+            events_updated: r.events_updated as i32,
+            persons_updated: r.persons_updated as i32,
+            merged: r.merged,
+        }
+    }
+}
+
 // ── From impls for projection types ─────────────────────────────────────────
 
 impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {

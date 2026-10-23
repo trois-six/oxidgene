@@ -658,6 +658,7 @@ enum GqlAuditEntity {
 	CITATION
 	NOTE
 	FAMILY_NAME
+	OCCUPATION
 	MEDIA
 	MEDIA_PAGE
 	MEDIA_LINK
@@ -1954,6 +1955,20 @@ type GqlOccupationReference {
 type GqlOccupationReferenceMatch {
 	term: String!
 	reference: GqlOccupationReference!
+}
+
+"""
+Result of the dictionary's occupation rename.
+"""
+type GqlOccupationRename {
+	value: String!
+	newValue: String!
+	eventsUpdated: Int!
+	personsUpdated: Int!
+	"""
+	`newValue` was already listed: the renamed events joined it.
+	"""
+	merged: Boolean!
 }
 
 """
@@ -3350,6 +3365,30 @@ input MergeChoicesInput {
 	sexFromDuplicate: Boolean! = false
 }
 
+"""
+Input for folding a place into another: the place kept, and the fields it
+takes, chosen field by field from either place.
+"""
+input MergePlaceInput {
+	into: ID!
+	name: String!
+	latitude: Float
+	longitude: Float
+}
+
+"""
+Input for folding a repository into another: the repository kept, and the
+fields it takes, chosen field by field from either repository.
+"""
+input MergeRepositoryInput {
+	into: ID!
+	name: String!
+	address: String
+	phone: String
+	email: String
+	website: String
+}
+
 type MutationRoot {
 	"""
 	Create a new tree. A blank name is refused.
@@ -3472,6 +3511,13 @@ type MutationRoot {
 	"""
 	updatePlace(treeId: ID!, id: ID!, input: UpdatePlaceInput!): GqlPlace!
 	"""
+	Fold a place into another, mirroring
+	`POST /trees/{id}/places/{place_id}/merge`: its events and media move
+	to `input.into`, its tags join, and it is deleted; the kept place
+	takes the fields given.
+	"""
+	mergePlace(treeId: ID!, id: ID!, input: MergePlaceInput!): GqlPlace!
+	"""
 	Delete a place (hard delete).
 	"""
 	deletePlace(treeId: ID!, id: ID!): Boolean!
@@ -3497,6 +3543,13 @@ type MutationRoot {
 	Update a repository. A blank name is refused.
 	"""
 	updateRepository(treeId: ID!, id: ID!, input: UpdateRepositoryInput!): GqlRepository!
+	"""
+	Fold a repository into another, mirroring
+	`POST /trees/{id}/repositories/{repository_id}/merge`: the sources it
+	holds, its notes and its tags move to `input.into`, and it is deleted;
+	the kept repository takes the fields given.
+	"""
+	mergeRepository(treeId: ID!, id: ID!, input: MergeRepositoryInput!): GqlRepository!
 	"""
 	Delete a repository (soft delete). With `onlyIfUnused`, a repository
 	still holding a live source or the subject of a note is kept; the
@@ -3655,6 +3708,12 @@ type MutationRoot {
 	`PATCH /trees/{id}/dictionary/family-names/rename`.
 	"""
 	renameFamilyName(treeId: ID!, input: RenameFamilyNameInput!): GqlFamilyNameRename!
+	"""
+	Give every occupation event labelled one occupation another label,
+	merging into that occupation when it is already listed. Mirrors
+	`PATCH /trees/{id}/dictionary/occupations/rename`.
+	"""
+	renameOccupation(treeId: ID!, input: RenameOccupationInput!): GqlOccupationRename!
 	"""
 	Queue a durable GEDZIP export: a GEDCOM 7.0 `gedcom.ged` and the
 	media it references. The artifact is downloaded through the URL
@@ -4296,6 +4355,15 @@ input RenameFamilyNameInput {
 	value: String!
 	newValue: String!
 	particle: String
+}
+
+"""
+Input for the dictionary's occupation rename: every occupation event
+labelled `value` (as listed, trimmed) gets `new_value`, trimmed.
+"""
+input RenameOccupationInput {
+	value: String!
+	newValue: String!
 }
 
 """

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::dto::PlaceListQuery;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::place::{self, NewPlace, PlacePatch};
+use crate::service::place::{self, NewPlace, PlaceMerge, PlacePatch};
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/places
@@ -63,6 +63,19 @@ pub async fn update_place(
     Json(body): Json<PlacePatch>,
 ) -> Result<Json<Place>, ApiError> {
     let place = place::update_place(&state.db, &state.profiles, tree_id, place_id, body).await?;
+    Ok(Json(place))
+}
+
+/// POST /api/v1/trees/:tree_id/places/:place_id/merge
+///
+/// Folds the place into `into`: its events and media move there, its tags
+/// join, and it is deleted; the kept place takes the fields given.
+pub async fn merge_place(
+    State(state): State<AppState>,
+    Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<PlaceMerge>,
+) -> Result<Json<Place>, ApiError> {
+    let place = place::merge_place(&state.db, &state.profiles, tree_id, place_id, body).await?;
     Ok(Json(place))
 }
 

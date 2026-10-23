@@ -217,6 +217,10 @@ pub fn build_router(state: AppState) -> Router {
             get(place::get_place)
                 .put(place::update_place)
                 .delete(place::delete_place),
+        )
+        .route(
+            "/{tree_id}/places/{place_id}/merge",
+            post(place::merge_place),
         );
 
     let source_routes = Router::new()
@@ -255,6 +259,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/repositories/{repository_id}/sources",
             get(repository::list_repository_sources),
+        )
+        .route(
+            "/{tree_id}/repositories/{repository_id}/merge",
+            post(repository::merge_repository),
         );
 
     let citation_routes = Router::new()
@@ -394,6 +402,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/dictionary/family-names/rename",
             patch(dictionary::rename_family_name),
+        )
+        .route(
+            "/{tree_id}/dictionary/occupations/rename",
+            patch(dictionary::rename_occupation),
         )
         .route(
             "/{tree_id}/dictionary/occupations",

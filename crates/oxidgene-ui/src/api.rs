@@ -671,6 +671,23 @@ pub struct FamilyNameRename {
     pub merged: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct RenameOccupationBody {
+    value: String,
+    new_value: String,
+}
+
+/// Outcome of an occupation rename.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OccupationRename {
+    pub value: String,
+    pub new_value: String,
+    pub events_updated: usize,
+    pub persons_updated: usize,
+    /// `new_value` was already listed: the renamed events joined it.
+    pub merged: bool,
+}
+
 // ── Reference content — occupation sheets, given-name meanings ──────
 
 /// Occupation fiche content, localized to the requesting UI language.
@@ -976,6 +993,15 @@ pub struct UpdatePlaceBody {
     pub longitude: Option<Option<f64>>,
 }
 
+/// A place folded into `into`, which takes these fields.
+#[derive(Debug, Serialize)]
+pub struct MergePlaceBody {
+    pub into: Uuid,
+    pub name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
 // ── Source request bodies ───────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1014,13 +1040,21 @@ pub struct CreateRepositoryBody {
 }
 
 /// A repository update: every field written, a `None` one cleared.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct UpdateRepositoryBody {
     pub name: String,
     pub address: Option<String>,
     pub phone: Option<String>,
     pub email: Option<String>,
     pub website: Option<String>,
+}
+
+/// A repository folded into `into`, which takes these fields.
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeRepositoryBody {
+    pub into: Uuid,
+    #[serde(flatten)]
+    pub fields: UpdateRepositoryBody,
 }
 
 #[derive(Debug, Serialize)]
@@ -4060,6 +4094,17 @@ impl ApiClient {
             .await
     }
 
+    /// Fold place `id` into `body.into`, which takes the fields given.
+    pub async fn merge_place(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+        body: &MergePlaceBody,
+    ) -> Result<Place, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/places/{id}/merge"), body)
+            .await
+    }
+
     // ── Sources ─────────────────────────────────────────────────────
 
     /// The tree's source titled `title` — trimmed, ignoring case — if any.
@@ -4152,6 +4197,20 @@ impl ApiClient {
     ) -> Result<Repository, ApiError> {
         self.put(&format!("/api/v1/trees/{tree_id}/repositories/{id}"), body)
             .await
+    }
+
+    /// Fold repository `id` into `body.into`, which takes the fields given.
+    pub async fn merge_repository(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+        body: &MergeRepositoryBody,
+    ) -> Result<Repository, ApiError> {
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/repositories/{id}/merge"),
+            body,
+        )
+        .await
     }
 
     pub async fn delete_repository(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
@@ -4291,6 +4350,23 @@ impl ApiClient {
                 value: value.to_string(),
                 new_value: new_value.to_string(),
                 particle: particle.map(str::to_string),
+            },
+        )
+        .await
+    }
+
+    /// Give every occupation event labelled `value` the label `new_value`.
+    pub async fn rename_occupation(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+        new_value: &str,
+    ) -> Result<OccupationRename, ApiError> {
+        self.patch(
+            &format!("/api/v1/trees/{tree_id}/dictionary/occupations/rename"),
+            &RenameOccupationBody {
+                value: value.to_string(),
+                new_value: new_value.to_string(),
             },
         )
         .await

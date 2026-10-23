@@ -30,6 +30,7 @@ use crate::components::tags::{
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
+use crate::pages::dictionary_editors::{OccupationEditor, PlaceEditor};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::pages::dictionary_tags::DictionaryTags;
 use crate::prefs::{SortParticles, use_sort_particles};
@@ -784,6 +785,8 @@ fn DictionaryPage(
     let api_fn = api.clone();
     let sort_particles = use_sort_particles();
     let mut family_name_edit = use_signal(|| None::<FamilyNameEdit>);
+    let mut occupation_edit = use_signal(|| None::<DictionaryEntry>);
+    let mut place_edit = use_signal(|| None::<Uuid>);
     let mut source_edit = use_signal(|| None::<Uuid>);
 
     // Each tab asks for its data the first time it is opened, not when the
@@ -949,7 +952,9 @@ fn DictionaryPage(
                         empty_key: "dictionary.no_entries_family_names",
                         navigable: true,
                         sort_particles,
-                        family_name_edit: Some(family_name_edit),
+                        on_edit: EventHandler::new(move |entry: DictionaryEntry| {
+                            family_name_edit.set(Some(FamilyNameEdit::new(&entry)));
+                        }),
                         filed: filed_family_names,
                     },
                 ),
@@ -960,7 +965,9 @@ fn DictionaryPage(
                         empty_key: "dictionary.no_entries_occupations",
                         navigable: false,
                         sort_particles,
-                        family_name_edit: None,
+                        on_edit: EventHandler::new(move |entry: DictionaryEntry| {
+                            occupation_edit.set(Some(entry));
+                        }),
                         filed: filed_occupations,
                     },
                 ),
@@ -1002,8 +1009,11 @@ fn DictionaryPage(
                         sources_view_resource.restart();
                         places_resource.restart();
                     },
-                    edits: vec![RecordKind::Source],
-                    on_edit: move |target: MenuTarget| source_edit.set(Some(target.record_id)),
+                    edits: vec![RecordKind::Source, RecordKind::Place],
+                    on_edit: move |target: MenuTarget| match target.kind {
+                        RecordKind::Place => place_edit.set(Some(target.record_id)),
+                        _ => source_edit.set(Some(target.record_id)),
+                    },
                 }
             }
 
@@ -1020,6 +1030,17 @@ fn DictionaryPage(
                 }
             }
 
+            if let Some(tid) = tree_id_parsed() {
+                {render_bulk_editors(tid, BulkEditors {
+                    occupation: occupation_edit,
+                    place: place_edit,
+                    occupations: filed_occupations,
+                    places: filed_places,
+                    occupations_resource,
+                    places_resource,
+                })}
+            }
+
             if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {
                 FamilyNameEditor {
                     key: "{edit.value}",
@@ -1032,6 +1053,65 @@ fn DictionaryPage(
                         family_names_resource.restart();
                     },
                 }
+            }
+        }
+    }
+}
+
+/// The occupation and place editors of the page, and what they edit.
+struct BulkEditors {
+    occupation: Signal<Option<DictionaryEntry>>,
+    place: Signal<Option<Uuid>>,
+    occupations: Memo<FiledEntries<DictionaryEntry>>,
+    places: Memo<FiledEntries<PlaceDictionaryEntry>>,
+    occupations_resource: TabResource<Vec<DictionaryEntry>>,
+    places_resource: TabResource<Vec<PlaceDictionaryEntry>>,
+}
+
+/// The occupation editor (§10.1) or the place editor (§9.1), when one is
+/// open; saving reloads its tab.
+fn render_bulk_editors(tree_id: Uuid, editors: BulkEditors) -> Element {
+    let BulkEditors {
+        occupation: mut occupation_edit,
+        place: mut place_edit,
+        occupations,
+        places,
+        mut occupations_resource,
+        mut places_resource,
+    } = editors;
+    let place = place_edit().and_then(|id| {
+        places
+            .read()
+            .entries
+            .iter()
+            .find(|e| e.place.id == id)
+            .map(|e| e.place.clone())
+    });
+    rsx! {
+        if let Some(entry) = occupation_edit() {
+            OccupationEditor {
+                key: "{entry.value}",
+                tree_id,
+                entry,
+                known: occupations.read().entries.clone(),
+                on_close: move |()| occupation_edit.set(None),
+                on_saved: move |()| {
+                    occupation_edit.set(None);
+                    occupations_resource.restart();
+                },
+            }
+        }
+        if let Some(place) = place {
+            PlaceEditor {
+                key: "{place.id}",
+                tree_id,
+                place,
+                known: places.read().entries.clone(),
+                on_close: move |()| place_edit.set(None),
+                on_saved: move |()| {
+                    place_edit.set(None);
+                    places_resource.restart();
+                },
             }
         }
     }
@@ -1530,8 +1610,8 @@ struct ValueTab {
     /// Family names (rather than occupations) key their usage list.
     navigable: bool,
     sort_particles: SortParticles,
-    /// `Some` only on the Family Names tab: occupations are not edited here.
-    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
+    /// Opens the tab's editor on a value.
+    on_edit: EventHandler<DictionaryEntry>,
     filed: Memo<FiledEntries<DictionaryEntry>>,
 }
 
@@ -1716,17 +1796,17 @@ fn render_usage_accordion(
 
 // ── Family Names / Occupations tab (plain value + count) ────────────────
 
-/// One value of the Family Names or Occupations tab: its label and count, the
-/// Edit menu of a family name, and its fold state. A click or Enter folds it.
-/// On the family-name tab a right click, the menu key, Shift+F10 and a long
-/// press open the same Edit menu as its trigger.
+/// One value of the Family Names or Occupations tab: its label and count, its
+/// Edit menu, and its fold state. A click or Enter folds it; a right click,
+/// the menu key, Shift+F10 and a long press open the same Edit menu as its
+/// trigger.
 #[component]
 fn ValueRow(
     entry: DictionaryEntry,
     label: String,
     count: String,
     is_open: bool,
-    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
+    on_edit: EventHandler<DictionaryEntry>,
     on_toggle: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
@@ -1741,50 +1821,40 @@ fn ValueRow(
                 if is_enter_or_space(&event) {
                     event.prevent_default();
                     on_toggle.call(());
-                } else if family_name_edit.is_some() {
+                } else {
                     shortcut.key(&event);
                 }
             },
-            oncontextmenu: move |event: Event<MouseData>| {
-                if family_name_edit.is_some() {
-                    shortcut.right_click(&event);
-                }
-            },
-            onpointerdown: move |event: Event<PointerData>| {
-                if family_name_edit.is_some() {
-                    shortcut.press_start(&event);
-                }
-            },
+            oncontextmenu: move |event: Event<MouseData>| shortcut.right_click(&event),
+            onpointerdown: move |event: Event<PointerData>| shortcut.press_start(&event),
             onpointerup: move |_| shortcut.press_end(),
             onpointercancel: move |_| shortcut.press_end(),
             div { class: "dict-row-main",
                 span { class: "dict-row-value", "{label}" }
             }
             span { class: "dict-row-count", "{count}" }
-            if let Some(mut family_name_edit) = family_name_edit {
-                MenuButton {
-                    name: label.clone(),
-                    shortcut: Some(shortcut),
-                    items: {
-                        let entry = entry.clone();
-                        let edit_label = edit_label.clone();
-                        move |menu: MenuClose| rsx! {
-                            button {
-                                role: "menuitem",
-                                class: "context-menu-item",
-                                onclick: {
-                                    let entry = entry.clone();
-                                    move |_| {
-                                        // The editor it opens takes the focus itself.
-                                        menu.hand_off.call(());
-                                        family_name_edit.set(Some(FamilyNameEdit::new(&entry)));
-                                    }
-                                },
-                                "{edit_label}"
-                            }
+            MenuButton {
+                name: label.clone(),
+                shortcut: Some(shortcut),
+                items: {
+                    let entry = entry.clone();
+                    let edit_label = edit_label.clone();
+                    move |menu: MenuClose| rsx! {
+                        button {
+                            role: "menuitem",
+                            class: "context-menu-item",
+                            onclick: {
+                                let entry = entry.clone();
+                                move |_| {
+                                    // The editor it opens takes the focus itself.
+                                    menu.hand_off.call(());
+                                    on_edit.call(entry.clone());
+                                }
+                            },
+                            "{edit_label}"
                         }
-                    },
-                }
+                    }
+                },
             }
             span {
                 class: "dict-row-chevron",
@@ -1815,7 +1885,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         empty_key,
         navigable,
         sort_particles,
-        family_name_edit,
+        on_edit,
         filed,
     } = tab;
     let file_by_root = !sort_particles.0;
@@ -1871,7 +1941,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
                                     label,
                                     count: i18n.t_plural("dictionary.person_count", entry.count as usize),
                                     is_open,
-                                    family_name_edit,
+                                    on_edit,
                                     on_toggle: {
                                         let key = key.clone();
                                         move |()| {

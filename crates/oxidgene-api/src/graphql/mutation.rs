@@ -10,8 +10,8 @@ use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
 use crate::service::tag_bulk::{self, BulkAction};
 use crate::service::{
-    duplicates, event, family, family_names, media, media_link, person, person_name, place,
-    repository, source, tag, tree, vignette,
+    duplicates, event, family, family_names, media, media_link, occupations, person, person_name,
+    place, repository, source, tag, tree, vignette,
 };
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
@@ -23,21 +23,22 @@ use super::inputs::{
     CreateCitationInput, CreateEventInput, CreateMediaLinkInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    MergeChoicesInput, PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput,
-    TagTargetInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput,
-    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
-    UpdateRepositoryInput, UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput,
-    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
-    geneanet_deposit_sizes, geneanet_media_paths, tag_target_spec,
+    MergeChoicesInput, MergePlaceInput, MergeRepositoryInput, PersonNameInput,
+    RenameFamilyNameInput, RenameOccupationInput, SetFamilyNameParticleInput, TagTargetInput,
+    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
+    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput,
+    UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput, UpdateTreeInput,
+    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
+    geneanet_media_paths, tag_target_spec,
 };
 use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
     GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
-    GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlRepository, GqlSource,
-    GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
-    profiles_from_ctx, purge_from_ctx, require_local_file_access,
+    GqlNote, GqlOccupationRename, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult,
+    GqlRepository, GqlSource, GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx,
+    media_from_ctx, profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
 use super::types::{GqlBulkTagAction, GqlBulkTagCount};
 
@@ -627,6 +628,32 @@ impl MutationRoot {
         .await
     }
 
+    /// Fold a place into another, mirroring
+    /// `POST /trees/{id}/places/{place_id}/merge`: its events and media move
+    /// to `input.into`, its tags join, and it is deleted; the kept place
+    /// takes the fields given.
+    async fn merge_place(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        input: MergePlaceInput,
+    ) -> Result<GqlPlace> {
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let place = place::merge_place(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(place.into())
+        })
+        .await
+    }
+
     /// Delete a place (hard delete).
     async fn delete_place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         boxed(async move {
@@ -735,6 +762,31 @@ impl MutationRoot {
                     .await?
                     .into(),
             )
+        })
+        .await
+    }
+
+    /// Fold a repository into another, mirroring
+    /// `POST /trees/{id}/repositories/{repository_id}/merge`: the sources it
+    /// holds, its notes and its tags move to `input.into`, and it is deleted;
+    /// the kept repository takes the fields given.
+    async fn merge_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        input: MergeRepositoryInput,
+    ) -> Result<GqlRepository> {
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(repository::merge_repository(
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?
+            .into())
         })
         .await
     }
@@ -1481,6 +1533,29 @@ impl MutationRoot {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let renamed = family_names::rename(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.into(),
+            )
+            .await?;
+            Ok(renamed.into())
+        })
+        .await
+    }
+
+    /// Give every occupation event labelled one occupation another label,
+    /// merging into that occupation when it is already listed. Mirrors
+    /// `PATCH /trees/{id}/dictionary/occupations/rename`.
+    async fn rename_occupation(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: RenameOccupationInput,
+    ) -> Result<GqlOccupationRename> {
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let renamed = occupations::rename(
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,

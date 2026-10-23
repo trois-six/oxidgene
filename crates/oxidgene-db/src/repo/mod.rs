@@ -52,7 +52,7 @@ pub use connection::{
 };
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
-    PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
+    OccupationRename, PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
 pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
 pub use event_spouse_age::EventSpouseAgeRepo;

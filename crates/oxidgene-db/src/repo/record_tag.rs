@@ -86,6 +86,29 @@ impl RecordTagRepo {
         Ok(result.rows_affected > 0)
     }
 
+    /// Move the tags of record `from` onto record `to`, both of `kind`, when a
+    /// merge folds one into the other: `to` keeps its own tags and gains the
+    /// others, each once, and `from` is left with none.
+    pub async fn move_tags(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        kind: RecordKind,
+        from: Uuid,
+        to: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        let tags = Self::tags_of(db, kind, &[from]).await?;
+        for tag in tags.get(&from).into_iter().flatten() {
+            Self::add(db, tree_id, tag.id, kind, to).await?;
+        }
+        record_tag::Entity::delete_many()
+            .filter(record_tag::Column::TreeId.eq(tree_id))
+            .filter(column_of(kind).eq(from))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Put `tag_id` on each person of `person_ids` that does not carry it yet.
     /// Returns the persons whose link was inserted by this call, in no
     /// particular order. The insert itself decides who was changed: a person

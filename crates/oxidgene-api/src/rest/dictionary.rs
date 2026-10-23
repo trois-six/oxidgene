@@ -2,6 +2,7 @@
 //! (family names, sources, places, occupations) and usage drill-downs.
 
 use crate::service::family_names::{self, FamilyNameChange, ParticleChange};
+use crate::service::occupations::{self, OccupationChange};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
@@ -9,8 +10,8 @@ use uuid::Uuid;
 
 use super::dto::{
     DictionaryEntryDto, DictionarySourcesQuery, DictionaryUsageQuery, FamilyNameParticleUpdateDto,
-    FamilyNameRenameDto, PersonUsageEntryDto, PlaceDictionaryEntry, SourceDictionaryEntry,
-    SourceDrillResponse, SourceGroupDto, SourcePrefixQuery,
+    FamilyNameRenameDto, OccupationRenameDto, PersonUsageEntryDto, PlaceDictionaryEntry,
+    SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto, SourcePrefixQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -185,6 +186,19 @@ pub async fn rename_family_name(
     Json(body): Json<FamilyNameChange>,
 ) -> Result<Json<FamilyNameRenameDto>, ApiError> {
     let renamed = family_names::rename(&state.db, &state.profiles, tree_id, body).await?;
+    Ok(Json(renamed.into()))
+}
+
+/// PATCH /api/v1/trees/:tree_id/dictionary/occupations/rename
+///
+/// Gives every occupation event labelled one occupation another label,
+/// merging into that occupation when it is already listed.
+pub async fn rename_occupation(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<OccupationChange>,
+) -> Result<Json<OccupationRenameDto>, ApiError> {
+    let renamed = occupations::rename(&state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(renamed.into()))
 }
 

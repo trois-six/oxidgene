@@ -6,14 +6,16 @@
 //! versioned record of its own, and a link is part of its source's state.
 
 use oxidgene_core::enums::SourceMediaType;
-use oxidgene_core::history::AuditEntity;
+use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
+use oxidgene_core::types::KeptEntityKind;
 use std::collections::HashMap;
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::{Connection, Repository, Source, SourceRepository};
 use oxidgene_db::repo::{
-    PaginationParams, RepositoryFields, RepositoryPatch as RepoPatch, RepositoryRepo, SourceRepo,
-    SourceRepositoryFields, SourceRepositoryPatch as LinkRepoPatch, SourceRepositoryRepo,
+    GedcomKeptRepo, PaginationParams, RepositoryFields, RepositoryPatch as RepoPatch,
+    RepositoryRepo, SourceRepo, SourceRepositoryFields, SourceRepositoryPatch as LinkRepoPatch,
+    SourceRepositoryRepo,
 };
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
@@ -50,6 +52,22 @@ pub struct RepositoryPatch {
     pub email: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub website: Option<Option<String>>,
+}
+
+/// Repository `id` folded into repository `into`, which takes the fields
+/// given: the ones the merge chose, field by field, from either repository.
+#[derive(Debug, Deserialize)]
+pub struct RepositoryMerge {
+    pub into: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub website: Option<String>,
 }
 
 /// A source's link to a repository holding it, to create.
@@ -185,6 +203,64 @@ pub async fn delete_repository(
     pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(true)
+}
+
+/// Merge repository `id` of `tree_id` into repository `merge.into`: the
+/// sources it holds become held there, its notes and tags move there, and
+/// `id` is deleted; `into` takes the fields chosen. A blank name, or a
+/// repository merged into itself, is refused.
+pub async fn merge_repository(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    id: Uuid,
+    merge: RepositoryMerge,
+) -> Result<Repository, OxidGeneError> {
+    let name = required_name(&merge.name)?;
+    if merge.into == id {
+        return Err(OxidGeneError::Validation(
+            "a repository cannot be merged into itself".to_string(),
+        ));
+    }
+    let txn = begin_tx(db).await?;
+    require_tree_resource(&txn, tree_id, TreeResource::Repository, id).await?;
+    require_tree_resource(&txn, tree_id, TreeResource::Repository, merge.into).await?;
+    // Read before the merge moves them: the sources whose links change (a
+    // link is part of its source's state) and the absorbed repository's name.
+    let sources = RepositoryRepo::linked_sources(&txn, id).await?;
+    let absorbed = RepositoryRepo::get(&txn, id).await?;
+    let mut change = Change::new(
+        tree_id,
+        AuditAction::Merge,
+        AuditEntity::Repository,
+        merge.into,
+    )
+    .repository(merge.into)
+    .repository(id)
+    .details(AuditDetails {
+        other_label: Some(absorbed.name),
+        ..AuditDetails::default()
+    });
+    for source_id in sources {
+        change = change.source(source_id);
+    }
+    let pending = change.prepare(&txn).await?;
+    RepositoryRepo::absorb(&txn, tree_id, merge.into, id).await?;
+    GedcomKeptRepo::repoint(&txn, KeptEntityKind::Repository, id, merge.into).await?;
+    let repository = RepositoryRepo::update(
+        &txn,
+        merge.into,
+        RepoPatch {
+            name: Some(name),
+            address: Some(blank_to_none(merge.address)),
+            phone: Some(blank_to_none(merge.phone)),
+            email: Some(blank_to_none(merge.email)),
+            website: Some(blank_to_none(merge.website)),
+        },
+    )
+    .await?;
+    pending.record(&txn).await?;
+    commit_tx(txn).await?;
+    Ok(repository)
 }
 
 /// The repositories holding source `source_id` of `tree_id`, in order.

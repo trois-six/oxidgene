@@ -727,6 +727,29 @@ impl From<oxidgene_db::repo::FamilyNameRename> for FamilyNameRenameDto {
     }
 }
 
+/// Result of the dictionary's occupation rename.
+#[derive(Debug, Serialize)]
+pub struct OccupationRenameDto {
+    pub value: String,
+    pub new_value: String,
+    pub events_updated: usize,
+    pub persons_updated: usize,
+    /// `new_value` was already listed: the renamed events joined it.
+    pub merged: bool,
+}
+
+impl From<oxidgene_db::repo::OccupationRename> for OccupationRenameDto {
+    fn from(r: oxidgene_db::repo::OccupationRename) -> Self {
+        Self {
+            value: r.value,
+            new_value: r.new_value,
+            events_updated: r.events_updated,
+            persons_updated: r.persons_updated,
+            merged: r.merged,
+        }
+    }
+}
+
 pub use crate::service::source::SourceDictionaryEntry;
 
 /// A place paired with its usage count (events + media referencing it).

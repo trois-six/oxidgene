@@ -9,7 +9,9 @@ use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, RecordKind, Repository, SourceRepository};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use crate::entities::repository::{self, ActiveModel, Column, Entity};
@@ -182,6 +184,77 @@ impl RepositoryRepo {
         active.deleted_at = Set(Some(Utc::now()));
         active.update(db).await.map_err(db_err)?;
         Ok(())
+    }
+
+    /// Fold repository `absorbed` into repository `kept`, both of `tree_id`:
+    /// the sources it holds become held at `kept` — a link `kept` already has,
+    /// same source, call number and medium, is not doubled — its notes and
+    /// tags move to `kept`, and `absorbed` is deleted. `kept`'s own fields
+    /// are left as they are.
+    pub async fn absorb(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        kept: Uuid,
+        absorbed: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        let links = source_repository::Entity::find()
+            .filter(source_repository::Column::RepositoryId.is_in([kept, absorbed]))
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        let held: Vec<_> = links
+            .iter()
+            .filter(|link| link.repository_id == kept)
+            .map(|link| (link.source_id, link.call_number.clone(), link.media_type))
+            .collect();
+        let (doubled, moved): (Vec<_>, Vec<_>) = links
+            .iter()
+            .filter(|link| link.repository_id == absorbed)
+            .partition(|link| {
+                held.contains(&(link.source_id, link.call_number.clone(), link.media_type))
+            });
+        let ids = |links: &[&source_repository::Model]| -> Vec<Uuid> {
+            links.iter().map(|link| link.id).collect()
+        };
+        source_repository::Entity::delete_many()
+            .filter(source_repository::Column::Id.is_in(ids(&doubled)))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        source_repository::Entity::update_many()
+            .col_expr(source_repository::Column::RepositoryId, Expr::value(kept))
+            .filter(source_repository::Column::Id.is_in(ids(&moved)))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        note::Entity::update_many()
+            .col_expr(note::Column::RepositoryId, Expr::value(kept))
+            .filter(note::Column::RepositoryId.eq(absorbed))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        RecordTagRepo::move_tags(db, tree_id, RecordKind::Repository, absorbed, kept).await?;
+        Self::delete(db, absorbed).await
+    }
+
+    /// The sources, live or not, linked to repository `id`, in ascending
+    /// order: the sources a merge of it rewrites, whose state the history
+    /// keeps before it does.
+    pub async fn linked_sources(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let mut sources: Vec<Uuid> = source_repository::Entity::find()
+            .select_only()
+            .column(source_repository::Column::SourceId)
+            .filter(source_repository::Column::RepositoryId.eq(id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        sources.sort_unstable();
+        sources.dedup();
+        Ok(sources)
     }
 
     /// Whether a live source holds `id` or a live note is about it.

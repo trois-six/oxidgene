@@ -130,6 +130,8 @@ string_enum! {
         Note => "note",
         /// A surname's particle re-cut across every person bearing it.
         FamilyName => "family_name",
+        /// An occupation renamed across every event labelled with it.
+        Occupation => "occupation",
         Media => "media",
         /// A tag of the tree's vocabulary: created, renamed, recoloured,
         /// merged or deleted.

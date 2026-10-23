@@ -4715,6 +4715,16 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: var(--space-3);
     }
 
+    /* The choice to merge a place or repository into the one its name
+       matches, under that warning (components/merge_fields.rs). */
+    .dict-merge-toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-2);
+        margin: var(--space-3) 0;
+    }
+    .dict-merge-toggle > input { flex: none; margin-top: 3px; }
+
     .dict-particle-preview {
         margin-top: var(--space-7);
         padding: var(--space-5) var(--space-6);

@@ -1,10 +1,10 @@
 +++
 title = "Dictionary"
-description = "Browse the family names, sources, repositories, places and occupations of a tree, and rename or merge family names in bulk."
+description = "Browse the family names, sources, repositories, places and occupations of a tree, and rename or merge them in bulk."
 weight = 110
 +++
 
-The dictionary lists every distinct value entered across a tree — family names, sources, repositories, places and occupations — once each, with how often it is used. It is the place to spot a surname spelled two ways, a source cited from a dozen places or a place entered slightly differently each time, and to fix family names for everyone who carries them at once.
+The dictionary lists every distinct value entered across a tree — family names, sources, repositories, places and occupations — once each, with how often it is used. It is the place to spot a surname spelled two ways, a source cited from a dozen places or a place entered slightly differently each time, and to fix them for every record that uses them at once: rename or merge a family name or an occupation, and edit or merge a place or a repository.
 
 ## Open the dictionary
 
@@ -91,15 +91,37 @@ The **Repositories** tab lists the archives, libraries and offices that hold you
 
 - Unfold a repository to see the sources it holds, with their call numbers and medium.
 - Choose **Edit** in a repository's **⋮** menu to edit it, or **Add a repository** to create one. A repository has a **Name** (required), an **Address**, a **Phone**, an **Email**, a **Website** and notes.
+- When you give a repository the name of another one (capitals, accents and punctuation aside), the editor offers to merge them: see [Merge two places or two repositories](#merge-two-places-or-two-repositories).
 - **Delete the repository**, at the bottom of its editor, removes it after confirmation. The sources it held stay in the tree; they are simply no longer listed as held there. Undoing the deletion from the history brings the links back.
 
 ## Places
 
 Each row is a place as entered, with a pin that is filled when the place has map coordinates and muted when it does not, and the number of events and media that use it. Unfold a place to list the persons concerned: the persons of its events (both spouses for a couple's event) and the persons linked to its media.
 
+### Edit a place
+
+Open the **⋮** menu of a place's row (or right-click it) and choose **Edit** to open **Edit place**. Change its **Name**, its **Latitude** and its **Longitude** (leave both empty for no coordinates), then click **Save**: every event and media at the place shows the change.
+
+### Merge two places or two repositories
+
+When a place or a repository was entered twice, give one of them the other's name in its editor. Capitals, accents and punctuation do not count, so "SAINT-ALBAN" matches "Saint Alban". The editor then:
+
+1. Warns that the name is another place's (with its number of uses) or another repository's. When several match, choose the one to merge into in **Merge into**.
+2. Ticks **Merge with "…"**. The box starts unticked when the two already had the same name, since two places can share a name and be different places: tick it yourself to merge them.
+3. Lists the details the two hold differently, a place's name and coordinates, a repository's name, address, phone, email and website, each with a choice between **This one** and the other. A detail only one of them has is kept.
+4. Click **Merge**.
+
+The other record stays, with the details you chose. A merged place takes over every event and media of this one, and its tags. A merged repository takes over the sources this one held, its notes and its tags; a source already held there under the same call number is not listed twice. This one is then deleted. The merge is one entry of the tree's [history](@/guide/history.md).
+
 ## Occupations
 
 Each row is an occupation as entered, with the number of persons who held it. Unfold it to list them.
+
+### Rename or merge an occupation
+
+Open the **⋮** menu at the end of an occupation's row and choose **Edit** to open **Edit occupation**. Change the **Occupation** field, read the line below it, which says how many persons will be renamed, and click **Rename**. Every occupation event recording it takes the new label. If the new label already exists, the dialog warns you that the two will be merged.
+
+A rename is recorded in the tree's [history](@/guide/history.md) as one entry, and each renamed person gets a new version, which you can restore person by person.
 
 ## Print a list
 

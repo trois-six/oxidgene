@@ -14,7 +14,10 @@ use uuid::Uuid;
 
 use crate::api::{
     AddSourceRepositoryBody, ApiClient, ApiError, CreateNoteBody, CreateRepositoryBody,
-    UpdateNoteBody, UpdateRepositoryBody, UpdateSourceBody,
+    MergeRepositoryBody, UpdateNoteBody, UpdateRepositoryBody, UpdateSourceBody,
+};
+use crate::components::merge_fields::{
+    MergeCandidate, MergeField, MergeOffer, MergePicks, merged_value, same_name, use_merge_offer,
 };
 use crate::components::modal::Modal;
 use crate::components::person_form::{DeleteSection, MoreDetails};
@@ -477,6 +480,7 @@ async fn save_repository(
     state: &RepositoryState,
     fields: RepositoryFields,
 ) -> Result<(), ApiError> {
+    let note = fields.note.clone();
     let saved = match &state.repository {
         Some(repository) => {
             api.update_repository(
@@ -506,7 +510,39 @@ async fn save_repository(
             .await?
         }
     };
-    let note = fields.note.trim();
+    save_note(api, tree_id, state, saved.id, &note).await
+}
+
+/// Saves the editor: writes `fields`, or with `merge` folds the edited
+/// repository into another. Its note is its own: saved first, it moves with
+/// the others into the repository kept.
+async fn save_or_merge(
+    api: &ApiClient,
+    tree_id: Uuid,
+    state: &RepositoryState,
+    fields: RepositoryFields,
+    merge: Option<MergeRepositoryBody>,
+) -> Result<(), ApiError> {
+    match (merge, &state.repository) {
+        (Some(body), Some(this)) => {
+            save_note(api, tree_id, state, this.id, &fields.note).await?;
+            api.merge_repository(tree_id, this.id, &body).await?;
+            Ok(())
+        }
+        _ => save_repository(api, tree_id, state, fields).await,
+    }
+}
+
+/// Reconciles the first note of repository `repository_id` with `note`:
+/// written, changed or deleted as the editor left it.
+async fn save_note(
+    api: &ApiClient,
+    tree_id: Uuid,
+    state: &RepositoryState,
+    repository_id: Uuid,
+    note: &str,
+) -> Result<(), ApiError> {
+    let note = note.trim();
     match (state.note_id, note.is_empty()) {
         (Some(id), true) => api.delete_note(tree_id, id).await?,
         (Some(id), false) if note != state.note.trim() => {
@@ -529,7 +565,7 @@ async fn save_repository(
                     family_id: None,
                     source_id: None,
                     media_id: None,
-                    repository_id: Some(saved.id),
+                    repository_id: Some(repository_id),
                 },
             )
             .await?;
@@ -539,11 +575,102 @@ async fn save_repository(
     Ok(())
 }
 
-/// Creates a repository (`repository` absent) or edits one.
+/// The repositories of `others` other than `this` whose name matches
+/// `name`, as merge candidates named with the first line of their address,
+/// which tells two of one name apart. A new repository merges into none.
+fn repository_candidates(
+    this: Option<&Repository>,
+    others: &[Repository],
+    name: &str,
+) -> Vec<MergeCandidate> {
+    let Some(this) = this else {
+        return Vec::new();
+    };
+    others
+        .iter()
+        .filter(|other| other.id != this.id && same_name(&other.name, name))
+        .map(|other| {
+            let line = other
+                .address
+                .as_deref()
+                .and_then(|a| a.lines().map(str::trim).find(|l| !l.is_empty()));
+            MergeCandidate {
+                id: other.id,
+                name: other.name.clone(),
+                option: match line {
+                    Some(line) => format!("{} \u{2014} {line}", other.name),
+                    None => other.name.clone(),
+                },
+            }
+        })
+        .collect()
+}
+
+/// The fields a repository merge compares, the edited repository's as typed
+/// in `edited` (name, address, phone, email, website).
+fn repository_fields(i18n: I18n, edited: [String; 5], target: &Repository) -> Vec<MergeField> {
+    let theirs = [
+        Some(target.name.clone()),
+        target.address.clone(),
+        target.phone.clone(),
+        target.email.clone(),
+        target.website.clone(),
+    ];
+    [
+        ("name", "dictionary.repository.name"),
+        ("address", "dictionary.repository.address"),
+        ("phone", "dictionary.repository.phone"),
+        ("email", "dictionary.repository.email"),
+        ("website", "dictionary.repository.website"),
+    ]
+    .into_iter()
+    .zip(edited.into_iter().zip(theirs))
+    .map(|((key, label), (edited, theirs))| MergeField {
+        key,
+        label: i18n.t(label),
+        values: [edited.trim().to_string(), theirs.unwrap_or_default()],
+    })
+    .collect()
+}
+
+/// The merge an edit of a repository makes, when its name matches another
+/// repository's and the user keeps the merge: the repository merged into,
+/// and the fields chosen from either.
+fn repository_merge(
+    target: &Repository,
+    fields: &[MergeField],
+    picks: &MergePicks,
+) -> MergeRepositoryBody {
+    let value = |key: &str| {
+        fields
+            .iter()
+            .find(|field| field.key == key)
+            .map(|field| merged_value(field, picks))
+            .filter(|value| !value.is_empty())
+    };
+    MergeRepositoryBody {
+        into: target.id,
+        fields: UpdateRepositoryBody {
+            name: value("name").unwrap_or_else(|| target.name.clone()),
+            address: value("address"),
+            phone: value("phone"),
+            email: value("email"),
+            website: value("website"),
+        },
+    }
+}
+
+/// Creates a repository (`repository` absent) or edits one. An edited
+/// repository whose name matches another of `others` can merge into it,
+/// choosing field by field what the merged repository keeps
+/// (`docs/ui-dictionary.md` §19).
 #[component]
 pub fn RepositoryEditor(
     tree_id: Uuid,
     repository: Option<Repository>,
+    /// The tree's other repositories, to find the one a name matches.
+    #[props(default)]
+    others: Vec<Repository>,
     on_close: EventHandler<()>,
     on_saved: EventHandler<()>,
 ) -> Element {
@@ -575,6 +702,24 @@ pub fn RepositoryEditor(
     let mut note_loaded = use_signal(|| false);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let offer = use_merge_offer();
+    let candidates = repository_candidates(repository.as_ref(), &others, &name());
+    let target: Option<Repository> = offer
+        .target(&candidates)
+        .and_then(|candidate| others.iter().find(|r| r.id == candidate.id))
+        .cloned();
+    let renamed = repository.as_ref().map(|r| r.name.trim()) != Some(name().trim());
+    let merging = offer.merging(target.is_some(), renamed);
+    let merge_fields = target
+        .as_ref()
+        .map(|target| {
+            repository_fields(
+                i18n,
+                [name(), address(), phone(), email(), website()],
+                target,
+            )
+        })
+        .unwrap_or_default();
 
     let api_load = api.clone();
     let loading = repository.clone();
@@ -590,6 +735,10 @@ pub fn RepositoryEditor(
         note_loaded.set(true);
     }
 
+    let merge = target
+        .as_ref()
+        .filter(|_| merging)
+        .map(|target| repository_merge(target, &merge_fields, &offer.picks.read()));
     let api_save = api.clone();
     let save = move |_| {
         let api = api_save.clone();
@@ -609,10 +758,11 @@ pub fn RepositoryEditor(
             website: field(&website()),
             note: note(),
         };
+        let merge = merge.clone();
         saving.set(true);
         error.set(None);
         spawn(async move {
-            match save_repository(&api, tree_id, &current, fields).await {
+            match save_or_merge(&api, tree_id, &current, fields, merge).await {
                 Ok(()) => on_saved.call(()),
                 Err(e) => {
                     saving.set(false);
@@ -648,7 +798,10 @@ pub fn RepositoryEditor(
                 input {
                     r#type: "text",
                     value: "{name}",
-                    oninput: move |e: Event<FormData>| name.set(e.value()),
+                    oninput: move |e: Event<FormData>| {
+                        name.set(e.value());
+                        offer.reset();
+                    },
                 }
             }
             div { class: "form-group",
@@ -693,6 +846,15 @@ pub fn RepositoryEditor(
                     oninput: move |e: Event<FormData>| note.set(e.value()),
                 }
             }
+            if let Some(target) = &target {
+                MergeOffer {
+                    state: offer,
+                    warning: i18n.t_args("dictionary.repository.exists", &[("name", &target.name)]),
+                    candidates,
+                    merging,
+                    fields: merge_fields.clone(),
+                }
+            }
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
@@ -702,7 +864,13 @@ pub fn RepositoryEditor(
                     class: "td-btn td-btn-primary",
                     disabled: saving() || !note_loaded(),
                     onclick: save,
-                    if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                    if saving() {
+                        {i18n.t("common.saving")}
+                    } else if merging {
+                        {i18n.t("dictionary.merge.apply")}
+                    } else {
+                        {i18n.t("common.save")}
+                    }
                 }
             }
             if let Some(id) = existing_id {

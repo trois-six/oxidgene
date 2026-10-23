@@ -40,6 +40,15 @@ fn open_editor_of(
     }
 }
 
+/// Every repository of the list, for an editor to find the one a name
+/// matches.
+fn listed_repositories(list: &Option<Result<Vec<Repository>, ApiError>>) -> Vec<Repository> {
+    match list {
+        Some(Ok(list)) => list.clone(),
+        _ => Vec::new(),
+    }
+}
+
 /// The repository of the list with this id, for its editor.
 fn listed_repository(
     list: &Option<Result<Vec<Repository>, ApiError>>,
@@ -270,6 +279,7 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                     Editing::New => None,
                     Editing::Existing(repository) => Some(*repository),
                 },
+                others: listed_repositories(&repositories.read()),
                 on_close: move |()| editing.set(None),
                 on_saved: move |()| {
                     editing.set(None);

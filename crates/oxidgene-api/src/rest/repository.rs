@@ -11,7 +11,8 @@ use super::dto::{DeleteRepositoryQuery, HeldSource, PaginationQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::repository::{
-    self, NewRepository, NewSourceRepository, RepositoryPatch, SourceRepositoryPatch,
+    self, NewRepository, NewSourceRepository, RepositoryMerge, RepositoryPatch,
+    SourceRepositoryPatch,
 };
 
 /// GET /api/v1/trees/:tree_id/repositories
@@ -57,6 +58,21 @@ pub async fn update_repository(
 ) -> Result<Json<Repository>, ApiError> {
     Ok(Json(
         repository::update_repository(&state.db, tree_id, repository_id, body).await?,
+    ))
+}
+
+/// POST /api/v1/trees/:tree_id/repositories/:repository_id/merge
+///
+/// Folds the repository into `into`: the sources it holds, its notes and its
+/// tags move there, and it is deleted; the kept repository takes the fields
+/// given.
+pub async fn merge_repository(
+    State(state): State<AppState>,
+    Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<RepositoryMerge>,
+) -> Result<Json<Repository>, ApiError> {
+    Ok(Json(
+        repository::merge_repository(&state.db, tree_id, repository_id, body).await?,
     ))
 }
 

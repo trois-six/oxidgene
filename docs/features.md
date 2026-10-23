@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-20T18:02:52Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -64,6 +64,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - A couple form for the union, its events and its children ([Person Edit Modal §16](ui-person-edit-modal.md#16-couple-edit-modal)).
 - A merge wizard: find the other record, compare field by field, choose what to keep, confirm ([Person Merge](ui-merge.md)).
 - A bulk family-name editor: rename a surname across the tree and fix where it splits between particle and root ([Dictionary §7.1](ui-dictionary.md#71-family-name-editor)).
+- Bulk editors for occupations, places and repositories: rename an occupation on every event recording it, and edit a place or a repository and merge it into the one its name matches, choosing field by field what the merged record keeps ([Dictionary §9.1, §10.1, §19](ui-dictionary.md#91-place-editor)).
 
 ## 5. Pedigree views and printing
 

@@ -58,6 +58,7 @@ mirror_enum!(
     GqlAuditEntity => AuditEntity {
         Tree, Person, PersonName, PersonDistinct, Family, FamilySpouse, FamilyChild, Event,
         EventWitness, Place, Source, SourceRepository, Repository, Citation, Note, FamilyName,
+        Occupation,
         Media, MediaPage, MediaLink, Vignette, Portrait, Tag, RecordTag,
     }
 );

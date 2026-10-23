@@ -51,7 +51,7 @@ use oxidgene_db::entities::{
 };
 use oxidgene_db::repo::{
     BuiltSnapshot, FamilyNameParticleUpdate, FamilyNameRename, HistoryRepo, NewRecordVersion,
-    SnapshotRepo, TreeRepo, VersionHead, db_err, display_names,
+    OccupationRename, SnapshotRepo, TreeRepo, VersionHead, db_err, display_names,
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect,
@@ -694,6 +694,25 @@ pub fn family_name_details(update: &FamilyNameParticleUpdate) -> AuditDetails {
 /// What a family-name rename tells its audit entry: how many persons, and the
 /// new name beside the old one, which labels the entry.
 pub fn family_name_rename_details(rename: &FamilyNameRename) -> AuditDetails {
+    AuditDetails {
+        count: Some(rename.persons_updated as u64),
+        new_label: Some(rename.new_value.clone()),
+        ..AuditDetails::default()
+    }
+}
+
+/// The change an occupation rename makes: every person holding the label,
+/// filed under the label itself. The count is the write's, given once it is
+/// done.
+pub fn occupation_change(tree_id: Uuid, value: &str, person_ids: &[Uuid]) -> Change {
+    Change::new(tree_id, AuditAction::Update, AuditEntity::Occupation, None)
+        .persons(person_ids.iter().copied())
+        .label(value)
+}
+
+/// What an occupation rename tells its audit entry: how many persons, and
+/// the new label beside the old one.
+pub fn occupation_rename_details(rename: &OccupationRename) -> AuditDetails {
     AuditDetails {
         count: Some(rename.persons_updated as u64),
         new_label: Some(rename.new_value.clone()),

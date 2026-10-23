@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-20T12:25:28Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -1186,7 +1186,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `occurred_at` | DateTime | |
 | `category` | String | `data`, `settings`, `media`, `import`, `export`, `history` |
 | `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert` |
-| `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `record_tag`, `tag`, `vignette`, `portrait`, `family_name`, … |
+| `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `record_tag`, `tag`, `vignette`, `portrait`, `family_name`, `occupation`, … |
 | `entity_id` | UUID? | The row written, when there is a single one |
 | `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `repository`, `media`, `tree` |
 | `subject_id` | UUID? | That record |

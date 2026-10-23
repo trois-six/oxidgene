@@ -196,6 +196,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Query.familyNameUsage"]),
     ),
     (
+        "PATCH",
+        "/api/v1/trees/{tree_id}/dictionary/occupations/rename",
+        Gql(&["Mutation.renameOccupation"]),
+    ),
+    (
         "GET",
         "/api/v1/trees/{tree_id}/dictionary/occupations",
         Gql(&["Query.dictionaryOccupations"]),
@@ -734,6 +739,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "POST",
+        "/api/v1/trees/{tree_id}/places/{place_id}/merge",
+        Gql(&["Mutation.mergePlace"]),
+    ),
+    (
+        "POST",
         "/api/v1/trees/{tree_id}/portrait-images",
         Gql(&["Query.portraitImages"]),
     ),
@@ -796,6 +806,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "PUT",
         "/api/v1/trees/{tree_id}/repositories/{repository_id}",
         Gql(&["Mutation.updateRepository"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/repositories/{repository_id}/merge",
+        Gql(&["Mutation.mergeRepository"]),
     ),
     (
         "GET",

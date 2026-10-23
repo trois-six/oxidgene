@@ -535,6 +535,29 @@ pub struct UpdatePlaceInput {
     pub longitude: MaybeUndefined<f64>,
 }
 
+/// Input for folding a place into another: the place kept, and the fields it
+/// takes, chosen field by field from either place.
+#[derive(Debug, InputObject)]
+pub struct MergePlaceInput {
+    pub into: ID,
+    pub name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+impl TryFrom<MergePlaceInput> for crate::service::place::PlaceMerge {
+    type Error = async_graphql::Error;
+
+    fn try_from(input: MergePlaceInput) -> Result<Self, Self::Error> {
+        Ok(Self {
+            into: uuid(&input.into)?,
+            name: input.name,
+            latitude: input.latitude,
+            longitude: input.longitude,
+        })
+    }
+}
+
 impl From<CreatePlaceInput> for crate::service::place::NewPlace {
     fn from(input: CreatePlaceInput) -> Self {
         Self {
@@ -622,6 +645,33 @@ pub struct UpdateRepositoryInput {
     pub phone: MaybeUndefined<String>,
     pub email: MaybeUndefined<String>,
     pub website: MaybeUndefined<String>,
+}
+
+/// Input for folding a repository into another: the repository kept, and the
+/// fields it takes, chosen field by field from either repository.
+#[derive(Debug, InputObject)]
+pub struct MergeRepositoryInput {
+    pub into: ID,
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+}
+
+impl TryFrom<MergeRepositoryInput> for crate::service::repository::RepositoryMerge {
+    type Error = async_graphql::Error;
+
+    fn try_from(input: MergeRepositoryInput) -> Result<Self, Self::Error> {
+        Ok(Self {
+            into: uuid(&input.into)?,
+            name: input.name,
+            address: input.address,
+            phone: input.phone,
+            email: input.email,
+            website: input.website,
+        })
+    }
 }
 
 impl From<CreateRepositoryInput> for crate::service::repository::NewRepository {
@@ -1022,6 +1072,23 @@ impl From<RenameFamilyNameInput> for crate::service::family_names::FamilyNameCha
             value: input.value,
             new_value: input.new_value,
             particle: input.particle,
+        }
+    }
+}
+
+/// Input for the dictionary's occupation rename: every occupation event
+/// labelled `value` (as listed, trimmed) gets `new_value`, trimmed.
+#[derive(Debug, InputObject)]
+pub struct RenameOccupationInput {
+    pub value: String,
+    pub new_value: String,
+}
+
+impl From<RenameOccupationInput> for crate::service::occupations::OccupationChange {
+    fn from(input: RenameOccupationInput) -> Self {
+        Self {
+            value: input.value,
+            new_value: input.new_value,
         }
     }
 }

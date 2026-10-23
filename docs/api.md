@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -393,6 +393,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/places` | Create a place; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/places/{place_id}` | Get a place |
 | `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place; a blank `name` is a `validation_error` |
+| `POST` | `/trees/{tree_id}/places/{place_id}/merge` | Fold the place into another — see below. GraphQL: `mergePlace(treeId, id, input)` |
 | `DELETE` | `/trees/{tree_id}/places/{place_id}` | Delete a place |
 
 Every place read carries `tags`, the labels put on the place as `[{id, label,
@@ -467,6 +468,7 @@ GraphQL, with no `request_id`:
 | `POST` | `/trees/{tree_id}/repositories` | Create a repository; a blank `name` is a `validation_error`; `address`, `phone`, `email`, `website` optional |
 | `GET` | `/trees/{tree_id}/repositories/{repository_id}` | Get a repository |
 | `PUT` | `/trees/{tree_id}/repositories/{repository_id}` | Update a repository: omitted keeps, `null` clears; a blank `name` is a `validation_error` |
+| `POST` | `/trees/{tree_id}/repositories/{repository_id}/merge` | Fold the repository into another — see below. GraphQL: `mergeRepository(treeId, id, input)` |
 | `DELETE` | `/trees/{tree_id}/repositories/{repository_id}` | Soft-delete a repository. With `?only_if_unused=true` it is kept while a live source is held there or a note is about it — `204` deleted, `200` kept |
 | `GET` | `/trees/{tree_id}/repositories/{repository_id}/sources` | The live sources it holds: each link with its `source` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}/repositories` | A source's links to the live repositories holding it, in order |
@@ -844,6 +846,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/rename` | Bulk rename — see below |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
+| `PATCH` | `/trees/{tree_id}/dictionary/occupations/rename` | Bulk rename — see below |
 | `GET` | `/trees/{tree_id}/dictionary/sources?prefix=...&exact=...` | Sources + citation counts; `prefix` keeps the titles starting with it, ignoring case (absent or empty: every source). With `exact=true` the titles equal to `prefix` instead, ignoring case, which needs a non-empty `prefix` (a validation error otherwise). GraphQL: `dictionarySources(prefix, exact)` |
 | `GET` | `/trees/{tree_id}/dictionary/sources/groups?prefix=` | The Sources tab's next drill-down level: `{prefix, total, groups}`, single-choice levels skipped so `prefix` may be longer than asked. Once no group is left (`total` within the drill threshold), the level's sources come with it in `sources`, so the tab needs no second request. GraphQL: `dictionarySourceDrill` |
 | `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons a source documents: those cited directly, the person of a cited individual event, and the spouses of a cited family or family event. Deleted persons, events and families are left out |
@@ -879,6 +882,36 @@ When anything changed, one audit entry is recorded (`entity: "family_name"`,
 `action: "update"`, `label` the old name, `details.count` the persons renamed,
 `details.new_label` the new name) and each renamed person gets a version; a
 person is restored individually through `POST …/history/person/{id}/revert`.
+
+`PATCH /trees/{tree_id}/dictionary/occupations/rename` gives every occupation
+event labelled `value` the label `new_value` (GraphQL `renameOccupation(treeId,
+input: { value, newValue })`). Body `{ "value": "X", "new_value": "Y" }`:
+`value` is matched against the label as listed, trimmed; `new_value` is stored
+trimmed, and joins the occupation it already names. A blank `value` or
+`new_value` is refused with `400`; renaming a label to itself changes nothing.
+The response is `{ value, new_value, events_updated, persons_updated, merged }`.
+The holders' projections are refreshed in the same transaction. When anything
+changed, one audit entry is recorded (`entity: "occupation"`, `action:
+"update"`, `label` the old label, `details.count` the persons, `details.new_label`
+the new label) and each holder gets a version.
+
+**Merging a place or a repository.** `POST …/places/{place_id}/merge` folds the
+place into another of the tree: body `{ "into": "<id>", "name": "…",
+"latitude": 47.2, "longitude": -1.5 }`, the fields the kept place `into` takes
+— chosen by the client from either place, a coordinate omitted or `null` being
+none. Every event and media at the place moves to `into`, its tags join
+`into`'s, and the place is deleted. The persons the two places show on are
+refreshed in the same transaction. `POST …/repositories/{repository_id}/merge`
+does the same for a repository: body `{ "into": "<id>", "name": "…", "address":
+"…", "phone": "…", "email": "…", "website": "…" }`; the sources it holds become
+held at `into` (a link `into` already has — same source, call number and medium
+— is not doubled), its notes and tags move there, what its GEDCOM file kept
+follows it, and it is soft-deleted. Both answer the kept record. A blank
+`name` or a record merged into itself is a `validation_error`, an `into` of
+another tree `not_found`. One audit entry is recorded (`action: "merge"`,
+`entity` `place` or `repository`, `details.other_label` the name of the record
+absorbed), with a version of both records, of the persons a place merge
+refreshes and of the sources whose links a repository merge moves.
 
 ### Value suggestions
 
