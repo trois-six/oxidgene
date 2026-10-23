@@ -143,6 +143,38 @@ for (const viewport of [
             await noSidewaysScroll(page);
         });
 
+        test("a couple's spouse headers keep their tags, SOSA badge and buttons inside their card", async ({
+            page,
+            request,
+            tree,
+        }) => {
+            const tag = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/tags`, {
+                data: { label: "Fictional long tag label for the column" },
+            });
+            const tagId = (await tag.json()).id as string;
+            const people = await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/persons/search?q=Bernard`);
+            const bernard = (await people.json()).entries[0].person_id as string;
+            const put = await request.put(`${apiUrl}/api/v1/trees/${tree.treeId}/tags/${tagId}/records/person/${bernard}`);
+            expect(put.status()).toBe(204);
+
+            await page.goto(`/trees/${tree.treeId}/persons/${bernard}`);
+            await page.getByRole("button", { name: "Couple view" }).click();
+            await expect(page).toHaveURL(/\/couples\/[0-9a-f-]{36}$/);
+            for (const header of await page.locator(".cp-grid .card.page-header").all()) {
+                const card = await box(header);
+                for (const part of await header.locator(".pd-header-actions .badge, .pd-header-actions .tag-badge, .pd-header-actions .btn").all()) {
+                    const placed = await box(part);
+                    expect(placed.x + placed.width).toBeLessThanOrEqual(card.x + card.width + 1);
+                }
+                const sosa = header.locator(".pd-sosa-badge");
+                if (await sosa.count()) {
+                    // One line: as tall as the other badges, not wrapped.
+                    expect((await box(sosa)).height).toBeLessThan(32);
+                }
+            }
+            await noSidewaysScroll(page);
+        });
+
         test("the topbar's history arrows carry no ⋮", async ({ page, tree }) => {
             await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
             await expect(page.locator(".nav-history-btn")).toHaveCount(2);

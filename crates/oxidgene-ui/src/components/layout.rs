@@ -1218,7 +1218,16 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         justify-content: space-between;
     }
-    .cp-grid .pd-header-sosa { min-height: 0; justify-content: flex-start; }
+    .cp-grid .pd-header-sosa { min-height: 0; justify-content: flex-start; flex: none; }
+    /* In a spouse's column the tags take the room between the SOSA badges
+       and the buttons, as on a narrow screen, never the whole row. */
+    .cp-grid .pd-header-actions .tag-badges-header {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
+        align-items: flex-end;
+    }
+    .pd-header-sosa .badge { white-space: nowrap; }
     .cp-actions .tag-badges-header {
         flex: 0 1 auto;
         width: min(22rem, 60%);
@@ -6625,7 +6634,6 @@ pub const LAYOUT_STYLES: &str = r#"
             flex-wrap: wrap;
             row-gap: var(--space-4);
         }
-        .pd-header-sosa .badge { white-space: nowrap; }
         .pd-header-buttons { flex-wrap: wrap; }
         /* A phone has no room for the date column: an event's date sits on
            its own line above it, and "Sources:" above its citations. */
