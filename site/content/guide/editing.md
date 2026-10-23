@@ -42,7 +42,7 @@ The child, the parents already recorded and persons of the other sex are left ou
 
 The **Civil Status** section holds the person's identity:
 
-- **Birth name** and **Given Names**, marked with an asterisk, must be filled in before saving. The surname is written in capitals as you type, unless the tree's automatic uppercase for surnames is off. The given names field completes one name at a time: in "Jean Ma", it suggests names for "Ma".
+- **Birth name** and **Given Names**, marked with an asterisk, must be filled in before saving. The surname is written in capitals as you type, unless **Automatic uppercase for surnames** is off in the [application settings](@/guide/settings.md#entry-options). The given names field completes one name at a time: in "Jean Ma", it suggests names for "Ma".
 - **Sex**: **Male**, **Female** or **Unknown**.
 - **Source**: the source of the identity as a whole (see [Sources](#sources) below).
 
@@ -109,7 +109,7 @@ When you save, a place you picked is used as it is. Text you typed becomes the t
 
 Surname, given-name, occupation and source fields also suggest values as you type: the tree's values first, each with the number of persons using it, then terms from the reference sheets in any language. A row marked **info** has a sheet explaining it, which you can read by hovering the term on the person page. Picking a suggestion enters it as the tree or the sheet writes it.
 
-Suggestions never restrict what you type. Turn them off for a tree with **Entry suggestions** under **Entry Options** in the tree settings.
+Suggestions never restrict what you type. Turn them off with **Entry suggestions** under **Entry Options** in the [application settings](@/guide/settings.md#entry-options).
 
 ## Sources
 

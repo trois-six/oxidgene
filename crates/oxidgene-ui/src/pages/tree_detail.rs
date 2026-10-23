@@ -263,8 +263,8 @@ impl Overlays {
     }
 }
 
-/// What the page's writes need: the API, the tree, and the cache to
-/// invalidate once they land.
+/// What the page's writes need: the API, the tree, the cache to invalidate
+/// once they land, and the entry options their forms follow.
 #[derive(Clone)]
 struct TreeWrites {
     api: ApiClient,
@@ -272,6 +272,7 @@ struct TreeWrites {
     tree_cache: TreeCache,
     overlays: Overlays,
     selected_root: Signal<Option<Uuid>>,
+    entry_options: Signal<crate::prefs::EntryOptions>,
 }
 
 impl TreeWrites {
@@ -620,6 +621,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         tree_cache,
         overlays,
         selected_root,
+        entry_options: crate::prefs::use_entry_options(),
     };
     let view = crate::prefs::use_pedigree_view();
     let tree_name_str = tree_cache
@@ -994,8 +996,8 @@ fn linking_panel(
 ) -> Element {
     let mut linking = writes.overlays.linking;
     let (title_key, search_key, create_key) = mode.label_keys();
-    // A tree that does not suggest its persons only offers a new one.
-    let suggest = writes.tree_cache.suggest_persons();
+    // Without suggested persons, only a new one is offered.
+    let suggest = (writes.entry_options)().suggest_persons;
     let body = match *mode {
         LinkingMode::Kinship(from) => {
             let (nav, tree_id) = (dioxus::router::navigator(), tree_id.to_string());

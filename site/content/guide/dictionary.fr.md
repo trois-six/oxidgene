@@ -41,7 +41,7 @@ Le classement d'un nom à particule comme « de la » ou « d' » dépend de l'o
 
 Ouvrez le menu **⋮** en bout de ligne d’un nom de famille et choisissez **Modifier** pour ouvrir **Modifier le nom de famille**.
 
-1. Modifiez le champ **Nom**. Si l'arbre écrit les noms de famille en capitales, le champ le fait aussi.
+1. Modifiez le champ **Nom**. Si les noms de famille s'écrivent en capitales (**Options de saisie** dans les paramètres de l'application), le champ le fait aussi.
 2. Lisez la ligne en dessous : elle indique combien de personnes seront renommées.
 3. Cliquez sur **Renommer**.
 

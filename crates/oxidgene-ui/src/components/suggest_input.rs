@@ -11,8 +11,8 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, NameScope, SuggestionField, ValueSuggestion};
-use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
+use crate::prefs::use_entry_options;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
 
@@ -196,7 +196,7 @@ pub(crate) fn use_value_suggestions(
 ) -> Resource<Vec<ValueSuggestion>> {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
+    let entry_options = use_entry_options();
     let mut debounced = use_signal(String::new);
     let _debounce = use_ui_resource("value_input_debounce", move || {
         let text = typed();
@@ -210,7 +210,7 @@ pub(crate) fn use_value_suggestions(
         let text = debounced();
         let scope = scope();
         let lang = i18n.0.reference_code();
-        let enabled = tree_cache.entry_suggestions();
+        let enabled = entry_options().suggestions;
         async move {
             let query = match field {
                 SuggestionField::GivenNames => last_word(&text).1,
@@ -269,7 +269,7 @@ pub fn ValueInput(
     field: SuggestionField,
     #[props(default)] placeholder: Option<String>,
     /// A surname entry field: it writes its text, and suggests surnames, in
-    /// capitals while the tree's automatic uppercase for surnames is on.
+    /// capitals while the automatic uppercase for surnames is on.
     #[props(default)]
     surname: bool,
     /// Offer only what the tree holds, as search filters do: a term no
@@ -279,8 +279,7 @@ pub fn ValueInput(
     #[props(default)] on_change: Option<EventHandler<()>>,
 ) -> Element {
     let i18n = use_i18n();
-    let tree_cache = use_tree_cache();
-    let uppercase = surname && tree_cache.surname_uppercase();
+    let uppercase = surname && use_entry_options()().surname_uppercase;
     let mut value = value;
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.

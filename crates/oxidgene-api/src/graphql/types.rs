@@ -220,68 +220,6 @@ impl From<GqlTreeDefaultPrivacy> for oxidgene_core::enums::TreeDefaultPrivacy {
     }
 }
 
-/// How much of a date a tree writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
-pub enum GqlDateDisplayFormat {
-    DayMonthYear,
-    Numeric,
-    MonthYear,
-    Year,
-}
-
-impl From<oxidgene_core::enums::DateDisplayFormat> for GqlDateDisplayFormat {
-    fn from(v: oxidgene_core::enums::DateDisplayFormat) -> Self {
-        match v {
-            oxidgene_core::enums::DateDisplayFormat::DayMonthYear => Self::DayMonthYear,
-            oxidgene_core::enums::DateDisplayFormat::Numeric => Self::Numeric,
-            oxidgene_core::enums::DateDisplayFormat::MonthYear => Self::MonthYear,
-            oxidgene_core::enums::DateDisplayFormat::Year => Self::Year,
-        }
-    }
-}
-
-impl From<GqlDateDisplayFormat> for oxidgene_core::enums::DateDisplayFormat {
-    fn from(v: GqlDateDisplayFormat) -> Self {
-        match v {
-            GqlDateDisplayFormat::DayMonthYear => Self::DayMonthYear,
-            GqlDateDisplayFormat::Numeric => Self::Numeric,
-            GqlDateDisplayFormat::MonthYear => Self::MonthYear,
-            GqlDateDisplayFormat::Year => Self::Year,
-        }
-    }
-}
-
-/// The order and form of a tree's date fields.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
-pub enum GqlDateInputFormat {
-    Slashes,
-    Dashes,
-    Iso,
-    MonthName,
-}
-
-impl From<oxidgene_core::enums::DateInputFormat> for GqlDateInputFormat {
-    fn from(v: oxidgene_core::enums::DateInputFormat) -> Self {
-        match v {
-            oxidgene_core::enums::DateInputFormat::Slashes => Self::Slashes,
-            oxidgene_core::enums::DateInputFormat::Dashes => Self::Dashes,
-            oxidgene_core::enums::DateInputFormat::Iso => Self::Iso,
-            oxidgene_core::enums::DateInputFormat::MonthName => Self::MonthName,
-        }
-    }
-}
-
-impl From<GqlDateInputFormat> for oxidgene_core::enums::DateInputFormat {
-    fn from(v: GqlDateInputFormat) -> Self {
-        match v {
-            GqlDateInputFormat::Slashes => Self::Slashes,
-            GqlDateInputFormat::Dashes => Self::Dashes,
-            GqlDateInputFormat::Iso => Self::Iso,
-            GqlDateInputFormat::MonthName => Self::MonthName,
-        }
-    }
-}
-
 /// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlSourceMediaType {
@@ -862,24 +800,6 @@ pub struct GqlTree {
     pub self_person_id: Option<ID>,
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: GqlTreeDefaultPrivacy,
-    /// Whether entry fields suggest values as the user types.
-    pub entry_suggestions: bool,
-    /// How much of a date the tree's pages write.
-    pub date_format: GqlDateDisplayFormat,
-    /// Whether lifespans write the birth and death symbols.
-    pub date_symbols: bool,
-    /// Whether an approximate date reads « c. ».
-    pub date_circa: bool,
-    /// The calendar a date recorded in another one is also given in.
-    pub date_calendar: GqlCalendar,
-    /// Whether surname fields write in capitals.
-    pub surname_uppercase: bool,
-    /// Whether adding a relative offers the persons already in the tree.
-    pub suggest_persons: bool,
-    /// The order and form of a date field's parts.
-    pub date_input_format: GqlDateInputFormat,
-    /// The calendar an empty date field starts in.
-    pub date_input_calendar: GqlCalendar,
     /// Who the tree's GEDCOM exports say they are from.
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
@@ -939,15 +859,6 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             sosa_root_person_id: t.sosa_root_person_id.map(|id| ID(id.to_string())),
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
-            entry_suggestions: t.entry_suggestions,
-            date_format: t.date_format.into(),
-            date_symbols: t.date_symbols,
-            date_circa: t.date_circa,
-            date_calendar: t.date_calendar.into(),
-            surname_uppercase: t.surname_uppercase,
-            suggest_persons: t.suggest_persons,
-            date_input_format: t.date_input_format.into(),
-            date_input_calendar: t.date_input_calendar.into(),
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,

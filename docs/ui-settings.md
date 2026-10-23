@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
-description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
+description: "Tree settings page for roots, privacy, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: human:maintainer, at: 2026-10-20T15:00:00Z }
 
 ## 1. Overview
 
-The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, the change history, and export. The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
+The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, the change history, and export, and repeats the device's global preferences (§11). The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
 
 ---
 
@@ -39,14 +39,15 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 |   | Settings         |   Form fields / toggles / tools              | |
 |   | - Tree & Roots   |                                              | |
 |   | - Privacy        |                                              | |
-|   | - Date display   |                                              | |
-|   | - Entry options  |                                              | |
 |   |                  |                                              | |
 |   | Tools            |                                              | |
 |   | - History        |                                              | |
 |   |                  |                                              | |
 |   | Export           |                                              | |
 |   | - Export tree    |                                              | |
+|   |                  |                                              | |
+|   | Global prefs     |                                              | |
+|   | - Appearance …   |                                              | |
 |   +------------------+---------------------------------------------+ |
 |                                                                       |
 +----------------------------------------------------------------------+
@@ -86,8 +87,6 @@ Each group has an uppercase orange label. Each item is a text button. The active
 |---|---|
 | Tree & Roots | `tree-roots` |
 | Privacy | `privacy` |
-| Date Display | `date-display` |
-| Entry Options | `entry-options` |
 
 ### Group 2 — Tools
 | Item | Section ID |
@@ -110,6 +109,8 @@ icon, not sections of this page.
 | Language | `language` |
 | Pedigree | `pedigree` |
 | Names | `names` |
+| Date Display | `date-display` |
+| Entry Options | `entry-options` |
 
 ---
 
@@ -176,7 +177,7 @@ the genealogy data or SOSA numbering. It is stored on the tree
 (`tree.self_person_id`), so everyone using the tree sees the same person: the
 selected person receives the blue badge in the pedigree view, is offered as a
 shortcut of the [kinship](ui-kinship.md) search, and names the GEDCOM
-submitter when none is set (§12). Changing or clearing it invalidates the tree
+submitter when none is set (§10). Changing or clearing it invalidates the tree
 metadata so the badge updates immediately, and is a *Settings* entry of the
 history.
 
@@ -245,126 +246,7 @@ none of it.
 
 ---
 
-## 9. Section: Date Display
-
-How the tree's pages write the dates of its records: event lists, the person,
-couple and history pages, the pedigree and its events panel, search results,
-the dictionary and tool lists, statistics, and their printed forms. The stored
-dates never change; every page writes them through the one shared formatter
-([Common UI §4.3](ui-common.md#43-dateinput)), which reads these settings from
-the tree. Each control saves on the click, like the other settings, and the
-pages follow at once.
-
-Dates the application itself records — when an audit entry was written, when a
-page was printed — keep the default form, as does the date editor's preview,
-which reads the entry back in full, and the [date converter](ui-tools.md).
-
-### Date format
-
-A dropdown whose four options are the same day written each way:
-
-| Option | Stored as | A day | A month | Qualified |
-|---|---|---|---|---|
-| `12 Mar 1842` (default) | `day_month_year` | 12 Mar 1842 | Mar 1842 | before 12 Mar 1842 |
-| `12/03/1842` | `numeric` | 12/03/1842 | 03/1842 | before 12/03/1842 |
-| `Mar 1842` | `month_year` | Mar 1842 | Mar 1842 | before Mar 1842 |
-| `1842` | `year` | 1842 | 1842 | before 1842 |
-
-The month's name is the reader's language's. A date's qualifier is always
-written, whatever the format. The numeric format writes a Gregorian or Julian
-month as its number; a Republican or Hebrew month keeps its name, its number
-telling nobody which month it is. A sentence reporting a date written without
-its day joins it as a period (« en 1842 »).
-
-A **live preview** below the dropdown shows a fictitious person's dates as the
-pages will write them with every setting of the section: a birth recorded in
-the Republican calendar, a marriage, a death known only roughly, and the
-lifespan a pedigree card draws. It follows each change before the save
-returns.
-
-### Event symbols
-
-Yes / No (default No). With Yes, a lifespan — on pedigree cards, the wheels,
-fans and lineages, the events panel, the person narrative, the dictionary and
-tool lists — writes each year behind its event's symbol, `*` for the birth and
-`+` for the death (`* 1842 + 1907`, `* 1842`, `+ 1907`), instead of joining
-them with a dash (`1842-1907`, `1842-`, `-1907`). As without symbols, the
-birth year may come from a baptism and the death year from a burial; the
-symbol names the end of the life, not the record. Search results and pickers
-already mark both years with their own glyphs.
-
-### « Circa » for approximate dates
-
-Yes / No (default No). With Yes, a date entered as approximate reads with the
-short « c. » of the reader's language — *c. 1842*, *v. 1842* in French — rather
-than its qualifier's word (*about 1842*). Calculated and estimated dates keep
-their words. Year-only surfaces keep their GeneWeb marks (`ca 1842`) either way.
-
-### Display calendar
-
-Dropdown: Gregorian (default) / Julian / Republican / Hebrew. A date recorded
-in another calendar is followed by its equivalent in this one, in
-parentheses: the day, or for a year or a month alone the span it covers, which
-reads as one value when both ends write the same (a year-only format). A date
-recorded in this calendar, a range, a free-text phrase, and a date this
-calendar cannot express (anything before the Republic in the Republican
-calendar) are written as recorded, alone. Every calendar the application
-records has a converter. Years shown alone — lifespans — stay Gregorian.
-
-Stored as `tree.date_format`, `tree.date_symbols`, `tree.date_circa` and
-`tree.date_calendar` ([Data Model](data-model.md#tree)); each change is a
-*Settings* entry of the [history](#11-section-history).
-
----
-
-## 10. Section: Entry Options
-
-How the tree's forms help with entry. Each control saves on the click and is
-handed back to the tree cache, so a form opened afterwards follows it; each
-change is a *Settings* entry of the [history](#11-section-history).
-
-### Data entry assistance
-
-Three Yes / No cards:
-
-| Toggle | Description |
-|---|---|
-| Entry suggestions | Yes (default) / No. Place, surname, given-name, occupation and source fields, the search filters' included, suggest what the tree holds and the built-in dictionaries. Stored as `tree.entry_suggestions`. See [Common UI §4.4](ui-common.md) |
-| Automatic uppercase for surnames | Yes (default) / No. The surname entry fields — the person form's birth name and its other names, the dictionary's family-name rename — write what is typed in capitals and suggest surnames in capitals. With No, a surname is stored as typed. Search filters never change case. Stored as `tree.surname_uppercase` |
-| Suggest existing persons | Yes (default) / No. When a parent, partner, child or sibling is added from the [tree view](ui-genealogy-tree.md)'s action picker, the panel searches the tree's persons before offering to create one; the person form creating a parent from an empty slot lists the persons matching the name being typed, to link instead ([Person Edit §12](ui-person-edit-modal.md)). With No, only a new person is offered. Stored as `tree.suggest_persons` |
-
-### Input date format
-
-A dropdown, each option named with the reader's own placeholders:
-
-| Option | Stored as | Fields |
-|---|---|---|
-| `DD/MM/YYYY` (default) | `slashes` | day `/` month `/` year, the month typed as a number |
-| `DD-MM-YYYY` | `dashes` | day `-` month `-` year |
-| `YYYY-MM-DD` (ISO 8601) | `iso` | year `-` month `-` day |
-| `DD Mar YYYY` | `month_name` | day, month picked by name, year |
-
-It lays out every [DateInput](ui-common.md#43-dateinput) of the tree. A
-Republican or Hebrew date always picks its month by name, without
-separators, whatever the format. Stored as `tree.date_input_format`.
-
-### Default calendar for input
-
-Same options as the display calendar. An empty date field starts in it; the
-field's own calendar selector still changes it, and a date already entered
-keeps its calendar. Stored as `tree.date_input_calendar`.
-
-### Place dictionary
-
-The [place dictionary](place-dictionary.md) (France, the United Kingdom, Germany,
-Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium,
-Luxembourg and the Netherlands)
-is built into the application and needs neither a download nor network
-access. There is nothing to manage here.
-
----
-
-## 11. Section: History
+## 9. Section: History
 
 The tree's audit log: every write to the tree, newest first — data, settings,
 media, imports and exports. What is recorded, and what each entry carries, is
@@ -405,7 +287,7 @@ restore at its top.
 
 ---
 
-## 12. Section: Export
+## 10. Section: Export
 
 A card with the format's name and description, a format select and the
 download button. Two formats:
@@ -525,12 +407,21 @@ an upgrade) is described without its size.
 
 ---
 
-## 13. Section: Global Preferences
+## 11. Section: Global Preferences
 
-Appearance, language, pedigree, and name-display preferences are
-application-level settings shared with [App Settings](ui-app-settings.md).
-Changing them from the tree settings page immediately updates the same global
-preference; they are not stored on the current tree.
+Appearance, language, pedigree, name-display, date display and entry
+options preferences are application-level settings shared with
+[App Settings](ui-app-settings.md), kept on the device. Changing them from the
+tree settings page immediately updates the same global preference, for every
+tree opened on this device; they are not stored on the current tree, and are
+not entries of its history.
+
+Date Display and Entry Options are the sections
+[App Settings §8](ui-app-settings.md#8-section-date-display) and
+[§9](ui-app-settings.md#9-section-entry-options) describe: the date format
+with its live preview, event symbols, « circa » and the display calendar; entry
+suggestions, surnames in capitals, suggested persons, the input date format and
+the default input calendar.
 
 The shared Language section includes the same localized personal-JSON hint,
 folder path and stacked spacing as App Settings. There is no separate global
@@ -551,7 +442,7 @@ those depths; the global values initialize trees without a saved view.
 
 ---
 
-## 14. Design Consistency
+## 12. Design Consistency
 
 The settings page uses the shared `sub-page` layout and interaction states from
 [Common UI](ui-common.md). The selected theme applies globally.

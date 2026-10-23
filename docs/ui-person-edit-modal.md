@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T17:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -192,8 +192,8 @@ given names are required." (§13).
 
 ### Family Name
 
-Single text input. Converted to uppercase on input unless the tree's
-automatic uppercase for surnames is off ([Settings §10](ui-settings.md#10-section-entry-options)).
+Single text input. Converted to uppercase on input unless the automatic
+uppercase for surnames is off ([App Settings §9](ui-app-settings.md#9-section-entry-options)).
 It suggests the tree's surnames ([Common UI §4.4](ui-common.md)).
 
 ### First Names
@@ -519,8 +519,8 @@ On confirmation: the modal closes, the card is removed from the tree, and the la
 
 ## 12. Suggest Existing Persons (adding a parent)
 
-When the tree's *Suggest existing persons* is on
-([Settings §10](ui-settings.md#10-section-entry-options)) and the modal creates
+When the *Suggest existing persons* entry option is on
+([App Settings §9](ui-app-settings.md#9-section-entry-options)) and the modal creates
 a parent — opened from an empty parent slot of the [tree view](ui-genealogy-tree.md)
 — it offers to **link a person already in the tree** instead of creating one.
 The other relatives are added through the tree view's linking panel, which

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -414,16 +414,16 @@ Edits partial dates, calendar, qualifier, and an optional second bound. It
 supports exact, about, calculated, estimated, perhaps, before, after, or,
 between, and age-derived input. Changing calendars converts representable dates
 rather than relabeling values. Invalid or unrepresentable input remains visible
-with a localized inline error. The tree's entry options
-([Tree Settings §10](ui-settings.md#10-section-entry-options)) set the order of
+with a localized inline error. The entry options
+([App Settings §9](ui-app-settings.md#9-section-entry-options)) set the order of
 the day, month and year fields, their separators, whether a Gregorian or
 Julian month is typed or picked by name, and the calendar an empty field
 starts in.
 
 Display formatting uses the shared date formatter; year-only surfaces use
 `qualified_year()` so precision is not discarded. The formatter writes in the
-date style of the tree being read — its format, « circa », display calendar
-and lifespan symbols ([Tree Settings §9](ui-settings.md#9-section-date-display))
+date style chosen on the device — its format, « circa », display calendar
+and lifespan symbols ([App Settings §8](ui-app-settings.md#8-section-date-display))
 — which the interface's translation helper carries beside the language, so no
 page formats a date on its own. The formatter:
 
@@ -518,7 +518,7 @@ the [value suggestions](api.md) endpoint:
   suggests for `Ma`, and picking replaces that word only.
 - **Picking** fills in the value as the tree or the sheet writes it, never a
   sheet's label: an occupation is entered as the record names it. A surname
-  field writing in capitals — while the tree's automatic uppercase for
+  field writing in capitals — while the automatic uppercase for
   surnames is on — capitalizes what it picks, and lists each spelling once.
 - **Search filters.** The surname, given-name and occupation criteria of
   [Search Results](ui-search-results.md), the relatives' included, use the
@@ -867,7 +867,7 @@ themes happen to exist.
 
 The one comparison of two versions of a record, used by the
 [Person History](ui-person-history.md) page and the audit log of
-[Settings §11](ui-settings.md#11-section-history). It takes the version shown
+[Settings §9](ui-settings.md#9-section-history). It takes the version shown
 and the one it is compared with — absent for a record's first version — and
 lays them out as one table per section, the older version on the left and the
 newer on the right. Column headings read *Version N*, with *(current)* for the

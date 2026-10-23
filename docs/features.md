@@ -157,7 +157,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 ![A person's history compared side by side](../assets/screenshots/history.webp)
 
-- An audit log of every write to a tree — data, settings, media, tags, imports, exports, restores — with filters ([Tree Settings §11](ui-settings.md#11-section-history)).
+- An audit log of every write to a tree — data, settings, media, tags, imports, exports, restores — with filters ([Tree Settings §9](ui-settings.md#9-section-history)).
 - Every version of a person compared field by field, and restored, even after a deletion ([Person History](ui-person-history.md)).
 - Versions of places, sources, repositories and settings too ([Data Model §5.2](data-model.md#52-versions-record_version)).
 
@@ -168,7 +168,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - GeneWeb `.gw` import ([API Contract](api.md#geneweb-gw)).
 - A guided desktop import of a Geneanet tree that recovers its photos and documents and their links to persons ([Geneanet Media Import](geneanet-media-import.md), [Import §9](ui-import.md#9-from-geneanet-tab)).
 - An import receipt counting persons, families, events, sources, places, notes, images, documents and pages, with its warnings ([Import](ui-import.md#result)).
-- Export options: the destination program, notes and sources, media; a submitter; and a kept archive downloadable again for an hour ([Tree Settings §12](ui-settings.md#12-section-export)).
+- Export options: the destination program, notes and sources, media; a submitter; and a kept archive downloadable again for an hour ([Tree Settings §10](ui-settings.md#10-section-export)).
 - Export of part of the tree: a branch (ancestors, descendants or both, to a depth) or the persons carrying a tag, with the families and records they reach ([Tags §2.3](tags.md#23-exporting-part-of-the-tree)).
 - Imports and exports run as durable background jobs ([Architecture §6](architecture.md#6-asynchronous-processing)).
 
@@ -176,8 +176,8 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 - A built-in place dictionary of twelve countries, with merged municipalities, former names and historical subdivisions, needing no network ([Place Dictionary](place-dictionary.md)).
 - Every free-text field suggests the tree's values and the reference dictionaries, while accepting any text ([Common UI §4.4](ui-common.md#44-fields-with-suggestions)).
-- Per-tree date display: format, event symbols, « circa », and a second calendar ([Tree Settings §9](ui-settings.md#9-section-date-display)).
-- Per-tree entry options: suggestions, surnames in capitals, suggested persons, date input format and default calendar ([Tree Settings §10](ui-settings.md#10-section-entry-options)).
+- A date display kept on the device for every tree: format, event symbols, « circa », and a second calendar ([App Settings §8](ui-app-settings.md#8-section-date-display)).
+- Entry options kept on the device for every tree: suggestions, surnames in capitals, suggested persons, date input format and default calendar ([App Settings §9](ui-app-settings.md#9-section-entry-options)).
 
 ## 15. Appearance and languages
 

@@ -18,7 +18,7 @@ As you type, a panel opens under the fields:
 
 Use the **Down** and **Up** arrow keys to move through the names and persons, **Enter** to pick the highlighted one, and **Escape** to close the panel. Picking a person opens the pedigree centred on them; from a person's or a couple's page, it opens the person's profile instead.
 
-Nothing is searched until you have typed at least two characters across the two fields. If the tree's entry suggestions are turned off in the [tree settings](@/guide/settings.md), the panel lists persons only, without names.
+Nothing is searched until you have typed at least two characters across the two fields. If entry suggestions are turned off in the [application settings](@/guide/settings.md#entry-options), the panel lists persons only, without names.
 
 ## Jump to a SOSA number
 

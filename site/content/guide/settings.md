@@ -1,10 +1,10 @@
 +++
 title = "Settings"
-description = "Tree settings (roots, privacy, date display, entry options, history, export) and application settings (themes, language, pedigree, names, API and AI assistant)."
+description = "Tree settings (roots, privacy, history, export) and application settings (themes, language, pedigree, names, date display, entry options, API and AI assistant)."
 weight = 150
 +++
 
-OxidGene has two kinds of settings. **Tree settings** belong to one tree and apply to everyone who uses it. **Application settings** are your own preferences on this device: the look of the application, its language, how pedigrees are drawn and how names are sorted. This page goes through both.
+OxidGene has two kinds of settings. **Tree settings** belong to one tree and apply to everyone who uses it. **Application settings** are your own preferences on this device: the look of the application, its language, how pedigrees are drawn, how names are sorted, how dates are written and how forms help you type. This page goes through both.
 
 Every setting is saved as soon as you change it; there is no save button to remember, except for the tree name and the submitter.
 
@@ -15,7 +15,7 @@ Every setting is saved as soon as you change it; there is no save button to reme
 
 {{ <screenshot name="tree-settings" alt="Settings page of a tree, with its left menu" lang={lang} /> }}
 
-The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**, **Date Display**, **Entry Options**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
+The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
 
 ## Tree & Roots
 
@@ -31,27 +31,6 @@ A new tree starts as Private: a genealogy holds living people, and publishing sh
 
 Privacy is recorded today but does not hide anything yet. As the section says: **Recorded now. Nothing is hidden yet — this takes effect when accounts and publishing arrive.**
 
-## Date Display
-
-How the tree's pages write the dates of its records. Your dates themselves are never changed, only the way they are shown. A **Preview** below the controls shows a sample of dates as the pages will write them.
-
-- **Date format**: `12 Mar 1842` (the default), `12/03/1842`, `Mar 1842` or `1842`. A date's precision, such as “before” or “about”, is always written, whatever the format.
-- **Event symbols**: with **Yes**, lifespans are written `* 1842 + 1907` instead of `1842-1907`.
-- **“Circa” for approximate dates**: with **Yes**, an approximate date reads *c. 1842* rather than *about 1842*.
-- **Display calendar**: **Gregorian** (the default), **Julian**, **Republican** or **Hebrew**. A date recorded in another calendar is followed by its equivalent in this one, in parentheses. Years shown alone, as on pedigree cards, stay Gregorian.
-
-## Entry Options
-
-How the tree's forms help you when you type.
-
-- **Entry suggestions** (Yes by default): place, surname, given name, occupation and source fields suggest what the tree already holds and the built-in dictionaries as you type. You can always type something else.
-- **Automatic uppercase for surnames** (Yes by default): surnames are written in capitals as you type them. With **No**, a surname is kept as typed.
-- **Suggest existing persons** (Yes by default): when you add a parent, partner, child or sibling from the tree view, the persons already in the tree are offered before a new one is created. With **No**, only a new person is offered.
-- **Input date format**: the order of the day, month and year fields of every date field: `DD/MM/YYYY` (the default), `DD-MM-YYYY`, `YYYY-MM-DD`, or `DD Mar YYYY` with the month picked by name.
-- **Default calendar for input**: the calendar an empty date field starts in. Each date field can still be switched to another one.
-
-Place suggestions come from a place dictionary built into the application, covering twelve countries. It needs no download and no network access.
-
 ## History
 
 **History**, in the **Tools** group, is the tree's log: every change, newest first, including settings, media, imports, exports and restores. Filter it with **All**, **Data**, **Settings**, **Media**, **Imports**, **Exports** and **Restores**, and click **Load more** to go further back. **Show the change** compares a record before and after, and **Restore the previous version** undoes that change for that record. See [History](@/guide/history.md).
@@ -64,7 +43,7 @@ Download the tree as GEDCOM or GEDZIP, choose the destination program and the op
 
 ## Application settings
 
-The application settings have five sections: **Appearance**, **Language**, **Pedigree**, **Names** and **API**. The first four also appear under **Global Preferences** in every tree's settings; it is the same preference in both places, not a setting of that tree.
+The application settings have seven sections: **Appearance**, **Language**, **Pedigree**, **Names**, **Date Display**, **Entry Options** and **API**. All but API also appear under **Global Preferences** in every tree's settings; it is the same preference in both places, not a setting of that tree, and it applies to every tree you open on this device.
 
 These preferences are kept on this device. On another computer, or in another browser, you choose them again.
 
@@ -127,6 +106,27 @@ See [The pedigree](@/guide/pedigree.md) for what each chart shows.
 - **Particle ignored**: “de la Cruz” files under C.
 
 The name is always displayed in full; only its place in alphabetical order changes.
+
+### Date Display
+
+How the pages write dates, in every tree you open on this device. Your dates themselves are never changed, only the way they are shown. A **Preview** below the controls shows a sample of dates as the pages will write them.
+
+- **Date format**: `12 Mar 1842` (the default), `12/03/1842`, `Mar 1842` or `1842`. A date's precision, such as “before” or “about”, is always written, whatever the format.
+- **Event symbols**: with **Yes**, lifespans are written `* 1842 + 1907` instead of `1842-1907`.
+- **“Circa” for approximate dates**: with **Yes**, an approximate date reads *c. 1842* rather than *about 1842*.
+- **Display calendar**: **Gregorian** (the default), **Julian**, **Republican** or **Hebrew**. A date recorded in another calendar is followed by its equivalent in this one, in parentheses. Years shown alone, as on pedigree cards, stay Gregorian.
+
+### Entry Options
+
+How the forms help you when you type, in every tree you open on this device.
+
+- **Entry suggestions** (Yes by default): place, surname, given name, occupation and source fields suggest what the tree already holds and the built-in dictionaries as you type. You can always type something else.
+- **Automatic uppercase for surnames** (Yes by default): surnames are written in capitals as you type them. With **No**, a surname is kept as typed.
+- **Suggest existing persons** (Yes by default): when you add a parent, partner, child or sibling from the tree view, the persons already in the tree are offered before a new one is created. With **No**, only a new person is offered.
+- **Input date format**: the order of the day, month and year fields of every date field: `DD/MM/YYYY` (the default), `DD-MM-YYYY`, `YYYY-MM-DD`, or `DD Mar YYYY` with the month picked by name.
+- **Default calendar for input**: the calendar an empty date field starts in. Each date field can still be switched to another one.
+
+Place suggestions come from a place dictionary built into the application, covering twelve countries. It needs no download and no network access.
 
 ### API
 

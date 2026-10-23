@@ -9,8 +9,6 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError};
-use crate::i18n::DateStyle;
-use oxidgene_core::enums::{Calendar, DateInputFormat};
 use oxidgene_core::types::Tree;
 
 // ─── Public context type ────────────────────────────────────────────
@@ -26,12 +24,6 @@ pub struct TreeCache {
     tree: Signal<Option<Tree>>,
     /// Monotonically increasing counter — bump to force a re-fetch.
     generation: Signal<u64>,
-    /// How the tree held writes its dates, which [`use_i18n`] hands to
-    /// every page. It is kept while the tree is read again, so an
-    /// invalidation does not flash dates in the default style.
-    ///
-    /// [`use_i18n`]: crate::i18n::use_i18n
-    date_style: Signal<DateStyle>,
 }
 
 impl TreeCache {
@@ -64,19 +56,8 @@ impl TreeCache {
     pub fn store_tree(&self, tid: Uuid, tree: Tree) {
         let mut id = self.tree_tid;
         let mut t = self.tree;
-        self.follow_date_style(&tree);
         id.set(Some(tid));
         t.set(Some(tree));
-    }
-
-    /// Hand `tree`'s date style to the pages, re-rendering them only when it
-    /// changes.
-    fn follow_date_style(&self, tree: &Tree) {
-        let style = DateStyle::of(tree);
-        if *self.date_style.peek() != style {
-            let mut date_style = self.date_style;
-            date_style.set(style);
-        }
     }
 
     /// Refresh the cached metadata for `tid` with a value the caller already
@@ -91,7 +72,6 @@ impl TreeCache {
             return;
         }
         let mut t = self.tree;
-        self.follow_date_style(&tree);
         t.set(Some(tree));
     }
 
@@ -116,38 +96,6 @@ impl TreeCache {
         generation.set(next);
     }
 
-    /// One of the held tree's entry options (Tree Settings §10), `default`
-    /// until a tree is loaded. Entry fields only live on a tree's pages, so
-    /// the tree held is theirs.
-    fn entry_option<T>(&self, read: impl FnOnce(&Tree) -> T, default: T) -> T {
-        self.tree.read().as_ref().map_or(default, read)
-    }
-
-    /// Whether the tree held lets its entry fields suggest values.
-    pub fn entry_suggestions(&self) -> bool {
-        self.entry_option(|tree| tree.entry_suggestions, true)
-    }
-
-    /// Whether the tree held writes its surnames in capitals as they are
-    /// typed.
-    pub fn surname_uppercase(&self) -> bool {
-        self.entry_option(|tree| tree.surname_uppercase, true)
-    }
-
-    /// Whether adding a relative to the tree held offers its persons first.
-    pub fn suggest_persons(&self) -> bool {
-        self.entry_option(|tree| tree.suggest_persons, true)
-    }
-
-    /// How the tree held enters dates: the order and form of a date field's
-    /// parts, and the calendar an empty one starts in.
-    pub fn date_input(&self) -> (DateInputFormat, Calendar) {
-        self.entry_option(
-            |tree| (tree.date_input_format, tree.date_input_calendar),
-            (DateInputFormat::default(), Calendar::default()),
-        )
-    }
-
     /// Current generation — include this in `use_resource` dependencies
     /// so the resource re-runs after [`Self::invalidate`].
     pub fn generation(&self) -> u64 {
@@ -163,7 +111,6 @@ pub fn use_init_tree_cache() -> TreeCache {
         tree_tid: use_context_provider(|| Signal::new(None)),
         tree: use_context_provider(|| Signal::new(None)),
         generation: use_context_provider(|| Signal::new(0u64)),
-        date_style: use_context_provider(|| Signal::new(DateStyle::DEFAULT)),
     };
     use_context_provider(|| cache);
     cache

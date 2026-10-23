@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-19T12:13:38Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -165,7 +165,7 @@ Bounds:
 - Connection pages follow the shared pagination rules (`first` defaults to
   25, maximum 100).
 - `get_pedigree` narrows each depth to 0–10 generations, the same range the
-  pedigree view offers ([Tree Settings §13](ui-settings.md#13-section-global-preferences)) and the limit
+  pedigree view offers ([Tree Settings §11](ui-settings.md#11-section-global-preferences)) and the limit
   REST and GraphQL enforce.
 
 The first delivery offers no MCP resources and no prompts.
@@ -211,7 +211,7 @@ not go through i18n.
 ### 7.1 Consent
 
 Nothing is exposed until the user configures an MCP client with the launch
-command. The command is displayed in [App Settings §8](ui-app-settings.md)
+command. The command is displayed in [App Settings §10](ui-app-settings.md#10-section-api)
 together with a warning. Configuring it is the act of consent, and removing it
 from the client revokes that consent.
 

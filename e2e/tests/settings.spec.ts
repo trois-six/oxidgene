@@ -36,21 +36,39 @@ test("adding a parent offers the matching persons of the tree", async ({ page, r
     expect(await count()).toBe(before);
 });
 
-test("the tree's entry options shape the person form and the linking panel", async ({ page, request, tree }) => {
+/// The writes to the tree the page sends from now on, which the preferences
+/// of the device must leave empty: they never reach the server.
+const treeWrites = (page: import("@playwright/test").Page, treeId: string) => {
+    const writes: string[] = [];
+    page.on("request", (r) => {
+        if (r.url().endsWith(`/api/v1/trees/${treeId}`) && r.method() !== "GET") {
+            writes.push(`${r.method()} ${r.url()}`);
+        }
+    });
+    return writes;
+};
+
+/// A Yes / No preference of the settings pages, named `name`.
+const yesNo = (page: import("@playwright/test").Page, name: string, choice: "Yes" | "No") =>
+    page.getByRole("group", { name, exact: true }).getByRole("button", { name: choice, exact: true });
+
+test("the entry options of the app settings shape the person form and the linking panel", async ({ page, tree }) => {
+    const writes = treeWrites(page, tree.treeId);
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Entry Options", exact: true }).click();
+    await page.getByLabel("Input date format").selectOption({ label: "YYYY-MM-DD" });
+    for (const option of ["Automatic uppercase for surnames", "Suggest existing persons"]) {
+        await yesNo(page, option, "No").click();
+        await expect(yesNo(page, option, "No")).toHaveAttribute("aria-pressed", "true");
+    }
+
+    // Kept on the device: a reload, and the tree's own settings, show the same choices.
+    await page.reload();
+    await page.getByRole("button", { name: "Entry Options", exact: true }).click();
+    await expect(page.getByLabel("Input date format")).toHaveValue("iso");
     await page.goto(`/trees/${tree.treeId}/settings`);
     await page.getByRole("button", { name: "Entry Options", exact: true }).click();
-    const saved = () =>
-        page.waitForResponse((r) => r.url().endsWith(`/api/v1/trees/${tree.treeId}`) && r.request().method() === "PUT");
-    let save = saved();
-    await page.getByLabel("Input date format").selectOption({ label: "YYYY-MM-DD" });
-    expect((await save).ok()).toBeTruthy();
-    for (const card of ["Automatic uppercase for surnames", "Suggest existing persons"]) {
-        save = saved();
-        await page.locator(".settings-card", { hasText: card }).getByRole("button", { name: "No" }).click();
-        expect((await save).ok()).toBeTruthy();
-    }
-    const stored = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}`)).json();
-    expect([stored.date_input_format, stored.surname_uppercase, stored.suggest_persons]).toEqual(["iso", false, false]);
+    await expect(yesNo(page, "Suggest existing persons", "No")).toHaveAttribute("aria-pressed", "true");
 
     // A date field starts with its year, and a surname keeps its case.
     await page.goto(`/trees/${tree.treeId}`);
@@ -78,9 +96,10 @@ test("the tree's entry options shape the person form and the linking panel", asy
     const panel = page.locator(".linking-card");
     await expect(panel.getByRole("button", { name: "Create New Person as Spouse" })).toBeVisible();
     await expect(panel.locator(".search-person")).toHaveCount(0);
+    expect(writes).toEqual([]);
 });
 
-test("the tree's date display settings reach the person page and the pedigree", async ({ page, request, tree }) => {
+test("the date display of the tree's global preferences reaches the person page and the pedigree", async ({ page, request, tree }) => {
     // A fully dated event, which the fixture's year-only dates lack.
     const event = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/events`, {
         data: {
@@ -92,6 +111,7 @@ test("the tree's date display settings reach the person page and the pedigree", 
         },
     });
     expect(event.ok(), await event.text()).toBeTruthy();
+    const writes = treeWrites(page, tree.treeId);
 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     await expect(page.getByText("3 Feb 1922").first()).toBeVisible();
@@ -101,23 +121,13 @@ test("the tree's date display settings reach the person page and the pedigree", 
     const preview = page.locator(".settings-date-preview");
     await expect(preview).toContainText("12 Mar 1822");
 
-    // Each choice is saved on the spot, and the preview follows it.
-    const saved = () =>
-        page.waitForResponse((r) => r.url().endsWith(`/api/v1/trees/${tree.treeId}`) && r.request().method() === "PUT");
-    let save = saved();
+    // Each choice applies on the spot, and the preview follows it.
     await page.getByLabel("Date format").selectOption({ label: "12/03/1842" });
-    expect((await save).ok()).toBeTruthy();
     await expect(preview).toContainText("12/03/1822");
-
-    save = saved();
-    await page.locator(".settings-card", { hasText: "Event symbols" }).getByRole("button", { name: "Yes" }).click();
-    expect((await save).ok()).toBeTruthy();
+    await yesNo(page, "Event symbols", "Yes").click();
     await expect(preview).toContainText("* 1799 + ca 1867");
 
-    const stored = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}`)).json();
-    expect([stored.date_format, stored.date_symbols]).toEqual(["numeric", true]);
-
-    // The person page writes the event's date in the tree's format…
+    // The person page writes the event's date in the chosen format…
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
     await expect(page.getByText("03/02/1922").first()).toBeVisible();
     await expect(page.getByText("3 Feb 1922")).toHaveCount(0);
@@ -125,6 +135,13 @@ test("the tree's date display settings reach the person page and the pedigree", 
     // …and the pedigree card its lifespan behind the birth symbol.
     await page.getByRole("button", { name: "Tree view" }).click();
     await expect(page.locator("g.ped-card").filter({ hasText: /Anchor\s*ASHDOWN/ }).first()).toContainText("* 1900");
+
+    // The app settings show the same preference.
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Date Display", exact: true }).click();
+    await expect(page.getByLabel("Date format")).toHaveValue("numeric");
+    await expect(yesNo(page, "Event symbols", "Yes")).toHaveAttribute("aria-pressed", "true");
+    expect(writes).toEqual([]);
 });
 
 test("a GEDZIP export can be downloaded again after the page is reloaded", async ({ page, tree }) => {

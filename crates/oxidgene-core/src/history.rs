@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{
-    Calendar, ChildType, Confidence, DateDisplayFormat, DateInputFormat, DateQualifier, EventType,
-    NameType, Privacy, Sex, SourceMediaType, SpouseRole, TreeDefaultPrivacy,
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
+    SourceMediaType, SpouseRole, TreeDefaultPrivacy,
 };
 use crate::types::RecordKind;
 
@@ -549,24 +549,6 @@ pub struct TreeSnapshot {
     pub name: String,
     pub description: Option<String>,
     pub default_privacy: TreeDefaultPrivacy,
-    #[serde(default = "crate::types::enabled")]
-    pub entry_suggestions: bool,
-    #[serde(default)]
-    pub date_format: DateDisplayFormat,
-    #[serde(default)]
-    pub date_symbols: bool,
-    #[serde(default)]
-    pub date_circa: bool,
-    #[serde(default)]
-    pub date_calendar: Calendar,
-    #[serde(default = "crate::types::enabled")]
-    pub surname_uppercase: bool,
-    #[serde(default = "crate::types::enabled")]
-    pub suggest_persons: bool,
-    #[serde(default)]
-    pub date_input_format: DateInputFormat,
-    #[serde(default)]
-    pub date_input_calendar: Calendar,
     pub sosa_root_person_id: Option<Uuid>,
     pub self_person_id: Option<Uuid>,
     #[serde(default)]

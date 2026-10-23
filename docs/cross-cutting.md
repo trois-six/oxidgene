@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-10-18T17:09:22Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -89,7 +89,7 @@ instead of the parenthesized form.
 
 ### 3.4 Dates and numbers
 
-- Locale and the tree's date-display preference are independent.
+- Locale and the date-display preference ([App Settings §8](ui-app-settings.md#8-section-date-display)) are independent.
 - Full surfaces use localized qualifier text and calendar month names.
 - Space-constrained pedigree cards use the documented GeneWeb-compatible short
   precision marks; these protocol-like marks are not translated.

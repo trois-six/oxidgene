@@ -774,33 +774,6 @@ pub struct UpdateTreeBody {
     /// What `Privacy::Default` resolves to for everything in this tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_privacy: Option<TreeDefaultPrivacy>,
-    /// Whether entry fields suggest values as the user types.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_suggestions: Option<bool>,
-    /// How much of a date the tree's pages write.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_format: Option<oxidgene_core::enums::DateDisplayFormat>,
-    /// Whether lifespans write the birth and death symbols.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_symbols: Option<bool>,
-    /// Whether an approximate date reads « c. ».
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_circa: Option<bool>,
-    /// The calendar a date recorded in another one is also given in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_calendar: Option<oxidgene_core::enums::Calendar>,
-    /// Whether surname fields write in capitals.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub surname_uppercase: Option<bool>,
-    /// Whether adding a relative offers the persons already in the tree.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suggest_persons: Option<bool>,
-    /// The order and form of a date field's parts.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_input_format: Option<oxidgene_core::enums::DateInputFormat>,
-    /// The calendar an empty date field starts in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date_input_calendar: Option<oxidgene_core::enums::Calendar>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitter_name: Option<Option<String>>,

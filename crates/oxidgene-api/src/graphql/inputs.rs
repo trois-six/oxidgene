@@ -16,10 +16,9 @@ use std::collections::HashMap;
 use super::mutation::{patch, patch_id, patch_scalar};
 use super::scope::{opt_uuid, uuid, uuids};
 use super::types::{
-    GqlCalendar, GqlChildType, GqlConfidence, GqlDateDisplayFormat, GqlDateInputFormat,
-    GqlDateQualifier, GqlDocumentCategory, GqlEventType, GqlGeneanetMediaFidelity,
-    GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
-    GqlTreeDefaultPrivacy,
+    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
+    GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex,
+    GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -36,24 +35,6 @@ pub struct CreateTreeInput {
 pub struct UpdateTreeInput {
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: Option<GqlTreeDefaultPrivacy>,
-    /// Whether entry fields suggest values as the user types.
-    pub entry_suggestions: Option<bool>,
-    /// How much of a date the tree's pages write.
-    pub date_format: Option<GqlDateDisplayFormat>,
-    /// Whether lifespans write the birth and death symbols.
-    pub date_symbols: Option<bool>,
-    /// Whether an approximate date reads « c. ».
-    pub date_circa: Option<bool>,
-    /// The calendar a date recorded in another one is also given in.
-    pub date_calendar: Option<GqlCalendar>,
-    /// Whether surname fields write in capitals.
-    pub surname_uppercase: Option<bool>,
-    /// Whether adding a relative offers the persons already in the tree.
-    pub suggest_persons: Option<bool>,
-    /// The order and form of a date field's parts.
-    pub date_input_format: Option<GqlDateInputFormat>,
-    /// The calendar an empty date field starts in.
-    pub date_input_calendar: Option<GqlCalendar>,
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
@@ -83,15 +64,6 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             sosa_root_person_id: patch_id(input.sosa_root_person_id)?,
             self_person_id: patch_id(input.self_person_id)?,
             default_privacy: input.default_privacy.map(Into::into),
-            entry_suggestions: input.entry_suggestions,
-            date_format: input.date_format.map(Into::into),
-            date_symbols: input.date_symbols,
-            date_circa: input.date_circa,
-            date_calendar: input.date_calendar.map(Into::into),
-            surname_uppercase: input.surname_uppercase,
-            suggest_persons: input.suggest_persons,
-            date_input_format: input.date_input_format.map(Into::into),
-            date_input_calendar: input.date_input_calendar.map(Into::into),
             submitter_name: patch(input.submitter_name),
             submitter_email: patch(input.submitter_email),
             submitter_address: patch(input.submitter_address),

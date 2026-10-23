@@ -41,7 +41,7 @@ Where a name with a particle such as "de la" or "d'" is filed depends on the **S
 
 Open the **⋮** menu at the end of a family name's row and choose **Edit** to open **Edit family name**.
 
-1. Change the **Name** field. If the tree writes family names in capitals, the field does too.
+1. Change the **Name** field. If family names are written in capitals (**Entry Options** in the application settings), the field does too.
 2. Read the line below it: it says how many persons will be renamed.
 3. Click **Rename**.
 

@@ -1,14 +1,18 @@
-//! Client-side display preferences, persisted in `localStorage`.
+//! Client-side preferences, persisted in `localStorage`.
 //!
-//! These are per-viewer choices about how data is *shown*, not properties of
-//! the data itself — so they live in the browser rather than on the tree. The
-//! pattern mirrors [`crate::i18n::use_init_language`].
+//! These are per-viewer choices about how data is *shown* and *entered*, not
+//! properties of the data itself — so they live in the browser rather than on
+//! the tree. The pattern mirrors [`crate::i18n::use_init_language`].
 
 use dioxus::prelude::*;
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::components::pedigree_theme::PedigreeThemeId;
 use crate::components::pedigree_view::PedigreeView;
+use crate::i18n::DateStyle;
 
 pub const MAX_PEDIGREE_LEVELS: usize = 10;
 
@@ -77,6 +81,8 @@ const SORT_PARTICLES_STORAGE_KEY: &str = "oxidgene-sort-particles";
 const PEDIGREE_DEFAULTS_STORAGE_KEY: &str = "oxidgene-pedigree-defaults";
 const PEDIGREE_THEME_STORAGE_KEY: &str = "oxidgene-pedigree-theme";
 const PEDIGREE_VIEW_STORAGE_KEY: &str = "oxidgene-pedigree-view";
+const DATE_STYLE_STORAGE_KEY: &str = "oxidgene-date-style";
+const ENTRY_OPTIONS_STORAGE_KEY: &str = "oxidgene-entry-options";
 
 /// Hook: initialise the pedigree theme (call once in `AppShell`).
 ///
@@ -247,9 +253,216 @@ pub fn set_pedigree_defaults(mut pref: Signal<Option<PedigreeDefaults>>, value: 
     }
 }
 
+/// How the forms help with entry (`docs/ui-app-settings.md` §9): a
+/// preference of the device, followed by the forms of every tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryOptions {
+    /// Whether entry fields suggest values as the user types.
+    pub suggestions: bool,
+    /// Whether surname fields write what is typed in capitals.
+    pub surname_uppercase: bool,
+    /// Whether adding a relative offers the persons already in the tree.
+    pub suggest_persons: bool,
+    /// The order and form of a date field's parts.
+    pub date_format: DateInputFormat,
+    /// The calendar an empty date field starts in.
+    pub calendar: Calendar,
+}
+
+impl EntryOptions {
+    /// Every help on, dates entered `dd/mm/yyyy` in the Gregorian calendar.
+    pub const DEFAULT: Self = Self {
+        suggestions: true,
+        surname_uppercase: true,
+        suggest_persons: true,
+        date_format: DateInputFormat::Slashes,
+        calendar: Calendar::Gregorian,
+    };
+
+    /// The options a stored entry names. Each one is read on its own: one
+    /// missing, unknown or unreadable keeps its default, and so does every
+    /// option of an entry that is not a JSON object at all.
+    fn from_stored(stored: &str) -> Self {
+        let value = serde_json::from_str::<Value>(stored).unwrap_or(Value::Null);
+        let default = Self::DEFAULT;
+        Self {
+            suggestions: field(&value, "suggestions").unwrap_or(default.suggestions),
+            surname_uppercase: field(&value, "surname_uppercase")
+                .unwrap_or(default.surname_uppercase),
+            suggest_persons: field(&value, "suggest_persons").unwrap_or(default.suggest_persons),
+            date_format: field(&value, "date_format").unwrap_or(default.date_format),
+            calendar: field(&value, "calendar").unwrap_or(default.calendar),
+        }
+    }
+
+    fn to_stored(self) -> String {
+        json!({
+            "suggestions": self.suggestions,
+            "surname_uppercase": self.surname_uppercase,
+            "suggest_persons": self.suggest_persons,
+            "date_format": self.date_format,
+            "calendar": self.calendar,
+        })
+        .to_string()
+    }
+}
+
+impl Default for EntryOptions {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// The date style a stored entry names, read one setting at a time, as
+/// [`EntryOptions::from_stored`] reads its options.
+fn date_style_from_stored(stored: &str) -> DateStyle {
+    let value = serde_json::from_str::<Value>(stored).unwrap_or(Value::Null);
+    let default = DateStyle::DEFAULT;
+    DateStyle {
+        format: field::<DateDisplayFormat>(&value, "format").unwrap_or(default.format),
+        symbols: field(&value, "symbols").unwrap_or(default.symbols),
+        circa: field(&value, "circa").unwrap_or(default.circa),
+        calendar: field(&value, "calendar").unwrap_or(default.calendar),
+    }
+}
+
+fn date_style_to_stored(style: DateStyle) -> String {
+    json!({
+        "format": style.format,
+        "symbols": style.symbols,
+        "circa": style.circa,
+        "calendar": style.calendar,
+    })
+    .to_string()
+}
+
+/// The member `key` of a stored object, when it reads as a `T`.
+fn field<T: DeserializeOwned>(value: &Value, key: &str) -> Option<T> {
+    value.get(key).and_then(|v| T::deserialize(v).ok())
+}
+
+/// Keeps the JSON `stored` under `key`; a refusal is ignored, the choice then
+/// lasting only for the visit.
+fn store_json(key: &str, stored: &str) {
+    if let Ok(js_value) = serde_json::to_string(stored) {
+        document::eval(&format!(
+            "try {{ localStorage.setItem('{key}', {js_value}); }} catch (e) {{}}"
+        ));
+    }
+}
+
+/// Hook: initialise the date style (call once in `AppShell`), which
+/// [`use_i18n`](crate::i18n::use_i18n) hands to every page.
+///
+/// Resolves to the default at once, like the pedigree theme, then to the
+/// stored style once storage answers.
+pub fn use_init_date_style() -> Signal<DateStyle> {
+    let mut pref = use_context_provider(|| Signal::new(DateStyle::DEFAULT));
+
+    use_effect(move || {
+        spawn(async move {
+            if let Some(stored) = stored(DATE_STYLE_STORAGE_KEY).await {
+                let style = date_style_from_stored(&stored);
+                if *pref.peek() != style {
+                    pref.set(style);
+                }
+            }
+        });
+    });
+
+    pref
+}
+
+/// Persist the date style and rewrite every date on screen.
+pub fn set_date_style(mut pref: Signal<DateStyle>, style: DateStyle) {
+    pref.set(style);
+    store_json(DATE_STYLE_STORAGE_KEY, &date_style_to_stored(style));
+}
+
+/// Hook: initialise the entry options (call once in `AppShell`).
+pub fn use_init_entry_options() -> Signal<EntryOptions> {
+    let mut pref = use_context_provider(|| Signal::new(EntryOptions::DEFAULT));
+
+    use_effect(move || {
+        spawn(async move {
+            if let Some(stored) = stored(ENTRY_OPTIONS_STORAGE_KEY).await {
+                let options = EntryOptions::from_stored(&stored);
+                if *pref.peek() != options {
+                    pref.set(options);
+                }
+            }
+        });
+    });
+
+    pref
+}
+
+/// Hook: the entry options. A signal rather than a value, so that a resource
+/// reading it in its closure runs again when they change.
+pub fn use_entry_options() -> Signal<EntryOptions> {
+    use_context()
+}
+
+/// Persist the entry options; every form follows them at once.
+pub fn set_entry_options(mut pref: Signal<EntryOptions>, options: EntryOptions) {
+    pref.set(options);
+    store_json(ENTRY_OPTIONS_STORAGE_KEY, &options.to_stored());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn entry_options_survive_a_round_trip() {
+        let options = EntryOptions {
+            suggestions: false,
+            surname_uppercase: false,
+            suggest_persons: true,
+            date_format: DateInputFormat::MonthName,
+            calendar: Calendar::FrenchRepublican,
+        };
+        assert_eq!(EntryOptions::from_stored(&options.to_stored()), options);
+    }
+
+    #[test]
+    fn an_unreadable_entry_option_keeps_its_default_alone() {
+        let options = EntryOptions::from_stored(
+            r#"{"suggestions":false,"date_format":"dots","calendar":7,"extra":1}"#,
+        );
+        assert_eq!(
+            options,
+            EntryOptions {
+                suggestions: false,
+                ..EntryOptions::DEFAULT
+            }
+        );
+        assert_eq!(EntryOptions::from_stored("not json"), EntryOptions::DEFAULT);
+        assert_eq!(EntryOptions::from_stored("[]"), EntryOptions::DEFAULT);
+    }
+
+    #[test]
+    fn the_date_style_survives_a_round_trip() {
+        let style = DateStyle {
+            format: DateDisplayFormat::Numeric,
+            symbols: true,
+            circa: true,
+            calendar: Calendar::Julian,
+        };
+        assert_eq!(date_style_from_stored(&date_style_to_stored(style)), style);
+    }
+
+    #[test]
+    fn an_unreadable_date_setting_keeps_its_default_alone() {
+        assert_eq!(
+            date_style_from_stored(r#"{"format":"roman","symbols":true,"calendar":"mayan"}"#),
+            DateStyle {
+                symbols: true,
+                ..DateStyle::DEFAULT
+            }
+        );
+        assert_eq!(date_style_from_stored(""), DateStyle::DEFAULT);
+    }
 
     #[test]
     fn pedigree_defaults_are_bounded_to_the_depth_selector() {

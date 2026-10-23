@@ -12,7 +12,7 @@
 //! <year − age>` — is what gets saved. See [`DateParts::resolved`].
 //!
 //! [`format_date`] is the read-side counterpart: it turns the columns an event
-//! carries back into a localized phrase, written in the tree's
+//! carries back into a localized phrase, written in the chosen
 //! [`DateStyle`](crate::i18n::DateStyle), so a date reads identically
 //! wherever it is shown.
 
@@ -25,8 +25,8 @@ use oxidgene_core::calendar::{
 use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
-use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::I18n;
+use crate::prefs::{EntryOptions, use_entry_options};
 
 // ── Month vocabularies ────────────────────────────────────────────────────
 //
@@ -360,7 +360,7 @@ impl DateParts {
     ///
     /// Built from the canonical values rather than the raw fields, through
     /// [`format_date`], so the two read the same. It spells the whole date
-    /// whatever the tree's [`DateStyle`](crate::i18n::DateStyle): a preview
+    /// whatever the chosen [`DateStyle`](crate::i18n::DateStyle): a preview
     /// reads the entry back, and one written `1842` would hide the day just
     /// typed.
     pub fn literal(&self, i18n: &I18n) -> String {
@@ -473,7 +473,7 @@ fn spell_date(
 /// A day the application itself recorded — when an entry was written, a page
 /// printed — as it writes dates: `28 Sep 2026`, in the reader's language.
 ///
-/// The tree's [`DateStyle`](crate::i18n::DateStyle) is for the dates of its
+/// The chosen [`DateStyle`](crate::i18n::DateStyle) is for the dates of the
 /// records: a day written « 2026 » alone would say nothing.
 pub fn format_day(i18n: &I18n, day: NaiveDate) -> String {
     spell_date(
@@ -797,7 +797,7 @@ fn sort_date(year: Option<i32>, month: Option<u8>, day: Option<u8>) -> Option<Na
 }
 
 /// Localized literal for a component triplet (empty when no year), in the
-/// tree's [`DateDisplayFormat`]: the parts the format leaves out are dropped,
+/// chosen [`DateDisplayFormat`]: the parts the format leaves out are dropped,
 /// and the numeric format writes a Gregorian or Julian month as its number.
 /// A Hebrew or Republican month keeps its name — its number tells nobody
 /// which month it is.
@@ -1287,8 +1287,12 @@ pub fn DateInput(
     on_change: EventHandler<()>,
 ) -> Element {
     let mut parts = parts;
-    let (format, calendar) = use_tree_cache().date_input();
-    // A blank field starts in the tree's input calendar; its own selector
+    let EntryOptions {
+        date_format: format,
+        calendar,
+        ..
+    } = use_entry_options()();
+    // A blank field starts in the input calendar chosen; its own selector
     // still changes it, and a date already entered keeps its calendar. Read
     // through `peek`, so this runs once, after the first render.
     use_effect(move || {

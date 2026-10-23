@@ -42,7 +42,7 @@ L’enfant, les parents déjà enregistrés et les personnes de l’autre sexe s
 
 La section **État civil** regroupe l’identité de la personne :
 
-- **Nom de naissance** et **Prénom(s)**, marqués d’un astérisque, doivent être remplis pour enregistrer. Le nom s’écrit en capitales au fil de la frappe, sauf si la mise en majuscules automatique des noms est désactivée pour l’arbre. Le champ des prénoms complète un prénom à la fois : dans « Jean Ma », il propose des prénoms pour « Ma ».
+- **Nom de naissance** et **Prénom(s)**, marqués d’un astérisque, doivent être remplis pour enregistrer. Le nom s’écrit en capitales au fil de la frappe, sauf si **Noms de famille en majuscules** est désactivé dans les [paramètres de l’application](@/guide/settings.fr.md#options-de-saisie). Le champ des prénoms complète un prénom à la fois : dans « Jean Ma », il propose des prénoms pour « Ma ».
 - **Sexe** : **Masculin**, **Féminin** ou **Inconnu**.
 - **Source** : la source de l’identité dans son ensemble (voir [Sources](#sources) plus bas).
 
@@ -109,7 +109,7 @@ Les champs de lieu font des suggestions pendant la frappe et acceptent toujours 
 
 Les champs de nom, de prénom, de profession et de source font eux aussi des suggestions : d’abord les valeurs de l’arbre, chacune avec le nombre de personnes qui l’utilisent, puis les termes des fiches de référence, dans n’importe quelle langue. Une ligne marquée **info** a une fiche explicative, que vous lirez en survolant le terme sur la fiche de la personne. Une suggestion choisie est saisie telle que l’arbre ou la fiche l’écrit.
 
-Les suggestions ne limitent jamais ce que vous tapez. Désactivez-les pour un arbre avec **Suggestions de saisie** sous **Options de saisie** dans les paramètres de l’arbre.
+Les suggestions ne limitent jamais ce que vous tapez. Désactivez-les avec **Suggestions de saisie** sous **Options de saisie** dans les [paramètres de l’application](@/guide/settings.fr.md#options-de-saisie).
 
 ## Sources
 

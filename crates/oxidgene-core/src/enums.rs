@@ -285,7 +285,7 @@ impl TreeDefaultPrivacy {
     }
 }
 
-/// How much of a date a tree writes, and how (`docs/ui-settings.md` §9).
+/// How much of a date the pages write, and how (`docs/ui-app-settings.md` §8).
 ///
 /// A display choice only: the stored date keeps whatever precision it was
 /// entered with, and a qualifier is written whatever the format.
@@ -324,7 +324,7 @@ impl DateDisplayFormat {
 }
 
 /// The order and form of a date field's parts while a date is entered
-/// (`docs/ui-settings.md` §10).
+/// (`docs/ui-app-settings.md` §9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DateInputFormat {

@@ -43,4 +43,3 @@ pub use surname::{
 };
 pub use tag::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef};
 pub use tree::Tree;
-pub(crate) use tree::enabled;

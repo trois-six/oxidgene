@@ -47,7 +47,7 @@ Si le résultat n’est pas celui attendu, par exemple parce que l’export éta
 
 Les deux choix sont enregistrés immédiatement. La vue arbre s’ouvre désormais sur la racine SOSA, ses ancêtres portent leur numéro SOSA, et les liens de parenté peuvent se calculer à partir de vous. Voir [Les arbres](@/guide/trees.fr.md).
 
-Profitez-en pour passer par **Affichage des dates** et **Options de saisie**, et choisir comment écrire et saisir les dates (voir [Paramètres](@/guide/settings.fr.md)).
+Passez ensuite, dans les **Préférences globales** de la même page, par **Affichage des dates** et **Options de saisie**, et choisissez comment écrire et saisir les dates sur cet appareil (voir [Paramètres](@/guide/settings.fr.md#affichage-des-dates)).
 
 ## 5. Faire le tour du propriétaire
 

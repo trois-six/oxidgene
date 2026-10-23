@@ -837,26 +837,6 @@ type GqlCoupleDetailBundle {
 }
 
 """
-How much of a date a tree writes.
-"""
-enum GqlDateDisplayFormat {
-	DAY_MONTH_YEAR
-	NUMERIC
-	MONTH_YEAR
-	YEAR
-}
-
-"""
-The order and form of a tree's date fields.
-"""
-enum GqlDateInputFormat {
-	SLASHES
-	DASHES
-	ISO
-	MONTH_NAME
-}
-
-"""
 Date qualifier.
 """
 enum GqlDateQualifier {
@@ -3048,42 +3028,6 @@ type GqlTree {
 	"""
 	defaultPrivacy: GqlTreeDefaultPrivacy!
 	"""
-	Whether entry fields suggest values as the user types.
-	"""
-	entrySuggestions: Boolean!
-	"""
-	How much of a date the tree's pages write.
-	"""
-	dateFormat: GqlDateDisplayFormat!
-	"""
-	Whether lifespans write the birth and death symbols.
-	"""
-	dateSymbols: Boolean!
-	"""
-	Whether an approximate date reads « c. ».
-	"""
-	dateCirca: Boolean!
-	"""
-	The calendar a date recorded in another one is also given in.
-	"""
-	dateCalendar: GqlCalendar!
-	"""
-	Whether surname fields write in capitals.
-	"""
-	surnameUppercase: Boolean!
-	"""
-	Whether adding a relative offers the persons already in the tree.
-	"""
-	suggestPersons: Boolean!
-	"""
-	The order and form of a date field's parts.
-	"""
-	dateInputFormat: GqlDateInputFormat!
-	"""
-	The calendar an empty date field starts in.
-	"""
-	dateInputCalendar: GqlCalendar!
-	"""
 	Who the tree's GEDCOM exports say they are from.
 	"""
 	submitterName: String
@@ -3155,15 +3099,6 @@ type GqlTreeSnapshot {
 	name: String!
 	description: String
 	defaultPrivacy: GqlTreeDefaultPrivacy!
-	entrySuggestions: Boolean!
-	dateFormat: GqlDateDisplayFormat!
-	dateSymbols: Boolean!
-	dateCirca: Boolean!
-	dateCalendar: GqlCalendar!
-	surnameUppercase: Boolean!
-	suggestPersons: Boolean!
-	dateInputFormat: GqlDateInputFormat!
-	dateInputCalendar: GqlCalendar!
 	sosaRootPersonId: ID
 	selfPersonId: ID
 	submitterName: String
@@ -4916,42 +4851,6 @@ input UpdateTreeInput {
 	What `Default` privacy resolves to for everything in this tree.
 	"""
 	defaultPrivacy: GqlTreeDefaultPrivacy
-	"""
-	Whether entry fields suggest values as the user types.
-	"""
-	entrySuggestions: Boolean
-	"""
-	How much of a date the tree's pages write.
-	"""
-	dateFormat: GqlDateDisplayFormat
-	"""
-	Whether lifespans write the birth and death symbols.
-	"""
-	dateSymbols: Boolean
-	"""
-	Whether an approximate date reads « c. ».
-	"""
-	dateCirca: Boolean
-	"""
-	The calendar a date recorded in another one is also given in.
-	"""
-	dateCalendar: GqlCalendar
-	"""
-	Whether surname fields write in capitals.
-	"""
-	surnameUppercase: Boolean
-	"""
-	Whether adding a relative offers the persons already in the tree.
-	"""
-	suggestPersons: Boolean
-	"""
-	The order and form of a date field's parts.
-	"""
-	dateInputFormat: GqlDateInputFormat
-	"""
-	The calendar an empty date field starts in.
-	"""
-	dateInputCalendar: GqlCalendar
 	name: String
 	description: String
 	sosaRootPersonId: String

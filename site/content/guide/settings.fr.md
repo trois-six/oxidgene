@@ -1,10 +1,10 @@
 +++
 title = "Paramètres"
-description = "Paramètres de l’arbre (racines, confidentialité, affichage des dates, options de saisie, historique, export) et de l’application (thèmes, langue, pedigree, noms, API et assistant IA)."
+description = "Paramètres de l’arbre (racines, confidentialité, historique, export) et de l’application (thèmes, langue, pedigree, noms, affichage des dates, options de saisie, API et assistant IA)."
 weight = 150
 +++
 
-OxidGene distingue deux sortes de réglages. Les **paramètres de l’arbre** appartiennent à un arbre et valent pour tous ceux qui l’utilisent. Les **paramètres de l’application** sont vos préférences sur cet appareil : l’apparence de l’application, sa langue, le tracé des pedigrees et le classement des noms. Cette page passe les deux en revue.
+OxidGene distingue deux sortes de réglages. Les **paramètres de l’arbre** appartiennent à un arbre et valent pour tous ceux qui l’utilisent. Les **paramètres de l’application** sont vos préférences sur cet appareil : l’apparence de l’application, sa langue, le tracé des pedigrees, le classement des noms, l’écriture des dates et l’aide à la saisie. Cette page passe les deux en revue.
 
 Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bouton d’enregistrement à ne pas oublier, sauf pour le nom de l’arbre et l’émetteur.
 
@@ -15,7 +15,7 @@ Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bo
 
 {{ <screenshot name="tree-settings" alt="Page des paramètres d’un arbre, avec son menu de gauche" lang={lang} /> }}
 
-Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**, **Affichage des dates**, **Options de saisie**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
+Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
 
 ## Arbre et racines
 
@@ -31,27 +31,6 @@ Un nouvel arbre est Privé : une généalogie contient des personnes vivantes, e
 
 La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore rien. Comme l’indique la section : **Enregistré dès maintenant. Rien n’est encore masqué — cela prendra effet avec les comptes et la publication.**
 
-## Affichage des dates
-
-Comment les pages de l’arbre écrivent les dates de ses données. Vos dates elles-mêmes ne sont jamais modifiées, seule leur présentation change. Un **Aperçu**, sous les réglages, montre quelques dates telles que les pages les écriront.
-
-- **Format des dates** : la date complète avec le mois abrégé (par défaut), la forme numérique (`12/03/1842`), le mois et l’année, ou l’année seule. Chaque option de la liste est écrite sous la forme qu’elle produit. La précision d’une date, comme « avant » ou « vers », est toujours écrite, quel que soit le format.
-- **Symboles des événements** : avec **Oui**, les dates de vie s’écrivent `* 1842 + 1907` au lieu de `1842-1907`.
-- **« Circa » pour les dates approximatives** : avec **Oui**, une date approximative s’écrit *v. 1842* plutôt que *vers 1842*.
-- **Calendrier d’affichage** : **Grégorien** (par défaut), **Julien**, **Républicain** ou **Hébreu**. Une date enregistrée dans un autre calendrier est suivie de son équivalent dans celui-ci, entre parenthèses. Les années seules, comme sur les fiches du pedigree, restent grégoriennes.
-
-## Options de saisie
-
-Comment les formulaires de l’arbre vous aident pendant la saisie.
-
-- **Suggestions de saisie** (Oui par défaut) : les champs de lieu, de nom, de prénom, de profession et de source proposent, pendant la saisie, ce que l’arbre contient déjà et les dictionnaires intégrés. Vous pouvez toujours taper autre chose.
-- **Noms de famille en majuscules** (Oui par défaut) : les noms de famille s’écrivent en capitales au fil de la frappe. Avec **Non**, un nom est enregistré tel que tapé.
-- **Proposer les personnes existantes** (Oui par défaut) : quand vous ajoutez un parent, un conjoint, un enfant, un frère ou une sœur depuis la vue arbre, les personnes déjà présentes sont proposées avant d’en créer une. Avec **Non**, seule une nouvelle personne est proposée.
-- **Format de saisie des dates** : l’ordre des champs jour, mois et année de chaque champ de date : jour/mois/année (par défaut), jour-mois-année, année-mois-jour (ISO 8601), ou jour, mois choisi par son nom, année.
-- **Calendrier de saisie par défaut** : le calendrier dans lequel commence un champ de date vide. Chaque champ peut toujours passer à un autre.
-
-Les suggestions de lieux viennent d’un dictionnaire des lieux intégré à l’application, qui couvre douze pays. Il ne demande ni téléchargement ni accès au réseau.
-
 ## Historique
 
 L’**Historique**, dans le groupe **Outils**, est le journal de l’arbre : chaque modification, de la plus récente à la plus ancienne, y compris les réglages, les médias, les imports, les exports et les restaurations. Filtrez-le avec **Tout**, **Données**, **Paramètres**, **Médias**, **Imports**, **Exports** et **Restaurations**, et cliquez sur **Afficher plus** pour remonter plus loin. **Voir la modification** compare une fiche avant et après, et **Restaurer la version précédente** annule cette modification pour cette fiche. Voir [Historique](@/guide/history.fr.md).
@@ -64,7 +43,7 @@ Téléchargez l’arbre en GEDCOM ou en GEDZIP, choisissez le logiciel de destin
 
 ## Paramètres de l’application
 
-Les paramètres de l’application comptent cinq sections : **Apparence**, **Langue**, **Pedigree**, **Noms** et **API**. Les quatre premières figurent aussi sous **Préférences globales** dans les paramètres de chaque arbre ; c’est la même préférence aux deux endroits, et non un réglage de l’arbre.
+Les paramètres de l’application comptent sept sections : **Apparence**, **Langue**, **Pedigree**, **Noms**, **Affichage des dates**, **Options de saisie** et **API**. Toutes sauf API figurent aussi sous **Préférences globales** dans les paramètres de chaque arbre ; c’est la même préférence aux deux endroits, et non un réglage de l’arbre, et elle vaut pour tous les arbres que vous ouvrez sur cet appareil.
 
 Ces préférences sont conservées sur cet appareil. Sur un autre ordinateur, ou dans un autre navigateur, vous les choisissez de nouveau.
 
@@ -127,6 +106,27 @@ Voir [Le pedigree](@/guide/pedigree.fr.md) pour ce que montre chaque graphique.
 - **Particule ignorée** : « de la Cruz » est classé à la lettre C.
 
 Le nom est toujours affiché en entier ; seule sa place dans l’ordre alphabétique change.
+
+### Affichage des dates
+
+Comment les pages écrivent les dates, dans tous les arbres que vous ouvrez sur cet appareil. Vos dates elles-mêmes ne sont jamais modifiées, seule leur présentation change. Un **Aperçu**, sous les réglages, montre quelques dates telles que les pages les écriront.
+
+- **Format des dates** : la date complète avec le mois abrégé (par défaut), la forme numérique (`12/03/1842`), le mois et l’année, ou l’année seule. Chaque option de la liste est écrite sous la forme qu’elle produit. La précision d’une date, comme « avant » ou « vers », est toujours écrite, quel que soit le format.
+- **Symboles des événements** : avec **Oui**, les dates de vie s’écrivent `* 1842 + 1907` au lieu de `1842-1907`.
+- **« Circa » pour les dates approximatives** : avec **Oui**, une date approximative s’écrit *v. 1842* plutôt que *vers 1842*.
+- **Calendrier d’affichage** : **Grégorien** (par défaut), **Julien**, **Républicain** ou **Hébreu**. Une date enregistrée dans un autre calendrier est suivie de son équivalent dans celui-ci, entre parenthèses. Les années seules, comme sur les fiches du pedigree, restent grégoriennes.
+
+### Options de saisie
+
+Comment les formulaires vous aident pendant la saisie, dans tous les arbres que vous ouvrez sur cet appareil.
+
+- **Suggestions de saisie** (Oui par défaut) : les champs de lieu, de nom, de prénom, de profession et de source proposent, pendant la saisie, ce que l’arbre contient déjà et les dictionnaires intégrés. Vous pouvez toujours taper autre chose.
+- **Noms de famille en majuscules** (Oui par défaut) : les noms de famille s’écrivent en capitales au fil de la frappe. Avec **Non**, un nom est enregistré tel que tapé.
+- **Proposer les personnes existantes** (Oui par défaut) : quand vous ajoutez un parent, un conjoint, un enfant, un frère ou une sœur depuis la vue arbre, les personnes déjà présentes sont proposées avant d’en créer une. Avec **Non**, seule une nouvelle personne est proposée.
+- **Format de saisie des dates** : l’ordre des champs jour, mois et année de chaque champ de date : jour/mois/année (par défaut), jour-mois-année, année-mois-jour (ISO 8601), ou jour, mois choisi par son nom, année.
+- **Calendrier de saisie par défaut** : le calendrier dans lequel commence un champ de date vide. Chaque champ peut toujours passer à un autre.
+
+Les suggestions de lieux viennent d’un dictionnaire des lieux intégré à l’application, qui couvre douze pays. Il ne demande ni téléchargement ni accès au réseau.
 
 ### API
 

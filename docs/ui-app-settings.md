@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
+description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-08T07:10:27Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -18,7 +18,9 @@ generated: { by: human:maintainer, at: 2026-10-08T07:10:27Z }
 
 The app settings page (`/settings`) is a dedicated full-page interface for configuring **application-level** preferences that are not tied to any specific tree. It is accessed via the gear icon in the [Homepage](ui-home.md) page header.
 
-This page is distinct from [Tree Settings](ui-settings.md), which configure per-tree options.
+This page is distinct from [Tree Settings](ui-settings.md), which configure per-tree options. Every
+preference of this page except API is kept on the device (`localStorage`) and
+also appears under **Global preferences** in Tree Settings.
 
 ---
 
@@ -49,6 +51,10 @@ scroll hook, regardless of whether content elements are remounted.
 |   | - Appearance     |   Content (cards, toggles, options)          | |
 |   | - Language       |                                              | |
 |   | - Pedigree       |                                              | |
+|   | - Names          |                                              | |
+|   | - Date Display   |                                              | |
+|   | - Entry Options  |                                              | |
+|   | - API            |                                              | |
 |   |                  |                                              | |
 |   +------------------+---------------------------------------------+ |
 |                                                                       |
@@ -87,6 +93,8 @@ Items:
 | Language | Language selection |
 | Pedigree | Chart, pedigree theme, initial ancestor and descendant depths |
 | Names | Surname-particle sorting |
+| Date Display | Date format with a live preview, event symbols, « circa », display calendar |
+| Entry Options | Entry suggestions, surnames in capitals, suggested persons, input date format, default input calendar |
 | API | REST endpoints with how to connect a client, and GraphQL in the web build; AI assistant (MCP) connection in the desktop build |
 
 Active item: primary text, bold weight, and the neutral selection background
@@ -293,7 +301,151 @@ defaults.
 
 ---
 
-## 8. Section: API
+## 8. Section: Date Display
+
+How every page writes dates: event lists, the person, couple and history
+pages, the pedigree and its events panel, search results, the dictionary and
+tool lists, statistics, and their printed forms. The stored dates never
+change; every page writes them through the one shared formatter
+([Common UI §4.3](ui-common.md#43-dateinput)), which reads this preference.
+The same section appears under **Global preferences > Date Display** in
+[Tree Settings](ui-settings.md#11-section-global-preferences): both surfaces
+render the same component and change the same preference.
+
+It is a preference of the device, like the theme, not a property of any tree:
+it applies to every tree opened on this device, is persisted in
+`localStorage('oxidgene-date-style')` as a JSON object
+(`{"format": "day_month_year", "symbols": false, "circa": false, "calendar": "gregorian"}`),
+and nothing about it reaches the server or the tree's history. Each control
+applies on the click, with no save step, and every date on screen follows at
+once. A member that is missing, unknown or unreadable falls back to its own
+default without resetting the others, and storage that is unavailable leaves
+the defaults for the visit.
+
+Dates the application itself records — when an audit entry was written, when a
+page was printed — keep the default form, as does the date editor's preview,
+which reads the entry back in full, and the [date converter](ui-tools.md).
+
+### Header
+
+- Eyebrow and title: "Date Display"
+- Subtitle: how the pages write dates, for every tree opened on this device;
+  the dates themselves are not changed.
+
+### Date format
+
+A stacked option in the section's card (`.app-settings-card`): a dropdown whose
+four options are the same day written each way:
+
+| Option | Stored as | A day | A month | Qualified |
+|---|---|---|---|---|
+| `12 Mar 1842` (default) | `day_month_year` | 12 Mar 1842 | Mar 1842 | before 12 Mar 1842 |
+| `12/03/1842` | `numeric` | 12/03/1842 | 03/1842 | before 12/03/1842 |
+| `Mar 1842` | `month_year` | Mar 1842 | Mar 1842 | before Mar 1842 |
+| `1842` | `year` | 1842 | 1842 | before 1842 |
+
+The month's name is the reader's language's. A date's qualifier is always
+written, whatever the format. The numeric format writes a Gregorian or Julian
+month as its number; a Republican or Hebrew month keeps its name, its number
+telling nobody which month it is. A sentence reporting a date written without
+its day joins it as a period (« en 1842 »).
+
+A **live preview** below the dropdown shows a fictitious person's dates as the
+pages will write them with every setting of the section: a birth recorded in
+the Republican calendar, a marriage, a death known only roughly, and the
+lifespan a pedigree card draws. It follows each change at once.
+
+### Event symbols
+
+Yes / No (default No), the shared two-button toggle of the settings pages.
+With Yes, a lifespan — on pedigree cards, the wheels, fans and lineages, the
+events panel, the person narrative, the dictionary and tool lists — writes
+each year behind its event's symbol, `*` for the birth and `+` for the death
+(`* 1842 + 1907`, `* 1842`, `+ 1907`), instead of joining them with a dash
+(`1842-1907`, `1842-`, `-1907`). As without symbols, the birth year may come
+from a baptism and the death year from a burial; the symbol names the end of
+the life, not the record. Search results and pickers already mark both years
+with their own glyphs.
+
+### « Circa » for approximate dates
+
+Yes / No (default No). With Yes, a date entered as approximate reads with the
+short « c. » of the reader's language — *c. 1842*, *v. 1842* in French — rather
+than its qualifier's word (*about 1842*). Calculated and estimated dates keep
+their words. Year-only surfaces keep their GeneWeb marks (`ca 1842`) either way.
+
+### Display calendar
+
+Dropdown: Gregorian (default) / Julian / Republican / Hebrew. A date recorded
+in another calendar is followed by its equivalent in this one, in
+parentheses: the day, or for a year or a month alone the span it covers, which
+reads as one value when both ends write the same (a year-only format). A date
+recorded in this calendar, a range, a free-text phrase, and a date this
+calendar cannot express (anything before the Republic in the Republican
+calendar) are written as recorded, alone. Every calendar the application
+records has a converter. Years shown alone — lifespans — stay Gregorian.
+
+---
+
+## 9. Section: Entry Options
+
+How the forms help with entry, in every tree opened on this device. Like the
+date display, it is a device preference shared with **Global preferences >
+Entry Options** in [Tree Settings](ui-settings.md#11-section-global-preferences),
+persisted in `localStorage('oxidgene-entry-options')` as a JSON object
+(`{"suggestions": true, "surname_uppercase": true, "suggest_persons": true, "date_format": "slashes", "calendar": "gregorian"}`)
+with the same per-member fallback, and never sent to the server or recorded in
+a tree's history. Each control applies on the click; a form opened afterwards
+follows it, and an entry field already open follows it as soon as it next
+asks for suggestions.
+
+### Header
+
+- Eyebrow and title: "Entry Options"
+- Subtitle: how the forms help you enter data, in every tree opened on this
+  device.
+
+### Data entry assistance
+
+Three Yes / No options:
+
+| Toggle | Description |
+|---|---|
+| Entry suggestions | Yes (default) / No. Place, surname, given-name, occupation and source fields, the search filters' included, suggest what the open tree holds and the built-in dictionaries. See [Common UI §4.4](ui-common.md) |
+| Automatic uppercase for surnames | Yes (default) / No. The surname entry fields — the person form's birth name and its other names, the dictionary's family-name rename — write what is typed in capitals and suggest surnames in capitals. With No, a surname is stored as typed. Search filters never change case |
+| Suggest existing persons | Yes (default) / No. When a parent, partner, child or sibling is added from the [tree view](ui-genealogy-tree.md)'s action picker, the panel searches the tree's persons before offering to create one; the person form creating a parent from an empty slot lists the persons matching the name being typed, to link instead ([Person Edit §12](ui-person-edit-modal.md)). With No, only a new person is offered |
+
+### Input date format
+
+A dropdown, each option named with the reader's own placeholders:
+
+| Option | Stored as | Fields |
+|---|---|---|
+| `DD/MM/YYYY` (default) | `slashes` | day `/` month `/` year, the month typed as a number |
+| `DD-MM-YYYY` | `dashes` | day `-` month `-` year |
+| `YYYY-MM-DD` (ISO 8601) | `iso` | year `-` month `-` day |
+| `DD Mar YYYY` | `month_name` | day, month picked by name, year |
+
+It lays out every [DateInput](ui-common.md#43-dateinput). A Republican or
+Hebrew date always picks its month by name, without separators, whatever the
+format.
+
+### Default calendar for input
+
+Same options as the display calendar (§8). An empty date field starts in it;
+the field's own calendar selector still changes it, and a date already entered
+keeps its calendar.
+
+### Place dictionary
+
+The [place dictionary](place-dictionary.md) (France, the United Kingdom,
+Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal,
+Belgium, Luxembourg and the Netherlands) is built into the application and
+needs neither a download nor network access. There is nothing to manage here.
+
+---
+
+## 10. Section: API
 
 Both builds serve REST; only the web build serves GraphQL, the desktop
 compiling the API crate without its optional `graphql` feature. The section
@@ -394,20 +546,21 @@ trees. The server and its contract are specified in
 - Every label, the warning, the note, and the copy feedback go through i18n,
   in every interface language. The command and the JSON are not translated.
 
-## 9. Responsive
+## 11. Responsive
 
 - Outer content max-width: 1200px, responsive padding; settings content max-width: 860px
 - At or below **768px**: the left navigation stacks above the content area as one
 	compact, non-wrapping row. It scrolls horizontally when necessary instead of
 	growing into a tall menu, so settings content remains in the first viewport.
-- Theme, language, and pedigree controls remain full-width cards
+- Theme, language, pedigree, date display and entry options controls remain full-width cards
+- At or below **640px**, an option's label and hint stack above its control
 - Theme swatches use two equal, compact columns down to a 320px viewport and
   remain centred by filling the available card width. Below 300px, they may
   reflow to a single column.
 
 ---
 
-## 10. Future Sections
+## 12. Future Sections
 
 Additional sections may be added in future EPICs:
 

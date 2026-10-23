@@ -1,20 +1,28 @@
-//! Application-level settings page (theme, language, name display, API access).
+//! Application-level settings page (theme, language, pedigree, name display,
+//! date display, entry options, API access).
 
 use dioxus::prelude::*;
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, DateQualifier};
+use oxidgene_core::types::QualifiedYear;
 
 use crate::api::ApiClient;
 use crate::assistant::{AssistantLauncher, use_assistant_launcher};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::copy_field::CopyField;
-use crate::components::pedigree_chart::PedigreeViewSwatch;
+use crate::components::date_input::{
+    calendar_from_value, calendar_value, format_date, format_example, input_format_label,
+};
+use crate::components::pedigree_chart::{PedigreeViewSwatch, format_lifespan};
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::components::pedigree_view::PedigreeView;
 use crate::i18n::{
-    self, CustomLanguageLoader, Language, LanguageCatalog, reload_custom_languages, use_i18n,
+    self, CustomLanguageLoader, DateStyle, Language, LanguageCatalog, reload_custom_languages,
+    use_i18n,
 };
 use crate::prefs::{
-    PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_pedigree_view,
-    set_sort_particles,
+    EntryOptions, PedigreeDefaults, SortParticles, set_date_style, set_entry_options,
+    set_pedigree_defaults, set_pedigree_theme, set_pedigree_view, set_sort_particles,
+    use_entry_options,
 };
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
@@ -41,6 +49,8 @@ enum Section {
     Language,
     Pedigree,
     Names,
+    DateDisplay,
+    EntryOptions,
     Api,
 }
 
@@ -96,6 +106,16 @@ pub fn AppSettings() -> Element {
                             {i18n.t("app_settings.names")}
                         }
                         button {
+                            class: if *active_section.read() == Section::DateDisplay { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set(Section::DateDisplay),
+                            {i18n.t("app_settings.date_display")}
+                        }
+                        button {
+                            class: if *active_section.read() == Section::EntryOptions { "settings-nav-item active" } else { "settings-nav-item" },
+                            onclick: move |_| active_section.set(Section::EntryOptions),
+                            {i18n.t("app_settings.entry_options")}
+                        }
+                        button {
                             class: if *active_section.read() == Section::Api { "settings-nav-item active" } else { "settings-nav-item" },
                             onclick: move |_| active_section.set(Section::Api),
                             {i18n.t("app_settings.api")}
@@ -117,6 +137,12 @@ pub fn AppSettings() -> Element {
                         },
                         Section::Names => rsx! {
                             NamesSection { sort_particles }
+                        },
+                        Section::DateDisplay => rsx! {
+                            DateDisplaySection {}
+                        },
+                        Section::EntryOptions => rsx! {
+                            EntryOptionsSection {}
                         },
                         Section::Api => rsx! {
                             ApiSection {}
@@ -534,7 +560,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
 // ── API section ─────────────────────────────────────────────────────────────
 
 /// The API section: where each endpoint is, and how an external client
-/// connects to it (`docs/ui-app-settings.md` §8).
+/// connects to it (`docs/ui-app-settings.md` §10).
 ///
 /// Both builds serve REST. Only the web server serves GraphQL: the desktop
 /// compiles the API without it, so its entries show in the web build alone.
@@ -677,7 +703,7 @@ fn graphql_curl_example(graphql_url: &str) -> String {
 // ── AI assistant (MCP) ──────────────────────────────────────────────────────
 
 /// The "AI assistant (MCP)" card, following the API endpoints card in the
-/// same section (`docs/ui-app-settings.md` §8).
+/// same section (`docs/ui-app-settings.md` §10).
 ///
 /// Desktop-only: an MCP client needs the absolute path of the running
 /// executable, which only exists once there is a running executable to
@@ -779,6 +805,282 @@ pub fn NamesSection(sort_particles: Signal<SortParticles>) -> Element {
                             onclick: move |_| set_sort_particles(sort_particles, false),
                             {i18n.t("app_settings.sort_particles_ignored")}
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Date display section ────────────────────────────────────────────────────
+
+/// How every page writes dates (`docs/ui-app-settings.md` §8): the format
+/// with its preview, the event symbols, « circa », and the calendar other ones
+/// are also given in. A preference of the device, like the theme: each choice
+/// applies at once and nothing reaches the server.
+#[component]
+pub fn DateDisplaySection() -> Element {
+    let i18n = use_i18n();
+    let pref = use_context::<Signal<DateStyle>>();
+    let style = *pref.read();
+
+    rsx! {
+        div { class: "settings-section",
+            span { class: "settings-section-eyebrow", {i18n.t("app_settings.date_display")} }
+            h2 { class: "settings-section-title", {i18n.t("app_settings.date_display")} }
+            p { class: "settings-section-subtitle", {i18n.t("app_settings.date_display_desc")} }
+
+            div { class: "app-settings-card",
+                div { class: "app-settings-option app-settings-option-stacked",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.date_format")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.date_format_desc")} }
+                    }
+                    select {
+                        class: "settings-date-select",
+                        aria_label: i18n.t("app_settings.date_format"),
+                        onchange: move |e: Event<FormData>| {
+                            let value = e.value();
+                            if let Some(format) = DateDisplayFormat::ALL
+                                .into_iter()
+                                .find(|format| format.as_str() == value)
+                            {
+                                set_date_style(pref, DateStyle { format, ..style });
+                            }
+                        },
+                        for format in DateDisplayFormat::ALL {
+                            option {
+                                value: format.as_str(),
+                                selected: style.format == format,
+                                {format_example(&i18n, format)}
+                            }
+                        }
+                    }
+                    DatePreview { style }
+                }
+                YesNoOption {
+                    label: i18n.t("app_settings.date_symbols"),
+                    hint: i18n.t("app_settings.date_symbols_desc"),
+                    value: style.symbols,
+                    on_change: move |symbols| set_date_style(pref, DateStyle { symbols, ..style }),
+                }
+                YesNoOption {
+                    label: i18n.t("app_settings.date_circa"),
+                    hint: i18n.t("app_settings.date_circa_desc"),
+                    value: style.circa,
+                    on_change: move |circa| set_date_style(pref, DateStyle { circa, ..style }),
+                }
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.date_calendar")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.date_calendar_desc")} }
+                    }
+                    CalendarSelect {
+                        label: i18n.t("app_settings.date_calendar"),
+                        value: style.calendar,
+                        on_change: move |calendar| set_date_style(pref, DateStyle { calendar, ..style }),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A fictitious person's dates as the pages would write them in `style`: a
+/// birth recorded in the Republican calendar, a marriage, a death known only
+/// roughly, and the lifespan a card would draw.
+#[component]
+fn DatePreview(style: DateStyle) -> Element {
+    let i18n = use_i18n();
+    let sample = i18n.with_dates(style);
+    let rows = [
+        (
+            i18n.t("event.type.birth"),
+            format_date(
+                &sample,
+                Calendar::FrenchRepublican,
+                DateQualifier::Exact,
+                Some("18 BRUM 8"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("event.type.marriage"),
+            format_date(
+                &sample,
+                Calendar::Gregorian,
+                DateQualifier::Exact,
+                Some("12 MAR 1822"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("event.type.death"),
+            format_date(
+                &sample,
+                Calendar::Gregorian,
+                DateQualifier::About,
+                Some("1867"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("app_settings.date_preview_lifespan"),
+            format_lifespan(
+                style,
+                Some(QualifiedYear::new(1799, DateQualifier::Exact)),
+                Some(QualifiedYear::new(1867, DateQualifier::About)),
+            ),
+        ),
+    ];
+    rsx! {
+        div { class: "settings-date-preview", aria_live: "polite",
+            div { class: "settings-date-preview-title", {i18n.t("app_settings.date_preview")} }
+            dl {
+                for (label , text) in rows {
+                    dt { "{label}" }
+                    dd { "{text}" }
+                }
+            }
+        }
+    }
+}
+
+/// One of the calendars, picked from a dropdown named `label`.
+#[component]
+fn CalendarSelect(label: String, value: Calendar, on_change: EventHandler<Calendar>) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        select {
+            class: "settings-date-select",
+            aria_label: "{label}",
+            onchange: move |e: Event<FormData>| on_change.call(calendar_from_value(&e.value())),
+            for calendar in [
+                Calendar::Gregorian,
+                Calendar::Julian,
+                Calendar::FrenchRepublican,
+                Calendar::Hebrew,
+            ] {
+                option {
+                    value: calendar_value(calendar),
+                    selected: value == calendar,
+                    {i18n.t(&format!("calendar.{calendar}"))}
+                }
+            }
+        }
+    }
+}
+
+/// A preference that is on or off: its name, what it does, and Yes / No.
+#[component]
+fn YesNoOption(label: String, hint: String, value: bool, on_change: EventHandler<bool>) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "app-settings-option",
+            div { class: "app-settings-option-info",
+                span { class: "app-settings-option-label", "{label}" }
+                span { class: "app-settings-option-hint", "{hint}" }
+            }
+            div { class: "theme-toggle-group", role: "group", aria_label: "{label}",
+                for (choice , text) in [(true, i18n.t("common.yes")), (false, i18n.t("common.no"))] {
+                    button {
+                        key: "{choice}",
+                        r#type: "button",
+                        class: if value == choice { "theme-toggle-btn active" } else { "theme-toggle-btn" },
+                        aria_pressed: if value == choice { "true" } else { "false" },
+                        onclick: move |_| on_change.call(choice),
+                        "{text}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Entry options section ───────────────────────────────────────────────────
+
+/// How the forms help with entry (`docs/ui-app-settings.md` §9):
+/// suggestions, surnames in capitals, existing persons offered, and how dates
+/// are entered. A preference of the device, followed by the forms of every
+/// tree.
+#[component]
+pub fn EntryOptionsSection() -> Element {
+    let i18n = use_i18n();
+    let pref = use_entry_options();
+    let options = *pref.read();
+
+    rsx! {
+        div { class: "settings-section",
+            span { class: "settings-section-eyebrow", {i18n.t("app_settings.entry_options")} }
+            h2 { class: "settings-section-title", {i18n.t("app_settings.entry_options")} }
+            p { class: "settings-section-subtitle", {i18n.t("app_settings.entry_options_desc")} }
+
+            div { class: "app-settings-card",
+                YesNoOption {
+                    label: i18n.t("app_settings.entry_suggestions"),
+                    hint: i18n.t("app_settings.entry_suggestions_desc"),
+                    value: options.suggestions,
+                    on_change: move |suggestions| set_entry_options(
+                        pref,
+                        EntryOptions { suggestions, ..options },
+                    ),
+                }
+                YesNoOption {
+                    label: i18n.t("app_settings.surname_uppercase"),
+                    hint: i18n.t("app_settings.surname_uppercase_desc"),
+                    value: options.surname_uppercase,
+                    on_change: move |surname_uppercase| set_entry_options(
+                        pref,
+                        EntryOptions { surname_uppercase, ..options },
+                    ),
+                }
+                YesNoOption {
+                    label: i18n.t("app_settings.suggest_persons"),
+                    hint: i18n.t("app_settings.suggest_persons_desc"),
+                    value: options.suggest_persons,
+                    on_change: move |suggest_persons| set_entry_options(
+                        pref,
+                        EntryOptions { suggest_persons, ..options },
+                    ),
+                }
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.input_date_format")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.input_date_format_desc")} }
+                    }
+                    select {
+                        class: "settings-date-select",
+                        aria_label: i18n.t("app_settings.input_date_format"),
+                        onchange: move |e: Event<FormData>| {
+                            let value = e.value();
+                            if let Some(date_format) = DateInputFormat::ALL
+                                .into_iter()
+                                .find(|format| format.as_str() == value)
+                            {
+                                set_entry_options(pref, EntryOptions { date_format, ..options });
+                            }
+                        },
+                        for format in DateInputFormat::ALL {
+                            option {
+                                value: format.as_str(),
+                                selected: options.date_format == format,
+                                {input_format_label(&i18n, format)}
+                            }
+                        }
+                    }
+                }
+                div { class: "app-settings-option",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.input_calendar")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.input_calendar_desc")} }
+                    }
+                    CalendarSelect {
+                        label: i18n.t("app_settings.input_calendar"),
+                        value: options.calendar,
+                        on_change: move |calendar| set_entry_options(
+                            pref,
+                            EntryOptions { calendar, ..options },
+                        ),
                     }
                 }
             }

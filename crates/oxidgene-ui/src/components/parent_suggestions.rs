@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::person_form::ParentLink;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
-use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
+use crate::prefs::use_entry_options;
 use crate::ui_observability::use_ui_resource;
 
 /// How many matching persons the panel offers.
@@ -33,7 +33,7 @@ pub(crate) fn ParentSuggestions(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let enabled = use_tree_cache().suggest_persons();
+    let enabled = use_entry_options()().suggest_persons;
     let mut dismissed = use_signal(|| false);
     let mut linking = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);

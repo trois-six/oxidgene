@@ -35,18 +35,9 @@ independent of this schema reset (see §4.1).
 | `name` | String | Required |
 | `description` | String? | Optional |
 | `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP |
-| `entry_suggestions` | bool | Whether entry fields suggest values as the user types ([Common UI §4.4](ui-common.md)); `true` by default, set in [Settings](ui-settings.md) §10 |
-| `date_format` | DateDisplayFormat | How much of a date the tree's pages write: `day_month_year` (default, `12 Mar 1842`), `numeric` (`12/03/1842`), `month_year` or `year`. Set in [Settings](ui-settings.md) §9 |
-| `date_symbols` | bool | Whether lifespans write `* 1842 + 1907` rather than `1842-1907`; `false` by default |
-| `date_circa` | bool | Whether an approximate date reads « c. 1842 » rather than « about 1842 »; `false` by default |
-| `date_calendar` | Calendar | The calendar a date recorded in another one is also given in; `gregorian` by default |
-| `surname_uppercase` | bool | Whether surname fields write what is typed in capitals; `true` by default. Set in [Settings](ui-settings.md) §10 |
-| `suggest_persons` | bool | Whether adding a parent, partner, child or sibling offers the tree's persons before a new one; `true` by default |
-| `date_input_format` | DateInputFormat | The order and form of a date field's parts: `slashes` (default, `dd/mm/yyyy`), `dashes`, `iso` (`yyyy-mm-dd`) or `month_name` (`dd Mmm yyyy`) |
-| `date_input_calendar` | Calendar | The calendar an empty date field starts in; `gregorian` by default |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
-| `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §12 |
+| `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §10 |
 | `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
 | `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |

@@ -18,7 +18,7 @@ Pendant la saisie, un panneau s'ouvre sous les champs :
 
 Les flèches **Bas** et **Haut** parcourent les noms puis les personnes, **Entrée** choisit l'élément en surbrillance et **Échap** ferme le panneau. Choisir une personne ouvre l'arbre centré sur elle ; depuis la fiche d'une personne ou d'un couple, c'est la fiche de la personne qui s'ouvre.
 
-Aucune recherche n'est lancée tant que les deux champs réunis comptent moins de deux caractères. Si les suggestions de saisie de l'arbre sont désactivées dans les [paramètres de l'arbre](@/guide/settings.fr.md), le panneau ne liste que des personnes, sans les noms.
+Aucune recherche n'est lancée tant que les deux champs réunis comptent moins de deux caractères. Si les suggestions de saisie sont désactivées dans les [paramètres de l'application](@/guide/settings.fr.md#options-de-saisie), le panneau ne liste que des personnes, sans les noms.
 
 ## Aller à un numéro SOSA
 

@@ -47,7 +47,7 @@ If the result is not what you expected, for example because the export was incom
 
 Both are saved immediately. The tree view now opens on the SOSA root, its ancestors carry their SOSA numbers, and relationships can be traced from you. See [Trees](@/guide/trees.md#set-the-sosa-root).
 
-While you are there, check **Date Display** and **Entry Options** and choose how you want dates written and typed (see [Settings](@/guide/settings.md)).
+Then, in **Global Preferences** of the same page, check **Date Display** and **Entry Options** and choose how you want dates written and typed on this device (see [Settings](@/guide/settings.md#date-display)).
 
 ## 5. Look around
 

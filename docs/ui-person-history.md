@@ -3,14 +3,14 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person History"
 description: "Every state the history kept of a person, and their current one, compared field by field side by side, with the restore of an earlier one."
 tags: [oxidgene, specification, ui, ux, history]
-generated: { by: human:maintainer, at: 2026-10-01T18:02:57Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
 # Visual & Functional Specifications — Person History
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Person Profile](ui-person-profile.md) · [Settings §11](ui-settings.md#11-section-history) (the tree's audit log) · [Common UI §4.10](ui-common.md#410-versiondiff) · [Data Model §5](data-model.md#5-change-history) · [API Contract](api.md)
+> See also: [Person Profile](ui-person-profile.md) · [Settings §9](ui-settings.md#9-section-history) (the tree's audit log) · [Common UI §4.10](ui-common.md#410-versiondiff) · [Data Model §5](data-model.md#5-change-history) · [API Contract](api.md)
 
 ---
 
@@ -30,7 +30,7 @@ single version, their current one.
 
 It is reached from the **History** button of the
 [Person Profile](ui-person-profile.md) header, and from the audit log of
-[Settings §11](ui-settings.md#11-section-history). Only this page's own data is
+[Settings §9](ui-settings.md#9-section-history). Only this page's own data is
 read — never the person's profile — so it stays available after the person has
 been deleted, which is how a deleted person is brought back.
 

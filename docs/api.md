@@ -166,7 +166,7 @@ off by default): the page loads its scripts from a public CDN. Elsewhere
 | Standalone server | The deployment's API origin (`OXIDGENE_HOST`/`OXIDGENE_PORT`, loopback `127.0.0.1:8080` by default) | None. A request whose `Origin` is present and not the frontend's cannot write (`403 forbidden`); `curl` and scripts send none. The `Host` must be a loopback name, the frontend origin's host or one of `OXIDGENE_ALLOWED_HOSTS` (`403 forbidden`). |
 | Desktop (REST only) | `http://127.0.0.1:<port>`, a port the operating system picks at each launch; loopback only | `Authorization: Bearer <token>`, a token generated at each launch, on every request except `/api/v1/openapi.json`; otherwise `401 unauthenticated`. The `Host` must be a loopback name (`403 forbidden`). |
 
-[App Settings §8](ui-app-settings.md) shows the current build's URLs, the
+[App Settings §10](ui-app-settings.md#10-section-api) shows the current build's URLs, the
 desktop token, and `curl` examples for the surfaces that build serves.
 
 ## 2. REST API
@@ -679,17 +679,7 @@ vignette a person uses as their portrait clears it and rewrites that person's
 projection in the same transaction.
 
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
-`"default"` resolves to for everything in that tree — and `entry_suggestions`
-(a boolean, `updateTree`'s `entrySuggestions` in GraphQL), which turns the
-entry fields' suggestions off or on for the tree, the date display settings
-`date_format` (`"day_month_year" | "numeric" | "month_year" | "year"`),
-`date_symbols`, `date_circa` (booleans) and `date_calendar` (a calendar) —
-GraphQL `dateFormat`, `dateSymbols`, `dateCirca`, `dateCalendar` — the entry
-options `surname_uppercase`, `suggest_persons` (booleans), `date_input_format`
-(`"slashes" | "dashes" | "iso" | "month_name"`) and `date_input_calendar` (a
-calendar) — GraphQL `surnameUppercase`, `suggestPersons`, `dateInputFormat`,
-`dateInputCalendar` — all read on the tree and in its history snapshots, and
-the GEDCOM submitter:
+`"default"` resolves to for everything in that tree — and the GEDCOM submitter:
 `submitter_name`, `submitter_email` and `submitter_address` (GraphQL
 `submitterName`, `submitterEmail`, `submitterAddress`) — omitted keeps, `null`
 or a blank value clears, on both surfaces. **Privacy** is accepted on
@@ -999,7 +989,7 @@ deleted state; `labels` is a list of `{ id, label }` naming, as they read when
 the state was stored (now, for the current version), the places, sources,
 persons and families the snapshot refers to by ID.
 
-Used by: [Person History](ui-person-history.md) · [Settings §11](ui-settings.md#11-section-history) (audit log)
+Used by: [Person History](ui-person-history.md) · [Settings §9](ui-settings.md#9-section-history) (audit log)
 
 ### Statistics
 

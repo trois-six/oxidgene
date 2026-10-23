@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-23T11:36:34Z }
+generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 ---
 
 
@@ -293,7 +293,7 @@ Clicking the ⋮ under the selected card opens a small **action picker modal** (
 | **Edit individual** | Opens the full person edit modal |
 | **Merge with...** | Opens the [merge wizard](ui-merge.md) on its search for the other record of this person |
 | **Edit union** | See below — expands into a sub-list if multiple unions exist |
-| **Add spouse** | Opens the linking panel: a search of the tree's persons to link as spouse, or a new person created as one. Without the tree's *Suggest existing persons* ([Settings §10](ui-settings.md#10-section-entry-options)), only the new person is offered |
+| **Add spouse** | Opens the linking panel: a search of the tree's persons to link as spouse, or a new person created as one. Without the *Suggest existing persons* entry option ([App Settings §9](ui-app-settings.md#9-section-entry-options)), only the new person is offered |
 | **Add child** | The same panel, for a child |
 | **Add sibling** | The same panel, for a sibling |
 | **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |

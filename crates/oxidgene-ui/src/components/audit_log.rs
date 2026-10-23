@@ -1,6 +1,6 @@
 //! The tree's audit log: every write, newest first, each opening onto the
 //! versions it produced. Shown in the Tools › History section of the tree
-//! settings. See `docs/ui-settings.md` §11.
+//! settings. See `docs/ui-settings.md` §9.
 
 use dioxus::prelude::*;
 use oxidgene_core::history::{

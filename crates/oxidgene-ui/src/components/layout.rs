@@ -74,6 +74,8 @@ pub fn AppShell() -> Element {
     let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
     let _pedigree_theme = crate::prefs::use_init_pedigree_theme();
     let _pedigree_view = crate::prefs::use_init_pedigree_view();
+    let _date_style = crate::prefs::use_init_date_style();
+    let _entry_options = crate::prefs::use_init_entry_options();
     let theme = crate::theme::use_init_theme();
     use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();
@@ -8937,6 +8939,39 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: var(--text-80);
         color: var(--text-muted);
     }
+
+    /* A dropdown of the settings pages, as wide as its options, also in a
+       stacked option, whose column would otherwise stretch it. */
+    .settings-date-select {
+        width: auto;
+        max-width: 100%;
+        align-self: flex-start;
+    }
+
+    /* The date display section's sample person, written as the pages will. */
+    .settings-date-preview {
+        padding: var(--space-5) var(--space-6);
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+    .settings-date-preview-title {
+        font-size: var(--text-70);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-3);
+    }
+    .settings-date-preview dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: var(--space-8);
+        row-gap: var(--space-2);
+        margin: 0;
+        font-size: var(--text-85);
+    }
+    .settings-date-preview dt { color: var(--text-secondary); }
+    .settings-date-preview dd { margin: 0; color: var(--text-primary); }
 
     .theme-toggle-group {
         display: flex;

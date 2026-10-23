@@ -146,7 +146,7 @@ The **Edit** entry of a family name's ⋮ menu opens the modal. It does two thin
 
 The modal holds:
 
-- A **Name** field, pre-filled with the surname as listed. It is the shared `ValueInput` with family-name suggestions, like the person form's surname field, and like it writes in capitals while the tree's automatic uppercase for surnames is on ([Settings §10](ui-settings.md#10-section-entry-options)): the first keystroke turns the whole field to upper case.
+- A **Name** field, pre-filled with the surname as listed. It is the shared `ValueInput` with family-name suggestions, like the person form's surname field, and like it writes in capitals while the automatic uppercase for surnames is on ([App Settings §9](ui-app-settings.md#9-section-entry-options)): the first keystroke turns the whole field to upper case.
 - A **Particle** field, pre-filled with the particle currently stored. Emptying it means "this name has no particle". While the name is unchanged it shows the name's current cut; once the name changes it follows the new name — detected, or the existing cut of the name it merges into — until the user types in it, and changing the name again drops what was typed.
 - A live preview of the resulting particle, surname root, and the letter the name will file under.
 - A scope line, and the button that applies the edit.

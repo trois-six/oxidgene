@@ -8,7 +8,6 @@ pub use locale::{CustomLanguage, Language, is_valid_custom_language_code, parse_
 
 use dioxus::prelude::*;
 use oxidgene_core::enums::{Calendar, DateDisplayFormat};
-use oxidgene_core::types::Tree;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CustomLanguages {
@@ -83,9 +82,9 @@ impl Default for LanguageCatalog {
     }
 }
 
-/// How the tree being read writes its dates (`docs/ui-settings.md` §9): set
-/// on the tree, and carried by [`I18n`] beside the language so that every
-/// date the interface writes follows it.
+/// How the interface writes dates (`docs/ui-app-settings.md` §8): a
+/// preference kept on the device, and carried by [`I18n`] beside the
+/// language so that every date the interface writes follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DateStyle {
     /// How much of a date is written, and how.
@@ -100,7 +99,7 @@ pub struct DateStyle {
 }
 
 impl DateStyle {
-    /// A new tree's: the day, the month's name and the year, a lifespan
+    /// The default: the day, the month's name and the year, a lifespan
     /// joined by a dash, and the Gregorian equivalent of any other calendar.
     pub const DEFAULT: Self = Self {
         format: DateDisplayFormat::DayMonthYear,
@@ -108,23 +107,13 @@ impl DateStyle {
         circa: false,
         calendar: Calendar::Gregorian,
     };
-
-    /// The style `tree` sets.
-    pub fn of(tree: &Tree) -> Self {
-        Self {
-            format: tree.date_format,
-            symbols: tree.date_symbols,
-            circa: tree.date_circa,
-            calendar: tree.date_calendar,
-        }
-    }
 }
 
 /// Translation helper returned by [`use_i18n`]: how the interface writes for
-/// its reader — the language, and the date style of the tree being read.
+/// its reader — the language, and the date style chosen on the device.
 ///
 /// Because it reads from reactive signals, any component using it re-renders
-/// when the language or the tree's date style changes.
+/// when the language or the date style changes.
 #[derive(Clone, Copy, PartialEq)]
 pub struct I18n(pub Language, pub DateStyle);
 
@@ -191,8 +180,9 @@ impl I18n {
 ///
 /// Must be called inside a component whose ancestor called [`use_init_language`].
 ///
-/// The date style is the one of the tree held by the
-/// [tree cache](crate::components::tree_cache), the default outside a tree.
+/// The date style is the device's
+/// ([`use_init_date_style`](crate::prefs::use_init_date_style)), the default
+/// outside its provider.
 pub fn use_i18n() -> I18n {
     let lang: Signal<Language> = use_context();
     if let Some(catalog) = try_use_context::<Signal<LanguageCatalog>>() {

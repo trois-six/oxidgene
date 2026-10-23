@@ -17,8 +17,8 @@ use crate::api::{
     ValueSuggestion,
 };
 use crate::components::suggest_input::{DEBOUNCE_MS, SuggestInput, SuggestRow};
-use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
+use crate::prefs::use_entry_options;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
 
@@ -108,7 +108,7 @@ pub fn PlaceInput(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
+    let entry_options = use_entry_options();
     let mut value = value;
 
     // Only what the user types is asked about, not the text a form opens
@@ -126,7 +126,7 @@ pub fn PlaceInput(
         let api = api.clone();
         let text = debounced();
         let lang = i18n.0.reference_code();
-        let enabled = tree_cache.entry_suggestions();
+        let enabled = entry_options().suggestions;
         async move {
             if !enabled {
                 return (Vec::new(), Vec::new());
