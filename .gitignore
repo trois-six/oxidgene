@@ -30,6 +30,9 @@ Thumbs.db
 *.db-wal
 /samples/
 
+# Local research notes, never committed
+/research/
+
 # Media uploads (local dev)
 /uploads/
 /geneanet-media/
