@@ -37,24 +37,25 @@ jobs:
           file: docker/Dockerfile.ci
           context: .
           outputs: type=registry,compression=zstd,force-compression=true
-          # A single manifest, not an index with an untagged attestation
-          # child the prune below would delete from under :latest.
+          # A single manifest, not an index whose untagged children the
+          # prune below would delete from under :latest.
           provenance: false
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Housekeeping only after a successful push: keep just the freshly pushed
-      # version (:latest always points to it), delete older sha-tagged and
-      # untagged versions. Deleting needs the repository's Admin role in the
-      # package's Actions access. Never fail the build on a prune error.
+      # Housekeeping only after a successful push: delete the versions the
+      # push left untagged, never :latest. A rebuild from cache can push a
+      # manifest identical to an older version, which then only gains the
+      # tag, so keeping "the newest version" would keep the wrong one.
+      # Deleting needs the repository's Admin role in the package's Actions
+      # access. Never fail the build on a prune error.
       - name: Prune old image versions
         uses: actions/delete-package-versions@v5
         continue-on-error: true
         with:
           package-name: ci-runner
           package-type: container
-          min-versions-to-keep: 1
+          delete-only-untagged-versions: true
+          min-versions-to-keep: 0
