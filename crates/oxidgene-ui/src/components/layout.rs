@@ -8973,8 +8973,11 @@ pub const LAYOUT_STYLES: &str = r#"
     .settings-date-preview dt { color: var(--text-secondary); }
     .settings-date-preview dd { margin: 0; color: var(--text-primary); }
 
+    /* Never shrinks: beside a long hint, the row would squeeze it and its
+       `overflow: hidden` would cut the No button off. */
     .theme-toggle-group {
         display: flex;
+        flex-shrink: 0;
         gap: 0;
         border: 1px solid var(--border);
         border-radius: var(--radius);

@@ -99,6 +99,22 @@ test("the entry options of the app settings shape the person form and the linkin
     expect(writes).toEqual([]);
 });
 
+test("a long hint never squeezes the Yes / No buttons of its row", async ({ page }) => {
+    // Narrow enough for every hint to wrap, wide enough to keep hint and
+    // buttons on one row.
+    await page.setViewportSize({ width: 800, height: 800 });
+    await page.goto("/settings");
+    for (const section of ["Names", "Date Display", "Entry Options"]) {
+        await page.getByRole("button", { name: section, exact: true }).click();
+        const groups = page.locator(".settings-content .theme-toggle-group");
+        await expect(groups.first()).toBeVisible();
+        for (const group of await groups.all()) {
+            const cut = await group.evaluate((el) => el.scrollWidth - el.clientWidth);
+            expect(cut, `${section}: ${await group.getAttribute("aria-label")}`).toBe(0);
+        }
+    }
+});
+
 test("the date display of the tree's global preferences reaches the person page and the pedigree", async ({ page, request, tree }) => {
     // A fully dated event, which the fixture's year-only dates lack.
     const event = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/events`, {
