@@ -17,6 +17,6 @@ dependencies:
     repository: https://cloudnative-pg.github.io/charts
     condition: cloudnative-pg.enabled
   - name: redis-operator
-    version: 0.26.1
+    version: 0.27.0
     repository: https://ot-container-kit.github.io/helm-charts/
     condition: redis-operator.enabled
