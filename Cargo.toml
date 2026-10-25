@@ -204,7 +204,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 
 # Platform directories. 6, the release wry and tray-icon depend on, so the
 # desktop links one; move with them.
-dirs = "7"
+dirs = "6"
 
 # Model Context Protocol server (assistant access, desktop only). Defaults are
 # off: they add base64 and nothing we call. `server` is the handler and tool
