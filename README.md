@@ -15,18 +15,24 @@ application that works offline, or as a web deployment for your own server.
 	<img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="900">
 </p>
 
-<table>
-	<tr>
-		<td width="33%"><a href="assets/screenshots/pedigree.webp"><img src="assets/screenshots/pedigree.webp" alt="Pedigree with portraits and the events panel"></a></td>
-		<td width="33%"><a href="assets/screenshots/person.webp"><img src="assets/screenshots/person.webp" alt="Person profile with portrait, notes and gallery"></a></td>
-		<td width="33%"><a href="assets/screenshots/fan-chart-dark.webp"><img src="assets/screenshots/fan-chart-dark.webp" alt="Fan chart of six generations in the dark theme"></a></td>
-	</tr>
-	<tr>
-		<td><a href="assets/screenshots/statistics-map.webp"><img src="assets/screenshots/statistics-map.webp" alt="Statistics: heat map of the places"></a></td>
-		<td><a href="assets/screenshots/kinship.webp"><img src="assets/screenshots/kinship.webp" alt="Kinship between two first cousins"></a></td>
-		<td><a href="assets/screenshots/history.webp"><img src="assets/screenshots/history.webp" alt="A person's versions compared side by side"></a></td>
-	</tr>
-</table>
+<p align="center"><sub>
+	<a href="assets/screenshots/pedigree.webp">Pedigree</a> ·
+	<a href="assets/screenshots/person.webp">Person</a> ·
+	<a href="assets/screenshots/media-viewer.webp">Media viewer</a> ·
+	<a href="assets/screenshots/fan-chart-dark.webp">Fan chart</a> ·
+	<a href="assets/screenshots/couple.webp">Couple</a> ·
+	<a href="assets/screenshots/statistics-map.webp">Statistics map</a> ·
+	<a href="assets/screenshots/kinship.webp">Kinship</a> ·
+	<a href="assets/screenshots/search.webp">Search</a> ·
+	<a href="assets/screenshots/dictionary-sources.webp">Sources</a> ·
+	<a href="assets/screenshots/dictionary-places.webp">Places</a> ·
+	<a href="assets/screenshots/tags.webp">Tags</a> ·
+	<a href="assets/screenshots/media-library.webp">Media library</a> ·
+	<a href="assets/screenshots/tools-ancestry.webp">Ancestry completeness</a> ·
+	<a href="assets/screenshots/history.webp">History</a> ·
+	<a href="assets/screenshots/app-settings-dark.webp">Settings</a>
+	<br><a href="https://trois-six.github.io/oxidgene/#tour">Browse the tour with its controls</a>
+</sub></p>
 
 <sub>The family shown is fictitious; the portraits are public-domain studio
 photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credits</a>).</sub>
