@@ -119,8 +119,9 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   event, portal addresses — with the words of each language as data, French
   shipped, and complete a partial one in a "Find in the archives" dialog
   ([Archive Portals §5.1, §6.5](archives.md#51-citation-recognition)).
-- [ ] Ship citation vocabularies beyond French as the catalogue reaches other
-  countries.
+- [x] Ship the citation vocabularies in every interface language, read
+  together whatever the archive, and write the parts the reader completes in
+  the interface language ([Archive Portals §5.1](archives.md#51-citation-recognition)).
 - [x] Wait out anti-bot checks in the desktop archive window, ask the reader
   to answer one that stays, land on the filtered search results after a
   check or a block, name the view to go to on a portal without an address

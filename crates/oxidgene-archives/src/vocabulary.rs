@@ -472,6 +472,56 @@ mod tests {
         assert_eq!(french.civil_registration_from(), Some(1793));
         assert_eq!(french.written("N"), Some("naissance"));
         assert_eq!(french.written("view"), Some("vue"));
+        // Every interface language is shipped.
+        for language in ["de", "en", "es", "fr", "it", "nl", "pl", "pt"] {
+            let vocabulary = vocabularies
+                .iter()
+                .find(|vocabulary| vocabulary.language() == language)
+                .unwrap_or_else(|| panic!("no {language} vocabulary"));
+            for key in ["N", "B", "M", "D", "S", "TD", "RP", "RM", "view"] {
+                assert!(vocabulary.written(key).is_some(), "{language}: {key}");
+            }
+        }
+    }
+
+    /// The vocabularies are read together, a phrase meaning what any of
+    /// them says and the first meaning deciding what follows it: a phrase
+    /// two languages share must mean the same in both, or one language
+    /// would change how the other's citations are read (`sep.`, a burial
+    /// and September in French, would read as a month alone).
+    #[test]
+    fn a_phrase_two_languages_share_means_the_same_in_both() {
+        let vocabularies = embedded();
+        fn meanings(vocabulary: &Vocabulary) -> BTreeMap<&Phrase, Vec<&Meaning>> {
+            let mut by_phrase: BTreeMap<&Phrase, Vec<&Meaning>> = BTreeMap::new();
+            for (phrase, meaning) in vocabulary.phrases() {
+                let meanings = by_phrase.entry(phrase).or_default();
+                if !meanings.contains(&meaning) {
+                    meanings.push(meaning);
+                }
+            }
+            by_phrase
+        }
+        let all: Vec<_> = vocabularies.iter().map(meanings).collect();
+        let mut conflicts = Vec::new();
+        for (index, one) in all.iter().enumerate() {
+            for (other_index, other) in all.iter().enumerate().skip(index + 1) {
+                for (phrase, meanings) in one {
+                    if let Some(theirs) = other.get(phrase)
+                        && (meanings.len() != theirs.len()
+                            || meanings.iter().any(|meaning| !theirs.contains(meaning)))
+                    {
+                        conflicts.push(format!(
+                            "`{}`: {meanings:?} in {}, {theirs:?} in {}",
+                            phrase.join(" "),
+                            vocabularies[index].language(),
+                            vocabularies[other_index].language(),
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(conflicts.is_empty(), "{}", conflicts.join("\n"));
     }
 
     #[test]

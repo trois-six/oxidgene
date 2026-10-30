@@ -1,0 +1,78 @@
+{
+  "language": "de",
+  "archives": {
+    "departmental": ["Departementalarchiv", "Departementsarchiv"],
+    "municipal": ["Stadtarchiv", "Gemeindearchiv", "Kommunalarchiv"],
+    "national": ["Nationalarchiv"],
+    "regional": ["Landesarchiv", "Regionalarchiv"],
+    "cantonal": ["Kantonsarchiv"],
+    "any": ["Archiv", "Staatsarchiv"]
+  },
+  "acts": {
+    "N": ["Geburt", "Geburten", "Geburtsurkunde", "Geburtseintrag"],
+    "B": ["Taufe", "Taufen", "Taufeintrag"],
+    "M": ["Heirat", "Heiraten", "Trauung", "Trauungen", "Eheschließung", "Heiratsurkunde", "Heiratseintrag"],
+    "D": ["Tod", "Sterbefall", "Sterbefälle", "Sterbeurkunde", "Sterbeeintrag"],
+    "S": ["Begräbnis", "Begräbnisse", "Beerdigung", "Beerdigungen", "Bestattung", "Bestattungen"],
+    "P": ["Aufgebot", "Aufgebote", "Proklamation"]
+  },
+  "registers": {
+    "any": ["Register", "Buch"],
+    "parish": ["Kirchenbuch", "Kirchenbücher", "Pfarrbuch", "Pfarrbücher", "Pfarrmatrikel", "Matrikel"],
+    "civil": ["Standesamt", "Standesamtsregister", "Personenstandsregister", "Zivilstandsregister", "Zivilstand"]
+  },
+  "tables": {
+    "TD": ["Zehnjahrestabellen", "Zehnjahrestabelle", "Zehnjahresregister"]
+  },
+  "series": {
+    "RP": ["Volkszählung", "Volkszählungen", "Volkszählungsliste", "Einwohnerliste", "Einwohnerlisten"],
+    "RM": ["Militärregister", "Stammrolle", "Stammrollen", "Militärstammrolle"],
+    "CM": ["Konskription", "Musterungsliste", "Musterungslisten", "Aushebungsliste", "Rekrutierungsliste"],
+    "TSA": ["Nachlasstabellen", "Erbschaftstabellen"],
+    "RI": ["Friedhofsregister", "Friedhofsbuch", "Friedhof"]
+  },
+  "views": ["Bild", "Aufnahme", "Digitalisat"],
+  "view_counts": ["von"],
+  "numbers": ["Nr.", "Nummer", "Eintrag"],
+  "other_numbers": ["Haushalt", "Hausnummer", "Familie"],
+  "folios": ["Blatt", "Bl.", "fol."],
+  "pages": ["Seite"],
+  "recto": ["recto"],
+  "verso": ["verso"],
+  "call_numbers": ["Signatur", "Sign."],
+  "parishes": ["Pfarrei", "Pfarre", "Kirchspiel", "Pfarramt"],
+  "sections": ["Sektion"],
+  "approximate": ["etwa", "um", "ungefähr", "circa", "ca"],
+  "places": ["in", "zu", "aus"],
+  "particles": ["am", "der", "die", "im", "bei", "ob", "unter", "vor", "zum", "zur"],
+  "bureaus": ["Rekrutierungsbüro", "Aushebungsbezirk"],
+  "unsupported": [
+    "Notariat",
+    "Notar",
+    "notariell",
+    "Notariatsurkunde",
+    "Kataster",
+    "Grundbuch",
+    "Hypothekenbuch",
+    "Gefangenenbuch",
+    "Wählerliste",
+    "Wählerverzeichnis"
+  ],
+  "districts": ["Arrondissement", "Bezirk"],
+  "months": [
+    ["Januar", "Jänner", "Jan."],
+    ["Februar", "Feber", "Feb.", "Febr."],
+    ["März", "Mrz."],
+    ["April", "Apr."],
+    ["Mai"],
+    ["Juni", "Jun."],
+    ["Juli", "Jul."],
+    ["August", "Aug."],
+    ["September", "Sept."],
+    ["Oktober", "Okt."],
+    ["November", "Nov."],
+    ["Dezember", "Dez."]
+  ],
+  "ranges": ["bis"],
+  "ignored": ["o.D.", "ohne Datum", "o.O.", "ohne Ort", "Frankreich"]
+}

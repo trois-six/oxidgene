@@ -1,0 +1,75 @@
+{
+  "language": "it",
+  "archives": {
+    "departmental": ["archivio dipartimentale", "archivi dipartimentali"],
+    "municipal": ["archivio comunale", "archivi comunali", "archivio storico comunale", "archivio municipale"],
+    "national": ["archivio nazionale", "archivi nazionali", "archivio centrale dello stato"],
+    "regional": ["archivio regionale", "archivio di stato", "archivi di stato"],
+    "cantonal": ["archivio cantonale"],
+    "any": ["archivio", "archivi"]
+  },
+  "acts": {
+    "N": ["nascita", "nascite", "atto di nascita", "atti di nascita"],
+    "B": ["battesimo", "battesimi", "atto di battesimo"],
+    "M": ["matrimonio", "matrimoni", "atto di matrimonio", "atti di matrimonio"],
+    "D": ["decesso", "decessi", "atto di morte", "atti di morte"],
+    "S": ["sepoltura", "sepolture"],
+    "P": ["pubblicazioni di matrimonio", "pubblicazione di matrimonio", "pubblicazioni", "processetti matrimoniali"]
+  },
+  "registers": {
+    "any": ["registro", "registri"],
+    "parish": ["registri parrocchiali", "registro parrocchiale", "libri parrocchiali", "libro parrocchiale"],
+    "civil": ["stato civile", "registri di stato civile", "registro di stato civile"]
+  },
+  "tables": {
+    "TD": ["tavole decennali", "indici decennali", "indice decennale"]
+  },
+  "series": {
+    "RP": ["censimento", "censimenti", "stato delle anime"],
+    "RM": ["ruolo matricolare", "ruoli matricolari", "foglio matricolare", "fogli matricolari", "registro matricolare"],
+    "CM": ["lista di leva", "liste di leva", "registro di leva", "registri di leva"],
+    "TSA": ["tavole delle successioni", "successioni e assenze"],
+    "RI": ["registro cimiteriale", "registri cimiteriali", "cimitero"]
+  },
+  "views": ["immagine", "immagini", "img.", "fotogramma"],
+  "numbers": ["numero", "num.", "n.", "atto"],
+  "other_numbers": ["famiglia", "fuoco"],
+  "folios": ["foglio", "fol.", "f."],
+  "pages": ["pagina", "pag.", "p."],
+  "recto": ["recto"],
+  "verso": ["verso"],
+  "call_numbers": ["segnatura", "collocazione"],
+  "parishes": ["parrocchia", "parr."],
+  "sections": ["sezione"],
+  "approximate": ["intorno al", "circa", "ca", "c."],
+  "places": ["di", "del", "della", "in"],
+  "particles": ["di", "del", "della", "dei", "degli", "sul", "sulla", "al", "e"],
+  "bureaus": ["distretto militare"],
+  "unsupported": [
+    "atti notarili",
+    "atto notarile",
+    "notarile",
+    "notaio",
+    "catasto",
+    "ipoteche",
+    "lista elettorale",
+    "liste elettorali"
+  ],
+  "districts": ["municipio"],
+  "months": [
+    ["gennaio", "genn.", "gen."],
+    ["febbraio", "febbr.", "feb."],
+    ["marzo"],
+    ["aprile", "apr."],
+    ["maggio", "magg.", "mag."],
+    ["giugno", "giu."],
+    ["luglio", "lug."],
+    ["agosto", "ago."],
+    ["settembre", "sett.", "set."],
+    ["ottobre", "ott."],
+    ["novembre", "nov."],
+    ["dicembre", "dic."]
+  ],
+  "ranges": ["al", "fino al"],
+  "ignored": ["s.d.", "senza data", "s.l.", "Francia"]
+}

@@ -1,0 +1,88 @@
+{
+  "language": "en",
+  "archives": {
+    "departmental": ["departmental archives", "departmental archive", "dept. archives"],
+    "municipal": ["municipal archives", "municipal archive", "city archives", "town archives"],
+    "national": ["national archives", "national archive"],
+    "regional": ["regional archives", "regional archive", "state archives", "state archive", "county record office"],
+    "cantonal": ["cantonal archives", "cantonal archive"],
+    "any": ["archive", "record office", "records office"]
+  },
+  "acts": {
+    "N": ["birth", "birth record", "birth certificate"],
+    "B": ["baptism", "christening", "bap."],
+    "M": ["marriage", "marriage record", "marriage certificate", "wedding"],
+    "D": ["death", "death record", "death certificate"],
+    "S": ["burial", "bur."],
+    "P": ["banns", "marriage banns", "publication of banns"]
+  },
+  "registers": {
+    "any": ["register", "register book"],
+    "parish": [
+      "parish register",
+      "parish records",
+      "parish record",
+      "church register",
+      "church records",
+      "church book"
+    ],
+    "civil": ["civil registration", "civil register", "civil status", "civil records", "vital records"]
+  },
+  "tables": {
+    "TD": ["decennial tables", "decennial table", "ten-year tables", "ten-year index"]
+  },
+  "series": {
+    "RP": ["census", "census return", "population census", "nominative list"],
+    "RM": ["military register", "military service register", "military records", "recruitment register"],
+    "CM": ["conscription", "conscription list", "conscripts", "draft register", "national guard"],
+    "TSA": ["succession tables", "tables of successions", "successions and absences"],
+    "RI": ["cemetery register", "interment register", "cemetery"]
+  },
+  "views": ["image", "frame", "view", "scan"],
+  "view_counts": ["of"],
+  "numbers": ["entry", "number", "no.", "nr."],
+  "other_numbers": ["household", "house", "family", "sheet"],
+  "folios": ["folio", "fol.", "f."],
+  "pages": ["page", "p.", "pp."],
+  "recto": ["recto"],
+  "verso": ["verso"],
+  "call_numbers": ["call number", "reference", "ref.", "shelfmark"],
+  "parishes": ["parish"],
+  "sections": ["section"],
+  "approximate": ["about", "abt.", "around", "approx.", "circa", "ca", "c."],
+  "places": ["of", "in", "at"],
+  "particles": ["upon", "on", "under", "the", "by", "cum", "next", "and"],
+  "bureaus": ["recruitment office", "recruiting office", "recruitment bureau"],
+  "unsupported": [
+    "notary",
+    "notarial",
+    "notarial deeds",
+    "land registry",
+    "cadastre",
+    "cadastral",
+    "land tax",
+    "mortgage",
+    "mortgages",
+    "prison register",
+    "electoral roll",
+    "electoral register"
+  ],
+  "districts": ["arrondissement", "district"],
+  "ordinals": { "first": ["st"], "other": ["nd", "rd", "th"] },
+  "months": [
+    ["january", "jan."],
+    ["february", "feb."],
+    ["march"],
+    ["april", "apr."],
+    ["may"],
+    ["june", "jun."],
+    ["july", "jul."],
+    ["august", "aug."],
+    ["september", "sept."],
+    ["october", "oct."],
+    ["november", "nov."],
+    ["december"]
+  ],
+  "ranges": ["to", "until"],
+  "ignored": ["n.d.", "no date", "undated", "s.l.", "France"]
+}

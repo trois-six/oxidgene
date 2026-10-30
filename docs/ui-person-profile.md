@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-23T13:35:27Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 
@@ -304,7 +304,8 @@ It reads the source's title and fields, the citation's page, the
 repositories holding the source with their call numbers, the addresses of
 the media linked to the source, and the cited event's kind, year and place,
 from the person's page bundle ([API Contract](api.md#persons)); the words of
-each language are data, French shipped. A citation's page completes its
+each language are data, one vocabulary per interface language shipped and
+read together. A citation's page completes its
 source: the page's views and act number win over the title's. A portal
 address of the archive found among them opens as it is, without a lookup.
 

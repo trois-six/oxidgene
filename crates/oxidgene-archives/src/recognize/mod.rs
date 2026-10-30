@@ -324,16 +324,35 @@ impl Recognition<'_> {
         self.signals.get(&part).copied()
     }
 
-    /// The parts the reader supplied, written in the archive's language to
-    /// be added to the citation's page — `Exampleville, naissance 1872, vue
-    /// 45` — so that the citation reads them next time. `None` when the
-    /// reader supplied nothing new or no vocabulary serves the archive's
-    /// country.
-    pub fn written(&self, registry: &ArchiveRegistry) -> Option<String> {
-        let vocabulary = registry
+    /// The parts the reader supplied, written in the reader's `language`
+    /// (an interface language code, `en` or `pt-BR`) to be added to the
+    /// citation's page — `Exampleville, naissance 1872, vue 45`,
+    /// `Exampleville, birth 1872, image 45` — so that the citation reads
+    /// them next time. A word the reader's language has no vocabulary for
+    /// is written in the language of the archive's country. `None` when the
+    /// reader supplied nothing new or neither language has a vocabulary.
+    pub fn written(&self, registry: &ArchiveRegistry, language: &str) -> Option<String> {
+        let primary = language
+            .split(['-', '_'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let reader = registry
             .vocabularies
             .iter()
-            .find(|vocabulary| vocabulary.serves(&self.archive.country))?;
+            .find(|vocabulary| vocabulary.language() == primary);
+        let country = registry
+            .vocabularies
+            .iter()
+            .find(|vocabulary| vocabulary.serves(&self.archive.country));
+        if reader.is_none() && country.is_none() {
+            return None;
+        }
+        let word = |key: &str| {
+            reader
+                .and_then(|vocabulary| vocabulary.written(key))
+                .or_else(|| country.and_then(|vocabulary| vocabulary.written(key)))
+        };
         let supplied = |part| self.signal(part) == Some(Signal::Reader);
         let mut pieces = Vec::new();
         if supplied(Part::Locality)
@@ -349,7 +368,7 @@ impl Recognition<'_> {
                     Act::Register(kinds) => kinds.first()?.letter().to_string(),
                     other => other.to_string(),
                 };
-                vocabulary.written(&key).map(str::to_owned)
+                word(&key).map(str::to_owned)
             });
         let year = supplied(Part::Year).then_some(self.found.year).flatten();
         match (act, year) {
@@ -359,9 +378,9 @@ impl Recognition<'_> {
             (None, None) => {}
         }
         if supplied(Part::Views)
-            && let (Some(view), Some(word)) = (self.found.views.first(), vocabulary.written("view"))
+            && let (Some(view), Some(view_word)) = (self.found.views.first(), word("view"))
         {
-            pieces.push(format!("{word} {}", view.view));
+            pieces.push(format!("{view_word} {}", view.view));
         }
         (!pieces.is_empty()).then(|| pieces.join(", "))
     }
@@ -487,9 +506,11 @@ impl ArchiveRegistry {
             .unwrap_or_default();
         let archive = &self.archives[index];
         let mut found = Found {
-            locality: locality
-                .take(Part::Locality, &mut signals)
-                .map(|text| archive.citation.written_locality(text, &self.vocabularies)),
+            locality: locality.take(Part::Locality, &mut signals).map(|text| {
+                archive
+                    .citation
+                    .written_locality(text, &self.vocabularies, &archive.country)
+            }),
             parish: parish.take(Part::Parish, &mut signals),
             act: act.take(Part::Act, &mut signals),
             year: year.as_ref().map(|(_, year)| *year),

@@ -1,0 +1,75 @@
+{
+  "language": "pl",
+  "archives": {
+    "departmental": ["archiwum departamentalne", "archiwa departamentalne"],
+    "municipal": ["archiwum miejskie", "archiwum gminne"],
+    "national": ["archiwum narodowe", "archiwum główne akt dawnych"],
+    "regional": ["archiwum państwowe", "archiwum regionalne"],
+    "any": ["archiwum", "archiwa"]
+  },
+  "acts": {
+    "N": ["urodzenie", "urodzenia", "urodzeń", "akt urodzenia", "akta urodzeń"],
+    "B": ["chrzest", "chrzty", "chrztu", "chrztów"],
+    "M": ["małżeństwo", "małżeństwa", "małżeństw", "ślub", "śluby", "akt małżeństwa", "akta małżeństw"],
+    "D": ["zgon", "zgony", "zgonu", "zgonów", "akt zgonu", "akta zgonów"],
+    "S": ["pochówek", "pochówki", "pogrzeb", "pogrzeby"],
+    "P": ["zapowiedzi", "zapowiedź", "księga zapowiedzi"]
+  },
+  "registers": {
+    "any": ["księga", "księgi", "rejestr"],
+    "parish": ["księgi metrykalne", "księga metrykalna", "akta metrykalne", "metryki", "akta parafialne"],
+    "civil": ["akta stanu cywilnego", "stan cywilny", "USC"]
+  },
+  "tables": {
+    "TD": ["tablice dziesięcioletnie", "skorowidze dziesięcioletnie"]
+  },
+  "series": {
+    "RP": ["spis ludności", "spisy ludności", "spis powszechny"],
+    "RM": ["rejestr wojskowy", "ewidencja wojskowa", "książeczka wojskowa"],
+    "CM": ["pobór", "lista poborowych", "listy poborowych", "poborowi"],
+    "TSA": ["tablice spadkowe", "spadki i nieobecności"],
+    "RI": ["księga cmentarna", "księgi cmentarne", "cmentarz"]
+  },
+  "views": ["skan", "obraz", "zdjęcie"],
+  "view_counts": ["z"],
+  "numbers": ["nr", "numer", "akt", "poz."],
+  "other_numbers": ["gospodarstwo", "rodzina"],
+  "folios": ["karta", "k.", "folio"],
+  "pages": ["strona", "str."],
+  "recto": ["recto"],
+  "verso": ["verso"],
+  "call_numbers": ["sygnatura", "sygn."],
+  "parishes": ["parafia", "par."],
+  "sections": ["sekcja"],
+  "approximate": ["około", "ok.", "circa", "ca"],
+  "places": ["w", "we"],
+  "particles": ["nad", "pod", "przy", "na", "w"],
+  "bureaus": ["komenda uzupełnień", "powiatowa komenda uzupełnień"],
+  "unsupported": [
+    "akta notarialne",
+    "akt notarialny",
+    "notariusz",
+    "notarialny",
+    "kataster",
+    "hipoteka",
+    "księga wieczysta",
+    "księgi wieczyste",
+    "lista wyborców"
+  ],
+  "districts": ["dzielnica"],
+  "months": [
+    ["styczeń", "stycznia", "sty."],
+    ["luty", "lutego", "lut."],
+    ["marzec", "marca"],
+    ["kwiecień", "kwietnia", "kwi."],
+    ["maj", "maja"],
+    ["czerwiec", "czerwca", "cze."],
+    ["lipiec", "lipca", "lip."],
+    ["sierpień", "sierpnia", "sie."],
+    ["wrzesień", "września", "wrz."],
+    ["październik", "października", "paź."],
+    ["listopad", "listopada", "lis."],
+    ["grudzień", "grudnia", "gru."]
+  ],
+  "ignored": ["b.d.", "bez daty", "b.m.", "Francja"]
+}

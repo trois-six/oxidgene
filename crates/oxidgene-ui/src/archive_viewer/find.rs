@@ -3,7 +3,7 @@
 //! read, prefilled with what it did read, for the reader to complete.
 //!
 //! Nothing is written unless the reader asks: a checkbox adds the completed
-//! parts to the citation's page, in the archive's language, so that the
+//! parts to the citation's page, in the interface language, so that the
 //! citation opens directly next time.
 
 use dioxus::prelude::*;
@@ -108,7 +108,7 @@ pub(super) fn FindInArchives(
                 year: text(year()).and_then(|year| year.parse().ok()),
                 view: text(view()).and_then(|view| view.parse().ok()),
             };
-            match find.complete(find.changes(supplied)) {
+            match find.complete(find.changes(supplied), i18n.0.code()) {
                 Some((link, written)) => {
                     error.set(None);
                     on_find.call((link, written.filter(|_| keep() && can_keep)));
@@ -253,7 +253,7 @@ mod tests {
             act: Act::from_code("N"),
             ..SuppliedParts::default()
         };
-        assert!(find.complete(partial).is_none());
+        assert!(find.complete(partial, "fr").is_none());
 
         let supplied = SuppliedParts {
             locality: Some("Exampleville".to_owned()),
@@ -261,11 +261,14 @@ mod tests {
             year: Some(1872),
             view: None,
         };
-        let (link, written) = find.complete(supplied.clone()).expect("a register");
+        let (link, written) = find.complete(supplied.clone(), "fr").expect("a register");
         assert_eq!(link.citation.locality, "Exampleville");
         assert_eq!(link.citation.views[0].view, 45);
-        assert_eq!(link.supplied, Some(supplied));
+        assert_eq!(link.supplied, Some(supplied.clone()));
         assert_eq!(written.as_deref(), Some("Exampleville, naissance 1872"));
+        // Written in the reader's interface language.
+        let (_, written) = find.complete(supplied, "en").expect("a register");
+        assert_eq!(written.as_deref(), Some("Exampleville, birth 1872"));
 
         // What the reader left as recognized is not theirs.
         let unchanged = SuppliedParts {
@@ -287,6 +290,6 @@ mod tests {
             act: Act::from_code("TB"),
             ..SuppliedParts::default()
         };
-        assert!(find.complete(refused).is_none());
+        assert!(find.complete(refused, "fr").is_none());
     }
 }

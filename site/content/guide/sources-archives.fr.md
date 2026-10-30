@@ -69,7 +69,7 @@ Quelques règles à connaître :
 - Les archives doivent être désignées : par leur code (`AD72`), leur nom, un dépôt qui conserve la source ou l'adresse de leur site. Le lieu d'un événement ne désigne jamais un service d'archives, car un acte n'est pas toujours enregistré là où l'événement a eu lieu.
 - La page de la citation complète la source : les vues et le numéro d'acte qu'elle indique l'emportent sur ceux du titre.
 - Si la source ou la citation contient l'adresse d'une page du portail des archives, cette adresse s'ouvre telle quelle, sans recherche.
-- Les citations sont lues en français, la langue des archives cataloguées aujourd'hui.
+- Les citations peuvent être rédigées dans n'importe quelle langue de l'interface — français, anglais, allemand, espagnol, italien, néerlandais, polonais ou portugais : `AD72, civil registration of Exampleville, births 1872, image 45` ouvre le même registre que sa version française.
 
 Une citation qui ne désigne aucun service d'archives, qui désigne des archives absentes du catalogue, ou un type de document que ces archives ne publient pas, reste du texte simple.
 
@@ -114,7 +114,7 @@ Il arrive qu'OxidGene reconnaisse les archives mais pas l'acte ni la commune, pa
 
 La commune et le type de registre sont obligatoires ; s'ils manquent, la boîte de dialogue reste ouverte et indique ce qu'il faut compléter.
 
-Une recherche n'enregistre rien. Pour conserver ce que vous avez saisi, cochez **Ajouter ces détails à la citation** avant de cliquer sur **Rechercher** : vos précisions sont ajoutées à la fin de la page de la citation (par exemple `Exampleville, naissance 1872, vue 45`), la modification est inscrite dans l'[historique](@/guide/history.fr.md), et le clic suivant ouvre directement le registre. La source elle-même, que d'autres citations peuvent partager, n'est jamais modifiée.
+Une recherche n'enregistre rien. Pour conserver ce que vous avez saisi, cochez **Ajouter ces détails à la citation** avant de cliquer sur **Rechercher** : vos précisions sont ajoutées à la fin de la page de la citation, dans la langue de l'interface (par exemple `Exampleville, naissance 1872, vue 45`), la modification est inscrite dans l'[historique](@/guide/history.fr.md), et le clic suivant ouvre directement le registre. La source elle-même, que d'autres citations peuvent partager, n'est jamais modifiée.
 
 ## Ce qu'OxidGene transmet aux archives
 

@@ -1,0 +1,76 @@
+{
+  "language": "es",
+  "archives": {
+    "departmental": ["archivo departamental", "archivos departamentales"],
+    "municipal": ["archivo municipal", "archivos municipales", "archivo histórico municipal"],
+    "national": ["archivo nacional", "archivos nacionales", "archivo histórico nacional"],
+    "regional": ["archivo regional", "archivo histórico provincial", "archivo provincial"],
+    "cantonal": ["archivo cantonal"],
+    "any": ["archivo", "archivos"]
+  },
+  "acts": {
+    "N": ["nacimiento", "nacimientos", "acta de nacimiento", "partida de nacimiento"],
+    "B": ["bautismo", "bautismos", "bautizo", "bautizos", "partida de bautismo"],
+    "M": ["matrimonio", "matrimonios", "casamiento", "casamientos", "acta de matrimonio", "partida de matrimonio"],
+    "D": ["defunción", "defunciones", "acta de defunción", "partida de defunción"],
+    "S": ["entierro", "entierros", "sepultura", "sepulturas", "partida de entierro"],
+    "P": ["amonestaciones", "proclamas", "expediente matrimonial"]
+  },
+  "registers": {
+    "any": ["registro", "libro"],
+    "parish": ["registros parroquiales", "registro parroquial", "libros parroquiales", "libro parroquial", "libro sacramental", "libros sacramentales"],
+    "civil": ["registro civil", "estado civil"]
+  },
+  "tables": {
+    "TD": ["tablas decenales", "tabla decenal", "índices decenales"]
+  },
+  "series": {
+    "RP": ["censo", "censos", "censo de población", "padrón", "padrones", "padrón municipal"],
+    "RM": ["registro militar", "hoja de servicios", "hojas de servicios", "matrícula militar"],
+    "CM": ["quintas", "lista de quintos", "alistamiento", "reclutamiento"],
+    "TSA": ["tablas de sucesiones", "sucesiones y ausencias"],
+    "RI": ["registro de cementerio", "libro de cementerio", "cementerio"]
+  },
+  "views": ["imagen", "imágenes", "img.", "fotograma"],
+  "numbers": ["número", "núm.", "acta", "partida", "asiento"],
+  "other_numbers": ["hogar", "familia", "hoja"],
+  "folios": ["folio", "fol.", "f.", "fº"],
+  "pages": ["página", "pág.", "p."],
+  "recto": ["recto"],
+  "verso": ["verso", "vuelto"],
+  "call_numbers": ["signatura", "sig.", "sign."],
+  "parishes": ["parroquia", "parr."],
+  "sections": ["sección"],
+  "approximate": ["hacia", "aprox.", "alrededor de", "circa", "ca", "c."],
+  "places": ["de", "del", "en"],
+  "particles": ["de", "del", "la", "las", "los", "el", "y"],
+  "bureaus": ["caja de reclutamiento", "oficina de reclutamiento"],
+  "unsupported": [
+    "protocolos notariales",
+    "protocolo notarial",
+    "notario",
+    "notarial",
+    "catastro",
+    "registro de la propiedad",
+    "hipotecas",
+    "censo electoral",
+    "padrón electoral"
+  ],
+  "districts": ["distrito"],
+  "months": [
+    ["enero", "ene."],
+    ["febrero", "feb."],
+    ["marzo"],
+    ["abril", "abr."],
+    ["mayo", "may."],
+    ["junio", "jun."],
+    ["julio", "jul."],
+    ["agosto", "ago."],
+    ["septiembre", "setiembre", "sept."],
+    ["octubre", "oct."],
+    ["noviembre", "nov."],
+    ["diciembre", "dic."]
+  ],
+  "ranges": ["hasta"],
+  "ignored": ["s.f.", "sin fecha", "s.l.", "Francia"]
+}

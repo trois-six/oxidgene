@@ -96,16 +96,21 @@ impl ArchiveFind {
     }
 
     /// The register link the reader's parts complete, with those parts
-    /// written in the archive's language for the citation's page; `None`
-    /// while the act or the locality is still missing.
-    pub fn complete(&self, supplied: SuppliedParts) -> Option<(ArchiveLink, Option<String>)> {
+    /// written in the reader's `language` (the interface language's code)
+    /// for the citation's page; `None` while the act or the locality is
+    /// still missing.
+    pub fn complete(
+        &self,
+        supplied: SuppliedParts,
+        language: &str,
+    ) -> Option<(ArchiveLink, Option<String>)> {
         let registry = ArchiveRegistry::embedded();
         supplied.validate(self.archive).ok()?;
         let recognition = registry
             .recognize(&self.evidence, Some(&supplied), None)
             .ok()?;
         let citation = recognition.citation()?;
-        let written = recognition.written(registry);
+        let written = recognition.written(registry, language);
         let link = ArchiveLink {
             archive: self.archive,
             citation,

@@ -1,0 +1,77 @@
+{
+  "language": "nl",
+  "archives": {
+    "departmental": ["departementaal archief", "departementale archieven"],
+    "municipal": ["gemeentearchief", "stadsarchief", "gemeentelijk archief"],
+    "national": ["nationaal archief", "rijksarchief"],
+    "regional": ["regionaal archief", "regionaal historisch centrum", "streekarchief", "provinciaal archief"],
+    "any": ["archief", "archieven"]
+  },
+  "acts": {
+    "N": ["geboorte", "geboorten", "geboorteakte"],
+    "B": ["doop", "dopen", "doopinschrijving"],
+    "M": ["huwelijk", "huwelijken", "huwelijksakte", "trouw", "trouwen"],
+    "D": ["overlijden", "overlijdens", "overlijdensakte"],
+    "S": ["begrafenis", "begrafenissen", "begraven"],
+    "P": ["ondertrouw", "huwelijksafkondiging", "huwelijksafkondigingen"]
+  },
+  "registers": {
+    "any": ["register", "registers"],
+    "parish": ["kerkboek", "kerkboeken", "kerkregister", "DTB"],
+    "civil": ["burgerlijke stand", "burgerlijke staat"]
+  },
+  "tables": {
+    "TD": ["tienjarige tafels", "tienjarige tafel", "tienjaarlijkse tafels"]
+  },
+  "series": {
+    "RP": ["volkstelling", "volkstellingen", "volkstellingsregister"],
+    "RM": ["stamboek", "stamboeken", "militair stamboek", "militaire stamboeken"],
+    "CM": ["militieregister", "militieregisters", "loting", "lotingsregister"],
+    "TSA": ["successietafels", "tafels van successies"],
+    "RI": ["begraafplaatsregister", "begraafregister", "begraafplaats"]
+  },
+  "views": ["scan", "afbeelding", "opname"],
+  "view_counts": ["van"],
+  "numbers": ["nummer", "nr.", "akte", "aktenummer"],
+  "other_numbers": ["huishouden", "huis", "gezin"],
+  "folios": ["folio", "fol.", "f.", "blad"],
+  "pages": ["pagina", "blz.", "p."],
+  "recto": ["recto"],
+  "verso": ["verso"],
+  "call_numbers": ["inventarisnummer", "inv.nr.", "inv. nr.", "signatuur"],
+  "parishes": ["parochie", "kerkelijke gemeente"],
+  "sections": ["sectie"],
+  "approximate": ["omstreeks", "ongeveer", "rond", "circa", "ca", "c."],
+  "places": ["te", "in", "van"],
+  "particles": ["aan", "de", "den", "der", "het", "op", "bij", "ter", "ten", "te", "van"],
+  "bureaus": ["militiecommissariaat"],
+  "unsupported": [
+    "notarieel archief",
+    "notariële akte",
+    "notariële akten",
+    "notaris",
+    "notarieel",
+    "kadaster",
+    "hypotheek",
+    "hypotheken",
+    "kiezerslijst",
+    "kiezerslijsten"
+  ],
+  "districts": ["arrondissement", "stadsdeel"],
+  "months": [
+    ["januari", "jan."],
+    ["februari", "feb."],
+    ["maart", "mrt."],
+    ["april", "apr."],
+    ["mei"],
+    ["juni", "jun."],
+    ["juli", "jul."],
+    ["augustus", "aug."],
+    ["september", "sept."],
+    ["oktober", "okt."],
+    ["november", "nov."],
+    ["december"]
+  ],
+  "ranges": ["tot"],
+  "ignored": ["z.d.", "zonder datum", "z.p.", "Frankrijk"]
+}

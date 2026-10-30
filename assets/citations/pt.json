@@ -1,0 +1,74 @@
+{
+  "language": "pt",
+  "archives": {
+    "departmental": ["arquivo departamental", "arquivos departamentais"],
+    "municipal": ["arquivo municipal", "arquivos municipais", "arquivo histórico municipal"],
+    "national": ["arquivo nacional", "arquivos nacionais", "torre do tombo"],
+    "regional": ["arquivo regional", "arquivo distrital", "arquivo público estadual"],
+    "any": ["arquivo", "arquivos", "arq."]
+  },
+  "acts": {
+    "N": ["nascimento", "nascimentos", "registo de nascimento", "registro de nascimento", "assento de nascimento"],
+    "B": ["batismo", "batismos", "baptismo", "baptismos", "batizado", "assento de batismo"],
+    "M": ["casamento", "casamentos", "matrimónio", "matrimônio", "registo de casamento", "registro de casamento", "assento de casamento"],
+    "D": ["óbito", "óbitos", "falecimento", "falecimentos", "registo de óbito", "registro de óbito", "assento de óbito"],
+    "S": ["sepultamento", "sepultamentos", "enterro", "enterros"],
+    "P": ["proclamas", "banhos", "habilitação matrimonial"]
+  },
+  "registers": {
+    "any": ["registo", "registro", "livro"],
+    "parish": ["registos paroquiais", "registros paroquiais", "livro paroquial", "livros paroquiais"],
+    "civil": ["registo civil", "registro civil"]
+  },
+  "tables": {
+    "TD": ["tábuas decenais", "índices decenais"]
+  },
+  "series": {
+    "RP": ["recenseamento", "recenseamentos", "censo", "censos"],
+    "RM": ["registo militar", "registro militar", "livro mestre"],
+    "CM": ["recenseamento militar", "conscrição", "lista de conscritos"],
+    "TSA": ["tábuas de sucessões", "sucessões e ausências"],
+    "RI": ["registo de cemitério", "registro de cemitério", "cemitério"]
+  },
+  "views": ["imagem", "imagens", "img.", "fotograma"],
+  "numbers": ["número", "n.º", "assento", "termo"],
+  "other_numbers": ["fogo", "família"],
+  "folios": ["folha", "fl.", "fls.", "fol.", "f."],
+  "pages": ["página", "pág.", "p."],
+  "recto": ["recto", "frente"],
+  "verso": ["verso"],
+  "call_numbers": ["cota", "referência", "ref."],
+  "parishes": ["paróquia", "freguesia"],
+  "sections": ["secção", "seção"],
+  "approximate": ["cerca de", "por volta de", "aprox.", "circa", "ca", "c."],
+  "places": ["de", "do", "da", "dos", "das", "em"],
+  "particles": ["de", "do", "da", "dos", "das", "e"],
+  "bureaus": ["distrito de recrutamento"],
+  "unsupported": [
+    "notarial",
+    "notário",
+    "notariais",
+    "cartório notarial",
+    "cadastro",
+    "hipotecas",
+    "registo predial",
+    "caderno eleitoral",
+    "recenseamento eleitoral"
+  ],
+  "districts": ["bairro"],
+  "months": [
+    ["janeiro", "jan."],
+    ["fevereiro", "fev."],
+    ["março"],
+    ["abril", "abr."],
+    ["maio", "mai."],
+    ["junho", "jun."],
+    ["julho", "jul."],
+    ["agosto", "ago."],
+    ["setembro", "set."],
+    ["outubro", "out."],
+    ["novembro", "nov."],
+    ["dezembro", "dez."]
+  ],
+  "ignored": ["s.d.", "sem data", "s.l.", "França"]
+}

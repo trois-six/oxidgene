@@ -1150,7 +1150,9 @@ fn the_reader_completes_a_citation_and_may_keep_what_they_wrote() {
     assert_eq!(recognition.signal(Part::Views), Some(Signal::Words));
 
     // Written into the page, the parts are read back without the reader.
-    let written = recognition.written(&registry).expect("parts to write");
+    let written = recognition
+        .written(&registry, "fr")
+        .expect("parts to write");
     assert_eq!(written, "Exampleville, naissance 1872");
     let kept = CitationEvidence {
         page: Some(format!("v. 45, n° 312, {written}")),
@@ -1191,7 +1193,10 @@ fn the_reader_completes_a_citation_and_may_keep_what_they_wrote() {
             side: None
         }]
     );
-    assert_eq!(recognition.written(&registry).as_deref(), Some("vue 46"));
+    assert_eq!(
+        recognition.written(&registry, "fr").as_deref(),
+        Some("vue 46")
+    );
 
     // What a reader may not supply.
     for invalid in [
@@ -1555,6 +1560,170 @@ fn archives_of_the_embedded_catalogue_are_named_as_genealogists_write_them() {
         .unwrap();
     assert_eq!(recognition.archive.id, "fr-ad72");
     assert!(recognition.address.is_some());
+}
+
+/// A French register cited in every interface language: the embedded
+/// vocabularies are read together, whatever the archive's country.
+#[test]
+fn reads_a_citation_written_in_every_interface_language() {
+    let registry = registry();
+    let civil = |views: &str| {
+        at(AD99)
+            .act("N")
+            .locality("Exampleville")
+            .year(1872)
+            .views(views)
+            .number(312)
+    };
+    let cases = [
+        (
+            "AD99, civil registration of Exampleville, births 1872, image 45 of 200, entry 312",
+            civil("45").of(200),
+        ),
+        (
+            "AD99, Standesamt Exampleville, Geburten 1872, Bild 45 von 200, Nr. 312",
+            civil("45").of(200),
+        ),
+        (
+            "AD99, registro civil de Exampleville, nacimientos 1872, imagen 45, número 312",
+            civil("45"),
+        ),
+        (
+            "AD99, stato civile di Exampleville, atti di nascita 1872, immagine 45, n. 312",
+            civil("45"),
+        ),
+        (
+            "AD99, burgerlijke stand van Exampleville, geboorten 1872, scan 45 van 200, aktenummer 312",
+            civil("45").of(200),
+        ),
+        (
+            "AD99, akta stanu cywilnego w Exampleville, urodzenia 1872, skan 45 z 200, nr 312",
+            civil("45").of(200),
+        ),
+        (
+            "AD99, registo civil de Exampleville, nascimentos 1872, imagem 45, número 312",
+            civil("45"),
+        ),
+        (
+            "Departmental Archives of Exampleshire, Exampleville parish register, burials 1750, image 12, folio 4",
+            at(AD99)
+                .act("S")
+                .locality("Exampleville")
+                .year(1750)
+                .views("12")
+                .folio("folio 4"),
+        ),
+        (
+            "AD99, Kirchenbuch Exampleville, Taufen 1750, Bild 12",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1750)
+                .views("12"),
+        ),
+        (
+            "AD99, Exampleville, matrimonios 1750, imagen 12",
+            at(AD99)
+                .act("M")
+                .locality("Exampleville")
+                .year(1750)
+                .views("12"),
+        ),
+        (
+            "AD99, Exampleville, decessi 1880, immagine 7",
+            at(AD99)
+                .act("D")
+                .locality("Exampleville")
+                .year(1880)
+                .views("7"),
+        ),
+        (
+            "AD99, DTB Exampleville, begrafenissen 1750, scan 12",
+            at(AD99)
+                .act("S")
+                .locality("Exampleville")
+                .year(1750)
+                .views("12"),
+        ),
+        (
+            "AD99, księgi metrykalne Exampleville, chrzty 1750, skan 12",
+            at(AD99)
+                .act("B")
+                .locality("Exampleville")
+                .year(1750)
+                .views("12"),
+        ),
+        (
+            "AD99, Exampleville, recenseamento 1906, imagem 3",
+            at(AD99)
+                .act("RP")
+                .locality("Exampleville")
+                .year(1906)
+                .views("3"),
+        ),
+    ];
+    assert_eq!(corpus(&registry, &cases), 14);
+}
+
+/// The parts the reader supplies are written in the interface language, a
+/// word that language lacks in the archive country's, and are read back.
+#[test]
+fn the_reader_s_parts_are_written_in_their_language() {
+    let registry = registry();
+    let evidence = CitationEvidence {
+        page: Some("v. 45, n° 312".to_owned()),
+        ..title("AD99, 4E 1234")
+    };
+    let supplied = SuppliedParts {
+        locality: Some("Exampleville".to_owned()),
+        act: Act::from_code("N"),
+        year: Some(1872),
+        view: Some(46),
+    };
+    let recognition = registry
+        .recognize(&evidence, Some(&supplied), None)
+        .unwrap();
+    for (language, expected) in [
+        ("en", "Exampleville, birth 1872, image 46"),
+        ("en-GB", "Exampleville, birth 1872, image 46"),
+        ("de", "Exampleville, Geburt 1872, Bild 46"),
+        ("es", "Exampleville, nacimiento 1872, imagen 46"),
+        ("it", "Exampleville, nascita 1872, immagine 46"),
+        ("nl", "Exampleville, geboorte 1872, scan 46"),
+        ("pl", "Exampleville, urodzenie 1872, skan 46"),
+        ("pt-BR", "Exampleville, nascimento 1872, imagem 46"),
+        ("fr", "Exampleville, naissance 1872, vue 46"),
+        // A language without a vocabulary, a custom desktop locale:
+        // the archive's country's.
+        ("br", "Exampleville, naissance 1872, vue 46"),
+    ] {
+        let written = recognition
+            .written(&registry, language)
+            .unwrap_or_else(|| panic!("{language}: parts to write"));
+        assert_eq!(written, expected, "{language}");
+        let kept = CitationEvidence {
+            page: Some(format!("n° 312, {written}")),
+            ..evidence.clone()
+        };
+        let again = registry.recognize(&kept, None, None).unwrap();
+        assert_eq!(again.citation(), recognition.citation(), "{language}");
+    }
+
+    // A word the reader's language lacks is the archive country's.
+    let partial =
+        Vocabulary::parse(r#"{"language": "xx", "acts": {"N": ["birth"]}}"#).expect("a vocabulary");
+    let mixed = self::registry().with_vocabularies(
+        crate::vocabulary::embedded()
+            .into_iter()
+            .filter(|vocabulary| vocabulary.language() == "fr")
+            .chain([partial])
+            .collect(),
+    );
+    let recognition = mixed.recognize(&evidence, Some(&supplied), None).unwrap();
+    assert_eq!(
+        recognition.written(&mixed, "xx").as_deref(),
+        Some("Exampleville, birth 1872, vue 46")
+    );
 }
 
 /// A language other than French, added as data: a test-only vocabulary and

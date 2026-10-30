@@ -104,10 +104,10 @@ impl<'a> Districts<'a> {
     }
 
     /// The district a whole locality names, written as citations write it
-    /// in the archive's language: `Paris 11e` for `Paris XIe`, `Paris
-    /// (11e)`, `11e arrondissement`. A number without its city is the first
-    /// city's whose count it fits.
-    pub fn written(&self, locality: &str) -> Option<String> {
+    /// in the language of the archive's `country`: `Paris 11e` for `Paris
+    /// XIe`, `Paris (11e)`, `11e arrondissement`. A number without its city
+    /// is the first city's whose count it fits.
+    pub fn written(&self, locality: &str, country: &str) -> Option<String> {
         let words = fold(locality);
         let mention = self
             .mention(&words)
@@ -119,9 +119,14 @@ impl<'a> Districts<'a> {
                 .iter()
                 .find(|(_, district)| mention.number <= district.count)?,
         };
-        let suffix = self
+        // The suffix of a language serving the country, else of any: the
+        // portal is searched with its own country's words.
+        let serving = self
             .vocabularies
             .iter()
+            .filter(|vocabulary| vocabulary.serves(country));
+        let suffix = serving
+            .chain(self.vocabularies)
             .find_map(|vocabulary| vocabulary.written_ordinal(mention.number))
             .unwrap_or_default();
         Some(format!("{} {}{suffix}", district.city, mention.number))
@@ -219,15 +224,20 @@ fn to_roman(mut number: u8) -> String {
 }
 
 impl CitationGrammar {
-    /// A recognized locality as the archive's citations are searched by: the
-    /// name its portal knows it by (`localities`), or a district written
-    /// alike (`Paris 11e` for `Paris XIe`).
-    pub(super) fn written_locality(&self, locality: String, vocabularies: &[Vocabulary]) -> String {
+    /// A recognized locality as the citations of an archive of `country` are
+    /// searched by: the name its portal knows it by (`localities`), or a
+    /// district written alike (`Paris 11e` for `Paris XIe`).
+    pub(super) fn written_locality(
+        &self,
+        locality: String,
+        vocabularies: &[Vocabulary],
+        country: &str,
+    ) -> String {
         if let Some(name) = self.locality_name(&locality) {
             return name.to_owned();
         }
         Districts::new(&self.districts, vocabularies)
-            .written(&locality)
+            .written(&locality, country)
             .unwrap_or(locality)
     }
 }

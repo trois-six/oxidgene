@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-10-30T17:45:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -110,8 +110,8 @@ since some portals demand a browser, and displays the result (§4.2, §6;
 - One adapter per portal platform, shared by every archive that runs it.
 - Recognizing citations written in any convention, from the source, the
   citation, its repositories and the cited event, with the words of each
-  language and the conventions of each country as data (§5.1); French is
-  the one shipped.
+  language and the conventions of each country as data (§5.1), one
+  vocabulary per interface language shipped.
 - Resolution of a parsed citation to an [`ArchiveTarget`](#52-result): the
   portal page that shows the register, opened at the cited view when the
   platform allows it.
@@ -1989,7 +1989,10 @@ number on the link, the act and view in the citation's page, and the act's
 kind, year and place on the cited event. `ArchiveRegistry::recognize` reads
 all of them with one engine that knows no language: the words it reads are
 data per language, and a country's conventions data per country (below).
-French is the one shipped.
+A vocabulary is shipped for every interface language — English, French,
+German, Spanish, Italian, Dutch, Polish, Portuguese — and all of them are
+read together, whatever the archive's country: `AD72, civil registration of
+Exampleville, births 1872, image 45` reads as its French counterpart does.
 
 **What is read.** Per citation, `CitationEvidence` gathers:
 
@@ -2113,7 +2116,16 @@ archive's `call_number_periods` (`1904` for `XXX_RJ19041904_01`,
 
 **Vocabularies.** One JSON document per language under `assets/citations/`,
 embedded at build time like the catalogue; adding a language is a data
-change, and a test reads a second, test-only language. Every field holds
+change, and a test reads a second, test-only language. Every interface
+language has one. They are read together, a phrase meaning what any of them
+says and its first meaning deciding what follows it, so a phrase two
+languages share must mean the same in both, which a test checks: a word
+another language gives a different meaning stays out of the later language
+(`sep.`, a burial and September in French, is no English, German, Spanish or
+Dutch month; `do`, a Portuguese preposition, no Polish range word). A
+country's conventions are only the French vocabulary's, the one serving the
+catalogued countries: the others serve none (`countries` empty), and carry
+no `civil_registration_from` or `republican_years`. Every field holds
 phrases, written naturally and folded when loaded:
 
 | Field | Content |
@@ -2125,13 +2137,15 @@ phrases, written naturally and folded when loaded:
 | `views`, `view_counts`, `sides` | View words, the word before a view count, the side suffixes |
 | `numbers`, `other_numbers`, `folios`, `pages`, `recto`, `verso`, `call_numbers`, `parishes`, `sections`, `approximate`, `bureaus` | The keywords above |
 | `places`, `particles` | Prepositions introducing a locality, and particles within place names |
-| `districts`, `ordinals` | Words naming a city's district (`arrondissement`), and the suffixes of an ordinal number, `first` after 1 (`er`) and `other` after the others (`e`, `ème`); the first of each is written (`Paris 1er`, `Paris 11e`) |
+| `districts`, `ordinals` | Words naming a city's district (`arrondissement`), and the suffixes of an ordinal number, `first` after 1 (`er`) and `other` after the others (`e`, `ème`); the first of each of a vocabulary serving the archive's country is written (`Paris 1er`, `Paris 11e`, never `Paris 11th`) |
 | `months`, `ranges`, `republican_years` | Month names, the words joining a period, the word before a Republican year (French conventions only) |
 | `unsupported` | Phrases naming a kind of document no collection holds (`minutes notariales`, `matrice cadastrale`, `hypothèques`, `écrou`): a citation naming one is no link (below) |
 | `ignored` | Words that are no locality (`s.d.`, `France`) |
 
 The first phrase of an act, table or series and the first view word are
-those OxidGene writes when the reader keeps completed parts (§6.5).
+those OxidGene writes when the reader keeps completed parts (§6.5), in the
+reader's interface language; a word that language has no vocabulary for —
+a custom desktop language — is the archive country's.
 
 **The place dictionary.** When several localities are offered — a parish and
 a commune in the words, a hamlet before its commune in the event's place when
@@ -2839,8 +2853,10 @@ riding with every resolution of it, the neighbouring views included
 Nothing is saved while the reader only searches. A checkbox, unticked by
 default and offered for a stored citation, **Add these details to the
 citation** (`archive_viewer.find_keep`), writes the parts the reader
-supplied at the end of the citation's page, in the archive's language with
-the first words of its vocabulary — `Exampleville, naissance 1872, vue 45` —
+supplied at the end of the citation's page, in the interface language with
+the first words of its vocabulary — `Exampleville, naissance 1872, vue 45`,
+`Exampleville, birth 1872, image 45` —, a word the interface language has no
+vocabulary for in the archive country's —
 through the ordinary citation update, which records its history; the
 citation then opens directly, read back by the words (§5.1), and the page
 reloads. The source, shared by other citations, is never changed.
@@ -2932,8 +2948,9 @@ Archive portals are public services whose terms OxidGene follows:
   grammar reads it), structured records with the cited event, portal
   addresses, refusals, the reader's parts and their writing back, the place
   dictionary through a fake, the embedded catalogue's archives named as
-  genealogists write them, and a second language added as a test-only
-  vocabulary. Each part's signal is checked.
+  genealogists write them, a French register cited in every interface
+  language, the reader's parts written in their language, and a second
+  language added as a test-only vocabulary. Each part's signal is checked.
 - Adapter tests replay recorded portal responses, anonymized and committed as
   fixtures, covering one match, several matches, no match, a changed
   response shape, and the platform's own cases: for Arkothèque, a locality

@@ -69,7 +69,7 @@ A few rules help:
 - The archive must be named: by its code (`AD72`), its name, a repository holding the source, or the address of its website. The place of an event never designates an archive, because an act is not always recorded where the event happened.
 - A citation's page completes its source: the views and act number given in the page win over those in the title.
 - If the source or citation contains the address of a page on the archive's portal, that address opens as it is, without any search.
-- Citations are read in French, the language of the archives catalogued today.
+- Citations may be written in any language of the interface — English, French, German, Spanish, Italian, Dutch, Polish or Portuguese: `AD72, civil registration of Exampleville, births 1872, image 45` opens the same register as its French counterpart.
 
 A citation that names no archive, an archive outside the catalogue, or a kind of document the archive does not publish stays plain text.
 
@@ -114,7 +114,7 @@ Sometimes OxidGene recognizes the archive but not the act or the locality, for e
 
 The locality and the kind of register are required; without them the dialog stays open and says what is missing.
 
-Searching saves nothing. To keep what you typed, tick **Add these details to the citation** before clicking **Search**: your details are added at the end of the citation's page (for example `Exampleville, naissance 1872, vue 45`), the change is recorded in the [history](@/guide/history.md), and the next click opens the register directly. The source itself, which other citations may share, is never changed.
+Searching saves nothing. To keep what you typed, tick **Add these details to the citation** before clicking **Search**: your details are added at the end of the citation's page, in the language of the interface (for example `Exampleville, birth 1872, image 45`), the change is recorded in the [history](@/guide/history.md), and the next click opens the register directly. The source itself, which other citations may share, is never changed.
 
 ## What OxidGene sends to the archives
 

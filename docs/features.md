@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -144,7 +144,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 ## 11. Archives
 
 - A cited source opens its register at the cited view on the archive's own portal: in an archive window on the desktop, in a new browser tab on the web ([Person Profile](ui-person-profile.md#opening-a-cited-register), [Archive Portals §6](archives.md#6-display)).
-- Citations recognised however they are written — the classic description, its short form, the normalized form, a source held by an archive with the act on the cited event, a portal address — with the words of each language kept as data, French shipped ([Archive Portals §5.1](archives.md#51-citation-recognition)).
+- Citations recognised however they are written — the classic description, its short form, the normalized form, a source held by an archive with the act on the cited event, a portal address — with the words of each language kept as data, one vocabulary per interface language shipped and read together ([Archive Portals §5.1](archives.md#51-citation-recognition)).
 - Every French departmental archive, and the overseas civil status of the Archives nationales d'outre-mer, each catalogued with the portal software it runs, one adapter serving every archive on the same software ([Archive Portals §3.1](archives.md#31-catalogue), [Archive Portals §4](archives.md#4-platforms)).
 - Parish and civil-status registers, decennial and parish tables, population censuses, military registers, conscription lists, tables of successions and absences, and cemetery burial registers ([Archive Portals §3.1](archives.md#31-catalogue)).
 - A "Find in the archives" dialog that completes a partial citation, and on request writes the details back to it ([Archive Portals §6.5](archives.md#65-find-in-the-archives)).
