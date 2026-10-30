@@ -4,6 +4,11 @@ name: CI
 # blocks a merge through the `CI` job at the end. The heavy tier 3 — end to
 # end, budgets, timing, reports, next toolchains — runs in nightly.yml, every
 # night and on demand; release.yml runs both as gates.
+#
+# The jobs that compile restore their build through
+# .github/actions/rust-build-cache: the dependencies whole, then the
+# workspace crates of the last build of `main`, so that a push recompiles
+# only the crates it touched and those depending on them. Only `main` saves.
 
 on:
   workflow_dispatch:
@@ -21,6 +26,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # No debug information in CI: a test failure reports its panic message and
+  # its backtrace's function names, and the objects to compile, link and
+  # cache are a fraction of the size. Local builds keep line tables.
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 permissions:
   contents: read
@@ -76,31 +85,6 @@ jobs:
 
   # ── Tier 1 ────────────────────────────────────────────────────────────
 
-  check:
-    name: Check
-    needs: [changes, build-image]
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
-    runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-
-      - name: Check
-        run: cargo check --locked --workspace --all-targets
-
   fmt:
     name: Format
     needs: [changes, build-image]
@@ -142,9 +126,6 @@ jobs:
           # The archive crate's live checks, which no member enables.
           - name: archives live checks
             args: -p oxidgene-archives --features native,live --all-targets
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -153,24 +134,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
+      - id: cache
+        uses: ./.github/actions/rust-build-cache
         with:
-          cache-targets: false
-          key: ${{ matrix.name }}
+          key: clippy ${{ matrix.name }}
 
       - name: Clippy
         run: cargo clippy --locked ${{ matrix.args }} -- -D warnings
+
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.cache.outputs.path }}
+          key: ${{ steps.cache.outputs.key }}
 
   unit:
     name: Unit tests
     needs: [changes, build-image]
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -179,11 +161,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
+      - id: cache
+        uses: ./.github/actions/rust-build-cache
         with:
-          cache-targets: false
+          key: unit
 
       # `just test-unit`: the `#[cfg(test)]` modules, then the doc examples.
       - name: Run the unit tests
@@ -191,6 +172,12 @@ jobs:
 
       - name: Run the documentation examples
         run: cargo test --locked --workspace --doc
+
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.cache.outputs.path }}
+          key: ${{ steps.cache.outputs.key }}
 
   # The guards that read the repository rather than run it, specifications
   # included, so it runs on documentation-only changes too. On a pull
@@ -255,15 +242,13 @@ jobs:
 
   # The integration test targets, the database guards of `guards_test`
   # included: cross-tree access, pagination, purge, history, log privacy,
-  # REST/GraphQL parity, and the statement counts of `query_scaling_test`.
+  # REST/GraphQL parity, and the statement counts of `query_scaling_test`;
+  # then the SQL plans, from the same build.
   functional:
     name: Functional tests
     needs: [changes, build-image]
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -272,41 +257,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
+      # The test executables are not kept, at 6 GB: each one relinks.
+      - id: cache
+        uses: ./.github/actions/rust-build-cache
         with:
-          cache-targets: false
+          key: functional
 
       # `just test-functional`: the integration test targets.
       - name: Run the functional tests
         run: cargo nextest run --locked --workspace --test '*' --no-fail-fast
 
-  sql-plans:
-    name: SQL plans
-    needs: [changes, build-image]
-    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
-    runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-
       # `just sql-plans`: no statement scans a large table without an index.
+      # The workspace build enables GraphQL, as `--features graphql` does.
       - name: Read the query plans
-        run: cargo nextest run --locked -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+        run: cargo nextest run --locked --workspace --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.cache.outputs.path }}
+          key: ${{ steps.cache.outputs.key }}
 
   dependencies:
     name: Dependencies
@@ -430,7 +400,6 @@ jobs:
     name: CI
     if: always()
     needs:
-      - check
       - fmt
       - clippy
       - unit
@@ -438,7 +407,6 @@ jobs:
       - machete
       - cyclomatic
       - functional
-      - sql-plans
       - dependencies
       - duplication
       - ui-js

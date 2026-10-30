@@ -90,9 +90,6 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJSON(needs.plan.outputs.groups) }}
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
@@ -100,11 +97,9 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
-
       - uses: Swatinem/rust-cache@v2
         with:
-          cache-targets: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # A prebuilt binary; the version of mise.toml.
       - uses: taiki-e/install-action@v2

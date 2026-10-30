@@ -1,0 +1,83 @@
+name: Rust build cache
+description: >-
+  Restores a job's build so that Cargo compiles only what the change touched:
+  the dependencies, whole (Swatinem/rust-cache, keyed on the lockfile), then
+  the workspace crates of the last build of `main`, whose source files left
+  unchanged since are dated back so Cargo finds them fresh. The job saves the
+  workspace crates with actions/cache/save, under the `key` and `path` given
+  as outputs, once its build passed on `main`.
+
+inputs:
+  key:
+    description: The build variant, one per distinct cargo command
+    required: true
+
+outputs:
+  key:
+    description: The key to save the workspace crates under
+    value: ${{ steps.key.outputs.prefix }}${{ github.sha }}
+  path:
+    description: The workspace crates' artifacts, to save
+    value: ${{ steps.key.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    # Only `main` saves: a pull request reads the caches of `main`, and its
+    # own would only crowd them out of the repository's cache budget.
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.key }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    # Every manifest and the workflow are part of the key: within one key a
+    # command builds the same units on every run, so no artifact the job did
+    # not rebuild can outlive the sources it was compiled from.
+    - id: key
+      shell: bash
+      env:
+        HASH: ${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'apps/*/Cargo.toml', 'rust-toolchain.toml', '.github/workflows/ci.yml', '.github/actions/rust-build-cache/action.yml') }}
+        VARIANT: ${{ inputs.key }}
+      run: |
+        echo "prefix=workspace-${VARIANT// /-}-$HASH-" >> "$GITHUB_OUTPUT"
+        {
+          echo 'path<<EOF'
+          echo 'target/**/.fingerprint/oxidgene-*'
+          echo 'target/**/build/oxidgene-*'
+          echo 'target/**/deps/*oxidgene_*'
+          echo EOF
+        } >> "$GITHUB_OUTPUT"
+
+    - id: restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.key.outputs.path }}
+        key: ${{ steps.key.outputs.prefix }}${{ github.sha }}
+        restore-keys: ${{ steps.key.outputs.prefix }}
+
+    # Cargo rebuilds a crate when a source is newer than its artifact. The
+    # checkout dates every file now; the files the restored build compiled
+    # unchanged go back to 2000, so only the change and what depends on it
+    # rebuild. Without the restored build's commit, everything rebuilds.
+    - name: Date the unchanged sources back
+      if: steps.restore.outputs.cache-matched-key != ''
+      shell: bash
+      env:
+        MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
+        PREFIX: ${{ steps.key.outputs.prefix }}
+      run: |
+        base=${MATCHED#"$PREFIX"}
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        if ! git cat-file -e "$base^{commit}" 2>/dev/null \
+          && ! git fetch --quiet --no-tags --depth=1 origin "$base"; then
+          echo "::notice::The cached build's commit $base is gone: every workspace crate rebuilds"
+          exit 0
+        fi
+        git ls-files -z | xargs -0 touch -h -d @946684800
+        find . -path ./.git -prune -o -path ./target -prune -o -type d -print0 \
+          | xargs -0 touch -h -d @946684800
+        # What changed since, and every directory that lost a file, dated now.
+        git diff --name-only --no-renames --diff-filter=d -z "$base" HEAD | xargs -0 -r touch -c -h
+        git diff --name-only --no-renames --diff-filter=D -z "$base" HEAD \
+          | xargs -0 -r dirname -z | xargs -0 -r touch -c -h
+        echo "Built on $base; $(git diff --name-only --no-renames "$base" HEAD | wc -l) files changed since"

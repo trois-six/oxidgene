@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-20T18:23:42Z }
+generated: { by: human:maintainer, at: 2026-10-30T09:30:00Z }
 ---
 
 # Development Environment and Workflows
@@ -508,14 +508,23 @@ three tiers, so that a pull request waits only for the fast ones:
 
 - **Tier 1** — every pull request, blocking, fast. Rust tests that read the
   sources, most of them part of `just check`, plus quick tools.
-- **Tier 2** — every pull request touching code, blocking, each its own
-  parallel CI job: the functional guards that need a database, the SQL
-  plans, the dependency audit, the duplication budget.
+- **Tier 2** — every pull request touching code, blocking, in parallel CI
+  jobs: the functional guards that need a database and the SQL plans, the
+  dependency audit, the duplication budget.
 - **Tier 3** — every night (`.github/workflows/nightly.yml`) when `main`
   moved since the previous run (its `changes` job compares the commits,
   cancelled runs aside, and skips the others), on demand, and as gates of
   a release, which always run; never on a pull request: the browser
   suite, budgets, timing, reports and the next toolchains.
+
+A push recompiles only what it touched. Each CI job that compiles restores
+its build through `.github/actions/rust-build-cache`: the dependencies
+whole, keyed on the lockfile, then the workspace crates as the last build of
+`main` left them, keyed on its commit. The sources that commit compiled
+unchanged are dated back, so Cargo rebuilds only the crates the change
+touched and those depending on them; a change to a manifest, the toolchain or
+the CI workflow starts the workspace crates afresh. Only `main` saves its
+build, which pull requests reuse. CI builds carry no debug information.
 
 `.github/workflows/release.yml` runs on a `v*` tag, and on a push to a
 `release/**` branch to rehearse one: it calls the CI workflow with every job
@@ -548,7 +557,7 @@ of both passed (the next-toolchain jobs report without failing).
 | History without duplicates | 2 | `just test` (`guards_test`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does |
 | Privacy of logs | 2 | `just test` (`guards_test`) | Functional tests | No span or event field carries a name, place, note or SQL value |
-| SQL plans | 2 | `just sql-plans` | SQL plans | No statement scans a large table without an index |
+| SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
 | Dependencies | 2 | `just deps` | Dependencies | No advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |
 | Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json` |
