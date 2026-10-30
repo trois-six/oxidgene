@@ -30,7 +30,7 @@ OxidGene is published on its [GitHub Releases page](https://github.com/trois-six
    | macOS 11 or later (Apple silicon and Intel) | `oxidgene-desktop-macos-universal.dmg` | `OxidGene.app` |
    | Windows (x86-64) | `oxidgene-desktop-windows-x86_64.zip` | The program |
 
-3. Also download `SHA256SUMS` and check that your file matches it before you run it. On Linux, for example, run `sha256sum -c SHA256SUMS --ignore-missing` in the download folder.
+3. Also download `SHA256SUMS` and check that your file matches it before you run it. On Linux, for example, run `sha256sum -c SHA256SUMS --ignore-missing` in the download folder. If you use the GitHub CLI, `gh attestation verify <file> --repo trois-six/oxidgene` also confirms that the file was built by the project's own release workflow.
 
 These are portable programs, not installers: nothing is added to your system besides the program itself and the folders described below.
 

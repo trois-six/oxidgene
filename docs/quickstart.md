@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-17T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T18:00:00Z }
 ---
 
 # OxidGene Quickstart
@@ -67,7 +67,10 @@ When releases are available:
 | macOS 11 or later, Apple silicon and Intel | `oxidgene-desktop-macos-universal.dmg` | `OxidGene.app`, to drag into Applications |
 | Windows x86-64 | `oxidgene-desktop-windows-x86_64.zip` | The executable |
 
-Every release includes `SHA256SUMS`. These are portable executables, not
+Every release includes `SHA256SUMS`, and a build provenance attestation of
+each download: with the GitHub CLI, `gh attestation verify <file> --repo
+trois-six/oxidgene` confirms the file was built by the project's release
+workflow from the tagged source. These are portable executables, not
 installers. Do not download binaries presented as official OxidGene releases
 from another location.
 

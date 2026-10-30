@@ -1009,7 +1009,11 @@ A successful run publishes:
 - the OxidGene chart as an OCI artifact under `ghcr.io/trois-six/charts`;
 - the desktop for Linux, macOS, and Windows; and
 - a GitHub Release containing the desktop downloads, packaged chart, generated
-   release notes, and `SHA256SUMS`.
+   release notes, and `SHA256SUMS`; and
+- a signed SLSA build provenance attestation of every file `SHA256SUMS` lists,
+   stored with the repository's attestations (`actions/attest`), which
+   `gh attestation verify <file> --repo trois-six/oxidgene` checks. The
+   images carry their own provenance and SBOM in the registry.
 
 Before anything is built or published, the release gates run tiers 1 to 3
 of the guards (§2.8). The release is created only after every platform build

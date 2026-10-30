@@ -305,8 +305,9 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [x] Build every release artifact in CI behind the CI and nightly gates,
   with SHA-256 checksums of the desktop downloads and provenance and SBOM
   attestations of the images.
-- [ ] Publish provenance for the desktop binaries, and smoke-test the
-  container and desktop deliverables before release.
+- [x] Attest the build provenance of the desktop downloads and the packaged
+  chart ([Development §6](development.md#6-release-automation)).
+- [ ] Smoke-test the container and desktop deliverables before release.
 - [x] Run unit, functional, browser JavaScript, performance and end-to-end
   tests as separate CI jobs, the Playwright suite also nightly
   ([Development §2.7](development.md#27-test-categories)).

@@ -312,6 +312,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The provenance attestations: a Sigstore certificate minted from the
+      # job's OIDC token, and the attestations API that stores them.
+      id-token: write
+      attestations: write
     steps:
       # The packaged artifacts only, never the unsigned executable.
       - uses: actions/download-artifact@v8
@@ -323,6 +327,15 @@ jobs:
       - name: Generate checksums
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS
+
+      # SLSA build provenance for every file SHA256SUMS lists, the desktop
+      # downloads and the packaged chart: `gh attestation verify <file>
+      # --repo trois-six/oxidgene` ties a download to this workflow run and
+      # its commit. The images carry theirs in the registry (above).
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
 
       # The code signing policy must be named on the download page.
       - name: Create release
@@ -337,7 +350,7 @@ jobs:
           else
             windows="The Windows executable is not signed yet: SmartScreen may ask to confirm its first run."
           fi
-          NOTES="$windows The macOS application is not signed yet: allow its first opening as the [Quickstart]($quickstart) explains. Verify every download against \`SHA256SUMS\`."
+          NOTES="$windows The macOS application is not signed yet: allow its first opening as the [Quickstart]($quickstart) explains. Verify every download against \`SHA256SUMS\`, and its build provenance with \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`."
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag \
             --notes "$NOTES" \
