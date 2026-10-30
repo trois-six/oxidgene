@@ -2932,6 +2932,177 @@ impl From<oxidgene_db::repo::PersonUsageEntry> for GqlPersonUsageEntry {
     }
 }
 
+/// A year and its precision, as a line shows it alone: `ca 1849`, `< 1917`,
+/// `1691..1693`.
+#[derive(Debug, Clone, Copy, SimpleObject)]
+pub struct GqlQualifiedYear {
+    pub year: i32,
+    pub qualifier: GqlDateQualifier,
+    /// The far end of a `BETWEEN`/`OR` range, when known.
+    pub year2: Option<i32>,
+}
+
+impl From<oxidgene_core::types::QualifiedYear> for GqlQualifiedYear {
+    fn from(year: oxidgene_core::types::QualifiedYear) -> Self {
+        Self {
+            year: year.year,
+            qualifier: year.qualifier.into(),
+            year2: year.year2,
+        }
+    }
+}
+
+/// The descent of a family name: a page of its branches, or the folded
+/// descent of one of its bearers.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSurnameDescent {
+    /// The family name, exactly as the dictionary lists it.
+    pub value: String,
+    /// The persons carrying it on a name other than a married name.
+    pub bearer_count: i32,
+    /// Every branch of the name, whatever this answer holds.
+    pub branch_count: i32,
+    /// How many branches come before the first one of this answer.
+    pub offset: i32,
+    pub branches: Vec<GqlDescentBranch>,
+    /// The carriers of the name only as a married name shown beside no
+    /// bearer: in the first answer only.
+    pub by_marriage: Vec<GqlDescentPerson>,
+}
+
+/// One branch of a family name's descent.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDescentBranch {
+    /// Its rank among every branch of the name, from 1.
+    pub number: i32,
+    /// The root has a parent in the tree, who does not bear the name.
+    pub root_has_parents: bool,
+    /// The bearers the branch shows in full, its root included.
+    pub person_count: i32,
+    /// Its lines, the root's first at depth 0.
+    pub lines: Vec<GqlDescentLine>,
+}
+
+/// What a descent line shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlDescentLineKind {
+    /// A bearer, with their first union.
+    Person,
+    /// A bearer's next union, the bearer shown again.
+    Union,
+    /// The children of the union above who do not bear the name.
+    Others,
+    /// A bearer shown in full in another place.
+    Reference,
+    /// The folded descent of the bearer above.
+    More,
+}
+
+impl From<oxidgene_core::types::DescentLineKind> for GqlDescentLineKind {
+    fn from(kind: oxidgene_core::types::DescentLineKind) -> Self {
+        use oxidgene_core::types::DescentLineKind as Kind;
+        match kind {
+            Kind::Person => Self::Person,
+            Kind::Union => Self::Union,
+            Kind::Others => Self::Others,
+            Kind::Reference => Self::Reference,
+            Kind::More => Self::More,
+        }
+    }
+}
+
+/// One line of a descent branch.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDescentLine {
+    pub kind: GqlDescentLineKind,
+    /// Its indentation: the root's generation is 0.
+    pub depth: i32,
+    pub person: Option<GqlDescentPerson>,
+    pub marriage: Option<GqlQualifiedYear>,
+    pub spouse: Option<GqlDescentPerson>,
+    /// The children of an `OTHERS` line; the folded bearers of a `MORE` line.
+    pub count: i32,
+    /// The branch a `REFERENCE` line's bearer is shown in.
+    pub branch: Option<i32>,
+    /// The bearer whose descent a `MORE` line unfolds.
+    pub unfold_person_id: Option<ID>,
+}
+
+/// A person of a descent line.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDescentPerson {
+    pub person_id: ID,
+    pub sex: GqlSex,
+    pub given_names: Option<String>,
+    pub surname: Option<String>,
+    /// The birth's year, else the baptism's.
+    pub birth: Option<GqlQualifiedYear>,
+    /// The death's year, else the burial's.
+    pub death: Option<GqlQualifiedYear>,
+    /// A death or a burial is recorded, dated or not.
+    pub deceased: bool,
+    /// The SOSA root or one of its ancestors.
+    pub sosa_ancestor: bool,
+}
+
+fn gql_int(n: u32) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+impl From<oxidgene_core::types::SurnameDescent> for GqlSurnameDescent {
+    fn from(descent: oxidgene_core::types::SurnameDescent) -> Self {
+        Self {
+            value: descent.value,
+            bearer_count: gql_int(descent.bearer_count),
+            branch_count: gql_int(descent.branch_count),
+            offset: gql_int(descent.offset),
+            branches: descent.branches.into_iter().map(Into::into).collect(),
+            by_marriage: descent.by_marriage.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::DescentBranch> for GqlDescentBranch {
+    fn from(branch: oxidgene_core::types::DescentBranch) -> Self {
+        Self {
+            number: gql_int(branch.number),
+            root_has_parents: branch.root_has_parents,
+            person_count: gql_int(branch.person_count),
+            lines: branch.lines.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::DescentLine> for GqlDescentLine {
+    fn from(line: oxidgene_core::types::DescentLine) -> Self {
+        Self {
+            kind: line.kind.into(),
+            depth: gql_int(line.depth),
+            person: line.person.map(Into::into),
+            marriage: line.marriage.map(Into::into),
+            spouse: line.spouse.map(Into::into),
+            count: gql_int(line.count),
+            branch: line.branch.map(gql_int),
+            unfold_person_id: line.unfold_person_id.map(|id| ID(id.to_string())),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::DescentPerson> for GqlDescentPerson {
+    fn from(person: oxidgene_core::types::DescentPerson) -> Self {
+        Self {
+            person_id: ID(person.person_id.to_string()),
+            sex: person.sex.into(),
+            given_names: person.given_names,
+            surname: person.surname,
+            birth: person.birth.map(Into::into),
+            death: person.death.map(Into::into),
+            deceased: person.deceased,
+            sosa_ancestor: person.sosa_ancestor,
+        }
+    }
+}
+
 /// A source paired with the number of citations that use it.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlSourceDictionaryEntry {

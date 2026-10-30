@@ -39,6 +39,7 @@ pub(crate) mod session_media;
 pub mod source;
 pub mod statistics;
 pub mod suggestions;
+pub mod surname_descent;
 pub mod tag;
 pub mod tag_bulk;
 pub mod tree;

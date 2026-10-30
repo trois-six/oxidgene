@@ -73,6 +73,9 @@ pub fn plain_value(name: &str, schema: &Value) -> String {
         "lang" => "en".into(),
         "tag" => "fictitious".into(),
         "kind" => "person".into(),
+        // A family name of the fixture, so that a value's reads (its usage,
+        // its descent) run their queries rather than stop at no match.
+        "value" => "Ashdown".into(),
         _ => "1".into(),
     }
 }

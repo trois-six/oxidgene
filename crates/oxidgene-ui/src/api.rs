@@ -16,7 +16,8 @@ use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResu
 use oxidgene_core::types::{
     Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse,
     ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place, QualifiedYear,
-    RecordKind, Repository, Source, SourceRepository, SpouseAge, TagRef, Tree, Vignette,
+    RecordKind, Repository, Source, SourceRepository, SpouseAge, SurnameDescent, TagRef, Tree,
+    Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -626,6 +627,15 @@ impl PersonUsageEntry {
                 .map(|y| QualifiedYear::new(y, self.death_qualifier)),
         )
     }
+}
+
+/// Query of a family name's descent.
+#[derive(Debug, Serialize)]
+struct DescentQuery<'a> {
+    value: &'a str,
+    offset: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    person_id: Option<Uuid>,
 }
 
 /// Body of the dictionary's bulk particle edit.
@@ -4295,6 +4305,26 @@ impl ApiClient {
         self.get_with_query(
             &format!("/api/v1/trees/{tree_id}/dictionary/family-names/usage"),
             &[("value", value)],
+        )
+        .await
+    }
+
+    /// The descent of a family name: a page of its branches from `offset`, or
+    /// with `person_id` the folded descent of one of its bearers.
+    pub async fn dictionary_family_name_descent(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+        offset: u32,
+        person_id: Option<Uuid>,
+    ) -> Result<SurnameDescent, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/dictionary/family-names/descent"),
+            &DescentQuery {
+                value,
+                offset,
+                person_id,
+            },
         )
         .await
     }

@@ -30,6 +30,7 @@ use crate::components::tags::{
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
+use crate::pages::dictionary_descent::FamilyNameUnfolded;
 use crate::pages::dictionary_editors::{OccupationEditor, PlaceEditor};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::pages::dictionary_tags::DictionaryTags;
@@ -179,6 +180,13 @@ async fn load_sources_view(
     })
 }
 
+/// Whether the row `key` shows its list of persons: a family name shows its
+/// descent instead (§7.2), loaded apart, unless its alphabetical list is
+/// chosen.
+fn lists_usage(key: Option<&UsageKey>, alphabetical: bool) -> bool {
+    alphabetical || !matches!(key, Some(UsageKey::FamilyName(_)))
+}
+
 /// The persons behind a dictionary row; none when they cannot be read.
 async fn load_usage(api: &ApiClient, tid: Uuid, key: &UsageKey) -> Vec<PersonUsageEntry> {
     match key {
@@ -251,6 +259,9 @@ struct DictionaryView {
     page_size: PageSize,
     page: usize,
     expanded: Option<UsageKey>,
+    /// An unfolded family name shows its alphabetical list rather than its
+    /// descent.
+    alphabetical: bool,
     source_history: Vec<DrillStep>,
 }
 
@@ -263,6 +274,7 @@ impl Default for DictionaryView {
             page_size: PageSize::Fixed(DEFAULT_PER_PAGE),
             page: 1,
             expanded: None,
+            alphabetical: false,
             source_history: Vec::new(),
         }
     }
@@ -742,6 +754,7 @@ fn DictionaryPage(
     let page_size = use_signal(|| restored.page_size);
     let current_page = use_signal(|| restored.page);
     let expanded = use_signal(|| restored.expanded.clone());
+    let alphabetical = use_signal(|| restored.alphabetical);
     // Sources tab drill-down history: each entry is a branch label the user
     // clicked (see ui-dictionary.md §8.10). Empty = "All sources" root.
     let mut source_history = use_signal(|| restored.source_history.clone());
@@ -752,6 +765,7 @@ fn DictionaryPage(
         page_size: page_size(),
         page: current_page(),
         expanded: expanded(),
+        alphabetical: alphabetical(),
         source_history: source_history(),
     });
 
@@ -885,9 +899,10 @@ fn DictionaryPage(
         let api = api_usage.clone();
         let key = expanded();
         let tid = tree_id_parsed();
+        let listed = lists_usage(key.as_ref(), alphabetical());
         async move {
-            let (Some(key), Some(tid)) = (key.clone(), tid) else {
-                return (key, Vec::new());
+            let (Some(key), Some(tid), true) = (key.clone(), tid, listed) else {
+                return (None, Vec::new());
             };
             let people = load_usage(&api, tid, &key).await;
             (Some(key), people)
@@ -914,6 +929,7 @@ fn DictionaryPage(
             page: current_page,
         },
         expanded,
+        alphabetical,
         usage_people: usage_resource,
         record_menu,
     };
@@ -1598,6 +1614,8 @@ struct TabContext<'a> {
     tree_id: &'a str,
     filters: ListFilters,
     expanded: Signal<Option<UsageKey>>,
+    /// An unfolded family name shows its alphabetical list, not its descent.
+    alphabetical: Signal<bool>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
     /// The menu of the sources' and places' rows, rendered once by the page.
     record_menu: RecordMenu,
@@ -1766,6 +1784,20 @@ fn render_usage_accordion(
     expected_key: &UsageKey,
     people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
 ) -> Element {
+    rsx! {
+        div { class: "dict-accordion",
+            {render_usage_list(i18n, tree_id, expected_key, people)}
+        }
+    }
+}
+
+/// The persons of an unfolded row, as they arrive.
+fn render_usage_list(
+    i18n: I18n,
+    tree_id: &str,
+    expected_key: &UsageKey,
+    people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+) -> Element {
     let snapshot = people.read();
     // Ignore a resolved value fetched for a different (typically the
     // previously expanded) row — see the comment on `usage_resource`.
@@ -1775,21 +1807,15 @@ fn render_usage_accordion(
     };
     match current {
         Some(list) if !list.is_empty() => rsx! {
-            div { class: "dict-accordion",
-                for entry in list.iter() {
-                    {person_usage_link(i18n, tree_id, entry)}
-                }
+            for entry in list.iter() {
+                {person_usage_link(i18n, tree_id, entry)}
             }
         },
         Some(_) => rsx! {
-            div { class: "dict-accordion",
-                div { class: "dict-accordion-empty", {i18n.t("dictionary.usage_empty")} }
-            }
+            div { class: "dict-accordion-empty", {i18n.t("dictionary.usage_empty")} }
         },
         None => rsx! {
-            div { class: "dict-accordion",
-                div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
-            }
+            div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
         },
     }
 }
@@ -1871,6 +1897,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         tree_id,
         filters,
         mut expanded,
+        alphabetical,
         usage_people,
         ..
     } = ctx;
@@ -1880,6 +1907,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         page_size,
         page: current_page,
     } = filters;
+    let tree_uuid = tree_id.parse::<Uuid>().ok();
     let ValueTab {
         resource,
         empty_key,
@@ -1954,7 +1982,17 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
                                     },
                                 }
                                 if is_open {
-                                    {render_usage_accordion(i18n, tree_id, &key, usage_people)}
+                                    if let (true, Some(tree_uuid)) = (navigable, tree_uuid) {
+                                        FamilyNameUnfolded {
+                                            key: "{entry.value}",
+                                            tree_id: tree_uuid,
+                                            value: entry.value.clone(),
+                                            alphabetical,
+                                            usage: render_usage_list(i18n, tree_id, &key, usage_people),
+                                        }
+                                    } else {
+                                        {render_usage_accordion(i18n, tree_id, &key, usage_people)}
+                                    }
                                 }
                             }
                         }
@@ -2134,6 +2172,7 @@ fn render_sources_list(ctx: TabContext, sources: &[SourceDictionaryEntry]) -> El
         mut expanded,
         usage_people,
         record_menu,
+        ..
     } = ctx;
     let mut quick_filter = filters.quick;
     let quick = quick_filter();

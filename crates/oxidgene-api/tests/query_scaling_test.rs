@@ -86,6 +86,7 @@ fn cases() -> Vec<Case> {
         get("/api/v1/trees/{tree}/places"),
         get("/api/v1/trees/{tree}/sources"),
         get("/api/v1/trees/{tree}/dictionary/family-names"),
+        get("/api/v1/trees/{tree}/dictionary/family-names/descent?value=Ashdown"),
         get("/api/v1/trees/{tree}/dictionary/occupations"),
         get("/api/v1/trees/{tree}/dictionary/places"),
         get("/api/v1/trees/{tree}/dictionary/sources"),

@@ -4830,6 +4830,126 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: var(--space-2) 0;
     }
 
+    /* The descent of an unfolded family name (ui-dictionary.md §7.2): the
+       switch to the alphabetical list, then numbered branches whose lines
+       step in by generation. */
+    .dict-descent-views {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-4);
+        margin-bottom: var(--space-4);
+        color: var(--text-muted);
+        font-size: var(--text-85);
+    }
+
+    .dict-tabs.dict-descent-tabs {
+        margin-bottom: 0;
+        border-bottom: none;
+    }
+
+    .dict-descent-tabs .dict-tab {
+        padding: var(--space-2) var(--space-4);
+        font-size: var(--text-85);
+    }
+
+    .dict-descent-branches {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .dict-descent-branch {
+        display: flex;
+        align-items: baseline;
+        gap: var(--space-4);
+        padding: var(--space-3) 0;
+        border-top: 1px solid var(--border);
+    }
+
+    .dict-descent-branch:first-child { border-top: none; }
+
+    .dict-descent-number {
+        flex: none;
+        min-width: 2.5em;
+        color: var(--text-muted);
+        font-size: var(--text-80);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .dict-descent-lines {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .dict-descent-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--space-2) var(--space-4);
+        padding: var(--space-1) 0;
+        padding-inline-start: calc(var(--depth, 0) * var(--space-9));
+        font-size: var(--text-85);
+        color: var(--text-primary);
+    }
+
+    .dict-descent-line.is-repeat { font-style: italic; }
+    .dict-descent-line.is-aside { color: var(--text-muted); }
+
+    a.dict-descent-name {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    a.dict-descent-name:hover,
+    a.dict-descent-up:hover {
+        color: var(--orange);
+    }
+
+    a.dict-descent-up {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .dict-descent-union {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--space-2) var(--space-4);
+    }
+
+    .dict-descent-note {
+        color: var(--text-muted);
+        font-size: var(--text-80);
+    }
+
+    .dict-descent-more {
+        background: none;
+        border: none;
+        padding: var(--space-1) 0;
+        font: inherit;
+        font-size: var(--text-80);
+        color: var(--orange);
+        cursor: pointer;
+    }
+
+    .dict-descent-more:hover:not(:disabled) { text-decoration: underline; }
+    .dict-descent-more:disabled { color: var(--text-muted); cursor: default; }
+
+    .dict-descent-apart {
+        margin-top: var(--space-6);
+        padding-top: var(--space-4);
+        border-top: 1px solid var(--border);
+    }
+
+    .dict-descent-apart h4 {
+        margin-bottom: var(--space-2);
+        color: var(--text-muted);
+        font-size: var(--text-80);
+        font-weight: 600;
+    }
+
     /* ── Import overlay (blocking spinner) ───────────────────────── */
 
     .import-overlay {

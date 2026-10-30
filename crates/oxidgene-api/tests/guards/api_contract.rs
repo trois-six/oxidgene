@@ -181,6 +181,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Query.dictionaryFamilyNames"]),
     ),
     (
+        "GET",
+        "/api/v1/trees/{tree_id}/dictionary/family-names/descent",
+        Gql(&["Query.familyNameDescent"]),
+    ),
+    (
         "PATCH",
         "/api/v1/trees/{tree_id}/dictionary/family-names/particle",
         Gql(&["Mutation.setFamilyNameParticle"]),

@@ -16,6 +16,7 @@ mod dictionary_bulk_test;
 mod dictionary_exact_title_test;
 mod entry_lookup_test;
 mod export_scope_test;
+mod family_name_descent_test;
 mod family_name_test;
 mod gedcom_place_test;
 mod gedcom_tag_test;

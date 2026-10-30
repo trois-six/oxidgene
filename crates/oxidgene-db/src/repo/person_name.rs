@@ -223,7 +223,7 @@ impl PersonNameRepo {
     }
 }
 
-fn into_domain(m: person_name::Model) -> PersonName {
+pub(crate) fn into_domain(m: person_name::Model) -> PersonName {
     PersonName {
         id: m.id,
         person_id: m.person_id,

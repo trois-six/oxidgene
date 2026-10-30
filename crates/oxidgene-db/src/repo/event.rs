@@ -287,7 +287,7 @@ impl EventRepo {
     }
 }
 
-fn into_domain(m: event::Model) -> Event {
+pub(crate) fn into_domain(m: event::Model) -> Event {
     Event {
         id: m.id,
         tree_id: m.tree_id,

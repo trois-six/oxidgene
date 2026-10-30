@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-30T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -29,7 +29,7 @@ generated: { by: human:maintainer, at: 2026-10-30T09:00:00Z }
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
 | C | Tree browsing and editing, kinship, alternative charts | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
 | D | Shared UX, themes, languages, runtime settings, printing | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [App Settings](ui-app-settings.md), [Settings](ui-settings.md) |
-| E | Read projections, search, dictionary | Complete except dictionary descent (§7) | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
+| E | Read projections, search, dictionary | Complete | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Durable import and export jobs delivered; the rest post-MVP (§12) | [Architecture](architecture.md), [API](api.md) |
@@ -245,13 +245,17 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [x] Use the published `oxidged` and `geneweb` releases instead of their git
   main branches.
 
-## 7. Planned: dictionary descent
+## 7. Dictionary descent
 
-- [ ] Define descent grouping, including incomplete parentage and children who
+The descent of a family name, by branches, unfolds in the Dictionary's
+family-names tab beside its alphabetical list ([Dictionary
+§7.2](ui-dictionary.md)).
+
+- [x] Define descent grouping, including incomplete parentage and children who
   do not carry the surname.
-- [ ] Add symmetric REST and GraphQL operations.
-- [ ] Add the recursive view to the existing Dictionary page and specification.
-- [ ] Cover SOSA badges, limits, empty states, and large surname groups.
+- [x] Add symmetric REST and GraphQL operations.
+- [x] Add the recursive view to the existing Dictionary page and specification.
+- [x] Cover SOSA badges, limits, empty states, and large surname groups.
 
 ## 7b. Subtree export
 

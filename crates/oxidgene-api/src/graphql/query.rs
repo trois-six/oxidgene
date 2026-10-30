@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::service::person::Lineage;
 use crate::service::repository;
 use crate::service::scope::{TreeResource, require_tree_resource};
+use crate::service::surname_descent::{self, DescentRequest};
 use crate::service::tag_bulk;
 
 use oxidgene_db::repo::{
@@ -46,7 +47,7 @@ use super::types::{
     GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
     GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult, GqlSource,
     GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTag, GqlTagTargetCounts,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlSurnameDescent, GqlTag, GqlTagTargetCounts,
     GqlTaggedRecordConnection, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion,
     GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, reader_from_ctx,
     require_local_file_access,
@@ -1083,6 +1084,35 @@ impl QueryRoot {
                 .into_iter()
                 .map(Into::into)
                 .collect())
+        })
+        .await
+    }
+
+    /// The descent of a family name: a page of its branches from `offset`, or
+    /// the folded descent of its bearer `person_id`.
+    async fn family_name_descent(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        value: String,
+        offset: Option<u32>,
+        person_id: Option<ID>,
+    ) -> Result<GqlSurnameDescent> {
+        boxed(async move {
+            let request = DescentRequest {
+                value,
+                offset,
+                person_id: opt_uuid(person_id)?,
+            };
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let descent = surname_descent::descent(
+                reader_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                request,
+            )
+            .await?;
+            Ok(descent.into())
         })
         .await
     }

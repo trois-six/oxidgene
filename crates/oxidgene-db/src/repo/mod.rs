@@ -10,6 +10,7 @@ mod background_job;
 pub(crate) mod batch;
 mod citation;
 mod connection;
+mod descent;
 mod dictionary;
 mod event;
 mod event_spouse_age;
@@ -50,6 +51,7 @@ pub use connection::{
     Connections, ErasingTransaction, connect, connect_read_pool, erase_deleted_content,
     refresh_statistics, rollback_migrations, run_migrations,
 };
+pub use descent::DescentRows;
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
     OccupationRename, PersonUsageEntry, SOURCE_DRILL_THRESHOLD,

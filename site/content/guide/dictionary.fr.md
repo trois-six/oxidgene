@@ -14,7 +14,7 @@ Les onglets en haut de la page sont **Noms de famille**, **Sources**, **Dépôts
 
 Si vous revenez au dictionnaire avec le bouton retour, il se rouvre exactement comme vous l'avez laissé : même onglet, même filtre, même lettre, même page et même ligne dépliée.
 
-{{ <screenshot name="dictionary" alt="Onglet Noms de famille du dictionnaire, filtré sur LANDREVEL, avec la liste des personnes qui portent ce nom" lang={lang} /> }}
+{{ <screenshot name="dictionary" alt="Onglet Noms de famille du dictionnaire, filtré sur LANDREVEL, avec la descendance de ce nom dépliée en dessous" lang={lang} /> }}
 
 ## Parcourir et filtrer une liste
 
@@ -33,9 +33,31 @@ Quand rien ne correspond, **Effacer le filtre** fait revenir toute la liste.
 
 Chaque ligne est un nom de famille exactement tel qu'il est écrit, avec le nombre de personnes qui le portent, que ce soit leur nom principal ou un autre nom (alias, nom d'épouse). La liste ne regroupe pas les graphies : « Martin » et « MARTIN » font deux lignes, tout comme « Cruz » et « de la Cruz ». C'est voulu, pour que vous voyiez les variantes ; le renommage (ci-dessous) permet de les unifier.
 
-Dépliez un nom de famille pour lister les personnes qui le portent ; cliquez sur une personne pour l'ouvrir dans l'arbre.
+Dépliez un nom de famille pour voir sa descendance, décrite ci-dessous. **Ordre alphabétique**, en haut de la ligne dépliée, liste à la place les personnes qui le portent ; cliquez sur une personne pour l'ouvrir dans l'arbre.
 
 Le classement d'un nom à particule comme « de la » ou « d' » dépend de l'option **Tri des patronymes** des [paramètres de l'application](@/guide/settings.fr.md). Avec **Particule incluse**, « de la Cruz » est classé à la lettre D. Avec **Particule ignorée**, il est classé à la lettre C et s'affiche « Cruz (de la) », pour que le groupe C se lise par le mot sur lequel il est trié.
+
+## Descendance d'un nom de famille
+
+Un nom de famille déplié montre sa descendance, comme un généalogiste lit les lignées d'un patronyme : les personnes qui portent le nom, regroupées en **branches** numérotées. **Afficher par : Branches | Ordre alphabétique**, en haut, bascule entre la descendance et la simple liste des personnes ; votre choix vaut pour tous les noms que vous dépliez jusqu'à ce que vous quittiez la page.
+
+Chaque branche part d'une personne qui porte le nom et dont les parents ne le portent pas : ses parents sont inconnus, ou portent un autre nom. Quand cette personne a des parents dans l'arbre, un **«** devant son nom ouvre l'arbre sur elle, ses parents au-dessus. Les branches sont rangées selon la date la plus ancienne connue de la personne qui les commence.
+
+Sous chaque personne, en retrait d'un cran par génération :
+
+- chacune de ses unions, la première sur sa propre ligne : **&**, l'année du mariage et le conjoint. Une personne mariée plusieurs fois réapparaît, en italique, pour chaque union suivante ;
+- sous chaque union, les enfants qui portent le nom, par date de naissance, puis leurs propres unions et enfants, et ainsi de suite ;
+- les enfants qui ne portent pas le nom, comme les enfants d'une fille qui portent celui de leur père, sont résumés sur une ligne **…**, et leur descendance n'est pas suivie.
+
+Chaque nom ouvre la page de la personne. Les années sont celles de la naissance (ou du baptême) et du décès (ou de l'inhumation), avec leur précision (« ca 1620 ») ; une **†** signale un décès connu sans son année. Un anneau devant un nom marque la personne racine de l'arbre (son sosa 1) et ses ancêtres directs, comme sur les pages des personnes.
+
+Quelques règles pour lire le résultat :
+
+- **Les noms d'épouse ne comptent pas.** Une femme qui a pris le nom par mariage est montrée à côté de son mari, pas dans une branche à elle. Les personnes qui ne portent le nom que par mariage et dont le conjoint n'est pas affiché sont listées à la fin, sous **Portent le nom par mariage seulement**.
+- **Un parent suffit.** Un enfant est placé sous celui de ses parents qui porte le nom, même quand l'autre parent est inconnu.
+- **Personne n'apparaît deux fois.** Une personne atteinte par deux chemins (ses deux parents portent le nom, par exemple) est montrée en entier une fois ; l'autre endroit indique « voir la branche n ».
+
+Un nom très répandu peut compter des milliers de porteurs. Le dictionnaire montre alors les 50 premières branches, avec **Afficher plus de branches** en dessous, et déplie les générations jusqu'à ce que la liste soit assez longue : là où il s'arrête, **Afficher N descendants de plus** sous une personne déplie le reste de sa descendance sur place.
 
 ## Renommer ou fusionner un nom de famille
 

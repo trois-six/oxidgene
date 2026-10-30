@@ -766,6 +766,15 @@ pub struct DictionaryUsageQuery {
     pub value: String,
 }
 
+/// Query parameters of a family name's descent: a page of its branches from
+/// `offset`, or the folded descent of the bearer `person_id`.
+#[derive(Debug, Deserialize)]
+pub struct FamilyNameDescentQuery {
+    pub value: String,
+    pub offset: Option<u32>,
+    pub person_id: Option<uuid::Uuid>,
+}
+
 /// Query parameters for reference-content lookups (occupation sheets,
 /// given-name meanings): the raw free-text GEDCOM value to resolve.
 #[derive(Debug, Deserialize)]

@@ -120,7 +120,7 @@ impl FamilyChildRepo {
     }
 }
 
-fn into_domain(m: family_child::Model) -> FamilyChild {
+pub(crate) fn into_domain(m: family_child::Model) -> FamilyChild {
     FamilyChild {
         id: m.id,
         family_id: m.family_id,

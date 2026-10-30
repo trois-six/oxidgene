@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
 ---
 
 
@@ -832,6 +832,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 |---|---|---|
 | `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts. One entry per full surname (particle + root) as spelled, case included; `primary_count` is how many of the `count` persons carry it as their primary name |
 | `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname. `value` is matched exactly against the full surname as listed, particle included, however its rows are cut between particle and root |
+| `GET` | `/trees/{tree_id}/dictionary/family-names/descent?value=...&offset=...&person_id=...` | The descent of a family name: its bearers grouped into branches, a page of 50 branches from `offset` (default 0), or with `person_id` the folded descent of that bearer — see below. GraphQL: `familyNameDescent(treeId, value, offset, personId)` |
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/particle` | Bulk-edit — body `{ "value": "...", "particle": "..." }` re-cuts every `PersonName` carrying surname `value` at `particle` (empty = no particle). `particle` must already be at the head of `value`; rows already cut that way are skipped. Triggers a full projection rebuild when anything changed |
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/rename` | Bulk rename — see below |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
@@ -845,6 +846,50 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 
 The family-names entry is `{ value, sort_key, count, primary_count }`;
 `primary_count` is absent from the other dictionaries.
+
+`GET /trees/{tree_id}/dictionary/family-names/descent` answers the descent of
+the family name `value`, matched like the usage list's, under the grouping
+rules of [Dictionary §7.2](ui-dictionary.md#72-descent-of-a-family-name): a
+bearer carries the name on a name other than a married name, a root is a
+bearer none of whose parents bears it, and each bearer is shown in full once.
+The answer is `{ value, bearer_count, branch_count, offset, branches,
+by_marriage }`:
+
+- `branches` holds at most `DESCENT_BRANCH_PAGE` (50) branches from `offset`,
+  each `{ number, root_has_parents, person_count, lines }` — its rank from 1
+  among all `branch_count` branches, whether the root has a parent in the
+  tree none of whom bears the name, the bearers it shows in full.
+- `lines` is the branch written out in reading order, flat rather than
+  nested so both surfaces carry it the same way: each line is `{ kind,
+  depth, person, marriage, spouse, count, branch, unfold_person_id }`.
+  `kind` is `person` (a bearer, with their first union's `marriage` and
+  `spouse`), `union` (a later union of the bearer above, repeated with its
+  own marriage and spouse; that union's children follow), `others` (`count`
+  children of the union above who do not bear the name), `reference` (a
+  bearer shown in full in the branch `branch`) or `more` (`count` bearers of
+  the descent of the bearer above, folded: asking again with
+  `person_id=unfold_person_id` answers one branch made of that bearer's
+  descent, `depth` 0 at that bearer).
+- A person is `{ person_id, sex, given_names, surname, birth, death,
+  deceased, sosa_ancestor }`, `birth` and `death` each `{ year, qualifier,
+  year2 }` or `null` — the birth falling back to the baptism and the death to
+  the burial — `deceased` whether a death or burial is recorded at all, and
+  `sosa_ancestor` whether the person is the tree's SOSA root or one of its
+  ancestors. `marriage` is a year of the same shape.
+- An answer unfolds its branches generation by generation, all together,
+  until `DESCENT_LINE_BUDGET` (400) lines; what is left is folded behind
+  `more` lines. An answer for `person_id` always unfolds that bearer's own
+  unions.
+- `by_marriage` lists the carriers of the name by a married name alone whom
+  no union line shows as a spouse, in the first page only (`offset` 0, no
+  `person_id`).
+
+A blank `value` is refused with `400` (`VALIDATION_ERROR`), and a `person_id`
+that is not a bearer of the name with `404` (`NOT_FOUND`). The rows are read
+in nine grouped queries — the carriers' names, their families as spouse and
+as child, those families' spouses and children, the persons' sexes, names and
+dates, the unions' marriages — plus the SOSA lookup, however many bearers the
+name has; the forest is built in memory.
 
 `PATCH /trees/{tree_id}/dictionary/family-names/rename` gives every person
 whose **primary** name carries surname `value` the surname `new_value`. Body
@@ -1545,6 +1590,10 @@ Every other list is one of these documented exceptions:
   spouses and children, an event's witnesses, a source's repositories and a
   repository's sources, a medium's pages, vignettes and links, an entity's
   media — are returned whole.
+- **The descent of a family name** (`/dictionary/family-names/descent`,
+  `familyNameDescent`) pages its branches by `offset`, 50 at a time, and
+  folds what passes its 400-line budget behind lines that ask for one
+  bearer's descent ([Dictionary](#dictionary)).
 - **Limited lists** — the persons recently modified, value and place
   suggestions, the reference bundles — return at most their documented limit.
 - **Whole lists** — answered whole, on both surfaces, because their client

@@ -3,6 +3,7 @@
 pub mod app_settings;
 pub mod couple_detail;
 pub mod dictionary;
+pub mod dictionary_descent;
 pub mod dictionary_editors;
 pub mod dictionary_media;
 pub mod dictionary_repositories;

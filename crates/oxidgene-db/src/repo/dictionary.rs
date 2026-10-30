@@ -1126,14 +1126,14 @@ fn full_surname(prefix: Option<&str>, surname: Option<&str>) -> Option<(String, 
 }
 
 /// Whether a name row belongs to the dictionary entry spelled `value`.
-fn is_spelled(n: &person_name::Model, value: &str) -> bool {
+pub(super) fn is_spelled(n: &person_name::Model, value: &str) -> bool {
     full_surname(n.surname_prefix.as_deref(), n.surname.as_deref())
         .is_some_and(|(full, _)| full == value)
 }
 
 /// Every root a row listed as `value` can store: the whole value, or what
 /// follows a space or an apostrophe — where a particle can end.
-fn root_candidates(value: &str) -> Vec<String> {
+pub(super) fn root_candidates(value: &str) -> Vec<String> {
     let mut roots = vec![value.to_string()];
     for (at, c) in value.char_indices() {
         if c.is_whitespace() || c == '\'' || c == '\u{2019}' {

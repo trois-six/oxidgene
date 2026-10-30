@@ -189,3 +189,39 @@ test("each tab and each record has an address of its own", async ({ page, reques
         await expect(opened).toContainText("▲");
     }
 });
+
+test("a family name unfolds on its descent by branches, or on its persons in alphabetical order", async ({ page, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/dictionary`);
+    // The row is the control: Enter on it unfolds it.
+    await page.locator(".dict-row").filter({ hasText: "Ashdown" }).first().press("Enter");
+
+    const views = page.locator(".dict-descent-views");
+    await expect(views.getByRole("tab", { name: "Branches (1)", exact: true })).toHaveAttribute("aria-selected", "true");
+    const branches = page.locator(".dict-descent-branch");
+    await expect(branches).toHaveCount(1);
+    const lines = branches.locator(".dict-descent-line");
+    // The oldest bearer, his son, and his son's three children by birth then record order.
+    await expect(lines).toHaveCount(5);
+    await expect(lines.nth(0)).toContainText("Dorian ASHDOWN");
+    await expect(lines.nth(0)).toContainText("1840-1900");
+    await expect(lines.nth(0)).toContainText("&1851");
+    await expect(lines.nth(0)).toContainText("Alice COLDWELL");
+    await expect(lines.nth(1)).toContainText("Bernard ASHDOWN");
+    await expect(lines.nth(2)).toContainText("Anchor ASHDOWN");
+    await expect(lines.nth(3)).toContainText("Delia ASHDOWN");
+    await expect(lines.nth(4)).toContainText("Arthur ASHDOWN");
+    // The SOSA root and his ancestors are marked, his wife and sister are not.
+    await expect(lines.nth(0).locator(".pd-sosa-mark")).toHaveCount(2);
+    await expect(lines.nth(2).locator(".pd-sosa-mark")).toHaveCount(1);
+    await expect(lines.nth(3).locator(".pd-sosa-mark")).toHaveCount(0);
+
+    // The alphabetical list is the other view of the same row.
+    await views.getByRole("tab", { name: "Alphabetical order", exact: true }).click();
+    await expect(page.locator("a.dict-accordion-item")).toHaveCount(5);
+    await expect(branches).toHaveCount(0);
+    await views.getByRole("tab", { name: "Branches (1)", exact: true }).click();
+
+    // Each name opens the person's page.
+    await lines.nth(3).getByRole("link", { name: "Delia ASHDOWN", exact: true }).click();
+    await expect(page).toHaveURL(/\/persons\//);
+});

@@ -1271,17 +1271,35 @@ fn sex_glyph(sex: Sex) -> &'static str {
     }
 }
 
+/// The sex glyph before a person's name, coloured by sex. Shared by the
+/// family narrative and the Dictionary's descent lines.
+pub(crate) fn sex_mark(sex: Sex) -> Element {
+    let class = match sex {
+        Sex::Male => "pd-sex-glyph male",
+        Sex::Female => "pd-sex-glyph female",
+        Sex::Unknown => "pd-sex-glyph",
+    };
+    rsx! {
+        span { class, "{sex_glyph(sex)}" }
+    }
+}
+
+/// The ring marking the SOSA root and their ancestors before a name.
+pub(crate) fn sosa_ring() -> Element {
+    rsx! {
+        svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
+            circle { cx: "5", cy: "5", r: "5", fill: "var(--pn-sosa)" }
+            circle { cx: "5", cy: "5", r: "3", fill: "var(--white)" }
+            circle { cx: "5", cy: "5", r: "1.8", fill: "var(--pn-sosa)" }
+        }
+    }
+}
+
 /// Renders "[SOSA mark] [sex glyph] Name [years]", linked to the person's own
 /// page — used throughout the family narrative.
 pub(crate) fn person_chip(ctx: &SectionContext, profile: &Profile, pid: Uuid) -> Element {
     let name = profile.name_of(pid, &ctx.i18n);
     let sex = profile.sexes.get(&pid).copied().unwrap_or(Sex::Unknown);
-    let sex_glyph = sex_glyph(sex);
-    let sex_class = match sex {
-        Sex::Male => "pd-sex-glyph male",
-        Sex::Female => "pd-sex-glyph female",
-        Sex::Unknown => "pd-sex-glyph",
-    };
     let lifespan = profile.lifespans.get(&pid).cloned().unwrap_or_default();
     let is_sosa = ctx.sosa_ancestors.contains(&pid);
     let tree_id = ctx.tree_id.to_string();
@@ -1289,13 +1307,9 @@ pub(crate) fn person_chip(ctx: &SectionContext, profile: &Profile, pid: Uuid) ->
         span { class: "pd-person-chip",
             span { class: "pd-person-identity",
                 if is_sosa {
-                    svg { class: "pd-sosa-mark", "viewBox": "0 0 10 10", width: "10", height: "10",
-                        circle { cx: "5", cy: "5", r: "5", fill: "var(--pn-sosa)" }
-                        circle { cx: "5", cy: "5", r: "3", fill: "var(--white)" }
-                        circle { cx: "5", cy: "5", r: "1.8", fill: "var(--pn-sosa)" }
-                    }
+                    {sosa_ring()}
                 }
-                span { class: sex_class, "{sex_glyph}" }
+                {sex_mark(sex)}
                 Link {
                     to: Route::PersonDetail { tree_id, person_id: pid.to_string() },
                     class: "pd-person-link",

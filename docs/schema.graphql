@@ -853,6 +853,106 @@ enum GqlDateQualifier {
 }
 
 """
+One branch of a family name's descent.
+"""
+type GqlDescentBranch {
+	"""
+	Its rank among every branch of the name, from 1.
+	"""
+	number: Int!
+	"""
+	The root has a parent in the tree, who does not bear the name.
+	"""
+	rootHasParents: Boolean!
+	"""
+	The bearers the branch shows in full, its root included.
+	"""
+	personCount: Int!
+	"""
+	Its lines, the root's first at depth 0.
+	"""
+	lines: [GqlDescentLine!]!
+}
+
+"""
+One line of a descent branch.
+"""
+type GqlDescentLine {
+	kind: GqlDescentLineKind!
+	"""
+	Its indentation: the root's generation is 0.
+	"""
+	depth: Int!
+	person: GqlDescentPerson
+	marriage: GqlQualifiedYear
+	spouse: GqlDescentPerson
+	"""
+	The children of an `OTHERS` line; the folded bearers of a `MORE` line.
+	"""
+	count: Int!
+	"""
+	The branch a `REFERENCE` line's bearer is shown in.
+	"""
+	branch: Int
+	"""
+	The bearer whose descent a `MORE` line unfolds.
+	"""
+	unfoldPersonId: ID
+}
+
+"""
+What a descent line shows.
+"""
+enum GqlDescentLineKind {
+	"""
+	A bearer, with their first union.
+	"""
+	PERSON
+	"""
+	A bearer's next union, the bearer shown again.
+	"""
+	UNION
+	"""
+	The children of the union above who do not bear the name.
+	"""
+	OTHERS
+	"""
+	A bearer shown in full in another place.
+	"""
+	REFERENCE
+	"""
+	The folded descent of the bearer above.
+	"""
+	MORE
+}
+
+"""
+A person of a descent line.
+"""
+type GqlDescentPerson {
+	personId: ID!
+	sex: GqlSex!
+	givenNames: String
+	surname: String
+	"""
+	The birth's year, else the baptism's.
+	"""
+	birth: GqlQualifiedYear
+	"""
+	The death's year, else the burial's.
+	"""
+	death: GqlQualifiedYear
+	"""
+	A death or a burial is recorded, dated or not.
+	"""
+	deceased: Boolean!
+	"""
+	The SOSA root or one of its ancestors.
+	"""
+	sosaAncestor: Boolean!
+}
+
+"""
 What writing a GEDCOM file for its destination lost: REST's `report`.
 """
 type GqlDestinationReport {
@@ -2498,6 +2598,19 @@ type GqlProfileRebuildResult {
 }
 
 """
+A year and its precision, as a line shows it alone: `ca 1849`, `< 1917`,
+`1691..1693`.
+"""
+type GqlQualifiedYear {
+	year: Int!
+	qualifier: GqlDateQualifier!
+	"""
+	The far end of a `BETWEEN`/`OR` range, when known.
+	"""
+	year2: Int
+}
+
+"""
 The kinds of record a tag can be put on.
 """
 enum GqlRecordKind {
@@ -2905,6 +3018,35 @@ enum GqlSuggestionField {
 	The tree's place names.
 	"""
 	PLACES
+}
+
+"""
+The descent of a family name: a page of its branches, or the folded
+descent of one of its bearers.
+"""
+type GqlSurnameDescent {
+	"""
+	The family name, exactly as the dictionary lists it.
+	"""
+	value: String!
+	"""
+	The persons carrying it on a name other than a married name.
+	"""
+	bearerCount: Int!
+	"""
+	Every branch of the name, whatever this answer holds.
+	"""
+	branchCount: Int!
+	"""
+	How many branches come before the first one of this answer.
+	"""
+	offset: Int!
+	branches: [GqlDescentBranch!]!
+	"""
+	The carriers of the name only as a married name shown beside no
+	bearer: in the first answer only.
+	"""
+	byMarriage: [GqlDescentPerson!]!
 }
 
 """
@@ -4040,6 +4182,11 @@ type QueryRoot {
 	People who carry one family name.
 	"""
 	familyNameUsage(treeId: ID!, value: String!): [GqlPersonUsageEntry!]!
+	"""
+	The descent of a family name: a page of its branches from `offset`, or
+	the folded descent of its bearer `person_id`.
+	"""
+	familyNameDescent(treeId: ID!, value: String!, offset: Int, personId: ID): GqlSurnameDescent!
 	"""
 	People whose occupation exactly matches one dictionary value.
 	"""

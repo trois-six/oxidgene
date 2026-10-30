@@ -141,7 +141,7 @@ impl FamilySpouseRepo {
     }
 }
 
-fn into_domain(m: family_spouse::Model) -> FamilySpouse {
+pub(crate) fn into_domain(m: family_spouse::Model) -> FamilySpouse {
     FamilySpouse {
         id: m.id,
         family_id: m.family_id,

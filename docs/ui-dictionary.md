@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk editors: family names (rename, merge, particle), occupations (rename, merge), places and repositories (edit, merge field by field)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T18:00:00Z }
 ---
 
 
@@ -136,7 +136,7 @@ Grouped by the first letter each surname files under (see below), with a sticky 
 - The surname exactly as spelled. A row is one full surname — particle and root joined — compared character for character, so "Cruz" and "de la Cruz" are two rows, and so are "Martin" and "MARTIN". The list does not fold spellings together; the [family-name editor](#71-family-name-editor)'s rename is how the user unifies them.
 - Usage count badge: number of persons carrying that surname on any `PersonName`, primary or not
 - A ⋮ trigger at its trailing edge, whose menu holds **Edit**, which opens the [family-name editor](#71-family-name-editor). A right click on the row, the context-menu key, Shift+F10 and a long press open the same menu
-- A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. The list matches the same full surname as the row, however each name is cut between particle and root, so a name whose particle was corrected by hand is listed like any other. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
+- A chevron — clicking the row expands it inline, on the surname's [descent](#72-descent-of-a-family-name), its bearers grouped into branches. A switch above it turns to the **alphabetical** list instead: the persons carrying that surname in a smaller nested list. The list matches the same full surname as the row, however each name is cut between particle and root, so a name whose particle was corrected by hand is listed like any other. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
 
 Which letter a surname files under depends on the viewer's "sort particles" preference. With particles included, "d'Aubigné" files under D and reads as written. With particles ignored it files under A, and the row then reads **root first, particle parenthesised** — `Aubigné (d')` — so the A group is scannable by the word it was actually sorted on. The boundary is taken from the entry's `sort_key` (the root the backend filed it under), never re-detected client-side, so a particle the user corrected by hand still displays where they put it. When the rows of one surname are cut in more than one way, the entry files under the cut most of them have.
 
@@ -163,6 +163,111 @@ Rules, all enforced server-side rather than only in the dialog:
 - **A re-cut never changes the displayed surname**, only the boundary inside it, and rows already cut the requested way are skipped, so re-applying the same cut is a no-op rather than a pointless `updated_at` bump. Because a surname reaches every projection that embeds a display name, a re-cut triggers a full projection rebuild for the tree.
 - **A rename matches exactly** — case and particle included — and stores the new name as sent; the capitals come from the Name field, as on the person form. A blank name is rejected, and renaming a name to itself changes nothing. The renamed persons' projections and search rows, and those of their spouses, children and parents, whose family links and relative filters show the name, are refreshed in the rename's own transaction.
 - **Undo is per person.** A rename is recorded as one `family_name` entry in the audit log, reading "X · N persons · renamed to Y", and gives each renamed person a new version; there is no bulk undo, and a person is put back through their own [history](ui-person-history.md).
+
+### 7.2 Descent of a Family Name
+
+An unfolded family-name row opens on the name's descent: its bearers grouped
+into branches, each branch a bearer whose parents do not bear the name and
+the bearers descending from them, as a genealogist reads a surname's
+lineages. It is computed by the server per request
+(`GET /trees/{id}/dictionary/family-names/descent`, [API Contract](api.md#dictionary));
+nothing is stored.
+
+```
+ Display by:  [Branches (2)]  Alphabetical order
+ 1.  ◎ ♂ Arthur ASHDOWN 1800-  &1822 Clara BIRCHLEY
+       ♀ Delia ASHDOWN 1825-  & Cyril COLDWELL
+           …
+       ◎ ♂ Bernard ASHDOWN 1830-  &1855 Beatrice DUNMORE
+           ◎ ♂ Dorian ASHDOWN ca 1860-†
+ 2.  « ♂ Cyril ASHDOWN
+```
+
+**Switch.** Above the descent, *Display by:* and the shared tab bar
+([Common UI §4.14](ui-common.md#414-tabs)) with two tabs: **Branches (N)**,
+the default, N the number of branches once the descent has arrived, and
+**Alphabetical order**, the list of persons of §7. The choice holds for every
+family name unfolded while the page stays open, and the page's history entry
+reopens it. Each view is asked for the first time it shows.
+
+**Who carries the name.** A person *bears* the name when one of their
+`PersonName` rows, of any type but a married name, is spelled exactly as the
+row — the same full-surname match as the row's count, particle and case
+included. A married name never starts or continues a branch: its carrier
+shows as the spouse of the bearer they married. The carriers by marriage
+alone whom no union line shows (a widow whose husband is not in the tree) are
+listed after the branches under *Carrying the name by marriage only*, so that
+every person the row counts can be reached. A bearer is shown with the row of
+the name that matches (the primary one first, then any but a married name,
+then in order), their given names taken from the primary name when that row
+has none; a spouse with their primary name.
+
+**Branches.** A *root* is a bearer none of whose parents bears the name:
+their parents are unknown, or bear another name. A root with a parent in the
+tree has a `«` link before the name, *Parents of X*, which opens the
+[Genealogy Tree](ui-genealogy-tree.md) on the root, their ancestors above
+them. Branches are numbered and ordered by the root's earliest known date — a
+birth or baptism, a death or burial, or a marriage — undated roots last, then
+by given names.
+
+**Under a bearer.** Each union of the bearer, by marriage date, undated
+unions last, then in the bearer's own family order; under each union, its
+children who bear the name, by birth date (the baptism's when the birth has
+no date), undated children last, then in record order. A bearer is placed
+under their parent's union however the other parent is known: one parent
+bearing the name is enough, and a union with no other spouse simply has no
+spouse on its line. The children of a union who do not bear the name — a
+daughter's children, who carry their father's — are one `…` line, *N
+children not bearing the name*, and their descent is not followed.
+
+**Lines.** One line per bearer, indented one step per generation:
+
+- The SOSA mark when the person is the tree's SOSA root or one of its
+  ancestors — the ring of the [person page](ui-person-profile.md)'s family
+  narrative, in `--pn-sosa` — then the sex glyph.
+- The given names and SURNAME, a link to the person's
+  [profile](ui-person-profile.md).
+- The lifespan as cards draw it: qualified years (`ca 1620-1691`, an
+  open-ended `1646-`, `?1613-1663`), each with its own precision, the
+  birth falling back to the baptism and the death to the burial; a `†` takes
+  the place of the death year when a death or burial is recorded without
+  one.
+- The first union: `&` and the marriage year, then the spouse's name, a link,
+  with their own mark and lifespan. A person married several times appears
+  once per union: each later union repeats the person's line in italics, with
+  that union's spouse and, under it, that union's children.
+
+**Persons reached twice.** A bearer can be reached from two places: both
+parents bear the name, a child belongs to two families, a loop of parentage
+in the data. Each branch is grown generation by generation, branches in
+order, and a bearer is shown in full at the first place reached; anywhere
+else their line reads *see branch n* (*shown elsewhere in this branch* within
+their own) and shows no descent. Nothing is visited twice, so a loop never repeats; a
+bearer reachable from no root, only through such a loop, starts a branch of
+their own after the others.
+
+**Large names.** A name borne by thousands of persons is answered in a fixed
+number of grouped queries, then bounded twice:
+
+- An answer holds 50 branches; **Show more branches** below them asks for the
+  next 50 and adds them.
+- Within an answer, the branches are unfolded generation by generation, all
+  of them together, until 400 lines. The descent of a bearer left over is
+  folded into one line under them, **Show N more descendants** (N the bearers
+  beneath), which asks for that bearer's descent alone — always unfolding at
+  least their own unions — and puts it in place. The focus moves to the first
+  line shown.
+
+**States.** While the descent loads, the row's panel reads *Loading…*; a
+failure reads *The descent could not be loaded.* with **Retry**, and a
+failed **Show more** keeps its button. A name no one bears but by marriage
+reads *No one bears this name other than by marriage.* above the list of
+those who do.
+
+**Keyboard.** Every name is a link and every action a button, in reading
+order; the branches are a numbered list, so a screen reader announces each
+branch and its count. The `«` link and the `…` and *see branch n* lines carry
+their meaning in text, not only in their symbol.
 
 ---
 
@@ -505,7 +610,7 @@ request ([API Contract](api.md#dictionary)):
 
 | Tab | Aggregation |
 |---|---|
-| Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names`) |
+| Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names`); an unfolded name's descent (§7.2), read in nine grouped queries (`DictionaryRepo::load_family_name_descent`) and grouped in memory (`service::surname_descent`) |
 | Sources | The tree's sources, each with its citation count (`DictionaryRepo::sources_with_usage`, or `sources_with_usage_by_prefix` once the drill-down of section 8 has narrowed them) |
 | Places | The tree's places, each with the count of events and media referencing it (`DictionaryRepo::places_with_usage`) |
 | Occupations | The distinct descriptions of `Occupation` events, with their counts (`DictionaryRepo::occupations`) |

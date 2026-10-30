@@ -396,6 +396,10 @@ pub fn build_router(state: AppState) -> Router {
             get(dictionary::family_name_usage),
         )
         .route(
+            "/{tree_id}/dictionary/family-names/descent",
+            get(dictionary::family_name_descent),
+        )
+        .route(
             "/{tree_id}/dictionary/family-names/particle",
             patch(dictionary::set_family_name_particle),
         )

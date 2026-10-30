@@ -3,15 +3,18 @@
 
 use crate::service::family_names::{self, FamilyNameChange, ParticleChange};
 use crate::service::occupations::{self, OccupationChange};
+use crate::service::surname_descent::{self, DescentRequest};
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use oxidgene_core::types::SurnameDescent;
 use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
 use uuid::Uuid;
 
 use super::dto::{
-    DictionaryEntryDto, DictionarySourcesQuery, DictionaryUsageQuery, FamilyNameParticleUpdateDto,
-    FamilyNameRenameDto, OccupationRenameDto, PersonUsageEntryDto, PlaceDictionaryEntry,
-    SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto, SourcePrefixQuery,
+    DictionaryEntryDto, DictionarySourcesQuery, DictionaryUsageQuery, FamilyNameDescentQuery,
+    FamilyNameParticleUpdateDto, FamilyNameRenameDto, OccupationRenameDto, PersonUsageEntryDto,
+    PlaceDictionaryEntry, SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto,
+    SourcePrefixQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -161,6 +164,25 @@ pub async fn family_name_usage(
     let ids =
         DictionaryRepo::family_name_usage_person_ids(&state.reader, tree_id, &query.value).await?;
     resolve_usage(&state, &ids).await
+}
+
+/// GET /api/v1/trees/:tree_id/dictionary/family-names/descent?value=...&offset=...&person_id=...
+///
+/// The descent of a family name: a page of its branches, or the folded
+/// descent of one of its bearers. See ui-dictionary.md §7.2.
+pub async fn family_name_descent(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(query): Query<FamilyNameDescentQuery>,
+) -> Result<Json<SurnameDescent>, ApiError> {
+    let request = DescentRequest {
+        value: query.value,
+        offset: query.offset,
+        person_id: query.person_id,
+    };
+    Ok(Json(
+        surname_descent::descent(&state.reader, &state.profiles, tree_id, request).await?,
+    ))
 }
 
 /// PATCH /api/v1/trees/:tree_id/dictionary/family-names/particle

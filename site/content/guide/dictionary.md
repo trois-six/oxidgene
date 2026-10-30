@@ -14,7 +14,7 @@ The tabs along the top are **Family Names**, **Sources**, **Repositories**, **Pl
 
 If you come back to the dictionary with the back button, it reopens exactly as you left it: same tab, filter, letter, page and open row.
 
-{{ <screenshot name="dictionary" alt="Family Names tab of the dictionary, filtered on LANDREVEL, with the persons carrying the name listed below it" lang={lang} /> }}
+{{ <screenshot name="dictionary" alt="Family Names tab of the dictionary, filtered on LANDREVEL, with the descent of the name unfolded below it" lang={lang} /> }}
 
 ## Browse and filter a list
 
@@ -33,9 +33,31 @@ When nothing matches, **Clear filter** brings the whole list back.
 
 Each row is one family name exactly as spelled, with the number of persons who carry it, whether as their main name or as another name (an alias, a married name). The list does not merge spellings: "Martin" and "MARTIN" are two rows, and so are "Cruz" and "de la Cruz". This is deliberate, so you can see the variants; renaming (below) is how you unify them.
 
-Unfold a family name to list the persons who carry it; click a person to open them in the tree.
+Unfold a family name to see its descent, described below. **Alphabetical order**, at the top of the unfolded row, lists the persons who carry it instead; click a person to open them in the tree.
 
 Where a name with a particle such as "de la" or "d'" is filed depends on the **Surname sorting** option of the [application settings](@/guide/settings.md). With **Particle included**, "de la Cruz" files under D. With **Particle ignored**, it files under C and reads "Cruz (de la)", so the C group can be read by the word it is sorted on.
+
+## Descent of a family name
+
+An unfolded family name shows its descent, the way a genealogist reads a surname's lineages: the persons who bear the name grouped into numbered **branches**. **Display by: Branches | Alphabetical order** at the top switches between the descent and the plain list of persons; your choice stays for every family name you unfold until you leave the page.
+
+Each branch starts with a person who bears the name and whose parents do not: their parents are unknown, or bear another name. When the starting person has parents in the tree, a **«** before the name opens the pedigree on them, with their parents above. Branches are ordered by the earliest date known of the person who starts them.
+
+Under each person, indented one step per generation:
+
+- each of their unions, the first on their own line: **&**, the year of the marriage and the spouse. A person married several times appears again, in italics, for each later union;
+- under each union, the children who bear the name, by date of birth, then their own unions and children, and so on;
+- the children who do not bear the name, such as a daughter's children who carry their father's, are summed up in one **…** line, and their descendants are not followed.
+
+Every name opens the person's page. The years are those of the birth (or baptism) and death (or burial), with their precision ("ca 1620"); a **†** stands for a death known without its year. A ring before a name marks the root person of the tree (its SOSA 1) and their direct ancestors, as on the person pages.
+
+A few rules to read the result:
+
+- **Married names do not count.** A woman who took the name by marriage is shown beside her husband, not in a branch of her own. Persons who carry the name only by marriage and whose spouse is not shown are listed at the end, under **Carrying the name by marriage only**.
+- **One parent is enough.** A child is placed under their parent who bears the name, even when the other parent is unknown.
+- **Nobody appears twice.** A person reached from two places (both parents bear the name, for example) is shown in full once; the other place reads "see branch n".
+
+A very common name can have thousands of bearers. The dictionary then shows the first 50 branches, with **Show more branches** below them, and unfolds the generations until the list is long enough: where it stops, **Show N more descendants** under a person unfolds the rest of their descent in place.
 
 ## Rename or merge a family name
 
