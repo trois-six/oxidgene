@@ -11,28 +11,13 @@ statistics on a map, consistency tools, kinship, cited registers opened on
 the archives' own sites, and a history of every change. It runs as a desktop
 application that works offline, or as a web deployment for your own server.
 
-<p align="center">
-	<img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="900">
-</p>
-
-<p align="center"><sub>
-	<a href="assets/screenshots/pedigree.webp">Pedigree</a> ·
-	<a href="assets/screenshots/person.webp">Person</a> ·
-	<a href="assets/screenshots/media-viewer.webp">Media viewer</a> ·
-	<a href="assets/screenshots/fan-chart-dark.webp">Fan chart</a> ·
-	<a href="assets/screenshots/couple.webp">Couple</a> ·
-	<a href="assets/screenshots/statistics-map.webp">Statistics map</a> ·
-	<a href="assets/screenshots/kinship.webp">Kinship</a> ·
-	<a href="assets/screenshots/search.webp">Search</a> ·
-	<a href="assets/screenshots/dictionary-sources.webp">Sources</a> ·
-	<a href="assets/screenshots/dictionary-places.webp">Places</a> ·
-	<a href="assets/screenshots/tags.webp">Tags</a> ·
-	<a href="assets/screenshots/media-library.webp">Media library</a> ·
-	<a href="assets/screenshots/tools-ancestry.webp">Ancestry completeness</a> ·
-	<a href="assets/screenshots/history.webp">History</a> ·
-	<a href="assets/screenshots/app-settings-dark.webp">Settings</a>
-	<br><a href="https://trois-six.github.io/oxidgene/#tour">Browse the tour with its controls</a>
-</sub></p>
+<table align="center">
+	<tr>
+		<td valign="middle"><a href="https://trois-six.github.io/oxidgene/#tour-15" title="Previous view, in the interactive tour"><b>‹</b></a></td>
+		<td><img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="840"></td>
+		<td valign="middle"><a href="https://trois-six.github.io/oxidgene/#tour-2" title="Next view, in the interactive tour"><b>›</b></a></td>
+	</tr>
+</table>
 
 <sub>The family shown is fictitious; the portraits are public-domain studio
 photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credits</a>).</sub>
