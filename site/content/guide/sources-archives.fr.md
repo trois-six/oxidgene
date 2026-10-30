@@ -50,6 +50,8 @@ Le [Dictionnaire](@/guide/dictionary.fr.md) recense toutes les sources de l'arbr
 
 La plupart des sources généalogiques sont des pages de registres que les services d'archives ont numérisées et mises en ligne sur leur propre portail. Lorsqu'une citation désigne un tel registre, sa source devient un bouton sur la fiche de la personne. Survolez-le : l'infobulle indique **Ouvrir la vue citée aux …** suivi du nom des archives. Cliquez, et OxidGene trouve le registre sur le portail et l'ouvre à la vue citée, sans que vous ayez à refaire la recherche à la main.
 
+{{ <screenshot name="archive-register" alt="La source d'une naissance désignant un registre des archives de Loire-Atlantique, encadrée sur la fiche d'une personne, et l'onglet du portail des archives qu'elle a ouvert sur le registre cité, dont la page est floutée" lang={lang} /> }}
+
 Le catalogue couvre les archives départementales françaises et l'état civil des Archives nationales d'outre-mer. Il connaît les registres paroissiaux et d'état civil, les tables décennales et paroissiales, les recensements de population, les registres matricules, les listes de conscription, les tables des successions et absences, et les registres d'inhumation des cimetières.
 
 ### Comment un registre cité est reconnu

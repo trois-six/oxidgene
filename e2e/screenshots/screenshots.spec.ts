@@ -13,16 +13,18 @@
 // the data (seeded), the browser clock, and the timestamps the API returns,
 // which are rewritten to one fixed instant.
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { apiUrl, expect, importFile, test } from "../tests/fixtures";
-import { cast, familyArchive, firstCousin } from "./family";
+import { archiveCitation, cast, familyArchive, firstCousin } from "./family";
 
 const repository = resolve(import.meta.dirname, "..", "..");
 const raw = join(repository, "target", "screenshots", "raw");
+/// The pieces scripts/screenshots.py composes into one image, per language.
+const parts = join(raw, "parts");
 
 /// The languages of the captures: English, the README's and the default,
 /// and French, the documentation site's other language.
@@ -70,6 +72,8 @@ interface Ids {
     quimperRegisters: string;
     /// Quimper, the root's birthplace.
     quimper: string;
+    /// The grandmother whose birth cites a register of a real archive.
+    grandmother: string;
 }
 
 async function personId(request: APIRequestContext, treeId: string, given: string, surname: string, born?: number): Promise<string> {
@@ -100,6 +104,7 @@ async function seed(request: APIRequestContext): Promise<Ids> {
     const mother = await personId(request, tree.id, cast.mother.given, cast.mother.surname);
     const spouse = await personId(request, tree.id, cast.spouse.given, cast.spouse.surname);
     const grandfather = await personId(request, tree.id, cast.grandfather.given, cast.grandfather.surname);
+    const grandmother = await personId(request, tree.id, cast.grandmother.given, cast.grandmother.surname);
     const cousin = await personId(request, tree.id, firstCousin.given, firstCousin.surname, firstCousin.born);
     const [groom, bride] = await Promise.all(
         cast.weddingCouple.map((person) => personId(request, tree.id, person.given, person.surname)),
@@ -208,6 +213,7 @@ async function seed(request: APIRequestContext): Promise<Ids> {
         lorientTag: tagIds.get("Lorient")!,
         quimperRegisters: quimperRegisters!,
         quimper: quimper!,
+        grandmother,
     };
 }
 
@@ -230,19 +236,52 @@ async function pin(page: Page, language: Language, theme: string): Promise<void>
     });
 }
 
-/// Wait until the page has settled — no request in flight, fonts loaded,
-/// transitions over — and save it under `name`, in the language's folder.
-async function shoot(page: Page, language: Language, name: string): Promise<void> {
+/// Wait until the page has settled: no request in flight, fonts loaded,
+/// transitions over.
+async function settle(page: Page): Promise<void> {
     await page.waitForLoadState("networkidle");
     await page.evaluate(() => document.fonts.ready);
     await page.waitForFunction(() => [...document.images].every((image) => image.complete));
     // The charts fit their viewport in an animation of their own.
     await page.waitForTimeout(1200);
     await page.waitForLoadState("networkidle");
+}
+
+/// Wait until the page has settled and save it under `name`, in the
+/// language's folder.
+async function shoot(page: Page, language: Language, name: string): Promise<void> {
+    await settle(page);
     const folder = language === "en" ? raw : join(raw, language);
     mkdirSync(folder, { recursive: true });
     await page.screenshot({ path: join(folder, `${name}.png`), animations: "disabled", caret: "hide" });
 }
+
+/// Scroll the page so that `element` stands `top` pixels below the top of
+/// the window.
+async function scrollTo(element: Locator, top: number): Promise<void> {
+    await element.evaluate((node, offset) => {
+        let scroller = node.parentElement;
+        while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) {
+            scroller = scroller.parentElement;
+        }
+        (scroller ?? document.scrollingElement!).scrollTop += node.getBoundingClientRect().top - offset;
+    }, top);
+}
+
+/// What hides a register's content in its portal's tab: the viewer's
+/// image, any other large picture or canvas (a strip of thumbnails), and the
+/// tables of results, which may name the persons of an index. Strong enough
+/// that no handwriting stays legible, light enough that the page still reads
+/// as a register.
+const REGISTER_BLUR = "blur(7px)";
+
+/// The size the portal's tab is captured at, before the composition scales
+/// it down into its window.
+const PORTAL_VIEWPORT = { width: 1200, height: 750 };
+
+/// How long the portal may take to open the register before its capture is
+/// skipped.
+const PORTAL_TIMEOUT = 45_000;
 
 test.describe.configure({ mode: "serial" });
 
@@ -317,6 +356,74 @@ for (const language of LANGUAGES) {
         await shoot(page, language, "person");
         await page.getByRole("heading", { name: t(language, "person.family_connections") }).evaluate((heading) => heading.scrollIntoView({ block: "start" }));
         await shoot(page, language, "person-timeline");
+    });
+
+    test(`person sections (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.root}`);
+        await expect(page.getByRole("heading", { level: 1, name: "Étienne Marie Landrevel" })).toBeVisible();
+        // The events, each with its sources and its documents.
+        const events = page.getByRole("heading", { name: t(language, "person.events_section"), exact: true });
+        await expect(page.locator(".pd-timeline img").first()).toBeVisible();
+        await scrollTo(events, 64);
+        await shoot(page, language, "events-timeline");
+        // The Ancestors card's mini pedigree: the person, their parents and
+        // grandparents, at the foot of the page.
+        const ancestors = page.getByRole("heading", { name: t(language, "person.ancestors"), exact: true });
+        await expect(page.locator(".pd-section").filter({ has: ancestors }).locator("svg").first()).toBeVisible();
+        await scrollTo(ancestors, 64);
+        await shoot(page, language, "mini-pedigree");
+    });
+
+    // A cited register opened on its archive's portal: the profile with the
+    // source that was clicked, and the portal's tab it opened, which
+    // scripts/screenshots.py composes into archive-register. The portal is
+    // live: when it cannot be reached, challenges the browser or does not
+    // open the register in time, the capture is skipped and the committed
+    // image kept.
+    test(`archive register (${language})`, async ({ page, context }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/persons/${ids.grandmother}`);
+        await expect(page.getByRole("heading", { level: 1, name: /Marie-Jeanne Pennamen/i })).toBeVisible();
+        const link = page.locator("button.pd-ev-source-link", { hasText: archiveCitation.source });
+        await expect(link).toBeVisible();
+        await scrollTo(link, 200);
+        await settle(page);
+        const folder = join(parts, language);
+        mkdirSync(folder, { recursive: true });
+        const box = (await link.boundingBox())!;
+        await page.screenshot({ path: join(folder, "archive-register-app.png"), animations: "disabled", caret: "hide" });
+
+        const opened = context.waitForEvent("page");
+        await link.click();
+        const tab = await opened;
+        await tab.setViewportSize(PORTAL_VIEWPORT);
+        try {
+            await tab.waitForURL(archiveCitation.portal, { timeout: PORTAL_TIMEOUT });
+            await tab.locator(archiveCitation.viewer).first().waitFor({ state: "visible", timeout: PORTAL_TIMEOUT });
+        } catch {
+            const message = `the portal did not open the register (${tab.url()}): archive-register keeps its committed image`;
+            console.warn(`archive register (${language}): ${message}`);
+            test.info().annotations.push({ type: "skipped", description: message });
+            await tab.close();
+            return;
+        }
+        // The register's content, blurred before anything is captured.
+        await tab.addStyleTag({ content: `${archiveCitation.viewer}, table { filter: ${REGISTER_BLUR} !important; }` });
+        await tab.waitForLoadState("networkidle", { timeout: PORTAL_TIMEOUT }).catch(() => {});
+        await tab.evaluate((filter) => {
+            for (const element of document.querySelectorAll<HTMLElement>("img, canvas, video")) {
+                const { width, height } = element.getBoundingClientRect();
+                if (width >= 64 && height >= 64) element.style.setProperty("filter", filter, "important");
+            }
+        }, REGISTER_BLUR);
+        await tab.waitForTimeout(2000);
+        await tab.screenshot({ path: join(folder, "archive-register-portal.png"), animations: "disabled", caret: "hide" });
+        writeFileSync(join(folder, "archive-register.json"), `${JSON.stringify({
+            link: { x: box.x, y: box.y, width: box.width, height: box.height },
+            url: tab.url(),
+        }, null, 4)}\n`);
+        await tab.close();
     });
 
     test(`person form (${language})`, async ({ page }) => {
@@ -434,6 +541,10 @@ for (const language of LANGUAGES) {
         await page.goto(`/trees/${ids.treeId}/settings`);
         await expect(page.getByText("Landrevel family").first()).toBeVisible();
         await shoot(page, language, "tree-settings");
+        // The thresholds the anomaly rules apply, one card per category.
+        await page.getByRole("button", { name: t(language, "settings.anomalies"), exact: true }).click();
+        await expect(page.getByRole("heading", { level: 2, name: t(language, "settings.anomalies"), exact: true })).toBeVisible();
+        await shoot(page, language, "tree-settings-anomalies");
     });
 
     test(`settings (${language})`, async ({ page }) => {

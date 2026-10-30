@@ -33,6 +33,8 @@ La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore r
 
 ## Seuils des anomalies
 
+{{ <screenshot name="tree-settings-anomalies" alt="Section Seuils des anomalies des paramètres de l’arbre, ses seuils en quatre cartes : dates, filiation, unions et lieux" lang={lang} /> }}
+
 **Seuils des anomalies** fixe les limites qu’appliquent à cet arbre les [règles d’anomalies](@/guide/tools.fr.md#reperer-les-anomalies) de la page Outils : un âge, un écart ou une distance n’est signalé qu’au-delà. Les valeurs par défaut conviennent à la plupart des arbres ; adaptez-les à une population ou à une époque, par exemple un arbre d’ancêtres très âgés ou de mariages très précoces.
 
 Les seuils sont rangés en quatre cartes, comme les anomalies : **Dates** (vie la plus longue, vie la plus longue avant une année donnée, cette année, âge maximal sans décès, tolérance sur l’âge noté, marge des dates approximatives), **Filiation** (parent le plus jeune, père et mère les plus âgés, naissance après le décès du père, jumeaux, enfants trop rapprochés ou trop éloignés), **Unions** (conjoints le plus jeune et le plus âgé à l’union, écart de naissance des conjoints) et **Lieux** (lieux les plus éloignés d’un même jour, en km).

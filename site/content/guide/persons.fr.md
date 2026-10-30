@@ -66,6 +66,8 @@ Chaque événement indique sa date complète, son lieu, sa description et, quand
 
 Les documents qui prouvent l’événement apparaissent en petites vignettes en dessous. Quand une zone d’une page a été découpée pour cet événement (le seul acte d’une page de registre, par exemple), l’événement montre cette zone plutôt que la page entière. Cliquez sur une vignette pour l’ouvrir dans la visionneuse ; une zone ouvre sa page entière.
 
+{{ <screenshot name="events-timeline" alt="Événements d’Étienne Marie Landrevel : sa naissance, son diplôme et son mariage, chacun avec ses sources, le diplôme et le mariage avec leurs documents" lang={lang} /> }}
+
 ### Ouvrir le registre cité
 
 Quand une citation désigne un registre d’un service d’archives connu d’OxidGene (toutes les archives départementales françaises sont cataloguées), sa source devient un bouton, dont l’infobulle nomme le service d’archives.
@@ -91,6 +93,8 @@ La réorganisation de ce qui est rattaché (choix du portrait, découpage, retra
 **Notes** affiche les notes rédigées sur la personne. La section est masquée s’il n’y en a aucune.
 
 **Ancêtres** dessine un petit arbre de la personne et d’au plus deux générations au-dessus, dans le thème de graphique que vous avez choisi. Survolez une carte pour lire le nom complet et les dates, cliquez dessus pour ouvrir la fiche de cette personne.
+
+{{ <screenshot name="mini-pedigree" alt="La carte Ancêtres d’Étienne Marie Landrevel : ses parents et ses quatre grands-parents au-dessus de sa carte" lang={lang} /> }}
 
 ## La fiche de couple
 

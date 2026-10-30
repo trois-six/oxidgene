@@ -33,6 +33,8 @@ Privacy is recorded today but does not hide anything yet. As the section says: *
 
 ## Anomaly thresholds
 
+{{ <screenshot name="tree-settings-anomalies" alt="Anomaly thresholds section of the tree settings, its thresholds in four cards: dates, filiation, unions and places" lang={lang} /> }}
+
 **Anomaly thresholds** sets the limits the [anomaly rules](@/guide/tools.md#find-anomalies) of the Tools page apply to this tree: an age, a gap or a distance is reported only beyond them. The defaults suit most trees; change them to fit a population or a period, such as a tree of long-lived ancestors or of marriages made very young.
 
 The thresholds are grouped in four cards, as the anomalies are: **Dates** (longest life, longest life before a given year, that year, oldest person without a death, recorded age tolerance, approximate date slack), **Filiation** (youngest parent, oldest father and mother, birth after the father's death, twins, siblings too close or too far apart), **Unions** (youngest and oldest spouse at the union, spouses' birth gap) and **Places** (farthest places of one day, in km).

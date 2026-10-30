@@ -66,6 +66,8 @@ Each event shows its date in full, its place, its description, and, when the rec
 
 Documents that prove the event appear as small thumbnails under it. When a region of a page was cut out for that event (the one act on a register page, say), the event shows the region instead of the whole page. Click a thumbnail to open it in the media viewer; a region opens its whole page.
 
+{{ <screenshot name="events-timeline" alt="Events of Étienne Marie Landrevel, his birth, graduation and marriage each with its sources, the graduation and the marriage with their documents" lang={lang} /> }}
+
 ### Open the cited register
 
 When a citation names a register of an archive OxidGene knows (every French departmental archive is catalogued), its source becomes a button. Its tooltip names the archive.
@@ -91,6 +93,8 @@ Rearranging what is attached (choosing the portrait, cropping, removing a docume
 **Notes** shows the notes written about the person. The section is hidden when there are none.
 
 **Ancestors** draws a small pedigree of the person and up to two generations above them, in the chart theme you chose. Hover a card to read the full name and dates, click it to open that person's page.
+
+{{ <screenshot name="mini-pedigree" alt="The Ancestors card of Étienne Marie Landrevel: his parents and his four grandparents above his card" lang={lang} /> }}
 
 ## The couple page
 

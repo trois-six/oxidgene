@@ -12,7 +12,7 @@ the archives' own sites, and a history of every change. It runs as a desktop
 application that works offline, or as a web deployment for your own server.
 
 <p align="center">
-	<a href="https://trois-six.github.io/oxidgene/#tour"><img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="900"></a>
+	<a href="https://trois-six.github.io/oxidgene/#tour"><img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, events with their sources and documents, a cited register opened on an archive's portal, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="900"></a>
 </p>
 
 <sub>The family shown is fictitious; the portraits are public-domain studio

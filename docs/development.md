@@ -522,10 +522,32 @@ languages, finding the controls by their text in `assets/i18n/`, in the
 light or dark theme it names, with the browser clock and every timestamp the
 API returns pinned to fixed instants, and saves the captures under
 `target/screenshots/raw/`, the French ones in its `fr/` folder.
-`scripts/screenshots.py` then writes each one to `assets/screenshots/` (the
+
+One image, `archive-register`, is composed rather than captured, and depends
+on a live portal. The fixture cites, for a fictitious grandmother's birth, a
+real register of the Loire-Atlantique archives (`AD44`, the births of
+Guérande in 1842), whose portal answers a plain browser without an anti-bot
+check and opens the register's viewer on the cited view, with no licence in
+front of it. The screenshot script captures her profile with that source,
+clicks it, and captures the tab the web application opens on the portal,
+after blurring with a CSS filter the viewer's canvas (its selector,
+`archiveCitation.viewer` in `family.ts`, is the portal platform's), every
+other large picture or canvas and every table, so that no handwriting and no
+indexed name is legible. It leaves both captures and the link's position in
+`target/screenshots/raw/parts/<language>/`, from which
+`scripts/screenshots.py` draws the profile with the link outlined in the
+light theme's accent colour, the portal's tab over it as a window — a title
+bar with the portal's address, a drop shadow — down and to the right, and
+an arrow from the link to the window. When the portal is unreachable,
+challenges the browser or does not open the register within 45 seconds, the
+capture is skipped with a message and the committed image kept; the run goes
+on. Look at that image before committing it too: the blur must leave no word
+of the register readable.
+
+`scripts/screenshots.py` then writes each image to `assets/screenshots/` (the
 French ones to `assets/screenshots/fr/`) as a
 lossless WebP, about half the size of the same PNG, and assembles the README
-carousel, `readme-carousel.webp`: an animated WebP of fifteen frames, three
+carousel, `readme-carousel.webp`: an animated WebP of seventeen frames, three
 seconds each, 1200 pixels wide, lossy. A capture that differs from the
 committed image only by Chromium's occasional rounding — at most 200 pixels,
 two levels apart — keeps the committed file, so a run over unchanged pages

@@ -68,6 +68,7 @@ const PLACES = {
     guingamp: "Guingamp, Côtes-d'Armor, Bretagne, France",
     rennes: "Rennes, Ille-et-Vilaine, Bretagne, France",
     nantes: "Nantes, Loire-Atlantique, Pays de la Loire, France",
+    guerande: "Guérande, Loire-Atlantique, Pays de la Loire, France",
     paris: "Paris, Paris, Île-de-France, France",
     leHavre: "Le Havre, Seine-Maritime, Normandie, France",
     brooklyn: "Brooklyn, Kings, New York, USA",
@@ -119,6 +120,7 @@ interface Fact {
     cause?: string;
     source?: { id: string; page: string; quality: number };
     note?: string;
+    /// The documents of the event, by medium id.
     media?: string[];
 }
 
@@ -162,13 +164,38 @@ const media: Medium[] = [];
 let nextPerson = 1;
 let nextFamily = 1;
 
-const SOURCES = [
+interface SourceRecord {
+    id: string;
+    title: string;
+    author: string;
+    /// The repository holding it, with its call number there.
+    repo?: string;
+    call?: string;
+}
+
+/// The register a citation opens on its archive's portal, for the
+/// archive-register screenshot: a real archive's code and a commune and year
+/// whose births its portal publishes, cited for a fictitious person. The
+/// Loire-Atlantique archives' portal answers a plain browser without any
+/// anti-bot check, and opens the register's viewer straight on the cited
+/// view, with no reuse licence in front of it.
+export const archiveCitation = {
+    source: "AD44, civil registration of Guérande, births 1842",
+    page: "view 14",
+    /// The portal the register opens on, and its viewer's image.
+    portal: /^https:\/\/archives-numerisees\.loire-atlantique\.fr\//,
+    viewer: ".openseadragon-canvas canvas",
+} as const;
+
+const SOURCES: SourceRecord[] = [
     { id: "S1", title: "Parish registers of Locronan, baptisms, marriages and burials, 1760–1792", author: "Parish of Locronan", repo: "R1", call: "SAMPLE-PR-12" },
     { id: "S2", title: "Civil registers of Quimper, births, 1793–1902", author: "Registry office of Quimper", repo: "R1", call: "SAMPLE-EC-34" },
     { id: "S3", title: "Census of 1906, Quimper", author: "Municipality of Quimper", repo: "R1", call: "SAMPLE-CENS-1906" },
     { id: "S4", title: "Landrevel family papers: letters, school reports and photographs", author: "Landrevel family", repo: "R2", call: "BOX-3" },
     { id: "S5", title: "Civil registers of Lorient, marriages, 1890–1930", author: "Registry office of Lorient", repo: "R1", call: "SAMPLE-EC-56" },
-] as const;
+    // Named by its archive's code, held by no repository of the tree.
+    { id: "S6", title: archiveCitation.source, author: "Registry office of Guérande" },
+];
 
 function date(d: Dated): string {
     const parts = [d.day && d.month ? String(d.day) : "", d.month ? MONTHS[d.month - 1] : "", String(d.year)].filter(Boolean);
@@ -253,7 +280,10 @@ etienne.facts[0].source = { id: "S2", page: "Births 1898, entry 212", quality: 3
 etienne.facts[0].agency = "Registry office of Quimper";
 etienne.facts.push({ tag: "BAPM", date: { year: 1898, month: 3, day: 16 }, place: "quimper" });
 work(etienne, "Schoolteacher", 1919);
-etienne.facts.push({ tag: "GRAD", date: { year: 1918, month: 7 }, place: "rennes", value: "Teaching certificate" });
+etienne.facts.push({
+    tag: "GRAD", date: { year: 1918, month: 7 }, place: "rennes", value: "Teaching certificate",
+    source: { id: "S4", page: "School reports, 1914–1918", quality: 3 },
+});
 etienne.facts.push({ tag: "RESI", date: { year: 1931 }, place: "paris", source: { id: "S4", page: "Letter to his brother, spring 1931", quality: 2 } });
 die(etienne, { year: 1971, month: 2, day: 2 }, "paris");
 etienne.facts.find((f) => f.tag === "DEAT")!.age = "72y";
@@ -286,6 +316,9 @@ yves.facts.find((f) => f.tag === "DEAT")!.age = "67y"; // The record is off by s
 photo(yves, "rijksmuseum-rp-f-f18704.jpg", "Yves Landrevel, about 1885");
 yves.facts[0].source = { id: "S1", page: "Baptisms 1839, folio 31", quality: 2 };
 
+// Born away from the family's parish, in a register the archive publishes.
+marieJeanne.facts[0].place = "guerande";
+marieJeanne.facts[0].source = { id: "S6", page: archiveCitation.page, quality: 3 };
 work(marieJeanne, "Spinner", 1860);
 die(marieJeanne, { year: 1910, month: 8, day: 14 }, "locronan");
 photo(marieJeanne, "rijksmuseum-rp-f-f18891.jpg", "Marie-Jeanne Pennamen, about 1900");
@@ -375,6 +408,11 @@ herve.media.push(media[media.length - 1].id);
 media.push({ id: `M${media.length + 1}`, file: "media/documents/lorient-postcard-1905.jpg", title: "Lorient, the harbour, postcard sent in 1905", type: "card", vignettes: [] });
 fJoseph.media.push(media[media.length - 1].id);
 etienne.media.push(media[media.length - 1].id);
+
+// Documents of Étienne's events: his portrait for his teaching certificate,
+// the postcard of Lorient for his marriage there.
+etienne.facts.find((f) => f.tag === "GRAD")!.media = [etienne.media[0]];
+fEtienne.facts[0].media = [media[media.length - 1].id];
 
 // Étienne and Marguerite's children and grandchildren, for the descendant charts.
 const children = [
@@ -529,6 +567,7 @@ function factLines(fact: Fact): string[] {
     if (fact.agency) lines.push(`2 AGNC ${fact.agency}`);
     if (fact.cause) lines.push(`2 CAUS ${fact.cause}`);
     if (fact.source) lines.push(`2 SOUR @${fact.source.id}@`, `3 PAGE ${fact.source.page}`, `3 QUAY ${fact.source.quality}`);
+    for (const id of fact.media ?? []) lines.push(`2 OBJE @${id}@`);
     return lines;
 }
 
@@ -591,7 +630,8 @@ function gedcom(): string {
         "1 NAME Landrevel family collection (sample)",
     ];
     for (const source of SOURCES) {
-        lines.push(`0 @${source.id}@ SOUR`, `1 TITL ${source.title}`, `1 AUTH ${source.author}`, `1 REPO @${source.repo}@`, `2 CALN ${source.call}`);
+        lines.push(`0 @${source.id}@ SOUR`, `1 TITL ${source.title}`, `1 AUTH ${source.author}`);
+        if (source.repo) lines.push(`1 REPO @${source.repo}@`, `2 CALN ${source.call}`);
     }
     const witnesses = witnessLines();
     // An identification is a CROP beneath the link to its picture, written with the identified person.
@@ -687,6 +727,8 @@ export const cast = {
     mother: { given: "Anne", surname: "CORVAISIER" },
     spouse: { given: "Marguerite", surname: "DAULAC" },
     grandfather: { given: "Yves", surname: "LANDREVEL" },
+    /// The grandmother whose birth cites `archiveCitation`.
+    grandmother: { given: "Marie-Jeanne", surname: "PENNAMEN" },
     weddingCouple: [{ given: "Joseph", surname: "DAULAC" }, { given: "Berthe", surname: "MORHALLAN" }],
 } as const;
 

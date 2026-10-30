@@ -50,6 +50,8 @@ The [Dictionary](@/guide/dictionary.md) lists every source of the tree with its 
 
 Most genealogical sources are pages of registers that public archives have digitized and published on their own portals. When a citation names such a register, its source becomes a button on the person's profile. Hover over it: the tooltip reads **Open the cited view at …** with the name of the archive. Click it, and OxidGene finds the register on the archive's portal and opens it at the cited view, instead of leaving you to repeat the portal search by hand.
 
+{{ <screenshot name="archive-register" alt="A birth's source naming a register of the Loire-Atlantique archives, outlined on a person's profile, and the archive portal's tab it opened on the cited register, whose page is blurred" lang={lang} /> }}
+
 The catalogue covers the French departmental archives and the overseas civil status of the Archives nationales d'outre-mer. It knows parish and civil-status registers, decennial and parish tables, population censuses, military registers, conscription lists, tables of successions and absences, and cemetery burial registers.
 
 ### How a cited register is recognised
