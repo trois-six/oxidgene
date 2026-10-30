@@ -28,11 +28,47 @@ use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::Value;
 use tower::ServiceExt;
 
-/// A migrated, empty in-memory SQLite database.
+/// A migrated, empty database: in-memory SQLite, or a schema of its own in
+/// the disposable PostgreSQL database `OXIDGENE_TEST_POSTGRES_URL` names
+/// (`just test-postgres`, docs/development.md §2.7).
+///
+/// The functional suite runs on both: the web deployments use PostgreSQL,
+/// and SQL that only SQLite accepts fails there alone.
 pub async fn setup_db() -> DatabaseConnection {
+    match std::env::var("OXIDGENE_TEST_POSTGRES_URL") {
+        Ok(url) => setup_postgres_db(&url).await,
+        Err(_) => setup_sqlite_db().await,
+    }
+}
+
+/// A migrated, empty in-memory SQLite database, whatever the run: for the
+/// tests that read SQLite's own catalogue or planner statistics.
+pub async fn setup_sqlite_db() -> DatabaseConnection {
     let db = connect("sqlite::memory:")
         .await
         .expect("connect to in-memory SQLite");
+    run_migrations(&db).await.expect("migrations");
+    db
+}
+
+/// A migrated, empty schema of its own in the PostgreSQL database at `url`:
+/// nextest runs each test in a process of its own, all at once, against the
+/// one database.
+async fn setup_postgres_db(url: &str) -> DatabaseConnection {
+    use oxidgene_db::sea_orm::ConnectionTrait;
+    let schema = format!("test_{}", uuid::Uuid::now_v7().simple());
+    connect(url)
+        .await
+        .expect("connect to OXIDGENE_TEST_POSTGRES_URL")
+        .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+        .await
+        .expect("create the test's schema");
+    let separator = if url.contains('?') { '&' } else { '?' };
+    let db = connect(&format!(
+        "{url}{separator}options=-c%20search_path%3D{schema}"
+    ))
+    .await
+    .expect("connect to the test's schema");
     run_migrations(&db).await.expect("migrations");
     db
 }
@@ -163,8 +199,16 @@ pub async fn setup_file_db(directory: &std::path::Path) -> Connections {
 /// A SQLite file with its read pool, as on the desktop, so that every
 /// scenario goes through the split the application runs with: a write
 /// routed to the read-only pool by mistake fails here. The directory lives
-/// as long as the router.
+/// as long as the router. Under `OXIDGENE_TEST_POSTGRES_URL`, a schema of
+/// its own in that database (see [`setup_db`]), one pool for reads and
+/// writes, as on the server.
 pub async fn setup_app() -> Router {
+    if let Ok(url) = std::env::var("OXIDGENE_TEST_POSTGRES_URL") {
+        return build_router(offline(AppState::new(
+            setup_postgres_db(&url).await,
+            test_media_root(),
+        )));
+    }
     let directory = tempfile::tempdir().expect("database directory");
     let connections = setup_file_db(directory.path()).await;
     build_router(offline(AppState::new(

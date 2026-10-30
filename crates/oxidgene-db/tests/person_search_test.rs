@@ -1,25 +1,17 @@
 //! Integration tests for the `person_search_fts` table (Sprint E.6).
 //!
 //! Runs against in-memory SQLite, which also verifies that the bundled
-//! SQLite is compiled with FTS5 support (the migration would fail otherwise).
+//! SQLite is compiled with FTS5 support (the migration would fail otherwise),
+//! and against PostgreSQL's plain table under `just test-postgres`.
 
 use oxidgene_core::search::fold_words;
 use oxidgene_db::repo::{
-    PersonSearchEntry, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, connect,
-    run_migrations,
+    PersonSearchEntry, PersonSearchFilters, PersonSearchRepo, PersonSearchSort,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use uuid::Uuid;
 
-async fn setup_db() -> DatabaseConnection {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db)
-        .await
-        .expect("migrations (includes FTS5)");
-    db
-}
+use crate::common::{setup_db, setup_sqlite_db};
 
 fn entry(
     tree_id: Uuid,
@@ -470,7 +462,7 @@ async fn rows_and_keys(db: &DatabaseConnection) -> (i64, i64, i64) {
 /// one key per row, carrying that row's rowid, person and tree.
 #[tokio::test]
 async fn search_keys_stay_in_step_with_the_rows() {
-    let db = setup_db().await;
+    let db = setup_sqlite_db().await;
     let (tree_a, tree_b) = (Uuid::now_v7(), Uuid::now_v7());
     let first = entry(tree_a, "Fixture", "Alpha", None, None);
     let second = entry(tree_a, "Fixture", "Alpha", Some("1900"), None);

@@ -152,12 +152,21 @@ async fn changes(app: &axum::Router, tree: &str, entry: &Value) -> Vec<Value> {
 }
 
 async fn scalar(db: &DatabaseConnection, sql: &str) -> i64 {
-    db.query_one_raw(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get::<i64>("", "n")
-        .unwrap()
+    scalar_of(db, sql, Vec::new()).await
+}
+
+/// [`scalar`] of a statement whose `$n` parameters are `values`.
+async fn scalar_of(db: &DatabaseConnection, sql: &str, values: Vec<sea_orm::Value>) -> i64 {
+    db.query_one_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        sql,
+        values,
+    ))
+    .await
+    .unwrap()
+    .unwrap()
+    .try_get::<i64>("", "n")
+    .unwrap()
 }
 
 /// How many states the history stores, and the bytes of their JSON.
@@ -182,7 +191,7 @@ async fn stored(db: &DatabaseConnection) -> (i64, i64) {
 async fn assert_no_duplicated_state(db: &DatabaseConnection) {
     let rows = db
         .query_all_raw(Statement::from_string(
-            DbBackend::Sqlite,
+            db.get_database_backend(),
             "SELECT v.tree_id, v.record_type, v.record_id, v.deleted, v.snapshot, \
                     v.version = (SELECT MAX(l.version) FROM record_version l \
                                  WHERE l.record_type = v.record_type \
@@ -542,8 +551,7 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
     let person = create_person(&app, &tree, "Zeta", "Fixture").await;
-    // UUIDs are stored as 16-byte blobs.
-    let person_hex = person.replace('-', "");
+    let person_id: Uuid = person.parse().unwrap();
     ok(
         &app,
         Method::DELETE,
@@ -556,12 +564,11 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     let entry = audit(&app, &tree, "").await[0].clone();
     assert_eq!(entry["action"], "delete");
     assert_eq!(entry["version_count"], 1);
-    let marker = scalar(
+    let marker = scalar_of(
         &db,
-        &format!(
-            "SELECT COUNT(*) AS n FROM record_version WHERE lower(hex(record_id)) = '{person_hex}' \
-             AND version = 2 AND NOT deleted AND snapshot IS NULL AND labels IS NULL"
-        ),
+        "SELECT COUNT(*) AS n FROM record_version WHERE record_id = $1 \
+         AND version = 2 AND NOT deleted AND snapshot IS NULL AND labels IS NULL",
+        vec![person_id.into()],
     )
     .await;
     assert_eq!(marker, 1);
@@ -627,12 +634,11 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
 
     // The marker now holds its state, and the deleted state sits between it
     // and the live record.
-    let filled = scalar(
+    let filled = scalar_of(
         &db,
-        &format!(
-            "SELECT COUNT(*) AS n FROM record_version WHERE lower(hex(record_id)) = '{person_hex}' \
-             AND version = 2 AND snapshot IS NOT NULL"
-        ),
+        "SELECT COUNT(*) AS n FROM record_version WHERE record_id = $1 \
+         AND version = 2 AND snapshot IS NOT NULL",
+        vec![person_id.into()],
     )
     .await;
     assert_eq!(filled, 1);
@@ -1198,7 +1204,9 @@ async fn analyzed_rows(db: &DatabaseConnection, table: &str) -> Option<i64> {
 /// stores nothing — so the planner statistics are gathered after them.
 #[tokio::test]
 async fn statistics_include_what_an_import_writes() {
-    let (db, app) = setup().await;
+    // The statistics are SQLite's; PostgreSQL's autovacuum keeps its own.
+    let db = common::setup_sqlite_db().await;
+    let app = app_on(db.clone());
     let tree = create_tree(&app).await;
     common::import_gedcom(&app, &db, &tree, &family_blocks_gedcom(2)).await;
     for table in ["person", "person_denorm"] {

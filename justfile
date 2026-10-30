@@ -194,10 +194,13 @@ archives-live *archives:
 bench:
     cargo nextest run --release -p oxidgene-api -p oxidgene-db --test integration --run-ignored only --no-capture -E 'test(/^(profile_service_test|person_search_test)::/)'
 
-# Migrate an empty, disposable PostgreSQL database up and down; the
-# OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
+# Migrate an empty, disposable PostgreSQL database up and down, then run the
+# repository and API functional tests on it, each test in a schema of its
+# own; the OXIDGENE_TEST_DATABASE_URL variable names it (see
+# docs/development.md).
 test-postgres:
     cargo nextest run -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
+    OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql --test integration
 
 # Round-trip media through the RustFS service of docker/docker-compose.yml,
 # which must be running (`docker compose -f docker/docker-compose.yml up -d`).

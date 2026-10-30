@@ -14,13 +14,15 @@ use oxidgene_db::repo::{
     PersonDistinctRepo, PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
     PersonRepo, PlaceRepo, RepositoryFields, RepositoryRepo, SosaAncestor, SosaRepo, SourceRepo,
     SourceRepositoryFields, SourceRepositoryRepo, TreeChanges, TreeRepo, UploadedMedia,
-    UploadedMediaMetadata, connect, run_migrations,
+    UploadedMediaMetadata,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use std::sync::{Arc, Mutex};
 use tracing::{Subscriber, field::Visit};
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 use uuid::Uuid;
+
+use crate::common::setup_db;
 
 #[cfg(feature = "telemetry-context")]
 use opentelemetry::global;
@@ -34,15 +36,6 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing_opentelemetry::OpenTelemetryLayer;
 #[cfg(feature = "telemetry-context")]
 use tracing_subscriber::layer::SubscriberExt as _;
-
-/// Helper: create a fresh in-memory DB with migrations applied.
-async fn setup_db() -> DatabaseConnection {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    db
-}
 
 /// Helper: create a tree and return its ID.
 async fn create_tree(db: &DatabaseConnection) -> Uuid {
@@ -158,7 +151,15 @@ async fn database_spans_include_parameterized_sql_without_bound_values() {
             .iter()
             .any(|statement| statement.to_ascii_uppercase().contains("SELECT"))
     );
-    assert!(statements.iter().any(|statement| statement.contains('?')));
+    let placeholder = match db.get_database_backend() {
+        sea_orm::DatabaseBackend::Postgres => "$1",
+        _ => "?",
+    };
+    assert!(
+        statements
+            .iter()
+            .any(|statement| statement.contains(placeholder))
+    );
     assert!(
         statements
             .iter()
@@ -2137,8 +2138,8 @@ async fn ancestry_reports_shortest_depth_on_implex() {
 /// triggers move.
 async fn sosa_generation(db: &DatabaseConnection, tree_id: Uuid) -> i64 {
     db.query_one_raw(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        "SELECT generation FROM sosa_state WHERE tree_id = ?",
+        db.get_database_backend(),
+        "SELECT generation FROM sosa_state WHERE tree_id = $1",
         [Value::from(tree_id)],
     ))
     .await
@@ -2192,13 +2193,13 @@ async fn sosa_generation_moves_with_every_input_of_the_ancestry() {
 
     for (sql, what) in [
         (
-            "UPDATE family_spouse SET role = 'wife' WHERE id = ?",
+            "UPDATE family_spouse SET role = 'wife' WHERE id = $1",
             "changing a spouse's role",
         ),
-        ("UPDATE family_spouse SET sort_order = 3 WHERE id = ?", ""),
+        ("UPDATE family_spouse SET sort_order = 3 WHERE id = $1", ""),
     ] {
         db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
+            db.get_database_backend(),
             sql,
             [Value::from(spouse_link)],
         ))
@@ -3770,9 +3771,9 @@ async fn a_projection_of_any_other_version_leaves_the_tree_unmaterialized() {
     for _ in 0..3 {
         let person = create_person(&db, tree_id).await;
         db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
+            db.get_database_backend(),
             "INSERT INTO person_denorm (person_id, tree_id, payload, schema_version, updated_at) \
-             VALUES (?, ?, '{}', ?, CURRENT_TIMESTAMP)",
+             VALUES ($1, $2, '{}', $3, CURRENT_TIMESTAMP)",
             [
                 Value::from(person),
                 Value::from(tree_id),
@@ -3791,8 +3792,8 @@ async fn a_projection_of_any_other_version_leaves_the_tree_unmaterialized() {
 
     for version in [PROJECTION_SCHEMA_VERSION - 1, PROJECTION_SCHEMA_VERSION + 1] {
         db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            "UPDATE person_denorm SET schema_version = ? WHERE person_id = ?",
+            db.get_database_backend(),
+            "UPDATE person_denorm SET schema_version = $1 WHERE person_id = $2",
             [Value::from(version), Value::from(rows[1])],
         ))
         .await

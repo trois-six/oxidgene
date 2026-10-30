@@ -26,7 +26,7 @@ use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, State
 use uuid::Uuid;
 
 use crate::common::populated::populated_tree;
-use crate::common::{app_on, new_tree, send, setup_db, test_media_root};
+use crate::common::{app_on, new_tree, send, setup_sqlite_db, test_media_root};
 
 async fn rows(
     db: &DatabaseConnection,
@@ -163,7 +163,8 @@ fn files_naming(root: &Path, ids: &[String]) -> Vec<String> {
 
 #[tokio::test]
 async fn a_purged_tree_leaves_no_row_and_no_file() {
-    let db = setup_db().await;
+    // SQLite's catalogue lists the schema; both backends share it.
+    let db = setup_sqlite_db().await;
     let app = app_on(db.clone());
     let tree = populated_tree(&app, &db, "Purged", 1).await;
     // A neighbour, which the purge must leave alone.

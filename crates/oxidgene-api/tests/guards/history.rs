@@ -12,7 +12,7 @@
 //! it writes only the audit entry.
 
 use axum::http::Method;
-use oxidgene_db::sea_orm::{ConnectionTrait, DbBackend, Statement};
+use oxidgene_db::sea_orm::{ConnectionTrait, Statement};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ use crate::common::{app_on, family_blocks_gedcom, import_gedcom, new_tree, ok, s
 
 async fn count(db: &impl ConnectionTrait, sql: &str, tree: Uuid) -> i64 {
     db.query_one_raw(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
+        db.get_database_backend(),
         sql,
         [tree.into()],
     ))
@@ -40,7 +40,7 @@ async fn an_import_stores_no_version() {
     import_gedcom(&app, &db, &tree, &family_blocks_gedcom(2)).await;
     let stored = count(
         &db,
-        "SELECT COUNT(*) AS n FROM record_version WHERE tree_id = ?",
+        "SELECT COUNT(*) AS n FROM record_version WHERE tree_id = $1",
         tree.parse().unwrap(),
     )
     .await;
@@ -68,7 +68,7 @@ async fn no_stored_version_repeats_the_live_state() {
 
     let markers_with_state = count(
         &db,
-        "SELECT COUNT(*) AS n FROM record_version WHERE tree_id = ? AND deleted AND snapshot IS NOT NULL",
+        "SELECT COUNT(*) AS n FROM record_version WHERE tree_id = $1 AND deleted AND snapshot IS NOT NULL",
         tree_id,
     )
     .await;
@@ -76,8 +76,8 @@ async fn no_stored_version_repeats_the_live_state() {
 
     let records = db
         .query_all_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            "SELECT DISTINCT record_type, record_id FROM record_version WHERE tree_id = ?",
+            db.get_database_backend(),
+            "SELECT DISTINCT record_type, record_id FROM record_version WHERE tree_id = $1",
             [tree_id.into()],
         ))
         .await

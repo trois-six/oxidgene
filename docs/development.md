@@ -79,7 +79,7 @@ the repository root.
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
 | `just bench` | Run the opt-in benchmarks of the profile service and the person search, in release mode. |
-| `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down. |
+| `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7). |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
@@ -340,7 +340,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Category | What | Command | CI job | Gates `CI` |
 |----------|------|---------|--------|------------|
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
-| Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database, repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
+| Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database (on PostgreSQL under `just test-postgres`), repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
@@ -381,7 +381,8 @@ The opt-in tests and the golden checks read these variables:
 
 | Variable | Read by |
 |----------|---------|
-| `OXIDGENE_TEST_DATABASE_URL` | `oxidgene-db`'s `migration_test` with the `postgres` feature: an empty disposable PostgreSQL database to migrate up and down |
+| `OXIDGENE_TEST_DATABASE_URL` | `just test-postgres`: an empty disposable PostgreSQL database, which `oxidgene-db`'s `migration_test` migrates up and down; the recipe then passes it on as `OXIDGENE_TEST_POSTGRES_URL` |
+| `OXIDGENE_TEST_POSTGRES_URL` | The functional tests of `oxidgene-db` and `oxidgene-api`: set, `setup_db` and `setup_app` give each test a migrated schema of its own in that PostgreSQL database instead of a SQLite one, so the suite exercises the SQL the web deployments run. The schemas are left behind, hundreds per run, and a container needs more shared memory than Docker's default 64 MB (`--shm-size=1g`). The few tests that read SQLite's own catalogue or statistics, its FTS5 key table or its read pool keep SQLite (`setup_sqlite_db`) |
 | `OXIDGENE_REAL_*` | `just real-import` (§3, *Real-data import check*), which also sets `OXIDGENE_REAL_WORKDIR` to its staging directory under `target/` |
 | `OXIDGENE_GENEANET_ARCHIVES`, `OXIDGENE_RENDITION_WIDTH` | `oxidgene-geneanet`'s `phash_separation` (§3, *Geneanet content matching*); the width of the simulated rendition defaults to 600 pixels |
 | `OXIDGENE_GW`, `OXIDGENE_REFERENCES` | `oxidgene-geneanet`'s `unkeyed_references`: a `.gw` export and a dump of Geneanet's media references, to measure which unkeyed references the name alone would join |

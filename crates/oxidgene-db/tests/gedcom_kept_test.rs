@@ -1,21 +1,15 @@
 //! Integration tests for the kept GEDCOM repository (`gedcom_kept`).
 //!
-//! All tests run against an in-memory SQLite database.
+//! All tests run against a fresh database (`common::setup_db`).
 
 use chrono::Utc;
 use oxidgene_core::enums::Sex;
 use oxidgene_core::types::{GedcomKept, KeptEntityKind};
-use oxidgene_db::repo::{GedcomKeptRepo, PersonRepo, TreeRepo, connect, run_migrations};
+use oxidgene_db::repo::{GedcomKeptRepo, PersonRepo, TreeRepo};
 use sea_orm::DatabaseConnection;
-use uuid::Uuid;
 
-async fn setup_db() -> DatabaseConnection {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    db
-}
+use crate::common::setup_db;
+use uuid::Uuid;
 
 async fn create_tree(db: &DatabaseConnection) -> Uuid {
     let id = Uuid::now_v7();

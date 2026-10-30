@@ -11,16 +11,16 @@ use oxidgene_db::repo::{
     CitationRepo, EventDetails, EventRepo, MediaFilter, MediaLibraryRepo, MediaRepo,
     PaginationParams, PersonMergeRepo, PersonRepo, PersonSearchEntry, PersonSearchFilters,
     PersonSearchRepo, PersonSearchSort, PlaceRepo, RecordTagRepo, SourceRepo, TagRepo, TreeRepo,
-    connect, run_migrations,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
 };
 use uuid::Uuid;
 
+use crate::common::setup_db;
+
 async fn setup() -> (DatabaseConnection, Uuid) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
+    let db = setup_db().await;
     let tree = Uuid::now_v7();
     TreeRepo::create(&db, tree, "Fictional tree".into(), None)
         .await

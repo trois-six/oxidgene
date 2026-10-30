@@ -4,14 +4,15 @@ use oxidgene_core::types::Portrait;
 use oxidgene_core::{OxidGeneError, Sex};
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaPatch, MediaRepo, PersonRepo, TreeRepo, UploadedMedia, VignetteInput,
-    VignettePatch, VignetteRepo, connect, run_migrations,
+    VignettePatch, VignetteRepo,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use crate::common::setup_db;
+
 async fn setup() -> (DatabaseConnection, Uuid, Uuid) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
+    let db = setup_db().await;
     let tree = Uuid::now_v7();
     TreeRepo::create(&db, tree, "Fictional tree".into(), None)
         .await
