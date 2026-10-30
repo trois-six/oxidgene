@@ -69,6 +69,8 @@ L'onglet **Complétude de l'ascendance** suit votre ascendance génération par 
 - En dessous, chaque génération liste ses ancêtres par numéro SOSA, chacun lié à sa fiche avec ses dates et une marque par fait essentiel : verte s'il est renseigné, rouge et barrée s'il manque. Une génération qui a des lacunes s'ouvre d'elle-même ; une génération complète reste repliée.
 - **N'afficher que ce qui manque** ne garde que les ancêtres manquants et ceux à qui il manque un fait.
 
+{{ <screenshot name="tools-ancestry" alt="Onglet Complétude de l’ascendance : ancêtres trouvés génération par génération depuis la racine SOSA" lang={lang} /> }}
+
 Les faits essentiels sont une naissance ou un baptême, un décès ou une inhumation, et une union avec l'autre parent de la lignée (mariage, union civile, publication de bans, contrat, etc.). Une personne sans décès noté et née il y a moins de 120 ans est peut-être encore en vie : aucun décès n'est attendu pour elle.
 
 Seuls les parents manquants d'ancêtres connus sont listés comme **Ancêtre manquant**. Leurs propres ancêtres sont simplement comptés sous chaque génération (« 12 autres ancêtres manquent parce que leurs enfants manquent aussi »). Un ancêtre atteint par deux lignées (implexe) apparaît à chacun de ses numéros SOSA.

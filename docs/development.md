@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-30T17:15:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T19:28:16Z }
 ---
 
 # Development Environment and Workflows
@@ -342,7 +342,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
-| End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
+| End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
 | Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
@@ -469,6 +469,12 @@ the browser is cut off from the network (the debug bundle's
 development-toast font is the only outside request). Tests select elements by role and accessible name,
 falling back to a title or a class where the markup offers no name.
 
+Every route of `crates/oxidgene-ui/src/router.rs` and every major dialog —
+import, person form, union form, merge wizard — has a test that opens it on
+the fixture, checks the content it shows and drives its main interaction, in
+the spec named after the page; a smoke load does not count. A new page or
+dialog brings its test in the same change.
+
 A test that documents a known defect is marked `test.fail()` with a comment
 naming it: it passes while the defect stands and fails once it is fixed,
 which is the signal to remove the mark.
@@ -494,7 +500,7 @@ API returns pinned to fixed instants, and saves the captures under
 `scripts/screenshots.py` then writes each one to `assets/screenshots/` (the
 French ones to `assets/screenshots/fr/`) as a
 lossless WebP, about half the size of the same PNG, and assembles the README
-carousel, `readme-carousel.webp`: an animated WebP of ten frames, three
+carousel, `readme-carousel.webp`: an animated WebP of fifteen frames, three
 seconds each, 1200 pixels wide, lossy. A capture that differs from the
 committed image only by Chromium's occasional rounding — at most 200 pixels,
 two levels apart — keeps the committed file, so a run over unchanged pages

@@ -76,6 +76,8 @@ A group whose label is exactly the one above it holds the sources titled exactly
 
 Each source row shows its title, its author and the repositories that hold it, and its number of citations. Unfold it to see the persons the source documents: those cited directly, the person of a cited event, and both spouses of a cited union or union event.
 
+{{ <screenshot name="dictionary-sources" alt="Sources tab of the dictionary, opened on the civil registers of Quimper with the persons they document" lang={lang} /> }}
+
 ### Edit a source
 
 Open the **⋮** menu at the end of a source's row and choose **Edit** to open **Edit source**:
@@ -97,6 +99,8 @@ The **Repositories** tab lists the archives, libraries and offices that hold you
 ## Places
 
 Each row is a place as entered, with a pin that is filled when the place has map coordinates and muted when it does not, and the number of events and media that use it. Unfold a place to list the persons concerned: the persons of its events (both spouses for a couple's event) and the persons linked to its media.
+
+{{ <screenshot name="dictionary-places" alt="Places tab of the dictionary, opened on Quimper with the persons whose events took place there" lang={lang} /> }}
 
 ### Edit a place
 

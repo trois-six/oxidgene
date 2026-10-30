@@ -76,6 +76,8 @@ Un groupe dont l'intitulé est exactement celui du niveau au-dessus regroupe les
 
 Chaque ligne de source affiche son titre, son auteur et les dépôts qui la conservent, ainsi que son nombre de citations. Dépliez-la pour voir les personnes que la source documente : celles citées directement, la personne d'un événement cité, et les deux conjoints d'une union ou d'un événement d'union cités.
 
+{{ <screenshot name="dictionary-sources" alt="Onglet Sources du dictionnaire, ouvert sur les registres d’état civil de Quimper avec les personnes qu’ils documentent" lang={lang} /> }}
+
 ### Modifier une source
 
 Ouvrez le menu **⋮** en bout de ligne d’une source et choisissez **Modifier** pour ouvrir **Modifier la source** :
@@ -97,6 +99,8 @@ L'onglet **Dépôts** liste les services d'archives, bibliothèques et administr
 ## Lieux
 
 Chaque ligne est un lieu tel qu'il a été saisi, avec une punaise pleine lorsque le lieu a des coordonnées géographiques et estompée sinon, et le nombre d'événements et de médias qui l'utilisent. Dépliez un lieu pour lister les personnes concernées : celles de ses événements (les deux conjoints pour un événement de couple) et celles liées à ses médias.
+
+{{ <screenshot name="dictionary-places" alt="Onglet Lieux du dictionnaire, ouvert sur Quimper avec les personnes dont des événements s’y sont déroulés" lang={lang} /> }}
 
 ### Modifier un lieu
 

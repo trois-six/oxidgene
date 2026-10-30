@@ -56,6 +56,8 @@ Back in the viewer, hover a region or its row in the facts column to see its fra
 
 Click any tile to open the document in the viewer. It fills the window and shows the page with a column of facts beside it.
 
+{{ <screenshot name="media-viewer" alt="Media viewer showing a wedding photograph, attached to the couple, with the bride and groom identified on it" lang={lang} /> }}
+
 - **Zoom in**, **Zoom out** and **Fit** size the image; drag it when it overflows.
 - A PDF opens as a document to read: its pages follow one another as you scroll, and you can select and copy its text and follow its links. Type in **Search** to find a word: Enter, or the arrows beside the field, move from one match to the next, and the count says which one is shown. **Zoom in**, **Zoom out** and **Fit** (the width of the page) redraw the pages sharply. As for a document of several pages, the page you are reading is shown beside the title, the pager below moves to any page, and the target icon attaches the PDF to a person or a couple; only identifying someone on it is not offered. A PDF that cannot be opened offers its download instead. In a gallery, the tile of a PDF shows its first page.
 - A multi-page document has a pager to move between its pages. In a narrow window it shows fewer page numbers, always keeping the first, the last and the current page. Each page can have its own transcript, shown with the page number.

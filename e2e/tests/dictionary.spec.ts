@@ -151,3 +151,41 @@ test("a repository renamed to another's name is merged into it", async ({ page, 
         expect.objectContaining({ name: "Fictional county archive", address: "1 Imaginary Road", phone: "000 000" }),
     ]);
 });
+
+test("each tab and each record has an address of its own", async ({ page, request, tree }) => {
+    const repository = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/repositories`, {
+        data: { name: "Fictional parish archive" },
+    });
+    expect(repository.status()).toBe(201);
+    const repositoryId = (await repository.json()).id as string;
+    const base = `${apiUrl}/api/v1/trees/${tree.treeId}`;
+    const sources = (await (await request.get(`${base}/sources`)).json()) as { edges: Array<{ node: { id: string; title: string } }> };
+    const sourceId = sources.edges.map((edge) => edge.node).find((source) => source.title === "Parish register 1")?.id;
+    expect(sourceId, "the fixture's Parish register 1").toBeTruthy();
+    const places = (await (await request.get(`${base}/places?first=100`)).json()) as { edges: Array<{ node: { id: string; name: string } }> };
+    const placeId = places.edges.map((edge) => edge.node).find((place) => place.name.includes("Westford"))?.id;
+    expect(placeId, "the fixture's Westford").toBeTruthy();
+
+    // A tab's address opens the page on it.
+    for (const [path, tab, entry] of [
+        ["sources", "Sources", "Parish register 0"],
+        ["places", "Places", "Northfield"],
+        ["repositories", "Repositories", "Fictional parish archive"],
+    ]) {
+        await page.goto(`/trees/${tree.treeId}/dictionary/${path}`);
+        await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator(".dict-row", { hasText: entry }).first()).toBeVisible();
+    }
+
+    // A record's address opens its row, unfolded and focused.
+    for (const [path, id, row] of [
+        ["sources", sourceId, `dict-source-${sourceId}`],
+        ["places", placeId, `dict-place-${placeId}`],
+        ["repositories", repositoryId, `dict-repository-${repositoryId}`],
+    ]) {
+        await page.goto(`/trees/${tree.treeId}/dictionary/${path}/${id}`);
+        const opened = page.locator(`#${row}`);
+        await expect(opened).toBeFocused();
+        await expect(opened).toContainText("▲");
+    }
+});

@@ -56,6 +56,8 @@ De retour dans la visionneuse, survolez une zone, ou sa ligne dans la colonne d�
 
 Cliquez sur n’importe quelle vignette pour ouvrir le document dans la visionneuse. Elle occupe toute la fenêtre et présente la page à côté d’une colonne d’informations.
 
+{{ <screenshot name="media-viewer" alt="Visionneuse montrant une photographie de mariage, rattachée au couple, avec les mariés identifiés dessus" lang={lang} /> }}
+
 - **Agrandir**, **Réduire** et **Ajuster** règlent la taille de l’image ; faites-la glisser quand elle déborde.
 - Un PDF s’ouvre comme un document à lire : ses pages se suivent quand vous faites défiler, et vous pouvez sélectionner et copier son texte et suivre ses liens. Tapez un mot dans **Rechercher** pour le trouver : Entrée, ou les flèches à côté du champ, passent d’une occurrence à l’autre, et le compteur indique laquelle est affichée. **Agrandir**, **Réduire** et **Ajuster** (la largeur de la page) redessinent les pages avec netteté. Comme pour un document de plusieurs pages, la page que vous lisez est indiquée à côté du titre, la pagination en bas mène à n’importe quelle page, et l’icône en forme de cible rattache le PDF à une personne ou à un couple ; seule l’identification de quelqu’un n’y est pas proposée. Un PDF qui ne peut pas être ouvert propose à la place de le télécharger. Dans une galerie, la vignette d’un PDF montre sa première page.
 - Un document de plusieurs pages dispose d’un sélecteur de pages. Dans une fenêtre étroite, il montre moins de numéros, en gardant toujours la première, la dernière et la page en cours. Chaque page peut avoir sa propre transcription, affichée avec son numéro.

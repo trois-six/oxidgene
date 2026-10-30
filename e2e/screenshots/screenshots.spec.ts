@@ -62,6 +62,14 @@ interface Ids {
     root: string;
     weddingGroom: string;
     cousin: string;
+    /// The wedding photograph, for the media viewer.
+    weddingPhoto: string;
+    /// The "Lorient" tag, carried by a person and a postcard.
+    lorientTag: string;
+    /// The civil registers of Quimper, cited by the root's birth.
+    quimperRegisters: string;
+    /// Quimper, the root's birthplace.
+    quimper: string;
 }
 
 async function personId(request: APIRequestContext, treeId: string, given: string, surname: string, born?: number): Promise<string> {
@@ -182,7 +190,25 @@ async function seed(request: APIRequestContext): Promise<Ids> {
     await importFile(request, other.id, readFileSync(join(repository, "e2e", "fixtures", "family-blocks.ged")), "gedcom");
     await json(request, "post", "/trees", { name: "Daulac line", description: "To start: the family of Joseph Daulac" });
 
-    return { treeId: tree.id, root, weddingGroom: groom, cousin };
+    const weddingPhoto = media.edges.find(({ node }) => /wedding/i.test(node.title ?? ""))?.node.id;
+    expect(weddingPhoto, "the wedding photograph").toBeTruthy();
+    const sources = await json<{ edges: Array<{ node: { id: string; title: string } }> }>(request, "get", `/trees/${tree.id}/sources?first=100`);
+    const quimperRegisters = sources.edges.find(({ node }) => node.title.startsWith("Civil registers of Quimper"))?.node.id;
+    expect(quimperRegisters, "the civil registers of Quimper").toBeTruthy();
+    const places = await json<{ edges: Array<{ node: { id: string; name: string } }> }>(request, "get", `/trees/${tree.id}/places?first=100`);
+    const quimper = places.edges.find(({ node }) => node.name.startsWith("Quimper,"))?.node.id;
+    expect(quimper, "Quimper").toBeTruthy();
+
+    return {
+        treeId: tree.id,
+        root,
+        weddingGroom: groom,
+        cousin,
+        weddingPhoto: weddingPhoto!,
+        lorientTag: tagIds.get("Lorient")!,
+        quimperRegisters: quimperRegisters!,
+        quimper: quimper!,
+    };
 }
 
 /// Pin the browser's clock, the language, the theme and every timestamp the
@@ -338,6 +364,9 @@ for (const language of LANGUAGES) {
         await page.goto(`/trees/${ids.treeId}/tools`);
         await page.getByRole("tab", { name: t(language, "tools.tab.anomalies") }).click();
         await shoot(page, language, "tools-anomalies");
+        await page.getByRole("tab", { name: t(language, "tools.tab.ancestry") }).click();
+        await expect(page.locator("table.tools-generations")).toBeVisible();
+        await shoot(page, language, "tools-ancestry");
         await page.getByRole("tab", { name: t(language, "tools.tab.duplicates") }).click();
         await shoot(page, language, "tools-duplicates");
         // The first pair, compared in the merge wizard.
@@ -363,6 +392,32 @@ for (const language of LANGUAGES) {
         await shoot(page, language, "dictionary");
         await page.getByRole("tab", { name: t(language, "dictionary.tab.media") }).click();
         await shoot(page, language, "media-library");
+    });
+
+    test(`dictionary records (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        // A source's and a place's own address opens their row, unfolded.
+        await page.goto(`/trees/${ids.treeId}/dictionary/sources/${ids.quimperRegisters}`);
+        await expect(page.locator(`#dict-source-${ids.quimperRegisters}`)).toBeFocused();
+        await shoot(page, language, "dictionary-sources");
+        await page.goto(`/trees/${ids.treeId}/dictionary/places/${ids.quimper}`);
+        await expect(page.locator(`#dict-place-${ids.quimper}`)).toBeFocused();
+        await shoot(page, language, "dictionary-places");
+    });
+
+    test(`tag (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/dictionary/tags/${ids.lorientTag}`);
+        await expect(page.getByRole("tab", { name: t(language, "dictionary.tab.tags") })).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByText(cast.spouse.given).first()).toBeVisible();
+        await shoot(page, language, "tags");
+    });
+
+    test(`media viewer (${language})`, async ({ page }) => {
+        await pin(page, language, "light");
+        await page.goto(`/trees/${ids.treeId}/media/${ids.weddingPhoto}`);
+        await expect(page.locator(".media-viewer .cropper-title")).toContainText("Joseph Daulac");
+        await shoot(page, language, "media-viewer");
     });
 
     test(`history (${language})`, async ({ page }) => {

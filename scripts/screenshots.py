@@ -42,12 +42,17 @@ CAROUSEL_NAME = "readme-carousel"
 CAROUSEL = [
     "pedigree",
     "person",
+    "media-viewer",
     "fan-chart-dark",
     "couple",
     "statistics-map",
     "kinship",
     "search",
+    "dictionary-sources",
+    "dictionary-places",
+    "tags",
     "media-library",
+    "tools-ancestry",
     "history",
     "app-settings-dark",
 ]

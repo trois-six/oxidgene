@@ -69,6 +69,8 @@ The **Ancestry completeness** tab follows your ancestry generation by generation
 - Below, each generation lists its ancestors by SOSA number, each linked to their profile with their dates and a mark per key fact: green when recorded, red and struck through when missing. A generation with something to fill opens by itself; a complete one stays folded.
 - **Show only what is missing** keeps the missing ancestors and those lacking a fact.
 
+{{ <screenshot name="tools-ancestry" alt="Ancestry completeness tab: ancestors found generation by generation from the SOSA root" lang={lang} /> }}
+
 The key facts are a birth or baptism, a death or burial, and a union with the other parent in the line (a marriage, a civil union, banns, a contract and the like). A person with no death recorded and born fewer than 120 years ago may still be alive, so no death is expected for them.
 
 Only the missing parents of known ancestors are listed as **Missing ancestor**. Their own ancestors are counted under each generation instead ("12 more ancestors are missing because their children are too"). An ancestor reached through two lines appears at each of their SOSA numbers.

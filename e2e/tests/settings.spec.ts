@@ -214,3 +214,34 @@ test("a GEDCOM export is written for the chosen destination program and says wha
     await page.locator(".settings-export-format").selectOption("gedzip");
     await expect(destination).toBeHidden();
 });
+
+test("the app settings switch the theme and the language, and keep both on the device", async ({ page }) => {
+    await page.goto("/settings");
+    const title = page.locator(".td-bc-current");
+    await expect(title).toHaveText("Settings");
+    const theme = (label: string) =>
+        page.locator(".theme-picker-option").filter({ has: page.locator(".theme-picker-label").getByText(label, { exact: true }) });
+    const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+    // Appearance opens first: the dark theme repaints the whole page.
+    const light = theme("Light");
+    const dark = theme("Dark");
+    await light.click();
+    await expect(light).toHaveAttribute("aria-pressed", "true");
+    const lightBackground = await background();
+    await dark.click();
+    await expect(dark).toHaveAttribute("aria-pressed", "true");
+    await expect(light).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(background).not.toBe(lightBackground);
+
+    // The language rewrites the interface at once.
+    await page.getByRole("button", { name: "Language", exact: true }).click();
+    await page.locator(".lang-option", { hasText: "Français" }).click();
+    await expect(title).toHaveText("Paramètres");
+    await expect(page.getByRole("button", { name: "Apparence", exact: true })).toBeVisible();
+
+    await page.reload();
+    await expect(title).toHaveText("Paramètres");
+    await expect(theme("Sombre")).toHaveAttribute("aria-pressed", "true");
+    expect(await background()).not.toBe(lightBackground);
+});
