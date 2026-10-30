@@ -87,6 +87,7 @@ const SETTINGS_NAV: [(&str, &[(&str, &str)]); 4] = [
         &[
             ("tree-roots", "settings.tree_roots"),
             ("privacy", "settings.privacy"),
+            ("anomalies", "settings.anomalies"),
         ],
     ),
     ("settings.tools", &[("history", "settings.history")]),
@@ -574,6 +575,9 @@ pub fn Settings(tree_id: String) -> Element {
                     "privacy" => rsx! {
                         PrivacySection { tree_id: tree_id.clone(), tree_resource }
                     },
+                    "anomalies" => rsx! {
+                        AnomaliesSection { tree_resource }
+                    },
                     "export" => rsx! {
                         ExportSection {
                             tree_id: tree_id.clone(),
@@ -972,6 +976,214 @@ fn PrivacySection(
                 if let Some(err) = &save_error() {
                     div { class: "error-msg settings-feedback", "{err}" }
                 }
+            }
+        }
+    }
+}
+
+/// The thresholds of the anomaly rules, by the category of the rules that
+/// apply them, as `AnomalyThresholds` names them.
+const THRESHOLD_GROUPS: [(&str, &[&str]); 4] = [
+    (
+        "dates",
+        &[
+            "max_lifespan_years",
+            "old_centenarian_years",
+            "centenarian_before_year",
+            "max_age_alive_years",
+            "recorded_age_tolerance_years",
+            "approximate_slack_years",
+        ],
+    ),
+    (
+        "filiation",
+        &[
+            "min_parent_age_years",
+            "max_father_age_years",
+            "max_mother_age_years",
+            "max_posthumous_birth_days",
+            "twin_days",
+            "min_sibling_gap_days",
+            "max_sibling_gap_years",
+        ],
+    ),
+    (
+        "unions",
+        &[
+            "min_union_age_years",
+            "max_union_age_years",
+            "max_spouse_gap_years",
+        ],
+    ),
+    ("places", &["max_same_day_distance_km"]),
+];
+
+/// The thresholds the anomaly rules of the Tools page apply to this tree
+/// (`docs/ui-settings.md` §8b).
+#[component]
+fn AnomaliesSection(
+    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "settings-section",
+            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.anomalies")} }
+            p { class: "settings-section-subtitle", {i18n.t("settings.anomalies_desc")} }
+            if let Some(Some(Ok(tree))) = &*tree_resource.read() {
+                ThresholdsForm { key: "{tree.id}", tree_id: tree.id, thresholds: tree.anomaly_thresholds }
+            }
+        }
+    }
+}
+
+/// Why `values` cannot be saved, as an i18n key: a threshold out of its
+/// range is said beside it, so only the two that must agree are named here.
+fn thresholds_problem(values: &oxidgene_core::types::AnomalyThresholds) -> Option<&'static str> {
+    if values.old_centenarian_years > values.max_lifespan_years {
+        Some("settings.thresholds_centenarian")
+    } else if values.twin_days >= values.min_sibling_gap_days {
+        Some("settings.thresholds_twins")
+    } else {
+        None
+    }
+}
+
+/// One card per category of rules, a number field per threshold, saved all
+/// at once.
+#[component]
+fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresholds) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let text_of = |t: &oxidgene_core::types::AnomalyThresholds| {
+        t.ranges()
+            .iter()
+            .map(|(name, value, _)| (*name, value.to_string()))
+            .collect::<std::collections::BTreeMap<&'static str, String>>()
+    };
+    let mut texts = use_signal(|| text_of(&thresholds));
+    let mut saving = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut saved = use_signal(|| false);
+
+    // The values typed, each `None` while it is not a number in its range.
+    let defaults = oxidgene_core::types::AnomalyThresholds::default();
+    let mut values = defaults;
+    let mut out_of_range = Vec::new();
+    for (name, (min, max)) in defaults
+        .ranges()
+        .iter()
+        .map(|(name, _, range)| (*name, *range))
+    {
+        let typed = texts
+            .read()
+            .get(name)
+            .and_then(|text| text.trim().parse::<i32>().ok())
+            .filter(|v| (min..=max).contains(v));
+        match typed {
+            Some(value) => {
+                if let Some((_, field)) = values.fields_mut().into_iter().find(|(n, _)| *n == name)
+                {
+                    *field = value;
+                }
+            }
+            None => out_of_range.push(name),
+        }
+    }
+    let problem = thresholds_problem(&values);
+    let can_save = out_of_range.is_empty() && problem.is_none() && !saving();
+
+    let save = move |_| {
+        let api = api.clone();
+        let body = UpdateTreeBody {
+            anomaly_thresholds: Some(values),
+            ..Default::default()
+        };
+        saving.set(true);
+        saved.set(false);
+        error.set(None);
+        spawn(async move {
+            match api.update_tree(tree_id, &body).await {
+                Ok(tree) => {
+                    tree_cache.refresh_tree(tree_id, tree);
+                    saved.set(true);
+                }
+                Err(e) => error.set(Some(e.to_string())),
+            }
+            saving.set(false);
+        });
+    };
+
+    rsx! {
+        for (category, names) in THRESHOLD_GROUPS {
+            div { key: "{category}", class: "card settings-card",
+                h3 { class: "settings-card-title", {i18n.t(&format!("tools.anomalies.category.{category}"))} }
+                div { class: "form-row",
+                    for name in names.iter().copied() {
+                        {
+                            let (min, max) = defaults
+                                .ranges()
+                                .iter()
+                                .find(|(n, ..)| *n == name)
+                                .map(|(_, _, range)| *range)
+                                .unwrap_or_default();
+                            let id = format!("threshold-{name}");
+                            let text = texts.read().get(name).cloned().unwrap_or_default();
+                            rsx! {
+                                div { key: "{name}", class: "form-group",
+                                    label { r#for: "{id}", {i18n.t(&format!("settings.threshold.{name}"))} }
+                                    input {
+                                        id: "{id}",
+                                        r#type: "number",
+                                        min: "{min}",
+                                        max: "{max}",
+                                        value: "{text}",
+                                        oninput: move |e: Event<FormData>| {
+                                            texts.write().insert(name, e.value());
+                                            saved.set(false);
+                                        },
+                                    }
+                                    if out_of_range.contains(&name) {
+                                        p { class: "field-hint field-hint-warn",
+                                            {i18n.t_args("settings.thresholds_range", &[("min", &min.to_string()), ("max", &max.to_string())])}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        div { class: "card settings-card",
+            if let Some(key) = problem {
+                p { class: "field-hint field-hint-warn", {i18n.t(key)} }
+            }
+            div { class: "settings-export-row",
+                button {
+                    class: "btn btn-outline",
+                    r#type: "button",
+                    disabled: saving(),
+                    onclick: move |_| {
+                        texts.set(text_of(&oxidgene_core::types::AnomalyThresholds::default()));
+                        saved.set(false);
+                    },
+                    {i18n.t("settings.thresholds_reset")}
+                }
+                button {
+                    class: "btn btn-primary",
+                    r#type: "button",
+                    disabled: !can_save,
+                    onclick: save,
+                    if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg settings-feedback", "{err}" }
+            }
+            if saved() {
+                div { class: "success-msg settings-feedback", {i18n.t("settings.thresholds_saved")} }
             }
         }
     }

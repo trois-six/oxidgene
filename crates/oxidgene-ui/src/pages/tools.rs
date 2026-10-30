@@ -7,11 +7,12 @@
 use dioxus::prelude::*;
 use oxidgene_core::calendar::to_jdn;
 use oxidgene_core::enums::{Calendar, DateQualifier};
+use oxidgene_core::types::AnomalyThresholds;
 use uuid::Uuid;
 
 use crate::api::{
-    AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, DuplicatePair,
-    StatPersonRef, StatPlace, UpdatePlaceBody,
+    AncestorFacts, AncestryGeneration, Anomaly, AnomalyPlace, AnomalyRule, ApiClient,
+    DuplicatePair, StatPersonRef, StatPlace, UpdatePlaceBody,
 };
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
@@ -25,7 +26,7 @@ use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
-use crate::date_words::{self, Form, YearStart, Ymd};
+use crate::date_words::{self, Form, Style, YearStart, Ymd};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::statistics::{date_text, event_type_label, percent};
 use crate::prefs::{store, stored};
@@ -134,7 +135,119 @@ fn heading(i18n: &I18n, key: &str) -> Element {
 // ── Anomalies ───────────────────────────────────────────────────────────
 
 /// The anomaly categories, in the order the catalogue gives them.
-const CATEGORIES: [&str; 5] = ["dates", "filiation", "unions", "witnesses", "data_quality"];
+const CATEGORIES: [&str; 6] = [
+    "dates",
+    "filiation",
+    "unions",
+    "witnesses",
+    "data_quality",
+    "places",
+];
+
+/// How a threshold reads in a rule's title and sentence.
+#[derive(Clone, Copy)]
+enum ThresholdUnit {
+    /// An age or a gap in years, in words ("105 years").
+    Years,
+    /// A gap in days, in words ("300 days").
+    Days,
+    /// A bare number: a year, kilometres.
+    Number,
+}
+
+/// A threshold a rule's title and sentence name: the placeholder, the
+/// threshold of `AnomalyThresholds` it reads and how it is written.
+type NamedThreshold = (&'static str, &'static str, ThresholdUnit);
+
+/// The thresholds each rule's title and sentence name.
+const RULE_THRESHOLDS: &[(&str, &[NamedThreshold])] = {
+    use ThresholdUnit::{Days, Number, Years};
+    &[
+        ("lived_over_105", &[("age", "max_lifespan_years", Years)]),
+        (
+            "centenarian_before_1900",
+            &[
+                ("age", "old_centenarian_years", Years),
+                ("year", "centenarian_before_year", Number),
+            ],
+        ),
+        (
+            "parent_too_young",
+            &[("age", "min_parent_age_years", Years)],
+        ),
+        ("father_too_old", &[("age", "max_father_age_years", Years)]),
+        ("mother_too_old", &[("age", "max_mother_age_years", Years)]),
+        (
+            "born_long_after_father_death",
+            &[("days", "max_posthumous_birth_days", Days)],
+        ),
+        (
+            "siblings_too_close",
+            &[
+                ("twins", "twin_days", Days),
+                ("gap", "min_sibling_gap_days", Days),
+            ],
+        ),
+        (
+            "siblings_far_apart",
+            &[("age", "max_sibling_gap_years", Years)],
+        ),
+        ("union_too_young", &[("age", "min_union_age_years", Years)]),
+        ("union_over_100", &[("age", "max_union_age_years", Years)]),
+        ("spouses_age_gap", &[("age", "max_spouse_gap_years", Years)]),
+        (
+            "recorded_age_mismatch",
+            &[("age", "recorded_age_tolerance_years", Years)],
+        ),
+        ("alive_too_old", &[("age", "max_age_alive_years", Years)]),
+        (
+            "distant_places_same_day",
+            &[("distance", "max_same_day_distance_km", Number)],
+        ),
+    ]
+};
+
+/// The values of the thresholds `rule`'s title and sentence name, as the
+/// tree sets them, each under its placeholder.
+fn threshold_args(
+    i18n: &I18n,
+    rule: &str,
+    thresholds: &AnomalyThresholds,
+) -> Vec<(&'static str, String)> {
+    let Some((_, named)) = RULE_THRESHOLDS.iter().find(|(id, _)| *id == rule) else {
+        return Vec::new();
+    };
+    named
+        .iter()
+        .filter_map(|(placeholder, field, unit)| {
+            let value = thresholds.get(field)?;
+            let count = usize::try_from(value).unwrap_or_default();
+            let text = match unit {
+                ThresholdUnit::Years => i18n.t_plural("stats.age", count),
+                ThresholdUnit::Days => i18n.t_plural("stats.days", count),
+                ThresholdUnit::Number => value.to_string(),
+            };
+            Some((*placeholder, text))
+        })
+        .collect()
+}
+
+/// A place of an anomaly: its name linked to its row in the Dictionary,
+/// where it is renamed or merged.
+fn anomaly_place(tree_route: &str, place: &AnomalyPlace) -> Element {
+    rsx! {
+        span { class: "tools-person",
+            Link {
+                to: Route::DictionaryPlace {
+                    tree_id: tree_route.to_string(),
+                    place_id: place.place_id.to_string(),
+                },
+                onclick: move |e: MouseEvent| e.stop_propagation(),
+                "{place.name}"
+            }
+        }
+    }
+}
 
 /// A person of an anomaly: their name linked to their profile, and a link
 /// centring the pedigree on them.
@@ -203,12 +316,27 @@ fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
                 i18n.t_args("tools.anomalies.detail.dates_give", &[("age", &years())])
             }
             "repeated_union" => i18n.t_plural("stats.count.unions", n),
+            "unique_event_twice" => i18n.t_plural("tools.anomalies.detail.recorded_times", n),
+            "child_of_several_families" => i18n.t_plural("tools.anomalies.detail.families", n),
+            "alive_too_old" => {
+                i18n.t_args("tools.anomalies.detail.would_be_aged", &[("age", &years())])
+            }
+            "distant_places_same_day" => i18n.t_args(
+                "tools.anomalies.detail.km_apart",
+                &[("distance", &n.to_string())],
+            ),
             _ => n.to_string(),
         };
         parts.push(part);
     }
-    if let Some(event_type) = &anomaly.event_type {
-        parts.push(event_type_label(i18n, event_type));
+    match (&anomaly.event_type, &anomaly.other_event_type) {
+        (Some(first), Some(second)) => parts.push(format!(
+            "{} \u{2194} {}",
+            event_type_label(i18n, first),
+            event_type_label(i18n, second)
+        )),
+        (Some(event_type), None) => parts.push(event_type_label(i18n, event_type)),
+        _ => {}
     }
     if let Some(text) = &anomaly.text {
         // A recorded age reads in words; any other text as recorded.
@@ -223,18 +351,29 @@ fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
 }
 
 /// Where a click on an anomaly's row leads: the profile of its subject, the
-/// first person it names, or the couple of a union's anomaly naming nobody.
+/// first person it names; the Dictionary row of the first place of an
+/// anomaly naming places alone; or the couple of a union's anomaly naming
+/// nobody.
 fn anomaly_target(tree_route: &str, anomaly: &Anomaly) -> Option<Route> {
-    match (anomaly.persons.first(), anomaly.family_id) {
-        (Some(subject), _) => Some(Route::PersonDetail {
-            tree_id: tree_route.to_string(),
+    let tree_id = tree_route.to_string();
+    match (
+        anomaly.persons.first(),
+        anomaly.places.first(),
+        anomaly.family_id,
+    ) {
+        (Some(subject), _, _) => Some(Route::PersonDetail {
+            tree_id,
             person_id: subject.person_id.to_string(),
         }),
-        (None, Some(family_id)) => Some(Route::CoupleDetail {
-            tree_id: tree_route.to_string(),
+        (None, Some(place), _) => Some(Route::DictionaryPlace {
+            tree_id,
+            place_id: place.place_id.to_string(),
+        }),
+        (None, None, Some(family_id)) => Some(Route::CoupleDetail {
+            tree_id,
             family_id: family_id.to_string(),
         }),
-        (None, None) => None,
+        (None, None, None) => None,
     }
 }
 
@@ -245,17 +384,22 @@ fn render_rule(
     nav: dioxus::router::Navigator,
     tree_route: &str,
     rule: &AnomalyRule,
+    thresholds: &AnomalyThresholds,
 ) -> Element {
     let severity = i18n.t(&format!("tools.anomalies.severity.{}", rule.severity));
     let more = rule.count - rule.items.len() as i64;
+    let args = threshold_args(i18n, &rule.rule, thresholds);
+    let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let title = i18n.t_args(&format!("tools.anomalies.rule.{}", rule.rule), &args);
+    let hint = i18n.t_args(&format!("tools.anomalies.hint.{}", rule.rule), &args);
     rsx! {
         details { key: "{rule.rule}", class: "tools-generation tools-rule",
             summary {
                 span { class: "tools-severity tools-severity-{rule.severity}", "{severity}" }
-                span { class: "tools-rule-title", {i18n.t(&format!("tools.anomalies.rule.{}", rule.rule))} }
+                span { class: "tools-rule-title", "{title}" }
                 span { class: "stats-legend-count", "{rule.count}" }
             }
-            p { class: "tools-intro tools-rule-hint", {i18n.t(&format!("tools.anomalies.hint.{}", rule.rule))} }
+            p { class: "tools-intro tools-rule-hint", "{hint}" }
             table { class: "stats-table",
                 tbody {
                     for (k, anomaly) in rule.items.iter().enumerate() {
@@ -287,6 +431,12 @@ fn render_rule(
                                         span { class: "text-muted", " · " }
                                     }
                                     {anomaly_person(i18n, tree_route, person)}
+                                }
+                                for (j, place) in anomaly.places.iter().enumerate() {
+                                    if j > 0 || !anomaly.persons.is_empty() {
+                                        span { class: "text-muted", " · " }
+                                    }
+                                    {anomaly_place(tree_route, place)}
                                 }
                                 if let Some(family_id) = anomaly.family_id {
                                     Link {
@@ -363,7 +513,7 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
                         section { key: "{cat}", class: "tools-category-section",
                             h3 { class: "stats-card-title", {i18n.t(&format!("tools.anomalies.category.{cat}"))} }
                             for rule in result.rules.iter().filter(|r| r.category == cat) {
-                                {render_rule(&i18n, nav, &tree_route, rule)}
+                                {render_rule(&i18n, nav, &tree_route, rule, &result.thresholds)}
                             }
                         }
                     }
@@ -1111,50 +1261,123 @@ fn words_date(parts: &DateParts) -> Option<(Ymd, Calendar)> {
     ))
 }
 
-/// The date written out in every language and in Latin, with the Latin's
-/// parts; or why it cannot be.
+/// A Hebrew or Republican date as entered, in its own calendar, which the
+/// languages write it in; `None` for another calendar or while the entry is
+/// not a date.
+fn native_date(parts: &DateParts) -> Option<(Ymd, Calendar)> {
+    if parts.is_empty() || parts.validate().is_some() {
+        return None;
+    }
+    let parts = parts.resolved();
+    matches!(
+        parts.calendar,
+        Calendar::Hebrew | Calendar::FrenchRepublican
+    )
+    .then_some((
+        Ymd {
+            year: parts.year?,
+            month: parts.month,
+            day: parts.day.filter(|_| parts.month.is_some()),
+        },
+        parts.calendar,
+    ))
+}
+
+/// How the dates are written beyond what is entered: the page's options.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WordsOptions {
+    form: Form,
+    start: YearStart,
+    /// The year in both styles when they differ.
+    double: bool,
+    /// Latin's classical subtractive forms.
+    classical: bool,
+}
+
+/// The i18n key naming a year style.
+fn style_key(start: YearStart) -> &'static str {
+    match start {
+        YearStart::January => "tools.words.style.january",
+        YearStart::Annunciation => "tools.words.style.annunciation",
+        YearStart::Christmas => "tools.words.style.christmas",
+        YearStart::Easter => "tools.words.style.easter",
+    }
+}
+
+/// The year styles the page offers, by their value in its select.
+const YEAR_STYLES: [(&str, YearStart); 4] = [
+    ("january", YearStart::January),
+    ("annunciation", YearStart::Annunciation),
+    ("christmas", YearStart::Christmas),
+    ("easter", YearStart::Easter),
+];
+
+/// The date written out in every language and in Latin, with the feast of
+/// the day and the Latin's parts; or why it cannot be. `date` is the
+/// Gregorian or Julian date, `native` the Hebrew or Republican one entered.
 fn written_dates(
     i18n: &I18n,
     entered: &DateParts,
-    styled: Option<(Ymd, Calendar)>,
-    form: Form,
-    start: YearStart,
+    date: Option<(Ymd, Calendar)>,
+    native: Option<(Ymd, Calendar)>,
+    options: WordsOptions,
 ) -> Element {
     let empty = |key: &str| rsx! { p { class: "stats-empty", {i18n.t(key)} } };
-    let Some((ymd, calendar)) = styled else {
+    let Some((ymd, calendar)) = date else {
         return empty(if entered.is_empty() {
             "tools.words.enter"
         } else {
             "tools.words.out_of_range"
         });
     };
-    let Some(latin) = date_words::latin_parts(ymd) else {
+    let styled = ymd.in_style(options.start, calendar);
+    let double = (options.double && styled.year != ymd.year)
+        .then(|| date_words::double_year(styled.year, ymd.year));
+    let style = Style {
+        double: double.as_deref(),
+        classical: options.classical,
+    };
+    let Some(latin) = date_words::latin_parts(styled, options.classical) else {
         return empty("tools.words.out_of_range");
     };
+    let in_language = |language: Language| {
+        native
+            .and_then(|(day, cal)| date_words::written_in(language, cal, day, options.form))
+            .or_else(|| date_words::written(language, styled, options.form, style))
+            .unwrap_or_default()
+    };
+    let feast = date_words::feast(calendar, ymd);
     rsx! {
         div { class: "stats-card copy-card tools-words",
             for language in Language::available() {
                 CopyField {
                     key: "{language.code()}",
                     label: language.native_name().to_string(),
-                    value: date_words::written(language, ymd, form).unwrap_or_default(),
+                    value: in_language(language),
                     multiline: false,
                 }
             }
             CopyField {
                 label: i18n.t("tools.words.latin"),
-                value: date_words::latin(ymd, form).unwrap_or_default(),
+                value: date_words::latin(styled, options.form, style).unwrap_or_default(),
                 multiline: false,
             }
-            if let Some(reckoning) = date_words::latin_roman_reckoning(calendar, ymd) {
+            if let Some(reckoning) = date_words::latin_roman_reckoning(calendar, styled) {
                 CopyField {
                     label: i18n.t("tools.words.roman_reckoning"),
                     value: reckoning,
                     multiline: false,
                 }
             }
+            if let Some(feast) = feast {
+                CopyField {
+                    label: i18n.t("tools.words.feast"),
+                    value: feast.to_string(),
+                    multiline: false,
+                }
+            }
         }
-        {latin_parts_table(i18n, ymd, calendar, &latin, start)}
+        {latin_parts_table(i18n, styled, calendar, &latin, options.start, double.as_deref())}
     }
 }
 
@@ -1166,12 +1389,14 @@ fn latin_parts_table(
     calendar: Calendar,
     latin: &date_words::LatinParts,
     start: YearStart,
+    double: Option<&str>,
 ) -> Element {
     let calendar_key = if calendar == Calendar::Julian {
         "calendar.julian"
     } else {
         "calendar.gregorian"
     };
+    let year = double.map_or_else(|| ymd.year.to_string(), str::to_string);
     rsx! {
         table { class: "stats-table tools-words-parts",
             caption { {i18n.t("tools.words.parts")} }
@@ -1190,15 +1415,15 @@ fn latin_parts_table(
                 }
                 tr {
                     th { {i18n.t("tools.words.part.year")} }
-                    td { "{ymd.year} = {latin.year.0} = {latin.year.1}" }
+                    td { "{year} = {latin.year.0} = {latin.year.1}" }
                 }
                 tr {
                     th { {i18n.t("tools.words.part.calendar")} }
                     td {
                         {i18n.t(calendar_key)}
-                        if start == YearStart::Annunciation {
+                        if start != YearStart::January {
                             " · "
-                            {i18n.t("tools.words.style.annunciation")}
+                            {i18n.t(style_key(start))}
                         }
                     }
                 }
@@ -1215,12 +1440,19 @@ fn DateWords() -> Element {
     let mut parts = use_signal(DateParts::default);
     let mut form = use_signal(|| Form::Long);
     let mut start = use_signal(|| YearStart::January);
+    let mut double = use_signal(|| false);
+    let mut classical = use_signal(|| false);
     let mut text = use_signal(String::new);
     let mut read_error = use_signal(|| None::<&'static str>);
 
     let entered = parts();
     let date = words_date(&entered);
-    let styled = date.map(|(ymd, calendar)| (ymd.in_style(start()), calendar));
+    let options = WordsOptions {
+        form: form(),
+        start: start(),
+        double: double(),
+        classical: classical(),
+    };
     let calendar_note = match (entered.calendar, date) {
         (Calendar::Hebrew | Calendar::FrenchRepublican, Some(_)) => {
             Some(i18n.t("tools.words.read_as_gregorian"))
@@ -1241,7 +1473,7 @@ fn DateWords() -> Element {
         Err(error) => read_error.set(Some(error.key())),
     };
 
-    let outputs = written_dates(&i18n, &entered, styled, form(), start());
+    let outputs = written_dates(&i18n, &entered, date, native_date(&entered), options);
 
     rsx! {
         section { class: "stats-section",
@@ -1262,11 +1494,32 @@ fn DateWords() -> Element {
                 label { class: "stats-interval",
                     {i18n.t("tools.words.style")}
                     select {
-                        value: if start() == YearStart::January { "january" } else { "annunciation" },
-                        onchange: move |e| start.set(if e.value() == "annunciation" { YearStart::Annunciation } else { YearStart::January }),
-                        option { value: "january", {i18n.t("tools.words.style.january")} }
-                        option { value: "annunciation", {i18n.t("tools.words.style.annunciation")} }
+                        value: YEAR_STYLES.iter().find(|(_, s)| *s == start()).map_or("january", |(v, _)| *v),
+                        onchange: move |e| {
+                            let chosen = YEAR_STYLES.iter().find(|(v, _)| *v == e.value());
+                            start.set(chosen.map_or(YearStart::January, |(_, s)| *s));
+                        },
+                        for (value, style) in YEAR_STYLES {
+                            option { key: "{value}", value, {i18n.t(style_key(style))} }
+                        }
                     }
+                }
+                label { class: "stats-option tools-filter",
+                    input {
+                        r#type: "checkbox",
+                        checked: double(),
+                        disabled: start() == YearStart::January,
+                        onchange: move |e: Event<FormData>| double.set(e.checked()),
+                    }
+                    {i18n.t("tools.words.double")}
+                }
+                label { class: "stats-option tools-filter",
+                    input {
+                        r#type: "checkbox",
+                        checked: classical(),
+                        onchange: move |e: Event<FormData>| classical.set(e.checked()),
+                    }
+                    {i18n.t("tools.words.classical")}
                 }
             }
             if let Some(note) = calendar_note {

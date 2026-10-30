@@ -19,6 +19,10 @@ pub struct Model {
     pub submitter_email: Option<String>,
     #[sea_orm(column_type = "Text")]
     pub submitter_address: Option<String>,
+    /// The `AnomalyThresholds` the tree sets, as JSON; `None` for the
+    /// defaults.
+    #[sea_orm(column_type = "Text")]
+    pub anomaly_thresholds: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

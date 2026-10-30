@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use super::mutation::{patch, patch_id, patch_scalar};
 use super::scope::{opt_uuid, uuid, uuids};
 use super::types::{
-    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
-    GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex,
-    GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    AnomalyThresholdsInput, GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier,
+    GqlDocumentCategory, GqlEventType, GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType,
+    GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ pub struct UpdateTreeInput {
     pub submitter_name: MaybeUndefined<String>,
     pub submitter_email: MaybeUndefined<String>,
     pub submitter_address: MaybeUndefined<String>,
+    /// The thresholds of the anomaly rules.
+    pub anomaly_thresholds: Option<AnomalyThresholdsInput>,
 }
 
 impl From<CreateTreeInput> for crate::service::tree::NewTree {
@@ -67,6 +69,7 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             submitter_name: patch(input.submitter_name),
             submitter_email: patch(input.submitter_email),
             submitter_address: patch(input.submitter_address),
+            anomaly_thresholds: input.anomaly_thresholds.map(Into::into),
         })
     }
 }

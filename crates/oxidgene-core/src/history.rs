@@ -557,6 +557,8 @@ pub struct TreeSnapshot {
     pub submitter_email: Option<String>,
     #[serde(default)]
     pub submitter_address: Option<String>,
+    #[serde(default)]
+    pub anomaly_thresholds: crate::types::AnomalyThresholds,
 }
 
 /// A snapshot item that keeps its identity across versions.

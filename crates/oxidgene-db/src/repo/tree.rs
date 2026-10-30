@@ -33,6 +33,23 @@ pub struct TreeChanges {
     pub submitter_name: Option<Option<String>>,
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
+    pub anomaly_thresholds: Option<oxidgene_core::types::AnomalyThresholds>,
+}
+
+/// The stored form of `thresholds`: none for the defaults, so that a tree
+/// that never changed them follows the defaults of every later version.
+pub fn thresholds_column(thresholds: &oxidgene_core::types::AnomalyThresholds) -> Option<String> {
+    (*thresholds != oxidgene_core::types::AnomalyThresholds::default())
+        .then(|| serde_json::to_string(thresholds).ok())
+        .flatten()
+}
+
+/// The thresholds a stored value holds: the defaults for none, and for each
+/// threshold it leaves out.
+pub fn thresholds_of(column: Option<&str>) -> oxidgene_core::types::AnomalyThresholds {
+    column
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
 }
 
 impl TreeChanges {
@@ -49,6 +66,10 @@ impl TreeChanges {
         set(&mut active.submitter_name, self.submitter_name);
         set(&mut active.submitter_email, self.submitter_email);
         set(&mut active.submitter_address, self.submitter_address);
+        set(
+            &mut active.anomaly_thresholds,
+            self.anomaly_thresholds.as_ref().map(thresholds_column),
+        );
     }
 }
 
@@ -92,6 +113,7 @@ impl TreeRepo {
             submitter_name: Set(None),
             submitter_email: Set(None),
             submitter_address: Set(None),
+            anomaly_thresholds: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -212,6 +234,7 @@ fn into_domain(m: tree::Model) -> Tree {
         submitter_name: m.submitter_name,
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,
+        anomaly_thresholds: thresholds_of(m.anomaly_thresholds.as_deref()),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

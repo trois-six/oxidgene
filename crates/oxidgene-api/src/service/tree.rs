@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::TreeDefaultPrivacy;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{Connection, Tree};
+use oxidgene_core::types::{AnomalyThresholds, Connection, Tree};
 use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,9 @@ pub struct TreePatch {
     pub submitter_email: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub submitter_address: Option<Option<String>>,
+    /// The thresholds of the anomaly rules, all at once: a threshold left
+    /// out takes its default.
+    pub anomaly_thresholds: Option<AnomalyThresholds>,
 }
 
 /// Every tree, a page at a time, each with the import running into it.
@@ -116,8 +119,9 @@ pub async fn create_tree(db: &DatabaseConnection, new: NewTree) -> Result<Tree, 
     Ok(tree)
 }
 
-/// Update tree `tree_id`. A blank name is refused, and a SOSA root or own
-/// record from another tree is not found.
+/// Update tree `tree_id`. A blank name is refused, so are anomaly thresholds
+/// out of their ranges, and a SOSA root or own record from another tree is
+/// not found.
 pub async fn update_tree(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -125,6 +129,9 @@ pub async fn update_tree(
 ) -> Result<Tree, OxidGeneError> {
     if let Some(name) = &patch.name {
         require_name(name)?;
+    }
+    if let Some(thresholds) = &patch.anomaly_thresholds {
+        thresholds.check().map_err(OxidGeneError::Validation)?;
     }
     let txn = begin_tx(db).await?;
     for person_id in [patch.sosa_root_person_id, patch.self_person_id]
@@ -150,6 +157,7 @@ pub async fn update_tree(
             submitter_name: patch.submitter_name.map(blank_to_none),
             submitter_email: patch.submitter_email.map(blank_to_none),
             submitter_address: patch.submitter_address.map(blank_to_none),
+            anomaly_thresholds: patch.anomaly_thresholds,
         },
     )
     .await?;

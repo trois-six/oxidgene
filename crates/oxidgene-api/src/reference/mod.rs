@@ -18,8 +18,9 @@ use serde::Serialize;
 
 pub use basemap::{BasemapCity, BasemapCountry, LocalName, basemap, basemap_etag};
 pub use loader::{
-    GivenNameEntry, OccupationEntry, ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet,
-    lookup_given_name, lookup_occupation, preheat, starts_a_word, suggest_terms,
+    GivenNameEntry, OccupationEntry, ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE,
+    given_name_sex, has_sheet, lookup_given_name, lookup_occupation, preheat, starts_a_word,
+    suggest_terms,
 };
 pub use places::{
     DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceLocation, PlaceReading,

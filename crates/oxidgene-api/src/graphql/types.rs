@@ -789,6 +789,59 @@ pub struct GqlPageInfo {
 
 // ── Tree ─────────────────────────────────────────────────────────────
 
+/// The thresholds of the anomaly rules, the output and the input naming the
+/// same fields as `AnomalyThresholds`, whose documentation they follow.
+macro_rules! anomaly_thresholds {
+    ($($field:ident),+ $(,)?) => {
+        /// The thresholds a tree's anomaly rules apply, each in whole years,
+        /// days or kilometres, or a year for `centenarianBeforeYear`.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, SimpleObject)]
+        pub struct GqlAnomalyThresholds {
+            $(pub $field: i32,)+
+        }
+
+        /// The thresholds of the anomaly rules, all at once: a threshold left
+        /// out takes its default.
+        #[derive(Debug, Clone, Copy, Default, InputObject)]
+        pub struct AnomalyThresholdsInput {
+            $(pub $field: Option<i32>,)+
+        }
+
+        impl From<oxidgene_core::types::AnomalyThresholds> for GqlAnomalyThresholds {
+            fn from(t: oxidgene_core::types::AnomalyThresholds) -> Self {
+                Self { $($field: t.$field,)+ }
+            }
+        }
+
+        impl From<AnomalyThresholdsInput> for oxidgene_core::types::AnomalyThresholds {
+            fn from(input: AnomalyThresholdsInput) -> Self {
+                let defaults = Self::default();
+                Self { $($field: input.$field.unwrap_or(defaults.$field),)+ }
+            }
+        }
+    };
+}
+
+anomaly_thresholds!(
+    max_lifespan_years,
+    old_centenarian_years,
+    centenarian_before_year,
+    min_parent_age_years,
+    max_father_age_years,
+    max_mother_age_years,
+    max_posthumous_birth_days,
+    twin_days,
+    min_sibling_gap_days,
+    max_sibling_gap_years,
+    min_union_age_years,
+    max_union_age_years,
+    max_spouse_gap_years,
+    recorded_age_tolerance_years,
+    approximate_slack_years,
+    max_age_alive_years,
+    max_same_day_distance_km,
+);
+
 /// A genealogical tree.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -804,6 +857,8 @@ pub struct GqlTree {
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     pub submitter_address: Option<String>,
+    /// The thresholds the tree's anomaly rules apply.
+    pub anomaly_thresholds: GqlAnomalyThresholds,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// The import running into the tree, when the tree list already knows it:
@@ -862,6 +917,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,
+            anomaly_thresholds: t.anomaly_thresholds.into(),
             created_at: t.created_at,
             updated_at: t.updated_at,
             import_job: None,
@@ -2743,6 +2799,28 @@ pub struct GqlDuplicatePair {
     /// Both records' full birth and death dates.
     pub first_dates: crate::service::duplicates::LifeDates,
     pub second_dates: crate::service::duplicates::LifeDates,
+}
+
+/// A tree's anomalies, by rule (`TreeAnomalies` of the service).
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "TreeAnomalies")]
+pub struct GqlTreeAnomalies {
+    /// Persons examined.
+    pub persons: i64,
+    /// The thresholds the rules applied: the tree's.
+    pub thresholds: GqlAnomalyThresholds,
+    /// The rules that found something, in catalogue order.
+    pub rules: Vec<crate::service::anomalies::AnomalyRule>,
+}
+
+impl From<crate::service::anomalies::TreeAnomalies> for GqlTreeAnomalies {
+    fn from(found: crate::service::anomalies::TreeAnomalies) -> Self {
+        Self {
+            persons: found.persons,
+            thresholds: found.thresholds.into(),
+            rules: found.rules,
+        }
+    }
 }
 
 /// A tree's potential duplicates: every pair found, and the best listed.

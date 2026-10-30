@@ -33,30 +33,48 @@ pub enum Form {
     Short,
 }
 
-/// When the year begins: on 1 January, or on 25 March as in the
-/// Annunciation style many registers kept, where a date from 1 January to
-/// 24 March still bears the previous year's number.
+/// When the year begins: on 1 January; on 25 March as in the Annunciation
+/// style many registers kept, where a date from 1 January to 24 March still
+/// bears the previous year's number; on 25 December, the Nativity style,
+/// where the last days of December bear the next year's; or at Easter, the
+/// French style before 1564, where the days before Easter bear the previous
+/// year's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum YearStart {
     January,
     Annunciation,
+    Christmas,
+    Easter,
 }
 
 impl Ymd {
-    /// The year as a register kept in `start` numbered it.
-    pub fn in_style(self, start: YearStart) -> Self {
-        let early = match (self.month, self.day) {
-            (Some(1 | 2), _) => true,
-            (Some(3), Some(day)) => day < 25,
-            _ => false,
-        };
-        if start == YearStart::Annunciation && early && self.year > 1 {
-            Self {
-                year: self.year - 1,
-                ..self
+    /// The year as a register kept in `start` numbered it, the date being in
+    /// `calendar` (whose Easter the Easter style reads). A date whose month
+    /// or day is unknown where the year turns keeps its number.
+    pub fn in_style(self, start: YearStart, calendar: Calendar) -> Self {
+        let shift = match start {
+            YearStart::January => 0,
+            YearStart::Annunciation => -i32::from(self.before(3, 25)),
+            YearStart::Christmas => {
+                i32::from(self.month == Some(12) && self.day.is_some_and(|d| d >= 25))
             }
+            YearStart::Easter => easter(calendar, self.year)
+                .map_or(0, |(month, day)| -i32::from(self.before(month, day))),
+        };
+        let year = self.year + shift;
+        if year >= 1 {
+            Self { year, ..self }
         } else {
             self
+        }
+    }
+
+    /// Whether the date comes wholly before `day` of `month` of its year.
+    fn before(self, month: u8, day: u8) -> bool {
+        match (self.month, self.day) {
+            (Some(m), _) if m < month => true,
+            (Some(m), Some(d)) => m == month && d < day,
+            _ => false,
         }
     }
 
@@ -66,6 +84,71 @@ impl Ymd {
             && self.day.is_none_or(|d| (1..=31).contains(&d))
             && (self.day.is_none() || self.month.is_some())
     }
+}
+
+/// How the dates are written beyond their form.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Style<'a> {
+    /// The year in two styles, "1649/50", for a date whose year style
+    /// numbers it otherwise than 1 January does (double dating).
+    pub double: Option<&'a str>,
+    /// Latin's classical subtractive ordinals: *duodevicesimo* (18th),
+    /// *undetricesimo* (29th), rather than *decimo octavo*, *vicesimo nono*.
+    pub classical: bool,
+}
+
+/// A year in two styles: the year as the style numbers it, then as from 1
+/// January, by the digits that differ from the hundreds on ("1649/50",
+/// "1699/1700", "1650/49" in the Nativity style).
+pub fn double_year(styled: i32, january: i32) -> String {
+    if styled / 100 == january / 100 {
+        format!("{styled}/{:02}", january.rem_euclid(100))
+    } else {
+        format!("{styled}/{january}")
+    }
+}
+
+/// The month and day of Easter of `year` in `calendar`: by the Julian
+/// computus in the Julian calendar; by the Gregorian one in the Gregorian
+/// calendar from 1583, and before, when the Church still kept the Julian
+/// computus, by that one carried into the Gregorian calendar. `None` for
+/// another calendar.
+pub fn easter(calendar: Calendar, year: i32) -> Option<(u8, u8)> {
+    match calendar {
+        Calendar::Julian => Some(julian_easter(year)),
+        Calendar::Gregorian if year >= 1583 => Some(gregorian_easter(year)),
+        Calendar::Gregorian => {
+            let (month, day) = julian_easter(year);
+            let jdn = oxidgene_core::calendar::to_jdn(Calendar::Julian, year, month, day)?;
+            let (_, month, day) = oxidgene_core::calendar::from_jdn(Calendar::Gregorian, jdn)?;
+            Some((month, day))
+        }
+        _ => None,
+    }
+}
+
+/// Easter by the Julian computus (Meeus), in the Julian calendar.
+fn julian_easter(year: i32) -> (u8, u8) {
+    let (a, b, c) = (year.rem_euclid(4), year.rem_euclid(7), year.rem_euclid(19));
+    let d = (19 * c + 15) % 30;
+    let e = (2 * a + 4 * b - d + 34).rem_euclid(7);
+    let f = d + e + 114;
+    ((f / 31) as u8, (f % 31 + 1) as u8)
+}
+
+/// Easter by the Gregorian computus (the anonymous algorithm of 1876).
+fn gregorian_easter(year: i32) -> (u8, u8) {
+    let a = year % 19;
+    let (b, c) = (year / 100, year % 100);
+    let (d, e) = (b / 4, b % 4);
+    let f = (b + 8) / 25;
+    let g = (b - f + 1) / 3;
+    let h = (19 * a + b - d - g + 15) % 30;
+    let (i, k) = (c / 4, c % 4);
+    let l = (32 + 2 * e + 2 * i - h - k) % 7;
+    let m = (a + 11 * h + 22 * l) / 451;
+    let n = h + l - 7 * m + 114;
+    ((n / 31) as u8, (n % 31 + 1) as u8)
 }
 
 // ── Month names ──────────────────────────────────────────────────────────
@@ -190,7 +273,20 @@ const LA_HUNDREDS_ORDINALS: [&str; 10] = [
 ];
 const LA_THOUSANDS_ORDINALS: [&str; 4] = ["", "millesimo", "bis millesimo", "ter millesimo"];
 
-fn la_ordinal_below_100(n: u32, feminine: bool) -> String {
+/// The prefixes of the classical subtractive ordinals: two, one less than
+/// the next ten.
+const LA_SUBTRACTIVE: [(&str, u32); 2] = [("duode", 2), ("unde", 1)];
+
+/// The next ten's ordinal stem for a subtractive ordinal: *vicesim-* for 18
+/// and 19, … *centesim-* for 98 and 99.
+fn la_next_ten_stem(n: u32) -> &'static str {
+    match n / 10 + 1 {
+        10 => "centesimo",
+        next => LA_TENS_ORDINALS[next as usize],
+    }
+}
+
+fn la_ordinal_below_100(n: u32, feminine: bool, classical: bool) -> String {
     let flip = |word: &str| {
         if feminine {
             word.split(' ')
@@ -201,6 +297,13 @@ fn la_ordinal_below_100(n: u32, feminine: bool) -> String {
             word.to_string()
         }
     };
+    let subtractive = LA_SUBTRACTIVE
+        .iter()
+        .find(|(_, less)| n >= 18 && (n + less).is_multiple_of(10))
+        .filter(|_| classical);
+    if let Some((prefix, _)) = subtractive {
+        return flip(&format!("{prefix}{}", la_next_ten_stem(n)));
+    }
     match n {
         0..20 => flip(LA_ORDINALS[n as usize]),
         _ if n.is_multiple_of(10) => flip(LA_TENS_ORDINALS[(n / 10) as usize]),
@@ -213,8 +316,9 @@ fn la_ordinal_below_100(n: u32, feminine: bool) -> String {
 }
 
 /// A year as a masculine ordinal in the ablative, after "anno": every part
-/// is an ordinal ("millesimo sexcentesimo quinquagesimo").
-fn la_year(n: u32) -> String {
+/// is an ordinal ("millesimo sexcentesimo quinquagesimo"), the last two
+/// digits subtractive in the `classical` forms ("undequinquagesimo").
+fn la_year(n: u32, classical: bool) -> String {
     let (thousands, hundreds, rest) = (n / 1000, n / 100 % 10, n % 100);
     let mut parts = Vec::new();
     if thousands > 0 {
@@ -224,16 +328,16 @@ fn la_year(n: u32) -> String {
         parts.push(LA_HUNDREDS_ORDINALS[hundreds as usize].to_string());
     }
     if rest > 0 {
-        parts.push(la_ordinal_below_100(rest, false));
+        parts.push(la_ordinal_below_100(rest, false, classical));
     }
     parts.join(" ")
 }
 
-fn la_day(n: u32) -> String {
-    if n < 20 {
+fn la_day(n: u32, classical: bool) -> String {
+    if n < 18 || (n < 20 && !classical) {
         LA_DAYS[n as usize].to_string()
     } else {
-        la_ordinal_below_100(n, true)
+        la_ordinal_below_100(n, true, classical)
     }
 }
 
@@ -341,17 +445,18 @@ pub fn latin_roman_reckoning(calendar: Calendar, date: Ymd) -> Option<String> {
     })
 }
 
-/// A Latin date, long or short.
-pub fn latin(date: Ymd, form: Form) -> Option<String> {
+/// A Latin date, long or short, in `style`: the classical forms in the long
+/// one, a double year after either in parentheses.
+pub fn latin(date: Ymd, form: Form, style: Style<'_>) -> Option<String> {
     if !date.writable() {
         return None;
     }
     let year = date.year as u32;
-    Some(match form {
+    let text = match form {
         Form::Long => {
             let mut parts = Vec::new();
             if let Some(day) = date.day {
-                parts.push(format!("die {}", la_day(u32::from(day))));
+                parts.push(format!("die {}", la_day(u32::from(day), style.classical)));
             }
             if let Some(month) = date.month {
                 parts.push(format!(
@@ -359,7 +464,7 @@ pub fn latin(date: Ymd, form: Form) -> Option<String> {
                     MONTHS_LA_GENITIVE[usize::from(month - 1)]
                 ));
             }
-            parts.push(format!("anno Domini {}", la_year(year)));
+            parts.push(format!("anno Domini {}", la_year(year, style.classical)));
             parts.join(" ")
         }
         Form::Short => {
@@ -373,7 +478,16 @@ pub fn latin(date: Ymd, form: Form) -> Option<String> {
             parts.push(roman(year));
             parts.join(" ")
         }
-    })
+    };
+    Some(with_double(text, style.double))
+}
+
+/// `text`, followed by the double year in parentheses when there is one.
+fn with_double(text: String, double: Option<&str>) -> String {
+    match double {
+        Some(double) => format!("{text} ({double})"),
+        None => text,
+    }
 }
 
 /// A Latin date part by part: the words and the numerals.
@@ -387,29 +501,98 @@ pub struct LatinParts {
     pub year: (String, String),
 }
 
-pub fn latin_parts(date: Ymd) -> Option<LatinParts> {
+/// The parts of a Latin date, in the `classical` forms or not.
+pub fn latin_parts(date: Ymd, classical: bool) -> Option<LatinParts> {
     if !date.writable() {
         return None;
     }
     Some(LatinParts {
         day: date
             .day
-            .map(|d| (d, la_day(u32::from(d)), roman(u32::from(d)))),
+            .map(|d| (d, la_day(u32::from(d), classical), roman(u32::from(d)))),
         month: date.month.map(|m| {
             (
                 MONTHS_LA_GENITIVE[usize::from(m - 1)].to_string(),
                 roman(u32::from(m)),
             )
         }),
-        year: (la_year(date.year as u32), roman(date.year as u32)),
+        year: (
+            la_year(date.year as u32, classical),
+            roman(date.year as u32),
+        ),
     })
+}
+
+// ── Feasts ───────────────────────────────────────────────────────────────
+
+/// The fixed feasts of the Roman calendar as parish registers met them, in
+/// the Latin of the Missal's headings, one per day from 1 January, 29
+/// February included; `null` for a day without a feast. Leo XIII's calendar
+/// of about 1888, before the 20th-century reforms, from the Divinum Officium
+/// tables (`docs/ui-tools.md` §8.1).
+const FEASTS_JSON: &str = include_str!("../../../assets/reference/feasts.la.json");
+
+/// The feasts of [`FEASTS_JSON`] by day of the year, 29 February included.
+static FEASTS: LazyLock<Vec<Option<String>>> = LazyLock::new(|| {
+    let by_day: std::collections::BTreeMap<String, Option<String>> =
+        serde_json::from_str(FEASTS_JSON).expect("the embedded feasts must be valid JSON");
+    by_day.into_values().collect()
+});
+
+/// The movable feasts, by their distance in days from Easter.
+const MOVABLE_FEASTS: [(i64, &str); 13] = [
+    (-46, "Feria IV Cinerum"),
+    (-7, "Dominica in Palmis"),
+    (-3, "Feria V in Cena Domini"),
+    (-2, "Feria VI in Parasceve"),
+    (-1, "Sabbatum Sanctum"),
+    (0, "Dominica Resurrectionis"),
+    (1, "Feria II infra Octavam Paschae"),
+    (7, "Dominica in Albis"),
+    (39, "In Ascensione Domini"),
+    (49, "Dominica Pentecostes"),
+    (50, "Feria II infra Octavam Pentecostes"),
+    (56, "Festum Sanctissimae Trinitatis"),
+    (60, "Festum Sanctissimi Corporis Christi"),
+];
+
+/// The liturgical feast of a complete date of `calendar` (Gregorian or
+/// Julian), in Latin: a movable feast of the Easter cycle, else the fixed
+/// feast of the day. In a leap year the day inserted is the 24th of
+/// February, the bissextile day: the feasts from the 24th on move one day
+/// later, St Matthias to the 25th.
+pub fn feast(calendar: Calendar, date: Ymd) -> Option<&'static str> {
+    use oxidgene_core::calendar::to_jdn;
+    let (month, day) = (date.month?, date.day?);
+    if !date.writable() || day > days_in_month(calendar, date.year, month) {
+        return None;
+    }
+    let jdn = to_jdn(calendar, date.year, month, day)?;
+    let (easter_month, easter_day) = easter(calendar, date.year)?;
+    let from_easter = jdn - to_jdn(calendar, date.year, easter_month, easter_day)?;
+    if let Some((_, name)) = MOVABLE_FEASTS.iter().find(|(d, _)| *d == from_easter) {
+        return Some(*name);
+    }
+    let leap = days_in_month(calendar, date.year, 2) == 29;
+    let stored = match (month, day) {
+        (2, 24) if leap => return None,
+        (2, 25..) if leap => (2, day - 1),
+        _ => (month, day),
+    };
+    // The index in a year of 366 days: 29 February is stored.
+    let index = (1..stored.0)
+        .map(|m| usize::from(days_in_month(Calendar::Gregorian, 2000, m)))
+        .sum::<usize>()
+        + usize::from(stored.1)
+        - 1;
+    FEASTS.get(index)?.as_deref()
 }
 
 // ── Writing ──────────────────────────────────────────────────────────────
 
-// ── Reading ──────────────────────────────────────────────────────────────
-
-pub fn written(language: Language, date: Ymd, form: Form) -> Option<String> {
+/// A date written out in `language`, in `form`: with a double year (`style`),
+/// its figures in the short form, or after the date in parentheses.
+pub fn written(language: Language, date: Ymd, form: Form, style: Style<'_>) -> Option<String> {
     if !date.writable() {
         return None;
     }
@@ -420,9 +603,10 @@ pub fn written(language: Language, date: Ymd, form: Form) -> Option<String> {
         Form::Long => &dates.long[index],
         Form::Short => &dates.short[index],
     };
-    let year = match form {
-        Form::Long => dates.years[date.year as usize].clone(),
-        Form::Short => date.year.to_string(),
+    let year = match (form, style.double) {
+        (Form::Long, _) => dates.years[date.year as usize].clone(),
+        (Form::Short, Some(double)) => double.to_string(),
+        (Form::Short, None) => date.year.to_string(),
     };
     let day = date
         .day
@@ -442,12 +626,96 @@ pub fn written(language: Language, date: Ymd, form: Form) -> Option<String> {
             months[usize::from(month - 1)].as_str()
         })
         .unwrap_or_default();
+    let text = template
+        .replace("{year}", &year)
+        .replace("{day}", &day)
+        .replace("{month}", month);
+    Some(match form {
+        Form::Long => with_double(text, style.double),
+        Form::Short => text,
+    })
+}
+
+/// The latest Hebrew year written out.
+pub const MAX_HEBREW_YEAR: i32 = 9999;
+
+/// A Hebrew or French Republican date written out in `language`, in its own
+/// calendar: the language's month names of that calendar, the day and the
+/// year in words (a Hebrew year past 3999 its thousands, then the rest) or
+/// in figures, the Republican year in Roman numerals ("an II"). `None` when
+/// the language has no words for that calendar, or for another calendar.
+pub fn written_in(language: Language, calendar: Calendar, date: Ymd, form: Form) -> Option<String> {
+    let locale = language.locale();
+    let words = match calendar {
+        Calendar::Hebrew => locale.dates.hebrew.as_ref()?,
+        Calendar::FrenchRepublican => locale.dates.republican.as_ref()?,
+        _ => return None,
+    };
+    let month = date.month.filter(|m| (1..=13).contains(m));
+    if !(1..=MAX_HEBREW_YEAR).contains(&date.year)
+        || date.month.is_some() != month.is_some()
+        || date
+            .day
+            .is_some_and(|d| !(1..=31).contains(&d) || month.is_none())
+    {
+        return None;
+    }
+    let year = match (form, calendar) {
+        (Form::Long, _) => calendar_year_words(&locale.dates, words, date.year)?,
+        (Form::Short, Calendar::FrenchRepublican) if date.year <= MAX_YEAR => {
+            roman(date.year as u32)
+        }
+        (Form::Short, _) => date.year.to_string(),
+    };
+    let day = date.day.map(|day| match form {
+        Form::Long => locale.dates.days[usize::from(day)].clone(),
+        Form::Short => day.to_string(),
+    });
+    let slot = usize::from(form == Form::Short);
+    let template = match (month, &day, &words.complementary) {
+        (Some(13), Some(_), Some(complementary)) => &complementary[slot],
+        _ => {
+            let index = usize::from(month.is_some()) + usize::from(day.is_some());
+            match form {
+                Form::Long => &words.long[index],
+                Form::Short => &words.short[index],
+            }
+        }
+    };
+    let month = month
+        .map(|m| {
+            let months = if day.is_some() {
+                &words.months_with_day
+            } else {
+                &words.months
+            };
+            months[usize::from(m - 1)].as_str()
+        })
+        .unwrap_or_default();
     Some(
         template
             .replace("{year}", &year)
-            .replace("{day}", &day)
+            .replace("{day}", &day.unwrap_or_default())
             .replace("{month}", month),
     )
+}
+
+/// A year of another calendar in words: from the years of [`Dates`] up to
+/// 3999, its thousands and the rest beyond (a Hebrew year).
+fn calendar_year_words(
+    dates: &crate::i18n::locale::Dates,
+    words: &crate::i18n::locale::CalendarDates,
+    year: i32,
+) -> Option<String> {
+    let year = usize::try_from(year).ok()?;
+    if let Some(written) = dates.years.get(year).filter(|_| year > 0) {
+        return Some(written.clone());
+    }
+    let thousands = words.thousands.get(year / 1000)?;
+    Some(match year % 1000 {
+        0 => thousands.clone(),
+        rest => format!("{thousands}{}{}", words.thousands_joiner, dates.years[rest]),
+    })
 }
 
 struct Lexicon {
@@ -486,6 +754,20 @@ impl Lexicon {
         for (index, forms) in MONTHS_LA_OTHER.iter().enumerate() {
             for form in forms {
                 lexicon.months.insert(fold_words(form), index as u8 + 1);
+            }
+        }
+        // The classical subtractive ordinals, in every case they take:
+        // duodevicesima (18), undetricesimo (29), duodecentesimus (98).
+        for n in (18..100u32).filter(|n| n % 10 >= 8) {
+            let less = 10 - n % 10;
+            let Some((prefix, _)) = LA_SUBTRACTIVE.iter().find(|(_, l)| *l == less) else {
+                continue;
+            };
+            let stem = la_next_ten_stem(n).trim_end_matches('o');
+            for ending in ["us", "a", "i", "o", "um", "ae", "am"] {
+                lexicon
+                    .pieces
+                    .insert(format!("{prefix}{stem}{ending}"), Piece::Add(n));
             }
         }
         lexicon

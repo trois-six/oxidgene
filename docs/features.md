@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-30T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T23:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -119,7 +119,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 ![Anomalies of the tree](../assets/screenshots/tools-anomalies.webp)
 
-- Anomalies of dates, filiations, unions, witnesses and records, by rule, with their catalogue ([Tools §3](ui-tools.md#3-anomalies)), kept to the persons carrying a tag when one is chosen ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)).
+- Anomalies of dates, filiations, unions, witnesses, records and places, by rule, with their catalogue ([Tools §3](ui-tools.md#3-anomalies)), kept to the persons carrying a tag when one is chosen ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)).
 - Places the statistics cannot locate, with their uses and a way to correct them ([Tools §4](ui-tools.md#4-places-not-located)).
 - Ancestry completeness, generation by generation from the SOSA root ([Tools §5](ui-tools.md#5-ancestry-completeness)).
 - Potential duplicates to merge or keep apart ([Tools §6](ui-tools.md#6-potential-duplicates)).

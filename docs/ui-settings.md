@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
-description: "Tree settings page for roots, privacy, the change history, export, and the global preferences it shares with App Settings."
+description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 
 ## 1. Overview
 
-The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, the change history, and export, and repeats the device's global preferences (§11). The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
+The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, the thresholds of the anomaly rules, the change history, and export, and repeats the device's global preferences (§11). The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
 
 ---
 
@@ -39,6 +39,7 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 |   | Settings         |   Form fields / toggles / tools              | |
 |   | - Tree & Roots   |                                              | |
 |   | - Privacy        |                                              | |
+|   | - Anomaly thr.   |                                              | |
 |   |                  |                                              | |
 |   | Tools            |                                              | |
 |   | - History        |                                              | |
@@ -87,6 +88,7 @@ Each group has an uppercase orange label. Each item is a text button. The active
 |---|---|
 | Tree & Roots | `tree-roots` |
 | Privacy | `privacy` |
+| Anomaly thresholds | `anomalies` |
 
 ### Group 2 — Tools
 | Item | Section ID |
@@ -243,6 +245,51 @@ none of it.
 |---|---|
 | Allow navigation to hidden persons | Visitors can follow connections without seeing personal details |
 | Show photos of contemporary persons | Photos can be shown or hidden independently of the display mode |
+
+---
+
+## 8b. Section: Anomaly thresholds
+
+The limits the anomaly rules of the [Tools](ui-tools.md#33-catalogue) page apply
+to this tree, stored on the tree (`tree.anomaly_thresholds`,
+[Data Model](data-model.md)) and set through the tree update of the
+[API](api.md); an age, a gap or a distance is reported only beyond them.
+
+- One card per category of rules, titled as the Tools page names it, with a
+  number field per threshold and its unit in the label:
+
+  | Card | Threshold | Default | Range |
+  |---|---|---|---|
+  | Dates | Longest life | 105 years | 80–150 |
+  | Dates | Longest life before the year below | 100 years | 80–150, not above the longest life |
+  | Dates | Year before which lives were shorter | 1900 | 1000–2100 |
+  | Dates | Oldest person without a death | 110 years | 80–150 |
+  | Dates | Recorded age tolerance, each way | 2 years | 0–20 |
+  | Dates | Approximate date slack, each way | 2 years | 0–20 |
+  | Filiation | Youngest parent | 11 years | 1–20 |
+  | Filiation | Oldest father | 70 years | 30–120 |
+  | Filiation | Oldest mother | 55 years | 30–80 |
+  | Filiation | Birth after the father's death | 300 days | 180–400 |
+  | Filiation | Twins born within | 11 days | 1–60, below the next |
+  | Filiation | Siblings too close within | 213 days | 2–365 |
+  | Filiation | Siblings too far apart | 50 years | 10–80 |
+  | Unions | Youngest spouse at the union | 12 years | 1–25 |
+  | Unions | Oldest spouse at the union | 100 years | 50–150 |
+  | Unions | Spouses' birth gap | 50 years | 5–100 |
+  | Places | Farthest places of one day | 100 km | 1–20,000 |
+
+- A field out of its range says so under it ("Between 80 and 150."); two
+  thresholds that must agree say so above the buttons. Either keeps
+  **Save** disabled; the server refuses the same values.
+- Unlike the other settings, the thresholds are saved together, by the
+  **Save** button, as the submitter is (§10): they are checked against each
+  other. **Restore the defaults** fills the fields with the defaults, which
+  are saved like any other values.
+- A saved change is versioned with the tree's other settings and shown in
+  the [History](#9-section-history): the thresholds a change set, each with
+  its former and its new value.
+- The Tools page quotes the tree's thresholds in the titles and sentences of
+  its rules ("Died over 105 years"), from the anomalies response.
 
 ---
 

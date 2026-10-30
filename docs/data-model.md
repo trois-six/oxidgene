@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 
@@ -40,6 +40,7 @@ independent of this schema reset (see §4.1).
 | `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §10 |
 | `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
 | `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
+| `anomaly_thresholds` | Text? | The thresholds of the anomaly rules ([Tools §3.3](ui-tools.md)), as the JSON of `AnomalyThresholds`: seventeen whole numbers named as in the domain type. `NULL` while they are the defaults, so a tree that never changed them follows the defaults of every later version; a threshold the JSON leaves out reads as its default. Set in [Settings](ui-settings.md) §8b, versioned with the tree's other settings |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

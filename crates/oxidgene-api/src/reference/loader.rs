@@ -86,6 +86,20 @@ pub struct GivenNameEntry {
     pub feast_day: Option<String>,
     #[serde(default, skip_serializing)]
     pub aliases: Vec<String>,
+    /// Who bears the name: one sex, or both (the default) when the name or
+    /// one of its aliases is given to men and women alike somewhere.
+    #[serde(default, skip_serializing)]
+    pub sex: SheetSex,
+}
+
+/// The sex a given-name sheet is borne by.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SheetSex {
+    Male,
+    Female,
+    #[default]
+    Both,
 }
 
 macro_rules! embed_br {
@@ -434,6 +448,18 @@ pub fn lookup_given_name(lang: ReferenceLang, term: &str) -> Option<GivenNameEnt
     given_names.get(lang, first_token).cloned()
 }
 
+/// The sex of the given-name sheet `term` itself names (not a word inside
+/// it, unlike [`lookup_given_name`]): `Some` only for a name the sheets give
+/// to one sex alone. The sex is the sheet's, whatever language reads it.
+pub fn given_name_sex(term: &str) -> Option<oxidgene_core::Sex> {
+    let sheet = given_names().get(ReferenceLang::En, &fold_words(term))?;
+    match sheet.sex {
+        SheetSex::Male => Some(oxidgene_core::Sex::Male),
+        SheetSex::Female => Some(oxidgene_core::Sex::Female),
+        SheetSex::Both => None,
+    }
+}
+
 /// Which sheets [`suggest_terms`] and [`has_sheet`] read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferenceKind {
@@ -624,6 +650,32 @@ mod tests {
         }
         check(occupations());
         check(given_names());
+    }
+
+    #[test]
+    fn a_sheet_says_which_sex_bears_its_name() {
+        use oxidgene_core::Sex;
+        assert_eq!(given_name_sex("Jean-Baptiste"), Some(Sex::Male));
+        assert_eq!(given_name_sex("MARGUERITE"), Some(Sex::Female));
+        // An alias reads its sheet's sex, in any language's spelling.
+        assert_eq!(given_name_sex("Jehanne"), given_name_sex("Jeanne"));
+        // A name borne by both sexes (Jean is a woman's name in English), a
+        // word inside a name and an unknown name say nothing.
+        assert_eq!(given_name_sex("Camille"), None);
+        assert_eq!(given_name_sex("Jean"), None);
+        assert_eq!(given_name_sex("Marguerite Zorglub"), None);
+        assert_eq!(given_name_sex("Zorglub"), None);
+    }
+
+    #[test]
+    fn every_language_gives_a_sheet_the_same_sex() {
+        let sheets = given_names();
+        let english = &sheets.tables[ReferenceLang::En.slot()];
+        for (lang, table) in ReferenceLang::ALL.iter().zip(&sheets.tables) {
+            for (key, sheet) in table {
+                assert_eq!(sheet.sex, english[key].sex, "{lang:?} {key}");
+            }
+        }
     }
 
     #[test]

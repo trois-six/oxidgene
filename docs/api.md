@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T23:00:00Z }
 ---
 
 
@@ -682,7 +682,23 @@ projection in the same transaction.
 `"default"` resolves to for everything in that tree — and the GEDCOM submitter:
 `submitter_name`, `submitter_email` and `submitter_address` (GraphQL
 `submitterName`, `submitterEmail`, `submitterAddress`) — omitted keeps, `null`
-or a blank value clears, on both surfaces. **Privacy** is accepted on
+or a blank value clears, on both surfaces. It also accepts
+`anomaly_thresholds` (GraphQL `anomalyThresholds`, input
+`AnomalyThresholdsInput`), the thresholds of the anomaly rules
+([Tools §3.3](ui-tools.md)) set all at once: an object of whole numbers
+named as the tree returns them (`max_lifespan_years`,
+`old_centenarian_years`, `centenarian_before_year`, `min_parent_age_years`,
+`max_father_age_years`, `max_mother_age_years`, `max_posthumous_birth_days`,
+`twin_days`, `min_sibling_gap_days`, `max_sibling_gap_years`,
+`min_union_age_years`, `max_union_age_years`, `max_spouse_gap_years`,
+`recorded_age_tolerance_years`, `approximate_slack_years`,
+`max_age_alive_years`, `max_same_day_distance_km`), a threshold left out
+taking its default and an unknown name refused. A value out of its range
+([Settings §8b](ui-settings.md)), an `old_centenarian_years` above
+`max_lifespan_years` or a `twin_days` not below `min_sibling_gap_days` is a
+`400 validation_error` (GraphQL `VALIDATION_ERROR`) and changes nothing.
+Every tree carries its `anomaly_thresholds`, the defaults until set.
+**Privacy** is accepted on
 all three of `PUT .../persons/{id}`,
 `PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
 "private"`. The family route's body is optional — it long predates this field as
@@ -1122,24 +1138,33 @@ from the person projections; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/anomalies?tag=<tag_id>` | The tree's anomalies by rule; with `tag`, only those naming a person who carries it (a union names its spouses; an anomaly naming no person is never kept), every person still examined so that a rule about a couple or a witness sees its whole family, and `persons` counting the whole tree; GraphQL `treeAnomalies(treeId, tag)`; 404 for an unknown tree or tag |
+| `GET` | `/trees/{tree_id}/anomalies?tag=<tag_id>` | The tree's anomalies by rule; with `tag`, only those naming a person who carries it (a union names its spouses) or a place the events of such a person use (an anomaly naming neither is never kept), every person still examined so that a rule about a couple or a witness sees its whole family, and `persons` counting the whole tree; GraphQL `treeAnomalies(treeId, tag)`; 404 for an unknown tree or tag |
 | `GET` | `/trees/{tree_id}/duplicates` | The pairs of records that may be one person, best first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/unlocated-places` | The used places the statistics cannot locate, most used first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/ancestry-completeness?generations=8` | Generation by generation from the tree's SOSA root, the ancestors found and missing and their key facts; `generations` counts the root's, 8 by default, from 1 to 15 (400 otherwise); 404 for an unknown tree |
 
-**Anomalies** returns `{persons, rules}`: the number of persons checked, and
+**Anomalies** returns `{persons, thresholds, rules}`: the number of persons
+checked, the tree's `anomaly_thresholds` the rules applied (which the page's
+titles and sentences quote), and
 one entry per rule that found something, in the order of the catalogue of
 [Tools §3.3](ui-tools.md): `{rule, category, severity, count, items}`,
-`category` being `dates`, `filiation`, `unions`, `witnesses` or
-`data_quality` (shown as *records*), `severity` `error` or `warning`, and
-`items` at most 500 of the `count` found. An item is `{persons, family_id,
-value, event_type, text}`: the persons concerned as `{person_id, name}`, the
-subject first; the union concerned; the figure measured, in whole years for
-ages and gaps in years and in days for `siblings_too_close` and
-`born_long_after_father_death` (the number of unions for
-`repeated_union`); the event concerned, an `EventType` in snake_case; and
-the recorded text for `unreadable_date` (the date as typed) and
-`godparent_sex` (the relation).
+`category` being `dates`, `filiation`, `unions`, `witnesses`,
+`data_quality` (shown as *records*) or `places`, `severity` `error` or
+`warning`, and `items` at most 500 of the `count` found. An item is
+`{persons, family_id, places, value, event_type, other_event_type, text}`:
+the persons concerned as `{person_id, name}`, the subject first (none for
+`place_spellings`); the union concerned; the places concerned as
+`{place_id, name}` (for `place_spellings` and `distant_places_same_day`);
+the figure measured, in whole years for ages and gaps in years, in days for
+`siblings_too_close` and `born_long_after_father_death`, in kilometres for
+`distant_places_same_day`, and a count for `repeated_union` (unions),
+`unique_event_twice` (events of the type) and `child_of_several_families`
+(families); the event concerned, an `EventType` in snake_case, and the event
+it is compared with for `qualifier_contradiction` and
+`distant_places_same_day`; and the recorded text for `unreadable_date` (the
+date as typed), `godparent_sex` (the relation), `given_name_sex` (the first
+given name) and `same_name_living_siblings` (the given names). GraphQL names
+them `familyId`, `eventType` and `otherEventType`, a place `placeId`.
 
 **Potential duplicates** returns `{count, pairs}`: every pair found and at
 most 500 of them, best first, each `{score, reasons, first, second,
@@ -1450,7 +1475,11 @@ word itself, by a gloss in `lang` in parentheses: `Kmieć (paysan tenancier)`,
 name as written in one language, masculine and feminine apart: Jean,
 Jeanne, Johann and Giovanni are four sheets, each with its own saint and
 feast day, while spellings, diminutives and Latin forms met in records
-(Jehan, Joannes) are aliases of one of them. Source content lives in
+(Jehan, Joannes) are aliases of one of them. Each given-name sheet also
+says who bears the name, `male`, `female` or `both` (the name or one of its
+aliases given to either sex somewhere), the same in every language's file:
+the anomalies read it ([Tools §3.2](ui-tools.md)), the lookups do not return
+it. Source content lives in
 `assets/reference/*.json`, one file per language and data type,
 is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is decompressed and indexed once in memory —
 warmed at server and desktop startup so no request pays for it.

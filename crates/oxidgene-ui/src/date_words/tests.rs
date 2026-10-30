@@ -216,7 +216,8 @@ fn polish_ordinals_in_the_genitive() {
         written(
             Language::try_from_code("pl").unwrap(),
             ymd(1650, 2, 2),
-            Form::Long
+            Form::Long,
+            Style::default()
         )
         .unwrap(),
         "drugiego lutego tysiąc sześćset pięćdziesiątego roku"
@@ -272,15 +273,18 @@ fn roman_numerals() {
 fn latin_writes_the_reference_example() {
     let date = ymd(1650, 2, 2);
     assert_eq!(
-        latin(date, Form::Long).unwrap(),
+        latin(date, Form::Long, Style::default()).unwrap(),
         "die secunda mensis Februarii anno Domini millesimo sexcentesimo quinquagesimo"
     );
-    assert_eq!(latin(date, Form::Short).unwrap(), "II Februarius MDCL");
+    assert_eq!(
+        latin(date, Form::Short, Style::default()).unwrap(),
+        "II Februarius MDCL"
+    );
     assert_eq!(
         latin_roman_reckoning(Calendar::Gregorian, date).unwrap(),
         "ante diem IV Nonas Februarii"
     );
-    let parts = latin_parts(date).unwrap();
+    let parts = latin_parts(date, false).unwrap();
     assert_eq!(
         parts.day,
         Some((2, "secunda".to_string(), "II".to_string()))
@@ -300,12 +304,12 @@ fn latin_writes_the_reference_example() {
 
 #[test]
 fn latin_days_and_years() {
-    assert_eq!(la_day(13), "decima tertia");
-    assert_eq!(la_day(20), "vicesima");
-    assert_eq!(la_day(31), "tricesima prima");
-    assert_eq!(la_year(1702), "millesimo septingentesimo secundo");
-    assert_eq!(la_year(2024), "bis millesimo vicesimo quarto");
-    assert_eq!(la_year(999), "nongentesimo nonagesimo nono");
+    assert_eq!(la_day(13, false), "decima tertia");
+    assert_eq!(la_day(20, false), "vicesima");
+    assert_eq!(la_day(31, false), "tricesima prima");
+    assert_eq!(la_year(1702, false), "millesimo septingentesimo secundo");
+    assert_eq!(la_year(2024, false), "bis millesimo vicesimo quarto");
+    assert_eq!(la_year(999, false), "nongentesimo nonagesimo nono");
 }
 
 #[test]
@@ -326,7 +330,7 @@ fn the_roman_reckoning_counts_to_kalends_nones_and_ides() {
 #[test]
 fn every_language_writes_its_dates() {
     let date = ymd(1650, 2, 2);
-    let long = |l| written(l, date, Form::Long).unwrap();
+    let long = |l| written(l, date, Form::Long, Style::default()).unwrap();
     assert_eq!(
         long(Language::english()),
         "the second of February, one thousand six hundred and fifty"
@@ -359,7 +363,8 @@ fn every_language_writes_its_dates() {
         written(
             Language::try_from_code("fr").unwrap(),
             ymd(1650, 2, 1),
-            Form::Long
+            Form::Long,
+            Style::default()
         )
         .unwrap(),
         "le premier février mille six cent cinquante"
@@ -368,7 +373,8 @@ fn every_language_writes_its_dates() {
         written(
             Language::try_from_code("de").unwrap(),
             ymd(1650, 2, 2),
-            Form::Short
+            Form::Short,
+            Style::default()
         )
         .unwrap(),
         "2. Februar 1650"
@@ -377,7 +383,8 @@ fn every_language_writes_its_dates() {
         written(
             Language::try_from_code("pl").unwrap(),
             ymd(1650, 2, 2),
-            Form::Short
+            Form::Short,
+            Style::default()
         )
         .unwrap(),
         "2 lutego 1650"
@@ -390,22 +397,40 @@ fn every_language_writes_its_dates() {
                 month: Some(2),
                 day: None
             },
-            Form::Short
+            Form::Short,
+            Style::default()
         )
         .unwrap(),
         "luty 1650"
     );
-    assert!(written(Language::english(), ymd(4000, 1, 1), Form::Long).is_none());
+    assert!(
+        written(
+            Language::english(),
+            ymd(4000, 1, 1),
+            Form::Long,
+            Style::default()
+        )
+        .is_none()
+    );
 }
 
 #[test]
 fn the_annunciation_style_numbers_early_months_with_the_previous_year() {
-    let style = |m, d| ymd(1650, m, d).in_style(YearStart::Annunciation).year;
+    let style = |m, d| {
+        ymd(1650, m, d)
+            .in_style(YearStart::Annunciation, Calendar::Gregorian)
+            .year
+    };
     assert_eq!(style(2, 2), 1649);
     assert_eq!(style(3, 24), 1649);
     assert_eq!(style(3, 25), 1650);
     assert_eq!(style(12, 31), 1650);
-    assert_eq!(ymd(1650, 2, 2).in_style(YearStart::January).year, 1650);
+    assert_eq!(
+        ymd(1650, 2, 2)
+            .in_style(YearStart::January, Calendar::Gregorian)
+            .year,
+        1650
+    );
 }
 
 /// Whatever is written reads back as the same date, in every language and
@@ -423,12 +448,12 @@ fn written_dates_read_back() {
                 let date = ymd(year, month, day);
                 for language in Language::builtins() {
                     for form in [Form::Long, Form::Short] {
-                        let text = written(language, date, form).unwrap();
+                        let text = written(language, date, form, Style::default()).unwrap();
                         assert_eq!(read(&text), Ok(date), "{language:?} {text}");
                     }
                 }
                 for form in [Form::Long, Form::Short] {
-                    let text = latin(date, form).unwrap();
+                    let text = latin(date, form, Style::default()).unwrap();
                     assert_eq!(read(&text), Ok(date), "{text}");
                 }
                 let text = format!(
@@ -445,7 +470,7 @@ fn written_dates_read_back() {
                 day: None,
             };
             for language in Language::builtins() {
-                let text = written(language, month_only, Form::Long).unwrap();
+                let text = written(language, month_only, Form::Long, Style::default()).unwrap();
                 assert_eq!(read(&text), Ok(month_only), "{language:?} {text}");
             }
         }
@@ -494,4 +519,246 @@ fn what_cannot_be_read_says_why() {
     assert_eq!(read("février"), Err(ReadError::NoYear));
     assert_eq!(read("some words"), Err(ReadError::NoYear));
     assert_eq!(read("31 February 1650"), Err(ReadError::NoSuchDay));
+}
+
+fn language(code: &str) -> Language {
+    Language::try_from_code(code).unwrap()
+}
+
+#[test]
+fn easter_is_computed_in_both_calendars() {
+    let gregorian = |y| easter(Calendar::Gregorian, y);
+    assert_eq!(gregorian(2024), Some((3, 31)));
+    assert_eq!(gregorian(2000), Some((4, 23)));
+    assert_eq!(gregorian(1818), Some((3, 22)));
+    assert_eq!(gregorian(1943), Some((4, 25)));
+    assert_eq!(gregorian(1650), Some((4, 17)));
+    // The Julian computus, as the Orthodox churches keep it: 5 May 2024 and
+    // 16 April 2023 in the Gregorian calendar.
+    let julian = |y| easter(Calendar::Julian, y);
+    assert_eq!(julian(2024), Some((4, 22)));
+    assert_eq!(julian(2023), Some((4, 3)));
+    assert_eq!(julian(1650), Some((4, 14)));
+    // Before 1583 the Gregorian calendar carries the Julian computus: 19 April
+    // 1500 in the Julian calendar, ten days later in the Gregorian one.
+    assert_eq!(julian(1500), Some((4, 19)));
+    assert_eq!(gregorian(1500), Some((4, 29)));
+    assert_eq!(easter(Calendar::Hebrew, 5610), None);
+}
+
+#[test]
+fn the_old_styles_number_the_year_from_christmas_or_easter() {
+    let style = |start, calendar, y, m, d| ymd(y, m, d).in_style(start, calendar).year;
+    let christmas = |m, d| style(YearStart::Christmas, Calendar::Gregorian, 1649, m, d);
+    assert_eq!(christmas(12, 25), 1650);
+    assert_eq!(christmas(12, 31), 1650);
+    assert_eq!(christmas(12, 24), 1649);
+    assert_eq!(christmas(1, 1), 1649);
+    // Easter fell on 17 April 1650 (Gregorian), 14 April (Julian).
+    let easter = |calendar, m, d| style(YearStart::Easter, calendar, 1650, m, d);
+    assert_eq!(easter(Calendar::Gregorian, 1, 1), 1649);
+    assert_eq!(easter(Calendar::Gregorian, 4, 16), 1649);
+    assert_eq!(easter(Calendar::Gregorian, 4, 17), 1650);
+    assert_eq!(easter(Calendar::Julian, 4, 13), 1649);
+    assert_eq!(easter(Calendar::Julian, 4, 14), 1650);
+    // A month without its day where the year turns keeps its number.
+    let april = Ymd {
+        year: 1650,
+        month: Some(4),
+        day: None,
+    };
+    assert_eq!(
+        april.in_style(YearStart::Easter, Calendar::Gregorian).year,
+        1650
+    );
+    let march = Ymd {
+        month: Some(3),
+        ..april
+    };
+    assert_eq!(
+        march.in_style(YearStart::Easter, Calendar::Gregorian).year,
+        1649
+    );
+}
+
+#[test]
+fn double_dating_writes_both_years() {
+    assert_eq!(double_year(1649, 1650), "1649/50");
+    assert_eq!(double_year(1709, 1710), "1709/10");
+    assert_eq!(double_year(1699, 1700), "1699/1700");
+    assert_eq!(double_year(1650, 1649), "1650/49");
+    let date = ymd(1650, 2, 2).in_style(YearStart::Annunciation, Calendar::Gregorian);
+    let style = Style {
+        double: Some("1649/50"),
+        classical: false,
+    };
+    assert_eq!(
+        written(Language::english(), date, Form::Short, style).unwrap(),
+        "2 February 1649/50"
+    );
+    assert_eq!(
+        written(Language::english(), date, Form::Long, style).unwrap(),
+        "the second of February, one thousand six hundred and forty-nine (1649/50)"
+    );
+    assert_eq!(
+        latin(date, Form::Short, style).unwrap(),
+        "II Februarius MDCXLIX (1649/50)"
+    );
+}
+
+#[test]
+fn the_feast_of_the_day_comes_from_the_calendar_and_easter() {
+    let gregorian = |y, m, d| feast(Calendar::Gregorian, ymd(y, m, d));
+    assert_eq!(
+        gregorian(1650, 11, 11),
+        Some("S. Martini Episcopi et Confessoris")
+    );
+    assert_eq!(gregorian(1650, 1, 1), Some("In Circumcisione Domini"));
+    assert_eq!(
+        feast(Calendar::Julian, ymd(1650, 12, 25)),
+        Some("In Nativitate Domini")
+    );
+    // Easter 2024 fell on 31 March: its Sunday, Ascension and Corpus Christi.
+    assert_eq!(gregorian(2024, 3, 31), Some("Dominica Resurrectionis"));
+    assert_eq!(gregorian(2024, 5, 9), Some("In Ascensione Domini"));
+    assert_eq!(
+        gregorian(2024, 5, 30),
+        Some("Festum Sanctissimi Corporis Christi")
+    );
+    // St Matthias, 24 February, keeps the 25th in a leap year.
+    assert_eq!(gregorian(1650, 2, 24), Some("S. Matthiae Apostoli"));
+    assert_eq!(gregorian(1652, 2, 24), None);
+    assert_eq!(gregorian(1652, 2, 25), Some("S. Matthiae Apostoli"));
+    let month_only = Ymd {
+        year: 1650,
+        month: Some(11),
+        day: None,
+    };
+    assert_eq!(feast(Calendar::Gregorian, month_only), None);
+    assert_eq!(feast(Calendar::Gregorian, ymd(1650, 2, 30)), None);
+}
+
+#[test]
+fn the_classical_latin_forms_count_down_to_the_next_ten() {
+    assert_eq!(la_day(18, true), "duodevicesima");
+    assert_eq!(la_day(19, true), "undevicesima");
+    assert_eq!(la_day(29, true), "undetricesima");
+    assert_eq!(la_day(18, false), "decima octava");
+    assert_eq!(la_day(17, true), "decima septima");
+    assert_eq!(
+        la_year(1649, true),
+        "millesimo sexcentesimo undequinquagesimo"
+    );
+    assert_eq!(la_year(1698, true), "millesimo sexcentesimo duodecentesimo");
+    assert_eq!(la_year(1650, true), la_year(1650, false));
+    let classical = Style {
+        double: None,
+        classical: true,
+    };
+    let date = ymd(1649, 2, 18);
+    let text = latin(date, Form::Long, classical).unwrap();
+    assert_eq!(
+        text,
+        "die duodevicesima mensis Februarii anno Domini millesimo sexcentesimo undequinquagesimo"
+    );
+    // Every subtractive form reads back.
+    for n in (18..100).filter(|n| n % 10 >= 8) {
+        for day in [18, 19, 28] {
+            let date = ymd(1600 + n, 1, day);
+            let text = latin(date, Form::Long, classical).unwrap();
+            assert_eq!(read(&text), Ok(date), "{text}");
+        }
+    }
+}
+
+#[test]
+fn republican_dates_are_written_in_their_own_calendar() {
+    let messidor = ymd(2, 10, 25);
+    let republican =
+        |code, date, form| written_in(language(code), Calendar::FrenchRepublican, date, form);
+    assert_eq!(
+        republican("fr", messidor, Form::Long).unwrap(),
+        "le vingt-cinq messidor de l'an deux"
+    );
+    assert_eq!(
+        republican("fr", messidor, Form::Short).unwrap(),
+        "25 messidor an II"
+    );
+    assert_eq!(
+        republican("en", messidor, Form::Long).unwrap(),
+        "the twenty-fifth of Messidor, year two"
+    );
+    assert_eq!(
+        republican("de", messidor, Form::Long).unwrap(),
+        "am fünfundzwanzigsten Messidor des Jahres zwei"
+    );
+    let complementary = ymd(2, 13, 1);
+    assert_eq!(
+        republican("fr", complementary, Form::Long).unwrap(),
+        "le premier des jours complémentaires de l'an deux"
+    );
+    assert_eq!(
+        republican("en", complementary, Form::Long).unwrap(),
+        "the first complementary day, year two"
+    );
+}
+
+#[test]
+fn hebrew_dates_are_written_in_their_own_calendar() {
+    let nisan = ymd(5610, 8, 15);
+    let hebrew = |code, date, form| written_in(language(code), Calendar::Hebrew, date, form);
+    assert_eq!(
+        hebrew("en", nisan, Form::Long).unwrap(),
+        "the fifteenth of Nisan, five thousand six hundred and ten"
+    );
+    assert_eq!(
+        hebrew("de", nisan, Form::Long).unwrap(),
+        "am fünfzehnten Nisan fünftausendsechshundertzehn"
+    );
+    assert_eq!(
+        hebrew("pl", nisan, Form::Long).unwrap(),
+        "piętnastego Nisan pięć tysięcy sześćset dziesiątego roku"
+    );
+    assert_eq!(hebrew("fr", nisan, Form::Short).unwrap(), "15 Nissan 5610");
+    assert_eq!(
+        written_in(Language::english(), Calendar::Gregorian, nisan, Form::Long),
+        None
+    );
+}
+
+#[test]
+fn every_language_writes_hebrew_and_republican_dates() {
+    let year_only = |year| Ymd {
+        year,
+        month: None,
+        day: None,
+    };
+    let month_year = |year, month| Ymd {
+        year,
+        month: Some(month),
+        day: None,
+    };
+    for language in Language::builtins() {
+        for (calendar, dates) in [
+            (
+                Calendar::Hebrew,
+                [ymd(5610, 8, 15), month_year(5610, 1), year_only(5000)],
+            ),
+            (
+                Calendar::FrenchRepublican,
+                [ymd(14, 13, 6), month_year(2, 10), year_only(1)],
+            ),
+        ] {
+            for date in dates {
+                for form in [Form::Long, Form::Short] {
+                    let text = written_in(language, calendar, date, form);
+                    assert!(
+                        text.as_ref()
+                            .is_some_and(|t| !t.trim().is_empty() && !t.contains('{')),
+                        "{language:?} {calendar:?} {date:?} {form:?}: {text:?}"
+                    );
+                }
+            }
+        }
+    }
 }

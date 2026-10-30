@@ -14,39 +14,44 @@ Chaque onglet ne charge ses données qu'à son ouverture et les recalcule à cha
 
 ## Repérer les anomalies
 
-L'onglet **Anomalies** passe tout l'arbre au crible à la recherche de dates, filiations, unions, témoins et fiches impossibles (**Erreur**) ou improbables (**Avertissement**).
+L'onglet **Anomalies** passe tout l'arbre au crible à la recherche de dates, filiations, unions, témoins, fiches et lieux impossibles (**Erreur**) ou improbables (**Avertissement**).
 
-1. Ouvrez l'onglet **Anomalies**. Une rangée de tuiles indique le nombre d'anomalies par catégorie : **Dates**, **Filiation**, **Unions**, **Témoins et parrains** et **Fiches**.
+1. Ouvrez l'onglet **Anomalies**. Une rangée de tuiles indique le nombre d'anomalies par catégorie : **Dates**, **Filiation**, **Unions**, **Témoins et parrains**, **Fiches** et **Lieux**.
 2. Cliquez sur une tuile pour n'afficher que cette catégorie ; cliquez à nouveau pour tout revoir.
 3. Dans chaque catégorie, chaque règle qui a trouvé quelque chose forme un bloc replié avec sa gravité, son titre et son nombre. Dépliez un bloc pour lire ce que vérifie la règle et voir une ligne par anomalie.
-4. Chaque ligne nomme les personnes concernées, chacune liée à sa fiche, avec **Ouvrir dans l'arbre** pour centrer le pedigree sur elle, et **Couple** pour une anomalie d'union. À côté figure ce que la règle a mesuré : un âge, un écart, le texte saisi.
-5. Cliquez n’importe où ailleurs sur une ligne, ou appuyez sur **Entrée** dessus, pour ouvrir la fiche de sa première personne, où vous corrigez l’anomalie.
-5. Corrigez la fiche, puis revenez sur l'onglet : la liste est recalculée.
+4. Chaque ligne nomme les personnes concernées, chacune liée à sa fiche, avec **Ouvrir dans l'arbre** pour centrer le pedigree sur elle, et **Couple** pour une anomalie d'union. Une anomalie de lieux nomme ses lieux, chacun lié à sa ligne du dictionnaire, où vous le renommez ou le fusionnez. À côté figure ce que la règle a mesuré : un âge, un écart, une distance, un nombre, les événements comparés, le texte saisi.
+5. Cliquez n’importe où ailleurs sur une ligne, ou appuyez sur **Entrée** dessus, pour ouvrir la fiche de sa première personne (ou la ligne du dictionnaire de son premier lieu), où vous corrigez l’anomalie.
+6. Corrigez la fiche, puis revenez sur l'onglet : la liste est recalculée.
 
 Une règle liste au plus 500 anomalies et indique combien d'autres elle a trouvées. Un arbre sans anomalie l'annonce, avec le nombre de personnes vérifiées.
 
-Utilisez la liste **Étiquette** au-dessus des anomalies pour ne garder que celles qui nomment une personne portant l’étiquette. Les compteurs suivent ce choix.
+Utilisez la liste **Étiquette** au-dessus des anomalies pour ne garder que celles qui nomment une personne portant l’étiquette, ou un lieu qu'utilisent les événements d'une telle personne. Les compteurs suivent ce choix.
+
+Les limites qu'appliquent les règles — la vie la plus longue, le parent le plus jeune, les lieux les plus éloignés d'un même jour et les autres — sont celles de l'arbre : modifiez-les dans les [paramètres de l'arbre](@/guide/settings.fr.md), sous **Seuils des anomalies**. Les titres et les phrases des règles citent les valeurs de l'arbre.
 
 ### Comment les dates sont lues
 
 Les contrôles sont conçus pour ne pas crier au loup :
 
 - La naissance est la naissance, ou le baptême si la naissance n'est pas datée ; le décès est le décès, ou l'inhumation si le décès n'est pas daté.
-- Une date imprécise vaut pour tous les jours qu'elle peut désigner : une année seule pour toute l'année, un mois pour tout le mois. Une date vers, calculée ou estimée s'élargit de deux ans de chaque côté. Les dates avant, après, peut-être, ou entre deux dates ne sont pas utilisées.
+- Une date imprécise vaut pour tous les jours qu'elle peut désigner : une année seule pour toute l'année, un mois pour tout le mois. Une date vers, calculée ou estimée s'élargit de deux ans de chaque côté (un seuil modifiable). Les dates avant, après, peut-être, ou entre deux dates ne sont pas utilisées, sauf par la règle qui compare de telles dates entre elles.
 - Une règle ne se déclenche que si elle se vérifie pour tous les jours que ces dates peuvent désigner. Une date vague ne soulève donc jamais une anomalie que son imprécision suffirait à expliquer.
 - Les parents adoptifs, nourriciers et beaux-parents ne sont pas soumis aux règles d'âge et de décès qui s'appliquent aux parents biologiques.
 
 ### Le catalogue des règles
 
+Les chiffres ci-dessous sont les valeurs par défaut.
+
 | Catégorie | Ce qui est vérifié |
 |---|---|
-| **Dates** | Décès avant la naissance, inhumation avant le décès, événement avant la naissance, baptême après le décès, événement après le décès ou après l'inhumation (hors inhumation, crémation, funérailles, homologation de testament et événements libres), décès à plus de 105 ans, centenaire né avant 1900, date dans le futur, et âge noté lors d'un événement contredit par les dates de plus de deux ans |
-| **Filiation** | Parent ou ancêtre né après son enfant ou son descendant, personne figurant parmi ses propres ancêtres, parent de moins de 11 ans, père de plus de 70 ans ou mère de plus de 55 ans à une naissance, enfant né après le décès de sa mère ou plus de 300 jours après celui de son père, enfants nés à entre 11 jours et 7 mois d'intervalle, ou à plus de 50 ans d'intervalle |
-| **Unions** | Union avant la naissance ou après le décès d'un conjoint, conjoint de moins de 12 ans ou de plus de 100 ans, conjoints nés à plus de 50 ans d'intervalle, les deux mêmes personnes unies plusieurs fois, plusieurs conjoints homonymes, union avec son propre parent, union à plus de deux conjoints |
+| **Dates** | Décès avant la naissance, inhumation avant le décès, événement avant la naissance, baptême après le décès, événement après le décès ou après l'inhumation (hors inhumation, crémation, funérailles, homologation de testament et événements libres), décès à plus de 105 ans, centenaire né avant 1900, date dans le futur, âge noté lors d'un événement contredit par les dates de plus de deux ans, dates avant, après ou entre qui se contredisent (né après 1850, baptisé avant 1840), et aucun décès, inhumation ni crémation noté pour une personne née il y a plus de 110 ans |
+| **Filiation** | Parent ou ancêtre né après son enfant ou son descendant, personne figurant parmi ses propres ancêtres, parent de moins de 11 ans, père de plus de 70 ans ou mère de plus de 55 ans à une naissance, enfant né après le décès de sa mère ou plus de 300 jours après celui de son père, enfants nés à entre 11 jours et 7 mois d'intervalle, ou à plus de 50 ans d'intervalle, enfant biologique de plusieurs familles, et deux enfants d'une union portant les mêmes prénoms alors que l'aîné est connu vivant à la naissance du cadet |
+| **Unions** | Union avant la naissance ou après le décès d'un conjoint, conjoint de moins de 12 ans ou de plus de 100 ans, conjoints nés à plus de 50 ans d'intervalle, les deux mêmes personnes unies plusieurs fois, plusieurs conjoints homonymes, union avec son propre parent, union à plus de deux conjoints, et conjoints qui ont un parent en commun |
 | **Témoins et parrains** | Témoin ou parrain pas encore né ou déjà décédé lors de l'événement, parrain enregistré comme femme ou marraine comme homme |
-| **Fiches** | Mari enregistré comme femme ou épouse comme homme, deux maris ou deux épouses dans une même union, date illisible, intervalle de dates qui finit avant de commencer, personne sans aucun nom |
+| **Fiches** | Mari enregistré comme femme ou épouse comme homme, deux maris ou deux épouses dans une même union, date illisible, intervalle de dates qui finit avant de commencer, personne sans aucun nom, deux naissances, baptêmes, décès ou inhumations pour une même personne, et premier prénom que les fiches de prénoms ne donnent qu'à l'autre sexe |
+| **Lieux** | Lieux dont les noms ne diffèrent que par la casse, les accents, la ponctuation ou une partie manquante (Lyon et Lyon, Rhône), et deux événements d'une personne le même jour dans des lieux à plus de 100 km l'un de l'autre |
 
-Parrains et marraines sont reconnus d'après la relation notée sur un témoin, en plusieurs langues (parrain, godfather, Taufpate, padrino…). La liste complète des règles, avec leurs seuils et les contrôles de Geneanet correspondants, figure dans la [spécification des outils](@/tech/ui-tools.md) (en anglais).
+Parrains et marraines sont reconnus d'après la relation notée sur un témoin, en plusieurs langues (parrain, godfather, Taufpate, padrino…). Un prénom n'est vérifié que s'il nomme lui-même une fiche, et seulement si la fiche le dit porté par un seul sexe : Camille, Andrea ou Jean, donnés aux deux, ne sont jamais signalés. Les lieux ne sont comparés par la distance que s'ils ont leurs propres coordonnées ou que le dictionnaire des lieux les connaît. La liste complète des règles, avec leurs seuils et les contrôles de Geneanet correspondants, figure dans la [spécification des outils](@/tech/ui-tools.md) (en anglais).
 
 {{ <screenshot name="tools-anomalies" alt="Onglet Anomalies de la page des outils" lang={lang} /> }}
 
@@ -131,14 +136,18 @@ L'onglet **Date en toutes lettres** écrit une date comme le faisaient les regis
 
 Pour écrire une date en toutes lettres :
 
-1. Saisissez la date avec le champ de date. Une date hébraïque ou républicaine est écrite à partir du même jour du calendrier grégorien, ce que la page précise. Les années de 1 à 3999 peuvent être écrites.
+1. Saisissez la date avec le champ de date. Une date hébraïque ou républicaine est écrite dans son propre calendrier dans chaque langue (*le vingt-cinq messidor de l'an deux*, *le quinze Nissan cinq mille six cent dix*), et en latin à partir du même jour du calendrier grégorien ; la page le précise. Les années de 1 à 3999 peuvent être écrites.
 2. Choisissez la **Forme** : **Tout en lettres** ou **Chiffres et nom du mois**.
-3. Choisissez quand **L'année commence le** : **1er janvier**, ou **25 mars (style de l'Annonciation)**, que suivaient bien des registres. Dans ce style, une date du 1er janvier au 24 mars porte le millésime de l'année précédente.
-4. Lisez la date dans chaque langue (anglais, français, allemand, espagnol, italien, néerlandais, polonais et portugais) et en **Latin**. Chaque ligne a un bouton de copie.
+3. Choisissez quand **L'année commence le** : **1er janvier** ; **25 mars (style de l'Annonciation)**, que suivaient bien des registres, où une date du 1er janvier au 24 mars porte le millésime de l'année précédente ; **25 décembre (style de la Nativité)**, où les derniers jours de décembre portent celui de l'année suivante ; ou **Pâques (style français avant 1564)**, où les jours précédant Pâques portent celui de l'année précédente. Pâques est calculée dans le calendrier de la date, julien ou grégorien.
+4. Avec un autre style que le 1er janvier, cochez **Double datation (1649/50)** pour donner les deux millésimes quand ils diffèrent, comme le faisaient les registres anglais.
+5. Cochez **Formes latines classiques (duodevicesimo)** pour écrire les 18e, 19e, 28e, 29e… comme le latin classique, en comptant à rebours depuis la dizaine suivante.
+6. Lisez la date dans chaque langue (anglais, français, allemand, espagnol, italien, néerlandais, polonais et portugais) et en **Latin**. Chaque ligne a un bouton de copie.
 
 Les lignes latines ajoutent le **Latin, comput romain** d'une date complète (compté jusqu'aux calendes, nones ou ides suivantes, comme *ante diem IV Nonas Februarii*) et **Latin, partie par partie**, qui décompose le jour, le mois et l'année en toutes lettres et en chiffres romains.
 
-Pour relire une date écrite, collez-la sous **Lire une date écrite** et cliquez sur **Lire**. Le champ de date du haut est alors rempli. L'outil comprend les nombres en toutes lettres dans chacune de ces langues ou en latin (cardinaux ou ordinaux), les chiffres, les chiffres romains, les noms de mois à tous les cas, les abréviations GEDCOM comme *FEB*, et le comput romain. S'il ne parvient pas à lire le texte, il dit pourquoi : rien à lire, aucune année trouvée, ou un jour qui n'existe pas dans ce mois. Une date relue est considérée comme grégorienne.
+Une date complète donne aussi la **Fête du jour (calendrier romain)**, en latin comme l'intitulait le missel : une fête du cycle de Pâques (Cendres, Pâques, Ascension, Pentecôte, Fête-Dieu…) ou la fête du saint du jour, d'après le calendrier romain que suivaient les registres paroissiaux jusqu'à la fin du XIXe siècle. Le 11 novembre répond *S. Martini Episcopi et Confessoris*. Un jour sans fête dans ce calendrier n'affiche pas de ligne.
+
+Pour relire une date écrite, collez-la sous **Lire une date écrite** et cliquez sur **Lire**. Le champ de date du haut est alors rempli. L'outil comprend les nombres en toutes lettres dans chacune de ces langues ou en latin (cardinaux ou ordinaux, formes classiques comprises), les chiffres, les chiffres romains, les noms de mois à tous les cas, les abréviations GEDCOM comme *FEB*, et le comput romain. S'il ne parvient pas à lire le texte, il dit pourquoi : rien à lire, aucune année trouvée, ou un jour qui n'existe pas dans ce mois. Une date relue est considérée comme grégorienne.
 
 ## Imprimer un onglet
 

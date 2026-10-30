@@ -233,7 +233,11 @@ async fn scaling_duplicates() {
 #[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_anomalies() {
     scaling("anomalies", |profiles, _| {
-        black_box(anomalies::compute(profiles, &[], today()));
+        black_box(anomalies::compute(
+            profiles,
+            &anomalies::Records::default(),
+            today(),
+        ));
     })
     .await;
 }

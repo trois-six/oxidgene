@@ -215,20 +215,19 @@ The [Tools](ui-tools.md) page, one tab per tool, holds the anomalies with
 the catalogue of their rules, the places the statistics cannot locate, the
 ancestry completeness from the SOSA root, the potential duplicates, the
 date converter and the dates in words.
-Remaining tabs:
+Delivered since:
 
-- [ ] The proposed anomaly rules of [Tools §3.3](ui-tools.md): a unique event
-  recorded twice and a child of several families (they need the events and
-  family links rather than the projections), contradicting qualified dates,
-  no death recorded past 110 years, a union of siblings, a given name of the
-  other sex (from the reference sheets), two living siblings of one given
-  name, place spellings that differ only in form, and distant places on one
-  day.
-- [ ] Decide whether the anomaly thresholds should become tree settings.
-- [ ] Dates in words ([Tools §8.3](ui-tools.md)): double dating for the
-  Annunciation style, other old styles, the liturgical feast of the day,
-  the classical subtractive Latin forms, Hebrew and Republican dates
-  written out.
+- [x] The proposed anomaly rules of [Tools §3.3](ui-tools.md): a unique event
+  recorded twice, a child of several families, contradicting qualified
+  dates, no death recorded past 110 years, a union of siblings, a given name
+  of the other sex, two living siblings of one given name, place spellings
+  that differ only in form, and distant places on one day.
+- [x] The anomaly thresholds as tree settings ([Settings
+  §8b](ui-settings.md)).
+- [x] Dates in words ([Tools §8.3](ui-tools.md)): double dating, the
+  Christmas and Easter styles, the liturgical feast of the day, the
+  classical subtractive Latin forms, Hebrew and Republican dates written
+  out.
 
 ## 6b. Planned: upstream GEDCOM fixes
 

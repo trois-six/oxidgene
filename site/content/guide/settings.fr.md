@@ -1,12 +1,12 @@
 +++
 title = "Paramètres"
-description = "Paramètres de l’arbre (racines, confidentialité, historique, export) et de l’application (thèmes, langue, pedigree, noms, affichage des dates, options de saisie, API et assistant IA)."
+description = "Paramètres de l’arbre (racines, confidentialité, seuils des anomalies, historique, export) et de l’application (thèmes, langue, pedigree, noms, affichage des dates, options de saisie, API et assistant IA)."
 weight = 150
 +++
 
 OxidGene distingue deux sortes de réglages. Les **paramètres de l’arbre** appartiennent à un arbre et valent pour tous ceux qui l’utilisent. Les **paramètres de l’application** sont vos préférences sur cet appareil : l’apparence de l’application, sa langue, le tracé des pedigrees, le classement des noms, l’écriture des dates et l’aide à la saisie. Cette page passe les deux en revue.
 
-Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bouton d’enregistrement à ne pas oublier, sauf pour le nom de l’arbre et l’émetteur.
+Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bouton d’enregistrement à ne pas oublier, sauf pour le nom de l’arbre, l’émetteur et les seuils des anomalies.
 
 ## Ouvrir les paramètres
 
@@ -15,7 +15,7 @@ Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bo
 
 {{ <screenshot name="tree-settings" alt="Page des paramètres d’un arbre, avec son menu de gauche" lang={lang} /> }}
 
-Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
+Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**, **Seuils des anomalies**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
 
 ## Arbre et racines
 
@@ -30,6 +30,17 @@ La **Confidentialité par défaut** dit ce que signifie « suit l’arbre » pou
 Un nouvel arbre est Privé : une généalogie contient des personnes vivantes, et la publication doit être un choix délibéré.
 
 La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore rien. Comme l’indique la section : **Enregistré dès maintenant. Rien n’est encore masqué — cela prendra effet avec les comptes et la publication.**
+
+## Seuils des anomalies
+
+**Seuils des anomalies** fixe les limites qu’appliquent à cet arbre les [règles d’anomalies](@/guide/tools.fr.md#reperer-les-anomalies) de la page Outils : un âge, un écart ou une distance n’est signalé qu’au-delà. Les valeurs par défaut conviennent à la plupart des arbres ; adaptez-les à une population ou à une époque, par exemple un arbre d’ancêtres très âgés ou de mariages très précoces.
+
+Les seuils sont rangés en quatre cartes, comme les anomalies : **Dates** (vie la plus longue, vie la plus longue avant une année donnée, cette année, âge maximal sans décès, tolérance sur l’âge noté, marge des dates approximatives), **Filiation** (parent le plus jeune, père et mère les plus âgés, naissance après le décès du père, jumeaux, enfants trop rapprochés ou trop éloignés), **Unions** (conjoints le plus jeune et le plus âgé à l’union, écart de naissance des conjoints) et **Lieux** (lieux les plus éloignés d’un même jour, en km).
+
+1. Saisissez les nouvelles valeurs. Une valeur hors de sa plage le signale sous son champ (« Entre 80 et 150. »), et deux valeurs qui doivent s’accorder le signalent au-dessus des boutons ; **Enregistrer** reste désactivé tant qu’elles ne sont pas corrigées.
+2. Cliquez sur **Enregistrer**. La page Outils applique alors les nouveaux seuils, et ses règles les citent dans leurs titres et leurs phrases.
+
+**Rétablir les valeurs par défaut** remplit chaque champ de sa valeur par défaut ; cliquez sur **Enregistrer** pour les garder. Chaque modification est consignée dans l’[Historique](#historique) de l’arbre, seuil par seuil.
 
 ## Historique
 

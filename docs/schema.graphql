@@ -139,8 +139,13 @@ type Anomaly {
 	"""
 	familyId: String
 	"""
+	The places concerned, for the rules about places.
+	"""
+	places: [AnomalyPlace!]!
+	"""
 	The figure the rule measured: whole years for ages and gaps in
-	years, days for gaps between births and deaths.
+	years, days for gaps between births and deaths, kilometres for
+	distances, a count for what is recorded too often.
 	"""
 	value: Int
 	"""
@@ -148,9 +153,22 @@ type Anomaly {
 	"""
 	eventType: String
 	"""
-	Recorded text the rule is about: an unreadable date, a relation.
+	The event `event_type` is compared with, for the rules comparing two.
+	"""
+	otherEventType: String
+	"""
+	Recorded text the rule is about: an unreadable date, a relation, a
+	given name.
 	"""
 	text: String
+}
+
+"""
+A place an anomaly names.
+"""
+type AnomalyPlace {
+	placeId: String!
+	name: String!
 }
 
 """
@@ -159,7 +177,8 @@ What one rule found.
 type AnomalyRule {
 	rule: String!
 	"""
-	`dates`, `filiation`, `unions`, `witnesses` or `data_quality`.
+	`dates`, `filiation`, `unions`, `witnesses`, `data_quality` or
+	`places`.
 	"""
 	category: String!
 	"""
@@ -172,6 +191,30 @@ type AnomalyRule {
 	"""
 	count: Int!
 	items: [Anomaly!]!
+}
+
+"""
+The thresholds of the anomaly rules, all at once: a threshold left
+out takes its default.
+"""
+input AnomalyThresholdsInput {
+	maxLifespanYears: Int
+	oldCentenarianYears: Int
+	centenarianBeforeYear: Int
+	minParentAgeYears: Int
+	maxFatherAgeYears: Int
+	maxMotherAgeYears: Int
+	maxPosthumousBirthDays: Int
+	twinDays: Int
+	minSiblingGapDays: Int
+	maxSiblingGapYears: Int
+	minUnionAgeYears: Int
+	maxUnionAgeYears: Int
+	maxSpouseGapYears: Int
+	recordedAgeToleranceYears: Int
+	approximateSlackYears: Int
+	maxAgeAliveYears: Int
+	maxSameDayDistanceKm: Int
 }
 
 """
@@ -502,6 +545,30 @@ input GeneanetSessionEncodeInput {
 	depositSizes: [GeneanetDepositSizeInput!]! = []
 	account: String
 	media: [GeneanetMediaPathInput!]! = []
+}
+
+"""
+The thresholds a tree's anomaly rules apply, each in whole years,
+days or kilometres, or a year for `centenarianBeforeYear`.
+"""
+type GqlAnomalyThresholds {
+	maxLifespanYears: Int!
+	oldCentenarianYears: Int!
+	centenarianBeforeYear: Int!
+	minParentAgeYears: Int!
+	maxFatherAgeYears: Int!
+	maxMotherAgeYears: Int!
+	maxPosthumousBirthDays: Int!
+	twinDays: Int!
+	minSiblingGapDays: Int!
+	maxSiblingGapYears: Int!
+	minUnionAgeYears: Int!
+	maxUnionAgeYears: Int!
+	maxSpouseGapYears: Int!
+	recordedAgeToleranceYears: Int!
+	approximateSlackYears: Int!
+	maxAgeAliveYears: Int!
+	maxSameDayDistanceKm: Int!
 }
 
 """
@@ -3192,6 +3259,10 @@ type GqlTree {
 	submitterName: String
 	submitterEmail: String
 	submitterAddress: String
+	"""
+	The thresholds the tree's anomaly rules apply.
+	"""
+	anomalyThresholds: GqlAnomalyThresholds!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""
@@ -3263,6 +3334,7 @@ type GqlTreeSnapshot {
 	submitterName: String
 	submitterEmail: String
 	submitterAddress: String
+	anomalyThresholds: GqlAnomalyThresholds!
 }
 
 type GqlUnionSnapshot {
@@ -4632,13 +4704,17 @@ input TagTargetInput {
 }
 
 """
-A tree's anomalies.
+A tree's anomalies, by rule (`TreeAnomalies` of the service).
 """
 type TreeAnomalies {
 	"""
 	Persons examined.
 	"""
 	persons: Int!
+	"""
+	The thresholds the rules applied: the tree's.
+	"""
+	thresholds: GqlAnomalyThresholds!
 	"""
 	The rules that found something, in catalogue order.
 	"""
@@ -5025,6 +5101,10 @@ input UpdateTreeInput {
 	submitterName: String
 	submitterEmail: String
 	submitterAddress: String
+	"""
+	The thresholds of the anomaly rules.
+	"""
+	anomalyThresholds: AnomalyThresholdsInput
 }
 
 """

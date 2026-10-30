@@ -994,7 +994,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
         tag: Option<ID>,
-    ) -> Result<crate::service::anomalies::TreeAnomalies> {
+    ) -> Result<super::types::GqlTreeAnomalies> {
         boxed(async move {
             let tag = tag.as_ref().map(uuid).transpose()?;
             Ok(crate::service::anomalies::load(
@@ -1003,7 +1003,8 @@ impl QueryRoot {
                 live_tree(ctx, &tree_id).await?,
                 tag,
             )
-            .await?)
+            .await?
+            .into())
         })
         .await
     }

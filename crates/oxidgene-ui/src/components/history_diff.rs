@@ -762,6 +762,19 @@ fn tree_section(
     ] {
         group.row(i18n.t(key), before.and_then(get), get(after));
     }
+    // The anomaly thresholds that changed, or that a new tree sets apart from
+    // the defaults: seventeen unchanged figures would bury the rest.
+    let defaults = oxidgene_core::types::AnomalyThresholds::default();
+    for (name, value, _) in after.anomaly_thresholds.ranges() {
+        let old = before.and_then(|t| t.anomaly_thresholds.get(name));
+        if old.map_or(defaults.get(name), Some) != Some(value) {
+            group.row(
+                i18n.t(&format!("settings.threshold.{name}")),
+                old.map(|v| v.to_string()),
+                Some(value.to_string()),
+            );
+        }
+    }
     group.reference_row(
         i18n.t("history.field.sosa_root"),
         before

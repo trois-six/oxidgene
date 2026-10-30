@@ -301,6 +301,9 @@ impl SnapshotRepo {
                 submitter_name: row.submitter_name,
                 submitter_email: row.submitter_email,
                 submitter_address: row.submitter_address,
+                anomaly_thresholds: crate::repo::tree::thresholds_of(
+                    row.anomaly_thresholds.as_deref(),
+                ),
             }),
             labels,
         }])
@@ -494,6 +497,9 @@ impl SnapshotRepo {
         active.submitter_name = Set(snapshot.submitter_name.clone());
         active.submitter_email = Set(snapshot.submitter_email.clone());
         active.submitter_address = Set(snapshot.submitter_address.clone());
+        active.anomaly_thresholds = Set(crate::repo::tree::thresholds_column(
+            &snapshot.anomaly_thresholds,
+        ));
         active.sosa_root_person_id =
             Set(snapshot.sosa_root_person_id.filter(|id| live.contains(id)));
         active.self_person_id = Set(snapshot.self_person_id.filter(|id| live.contains(id)));

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -129,6 +129,7 @@ UI language.
 | Date placeholders | `{year}`, then `{month}` when present, then `{day}` for a full date; each pattern must declare exactly its applicable placeholders. |
 | `dates.years`, `dates.days` | Explicit word forms indexed by value: 4000 and 32 entries, with index zero unused. They preserve historical year pronunciation and inflected date ordinals without language-specific Rust rules. The tool's supported year range remains 1–3999. |
 | `dates.reading` | Word-to-number-piece map: `{ "kind": "add", "value": 2 }`, or `hundred`, `thousand`, `and`. The shared reader folds and segments compounds and merges vocabularies from the available locales. |
+| `dates.hebrew`, `dates.republican` | Optional: the written-date tool's Hebrew and French Republican dates ([Tools §8.1](ui-tools.md)). Each holds `months` and `months_with_day` (thirteen names), `long` and `short` patterns with the date placeholders, and optionally `complementary` (two patterns with `{day}` and `{year}`, long and short, for a Republican complementary day), `thousands` (ten word forms, index zero unused, for a year past 3999) and `thousands_joiner` (what joins them to the rest of the year). A document without them writes those dates from their Gregorian day. |
 
 Malformed files are excluded and reported by filename with a localized error
 in settings. Files are sorted by filename. Reopening the section refreshes
@@ -429,7 +430,8 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
   async worker, under a child span created before the hand-off and entered on
   the blocking thread, since the pool does not carry the caller's span:
   `profile.decode` for the projection payloads, `statistics.compute`,
-  `anomalies.compute`, `anomalies.locate`, `duplicates.compute`,
+  `anomalies.wanted`, `anomalies.compute`, `anomalies.locate`,
+  `anomalies.locate_compared`, `duplicates.compute`,
   `ancestry.compute`, `kinship.walk`, and `reference.places.locate` inside
   them. Place suggestions run under `reference.places.search`. These spans
   record aggregate counts (persons, places, links, the suggestion limit)

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Tags"
 description: "Principles of tags shared by every kind of record, and where their uses beyond finding (statistics, anomalies and export limited to a tag) are specified."
 tags: [oxidgene, specification, tags, data-model, api, ui]
-generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 # Tags
@@ -71,7 +71,8 @@ names the failure, and a kept tag stays chosen.
 ### 2.2 Anomalies limited to a tag
 
 The tag select of [Tools §3](ui-tools.md#3-anomalies), and the rule of an
-anomaly that names a tagged person: [API Contract, Tools](api.md#tools).
+anomaly that names a tagged person or a place such a person's events use:
+[API Contract, Tools](api.md#tools).
 
 ### 2.3 Exporting part of the tree
 

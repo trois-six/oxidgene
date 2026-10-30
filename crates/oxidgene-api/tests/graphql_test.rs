@@ -5475,3 +5475,186 @@ async fn a_region_cut_for_an_event_reaches_the_persons_page_over_graphql() {
         serde_json::json!([{ "vignetteId": region_id }])
     );
 }
+
+/// The rule `rule` of a `treeAnomalies` result, which must be listed.
+fn gql_anomaly_rule<'a>(anomalies: &'a Value, rule: &str) -> &'a Value {
+    anomalies["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["rule"] == rule)
+        .unwrap_or_else(|| panic!("{rule} is found: {anomalies}"))
+}
+
+/// The same rules beyond the projections as REST: a key event twice, a
+/// child of two families, one place written two ways and two places of one
+/// day, with their places and the second event compared.
+#[tokio::test]
+async fn graphql_anomalies_read_events_links_and_places_beyond_the_projections() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let child = gql_named_person(&app, &tree_id, "MALE", "Child", "BRANCH_A").await;
+    let owner = format!(r#"personId: "{child}""#);
+    gql_event(&app, &tree_id, &owner, "BIRTH", "1850").await;
+    gql_event(&app, &tree_id, &owner, "BIRTH", "1851").await;
+    let father = gql_named_person(&app, &tree_id, "MALE", "Father", "BRANCH_A").await;
+    let mother = gql_named_person(&app, &tree_id, "FEMALE", "Mother", "BRANCH_A").await;
+    let other_father = gql_named_person(&app, &tree_id, "MALE", "OtherFather", "BRANCH_A").await;
+    let other_mother = gql_named_person(&app, &tree_id, "FEMALE", "OtherMother", "BRANCH_A").await;
+    gql_family(
+        &app,
+        &tree_id,
+        &[(&father, "HUSBAND"), (&mother, "WIFE")],
+        &[&child],
+    )
+    .await;
+    gql_family(
+        &app,
+        &tree_id,
+        &[(&other_father, "HUSBAND"), (&other_mother, "WIFE")],
+        &[&child],
+    )
+    .await;
+    let place = |name: &'static str, spot: &'static str| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        async move {
+            let resp = graphql(
+                app,
+                &format!(
+                    r#"mutation {{ createPlace(treeId: "{tree_id}", input: {{ name: "{name}"{spot} }}) {{ id }} }}"#
+                ),
+                None,
+            )
+            .await;
+            data(&resp)["createPlace"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let north = place("Qzxv North", ", latitude: 48.8566, longitude: 2.3522").await;
+    let south = place("Qzxv South", ", latitude: 45.764, longitude: 4.8357").await;
+    let south_again = place("QZXV  south", "").await;
+    let traveller = gql_named_person(&app, &tree_id, "FEMALE", "Traveller", "BRANCH_A").await;
+    for (kind, date, place) in [
+        ("BIRTH", "2 FEB 1850", &north),
+        ("BAPTISM", "2 FEB 1850", &south),
+        ("RESIDENCE", "1870", &south_again),
+    ] {
+        gql_event(
+            &app,
+            &tree_id,
+            &format!(r#"personId: "{traveller}", placeId: "{place}""#),
+            kind,
+            date,
+        )
+        .await;
+    }
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ treeAnomalies(treeId: "{tree_id}") {{ thresholds {{ maxSameDayDistanceKm }}
+                rules {{ rule category count items {{ persons {{ personId }} familyId
+                    places {{ placeId name }} value eventType otherEventType text }} }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&resp)["treeAnomalies"];
+    assert_eq!(result["thresholds"]["maxSameDayDistanceKm"], 100);
+
+    let twice = &gql_anomaly_rule(result, "unique_event_twice")["items"][0];
+    assert_eq!(twice["persons"][0]["personId"], child.as_str());
+    assert_eq!(twice["eventType"], "birth");
+    assert_eq!(twice["value"], 2);
+
+    let several = &gql_anomaly_rule(result, "child_of_several_families")["items"][0];
+    assert_eq!(several["persons"].as_array().unwrap().len(), 5);
+
+    let spellings = gql_anomaly_rule(result, "place_spellings");
+    assert_eq!(spellings["category"], "places");
+    assert_eq!(spellings["items"][0]["places"][1]["name"], "Qzxv South");
+
+    let distant = &gql_anomaly_rule(result, "distant_places_same_day")["items"][0];
+    assert!(
+        distant["value"]
+            .as_i64()
+            .is_some_and(|km| (385..400).contains(&km)),
+        "{distant}"
+    );
+    assert_eq!(distant["places"][0]["placeId"], north.as_str());
+    assert_eq!(distant["otherEventType"], "baptism");
+}
+
+/// The thresholds are set through `updateTree` as through REST: all at once,
+/// a threshold left out taking its default, refused out of range, and
+/// applied by `treeAnomalies`.
+#[tokio::test]
+async fn graphql_anomaly_thresholds_are_a_tree_setting_the_anomalies_apply() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let person = gql_named_person(&app, &tree_id, "MALE", "Elder", "BRANCH_A").await;
+    let owner = format!(r#"personId: "{person}""#);
+    gql_event(&app, &tree_id, &owner, "BIRTH", "1800").await;
+    gql_event(&app, &tree_id, &owner, "DEATH", "1896").await;
+    let rules = |app: axum::Router, tree_id: String| async move {
+        let resp = graphql(
+            app,
+            &format!(
+                r#"{{ treeAnomalies(treeId: "{tree_id}") {{ thresholds {{ maxLifespanYears }} rules {{ rule }} }} }}"#
+            ),
+            None,
+        )
+        .await;
+        data(&resp)["treeAnomalies"].clone()
+    };
+    let lived_long = |result: &Value| {
+        result["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["rule"] == "lived_over_105")
+    };
+    let before = rules(app.clone(), tree_id.clone()).await;
+    assert!(!lived_long(&before));
+    assert_eq!(before["thresholds"]["maxLifespanYears"], 105);
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateTree(id: "{tree_id}", input: {{ anomalyThresholds: {{ maxLifespanYears: 90, oldCentenarianYears: 90 }} }}) {{
+                anomalyThresholds {{ maxLifespanYears maxFatherAgeYears }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let set = &data(&resp)["updateTree"]["anomalyThresholds"];
+    assert_eq!(set["maxLifespanYears"], 90);
+    assert_eq!(set["maxFatherAgeYears"], 70);
+    let after = rules(app.clone(), tree_id.clone()).await;
+    assert!(lived_long(&after), "{after}");
+    assert_eq!(after["thresholds"]["maxLifespanYears"], 90);
+
+    for refused in [
+        "maxFatherAgeYears: 5",
+        "oldCentenarianYears: 120, maxLifespanYears: 110",
+        "twinDays: 30, minSiblingGapDays: 20",
+    ] {
+        let resp = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ updateTree(id: "{tree_id}", input: {{ anomalyThresholds: {{ {refused} }} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(
+            resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+            "{refused}: {resp}"
+        );
+    }
+    let kept = rules(app, tree_id).await;
+    assert_eq!(kept["thresholds"]["maxLifespanYears"], 90);
+}

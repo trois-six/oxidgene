@@ -111,6 +111,7 @@ enum Tree {
     SubmitterName,
     SubmitterEmail,
     SubmitterAddress,
+    AnomalyThresholds,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -498,6 +499,9 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Tree::SubmitterName))
                 .col(string_null(Tree::SubmitterEmail))
                 .col(text_null(Tree::SubmitterAddress))
+                // The anomaly thresholds the tree sets, as JSON; none, the
+                // defaults (`AnomalyThresholds`).
+                .col(text_null(Tree::AnomalyThresholds))
                 .col(timestamp_with_time_zone(Tree::CreatedAt))
                 .col(timestamp_with_time_zone(Tree::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Tree::DeletedAt))

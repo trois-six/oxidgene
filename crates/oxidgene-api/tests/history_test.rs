@@ -1555,3 +1555,72 @@ async fn growth_counts_the_persons_over_time() {
     let (_, json) = send(&app, Method::POST, "/graphql", Some(body)).await;
     assert!(json.get("errors").is_some(), "{json}");
 }
+
+/// The anomaly thresholds are a tree setting: set through either surface,
+/// each change versioned with the tree, and a revert brings them back.
+#[tokio::test]
+async fn anomaly_thresholds_are_versioned_and_reverted() {
+    let (db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    ok(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}"),
+        Some(json!({ "anomaly_thresholds": { "max_age_alive_years": 120 } })),
+    )
+    .await;
+    let data = graphql(
+        &app,
+        "mutation($t: ID!) {
+            updateTree(id: $t, input: { anomalyThresholds: { maxAgeAliveYears: 120, maxSameDayDistanceKm: 50 } }) {
+                anomalyThresholds { maxAgeAliveYears maxSameDayDistanceKm maxLifespanYears }
+            }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    let set = &data["updateTree"]["anomalyThresholds"];
+    assert_eq!(set["maxSameDayDistanceKm"], 50);
+    assert_eq!(set["maxAgeAliveYears"], 120);
+    assert_eq!(set["maxLifespanYears"], 105);
+
+    let tree_versions = versions(&app, &tree, "tree", &tree).await;
+    assert_eq!(tree_versions.len(), 3);
+    let threshold = |version: usize, name: &str| {
+        tree_versions[version]["snapshot"]["anomaly_thresholds"][name].clone()
+    };
+    assert_eq!(threshold(0, "max_same_day_distance_km"), 50);
+    assert_eq!(threshold(1, "max_same_day_distance_km"), 100);
+    assert_eq!(threshold(1, "max_age_alive_years"), 120);
+    assert_eq!(threshold(2, "max_age_alive_years"), 110);
+    let data = graphql(
+        &app,
+        "query($t: ID!) {
+            recordVersions(treeId: $t, recordType: TREE, recordId: $t) {
+                edges { node { snapshot { tree { anomalyThresholds { maxSameDayDistanceKm } } } } }
+            }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    assert_eq!(
+        data["recordVersions"]["edges"][0]["node"]["snapshot"]["tree"]["anomalyThresholds"]["maxSameDayDistanceKm"],
+        50
+    );
+
+    // Restoring the first version brings the defaults back.
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/tree/{tree}/revert"),
+        Some(json!({ "version": 1 })),
+    )
+    .await;
+    let restored = ok(&app, Method::GET, &format!("/api/v1/trees/{tree}"), None).await;
+    assert_eq!(restored["anomaly_thresholds"]["max_age_alive_years"], 110);
+    assert_eq!(
+        restored["anomaly_thresholds"]["max_same_day_distance_km"],
+        100
+    );
+    assert_no_duplicated_state(&db).await;
+}

@@ -1,12 +1,12 @@
 +++
 title = "Settings"
-description = "Tree settings (roots, privacy, history, export) and application settings (themes, language, pedigree, names, date display, entry options, API and AI assistant)."
+description = "Tree settings (roots, privacy, anomaly thresholds, history, export) and application settings (themes, language, pedigree, names, date display, entry options, API and AI assistant)."
 weight = 150
 +++
 
 OxidGene has two kinds of settings. **Tree settings** belong to one tree and apply to everyone who uses it. **Application settings** are your own preferences on this device: the look of the application, its language, how pedigrees are drawn, how names are sorted, how dates are written and how forms help you type. This page goes through both.
 
-Every setting is saved as soon as you change it; there is no save button to remember, except for the tree name and the submitter.
+Every setting is saved as soon as you change it; there is no save button to remember, except for the tree name, the submitter and the anomaly thresholds.
 
 ## Open the settings
 
@@ -15,7 +15,7 @@ Every setting is saved as soon as you change it; there is no save button to reme
 
 {{ <screenshot name="tree-settings" alt="Settings page of a tree, with its left menu" lang={lang} /> }}
 
-The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
+The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**, **Anomaly thresholds**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
 
 ## Tree & Roots
 
@@ -30,6 +30,17 @@ The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **
 A new tree starts as Private: a genealogy holds living people, and publishing should be a deliberate choice.
 
 Privacy is recorded today but does not hide anything yet. As the section says: **Recorded now. Nothing is hidden yet — this takes effect when accounts and publishing arrive.**
+
+## Anomaly thresholds
+
+**Anomaly thresholds** sets the limits the [anomaly rules](@/guide/tools.md#find-anomalies) of the Tools page apply to this tree: an age, a gap or a distance is reported only beyond them. The defaults suit most trees; change them to fit a population or a period, such as a tree of long-lived ancestors or of marriages made very young.
+
+The thresholds are grouped in four cards, as the anomalies are: **Dates** (longest life, longest life before a given year, that year, oldest person without a death, recorded age tolerance, approximate date slack), **Filiation** (youngest parent, oldest father and mother, birth after the father's death, twins, siblings too close or too far apart), **Unions** (youngest and oldest spouse at the union, spouses' birth gap) and **Places** (farthest places of one day, in km).
+
+1. Type the new values. A value out of its range says so under its field ("Between 80 and 150."), and two values that must agree say so above the buttons; **Save** stays disabled until they are fixed.
+2. Click **Save**. The Tools page then applies the new thresholds, and its rules quote them in their titles and sentences.
+
+**Restore the defaults** fills every field with its default value; click **Save** to keep them. Each change is recorded in the tree's [History](#history), threshold by threshold.
 
 ## History
 

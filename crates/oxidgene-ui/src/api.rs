@@ -14,10 +14,10 @@ use opentelemetry::global;
 use opentelemetry::propagation::Injector;
 use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResult};
 use oxidgene_core::types::{
-    Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse,
-    ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place, QualifiedYear,
-    RecordKind, Repository, Source, SourceRepository, SpouseAge, SurnameDescent, TagRef, Tree,
-    Vignette,
+    AnomalyThresholds, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family,
+    FamilyChild, FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName,
+    Place, QualifiedYear, RecordKind, Repository, Source, SourceRepository, SpouseAge,
+    SurnameDescent, TagRef, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -501,6 +501,8 @@ pub struct LifeDates {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct TreeAnomalies {
     pub persons: i64,
+    /// The thresholds the rules applied: the tree's.
+    pub thresholds: AnomalyThresholds,
     pub rules: Vec<AnomalyRule>,
 }
 
@@ -515,17 +517,28 @@ pub struct AnomalyRule {
     pub items: Vec<Anomaly>,
 }
 
-/// One anomaly: its persons, the subject first, and what the rule measured
-/// (years for ages and gaps in years, days for gaps in days).
+/// One anomaly: its persons, the subject first, its places, and what the
+/// rule measured (years for ages and gaps in years, days for gaps in days,
+/// kilometres for distances, a count for what is recorded too often).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Anomaly {
     pub persons: Vec<StatPersonRef>,
     pub family_id: Option<Uuid>,
+    pub places: Vec<AnomalyPlace>,
     pub value: Option<i64>,
     /// An `EventType` in its snake_case form.
     pub event_type: Option<String>,
-    /// Recorded text: an unreadable date, a relation.
+    /// The event `event_type` is compared with, for the rules comparing two.
+    pub other_event_type: Option<String>,
+    /// Recorded text: an unreadable date, a relation, a given name.
     pub text: Option<String>,
+}
+
+/// A place an anomaly names.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AnomalyPlace {
+    pub place_id: Uuid,
+    pub name: String,
 }
 
 /// Which ancestors of a tree's SOSA root are known, generation by
@@ -791,6 +804,9 @@ pub struct UpdateTreeBody {
     pub submitter_email: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitter_address: Option<Option<String>>,
+    /// The thresholds of the anomaly rules, all at once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anomaly_thresholds: Option<AnomalyThresholds>,
 }
 
 #[derive(Debug, Serialize)]

@@ -2,10 +2,12 @@
 //! impossible or unlikely (`docs/ui-tools.md` §3, which holds the whole
 //! catalogue with the rules still proposed).
 //!
-//! Computed on each request from the person projections and the tree's
-//! witness links; nothing is stored. A rule fires only when it holds for
-//! every day its dates may stand for (see `Span`), so an imprecise date
-//! never raises an anomaly its precision could explain.
+//! Computed on each request from the person projections and what they do
+//! not carry (see [`Records`]); nothing is stored. A rule fires only when it
+//! holds for every day its dates may stand for (see `Span`), so an imprecise
+//! date never raises an anomaly its precision could explain.
+
+mod places;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -13,7 +15,7 @@ use chrono::{Datelike, Duration, NaiveDate};
 use oxidgene_core::calendar::DAYS_PER_YEAR;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
 use oxidgene_core::search::fold_words;
-use oxidgene_core::types::{EventWitness, Place};
+use oxidgene_core::types::{AnomalyThresholds, EventWitness, FamilyChild, Place};
 use oxidgene_core::{ChildType, DateQualifier, EventType, OxidGeneError, Sex, SpouseRole};
 use serde::Serialize;
 use uuid::Uuid;
@@ -22,43 +24,71 @@ use crate::reference::{PlaceLocation, ReferenceLang};
 use crate::service::event_date;
 use crate::service::statistics::{PersonRef, PlaceUsage, carries, locate_used, person_ref};
 
-// ── Thresholds (`docs/ui-tools.md` §3.2) ──────────────────────────────────
+// ── Thresholds (`docs/ui-tools.md` §3.3) ──────────────────────────────────
 
-/// A life longer than this is flagged whenever it was lived.
-pub const MAX_LIFESPAN_YEARS: f64 = 105.0;
-/// A life longer than this is flagged when it began before
-/// [`CENTENARIAN_BEFORE_YEAR`], when centenarians were rarer still.
-pub const OLD_CENTENARIAN_YEARS: f64 = 100.0;
-pub const CENTENARIAN_BEFORE_YEAR: i32 = 1900;
-/// A parent younger than this at a child's birth.
-pub const MIN_PARENT_AGE_YEARS: f64 = 11.0;
-/// A father older than this at a child's birth.
-pub const MAX_FATHER_AGE_YEARS: f64 = 70.0;
-/// A mother older than this at a child's birth.
-pub const MAX_MOTHER_AGE_YEARS: f64 = 55.0;
-/// A child born more than this many days after the father's death: a
-/// posthumous child comes within about nine months.
-pub const MAX_POSTHUMOUS_BIRTH_DAYS: i64 = 300;
-/// Two children of a union born this many days apart or more, but fewer
-/// than [`MIN_SIBLING_GAP_DAYS`]; closer births are twins.
-pub const TWIN_DAYS: i64 = 11;
-/// Seven months.
-pub const MIN_SIBLING_GAP_DAYS: i64 = 213;
-/// Two consecutive children of a union born further apart than this.
-pub const MAX_SIBLING_GAP_YEARS: f64 = 50.0;
-/// A spouse younger than this at the union.
-pub const MIN_UNION_AGE_YEARS: f64 = 12.0;
-/// A spouse older than this at the union.
-pub const MAX_UNION_AGE_YEARS: f64 = 100.0;
-/// Spouses born further apart than this.
-pub const MAX_SPOUSE_GAP_YEARS: f64 = 50.0;
-/// How far an age a record gives may stray from the age its dates compute,
-/// each way: a register's age was often declared, rounded or guessed.
-pub const RECORDED_AGE_TOLERANCE_YEARS: f64 = 2.0;
-/// How far a date about, calculated or estimated may stray, each way.
-pub const APPROXIMATE_SLACK_DAYS: i64 = 2 * 365;
 /// The most items a rule lists; its count still says how many there are.
 pub const MAX_ITEMS_PER_RULE: usize = 500;
+
+/// A tree's [`AnomalyThresholds`] as the rules compare them: ages and gaps
+/// in years, as fractions of years; gaps in days, distances and the slack of
+/// an approximate date as they are.
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    lifespan: f64,
+    centenarian: f64,
+    centenarian_before: i32,
+    min_parent: f64,
+    max_father: f64,
+    max_mother: f64,
+    posthumous_days: i64,
+    twin_days: i64,
+    sibling_gap_days: i64,
+    sibling_far: f64,
+    min_union: f64,
+    max_union: f64,
+    spouse_gap: f64,
+    /// A recorded age's tolerance, in days.
+    age_tolerance_days: i64,
+    /// How far a date about, calculated or estimated may stray, each way, in
+    /// days.
+    slack_days: i64,
+    alive: f64,
+    same_day_km: f64,
+}
+
+impl From<&AnomalyThresholds> for Limits {
+    fn from(t: &AnomalyThresholds) -> Self {
+        let days = |years: i32| (f64::from(years) * DAYS_PER_YEAR) as i64;
+        Self {
+            lifespan: f64::from(t.max_lifespan_years),
+            centenarian: f64::from(t.old_centenarian_years),
+            centenarian_before: t.centenarian_before_year,
+            min_parent: f64::from(t.min_parent_age_years),
+            max_father: f64::from(t.max_father_age_years),
+            max_mother: f64::from(t.max_mother_age_years),
+            posthumous_days: i64::from(t.max_posthumous_birth_days),
+            twin_days: i64::from(t.twin_days),
+            sibling_gap_days: i64::from(t.min_sibling_gap_days),
+            sibling_far: f64::from(t.max_sibling_gap_years),
+            min_union: f64::from(t.min_union_age_years),
+            max_union: f64::from(t.max_union_age_years),
+            spouse_gap: f64::from(t.max_spouse_gap_years),
+            age_tolerance_days: days(t.recorded_age_tolerance_years),
+            // Whole years of 365 days, as the slack always counted.
+            slack_days: i64::from(t.approximate_slack_years) * 365,
+            alive: f64::from(t.max_age_alive_years),
+            same_day_km: f64::from(t.max_same_day_distance_km),
+        }
+    }
+}
+
+/// The events a person has one of at most.
+pub const UNIQUE_EVENTS: [EventType; 4] = [
+    EventType::Birth,
+    EventType::Baptism,
+    EventType::Death,
+    EventType::Burial,
+];
 
 /// Every implemented rule, in the order of the catalogue:
 /// `(id, category, severity)`.
@@ -73,6 +103,8 @@ const RULES: &[(&str, &str, &str)] = &[
     ("centenarian_before_1900", "dates", "warning"),
     ("future_date", "dates", "error"),
     ("recorded_age_mismatch", "dates", "warning"),
+    ("qualifier_contradiction", "dates", "warning"),
+    ("alive_too_old", "dates", "warning"),
     ("parent_born_after_child", "filiation", "error"),
     ("ancestor_born_after_descendant", "filiation", "error"),
     ("own_ancestor", "filiation", "error"),
@@ -83,6 +115,8 @@ const RULES: &[(&str, &str, &str)] = &[
     ("born_long_after_father_death", "filiation", "error"),
     ("siblings_too_close", "filiation", "warning"),
     ("siblings_far_apart", "filiation", "warning"),
+    ("child_of_several_families", "filiation", "warning"),
+    ("same_name_living_siblings", "filiation", "warning"),
     ("union_before_birth", "unions", "error"),
     ("union_too_young", "unions", "warning"),
     ("union_over_100", "unions", "warning"),
@@ -92,6 +126,7 @@ const RULES: &[(&str, &str, &str)] = &[
     ("homonymous_spouses", "unions", "warning"),
     ("union_with_parent_or_child", "unions", "error"),
     ("union_many_spouses", "unions", "warning"),
+    ("union_with_sibling", "unions", "warning"),
     ("witness_before_birth", "witnesses", "error"),
     ("witness_after_death", "witnesses", "error"),
     ("godparent_sex", "witnesses", "warning"),
@@ -100,14 +135,91 @@ const RULES: &[(&str, &str, &str)] = &[
     ("unreadable_date", "data_quality", "warning"),
     ("reversed_range", "data_quality", "warning"),
     ("no_name", "data_quality", "warning"),
+    ("unique_event_twice", "data_quality", "warning"),
+    ("given_name_sex", "data_quality", "warning"),
+    ("place_spellings", "places", "warning"),
+    ("distant_places_same_day", "places", "warning"),
 ];
 
-/// A tree's anomalies.
+/// What the rules read beside the person projections: what a projection
+/// does not carry, loaded for the rules that need it.
+#[derive(Debug, Clone, Default)]
+pub struct Records {
+    /// The thresholds the tree sets.
+    pub thresholds: AnomalyThresholds,
+    /// The tree's witness links.
+    pub witnesses: Vec<EventWitness>,
+    /// The persons holding more than one of an [`UNIQUE_EVENTS`] type: the
+    /// person, the type and how many (a projection keeps one of each).
+    pub repeated_events: Vec<(Uuid, EventType, i64)>,
+    /// Every child link of the persons who are children of several families
+    /// (a projection keeps the first); see [`Wanted::children`].
+    pub child_links: Vec<FamilyChild>,
+    /// Where the places compared by distance lie, `(latitude, longitude)`
+    /// by place; see [`Wanted::places`].
+    pub coordinates: HashMap<Uuid, (f64, f64)>,
+}
+
+/// What the projections show the rules need loaded: the persons who are
+/// children of several families, and the places of a person's events on one
+/// day, whose distance is measured.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Wanted {
+    pub children: Vec<Uuid>,
+    pub places: Vec<Uuid>,
+}
+
+impl Wanted {
+    /// What `profiles` need beside themselves.
+    pub fn of(profiles: &[PersonProfile]) -> Self {
+        let mut families: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
+        for profile in profiles {
+            if let Some(link) = &profile.family_as_child {
+                families
+                    .entry(profile.person_id)
+                    .or_default()
+                    .insert(link.family_id);
+            }
+            for link in &profile.families_as_spouse {
+                for child in &link.children_ids {
+                    families.entry(*child).or_default().insert(link.family_id);
+                }
+            }
+        }
+        let mut children: Vec<Uuid> = families
+            .into_iter()
+            .filter(|(_, families)| families.len() > 1)
+            .map(|(child, _)| child)
+            .collect();
+        children.sort_unstable();
+        let mut places: Vec<Uuid> = profiles
+            .iter()
+            .flat_map(|p| places::same_day_pairs(p))
+            .flat_map(|(a, b)| [a.place_id, b.place_id])
+            .flatten()
+            .collect();
+        places.sort_unstable();
+        places.dedup();
+        Self { children, places }
+    }
+}
+
+/// A place an anomaly names.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
+pub struct AnomalyPlace {
+    pub place_id: String,
+    pub name: String,
+}
+
+/// A tree's anomalies. GraphQL serves it as `GqlTreeAnomalies`, whose
+/// thresholds are the GraphQL object of the tree's.
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct TreeAnomalies {
     /// Persons examined.
     pub persons: i64,
+    /// The thresholds the rules applied: the tree's.
+    pub thresholds: AnomalyThresholds,
     /// The rules that found something, in catalogue order.
     pub rules: Vec<AnomalyRule>,
 }
@@ -117,7 +229,8 @@ pub struct TreeAnomalies {
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
 pub struct AnomalyRule {
     pub rule: String,
-    /// `dates`, `filiation`, `unions`, `witnesses` or `data_quality`.
+    /// `dates`, `filiation`, `unions`, `witnesses`, `data_quality` or
+    /// `places`.
     pub category: String,
     /// `error` for the impossible, `warning` for the unlikely.
     pub severity: String,
@@ -135,12 +248,18 @@ pub struct Anomaly {
     pub persons: Vec<PersonRef>,
     /// The union concerned, for the rules about one.
     pub family_id: Option<String>,
+    /// The places concerned, for the rules about places.
+    pub places: Vec<AnomalyPlace>,
     /// The figure the rule measured: whole years for ages and gaps in
-    /// years, days for gaps between births and deaths.
+    /// years, days for gaps between births and deaths, kilometres for
+    /// distances, a count for what is recorded too often.
     pub value: Option<i64>,
     /// The event concerned, an `EventType` in its snake_case form.
     pub event_type: Option<String>,
-    /// Recorded text the rule is about: an unreadable date, a relation.
+    /// The event `event_type` is compared with, for the rules comparing two.
+    pub other_event_type: Option<String>,
+    /// Recorded text the rule is about: an unreadable date, a relation, a
+    /// given name.
     pub text: Option<String>,
 }
 
@@ -149,10 +268,17 @@ impl Anomaly {
         Self {
             persons,
             family_id: None,
+            places: Vec::new(),
             value: None,
             event_type: None,
+            other_event_type: None,
             text: None,
         }
+    }
+
+    fn with_other_event(mut self, event_type: EventType) -> Self {
+        self.other_event_type = Some(event_type.to_string());
+        self
     }
 
     fn with_value(mut self, value: f64) -> Self {
@@ -176,9 +302,14 @@ impl Anomaly {
     }
 }
 
-/// Loads a tree's projections and witness links and finds its anomalies, or
-/// with `tag` only those that name a person carrying it (see
-/// [`compute`]).
+/// Loads a tree's projections and the [`Records`] they do not carry, and
+/// finds its anomalies, or with `tag` only those that name a person carrying
+/// it (see [`compute_for_tag`]).
+///
+/// Beside the projections, it reads the witness links, the repeated key
+/// events (counted by the database), and only when the projections show a
+/// need for them the child links of the persons who are children of several
+/// families and the places of a person's events on one day.
 #[tracing::instrument(name = "anomalies.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
@@ -186,20 +317,78 @@ pub async fn load(
     tree_id: Uuid,
     tag: Option<Uuid>,
 ) -> Result<TreeAnomalies, OxidGeneError> {
-    oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
+    use oxidgene_db::repo::{EventRepo, EventWitnessRepo, FamilyChildRepo};
+    let tree = oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
     if let Some(tag) = tag {
         oxidgene_db::repo::TagRepo::get(db, tree_id, tag).await?;
     }
     let persons = profiles.get_all_persons(tree_id).await?;
-    let witnesses = oxidgene_db::repo::EventWitnessRepo::list_by_tree(db, tree_id).await?;
+    let witnesses = EventWitnessRepo::list_by_tree(db, tree_id).await?;
+    let repeated_events = EventRepo::repeated_person_events(db, tree_id, &UNIQUE_EVENTS).await?;
+    let span = tracing::info_span!("anomalies.wanted", person.count = persons.len());
+    let (persons, wanted) = crate::service::blocking::run(span, move || {
+        let wanted = Wanted::of(&persons);
+        (persons, wanted)
+    })
+    .await?;
+    let child_links = if wanted.children.is_empty() {
+        Vec::new()
+    } else {
+        FamilyChildRepo::list_by_persons(db, &wanted.children).await?
+    };
+    let coordinates = coordinates(db, &wanted.places).await?;
+    let records = Records {
+        thresholds: tree.anomaly_thresholds,
+        witnesses,
+        repeated_events,
+        child_links,
+        coordinates,
+    };
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!(
         "anomalies.compute",
         person.count = persons.len(),
-        witness.count = witnesses.len(),
+        witness.count = records.witnesses.len(),
     );
     crate::service::blocking::run(span, move || {
-        compute_for_tag(&persons, &witnesses, today, tag)
+        compute_for_tag(&persons, &records, today, tag)
+    })
+    .await
+}
+
+/// Where the places `ids` lie: their own coordinates, else their label's in
+/// the place dictionary, read once for them all; a place found in neither is
+/// left out.
+async fn coordinates(
+    db: &sea_orm::DatabaseConnection,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, (f64, f64)>, OxidGeneError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let places = oxidgene_db::repo::PlaceRepo::get_many_untagged(db, ids).await?;
+    let span = tracing::info_span!("anomalies.locate_compared", place.count = places.len());
+    crate::service::blocking::run(span, move || {
+        let mut found: HashMap<Uuid, (f64, f64)> = HashMap::new();
+        let mut unplaced: Vec<&Place> = Vec::new();
+        for place in &places {
+            match place.latitude.zip(place.longitude) {
+                Some(spot) => {
+                    found.insert(place.id, spot);
+                }
+                None => unplaced.push(place),
+            }
+        }
+        if !unplaced.is_empty() {
+            let labels: Vec<(&str, i64)> = unplaced.iter().map(|p| (p.name.as_str(), 1)).collect();
+            let located = crate::reference::locate_places(ReferenceLang::En, &labels);
+            for (place, location) in unplaced.iter().zip(located) {
+                if let Some(spot) = location.spot {
+                    found.insert(place.id, spot);
+                }
+            }
+        }
+        found
     })
     .await
 }
@@ -241,9 +430,9 @@ pub fn unlocated_places(
 // ── Dates ─────────────────────────────────────────────────────────────────
 
 /// The days a recorded date may stand for: a year alone its whole year, a
-/// month its whole month, widened by [`APPROXIMATE_SLACK_DAYS`] each way for
-/// a date about, calculated or estimated. Dates before, after, perhaps, or
-/// ranges, say too little to compare and have no span.
+/// month its whole month, widened by `slack_days` each way for a date about,
+/// calculated or estimated. Dates before, after, perhaps, or ranges, say too
+/// little to compare and have no span.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Span {
     from: NaiveDate,
@@ -251,31 +440,19 @@ struct Span {
 }
 
 impl Span {
-    fn of(event: Option<&ProfileEvent>) -> Option<Self> {
+    fn of(event: Option<&ProfileEvent>, slack_days: i64) -> Option<Self> {
         let event = event?;
         let slack = match event.date_qualifier {
             DateQualifier::Exact => 0,
             DateQualifier::About | DateQualifier::Calculated | DateQualifier::Estimated => {
-                APPROXIMATE_SLACK_DAYS
+                slack_days
             }
             _ => return None,
         };
-        let from = event.date_sort?;
-        let parts = event
-            .date_value
-            .as_deref()
-            .map_or(0, |v| v.split_whitespace().count());
-        // `date_sort` is the first day of the period a partial date names,
-        // in any calendar; a Hebrew or Republican year straddles two
-        // Gregorian ones, so the period runs from there.
-        let length = match parts {
-            0 | 1 => 365,
-            2 => 30,
-            _ => 0,
-        };
+        let (from, to) = period(event.date_sort?, event.date_value.as_deref());
         Some(Self {
             from: from - Duration::days(slack),
-            to: from + Duration::days(length + slack),
+            to: to + Duration::days(slack),
         })
     }
 
@@ -307,6 +484,8 @@ impl Span {
 /// A person as the rules read them.
 struct Life<'a> {
     profile: &'a PersonProfile,
+    /// The thresholds the rules apply.
+    limits: &'a Limits,
     /// The birth, or the baptism when the birth carries no date.
     birth: Option<Span>,
     /// The death, or the burial when the death carries no date.
@@ -314,12 +493,18 @@ struct Life<'a> {
 }
 
 impl<'a> Life<'a> {
-    fn new(profile: &'a PersonProfile) -> Self {
+    fn new(profile: &'a PersonProfile, limits: &'a Limits) -> Self {
         Self {
             profile,
-            birth: Span::of(profile.birth_or_baptism()),
-            death: Span::of(profile.death_or_burial()),
+            limits,
+            birth: Span::of(profile.birth_or_baptism(), limits.slack_days),
+            death: Span::of(profile.death_or_burial(), limits.slack_days),
         }
+    }
+
+    /// The span of `event`, with the thresholds' slack.
+    fn span(&self, event: Option<&ProfileEvent>) -> Option<Span> {
+        Span::of(event, self.limits.slack_days)
     }
 
     fn at(&self) -> PersonRef {
@@ -406,27 +591,27 @@ fn dates_union(event_type: EventType) -> bool {
 }
 
 /// Finds a tree's anomalies.
-pub fn compute(
-    profiles: &[PersonProfile],
-    witnesses: &[EventWitness],
-    today: NaiveDate,
-) -> TreeAnomalies {
-    compute_for_tag(profiles, witnesses, today, None)
+pub fn compute(profiles: &[PersonProfile], records: &Records, today: NaiveDate) -> TreeAnomalies {
+    compute_for_tag(profiles, records, today, None)
 }
 
 /// Finds a tree's anomalies, or with `tag` only those that name a person
-/// carrying it (a union names its spouses). Every person is examined first,
-/// so a rule about a couple or a witness sees the whole family.
+/// carrying it (a union names its spouses) or a place the events of such a
+/// person use. Every person is examined first, so a rule about a couple or a
+/// witness sees the whole family.
 pub fn compute_for_tag(
     profiles: &[PersonProfile],
-    witnesses: &[EventWitness],
+    records: &Records,
     today: NaiveDate,
     tag: Option<Uuid>,
 ) -> TreeAnomalies {
+    let limits = Limits::from(&records.thresholds);
     let mut sorted: Vec<&PersonProfile> = profiles.iter().collect();
     sorted.sort_by_key(|p| p.person_id);
-    let lives: HashMap<Uuid, Life<'_>> =
-        sorted.iter().map(|p| (p.person_id, Life::new(p))).collect();
+    let lives: HashMap<Uuid, Life<'_>> = sorted
+        .iter()
+        .map(|p| (p.person_id, Life::new(p, &limits)))
+        .collect();
     let life = |id: &Uuid| lives.get(id);
     let mut found = Findings::default();
 
@@ -435,51 +620,253 @@ pub fn compute_for_tag(
         dates(me, today, &mut found);
         data_quality(me, &mut found);
         filiation(me, &life, &mut found);
+        places::distant_places(me, &records.coordinates, &mut found);
     }
-    unions(&sorted, &lives, &mut found);
+    repeated_events(&records.repeated_events, &lives, &mut found);
+    unions(&sorted, &lives, &limits, &mut found);
+    several_families(&sorted, &lives, &records.child_links, &mut found);
     lineage(&sorted, &lives, &mut found);
-    witnessing(&sorted, &lives, witnesses, &mut found);
+    witnessing(&sorted, &lives, &records.witnesses, &mut found);
+    places::place_spellings(&sorted, &mut found);
     if let Some(tag) = tag {
-        let tagged: HashSet<String> = profiles
+        let carriers: Vec<&PersonProfile> = profiles.iter().filter(|p| carries(p, tag)).collect();
+        let tagged: HashSet<String> = carriers.iter().map(|p| p.person_id.to_string()).collect();
+        let used: HashSet<String> = carriers
             .iter()
-            .filter(|p| carries(p, tag))
-            .map(|p| p.person_id.to_string())
+            .flat_map(|p| places::events_of(p))
+            .filter_map(|e| e.place_id)
+            .map(|id| id.to_string())
             .collect();
         found.retain(|anomaly| {
             anomaly
                 .persons
                 .iter()
                 .any(|person| tagged.contains(&person.person_id))
+                || anomaly.places.iter().any(|p| used.contains(&p.place_id))
         });
     }
 
     TreeAnomalies {
         persons: profiles.len() as i64,
+        thresholds: records.thresholds,
         rules: found.into_rules(),
+    }
+}
+
+/// The key events recorded more than once for one person, as the database
+/// counted them.
+fn repeated_events(
+    repeated: &[(Uuid, EventType, i64)],
+    lives: &HashMap<Uuid, Life<'_>>,
+    found: &mut Findings,
+) {
+    let mut sorted: Vec<&(Uuid, EventType, i64)> = repeated.iter().collect();
+    sorted.sort_by_key(|(person, event_type, _)| (*person, event_type.to_string()));
+    for (person, event_type, count) in sorted {
+        if let Some(me) = lives.get(person) {
+            found.add(
+                "unique_event_twice",
+                Anomaly::of(vec![me.at()])
+                    .with_event(*event_type)
+                    .with_value(*count as f64),
+            );
+        }
+    }
+}
+
+/// The biological children (or of unknown kind) of more than one family: the
+/// child, then the parents of each of those families.
+fn several_families(
+    sorted: &[&PersonProfile],
+    lives: &HashMap<Uuid, Life<'_>>,
+    links: &[FamilyChild],
+    found: &mut Findings,
+) {
+    if links.is_empty() {
+        return;
+    }
+    // The families the projections know, with their spouses: a link to a
+    // family deleted since is not one.
+    let mut spouses: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for profile in sorted {
+        for link in &profile.families_as_spouse {
+            spouses
+                .entry(link.family_id)
+                .or_default()
+                .push(profile.person_id);
+        }
+        if let Some(link) = &profile.family_as_child {
+            spouses.entry(link.family_id).or_default();
+        }
+    }
+    let mut families: BTreeMap<Uuid, Vec<Uuid>> = BTreeMap::new();
+    for link in links {
+        if matches!(link.child_type, ChildType::Biological | ChildType::Unknown)
+            && spouses.contains_key(&link.family_id)
+        {
+            let of = families.entry(link.person_id).or_default();
+            if !of.contains(&link.family_id) {
+                of.push(link.family_id);
+            }
+        }
+    }
+    for (child, mut of) in families {
+        let Some(me) = lives.get(&child).filter(|_| of.len() > 1) else {
+            continue;
+        };
+        of.sort_unstable();
+        let mut persons = vec![me.at()];
+        let mut named = HashSet::from([child]);
+        for parent in of.iter().flat_map(|family| &spouses[family]) {
+            if named.insert(*parent)
+                && let Some(parent) = lives.get(parent)
+            {
+                persons.push(parent.at());
+            }
+        }
+        found.add(
+            "child_of_several_families",
+            Anomaly::of(persons).with_value(of.len() as f64),
+        );
     }
 }
 
 fn dates(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
     lifespan(me, found);
     let p = me.profile;
-    let death = Span::of(p.death.as_ref());
-    let burial = Span::of(p.burial.as_ref());
+    let death = me.span(p.death.as_ref());
+    let burial = me.span(p.burial.as_ref());
     if let (Some(death), Some(burial)) = (death, burial)
         && burial.before(death)
     {
         found.add("burial_before_death", Anomaly::of(vec![me.at()]));
     }
-    if let (Some(baptism), Some(end)) = (Span::of(p.baptism.as_ref()), me.death)
+    if let (Some(baptism), Some(end)) = (me.span(p.baptism.as_ref()), me.death)
         && end.before(baptism)
     {
         found.add("baptism_after_death", Anomaly::of(vec![me.at()]));
     }
     events_in_life(me, today, death, burial, found);
     recorded_ages(me, found);
+    qualified_dates(me, found);
+    alive_too_old(me, today, found);
+}
+
+/// A person with no death, burial or cremation recorded, born so long ago
+/// that they cannot be alive.
+fn alive_too_old(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
+    let p = me.profile;
+    let ended = p.death.is_some()
+        || p.burial.is_some()
+        || p.other_events
+            .iter()
+            .any(|e| e.event_type == EventType::Cremation);
+    let Some(birth) = me.birth.filter(|_| !ended) else {
+        return;
+    };
+    let age = birth.least_years_to(Span {
+        from: today,
+        to: today,
+    });
+    if age > me.limits.alive {
+        found.add("alive_too_old", Anomaly::of(vec![me.at()]).with_value(age));
+    }
+}
+
+/// The days a date before, after, between two dates or one of two allows:
+/// either end may be open. Other dates are their [`Span`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Bounds {
+    earliest: Option<NaiveDate>,
+    latest: Option<NaiveDate>,
+    /// Whether the qualifier opens or widens the date: before, after,
+    /// between or or.
+    qualified: bool,
+}
+
+impl Bounds {
+    fn of(event: &ProfileEvent, slack_days: i64) -> Option<Self> {
+        let first = period(event.date_sort?, event.date_value.as_deref());
+        let second = || {
+            let value = event.date_value2.as_deref();
+            event_date::derive(event.calendar, value).map(|start| period(start, value))
+        };
+        let (earliest, latest) = match event.date_qualifier {
+            DateQualifier::Before => (None, Some(first.1)),
+            DateQualifier::After => (Some(first.0), None),
+            DateQualifier::Between | DateQualifier::Or => {
+                let second = second()?;
+                (Some(first.0.min(second.0)), Some(first.1.max(second.1)))
+            }
+            _ => {
+                let span = Span::of(Some(event), slack_days)?;
+                return Some(Self {
+                    earliest: Some(span.from),
+                    latest: Some(span.to),
+                    qualified: false,
+                });
+            }
+        };
+        Some(Self {
+            earliest,
+            latest,
+            qualified: true,
+        })
+    }
+
+    /// Wholly after `other`, whatever days the two allow.
+    fn after(self, other: Self) -> bool {
+        matches!((self.earliest, other.latest), (Some(from), Some(to)) if from > to)
+    }
+}
+
+/// The first and last day of the period a date names from its first day
+/// `start`: its year, its month or its day. `start` is the date's sort key,
+/// the first day of the period a partial date names in any calendar; a
+/// Hebrew or Republican year straddles two Gregorian ones, so the period
+/// runs from there.
+fn period(start: NaiveDate, value: Option<&str>) -> (NaiveDate, NaiveDate) {
+    let length = match value.map_or(0, |v| v.split_whitespace().count()) {
+        0 | 1 => 365,
+        2 => 30,
+        _ => 0,
+    };
+    (start, start + Duration::days(length))
+}
+
+/// The key events of a life in the order they must keep: each pair whose
+/// dates contradict each other, one of them before, after or between dates,
+/// for every day they allow. Dates without such a qualifier are the other
+/// rules' (`death_before_birth`, `event_before_birth`…).
+fn qualified_dates(me: &Life<'_>, found: &mut Findings) {
+    let p = me.profile;
+    let order = [&p.birth, &p.baptism, &p.death, &p.burial];
+    let bounds: Vec<Option<(&ProfileEvent, Bounds)>> = order
+        .iter()
+        .map(|e| {
+            e.as_ref()
+                .and_then(|e| Bounds::of(e, me.limits.slack_days).map(|b| (e, b)))
+        })
+        .collect();
+    for (i, first) in bounds.iter().enumerate() {
+        for second in &bounds[i + 1..] {
+            if let (Some((a, x)), Some((b, y))) = (first, second)
+                && (x.qualified || y.qualified)
+                && x.after(*y)
+            {
+                found.add(
+                    "qualifier_contradiction",
+                    Anomaly::of(vec![me.at()])
+                        .with_event(a.event_type)
+                        .with_other_event(b.event_type),
+                );
+            }
+        }
+    }
 }
 
 /// The ages records give that the dates contradict: the recorded age, widened
-/// by [`RECORDED_AGE_TOLERANCE_YEARS`] each way, shares no day with the age
+/// by the thresholds' tolerance each way, shares no day with the age
 /// computed between the birth and the event — whatever days their dates
 /// stand for.
 fn recorded_ages(me: &Life<'_>, found: &mut Findings) {
@@ -501,11 +888,13 @@ fn recorded_ages(me: &Life<'_>, found: &mut Findings) {
         else {
             continue;
         };
-        let Some(span) = Span::of(Some(event)).filter(|_| Some(event.event_id) != birth_event)
+        let Some(span) = me
+            .span(Some(event))
+            .filter(|_| Some(event.event_id) != birth_event)
         else {
             continue;
         };
-        let tolerance = (RECORDED_AGE_TOLERANCE_YEARS * DAYS_PER_YEAR) as i64;
+        let tolerance = me.limits.age_tolerance_days;
         let (min, max) = recorded.bounds();
         let too_old = i64::from(min) - tolerance > birth.most_days_to(span);
         let too_young =
@@ -532,12 +921,13 @@ fn lifespan(me: &Life<'_>, found: &mut Findings) {
         return;
     }
     let least = birth.least_years_to(death);
-    if least > MAX_LIFESPAN_YEARS {
+    let limits = me.limits;
+    if least > limits.lifespan {
         found.add(
             "lived_over_105",
             Anomaly::of(vec![me.at()]).with_value(least),
         );
-    } else if least > OLD_CENTENARIAN_YEARS && birth.to.year() < CENTENARIAN_BEFORE_YEAR {
+    } else if least > limits.centenarian && birth.to.year() < limits.centenarian_before {
         found.add(
             "centenarian_before_1900",
             Anomaly::of(vec![me.at()]).with_value(least),
@@ -557,7 +947,7 @@ fn events_in_life(
     // The event standing for the birth is not compared with itself.
     let birth_event = me.profile.birth_or_baptism().map(|e| e.event_id);
     for event in me.events() {
-        let Some(span) = Span::of(Some(event)) else {
+        let Some(span) = me.span(Some(event)) else {
             continue;
         };
         let anomaly = || Anomaly::of(vec![me.at()]).with_event(event.event_type);
@@ -598,6 +988,7 @@ fn data_quality(me: &Life<'_>, found: &mut Findings) {
     if !named {
         found.add("no_name", Anomaly::of(vec![me.at()]));
     }
+    given_name_of_other_sex(me, found);
     // Family events are read from the union, once.
     for event in me.events() {
         event_quality(vec![me.at()], None, event, found);
@@ -612,6 +1003,31 @@ fn data_quality(me: &Life<'_>, found: &mut Findings) {
                 Anomaly::of(vec![me.at()]).with_family(link.family_id),
             );
         }
+    }
+}
+
+/// A first given name the reference sheets give to the other sex alone. The
+/// first given name is the first word of the given names, a hyphenated
+/// compound (`Jean-Baptiste`) whole; it is read only when a sheet names it
+/// itself, so a compound no sheet names says nothing about its parts.
+fn given_name_of_other_sex(me: &Life<'_>, found: &mut Findings) {
+    let p = me.profile;
+    if p.sex == Sex::Unknown {
+        return;
+    }
+    let Some(first) = p
+        .primary_name
+        .as_ref()
+        .and_then(|n| n.given_names.as_deref())
+        .and_then(|g| g.split_whitespace().next())
+    else {
+        return;
+    };
+    if crate::reference::given_name_sex(first).is_some_and(|sex| sex != p.sex) {
+        found.add(
+            "given_name_sex",
+            Anomaly::of(vec![me.at()]).with_text(first),
+        );
     }
 }
 
@@ -690,14 +1106,14 @@ fn filiation<'a>(
 fn parent_rules(born: Span, parent: &Life<'_>, father: bool) -> Vec<(&'static str, Option<f64>)> {
     let mut broken: Vec<(&'static str, Option<f64>)> = Vec::new();
     if let Some(parent_born) = parent.birth {
-        broken.extend(parent_age_rule(born, parent_born, father));
+        broken.extend(parent_age_rule(born, parent_born, father, parent.limits));
     }
     if let Some(parent_died) = parent.death {
         if !father && parent_died.before(born) {
             broken.push(("born_after_mother_death", None));
         }
         let least = parent_died.least_days_to(born);
-        if father && least > MAX_POSTHUMOUS_BIRTH_DAYS {
+        if father && least > parent.limits.posthumous_days {
             broken.push(("born_long_after_father_death", Some(least as f64)));
         }
     }
@@ -709,6 +1125,7 @@ fn parent_age_rule(
     born: Span,
     parent_born: Span,
     father: bool,
+    limits: &Limits,
 ) -> Option<(&'static str, Option<f64>)> {
     if born.before(parent_born) {
         return Some(("parent_born_after_child", None));
@@ -716,11 +1133,11 @@ fn parent_age_rule(
     let most = parent_born.most_years_to(born);
     let least = parent_born.least_years_to(born);
     let (oldest, too_old) = if father {
-        (MAX_FATHER_AGE_YEARS, "father_too_old")
+        (limits.max_father, "father_too_old")
     } else {
-        (MAX_MOTHER_AGE_YEARS, "mother_too_old")
+        (limits.max_mother, "mother_too_old")
     };
-    if most < MIN_PARENT_AGE_YEARS {
+    if most < limits.min_parent {
         Some(("parent_too_young", Some(most)))
     } else if least > oldest {
         Some((too_old, Some(least)))
@@ -738,19 +1155,24 @@ struct Union<'a> {
     children: &'a [Uuid],
 }
 
-fn unions<'a>(sorted: &[&'a PersonProfile], lives: &HashMap<Uuid, Life<'a>>, found: &mut Findings) {
-    let by_family = group_unions(sorted);
+fn unions<'a>(
+    sorted: &[&'a PersonProfile],
+    lives: &HashMap<Uuid, Life<'a>>,
+    limits: &Limits,
+    found: &mut Findings,
+) {
+    let by_family = group_unions(sorted, limits);
     family_events(sorted, &by_family, lives, found);
     for union in by_family.values() {
-        union_rules(union, lives, found);
-        siblings(union, lives, found);
+        union_rules(union, lives, limits, found);
+        siblings(union, lives, limits, found);
     }
     spouse_rules(sorted, lives, found);
 }
 
 /// The tree's unions by family, each spouse once with the role of their
 /// first link.
-fn group_unions<'a>(sorted: &[&'a PersonProfile]) -> BTreeMap<Uuid, Union<'a>> {
+fn group_unions<'a>(sorted: &[&'a PersonProfile], limits: &Limits) -> BTreeMap<Uuid, Union<'a>> {
     let mut by_family: BTreeMap<Uuid, Union<'a>> = BTreeMap::new();
     for profile in sorted {
         for link in &profile.families_as_spouse {
@@ -760,7 +1182,7 @@ fn group_unions<'a>(sorted: &[&'a PersonProfile]) -> BTreeMap<Uuid, Union<'a>> {
                     .iter()
                     .chain(link.marriage.as_ref())
                     .filter(|e| dates_union(e.event_type))
-                    .filter_map(|e| Span::of(Some(e)))
+                    .filter_map(|e| Span::of(Some(e), limits.slack_days))
                     .min_by_key(|s| s.from);
                 Union {
                     family_id: link.family_id,
@@ -806,7 +1228,12 @@ fn family_events(
 
 /// The rules on one union's spouses: how many, their roles, their ages at
 /// the union and the gap between them.
-fn union_rules(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut Findings) {
+fn union_rules(
+    union: &Union<'_>,
+    lives: &HashMap<Uuid, Life<'_>>,
+    limits: &Limits,
+    found: &mut Findings,
+) {
     let spouses: Vec<&Life<'_>> = union
         .spouses
         .iter()
@@ -836,13 +1263,13 @@ fn union_rules(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut F
         );
     }
     if let Some(date) = union.date {
-        union_dates(date, &spouses, union.family_id, found);
+        union_dates(date, &spouses, union.family_id, limits, found);
     }
     if let [a, b] = spouses.as_slice()
         && let (Some(x), Some(y)) = (a.birth, b.birth)
     {
         let gap = x.least_years_to(y).max(y.least_years_to(x));
-        if gap > MAX_SPOUSE_GAP_YEARS {
+        if gap > limits.spouse_gap {
             found.add(
                 "spouses_age_gap",
                 Anomaly::of(everyone())
@@ -851,11 +1278,44 @@ fn union_rules(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut F
             );
         }
     }
+    if let [a, b] = spouses.as_slice()
+        && siblings_by_birth(a.profile, b.profile)
+    {
+        found.add(
+            "union_with_sibling",
+            Anomaly::of(everyone()).with_family(union.family_id),
+        );
+    }
+}
+
+/// Whether two persons are children of one family, or share a parent, as
+/// biological children (or of unknown kind).
+fn siblings_by_birth(a: &PersonProfile, b: &PersonProfile) -> bool {
+    let birth = |p: &PersonProfile| {
+        p.family_as_child
+            .as_ref()
+            .filter(|l| matches!(l.child_type, ChildType::Biological | ChildType::Unknown))
+            .map(|l| (l.family_id, [l.father_id, l.mother_id]))
+    };
+    let (Some((x, x_parents)), Some((y, y_parents))) = (birth(a), birth(b)) else {
+        return false;
+    };
+    x == y
+        || x_parents
+            .iter()
+            .flatten()
+            .any(|parent| y_parents.contains(&Some(*parent)))
 }
 
 /// A union dated before a spouse's birth or after their death, or at an age
 /// too young or too old for one.
-fn union_dates(date: Span, spouses: &[&Life<'_>], family_id: Uuid, found: &mut Findings) {
+fn union_dates(
+    date: Span,
+    spouses: &[&Life<'_>],
+    family_id: Uuid,
+    limits: &Limits,
+    found: &mut Findings,
+) {
     for spouse in spouses {
         let at = || Anomaly::of(vec![spouse.at()]).with_family(family_id);
         if let Some(born) = spouse.birth {
@@ -864,9 +1324,9 @@ fn union_dates(date: Span, spouses: &[&Life<'_>], family_id: Uuid, found: &mut F
             } else {
                 let most = born.most_years_to(date);
                 let least = born.least_years_to(date);
-                if most < MIN_UNION_AGE_YEARS {
+                if most < limits.min_union {
                     found.add("union_too_young", at().with_value(most));
-                } else if least > MAX_UNION_AGE_YEARS {
+                } else if least > limits.max_union {
                     found.add("union_over_100", at().with_value(least));
                 }
             }
@@ -943,7 +1403,12 @@ fn spouse_rules(sorted: &[&PersonProfile], lives: &HashMap<Uuid, Life<'_>>, foun
 
 /// The children of a union, by birth: births too close to be anything but
 /// twins or an error, and gaps too long for one couple.
-fn siblings(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut Findings) {
+fn siblings(
+    union: &Union<'_>,
+    lives: &HashMap<Uuid, Life<'_>>,
+    limits: &Limits,
+    found: &mut Findings,
+) {
     let mut born: Vec<(&Life<'_>, Span)> = union
         .children
         .iter()
@@ -962,14 +1427,69 @@ fn siblings(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut Find
         let least = x.least_days_to(*y).max(0);
         let most = x.most_days_to(*y);
         let both = || Anomaly::of(vec![a.at(), b.at()]).with_family(union.family_id);
-        if least >= TWIN_DAYS && most < MIN_SIBLING_GAP_DAYS {
+        if least >= limits.twin_days && most < limits.sibling_gap_days {
             found.add("siblings_too_close", both().with_value(least as f64));
         }
         let years = x.least_years_to(*y);
-        if years > MAX_SIBLING_GAP_YEARS {
+        if years > limits.sibling_far {
             found.add("siblings_far_apart", both().with_value(years));
         }
     }
+    same_name_alive(union.family_id, &born, found);
+}
+
+/// Two children of a union bearing the same given names (folded), the elder
+/// known to be alive at the younger's birth: a child was often named after
+/// an elder sibling who had died, rarely after a living one. Known alive
+/// means the elder's death, or an event of their life other than one that
+/// may follow a death, wholly after the younger's birth; an elder of whom
+/// nothing later is known may have died before.
+fn same_name_alive(family_id: Uuid, born: &[(&Life<'_>, Span)], found: &mut Findings) {
+    let name = |life: &Life<'_>| {
+        life.profile
+            .primary_name
+            .as_ref()
+            .and_then(|n| n.given_names.as_deref())
+            .map(fold_words)
+            .filter(|n| !n.trim().is_empty())
+    };
+    for (i, (elder, _)) in born.iter().enumerate() {
+        let Some(elder_name) = name(elder) else {
+            continue;
+        };
+        for (younger, younger_born) in &born[i + 1..] {
+            if name(younger).as_ref() == Some(&elder_name) && alive_after(elder, younger_born.to) {
+                found.add(
+                    "same_name_living_siblings",
+                    Anomaly::of(vec![younger.at(), elder.at()])
+                        .with_family(family_id)
+                        .with_text(
+                            younger
+                                .profile
+                                .primary_name
+                                .as_ref()
+                                .and_then(|n| n.given_names.as_deref())
+                                .unwrap_or_default(),
+                        ),
+                );
+            }
+        }
+    }
+}
+
+/// Whether `p` is known to be alive after `day`: their death, or an event of
+/// their life that does not follow a death, comes wholly after it.
+fn alive_after(life: &Life<'_>, day: NaiveDate) -> bool {
+    let p = life.profile;
+    let later = |event: &ProfileEvent| life.span(Some(event)).is_some_and(|s| s.from > day);
+    p.death.as_ref().is_some_and(later)
+        || [&p.birth, &p.baptism]
+            .into_iter()
+            .flatten()
+            .chain(&p.other_events)
+            .chain(p.families_as_spouse.iter().flat_map(|l| &l.events))
+            .filter(|e| !after_death_allowed(e.event_type))
+            .any(later)
 }
 
 /// The rules over whole lines: a person their own ancestor, an ancestor born
@@ -1163,7 +1683,7 @@ fn witnessing<'a>(
                 None => anomaly,
             }
         };
-        if let Some(span) = Span::of(Some(event)) {
+        if let Some(span) = witness.span(Some(event)) {
             if witness.birth.is_some_and(|born| span.before(born)) {
                 found.add("witness_before_birth", anomaly());
             }

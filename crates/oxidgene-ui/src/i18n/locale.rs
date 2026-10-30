@@ -36,6 +36,38 @@ pub struct Dates {
     pub years: Vec<String>,
     pub days: Vec<String>,
     pub reading: HashMap<String, ReadingPiece>,
+    /// Hebrew dates written out; a locale without them writes a Hebrew date
+    /// from its Gregorian day.
+    #[serde(default)]
+    pub hebrew: Option<CalendarDates>,
+    /// French Republican dates written out, likewise.
+    #[serde(default)]
+    pub republican: Option<CalendarDates>,
+}
+
+/// The dates of a calendar other than the Gregorian and Julian ones, written
+/// out: its thirteen months, and the templates of [`Dates`] (`long` with the
+/// day and year in words, `short` in figures, the Republican year in Roman
+/// numerals).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarDates {
+    pub months: Vec<String>,
+    pub months_with_day: Vec<String>,
+    pub long: [String; 3],
+    pub short: [String; 3],
+    /// A day of the Republican complementary days (the thirteenth month),
+    /// long and short, with `{day}` and `{year}`.
+    #[serde(default)]
+    pub complementary: Option<[String; 2]>,
+    /// The thousands in words, 0 to 9, which `years` stops short of: a
+    /// Hebrew year is 5610.
+    #[serde(default)]
+    pub thousands: Vec<String>,
+    /// What joins the thousands to the rest of the year: a space, or nothing
+    /// where the language writes the year as one word.
+    #[serde(default)]
+    pub thousands_joiner: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -351,7 +383,18 @@ fn parse_locale(source: &str) -> Result<CustomLanguage, String> {
 }
 
 fn validate_date_templates(dates: &Dates) -> Result<(), String> {
-    for templates in [&dates.long, &dates.short, &dates.display, &dates.numeric] {
+    let calendars = [&dates.hebrew, &dates.republican];
+    for calendar in calendars.into_iter().flatten() {
+        validate_calendar_dates(calendar)?;
+    }
+    let extra = calendars
+        .into_iter()
+        .flatten()
+        .flat_map(|calendar| [&calendar.long, &calendar.short]);
+    for templates in [&dates.long, &dates.short, &dates.display, &dates.numeric]
+        .into_iter()
+        .chain(extra)
+    {
         for (index, template) in templates.iter().enumerate() {
             let allowed = [
                 &["year"][..],
@@ -368,6 +411,29 @@ fn validate_date_templates(dates: &Dates) -> Result<(), String> {
                 );
             }
         }
+    }
+    Ok(())
+}
+
+/// A calendar's dates: thirteen month names in each form, complementary-day
+/// templates naming the day and the year, ten thousands when there are any.
+fn validate_calendar_dates(calendar: &CalendarDates) -> Result<(), String> {
+    let named =
+        |months: &[String]| months.len() == 13 && months.iter().all(|m| !m.trim().is_empty());
+    if !named(&calendar.months) || !named(&calendar.months_with_day) {
+        return Err("a calendar's dates require 13 month names in each form".to_owned());
+    }
+    let complementary = calendar.complementary.iter().flatten().all(|template| {
+        let placeholders = placeholders(template);
+        placeholders.len() == 2 && placeholders.contains("day") && placeholders.contains("year")
+    });
+    if !complementary {
+        return Err(
+            "complementary-day templates must contain the day and year placeholders".to_owned(),
+        );
+    }
+    if !(calendar.thousands.is_empty() || calendar.thousands.len() == 10) {
+        return Err("a calendar's thousands are ten forms (index zero is unused)".to_owned());
     }
     Ok(())
 }
@@ -526,7 +592,7 @@ mod tests {
             day: Some(2),
         };
         assert_eq!(
-            date_words::written(language, date, Form::Short).unwrap(),
+            date_words::written(language, date, Form::Short, Default::default()).unwrap(),
             "1650 / examplemonth / 2"
         );
         assert_eq!(

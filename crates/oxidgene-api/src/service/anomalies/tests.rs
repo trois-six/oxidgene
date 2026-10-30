@@ -133,7 +133,7 @@ fn today() -> NaiveDate {
 }
 
 fn run(profiles: &[PersonProfile]) -> TreeAnomalies {
-    compute(profiles, &[], today())
+    compute(profiles, &Records::default(), today())
 }
 
 /// The persons each finding of `rule` names, by given name.
@@ -163,7 +163,17 @@ fn every_rule_is_catalogued_once() {
     ids.dedup();
     assert_eq!(ids.len(), RULES.len());
     for (_, category, severity) in RULES {
-        assert!(["dates", "filiation", "unions", "witnesses", "data_quality"].contains(category));
+        assert!(
+            [
+                "dates",
+                "filiation",
+                "unions",
+                "witnesses",
+                "data_quality",
+                "places"
+            ]
+            .contains(category)
+        );
         assert!(["error", "warning"].contains(severity));
     }
 }
@@ -493,7 +503,11 @@ fn witnesses_live_at_the_event_and_godparents_fit_their_sex() {
         link(&unborn, "Witness", 1),
         link(&godfather, "Parrain", 2),
     ];
-    let result = compute(&[child, dead, unborn, godfather], &witnesses, today());
+    let records = Records {
+        witnesses,
+        ..Records::default()
+    };
+    let result = compute(&[child, dead, unborn, godfather], &records, today());
     assert_eq!(
         found(&result, "witness_after_death"),
         vec![vec!["Dead", "Child"]]
@@ -686,4 +700,441 @@ fn a_recorded_age_must_fit_the_dates_within_two_years() {
         .unwrap();
     assert_eq!(off.value, Some(50));
     assert_eq!(off.event_type.as_deref(), Some("death"));
+}
+
+/// The anomalies `rule` found, whole.
+fn items<'a>(result: &'a TreeAnomalies, rule: &str) -> &'a [Anomaly] {
+    result
+        .rules
+        .iter()
+        .find(|r| r.rule == rule)
+        .map(|r| r.items.as_slice())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_key_event_recorded_twice_is_reported_with_its_count() {
+    let twice = person("Twice", Sex::Male);
+    let once = person("Once", Sex::Female);
+    let records = Records {
+        repeated_events: vec![
+            (twice.person_id, EventType::Burial, 3),
+            // A person the projections do not hold is not reported.
+            (Uuid::now_v7(), EventType::Birth, 2),
+        ],
+        ..Records::default()
+    };
+    let result = compute(&[twice, once], &records, today());
+    assert_eq!(found(&result, "unique_event_twice"), vec![vec!["Twice"]]);
+    let item = &items(&result, "unique_event_twice")[0];
+    assert_eq!(item.event_type.as_deref(), Some("burial"));
+    assert_eq!(item.value, Some(3));
+    assert!(found(&run(&[person("Clean", Sex::Male)]), "unique_event_twice").is_empty());
+}
+
+/// A link of `child` to `family_id`, as the database holds it.
+fn child_link(child: &PersonProfile, family_id: Uuid, child_type: ChildType) -> FamilyChild {
+    FamilyChild {
+        id: Uuid::now_v7(),
+        family_id,
+        person_id: child.person_id,
+        child_type,
+        sort_order: 0,
+    }
+}
+
+#[test]
+fn a_child_of_two_families_names_both_couples() {
+    let mut father = person("Father", Sex::Male);
+    let mut mother = person("Mother", Sex::Female);
+    let mut other_father = person("OtherFather", Sex::Male);
+    let mut other_mother = person("OtherMother", Sex::Female);
+    let mut child = person("Child", Sex::Male);
+    let first = family(&mut father, &mut mother, vec![], &mut [&mut child]);
+    let second = family(
+        &mut other_father,
+        &mut other_mother,
+        vec![],
+        &mut [&mut child],
+    );
+    let profiles = vec![father, mother, other_father, other_mother, child.clone()];
+    assert_eq!(Wanted::of(&profiles).children, vec![child.person_id]);
+
+    let records = Records {
+        child_links: vec![
+            child_link(&child, first, ChildType::Biological),
+            child_link(&child, second, ChildType::Unknown),
+        ],
+        ..Records::default()
+    };
+    let result = compute(&profiles, &records, today());
+    assert_eq!(
+        found(&result, "child_of_several_families"),
+        vec![vec![
+            "Child",
+            "Father",
+            "Mother",
+            "OtherFather",
+            "OtherMother"
+        ]]
+    );
+    assert_eq!(
+        items(&result, "child_of_several_families")[0].value,
+        Some(2)
+    );
+
+    // Adopted into the second family: one biological family only.
+    let records = Records {
+        child_links: vec![
+            child_link(&child, first, ChildType::Biological),
+            child_link(&child, second, ChildType::Adopted),
+        ],
+        ..Records::default()
+    };
+    let result = compute(&profiles, &records, today());
+    assert!(found(&result, "child_of_several_families").is_empty());
+}
+
+/// `event` qualified `qualifier`.
+fn qualified(mut event: ProfileEvent, qualifier: DateQualifier) -> ProfileEvent {
+    event.date_qualifier = qualifier;
+    event
+}
+
+#[test]
+fn qualified_dates_must_not_contradict_each_other() {
+    // Born after 1850, baptised before 1840.
+    let mut contradicted = person("Contradicted", Sex::Male);
+    contradicted.birth = Some(qualified(
+        year(EventType::Birth, 1850),
+        DateQualifier::After,
+    ));
+    contradicted.baptism = Some(qualified(
+        year(EventType::Baptism, 1840),
+        DateQualifier::Before,
+    ));
+    // Born after 1850, baptised before 1851: the same years may hold both.
+    let mut possible = person("Possible", Sex::Female);
+    possible.birth = Some(qualified(
+        year(EventType::Birth, 1850),
+        DateQualifier::After,
+    ));
+    possible.baptism = Some(qualified(
+        year(EventType::Baptism, 1851),
+        DateQualifier::Before,
+    ));
+    // Died between 1700 and 1710, born after 1720.
+    let mut between = person("Between", Sex::Male);
+    between.birth = Some(qualified(
+        year(EventType::Birth, 1720),
+        DateQualifier::After,
+    ));
+    between.death = Some(ProfileEvent {
+        date_qualifier: DateQualifier::Between,
+        date_value2: Some("1710".to_string()),
+        ..year(EventType::Death, 1700)
+    });
+    // Two exact dates in the wrong order are another rule's.
+    let exact = died(
+        born(person("Exact", Sex::Male), year(EventType::Birth, 1850)),
+        year(EventType::Death, 1840),
+    );
+    let result = run(&[contradicted, possible, between, exact]);
+    assert_eq!(
+        found(&result, "qualifier_contradiction"),
+        vec![vec!["Contradicted"], vec!["Between"]]
+    );
+    let item = &items(&result, "qualifier_contradiction")[0];
+    assert_eq!(item.event_type.as_deref(), Some("birth"));
+    assert_eq!(item.other_event_type.as_deref(), Some("baptism"));
+}
+
+#[test]
+fn nobody_lives_past_110_without_a_death() {
+    let ancient = born(person("Ancient", Sex::Female), year(EventType::Birth, 1900));
+    let alive = born(person("Alive", Sex::Male), year(EventType::Birth, 1920));
+    // A death recorded without a date still ends the life.
+    let mut dead = born(person("Dead", Sex::Male), year(EventType::Birth, 1850));
+    dead.death = Some(ProfileEvent {
+        date_value: None,
+        date_sort: None,
+        ..year(EventType::Death, 1900)
+    });
+    let result = run(&[ancient, alive, dead]);
+    assert_eq!(found(&result, "alive_too_old"), vec![vec!["Ancient"]]);
+    assert_eq!(items(&result, "alive_too_old")[0].value, Some(125));
+}
+
+#[test]
+fn spouses_sharing_a_parent_are_reported() {
+    let mut father = person("Father", Sex::Male);
+    let mut mother = person("Mother", Sex::Female);
+    let mut other_mother = person("OtherMother", Sex::Female);
+    let mut son = person("Son", Sex::Male);
+    let mut daughter = person("Daughter", Sex::Female);
+    let mut half_sister = person("HalfSister", Sex::Female);
+    let mut nephew = person("Nephew", Sex::Male);
+    let mut stranger = person("Stranger", Sex::Female);
+    family(
+        &mut father,
+        &mut mother,
+        vec![],
+        &mut [&mut son, &mut daughter],
+    );
+    family(
+        &mut father,
+        &mut other_mother,
+        vec![],
+        &mut [&mut half_sister],
+    );
+    // Full siblings, half-siblings, and two unrelated spouses.
+    family(&mut son, &mut daughter, vec![], &mut []);
+    let mut brother = person("Brother", Sex::Male);
+    if let Some(link) = son.family_as_child.clone() {
+        brother.family_as_child = Some(link);
+    }
+    family(&mut brother, &mut half_sister, vec![], &mut []);
+    family(&mut nephew, &mut stranger, vec![], &mut []);
+    let result = run(&[
+        father,
+        mother,
+        other_mother,
+        son,
+        daughter,
+        half_sister,
+        brother,
+        nephew,
+        stranger,
+    ]);
+    let mut couples = found(&result, "union_with_sibling");
+    couples.sort();
+    // Each union's spouses in the order the persons were created.
+    assert_eq!(
+        couples,
+        vec![vec!["HalfSister", "Brother"], vec!["Son", "Daughter"]]
+    );
+}
+
+#[test]
+fn a_given_name_of_the_other_sex_alone_is_reported() {
+    let man = person("Marguerite", Sex::Male);
+    let woman = person("Marguerite", Sex::Female);
+    // Borne by both sexes, or in no sheet: nothing to say.
+    let either = person("Camille", Sex::Female);
+    let unknown = person("Zorglub", Sex::Male);
+    let unsexed = person("Marguerite", Sex::Unknown);
+    let result = run(&[man, woman, either, unknown, unsexed]);
+    assert_eq!(found(&result, "given_name_sex"), vec![vec!["Marguerite"]]);
+    let item = &items(&result, "given_name_sex")[0];
+    assert_eq!(item.text.as_deref(), Some("Marguerite"));
+}
+
+#[test]
+fn a_sibling_is_rarely_named_after_a_living_one() {
+    let mut father = person("Father", Sex::Male);
+    let mut mother = person("Mother", Sex::Female);
+    // The elder died before the younger was born: named after them.
+    let mut first = died(
+        born(person("Pierre", Sex::Male), year(EventType::Birth, 1800)),
+        year(EventType::Death, 1801),
+    );
+    let mut second = died(
+        born(person("Pierre", Sex::Male), year(EventType::Birth, 1803)),
+        year(EventType::Death, 1860),
+    );
+    // Named like the second, who was then still alive.
+    let mut third = born(person("Pierre", Sex::Male), year(EventType::Birth, 1806));
+    // Nothing is known of the elder after the younger's birth.
+    let mut elder = born(person("Anne", Sex::Female), year(EventType::Birth, 1808));
+    let mut younger = born(person("Anne", Sex::Female), year(EventType::Birth, 1810));
+    family(
+        &mut father,
+        &mut mother,
+        vec![],
+        &mut [
+            &mut first,
+            &mut second,
+            &mut third,
+            &mut elder,
+            &mut younger,
+        ],
+    );
+    let result = run(&[father, mother, first, second, third, elder, younger]);
+    assert_eq!(
+        found(&result, "same_name_living_siblings"),
+        vec![vec!["Pierre", "Pierre"]]
+    );
+    let item = &items(&result, "same_name_living_siblings")[0];
+    assert_eq!(item.text.as_deref(), Some("Pierre"));
+    assert!(item.family_id.is_some());
+}
+
+/// `event` in place `place`.
+fn at(mut event: ProfileEvent, place: (Uuid, &str)) -> ProfileEvent {
+    event.place_id = Some(place.0);
+    event.place_name = Some(place.1.to_string());
+    event
+}
+
+#[test]
+fn one_place_written_several_ways_is_reported_once() {
+    let full = (Uuid::now_v7(), "Lyon, Rhône, France");
+    let folded = (Uuid::now_v7(), "LYON,  rhone , France");
+    let short = (Uuid::now_v7(), "Lyon");
+    let other = (Uuid::now_v7(), "Villefranche, Rhône");
+    let other_locality = (Uuid::now_v7(), "Rhône, France");
+    let mut a = person("A", Sex::Male);
+    a.birth = Some(at(year(EventType::Birth, 1800), full));
+    a.death = Some(at(year(EventType::Death, 1850), folded));
+    let mut b = person("B", Sex::Female);
+    b.birth = Some(at(year(EventType::Birth, 1800), short));
+    b.death = Some(at(year(EventType::Death, 1850), other));
+    b.burial = Some(at(year(EventType::Burial, 1850), other_locality));
+    let result = run(&[a, b]);
+    let found: Vec<Vec<&str>> = items(&result, "place_spellings")
+        .iter()
+        .map(|item| item.places.iter().map(|p| p.name.as_str()).collect())
+        .collect();
+    assert_eq!(
+        found,
+        vec![vec!["LYON,  rhone , France", "Lyon", "Lyon, Rhône, France"]]
+    );
+    let rule = result
+        .rules
+        .iter()
+        .find(|r| r.rule == "place_spellings")
+        .unwrap();
+    assert_eq!(rule.category, "places");
+    assert!(rule.items[0].persons.is_empty());
+}
+
+#[test]
+fn two_events_of_one_day_cannot_be_far_apart() {
+    let paris = (Uuid::now_v7(), "Paris");
+    let lyon = (Uuid::now_v7(), "Lyon");
+    let suburb = (Uuid::now_v7(), "Suburb");
+    let mut far = person("Far", Sex::Male);
+    far.birth = Some(at(day(EventType::Birth, 1850, 2, 2), paris));
+    far.baptism = Some(at(day(EventType::Baptism, 1850, 2, 2), lyon));
+    let mut near = person("Near", Sex::Female);
+    near.birth = Some(at(day(EventType::Birth, 1850, 2, 2), paris));
+    near.baptism = Some(at(day(EventType::Baptism, 1850, 2, 2), suburb));
+    // Known to the year only: not one day.
+    let mut vague = person("Vague", Sex::Female);
+    vague.birth = Some(at(year(EventType::Birth, 1850), paris));
+    vague.baptism = Some(at(year(EventType::Baptism, 1850), lyon));
+    let profiles = vec![far, near, vague];
+    let mut wanted = vec![paris.0, lyon.0, suburb.0];
+    wanted.sort_unstable();
+    assert_eq!(Wanted::of(&profiles).places, wanted);
+
+    let records = Records {
+        coordinates: HashMap::from([
+            (paris.0, (48.8566, 2.3522)),
+            (lyon.0, (45.7640, 4.8357)),
+            (suburb.0, (48.8, 2.4)),
+        ]),
+        ..Records::default()
+    };
+    let result = compute(&profiles, &records, today());
+    assert_eq!(found(&result, "distant_places_same_day"), vec![vec!["Far"]]);
+    let item = &items(&result, "distant_places_same_day")[0];
+    assert!(
+        item.value.is_some_and(|km| (385..400).contains(&km)),
+        "{:?}",
+        item.value
+    );
+    let names: Vec<_> = item.places.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, vec!["Paris", "Lyon"]);
+    assert_eq!(item.event_type.as_deref(), Some("birth"));
+    assert_eq!(item.other_event_type.as_deref(), Some("baptism"));
+    // Without coordinates, nothing is measured.
+    assert!(found(&run(&profiles), "distant_places_same_day").is_empty());
+}
+
+#[test]
+fn a_tag_keeps_the_place_anomalies_of_its_persons_places() {
+    let tag = Uuid::now_v7();
+    let lyon = (Uuid::now_v7(), "Lyon");
+    let lyon_full = (Uuid::now_v7(), "Lyon, Rhône");
+    let vienne = (Uuid::now_v7(), "Vienne");
+    let vienne_full = (Uuid::now_v7(), "Vienne, Isère");
+    let mut tagged = person("Tagged", Sex::Male);
+    tagged.tags = vec![oxidgene_core::types::TagRef {
+        id: tag,
+        label: "Branch".to_string(),
+        color: 0,
+    }];
+    tagged.birth = Some(at(year(EventType::Birth, 1800), lyon));
+    let mut other = person("Other", Sex::Female);
+    other.birth = Some(at(year(EventType::Birth, 1800), lyon_full));
+    other.death = Some(at(year(EventType::Death, 1850), vienne));
+    other.burial = Some(at(year(EventType::Burial, 1850), vienne_full));
+    let profiles = vec![tagged, other];
+    let whole = compute(&profiles, &Records::default(), today());
+    assert_eq!(items(&whole, "place_spellings").len(), 2);
+    let limited = compute_for_tag(&profiles, &Records::default(), today(), Some(tag));
+    let names: Vec<Vec<&str>> = items(&limited, "place_spellings")
+        .iter()
+        .map(|item| item.places.iter().map(|p| p.name.as_str()).collect())
+        .collect();
+    assert_eq!(names, vec![vec!["Lyon", "Lyon, Rhône"]]);
+}
+
+#[test]
+fn the_rules_apply_the_trees_thresholds() {
+    // Died at 95, a father at 65, a spouse's birth 30 years apart: within
+    // the defaults, not within thresholds set lower.
+    let mut father = died(
+        born(person("Father", Sex::Male), year(EventType::Birth, 1800)),
+        year(EventType::Death, 1896),
+    );
+    let mut mother = born(person("Mother", Sex::Female), year(EventType::Birth, 1831));
+    let mut child = born(person("Child", Sex::Male), year(EventType::Birth, 1866));
+    family(&mut father, &mut mother, vec![], &mut [&mut child]);
+    // About 1850 widens by the slack: a death in 1848 may follow it, unless
+    // the slack is none.
+    let mut about = person("About", Sex::Male);
+    about.birth = Some(ProfileEvent {
+        date_qualifier: DateQualifier::About,
+        ..year(EventType::Birth, 1850)
+    });
+    about.death = Some(year(EventType::Death, 1848));
+    let profiles = vec![father, mother, child, about];
+
+    let defaults = run(&profiles);
+    assert_eq!(defaults.thresholds, AnomalyThresholds::default());
+    for rule in [
+        "lived_over_105",
+        "father_too_old",
+        "spouses_age_gap",
+        "death_before_birth",
+    ] {
+        assert!(found(&defaults, rule).is_empty(), "{rule}");
+    }
+
+    let thresholds = AnomalyThresholds {
+        max_lifespan_years: 90,
+        old_centenarian_years: 90,
+        max_father_age_years: 60,
+        max_spouse_gap_years: 25,
+        approximate_slack_years: 0,
+        ..AnomalyThresholds::default()
+    };
+    let records = Records {
+        thresholds,
+        ..Records::default()
+    };
+    let lowered = compute(&profiles, &records, today());
+    assert_eq!(lowered.thresholds, thresholds);
+    assert_eq!(found(&lowered, "lived_over_105"), vec![vec!["Father"]]);
+    assert_eq!(
+        found(&lowered, "father_too_old"),
+        vec![vec!["Child", "Father"]]
+    );
+    assert_eq!(
+        found(&lowered, "spouses_age_gap"),
+        vec![vec!["Father", "Mother"]]
+    );
+    assert_eq!(found(&lowered, "death_before_birth"), vec![vec!["About"]]);
 }

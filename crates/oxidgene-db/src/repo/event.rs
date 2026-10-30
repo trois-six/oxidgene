@@ -115,6 +115,39 @@ impl EventRepo {
         hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
+    /// The live individual events of tree `tree_id` that one person holds
+    /// more than one of, for each type of `types`: the person, the type and
+    /// how many. Counted by the database over the tree's rows of those types,
+    /// so only the repeated ones come back.
+    pub async fn repeated_person_events(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        types: &[EventType],
+    ) -> Result<Vec<(Uuid, EventType, i64)>, OxidGeneError> {
+        use sea_orm::QuerySelect;
+        use sea_orm::sea_query::ExprTrait;
+        let rows: Vec<(Option<Uuid>, sea_enums::EventType, i64)> = Entity::find()
+            .select_only()
+            .column(Column::PersonId)
+            .column(Column::EventType)
+            .column_as(Column::Id.count(), "repeated")
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::EventType.is_in(types.iter().map(|t| sea_enums::EventType::from(*t))))
+            .filter(Column::PersonId.is_not_null())
+            .filter(Column::DeletedAt.is_null())
+            .group_by(Column::PersonId)
+            .group_by(Column::EventType)
+            .having(Column::Id.count().gt(1))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(person, event_type, count)| Some((person?, event_type.into(), count)))
+            .collect())
+    }
+
     /// List all events attached to any of the given persons.
     pub async fn list_by_persons(
         db: &impl ConnectionTrait,

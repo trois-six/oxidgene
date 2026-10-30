@@ -497,6 +497,7 @@ pub struct GqlTreeSnapshot {
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     pub submitter_address: Option<String>,
+    pub anomaly_thresholds: super::types::GqlAnomalyThresholds,
 }
 
 impl From<TreeSnapshot> for GqlTreeSnapshot {
@@ -510,6 +511,7 @@ impl From<TreeSnapshot> for GqlTreeSnapshot {
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,
+            anomaly_thresholds: t.anomaly_thresholds.into(),
         }
     }
 }

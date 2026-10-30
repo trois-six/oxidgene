@@ -14,39 +14,44 @@ Each tab only loads its data when you open it, and recomputes it from the curren
 
 ## Find anomalies
 
-The **Anomalies** tab checks the whole tree for dates, filiations, unions, witnesses and records that are impossible (**Error**) or unlikely (**Warning**).
+The **Anomalies** tab checks the whole tree for dates, filiations, unions, witnesses, records and places that are impossible (**Error**) or unlikely (**Warning**).
 
-1. Open the **Anomalies** tab. A row of tiles shows how many anomalies each category holds: **Dates**, **Filiation**, **Unions**, **Witnesses and godparents** and **Records**.
+1. Open the **Anomalies** tab. A row of tiles shows how many anomalies each category holds: **Dates**, **Filiation**, **Unions**, **Witnesses and godparents**, **Records** and **Places**.
 2. Click a tile to show only that category; click it again to show them all.
 3. Under each category, every rule that found something is a folded block with its severity, title and count. Open a block to read what the rule checks and see one row per anomaly.
-4. Each row names the persons concerned, each linked to their profile, with **Open in the tree** to centre the pedigree on them, and **Couple** for a union's anomaly. Beside them is what the rule measured: an age, a gap, the recorded text.
-5. Click anywhere else on a row, or press **Enter** on it, to open the profile of its first person, where you correct the anomaly.
-5. Correct the record, then come back to the tab: the list is computed again.
+4. Each row names the persons concerned, each linked to their profile, with **Open in the tree** to centre the pedigree on them, and **Couple** for a union's anomaly. A place anomaly names its places, each linked to its row in the dictionary, where you rename or merge it. Beside them is what the rule measured: an age, a gap, a distance, a count, the events compared, the recorded text.
+5. Click anywhere else on a row, or press **Enter** on it, to open the profile of its first person (or the dictionary row of its first place), where you correct the anomaly.
+6. Correct the record, then come back to the tab: the list is computed again.
 
 A rule lists at most 500 anomalies and says how many more it found. A tree without any anomaly says so, with the number of persons checked.
 
-Use the **Tag** list above the anomalies to keep only those naming a person who carries the tag. The counts follow the choice.
+Use the **Tag** list above the anomalies to keep only those naming a person who carries the tag, or a place such a person's events use. The counts follow the choice.
+
+The limits the rules apply — the longest life, the youngest parent, the farthest places of one day and the others — are the tree's: change them in the [tree settings](@/guide/settings.md), under **Anomaly thresholds**. The titles and sentences of the rules quote the tree's values.
 
 ### How dates are read
 
 The checks are designed not to cry wolf:
 
 - The birth is the birth, or the baptism when the birth has no date; the death is the death, or the burial when the death has no date.
-- An imprecise date stands for every day it may mean: a year alone for the whole year, a month for the whole month. A date about, calculated or estimated widens by two years each way. Dates before, after, perhaps, or between two dates are not used.
+- An imprecise date stands for every day it may mean: a year alone for the whole year, a month for the whole month. A date about, calculated or estimated widens by two years each way (a threshold you can change). Dates before, after, perhaps, or between two dates are not used, except by the rule comparing such dates with each other.
 - A rule fires only when it holds for every day those dates may stand for. A vague date therefore never raises an anomaly that its vagueness could explain.
 - Adoptive, foster and step parents are not held to the age and death rules that apply to biological parents.
 
 ### The catalogue of rules
 
+The figures below are the defaults.
+
 | Category | What is checked |
 |---|---|
-| **Dates** | Death before birth, burial before death, an event before birth, baptism after death, an event after death or after the burial (burial, cremation, funeral, probate and free-form events excepted), death over 105, a centenarian born before 1900, a date in the future, and an age recorded at an event that contradicts the dates by more than two years |
-| **Filiation** | A parent or an ancestor born after their child or descendant, a person among their own ancestors, a parent younger than 11, a father older than 70 or a mother older than 55 at a birth, a child born after the mother's death or more than 300 days after the father's, siblings born 11 days to 7 months apart, or more than 50 years apart |
-| **Unions** | A union before a spouse's birth or after their death, a spouse younger than 12 or older than 100, spouses born more than 50 years apart, the same two persons married in several unions, several spouses of the same name, a union with one's own parent, a union with more than two spouses |
+| **Dates** | Death before birth, burial before death, an event before birth, baptism after death, an event after death or after the burial (burial, cremation, funeral, probate and free-form events excepted), death over 105, a centenarian born before 1900, a date in the future, an age recorded at an event that contradicts the dates by more than two years, dates before, after or between that contradict each other (born after 1850, baptised before 1840), and no death, burial or cremation recorded for a person born more than 110 years ago |
+| **Filiation** | A parent or an ancestor born after their child or descendant, a person among their own ancestors, a parent younger than 11, a father older than 70 or a mother older than 55 at a birth, a child born after the mother's death or more than 300 days after the father's, siblings born 11 days to 7 months apart, or more than 50 years apart, a biological child of several families, and two children of a union with the same given names while the elder is known to be alive at the younger's birth |
+| **Unions** | A union before a spouse's birth or after their death, a spouse younger than 12 or older than 100, spouses born more than 50 years apart, the same two persons married in several unions, several spouses of the same name, a union with one's own parent, a union with more than two spouses, and spouses who share a parent |
 | **Witnesses and godparents** | A witness or godparent not yet born or already dead at the event, a godfather recorded as a woman or a godmother as a man |
-| **Records** | A husband recorded as a woman or a wife as a man, two husbands or two wives in one union, an unreadable date, a date range that ends before it begins, a person without any name |
+| **Records** | A husband recorded as a woman or a wife as a man, two husbands or two wives in one union, an unreadable date, a date range that ends before it begins, a person without any name, two births, baptisms, deaths or burials for one person, and a first given name that the given-name sheets give to the other sex only |
+| **Places** | Places whose names differ only by case, accents, punctuation or a missing part (Lyon and Lyon, Rhône), and two events of one person on the same day in places more than 100 km apart |
 
-Godparents are recognised from the relation recorded on a witness, in several languages (godfather, parrain, Taufpate, padrino…). The full list of rules, with their thresholds and the matching checks of Geneanet, is in the [tools specification](@/tech/ui-tools.md).
+Godparents are recognised from the relation recorded on a witness, in several languages (godfather, parrain, Taufpate, padrino…). A given name is checked only when it names a sheet itself, and only when the sheet says the name is borne by one sex alone: Camille, Andrea or Jean, given to both, are never reported. Places are compared by distance only when they have coordinates of their own or the place dictionary knows them. The full list of rules, with their thresholds and the matching checks of Geneanet, is in the [tools specification](@/tech/ui-tools.md).
 
 {{ <screenshot name="tools-anomalies" alt="Anomalies tab of the tools page" lang={lang} /> }}
 
@@ -131,14 +136,18 @@ The **Date in words** tab writes a date out as registers and deeds did, and read
 
 To write a date out:
 
-1. Enter the date with the date field. A Hebrew or Republican date is written from the same day in the Gregorian calendar, and the page says so. Years from 1 to 3999 can be written.
+1. Enter the date with the date field. A Hebrew or Republican date is written in its own calendar in each language (*le vingt-cinq messidor de l'an deux*, *the fifteenth of Nisan, five thousand six hundred and ten*), and in Latin from the same day in the Gregorian calendar; the page says so. Years from 1 to 3999 can be written.
 2. Choose the **Form**: **All in words** or **Figures and month name**.
-3. Choose when the **Year starts on**: **1 January**, or **25 March (Annunciation style)**, which many registers kept. In that style, a date from 1 January to 24 March bears the previous year's number.
-4. Read the date in each language — English, French, German, Spanish, Italian, Dutch, Polish and Portuguese — and in **Latin**. Each row has a copy button.
+3. Choose when the **Year starts on**: **1 January**; **25 March (Annunciation style)**, which many registers kept, where a date from 1 January to 24 March bears the previous year's number; **25 December (Nativity style)**, where the last days of December bear the next year's; or **Easter (French style before 1564)**, where the days before Easter bear the previous year's. Easter is computed for the date's calendar, Julian or Gregorian.
+4. With a style other than 1 January, tick **Double dating (1649/50)** to give both years when they differ, as English registers did.
+5. Tick **Classical Latin forms (duodevicesimo)** to write the 18th, 19th, 28th, 29th… as classical Latin does, counting down to the next ten.
+6. Read the date in each language — English, French, German, Spanish, Italian, Dutch, Polish and Portuguese — and in **Latin**. Each row has a copy button.
 
 The Latin rows add the **Latin, Roman reckoning** of a complete date (counted to the next Kalends, Nones or Ides, such as *ante diem IV Nonas Februarii*) and **Latin, part by part**, which breaks the day, month and year into words and Roman numerals.
 
-To read a written date, paste it under **Read a written date** and click **Read**. The date field above is filled with it. The tool understands numbers in words in any of these languages or in Latin (cardinal or ordinal), figures, Roman numerals, month names in any case, GEDCOM abbreviations such as *FEB*, and the Roman reckoning. If it cannot read the text, it says why: nothing to read, no year found, or a day that the month does not have. A date read is taken as Gregorian.
+A complete date also gives the **Feast of the day (Roman calendar)**, in Latin as the missal headed it: a feast of the Easter cycle (Ash Wednesday, Easter, the Ascension, Pentecost, Corpus Christi…) or the saint's feast of the day, from the Roman calendar as parish registers followed it until the end of the 19th century. *S. Martini Episcopi et Confessoris* answers 11 November. A day without a feast in that calendar shows no row.
+
+To read a written date, paste it under **Read a written date** and click **Read**. The date field above is filled with it. The tool understands numbers in words in any of these languages or in Latin (cardinal or ordinal, the classical forms included), figures, Roman numerals, month names in any case, GEDCOM abbreviations such as *FEB*, and the Roman reckoning. If it cannot read the text, it says why: nothing to read, no year found, or a day that the month does not have. A date read is taken as Gregorian.
 
 ## Print a tab
 

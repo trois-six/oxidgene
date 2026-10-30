@@ -5085,3 +5085,218 @@ async fn test_event_related_family() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }
+
+/// The rule `rule` of an anomalies response, which must be listed.
+fn anomaly_rule<'a>(anomalies: &'a serde_json::Value, rule: &str) -> &'a serde_json::Value {
+    anomalies["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["rule"] == rule)
+        .unwrap_or_else(|| panic!("{rule} is found: {anomalies}"))
+}
+
+/// Creates a place, with coordinates when given, and returns its id.
+async fn place_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    name: &str,
+    spot: Option<(f64, f64)>,
+) -> String {
+    let (status, body) = send(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        Some(serde_json::json!({
+            "name": name,
+            "latitude": spot.map(|s| s.0),
+            "longitude": spot.map(|s| s.1),
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    body["id"].as_str().unwrap().to_string()
+}
+
+/// Creates an event of `person` at `place`.
+async fn placed_event_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    person: &str,
+    kind: &str,
+    date: &str,
+    place: &str,
+) {
+    let (status, body) = send(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": kind,
+            "date_value": date,
+            "person_id": person,
+            "place_id": place,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+/// The rules reading what the projections do not carry: a key event twice
+/// (counted by the database), a child of two families (their links), one
+/// place written two ways, and two places of one day (their coordinates).
+#[tokio::test]
+async fn anomalies_read_events_links_and_places_beyond_the_projections() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person = |sex, given| create_named_person_via_api(&app, &tree_id, sex, given, "BRANCH_A");
+    let child = person("male", "Child").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &child), "birth", "1850").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &child), "birth", "1851").await;
+    let father = person("male", "Father").await;
+    let mother = person("female", "Mother").await;
+    let other_father = person("male", "OtherFather").await;
+    let other_mother = person("female", "OtherMother").await;
+    create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&father, "husband"), (&mother, "wife")],
+        &[&child],
+    )
+    .await;
+    create_family_via_api(
+        &app,
+        &tree_id,
+        &[(&other_father, "husband"), (&other_mother, "wife")],
+        &[&child],
+    )
+    .await;
+    let north = place_via_api(&app, &tree_id, "Qzxv North", Some((48.8566, 2.3522))).await;
+    let south = place_via_api(&app, &tree_id, "Qzxv South", Some((45.764, 4.8357))).await;
+    let south_again = place_via_api(&app, &tree_id, "QZXV  south", None).await;
+    let traveller = person("female", "Traveller").await;
+    placed_event_via_api(&app, &tree_id, &traveller, "birth", "2 FEB 1850", &north).await;
+    placed_event_via_api(&app, &tree_id, &traveller, "baptism", "2 FEB 1850", &south).await;
+    placed_event_via_api(
+        &app,
+        &tree_id,
+        &traveller,
+        "residence",
+        "1870",
+        &south_again,
+    )
+    .await;
+
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/anomalies"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["thresholds"]["max_same_day_distance_km"], 100);
+
+    let twice = &anomaly_rule(&body, "unique_event_twice")["items"][0];
+    assert_eq!(twice["persons"][0]["person_id"], child.as_str());
+    assert_eq!(twice["event_type"], "birth");
+    assert_eq!(twice["value"], 2);
+
+    let several = &anomaly_rule(&body, "child_of_several_families")["items"][0];
+    assert_eq!(several["persons"][0]["person_id"], child.as_str());
+    assert_eq!(several["persons"].as_array().unwrap().len(), 5);
+    assert_eq!(several["value"], 2);
+
+    let spellings = anomaly_rule(&body, "place_spellings");
+    assert_eq!(spellings["category"], "places");
+    let names: Vec<&str> = spellings["items"][0]["places"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["QZXV  south", "Qzxv South"]);
+
+    let distant = &anomaly_rule(&body, "distant_places_same_day")["items"][0];
+    assert_eq!(distant["persons"][0]["person_id"], traveller.as_str());
+    assert!(
+        distant["value"]
+            .as_i64()
+            .is_some_and(|km| (385..400).contains(&km)),
+        "{distant}"
+    );
+    assert_eq!(distant["places"][0]["place_id"], north.as_str());
+    assert_eq!(distant["places"][1]["place_id"], south.as_str());
+    assert_eq!(distant["event_type"], "birth");
+    assert_eq!(distant["other_event_type"], "baptism");
+}
+
+/// A tree's anomaly thresholds: the defaults until set, set all at once (a
+/// threshold left out taking its default), refused out of range, and
+/// applied by the anomalies, which say which they applied.
+#[tokio::test]
+async fn anomaly_thresholds_are_a_tree_setting_the_anomalies_apply() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let (_, tree) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
+    assert_eq!(tree["anomaly_thresholds"]["max_lifespan_years"], 105);
+    assert_eq!(tree["anomaly_thresholds"]["max_same_day_distance_km"], 100);
+
+    // Died at 95: within the default longest life.
+    let person = create_named_person_via_api(&app, &tree_id, "male", "Elder", "BRANCH_A").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &person), "birth", "1800").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &person), "death", "1896").await;
+    let anomalies = |app: axum::Router, tree_id: String| async move {
+        send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/anomalies"),
+            None,
+        )
+        .await
+        .1
+    };
+    let lived_long = |body: &serde_json::Value| {
+        body["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["rule"] == "lived_over_105")
+    };
+    assert!(!lived_long(&anomalies(app.clone(), tree_id.clone()).await));
+
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}"),
+        Some(serde_json::json!({
+            "anomaly_thresholds": { "max_lifespan_years": 90, "old_centenarian_years": 90 }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["anomaly_thresholds"]["max_lifespan_years"], 90);
+    assert_eq!(body["anomaly_thresholds"]["max_father_age_years"], 70);
+    let found = anomalies(app.clone(), tree_id.clone()).await;
+    assert!(lived_long(&found), "{found}");
+    assert_eq!(found["thresholds"]["max_lifespan_years"], 90);
+
+    for refused in [
+        serde_json::json!({ "max_father_age_years": 5 }),
+        serde_json::json!({ "old_centenarian_years": 120, "max_lifespan_years": 110 }),
+        serde_json::json!({ "twin_days": 30, "min_sibling_gap_days": 20 }),
+    ] {
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}"),
+            Some(serde_json::json!({ "anomaly_thresholds": refused })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}: {body}");
+        assert_eq!(body["error"], "validation_error");
+    }
+    // A refused change keeps the thresholds set before.
+    let (_, tree) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
+    assert_eq!(tree["anomaly_thresholds"]["max_lifespan_years"], 90);
+}

@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
-description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
+description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -70,30 +70,45 @@ not print, and a tab that reads a date prints its results without the field.
 
 ## 3. Anomalies
 
-Dates, filiations, unions, witnesses and records that are impossible
-(**errors**) or unlikely (**warnings**), found by the rules of §3.3 over the
-whole tree in one request (`GET /trees/{id}/anomalies`, `treeAnomalies`,
-[API](api.md)), computed from the person projections and the witness links
-on each request; nothing is stored.
+Dates, filiations, unions, witnesses, records and places that are
+impossible (**errors**) or unlikely (**warnings**), found by the rules of
+§3.3 over the whole tree in one request (`GET /trees/{id}/anomalies`,
+`treeAnomalies`, [API](api.md)), computed on each request; nothing is
+stored. The rules read the person projections and, for what the projections
+do not carry:
+
+- the witness links;
+- the key events a person holds more than one of, counted by the database
+  (a projection keeps one birth, baptism, death and burial);
+- the child links of the persons the projections show in several families
+  (a projection keeps one family as a child), read only for them;
+- the coordinates of the places of a person's events on one day, read only
+  for those places, by the rule of §4: their own, else their label's in the
+  place dictionary.
 
 ### 3.1 Display
 
 - A row of tiles, one per category — dates, filiation, unions, witnesses and
-  godparents, records — with how many anomalies it holds. A tile filters the
-  list to its category; pressed again, it shows them all.
+  godparents, records, places — with how many anomalies it holds. A tile
+  filters the list to its category; pressed again, it shows them all.
 - Under each category, one folded block per rule that found something: its
   severity, its title and its count; opened, a sentence saying what the rule
   checks, then one row per anomaly.
 - A row names the persons concerned, the subject first, each linked to their
   profile with a small link centring the pedigree on them; a union's
-  anomalies also link to the couple. Beside them, what the rule measured: an
-  age, a gap, the event concerned, the text recorded.
+  anomalies also link to the couple; the places concerned are linked to
+  their row in the [Dictionary](ui-dictionary.md), where a place is renamed
+  or merged. Beside them, what the rule measured: an age, a gap, a distance,
+  a count, the event concerned (the two events a rule compares, joined by
+  ↔), the text recorded.
 - A click anywhere else on a row opens the profile of its subject, where the
-  anomaly is corrected — the couple of a union's anomaly that names nobody.
-  A row takes the keyboard focus, and Enter opens it the same way.
+  anomaly is corrected — the Dictionary row of the first place of an
+  anomaly naming places alone, the couple of a union's anomaly that names
+  nobody. A row takes the keyboard focus, and Enter opens it the same way.
 - A rule lists at most 500 anomalies and says how many more it found.
 - A **tag** select above the categories limits the anomalies to those naming
-  a person who carries the tag ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)),
+  a person who carries the tag, or a place the events of such a person use
+  ([Tags §2.2](tags.md#22-anomalies-limited-to-a-tag)),
   with the same choices and memory as the Statistics page's, and the same reading
   of the tag list: read the first time the select takes the focus, or at once
   when a kept tag is restored, and read again on the next focus after a failed
@@ -106,8 +121,9 @@ on each request; nothing is stored.
   date; the **death** the death, or the burial when the death carries none
   ([Architecture invariants](architecture.md)).
 - A date stands for every day it may mean: a year alone its whole year, a
-  month its whole month. A date about, calculated or estimated widens by two
-  years each way. Dates before, after, perhaps, or between two dates, say too
+  month its whole month. A date about, calculated or estimated widens by the
+  approximate date slack each way (§3.3, two years by default). Dates before,
+  after, perhaps, or between two dates, say too
   little to compare and are not used.
 - **A rule fires only when it holds for every day its dates may stand for**:
   "died before birth" needs the whole death span before the whole birth
@@ -125,12 +141,21 @@ on each request; nothing is stored.
   peetvader, peter, ojciec chrzestny, chrzestny* — or *godmother, godm,
   marraine, patin, taufpatin, patentante, madrina, madrinha, peetmoeder,
   meter, matka chrzestna, chrzestna*.
+- The **first given name** is the first word of the primary name's given
+  names, a hyphenated compound whole (*Jean-Baptiste*). Its sex is the one
+  of the given-name sheet the word itself names, by its label or an alias,
+  in any language ([API, Reference Content](api.md#reference-content)): each
+  sheet says whether men, women or both bear it, *both* whenever the name or
+  one of its aliases is given to either sex somewhere (*Camille*, *Andrea*,
+  *Jean*, a woman's name in English). A compound no sheet names says nothing
+  about its parts.
 
 ### 3.3 Catalogue
 
-Thresholds are constants of `service/anomalies.rs`:
+Thresholds are a tree setting (`tree.anomaly_thresholds`, set in
+[Settings](ui-settings.md) §8b with their ranges); the defaults:
 
-| Constant | Value |
+| Threshold | Default |
 |---|---|
 | Longest life | 105 years; 100 years for a birth before 1900 |
 | Youngest parent | 11 years |
@@ -142,6 +167,14 @@ Thresholds are constants of `service/anomalies.rs`:
 | Spouses' birth gap | 50 years |
 | Approximate date slack | 2 years each way |
 | Recorded age tolerance | 2 years each way |
+| Oldest person without a death | 110 years |
+| Farthest places of one day | 100 km |
+
+The rules apply the tree's thresholds, and the rules below name the
+defaults: `lived_over_105`, `centenarian_before_1900` and `union_over_100`
+keep their identifiers whatever the tree sets, while their titles and
+sentences on the page quote the tree's values ("Died over 105 years"),
+which the anomalies response carries.
 
 The **G** column gives the number of the matching rule of Geneanet's
 consistency check, whose whole list the catalogue covers.
@@ -185,15 +218,15 @@ consistency check, whose whole list the catalogue covers.
 | `unreadable_date` | records | A date that cannot be read as one (no sort date), shown as typed | warning | implemented | |
 | `reversed_range` | records | A date between two dates whose end comes first | warning | implemented | |
 | `no_name` | records | A person with neither surname nor given name | warning | implemented | |
-| `unique_event_twice` | records | Two births, baptisms, deaths or burials for one person | warning | proposed | |
-| `child_of_several_families` | filiation | A biological child of more than one family | warning | proposed | |
-| `qualifier_contradiction` | dates | Qualified dates that contradict each other: born after 1850, baptised before 1840 | warning | proposed | |
-| `alive_too_old` | dates | No death recorded, born more than 110 years ago | warning | proposed | |
-| `union_with_sibling` | unions | Spouses sharing a parent | warning | proposed | |
-| `given_name_sex` | records | A given name the reference sheets give to the other sex only | warning | proposed | |
-| `same_name_living_siblings` | filiation | Two siblings of one given name, the elder not dead before the younger's birth | warning | proposed | |
-| `place_spellings` | places | Places differing only by case, accents, punctuation or a missing part of the label | warning | proposed | |
-| `distant_places_same_day` | places | Two events of a person on one day in places too far apart | warning | proposed | |
+| `unique_event_twice` | records | Two births, baptisms, deaths or burials for one person (live events counted by the database); the item gives the type and how many | warning | implemented | |
+| `child_of_several_families` | filiation | A biological child (or of unknown kind) of more than one family: the child, then the spouses of each family, and how many families | warning | implemented | |
+| `qualifier_contradiction` | dates | Two of the birth, baptism, death and burial out of the order of a life (in that order) for every day their dates allow, one of them before, after, between two dates or one of two: born after 1850, baptised before 1840. *Before X* allows up to the end of X, *after X* from its start; pairs of other dates are the rules above | warning | implemented | |
+| `alive_too_old` | dates | No death, burial or cremation recorded (dated or not), born more than 110 years before today | warning | implemented | |
+| `union_with_sibling` | unions | Spouses children of one family, or sharing a father or a mother, as biological children (or of unknown kind) | warning | implemented | |
+| `given_name_sex` | records | A first given name the reference sheets give to the other sex only (§3.2) | warning | implemented | |
+| `same_name_living_siblings` | filiation | Two children of a union with the same given names (folded), the elder known to be alive at the younger's birth: their death, or an event of their life other than one `event_after_death` accepts, wholly after it | warning | implemented | |
+| `place_spellings` | places | Places of the events of the tree whose labels, folded (case, accents, punctuation aside), are equal, or one the other with parts missing, the first part (the locality) the same: `Lyon`, `LYON`, `Lyon, Rhône`; each group once | warning | implemented | |
+| `distant_places_same_day` | places | Two events of a person (theirs or their union's) dated to one complete day, exact, in places more than 100 km apart (great-circle distance); the farthest pair of each day, the distance in km | warning | implemented | |
 | `unlocated_place` | places | A used place the statistics cannot locate | warning | implemented (§4) | |
 | Civil-record comparison | — | Entries compared with transcriptions of civil records | — | out of scope | 27 |
 
@@ -214,9 +247,19 @@ Where the defaults differ from Geneanet's, it is on purpose:
   database of those records the application does not have; it could come
   later against the user's own sources and transcripts.
 
-The proposed rules need data the projections do not carry (every event of a
-type, every family of a child), the reference sheets, or distances between
-places, and are listed in the [Roadmap](roadmap.md).
+Choices the rules beyond Geneanet's list make:
+
+- `alive_too_old` stops at 110 years: a few persons live past 105, as
+  `lived_over_105` allows for, almost none past 110.
+- `distant_places_same_day` stops at 100 km, more than a day's travel on
+  foot or on horseback before the railway; nearer events, a birth at a
+  hamlet and a baptism at the parish church, are not reported. Places
+  without coordinates, their own or their label's, are not compared.
+- `same_name_living_siblings` needs the elder known alive: a child was
+  usually named after an elder sibling who had died, and an elder of whom
+  nothing later is recorded may have died before.
+- `place_spellings` compares the places as the events of the tree name
+  them; a place only media use is not compared.
 
 ## 4. Places not located
 
@@ -373,14 +416,36 @@ sent to the server, and nothing is stored.
 ### 8.1 Writing
 
 - The date is entered with the shared date input. A Gregorian or Julian date
-  is written in its own calendar; a Hebrew or Republican one from the same
-  day in the Gregorian calendar, which the page says. The qualifier and the
-  second date of a range are left out; a year alone or a month and a year
-  are written as such. Years run from 1 to 3999, as far as Roman numerals go.
+  is written in its own calendar. A Hebrew or Republican one is written in
+  its own calendar by the language rows (below), and by Latin, the Roman
+  reckoning and the feast from the same day in the Gregorian calendar,
+  which the page says. The qualifier and the second date of a range are
+  left out; a year alone or a month and a year are written as such. Years
+  run from 1 to 3999, as far as Roman numerals go (a Hebrew year to 9999).
 - **Form**: *all in words* (the default) or *figures and month name*.
-- **Year starts on** *1 January* (the default) or *25 March*, the
-  Annunciation style many registers kept: a date from 1 January to 24 March
-  then bears the previous year's number, in every output.
+- **Year starts on**, for a Gregorian or Julian date, in every output:
+  - *1 January* (the default);
+  - *25 March*, the Annunciation style many registers kept: a date from
+    1 January to 24 March bears the previous year's number;
+  - *25 December*, the Nativity style: a date from 25 to 31 December bears
+    the next year's number;
+  - *Easter*, the French style until 1564 (*mos gallicus*): a date from
+    1 January to the day before Easter bears the previous year's number.
+    Easter is computed in the date's calendar: by the Julian computus for a
+    Julian date, by the Gregorian one for a Gregorian date from 1583, and
+    before, when the Church still followed the Julian computus, by that one
+    carried into the Gregorian calendar.
+
+  A date whose month or day is unknown where the year turns keeps its
+  number.
+- **Double dating**, offered with a style other than 1 January: when the
+  style numbers the year otherwise than 1 January does, both years are
+  given, the style's first, then the other's digits from the tens on, or
+  from the hundreds when they differ (*1649/50*, *1699/1700*; *1650/49* in
+  the Nativity style). The figures form writes the double year in place of
+  the year; the words, Latin's forms included, write the style's year and
+  add the double one after the date in parentheses (*… quadragesimo nono
+  (1649/50)*); the part-by-part year shows it.
 - One row per available locale document, each with the shared copy button.
   Patterns, month cases, day/year word forms and reading vocabulary come from
   that document; personal locales discovered in Language settings also appear
@@ -394,12 +459,34 @@ sent to the server, and nothing is stored.
   *drugiego lutego tysiąc sześćset pięćdziesiątego roku*; *dois de fevereiro
   de mil seiscentos e cinquenta*. Day 1 is an ordinal where the language
   says so (*le premier*, *primero de*, *primo*, *primeiro de*).
+- A **Hebrew or Republican** date is written in each language with the
+  `hebrew` and `republican` parts of its locale document: the thirteen
+  month names of the calendar, its templates in both forms, the
+  complementary days of the Republican year, and for Hebrew the thousands a
+  year past 3999 needs. All in words, the day and the year are the
+  language's words, a Hebrew year its thousands then the rest (*cinq mille
+  six cent dix*); in figures, the Republican year is in Roman numerals as
+  the Republic wrote it. For 25 Messidor of year II: *le vingt-cinq
+  messidor de l'an deux*, *25 messidor an II*, *the twenty-fifth of
+  Messidor, year two*, *am fünfundzwanzigsten Messidor des Jahres zwei*;
+  for 15 Nisan 5610: *the fifteenth of Nisan, five thousand six hundred and
+  ten*, *piętnastego Nisan pięć tysięcy sześćset dziesiątego roku*. Month
+  names keep the spelling of the date input's in each language; the
+  Republican ones are the French names, or the language's own (*mesidor*,
+  *messidoro*). A locale document without these parts writes the date from
+  its Gregorian day.
 - **Latin**, the same whatever the interface language:
   - all in words: *die secunda mensis Februarii anno Domini millesimo
     sexcentesimo quinquagesimo* — the day a feminine ordinal, the month in
     the genitive, the year a masculine ordinal, every part of it (*bis
     millesimo* for 2000); days and years from 13 to 19 read *decima
     tertia*, *decimo octavo*;
+  - with **classical Latin forms** chosen, the ordinals ending in 8 or 9
+    from 18 on count down to the next ten, as classical grammar does:
+    *duodevicesima* (18th), *undevicesima* (19th), *duodetricesima* (28th),
+    *undequinquagesimo* (49th), *duodecentesimo* (98th) — for the day and
+    the last two digits of the year, in the words form and the part-by-part
+    breakdown;
   - figures and month name: *II Februarius MDCL*, day and year in Roman
     numerals;
   - the **Roman reckoning** of a complete date, counted inclusively to the
@@ -411,6 +498,30 @@ sent to the server, and nothing is stored.
   - **part by part**: the day (2 = *secunda* = II), the month (2 =
     *Februarii* = II), the year (1650 = *millesimo sexcentesimo
     quinquagesimo* = MDCL) and the calendar, with the year style.
+- **The feast of the day** of a complete date, in Latin as the Missal
+  headed it, from the Roman calendar in the date's own calendar (Gregorian
+  or Julian):
+  - the movable feasts of the Easter cycle first, from Easter computed as
+    above: Ash Wednesday (*Feria IV Cinerum*), Palm Sunday, Maundy Thursday,
+    Good Friday, Holy Saturday, Easter Sunday (*Dominica Resurrectionis*)
+    and Monday, Low Sunday, the Ascension, Pentecost Sunday and Monday,
+    Trinity Sunday and Corpus Christi;
+  - else the fixed feast of the day, of highest rank, from a table of 366
+    days (`assets/reference/feasts.la.json`, 14 KB, embedded in the
+    interface, no network): the General Roman Calendar as it stood under
+    Leo XIII, about 1888 — the Tridentine calendar of 1570 with its
+    additions, before the 20th-century reforms, which is the one parish
+    registers of the 16th–19th centuries followed — taken from the calendar
+    tables of the Divinum Officium project, its headings normalised (*S.*,
+    *Ss.*, *J* spellings, no accents): *S. Martini Episcopi et Confessoris*,
+    *In Nativitate Domini*. Vigils and days within an octave have no feast
+    of their own unless a saint is commemorated; 110 days have none and say
+    nothing.
+  - In a leap year the inserted day is the 24th of February, the
+    bissextile day: the feasts from the 24th on move one day later, St
+    Matthias to the 25th.
+  - Saints' names are data, not interface text: the row is in Latin
+    whatever the interface language, its label translated.
 
 ### 8.2 Reading
 
@@ -432,6 +543,8 @@ no year found, or a day the month does not have.
   Feb. 1650*, *pridie Idus Martias 1650*, *Kalendis Martii*, the doubled
   leap day; the count before the Kalends of a month is a day of the month
   before, the year being the date's own.
+- The classical subtractive ordinals, in every case (*duodevicesima*,
+  *undequinquagesimo*, *duodecentesimus*).
 - A text read is taken as Gregorian; the date input then converts it to
   another calendar if one is chosen there.
 
@@ -444,10 +557,11 @@ no year found, or a day the month does not have.
 | Latin long and short forms, Roman reckoning, part-by-part breakdown | implemented |
 | Reading text in available locale vocabularies and in Latin | implemented |
 | Copy of each output | implemented (the shared copy field) |
-| Double dating (*1649/50*) for the Annunciation style | proposed |
-| Other old styles (25 December, Easter) | proposed |
-| The liturgical feast of the day, from a calendar of saints | proposed |
-| The classical subtractive forms (*duodevicesima*) and Hebrew and Republican dates written out | proposed |
+| Double dating (*1649/50*) for the old styles | implemented |
+| Other old styles (25 December, Easter) | implemented |
+| The liturgical feast of the day, from a calendar of saints | implemented |
+| The classical subtractive forms (*duodevicesima*) | implemented |
+| Hebrew and Republican dates written out in every language | implemented |
 
 ## 9. i18n and accessibility
 
