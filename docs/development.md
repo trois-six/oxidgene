@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-30T19:28:16Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:17:22Z }
 ---
 
 # Development Environment and Workflows
@@ -344,7 +344,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
-| End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
+| End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E; Release: End-to-end tests of the images (§6) | No |
 | Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
@@ -459,6 +459,28 @@ one already listening on those ports:
    adds (the hash of `dx`'s inline development-toast script and its web
    font).
 
+With `E2E_EXTERNAL` set, Playwright starts neither and the suite drives
+servers already running on those ports: the release workflow sets it to run
+the suite against the images it built (§6), started with
+`docker/docker-compose.e2e.yml` — PostgreSQL, the server keeping its media
+on its own disk (so it runs the import jobs itself), the web image, and a
+Caddy ingress routing `/api`, `/graphql` and `/healthz` to the server and
+everything else to the web image, as the Helm chart's ingress does. The
+release bundle calls the API on its own origin, so both ports name the
+ingress:
+
+```bash
+OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> \
+  docker compose -f docker/docker-compose.e2e.yml up -d --wait
+cd e2e && E2E_EXTERNAL=1 E2E_API_PORT=18081 E2E_WEB_PORT=18081 npx playwright test
+docker compose -f docker/docker-compose.e2e.yml down -v
+```
+
+The request recorders of the budgets and of the trace continuity tell an
+API call by its path (`isApiCall` of `e2e/tests/fixtures.ts`), not by its
+origin alone, so they count the same requests under one origin as under
+two.
+
 Each test that needs data seeds its own tree through the REST API, as an
 import job the backend's embedded worker runs, from
 `e2e/fixtures/family-blocks.ged`: thirty fictitious persons in three
@@ -511,7 +533,8 @@ it shows, and look at every image before committing it: the fixture is
 fictitious, and a screenshot must never show anyone's real data.
 
 The E2E workflow (`.github/workflows/e2e.yml`) runs from the nightly
-workflow, before a release, and on demand. It installs the toolchain of
+workflow, before a release, and on demand; on a tag, the release workflow
+runs the suite once more against the images it built (§6). It installs the toolchain of
 `rust-toolchain.toml` with its WebAssembly target and the Dioxus CLI itself,
 uploads the request report of every run, and the Playwright report and
 traces when a test fails.
@@ -1013,7 +1036,8 @@ not match both the Cargo workspace version and the Helm chart `appVersion`.
 A successful run publishes:
 
 - `oxidgene-server` and `oxidgene-web` multi-architecture images to GitHub
-   Container Registry with immutable version tags and a moving `latest` tag;
+   Container Registry with immutable version tags and a moving `latest` tag,
+   once the end-to-end suite passed against them (below);
 - the OxidGene chart as an OCI artifact under `ghcr.io/trois-six/charts`;
 - the desktop for Linux, macOS, and Windows; and
 - a GitHub Release containing the desktop downloads, packaged chart, generated
@@ -1025,8 +1049,42 @@ A successful run publishes:
 
 Before anything is built or published, the release gates run tiers 1 to 3
 of the guards (§2.8). The release is created only after every platform build
-and publication job has succeeded. A push to a `release/**` branch builds and
-packages the desktop as well, unsigned, and publishes nothing.
+and publication job has succeeded. A push to a `release/**` branch builds,
+packages and smoke-tests the desktop as well, unsigned, and publishes
+nothing.
+
+The deliverables are tested as they ship, before anything carries the
+release's version:
+
+- **Images.** The `images` job builds each image for both architectures and
+  pushes it to the registry by digest only, untagged. The `e2e` job starts
+  those very digests with `docker/docker-compose.e2e.yml` — PostgreSQL, the
+  server, the web image and an ingress serving both from one origin, as the
+  chart's does — and runs the whole Playwright suite of `e2e/` against them
+  with `E2E_EXTERNAL` (§2.7); a failure uploads the Playwright report and
+  the containers' logs. Only then does `publish-images` give the tested
+  digests the version and `latest` tags (`docker buildx imagetools create`,
+  which copies each image index whole, its provenance and SBOM with it), and
+  the chart job publishes the chart that deploys them.
+- **Desktop.** Each platform's job runs `scripts/desktop-smoke.py` on its
+  download as packaged — the Linux archive, the macOS disk image, the
+  Windows archive after signing — without opening a window: `--version`
+  must name the workspace's version, the macOS executable must hold both
+  architectures, and an MCP session over standard input and output
+  (`oxidgene-desktop mcp`, [MCP §4](mcp.md#4-transport-and-process)) must
+  answer `list_trees` with the empty list of a fresh database, writing
+  nothing but protocol messages to standard output and exiting cleanly when
+  its input closes. The script gives the session a database where the
+  platform keeps it: under a temporary `XDG_DATA_HOME` on Linux and a
+  temporary `HOME` on macOS; Windows reads its application data folder from
+  no variable, so there it uses the runner's own `%APPDATA%\oxidgene`, refuses
+  to run when a database is already there, and removes what it created.
+
+The job graph is `gates` → `metadata` → `images` → `e2e` →
+`publish-images` and `chart`; `gates` → `desktop` (build, package, sign,
+smoke-test) on each platform; `release` needs `publish-images`, `chart` and
+`desktop`, so a failed end-to-end run or desktop smoke test leaves the
+version untagged in the registry and creates no release.
 
 The desktop downloads are portable, not installers:
 

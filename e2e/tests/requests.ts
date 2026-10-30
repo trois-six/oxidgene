@@ -6,7 +6,7 @@ import { crc32, deflateSync } from "node:zlib";
 
 import type { APIRequestContext, CDPSession, Page } from "@playwright/test";
 
-import { apiUrl, expect, seedTree, type SeededTree } from "./fixtures";
+import { apiUrl, expect, isApiCall, seedTree, type SeededTree } from "./fixtures";
 
 /// A PNG of `width` × `height` with a gradient seeded by `seed`: fictitious
 /// pictures, generated, so no binary fixture is committed.
@@ -144,7 +144,7 @@ export class Recorder {
         }
         cdp.on("Network.requestWillBeSent", (event) => {
             const url = event.request.url;
-            if (!url.startsWith(apiUrl) || url.includes("/v1/traces")) return;
+            if (!isApiCall(url)) return;
             const headers = event.request.headers as Record<string, string>;
             recorder.origin ??= event.timestamp * 1000;
             recorder.requests.set(event.requestId, {

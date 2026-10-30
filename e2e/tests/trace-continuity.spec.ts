@@ -16,7 +16,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { apiUrl, expect, test } from "./fixtures";
+import { apiUrl, expect, isApiCall, test } from "./fixtures";
 
 const DISPLAYS: Array<{ name: string; url: (t: { treeId: string; anchorId: string }) => string; content: string }> = [
     { name: "home", url: () => "/", content: ".tree-card-name" },
@@ -54,7 +54,7 @@ test("every page display sends its API requests in one trace of its own", async 
     const requests: Array<{ url: string; traceparent: string | undefined }> = [];
     page.on("request", (request) => {
         const url = request.url();
-        if (!url.startsWith(apiUrl) || url.includes("/v1/traces") || request.method() === "OPTIONS") return;
+        if (!isApiCall(url) || request.method() === "OPTIONS") return;
         requests.push({ url: url.slice(apiUrl.length), traceparent: request.headers().traceparent });
     });
 

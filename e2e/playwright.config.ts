@@ -6,6 +6,11 @@ import { defineConfig, devices } from "@playwright/test";
 const apiPort = process.env.E2E_API_PORT ?? "18080";
 const webPort = process.env.E2E_WEB_PORT ?? "18081";
 const ci = !!process.env.CI;
+// Set, the suite drives servers that already run and starts none: the
+// release workflow's server and web images, which serve the bundle and the
+// API from one origin, so both ports name it (docker/docker-compose.e2e.yml).
+// Unset, as `just e2e` leaves it, Playwright starts its own below.
+const external = !!process.env.E2E_EXTERNAL;
 
 export default defineConfig({
     testDir: "./tests",
@@ -25,7 +30,7 @@ export default defineConfig({
         screenshot: "only-on-failure",
     },
     projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } } }],
-    webServer: [
+    webServer: external ? undefined : [
         {
             command: "node scripts/backend.mjs",
             url: `http://127.0.0.1:${apiPort}/healthz`,

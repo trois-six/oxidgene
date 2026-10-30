@@ -1,0 +1,79 @@
+# The release deliverables under the end-to-end suite (docs/development.md §6):
+# the server and web images a release run built, behind one origin as the
+# Helm chart's ingress puts them, on a throwaway PostgreSQL database. The
+# server keeps its media on its own disk, so it runs the import jobs itself.
+#
+# Usage (the release workflow's `e2e` job does the same):
+#   OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> \
+#     docker compose -f docker/docker-compose.e2e.yml up -d --wait
+#   cd e2e && E2E_EXTERNAL=1 E2E_API_PORT=18081 E2E_WEB_PORT=18081 npx playwright test
+#   docker compose -f docker/docker-compose.e2e.yml down -v
+#
+# E2E_WEB_PORT moves the published port (default 18081); the suite's API
+# port must name the same one.
+
+name: oxidgene-e2e
+
+services:
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_USER: oxidgene
+      POSTGRES_PASSWORD: oxidgene
+      POSTGRES_DB: oxidgene
+    # Throwaway: gone with the container.
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oxidgene -d oxidgene"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  server:
+    image: ${OXIDGENE_SERVER_IMAGE:?set OXIDGENE_SERVER_IMAGE to the server image under test}
+    environment:
+      OXIDGENE_HOST: "0.0.0.0"
+      OXIDGENE_PORT: "8080"
+      OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
+      OXIDGENE_LOG_LEVEL: "warn"
+      # The page's origin: the ingress below.
+      OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:${E2E_WEB_PORT:-18081}"
+      OXIDGENE_MEDIA_BACKEND: "filesystem"
+      OXIDGENE_MEDIA_ROOT: "/home/oxidgene/media"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  web:
+    image: ${OXIDGENE_WEB_IMAGE:?set OXIDGENE_WEB_IMAGE to the web image under test}
+
+  # The chart's ingress routes (charts/oxidgene/templates/ingress.yaml): the
+  # API paths to the server, everything else to the web bundle, which the
+  # release image calls on its own origin.
+  ingress:
+    image: caddy:2.11.7
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    ports:
+      - "127.0.0.1:${E2E_WEB_PORT:-18081}:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+configs:
+  caddyfile:
+    content: |
+      :8080 {
+          @api path /api/* /graphql /graphql/* /healthz
+          reverse_proxy @api server:8080
+          reverse_proxy web:8080
+      }

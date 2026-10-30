@@ -9,6 +9,13 @@ import { test as base, expect, type APIRequestContext, type Page } from "@playwr
 const repository = resolve(import.meta.dirname, "..", "..");
 export const apiUrl = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "18080"}`;
 
+/// Whether the browser request to `url` is an API call. The path tells, not
+/// the origin alone: a deployment serves the bundle and the API from one
+/// origin (`E2E_EXTERNAL`, docs/development.md §2.7).
+export function isApiCall(url: string): boolean {
+    return url.startsWith(`${apiUrl}/api/`) || url.startsWith(`${apiUrl}/graphql`);
+}
+
 /// The fictitious tree every test starts from: `family_blocks_gedcom(3)` of
 /// the API integration tests, thirty persons in three unrelated families.
 const fixtureGedcom = readFileSync(join(import.meta.dirname, "..", "fixtures", "family-blocks.ged"), "utf8");

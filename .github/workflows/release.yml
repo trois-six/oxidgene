@@ -3,7 +3,9 @@ name: Release
 # A release passes every guard first: tiers 1 and 2 (ci.yml, every job
 # whatever changed) and tier 3 (nightly.yml) are required gates here
 # (docs/development.md §2.8). A push to a `release/**` branch runs the gates
-# alone, to rehearse a release; a `v*` tag runs them, then publishes.
+# and builds and smoke-tests the desktop, to rehearse a release; a `v*` tag
+# runs them, builds the images and runs the end-to-end suite against them,
+# then publishes (docs/development.md §6).
 
 on:
   push:
@@ -85,8 +87,10 @@ jobs:
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  # The images go to the registry by digest only, untagged: `e2e` tests
+  # those very digests, and `publish-images` tags them once it passed.
   images:
-    name: Publish ${{ matrix.image }} image
+    name: Build ${{ matrix.image }} image
     needs: metadata
     runs-on: ubuntu-latest
     permissions:
@@ -117,18 +121,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and publish image
+      - name: Build and push image by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          push: true
           provenance: mode=max
           sbom: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ needs.metadata.outputs.version }}
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:latest
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -136,9 +138,149 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.image }}
 
+      # A matrix job's outputs cannot tell its legs apart: each leg hands its
+      # digest on as an artifact named after the image.
+      - name: Record the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          printf '%s' "$DIGEST" > "digests/${{ matrix.image }}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.image }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The Playwright suite of e2e/ against the images just built, started with
+  # docker/docker-compose.e2e.yml: PostgreSQL, the server, the web bundle and
+  # an ingress serving both from one origin (docs/development.md §2.7).
+  e2e:
+    name: End-to-end tests of the images
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    env:
+      E2E_EXTERNAL: "1"
+      # One origin: the ingress serves the bundle and the API.
+      E2E_API_PORT: "18081"
+      E2E_WEB_PORT: "18081"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Every later compose command reads them.
+      - name: Name the images by digest
+        run: |
+          image="${REGISTRY}/${{ github.repository_owner }}"
+          {
+            echo "OXIDGENE_SERVER_IMAGE=$image/oxidgene-server@$(cat digests/oxidgene-server)"
+            echo "OXIDGENE_WEB_IMAGE=$image/oxidgene-web@$(cat digests/oxidgene-web)"
+          } >> "$GITHUB_ENV"
+
+      - name: Start the images
+        run: |
+          docker compose -f docker/docker-compose.e2e.yml up -d --wait --wait-timeout 300
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
+            --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/"
+          curl --fail --silent --show-error --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/healthz"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run the end-to-end tests
+        working-directory: e2e
+        run: npx playwright test
+
+      - name: Save the container logs
+        if: failure()
+        run: |
+          docker compose -f docker/docker-compose.e2e.yml logs --no-color --timestamps > e2e/test-results/containers.log 2>&1 || true
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+
+      - name: Stop the images
+        if: always()
+        run: docker compose -f docker/docker-compose.e2e.yml down --volumes || true
+
+  # The tested digests under the release's version and `latest`. A tag
+  # copies the image index whole, its provenance and SBOM with it.
+  publish-images:
+    name: Publish images
+    needs: [metadata, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Tag the images
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          for image in oxidgene-server oxidgene-web; do
+            name="${REGISTRY}/${{ github.repository_owner }}/$image"
+            docker buildx imagetools create \
+              --tag "$name:$VERSION" \
+              --tag "$name:latest" \
+              "$name@$(cat "digests/$image")"
+            docker buildx imagetools inspect "$name:$VERSION"
+          done
+
+  # Published once the images it deploys passed.
   chart:
     name: Publish Helm chart
-    needs: metadata
+    needs: [metadata, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -299,6 +441,12 @@ jobs:
           Compress-Archive -Path $env:EXE `
             -DestinationPath dist/oxidgene-desktop-windows-x86_64.zip
 
+      # The download as packaged, without a window: its version, and an MCP
+      # session over stdio answering `list_trees` (docs/development.md §6).
+      - name: Smoke-test the desktop download
+        shell: bash
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/desktop-smoke.py dist/oxidgene-desktop-*
+
       - name: Upload desktop archive
         uses: actions/upload-artifact@v7
         with:
@@ -308,7 +456,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [metadata, images, chart, desktop]
+    needs: [metadata, publish-images, chart, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
