@@ -116,7 +116,8 @@ impl Failure {
     }
 
     /// An answer a probe cannot read: challenged when it is an anti-bot page
-    /// rather than the portal's, drift described by `received` otherwise.
+    /// rather than the portal's, unreachable when it is a maintenance page,
+    /// drift described by `received` otherwise.
     pub(crate) fn unreadable(
         step: Step,
         expected: impl Into<String>,
@@ -125,6 +126,10 @@ impl Failure {
     ) -> Self {
         match crate::platform::markup::unreadable(answer, received.into()) {
             ResolveError::UnexpectedResponse(received) => Self::drift(step, expected, received),
+            ResolveError::Unreachable => Self {
+                received: "a maintenance page in place of the portal".to_owned(),
+                ..Self::from_error(step, expected, &ResolveError::Unreachable)
+            },
             other => Self::from_error(step, expected, &other),
         }
     }

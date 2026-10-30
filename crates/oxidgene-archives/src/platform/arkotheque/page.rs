@@ -494,31 +494,76 @@ pub(super) fn without_key(value: &str) -> &str {
 
 /// One image of a register, as the viewer endpoint lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "RawSource")]
 pub(super) struct Source {
-    /// `/_recherche-images/show/…/<index>`: the image's IIIF base on the
-    /// portal's origin.
+    /// The image's IIIF base on the portal's origin:
+    /// `/_recherche-images/show/<record number>/image/<file>/<position>`,
+    /// or an opaque `/iiif/2/<identifier>` on the portals of the platform's
+    /// IIIF image server.
     pub(super) src: String,
     /// `/ark:<naan>/<name>…`, the image's persistent address.
-    #[serde(rename = "ARKLink", default)]
     pub(super) ark: Option<String>,
+    /// The image's file, `infosClasseur.idArkoFile`.
+    file: Option<u64>,
+    /// The image's zero-based position within its file,
+    /// `infosSourcesComplementaire.positionImage`.
+    position: Option<u64>,
+}
+
+/// A source as the answer writes it. Where the image is filed and its
+/// details are read as any value, of which only the file and the position
+/// are kept: a shape they do not expect leaves the image without them
+/// rather than the register without images.
+#[derive(Deserialize)]
+struct RawSource {
+    src: String,
+    #[serde(rename = "ARKLink", default)]
+    ark: Option<String>,
+    #[serde(rename = "infosClasseur", default)]
+    filing: Value,
+    #[serde(rename = "infosSourcesComplementaire", default)]
+    details: Value,
+}
+
+impl From<RawSource> for Source {
+    fn from(raw: RawSource) -> Self {
+        Self {
+            src: raw.src,
+            ark: raw.ark,
+            file: raw.filing.get("idArkoFile").and_then(Value::as_u64),
+            position: raw.details.get("positionImage").and_then(Value::as_u64),
+        }
+    }
 }
 
 impl Source {
     /// The viewer's address of this image: the register's `viewer` address
     /// naming the image's own file, then the image's position within that
-    /// file, both read from the end of its path
-    /// (`/_recherche-images/show/<record number>/image/<file>/<position>`).
+    /// file. Both are read from the end of an image path of the
+    /// `/_recherche-images/show/<record number>/image/<file>/<position>`
+    /// shape, and otherwise, the path being an opaque IIIF identifier, from
+    /// the image's `infosClasseur.idArkoFile` and
+    /// `infosSourcesComplementaire.positionImage`.
     ///
     /// A register's images may lie in several files, a register digitised
     /// in parts (Maine-et-Loire), while its row's viewer address names its
     /// first file only; the viewer opens a position beyond that file's
-    /// images on the register's first image. `None` when either address
-    /// lacks that shape.
+    /// images on the register's first image. `None` when the viewer address
+    /// lacks that shape or the image names no file and position.
     pub(super) fn viewer_anchor(&self, viewer: &str) -> Option<String> {
         let (register, _) = viewer.rsplit_once("/image/")?;
-        let (file, position) = self.src.rsplit_once("/image/")?.1.split_once('/')?;
+        let (file, position) = self.file_and_position()?;
+        Some(format!("{register}/image/{file}/{position}"))
+    }
+
+    fn file_and_position(&self) -> Option<(String, String)> {
         let number = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
-        (number(file) && number(position)).then(|| format!("{register}/image/{file}/{position}"))
+        if let Some((_, end)) = self.src.rsplit_once("/image/") {
+            let (file, position) = end.split_once('/')?;
+            return (number(file) && number(position))
+                .then(|| (file.to_owned(), position.to_owned()));
+        }
+        Some((self.file?.to_string(), self.position?.to_string()))
     }
 }
 
@@ -531,6 +576,10 @@ struct ViewerAnswer {
 struct Media {
     sources: Vec<Source>,
 }
+
+/// The prefixes of an image path: the platform's own image route, and its
+/// IIIF image server's, which names each image by an opaque identifier.
+const IMAGE_PATHS: [&str; 2] = ["/_recherche-images/", "/iiif/2/"];
 
 /// The path of an absolute address on the portal's `origin`, its host
 /// written with or without `www.`.
@@ -568,7 +617,10 @@ pub(super) fn viewer_sources(answer: &str, origin: &str) -> Result<Vec<Source>, 
     }
     if sources.is_empty()
         || !sources.iter().all(|source| {
-            source.src.starts_with("/_recherche-images/") && !source.src.contains(['?', '#'])
+            IMAGE_PATHS
+                .iter()
+                .any(|prefix| source.src.starts_with(prefix))
+                && !source.src.contains(['?', '#'])
         })
     {
         return Err(unexpected("the viewer answer lists no image path"));

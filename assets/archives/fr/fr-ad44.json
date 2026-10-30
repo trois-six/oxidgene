@@ -19,7 +19,7 @@
         "transport": "any",
         "search_path": "/chercher/etat-civil-et-registres-paroissiaux",
         "engine": "arko_default_6a6b4ac0309a5",
-        "content_ids": ["1289985"],
+        "content_ids": ["1290186"],
         "display_mode": "arko_default_6a6b4d95b8dc8",
         "fields": {
           "locality": "arko_default_6a6b4ba5532ce",
@@ -52,7 +52,7 @@
         "transport": "any",
         "search_path": "/chercher/recensement-de-population",
         "engine": "arko_default_6a8ea1dc1691b",
-        "content_ids": ["1289942"],
+        "content_ids": ["1290181"],
         "display_mode": "arko_default_6a97d754a8fec",
         "fields": {
           "locality": "arko_default_6a97d12d8019d",

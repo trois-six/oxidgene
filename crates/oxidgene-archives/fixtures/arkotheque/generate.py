@@ -6,7 +6,7 @@ with fictitious localities, parishes, call numbers, records, files and ARK
 names; no recorded value is copied. Engine, filter and field references are
 the portals' public ones, as in the catalogue. Only what the adapter reads is
 kept."""
-import html, json, pathlib
+import base64, html, json, pathlib
 
 OUT = pathlib.Path(__file__).resolve().parent
 AD44 = dict(engine='arko_default_6a6b4ac0309a5', image_field='arko_default_6a6b4d70c2bc6',
@@ -144,16 +144,26 @@ write('ad72-after-1902.json', answer(AD72_LATE, ["Commune", "Cote", "Actes", ""]
 def viewer(portal, record, numeric, file_id, count, licence, naan):
     return viewer_of_files(portal, record, numeric, [(file_id, count)], licence, naan)
 
+# The image path of the platform's own route, which names the image's file
+# and position, or of its IIIF image server (Cantal, Cher, Haute-Loire),
+# an opaque identifier that names neither.
+def image_path(numeric, file_id, position, iiif):
+    if not iiif:
+        return f"/_recherche-images/show/{numeric}/image/{file_id}/{position}"
+    token = json.dumps({"type": "record", "fiche": numeric, "image": file_id, "pos": position},
+                       separators=(',', ':'))
+    return "/iiif/2/v1." + base64.urlsafe_b64encode(token.encode()).decode().rstrip('=')
+
 # A register whose images lie in several files (a register digitised in
 # parts, as on the Maine-et-Loire portal): each image's path and position
 # name its own file, the row's viewer address the first one only.
-def viewer_of_files(portal, record, numeric, files, licence, naan):
+def viewer_of_files(portal, record, numeric, files, licence, naan, iiif=False):
     sources = []
     for file_id, position in [(file_id, position) for file_id, count in files for position in range(count)]:
         index = len(sources)
         sources.append({
             "details": {"type": "url", "url": f"/_recherche-api/visionneuse-detail/{portal['engine']}/{record}/{portal['image_field']}/image/{file_id}"},
-            "src": f"/_recherche-images/show/{numeric}/image/{file_id}/{position}",
+            "src": image_path(numeric, file_id, position, iiif),
             "infosImage": ({"@context": "http://iiif.io/api/image/2/context.json", "@id": None,
                             "protocol": "http://iiif.io/api/image", "width": 3352, "height": 2248}
                            if index == 0 else None),
@@ -170,6 +180,9 @@ def viewer_of_files(portal, record, numeric, files, licence, naan):
 write('ad44-viewer.json', viewer(AD44, 'arko_fiche_0000000000a01', 100001, 900001, 3, '', '42067'))
 write('ad44-viewer-files.json', viewer_of_files(AD44, 'arko_fiche_0000000000a01', 100001,
                                                 [(900001, 2), (900002, 1), (900003, 3)], '', '42067'))
+write('ad44-viewer-iiif.json', viewer_of_files(AD44, 'arko_fiche_0000000000a01', 100001,
+                                               [(900001, 2), (900002, 1), (900003, 3)], '', '42067',
+                                               iiif=True))
 write('ad44-info.json', {
     "@context": "http://iiif.io/api/image/2/context.json",
     "@id": "http://internal-host.example.invalid:8182/iiif/2/internal%2Fregister%2F0002.jpg",
@@ -187,8 +200,8 @@ write('ad44-info.json', {
 # the act values are the catalogue's.
 (OUT / 'ad44-search-page.html').write_text(
     '<!DOCTYPE html>\n<html lang="fr">\n<head><title>Recherche</title></head>\n<body>\n'
-    f'<div class="arko-recherche resultats_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289984" data-component="resultats"></div>\n'
-    f'<div class="arko-recherche filtres_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289985" data-component="filtres"></div>\n'
+    f'<div class="arko-recherche resultats_facettes" data-moteur="{AD44["engine"]}" data-contenu="1290185" data-component="resultats"></div>\n'
+    f'<div class="arko-recherche filtres_facettes" data-moteur="{AD44["engine"]}" data-contenu="1290186" data-component="filtres"></div>\n'
     '</body>\n</html>\n')
 
 def terms(field, keys):

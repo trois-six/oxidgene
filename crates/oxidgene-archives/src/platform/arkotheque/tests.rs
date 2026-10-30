@@ -94,7 +94,9 @@ impl PortalFetch for Fixtures {
                 self.next
             } else if url.starts_with("/_recherche-api/visionneuse-infos/") {
                 self.viewer
-            } else if url.starts_with("/_recherche-images/") && url.ends_with("/info.json") {
+            } else if (url.starts_with("/_recherche-images/") || url.starts_with("/iiif/2/"))
+                && url.ends_with("/info.json")
+            {
                 self.info
             } else {
                 return Err(FetchError::Status(404));
@@ -170,7 +172,7 @@ fn one_register_opens_on_the_cited_view() {
         "%5Bq%5D%5B%5D=Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3%5D%5D&",
         "%5Bq%5D%5B%5D=1660%7C1660&",
         "--resultSize=100&",
-        "--contenuIds%5B%5D=1289985&",
+        "--contenuIds%5B%5D=1290186&",
         "--modeRestit=arko_default_6a6b4d95b8dc8",
     ] {
         assert!(search.contains(expected), "{expected} in {search}");
@@ -229,6 +231,72 @@ fn a_register_of_several_files_opens_each_view_in_its_own_file() {
             .ark
             .as_deref()
             .is_some_and(|ark| ark.contains(&format!("/{:032x}.", 5)))
+    );
+}
+
+const AD44_VIEWER_IIIF: &str = include_str!("../../../fixtures/arkotheque/ad44-viewer-iiif.json");
+
+/// A regression (Cantal, Cher, Haute-Loire): the portals moved their images
+/// to the platform's IIIF image server, whose paths (`/iiif/2/<identifier>`)
+/// name neither the image's file nor its position, and every register was
+/// read as listing no image. The file and the position are read from the
+/// image's filing, each view still addressed in its own file.
+#[test]
+fn a_register_on_the_iiif_image_server_opens_each_view_in_its_own_file() {
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.viewer = AD44_VIEWER_IIIF;
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD44 - Exampleville - Saint-Exemple - B - 1660 - E dépôt 99 - vue 2-5/6",
+        &fetch,
+    );
+    let record = "arko_fiche_0000000000a01";
+    let Ok(ArchiveTarget::View {
+        url,
+        views,
+        view_count,
+        ..
+    }) = target
+    else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(view_count, Some(6));
+    let opened: Vec<(u16, &str)> = views
+        .iter()
+        .map(|view| (view.view, view.url.as_str()))
+        .collect();
+    assert_eq!(
+        opened,
+        [
+            (2, view_url(record, 900001, 1).as_str()),
+            (3, view_url(record, 900002, 0).as_str()),
+            (4, view_url(record, 900003, 0).as_str()),
+            (5, view_url(record, 900003, 1).as_str()),
+        ]
+    );
+    assert_eq!(url, view_url(record, 900001, 1));
+    assert!(
+        views[3]
+            .ark
+            .as_deref()
+            .is_some_and(|ark| ark.contains(&format!("/{:032x}.", 5)))
+    );
+}
+
+/// An image the IIIF server names without its filing is still a view of
+/// the register, addressed by the row's viewer address and its index.
+#[test]
+fn an_iiif_image_without_its_filing_is_addressed_by_its_index() {
+    let answer = r#"{"medias": [{"sources": [{"src": "/iiif/2/v1.AAAA"}, {"src": "/iiif/2/v1.AAAB", "infosClasseur": {"idArkoFile": "a file"}, "infosSourcesComplementaire": null}]}]}"#;
+    let sources = page::viewer_sources(answer, "https://archives.example.org").unwrap();
+    assert_eq!(sources.len(), 2);
+    let viewer = format!(
+        "{AD44_VIEWER_ADDRESS}/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900001"
+    );
+    assert!(
+        sources
+            .iter()
+            .all(|source| source.viewer_anchor(&viewer).is_none())
     );
 }
 
@@ -523,6 +591,29 @@ fn an_iiif_archive_gets_its_images_from_the_portal_image_path() {
         requests[3],
         "/_recherche-images/show/100001/image/900001/1/info.json"
     );
+}
+
+#[test]
+fn an_iiif_archive_gets_its_images_from_the_iiif_image_server_path() {
+    let registry = iiif_registry();
+    let mut fetch = Fixtures::new(AD44_ONE);
+    fetch.viewer = AD44_VIEWER_IIIF;
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - (aucun) - B - 1660 - vue 3/6",
+        &fetch,
+    )
+    .unwrap();
+    let ArchiveTarget::View { views, .. } = &target else {
+        panic!("expected a view, got {target:?}");
+    };
+    let path =
+        "/iiif/2/v1.eyJ0eXBlIjoicmVjb3JkIiwiZmljaGUiOjEwMDAwMSwiaW1hZ2UiOjkwMDAwMiwicG9zIjowfQ";
+    assert_eq!(
+        views[0].image.as_ref().map(|image| image.picture.as_str()),
+        Some(format!("https://archives.example.org{path}/full/!2048,2048/0/default.jpg").as_str())
+    );
+    assert_eq!(fetch.requests().last(), Some(&format!("{path}/info.json")));
 }
 
 #[test]

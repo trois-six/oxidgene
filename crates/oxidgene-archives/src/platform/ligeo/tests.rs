@@ -301,6 +301,40 @@ fn no_register_gives_empty_results() {
     assert_eq!(fetch.requests().len(), 1);
 }
 
+const MAINTENANCE: &str = include_str!("../../../fixtures/ligeo/maintenance.html");
+
+#[test]
+fn a_portal_down_for_maintenance_is_unreachable_not_changed() {
+    use crate::live::{Outcome, Probe, Step};
+    // The Gironde's host answered every address, the search form and the
+    // results alike, with its maintenance page and a success status: an
+    // outage, which the live check reports as `unreachable`, not `drift`.
+    let (target, _) = embedded("AD33 - Exampleville - D - 1893", MAINTENANCE);
+    assert!(
+        matches!(target, Err(ResolveError::Unreachable)),
+        "{target:?}"
+    );
+
+    let registry = ArchiveRegistry::embedded();
+    let fetch = Fixtures {
+        answers: vec![("/recherche/", MAINTENANCE)],
+        ..Fixtures::new(MAINTENANCE)
+    };
+    for collection in &registry.archive("AD33").unwrap().collections {
+        let failure = block_on(Ligeo.search_page(collection, &fetch)).unwrap_err();
+        assert_eq!(
+            (failure.step, failure.outcome, failure.received.as_str()),
+            (
+                Step::SearchPage,
+                Outcome::Unreachable,
+                "a maintenance page in place of the portal"
+            ),
+            "{}",
+            collection.id
+        );
+    }
+}
+
 #[test]
 fn a_paginated_answer_is_not_guessed_from_its_first_page() {
     // The first page alone would select a register; the count says more.

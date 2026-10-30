@@ -7,7 +7,8 @@ departmental portals since (notice lists, qualified and composite locality
 cells, indexes of persons searched by matricule or by name, a search
 within a finding aid, a year's table bound apart, a locality cell
 shortened to fit, volumes of military registers described by their
-numbers, tables of successions named by their dates alone), and a
+numbers, tables of successions named by their dates alone, the maintenance
+page a host serves in place of the portal's), and a
 military-register table built in the same markup, with fictitious
 persons, localities, parishes, sections, call numbers, internal references,
 ARK names and image paths; no recorded value is copied. Only what the adapter reads is
@@ -576,3 +577,13 @@ write("successions.html", page(
         succession_row(171, "1730-1768", "Tables du 1er janvier 1730 au 31 août 1768.", 29, "9 Q 901"),
         succession_row(172, "1768-1793", "Tables de 1768 à 1793.", 57, "9 Q 902"),
     ])))
+
+# The page a host serves with a success status at every address of the
+# portal, its search form and results included, while the site is down for
+# maintenance.
+write("maintenance.html", '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
+      '<meta name="robots" content="noindex, nofollow"><title>Maintenance en cours | Exemple.fr</title>'
+      '<style>body { display: grid; }</style></head><body><main><div class="contenu">'
+      '<h1>Le site est en maintenance</h1><p>Nos équipes interviennent actuellement sur le site. '
+      'Il est temporairement indisponible.</p><p>Retour prévu prochainement.</p>'
+      '</div></main></body></html>\n')

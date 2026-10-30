@@ -130,7 +130,8 @@ pub enum ResolveError {
     Challenged,
     /// The portal did not answer in time, or its gateway said so (`504`).
     Timeout,
-    /// The portal could not be reached, or answered with a server error.
+    /// The portal could not be reached, answered with a server error, or
+    /// with a maintenance page in place of its own.
     Unreachable,
 }
 

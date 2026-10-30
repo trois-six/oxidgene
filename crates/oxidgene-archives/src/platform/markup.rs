@@ -90,12 +90,33 @@ pub(crate) fn is_challenge(answer: &str) -> bool {
     anti_bot(answer).is_some()
 }
 
+/// Whether `answer` is a page announcing that the site is down for
+/// maintenance, which some hosts serve with a success status at every
+/// address in place of the portal's pages (`Maintenance en cours`): its
+/// title says so. A banner announcing maintenance on the portal's own pages
+/// lies in their body, never in their title.
+pub(crate) fn is_maintenance(answer: &str) -> bool {
+    let lowered = answer.to_lowercase();
+    let Some(start) = lowered.find("<title") else {
+        return false;
+    };
+    let title = &lowered[start..];
+    let Some(text) = title.split_once('>').map(|(_, text)| text) else {
+        return false;
+    };
+    let text = text.split("</title>").next().unwrap_or(text);
+    fold(text).split(' ').any(|word| word == "maintenance")
+}
+
 /// The error of an answer an adapter cannot read: `Challenged` when it is
-/// an anti-bot page, a changed shape described by `detail` otherwise, so a
-/// live check tells a challenge from drift.
+/// an anti-bot page, `Unreachable` when it is a maintenance page — a server
+/// error served as a success —, a changed shape described by `detail`
+/// otherwise, so a live check tells a challenge or an outage from drift.
 pub(crate) fn unreadable(answer: &str, detail: String) -> ResolveError {
     if is_challenge(answer) {
         ResolveError::Challenged
+    } else if is_maintenance(answer) {
+        ResolveError::Unreachable
     } else {
         ResolveError::UnexpectedResponse(detail)
     }
@@ -326,6 +347,32 @@ mod tests {
             unreadable("{\"other\": 1}", "changed".to_owned()),
             ResolveError::UnexpectedResponse("changed".to_owned())
         );
+    }
+
+    #[test]
+    fn tells_a_maintenance_page_from_a_changed_shape() {
+        // The page a host serves with a success status at every address
+        // while the site is down.
+        for page in [
+            "<html><head><title>Maintenance en cours | Exampledept.fr</title></head><body><h1>Le site est en maintenance</h1></body></html>",
+            "<TITLE lang=\"en\">Site under MAINTENANCE</TITLE>",
+        ] {
+            assert!(is_maintenance(page), "{page}");
+            assert_eq!(unreadable(page, String::new()), ResolveError::Unreachable);
+        }
+        // A page of the portal announcing maintenance in a banner, or an
+        // answer merely holding the word, is a changed shape.
+        for page in [
+            "<html><head><title>Recherche | Archives</title></head><body><div class=\"banner\">Maintenance prévue lundi</div></body></html>",
+            "<html>maintenance</html>",
+            "<title>Maintenances-archives</title>",
+        ] {
+            assert!(!is_maintenance(page), "{page}");
+            assert_eq!(
+                unreadable(page, "changed".to_owned()),
+                ResolveError::UnexpectedResponse("changed".to_owned())
+            );
+        }
     }
 
     fn verdict(markup: &str) -> Option<(&'static str, Guard)> {

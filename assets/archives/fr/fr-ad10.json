@@ -17,7 +17,7 @@
         "transport": "browser",
         "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
         "engine": "arko_default_694266c456574",
-        "content_ids": ["1686737"],
+        "content_ids": ["1689059"],
         "display_mode": "arko_default_694268df16a0a",
         "fields": {
           "locality": "arko_default_694269ca4d0b2",
@@ -49,7 +49,7 @@
         "transport": "browser",
         "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
         "engine": "arko_default_694266c456574",
-        "content_ids": ["1686737"],
+        "content_ids": ["1689059"],
         "display_mode": "arko_default_694268df16a0a",
         "fields": {
           "locality": "arko_default_694269ca4d0b2",
@@ -76,7 +76,7 @@
         "transport": "browser",
         "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
         "engine": "arko_default_694266c456574",
-        "content_ids": ["1686737"],
+        "content_ids": ["1689059"],
         "display_mode": "arko_default_694268df16a0a",
         "fields": {
           "locality": "arko_default_695796f326190",
