@@ -21,9 +21,9 @@ lcov.info
 *~
 
 # Documentation not needed by the image build. The assets the crates embed
-# (/assets/places/, basemap/, reference/, themes/, portraits/, fonts/,
-# brand/logo_64.png, desktop/) stay in the context; the other logo images
-# and the screenshots are left out.
+# (/assets/places/, basemap/, reference/, archives/, citations/, i18n/,
+# themes/, portraits/, fonts/, brand/logo_64.png, desktop/) stay in the
+# context; the other logo images and the screenshots are left out.
 /docs/
 /assets/brand/*.png
 !/assets/brand/logo_64.png
