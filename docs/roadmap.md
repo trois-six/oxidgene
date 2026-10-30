@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T09:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -28,7 +28,7 @@ generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 | A | Foundation, persistence, APIs, server, desktop | Complete | [Architecture](architecture.md), [Data](data-model.md), [API](api.md) |
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
 | C | Tree browsing and editing, kinship, alternative charts | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
-| D | Shared UX, themes, languages, runtime settings, printing | In progress: the Date Display and Entry Options preferences of App Settings, also under Tree Settings' global preferences, are being built | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [App Settings](ui-app-settings.md), [Settings](ui-settings.md) |
+| D | Shared UX, themes, languages, runtime settings, printing | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [App Settings](ui-app-settings.md), [Settings](ui-settings.md) |
 | E | Read projections, search, dictionary | Complete except dictionary descent (§7) | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
@@ -53,20 +53,14 @@ generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
   cross-platform binary cost: the server reads them with the `hayro-syntax`
   parser alone, for a real page count and a thumbnail of the scan page 1
   paints ([API](api.md), Media).
-- [ ] View PDFs in the UI with pdf.js, which also draws a preview of a PDF the
-  server could not thumbnail (a text or vector page).
+- [x] View PDFs in the UI with pdf.js, which also draws a preview of a PDF the
+  server could not thumbnail (a text or vector page) ([Common UI
+  §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
 - [ ] Prefer an event-linked vignette over the whole media as its illustration.
 - [ ] Add per-media progress and cancellation to the final Geneanet write pass.
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
-- [ ] Re-import a Geneanet tree incrementally into a tree already imported from
-  it: read the tree's data-entry history (`<tree>_w/history/editing`, every
-  person, family, parents and picture added, updated or deleted, dated) and
-  fetch only the persons changed since the last import through the GeneWeb
-  plugin API's `person` action ([Geneanet Upload
-  API](geneanet-upload-api.md)), instead of importing a fresh `.gw` export
-  whole ([Import](ui-import.md)).
 
 ## 3b. Active: archive viewer
 
@@ -150,9 +144,7 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 - [ ] Catalogue the Bouches-du-Rhône military registers, searched by the
   cited person's surname, once their portal passes its live check
   ([Archive Portals §11.5](archives.md#115-survey-by-department)).
-- [ ] Catalogue the municipal archives that publish their own civil status
-  (Lyon, Bordeaux, Marseille), then the Swiss cantonal archives and other
-  countries.
+- [ ] Catalogue the Swiss cantonal archives and other countries.
 - [x] Add a live end-to-end check per catalogued archive against its real
   portal, run weekly by a dedicated workflow rather than on commits, so
   vendor software upgrades are caught before users meet them
@@ -310,8 +302,11 @@ extensions, keeps a 5.5.1 individual `EVEN`'s descriptor, and writes a 5.5.1
 - [ ] Validate the chart in a production-like Kubernetes cluster.
 - [x] Publish the chart as an OCI artifact with the versioned application
   images.
-- [ ] Build all release artifacts in CI, publish checksums and provenance, and
-  smoke-test the container and desktop deliverables before release.
+- [x] Build every release artifact in CI behind the CI and nightly gates,
+  with SHA-256 checksums of the desktop downloads and provenance and SBOM
+  attestations of the images.
+- [ ] Publish provenance for the desktop binaries, and smoke-test the
+  container and desktop deliverables before release.
 - [x] Run unit, functional, browser JavaScript, performance and end-to-end
   tests as separate CI jobs, the Playwright suite also nightly
   ([Development §2.7](development.md#27-test-categories)).

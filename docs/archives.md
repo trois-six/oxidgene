@@ -3315,11 +3315,12 @@ id>` included, then skips, and relies on the user-reported failures of §7.
    its portal's own viewer, and the offer to attach is disabled since (§6.3).
 3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
    departmental archives running the four platforms in the order of §11.4,
-   then municipal and Swiss cantonal archives. The departmental archives are
+   then Swiss cantonal archives. The departmental archives are
    in place, every one of them, with the adapters of every
    platform they run (§4) and the overseas civil status of the Archives
-   nationales d'outre-mer; the municipal and Swiss cantonal archives are
-   next ([Roadmap](roadmap.md#3b-active-archive-viewer)).
+   nationales d'outre-mer; the Swiss cantonal archives are next
+   ([Roadmap](roadmap.md#3b-active-archive-viewer)). Municipal archives are
+   not planned.
 
 ## 11. French departmental portals
 
@@ -3427,11 +3428,11 @@ Cases the catalogue model must express:
   distinct portals for 67 and 68 on different platforms: two catalogue
   entries, one per portal, under the same `name`.
 - **Rhône.** One service shared with the Métropole de Lyon, while the city of
-  Lyon publishes its own civil status: a municipal entry for Lyon beside the
-  departmental one.
+  Lyon publishes its own civil status, which only a municipal entry would
+  reach; none is planned.
 - **Bordeaux and Marseille.** Bordeaux's civil status is published by the
   Archives Bordeaux Métropole, and Marseille's is excluded from the new
-  Bouches-du-Rhône portal: municipal entries again.
+  Bouches-du-Rhône portal: municipal archives, which are not planned.
 - **Deux-Sèvres and Vienne.** One shared portal,
   `archives-deux-sevres-vienne.fr`, serves both departments: one catalogue
   entry carrying both citation codes, as for Corsica.
