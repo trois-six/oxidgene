@@ -2400,6 +2400,9 @@ pub struct PersonDetailBundle {
     pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
+    /// The regions cut from a page as evidence for one of `events`.
+    #[serde(default)]
+    pub event_vignettes: Vec<EventVignette>,
     pub gallery: GallerySources,
     /// Where the person's own portrait is drawn from.
     #[serde(default)]
@@ -2467,6 +2470,15 @@ pub struct EventMediaTile {
     pub sort_order: i32,
     #[serde(flatten)]
     pub media: Media,
+}
+
+/// A region standing as evidence for an event, with the document its page
+/// belongs to (`None` for a page of its own).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EventVignette {
+    #[serde(flatten)]
+    pub vignette: Vignette,
+    pub document_id: Option<Uuid>,
 }
 
 // ── Response Cache ───────────────────────────────────────────────────

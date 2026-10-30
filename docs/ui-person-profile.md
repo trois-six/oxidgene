@@ -265,7 +265,13 @@ Each event shows:
   of the event's own, so that a ⋮ never sits in the middle of a line. A citation that names a catalogued archive's
   register is a button that opens it (below); the others are plain text. The
   citation's confidence is not shown
-- **Documents** — the event's attached media as compact thumbnails (below)
+- **Documents** — the event's attached media as compact thumbnails (below).
+  A region cut from a page as evidence for this event (a vignette whose
+  `event_id` is the event) stands in for the page it is cut from and for the
+  document holding that page: a register page recording several acts shows
+  the event's own act. The region's tile carries the crop badge and opens its
+  page in the viewer; a medium with no region for the event keeps its whole
+  tile, and the edit modal's event galleries keep showing whole media
 
 The person's own events and those of their unions are marked as direct; the
 others give family context.

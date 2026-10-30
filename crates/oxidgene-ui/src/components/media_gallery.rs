@@ -319,7 +319,8 @@ pub struct MediaGalleryProps {
     /// Portrait assignment matching a preloaded person gallery.
     #[props(default)]
     pub preloaded_portrait: Option<(Option<Uuid>, Option<Uuid>)>,
-    /// Person-attributed crops matching a preloaded person gallery.
+    /// The crops a preloaded gallery shows: a person's identifications, or
+    /// the regions cut for an event.
     #[props(default)]
     pub preloaded_vignettes: Option<Vec<Vignette>>,
     /// Bumped by a host that uploads media outside the gallery itself.

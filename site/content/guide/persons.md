@@ -64,7 +64,7 @@ The person's own events and their unions' stand out from the rest, so the contex
 
 Each event shows its date in full, its place, its description, and, when the record gives it, the person's age at the time ("aged 34 years", "infant", "stillborn"). The responsible agency, when recorded, follows on its own line. Under the event, **Sources** lists the source of each citation with the page or reference it cites.
 
-Documents that prove the event appear as small thumbnails under it. Click one to open it in the media viewer.
+Documents that prove the event appear as small thumbnails under it. When a region of a page was cut out for that event (the one act on a register page, say), the event shows the region instead of the whole page. Click a thumbnail to open it in the media viewer; a region opens its whole page.
 
 ### Open the cited register
 

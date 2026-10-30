@@ -5411,3 +5411,67 @@ async fn test_event_related_family() {
     )
     .await);
 }
+
+/// A region cut for an event reaches the person's page with its document;
+/// the REST twin is in `media_test.rs`.
+#[tokio::test]
+async fn a_region_cut_for_an_event_reaches_the_persons_page_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let run = |query: String| {
+        let app = app.clone();
+        async move { data(&graphql(app, &query, None).await).clone() }
+    };
+    let person_id = run(format!(
+        r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+    ))
+    .await["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let event_id = run(format!(
+        r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: BAPTISM, personId: "{person_id}" }}) {{ id }} }}"#
+    ))
+    .await["createEvent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let document_id = document_id_for(&app, &tree_id).await;
+    let page_id = run(format!(
+        r#"mutation {{ uploadMediaFile(treeId: "{tree_id}", input: {{ documentId: "{document_id}", fileName: "register.png", contentBase64: "{}" }}) {{ id }} }}"#,
+        png_base64(60, 40)
+    ))
+    .await["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run(format!(
+        r#"mutation {{ createMediaLink(treeId: "{tree_id}", input: {{ mediaId: "{document_id}", eventId: "{event_id}" }}) {{ id }} }}"#
+    ))
+    .await;
+    let region_id = run(format!(
+        r#"mutation {{ createVignette(treeId: "{tree_id}", input: {{ mediaId: "{page_id}", eventId: "{event_id}", x: 0, y: 10, width: 60, height: 10 }}) {{ id }} }}"#
+    ))
+    .await["createVignette"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let bundle = run(format!(
+        r#"{{ personDetailBundle(treeId: "{tree_id}", personId: "{person_id}") {{ eventVignettes {{ documentId vignette {{ id mediaId eventId }} }} gallery {{ vignettes {{ vignetteId }} }} }} }}"#
+    ))
+    .await["personDetailBundle"]
+        .clone();
+    assert_eq!(
+        bundle["eventVignettes"],
+        serde_json::json!([{
+            "documentId": document_id,
+            "vignette": { "id": region_id, "mediaId": page_id, "eventId": event_id }
+        }]),
+        "{bundle}"
+    );
+    assert_eq!(
+        bundle["gallery"]["vignettes"],
+        serde_json::json!([{ "vignetteId": region_id }])
+    );
+}

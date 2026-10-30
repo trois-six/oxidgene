@@ -3333,6 +3333,9 @@ pub struct GqlPersonDetailBundle {
     pub profile_media: Vec<GqlProfileMediaTile>,
     pub profile_vignettes: Vec<GqlVignette>,
     pub event_media: Vec<GqlEventMediaTile>,
+    /// The regions cut from a page as evidence for one of `events`, shown
+    /// for the event instead of the whole medium.
+    pub event_vignettes: Vec<GqlEventVignette>,
     pub gallery: GqlGalleryBundle,
     /// Where the person's own portrait is drawn from.
     pub portrait: Option<GqlPortraitRef>,
@@ -3420,6 +3423,15 @@ pub struct GqlEventMediaTile {
     pub media: GqlMedia,
 }
 
+/// A region standing as evidence for an event, with the document its page
+/// belongs to.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlEventVignette {
+    pub vignette: GqlVignette,
+    /// The document grouping the region's page; null for a page of its own.
+    pub document_id: Option<ID>,
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlProfileMediaTile {
     pub link_id: ID,
@@ -3474,6 +3486,14 @@ impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetail
                     link_id: ID(item.link_id.to_string()),
                     sort_order: item.sort_order,
                     media: item.media.into(),
+                })
+                .collect(),
+            event_vignettes: bundle
+                .event_vignettes
+                .into_iter()
+                .map(|item| GqlEventVignette {
+                    vignette: item.vignette.into(),
+                    document_id: item.document_id.map(|id| ID(id.to_string())),
                 })
                 .collect(),
             gallery: bundle.gallery.into(),

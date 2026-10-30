@@ -10,8 +10,8 @@ use oxidgene_core::types::{
 };
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
-    PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo, SourceRepo, SourceRepositoryRepo,
-    VignetteRepo,
+    MediaRepo, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo, SourceRepo,
+    SourceRepositoryRepo, VignetteRepo,
 };
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -41,6 +41,10 @@ pub struct PersonDetailBundle {
     pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
+    /// The regions cut from a page as evidence for one of `events`: the
+    /// profile shows an event such a region instead of the whole medium it
+    /// is cut from.
+    pub event_vignettes: Vec<EventVignette>,
     pub gallery: GalleryBundle,
     /// Where the person's own portrait is drawn from, so the page resolves
     /// it with its gallery's pictures.
@@ -88,6 +92,18 @@ pub struct EventMediaTile {
     pub sort_order: i32,
     #[serde(flatten)]
     pub media: Media,
+}
+
+/// A region standing as evidence for an event, with the document its page
+/// belongs to: an event linked to that document, or to the page itself, is
+/// illustrated by the region.
+#[derive(Debug, Clone, Serialize)]
+pub struct EventVignette {
+    #[serde(flatten)]
+    pub vignette: Vignette,
+    /// The document grouping the region's page; `None` for a page of its
+    /// own.
+    pub document_id: Option<Uuid>,
 }
 
 #[tracing::instrument(name = "person_detail.load", skip_all)]
@@ -173,13 +189,15 @@ pub async fn load_person_detail_bundle(
 
     let place_ids = sorted_unique(events.iter().filter_map(|event| event.place_id));
     let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
-    let (places, citations, media_rows, mut profile_media_rows, profile_vignettes) = tokio::try_join!(
-        PlaceRepo::get_many(db, &place_ids),
-        CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
-        MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
-        MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
-        VignetteRepo::list_for_person(db, person_id),
-    )?;
+    let (places, citations, media_rows, mut profile_media_rows, profile_vignettes, event_vignettes) =
+        tokio::try_join!(
+            PlaceRepo::get_many(db, &place_ids),
+            CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
+            MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
+            MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
+            VignetteRepo::list_for_person(db, person_id),
+            live_event_vignettes(db, &event_ids),
+        )?;
     let source_ids = sorted_unique(citations.iter().map(|citation| citation.source_id));
     let (sources, source_holdings, source_links) = cited_sources(db, tree_id, &source_ids).await?;
 
@@ -216,7 +234,12 @@ pub async fn load_person_detail_bundle(
             .map(|item| item.media.id)
             .chain(profile_media.iter().map(|item| item.media.id)),
     );
-    let vignette_ids = sorted_unique(profile_vignettes.iter().map(|item| item.id));
+    let vignette_ids = sorted_unique(
+        profile_vignettes
+            .iter()
+            .map(|item| item.id)
+            .chain(event_vignettes.iter().map(|item| item.vignette.id)),
+    );
     let gallery = load_page_gallery(db, tree_id, &media_ids, &vignette_ids).await?;
     let (portrait, sosa_ancestor_ids) =
         page_marks(db, profiles, tree_id, person_id, &persons).await?;
@@ -238,8 +261,44 @@ pub async fn load_person_detail_bundle(
         profile_media,
         profile_vignettes,
         event_media,
+        event_vignettes,
         gallery,
     })
+}
+
+/// The regions standing as evidence for `event_ids` whose page, and the
+/// document grouping it, are live, each with that document.
+async fn live_event_vignettes(
+    db: &DatabaseConnection,
+    event_ids: &[Uuid],
+) -> Result<Vec<EventVignette>, OxidGeneError> {
+    let vignettes = VignetteRepo::list_for_events(db, event_ids).await?;
+    let pages =
+        MediaRepo::get_many(db, &sorted_unique(vignettes.iter().map(|v| v.media_id))).await?;
+    let documents = MediaRepo::get_many(
+        db,
+        &sorted_unique(pages.iter().filter_map(|page| page.parent_media_id)),
+    )
+    .await?;
+    let live_documents: HashSet<Uuid> = documents.iter().map(|document| document.id).collect();
+    let document_of: std::collections::HashMap<Uuid, Option<Uuid>> = pages
+        .iter()
+        .filter(|page| {
+            page.parent_media_id
+                .is_none_or(|id| live_documents.contains(&id))
+        })
+        .map(|page| (page.id, page.parent_media_id))
+        .collect();
+    Ok(vignettes
+        .into_iter()
+        .filter_map(|vignette| {
+            let document_id = *document_of.get(&vignette.media_id)?;
+            Some(EventVignette {
+                vignette,
+                document_id,
+            })
+        })
+        .collect())
 }
 
 /// The cited sources, the repositories holding them under their call

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
 ---
 
 
@@ -198,7 +198,7 @@ card's recent persons in one request)
 | `GET` | `/trees/{tree_id}/persons/recently-modified?limit=` | The persons modified most recently, newest first, as `SearchEntry` rows (see below) |
 | `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
-| `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile. Beside the cited `sources`, `source_holdings` (`{source_id, name, call_number, website}`, one per repository link) and `source_links` (`{source_id, url}`, the addresses of the media linked to each source, a linked document's pages included) are what the profile recognizes archive citations from ([Archive Portals §5.1](archives.md#51-citation-recognition)). GraphQL: `personDetailBundle(treeId, personId)`, with `sourceHoldings` and `sourceLinks` |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile. Beside the cited `sources`, `source_holdings` (`{source_id, name, call_number, website}`, one per repository link) and `source_links` (`{source_id, url}`, the addresses of the media linked to each source, a linked document's pages included) are what the profile recognizes archive citations from ([Archive Portals §5.1](archives.md#51-citation-recognition)). `event_vignettes` are the regions cut as evidence for one of `events` whose page and document are live, each a vignette with `document_id`, the document grouping its page (`null` for a page of its own); their pictures are in `gallery.vignettes`. GraphQL: `personDetailBundle(treeId, personId)`, with `sourceHoldings`, `sourceLinks` and `eventVignettes { vignette documentId }` |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |

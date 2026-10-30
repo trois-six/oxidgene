@@ -64,7 +64,7 @@ Les événements propres à la personne et ceux de ses unions ressortent, pour q
 
 Chaque événement indique sa date complète, son lieu, sa description et, quand l’acte le donne, l’âge de la personne à ce moment (« à 34 ans », « nourrisson », « mort-né »). L’organisme responsable, s’il est connu, figure sur une ligne à part. Sous l’événement, **Sources** donne la source de chaque citation avec la page ou la référence citée.
 
-Les documents qui prouvent l’événement apparaissent en petites vignettes en dessous. Cliquez sur l’une d’elles pour l’ouvrir dans la visionneuse.
+Les documents qui prouvent l’événement apparaissent en petites vignettes en dessous. Quand une zone d’une page a été découpée pour cet événement (le seul acte d’une page de registre, par exemple), l’événement montre cette zone plutôt que la page entière. Cliquez sur une vignette pour l’ouvrir dans la visionneuse ; une zone ouvre sa page entière.
 
 ### Ouvrir le registre cité
 

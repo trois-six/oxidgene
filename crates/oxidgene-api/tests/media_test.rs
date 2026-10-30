@@ -4111,3 +4111,84 @@ async fn a_thumbnail_address_is_a_web_address_of_a_remote_page() {
         assert_eq!(error["error"], "validation_error");
     }
 }
+
+/// A region cut for an event reaches the person's page beside the event's
+/// media, naming the document its page belongs to, so the page can show the
+/// region instead of the whole document; a region of a deleted document does
+/// not. The GraphQL twin is in `graphql_test.rs`.
+#[tokio::test]
+async fn a_region_cut_for_an_event_reaches_the_persons_page_with_its_document() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let person_id = person(&h).await;
+    let (status, event) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/events"),
+        Some(json!({"event_type": "baptism", "person_id": person_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{event}");
+    let event_id = event["id"].as_str().unwrap().to_string();
+
+    let (_, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("register.png"), &png(600, 400))],
+    )
+    .await;
+    let page_id = page["id"].as_str().unwrap().to_string();
+    let document_id = document_of(&page);
+    let (status, link) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media-links"),
+        Some(json!({"media_id": document_id, "event_id": event_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{link}");
+    let (status, region) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{page_id}/vignettes"),
+        Some(json!({"x": 0, "y": 100, "width": 600, "height": 100, "event_id": event_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{region}");
+    // A region of the same page cut for nobody's event stays out.
+    send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{page_id}/vignettes"),
+        Some(json!({"x": 0, "y": 0, "width": 600, "height": 100})),
+    )
+    .await;
+
+    let detail = format!("{base}/persons/{person_id}/detail-bundle");
+    let (status, bundle) = send(&h.app, Method::GET, &detail, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let regions = bundle["event_vignettes"].as_array().unwrap();
+    assert_eq!(regions.len(), 1, "{bundle}");
+    assert_eq!(regions[0]["id"], region["id"]);
+    assert_eq!(regions[0]["event_id"], event_id.as_str());
+    assert_eq!(regions[0]["media_id"], page_id.as_str());
+    assert_eq!(regions[0]["document_id"], document_id.as_str());
+    let pictures = bundle["gallery"]["vignettes"].as_array().unwrap();
+    assert!(
+        pictures
+            .iter()
+            .any(|item| item["vignette_id"] == region["id"]),
+        "the page draws the region from its own gallery: {bundle}"
+    );
+
+    let (status, _) = send(
+        &h.app,
+        Method::DELETE,
+        &format!("{base}/media/{document_id}"),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{status}");
+    let (_, bundle) = send(&h.app, Method::GET, &detail, None).await;
+    assert_eq!(bundle["event_vignettes"], json!([]), "{bundle}");
+}

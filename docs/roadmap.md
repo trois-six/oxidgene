@@ -56,7 +56,8 @@ generated: { by: human:maintainer, at: 2026-10-30T09:00:00Z }
 - [x] View PDFs in the UI with pdf.js, which also draws a preview of a PDF the
   server could not thumbnail (a text or vector page) ([Common UI
   §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
-- [ ] Prefer an event-linked vignette over the whole media as its illustration.
+- [x] Prefer an event-linked vignette over the whole media as its illustration
+  ([Person Profile](ui-person-profile.md)).
 - [ ] Add per-media progress and cancellation to the final Geneanet write pass.
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using

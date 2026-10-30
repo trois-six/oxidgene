@@ -105,6 +105,25 @@ impl VignetteRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
+    /// Every vignette standing as evidence for one of `event_ids`, oldest
+    /// first within each event.
+    pub async fn list_for_events(
+        db: &impl ConnectionTrait,
+        event_ids: &[Uuid],
+    ) -> Result<Vec<Vignette>, OxidGeneError> {
+        in_chunks(event_ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::EventId.is_in(chunk))
+                .order_by_asc(Column::EventId)
+                .order_by_asc(Column::Id)
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
+    }
+
     /// Several by id, in one query. Missing ids are simply absent from the
     /// result — a portrait pointing at a deleted crop is "no portrait", not an
     /// error a reader can act on.

@@ -148,7 +148,7 @@ pub(crate) struct Profile {
     /// One rendered citation per source, keyed by event.
     pub citations_by_event: HashMap<Uuid, Vec<EventCitation>>,
     /// The documents proving each event, keyed by the event they document.
-    pub evidence_by_event: HashMap<Uuid, Vec<MediaWithLink>>,
+    pub evidence_by_event: HashMap<Uuid, EventEvidence>,
     pub bundle: Arc<PersonDetailBundle>,
 }
 
@@ -849,13 +849,49 @@ fn citation_evidence(
     evidence
 }
 
-/// The documents proving each event, keyed by the event they document.
-fn evidence_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<MediaWithLink>> {
-    let mut evidence_by_event: HashMap<Uuid, Vec<MediaWithLink>> = HashMap::new();
+/// What an event shows as its evidence: the regions cut for it, and the
+/// linked media none of those regions is cut from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct EventEvidence {
+    pub tiles: Vec<MediaWithLink>,
+    pub vignettes: Vec<Vignette>,
+}
+
+impl EventEvidence {
+    fn is_empty(&self) -> bool {
+        self.tiles.is_empty() && self.vignettes.is_empty()
+    }
+}
+
+/// The evidence of each event, keyed by the event it documents. A region
+/// cut for the event stands in for the medium it is cut from — the page, or
+/// the document holding that page — so that a register page recording five
+/// acts shows the one act; opening the region still opens the page.
+fn evidence_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, EventEvidence> {
+    let mut evidence_by_event: HashMap<Uuid, EventEvidence> = HashMap::new();
+    let mut covered: HashSet<(Uuid, Uuid)> = HashSet::new();
+    for item in &detail.event_vignettes {
+        let Some(event_id) = item.vignette.event_id else {
+            continue;
+        };
+        covered.insert((event_id, item.vignette.media_id));
+        if let Some(document_id) = item.document_id {
+            covered.insert((event_id, document_id));
+        }
+        evidence_by_event
+            .entry(event_id)
+            .or_default()
+            .vignettes
+            .push(item.vignette.clone());
+    }
     for item in &detail.event_media {
+        if covered.contains(&(item.event_id, item.media.id)) {
+            continue;
+        }
         evidence_by_event
             .entry(item.event_id)
             .or_default()
+            .tiles
             .push(MediaWithLink {
                 link_id: item.link_id,
                 sort_order: item.sort_order,
@@ -1849,7 +1885,7 @@ pub(crate) fn timeline_section(
                             let evidence = profile
                                 .evidence_by_event
                                 .get(&eid)
-                                .filter(|rows| !rows.is_empty())
+                                .filter(|evidence| !evidence.is_empty())
                                 .cloned();
 
                             rsx! {
@@ -1974,14 +2010,15 @@ pub(crate) fn timeline_section(
                                         // The documents that prove this event use the
                                         // very same gallery, viewer and context menu as
                                         // the profile's main media section.
-                                        if let Some(tiles) = evidence {
+                                        if let Some(evidence) = evidence {
                                             div { class: "pd-ev-evidence",
                                                 MediaGallery {
                                                     tree_id,
                                                     owner: MediaOwner::Event(eid),
                                                     read_only: true,
                                                     compact: true,
-                                                    preloaded_tiles: Some(tiles),
+                                                    preloaded_tiles: Some(evidence.tiles),
+                                                    preloaded_vignettes: Some(evidence.vignettes),
                                                     preloaded_bundle: Some(Arc::clone(&ctx.gallery)),
                                                     on_changed: move |()| media_revision += 1,
                                                 }
@@ -2070,8 +2107,10 @@ pub(crate) fn ancestors_section(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::{EventMediaTile, EventVignette};
     use crate::i18n::Language;
     use oxidgene_core::types::FamilySpouse;
+    use oxidgene_core::types::Media;
 
     fn spouse(person_id: Uuid, role: SpouseRole, sort_order: i32) -> FamilySpouse {
         FamilySpouse {
@@ -2243,5 +2282,60 @@ mod tests {
             fr.t(&vitals_event_key(EventType::Burial, false, Sex::Unknown)),
             "Inhumé(e)"
         );
+    }
+
+    /// A region cut for an event stands in for the page it is cut from and
+    /// for the document holding that page; a medium with no region for that
+    /// event, and the event a region is not cut for, keep the whole medium.
+    #[test]
+    fn an_event_shows_the_region_cut_for_it_instead_of_its_medium() {
+        let (person, birth, marriage) =
+            (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
+        let (document, page, photo) = (
+            Uuid::from_u128(20),
+            Uuid::from_u128(21),
+            Uuid::from_u128(22),
+        );
+        let at = "2026-01-01T00:00:00Z";
+        let media = |id: Uuid| {
+            serde_json::from_value::<Media>(serde_json::json!({
+                "id": id, "tree_id": Uuid::nil(), "file_name": "scan.png",
+                "mime_type": "image/png", "file_path": "scan.png", "page_count": 1,
+                "file_size": 1, "created_at": at, "updated_at": at
+            }))
+            .expect("a medium")
+        };
+        let tile = |event_id: Uuid, link: u128, id: Uuid| EventMediaTile {
+            event_id,
+            link_id: Uuid::from_u128(link),
+            sort_order: 0,
+            media: media(id),
+        };
+        let region = serde_json::from_value::<Vignette>(serde_json::json!({
+            "id": Uuid::from_u128(30), "media_id": page, "x": 0, "y": 0,
+            "width": 10, "height": 10, "person_id": null, "event_id": birth,
+            "created_at": at, "updated_at": at
+        }))
+        .expect("a region");
+        let mut bundle = cited_bundle(person, birth, marriage);
+        bundle.event_media = vec![
+            tile(birth, 40, document),
+            tile(birth, 41, photo),
+            tile(marriage, 42, document),
+        ];
+        bundle.event_vignettes = vec![EventVignette {
+            vignette: region.clone(),
+            document_id: Some(document),
+        }];
+
+        let evidence = evidence_by_event(&bundle);
+
+        let birth_evidence = &evidence[&birth];
+        assert_eq!(birth_evidence.vignettes, vec![region]);
+        let shown: Vec<Uuid> = birth_evidence.tiles.iter().map(|t| t.media.id).collect();
+        assert_eq!(shown, vec![photo], "the document gives way to its region");
+        let marriage_evidence = &evidence[&marriage];
+        assert!(marriage_evidence.vignettes.is_empty());
+        assert_eq!(marriage_evidence.tiles[0].media.id, document);
     }
 }

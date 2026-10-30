@@ -1143,6 +1143,18 @@ enum GqlEventType {
 }
 
 """
+A region standing as evidence for an event, with the document its page
+belongs to.
+"""
+type GqlEventVignette {
+	vignette: GqlVignette!
+	"""
+	The document grouping the region's page; null for a page of its own.
+	"""
+	documentId: ID
+}
+
+"""
 A witness (or godparent, etc.) linked to an event — a pointer to another
 person in the tree, mirroring GEDCOM's `ASSO`/`RELA` association.
 """
@@ -2127,6 +2139,11 @@ type GqlPersonDetailBundle {
 	profileMedia: [GqlProfileMediaTile!]!
 	profileVignettes: [GqlVignette!]!
 	eventMedia: [GqlEventMediaTile!]!
+	"""
+	The regions cut from a page as evidence for one of `events`, shown
+	for the event instead of the whole medium.
+	"""
+	eventVignettes: [GqlEventVignette!]!
 	gallery: GqlGalleryBundle!
 	"""
 	Where the person's own portrait is drawn from.
