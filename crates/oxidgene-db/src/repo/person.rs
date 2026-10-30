@@ -18,9 +18,9 @@ use crate::entities::person::{self, ActiveModel, Column, Entity};
 use crate::entities::person_name;
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
+use crate::repo::{db_err, lower_contains};
 
 /// Repository for person CRUD operations.
 pub struct PersonRepo;
@@ -135,9 +135,9 @@ impl PersonRepo {
                 .join(JoinType::InnerJoin, person::Relation::PersonName.def())
                 .filter(
                     Condition::any()
-                        .add(person_name::Column::GivenNames.contains(search))
-                        .add(person_name::Column::Surname.contains(search))
-                        .add(person_name::Column::Nickname.contains(search)),
+                        .add(lower_contains(person_name::Column::GivenNames, search))
+                        .add(lower_contains(person_name::Column::Surname, search))
+                        .add(lower_contains(person_name::Column::Nickname, search)),
                 )
                 .distinct();
         }

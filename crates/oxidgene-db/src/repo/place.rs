@@ -53,7 +53,7 @@ impl PlaceRepo {
     ) -> Result<Connection<Place>, OxidGeneError> {
         let mut query = Entity::find().filter(Column::TreeId.eq(tree_id));
         if let Some(q) = filter.search {
-            query = query.filter(Column::Name.contains(q));
+            query = query.filter(crate::repo::lower_contains(Column::Name, q));
         }
         if let Some(name) = filter.name {
             query = query.filter(crate::repo::lower_trim_eq(Column::Name, name));

@@ -192,7 +192,7 @@ card's recent persons in one request)
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/persons?search=` | List persons (cursor-paginated); `search` keeps those with a given name, surname or nickname containing it (GraphQL `persons(search:)`) |
+| `GET` | `/trees/{tree_id}/persons?search=` | List persons (cursor-paginated); `search` keeps those with a given name, surname or nickname containing it, ignoring case (GraphQL `persons(search:)`) |
 | `POST` | `/trees/{tree_id}/persons` | Create a person |
 | `GET` | `/trees/{tree_id}/persons/search` | Server-side person search with structured filters, sorting, and offset pagination (see below) |
 | `GET` | `/trees/{tree_id}/persons/recently-modified?limit=` | The persons modified most recently, newest first, as `SearchEntry` rows (see below) |
@@ -389,7 +389,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/places?search=&name=&ids=` | List places (cursor-paginated). `search` keeps the names containing it; `name` the places named exactly so, trimmed and ignoring case (what an entry form looks a typed place up by); `ids` the places of a comma-separated list of ids (what a form names its record's places by), a malformed id being a `validation_error`. GraphQL: `places(search, name, ids)` |
+| `GET` | `/trees/{tree_id}/places?search=&name=&ids=` | List places (cursor-paginated). `search` keeps the names containing it, ignoring case; `name` the places named exactly so, trimmed and ignoring case (what an entry form looks a typed place up by); `ids` the places of a comma-separated list of ids (what a form names its record's places by), a malformed id being a `validation_error`. GraphQL: `places(search, name, ids)` |
 | `POST` | `/trees/{tree_id}/places` | Create a place; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/places/{place_id}` | Get a place |
 | `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place; a blank `name` is a `validation_error` |
@@ -1429,7 +1429,8 @@ all select browse mode. The response's `total_count` is computed before `limit`
 and `offset` are applied.
 
 `q` is matched as a **prefix**, per word, on both backends: every word must
-match the start of one of the indexed fields, in any order and in any field.
+match the start of a word of one of the indexed fields (`sophie` finds
+`Anne-Sophie`), in any order and in any field.
 The named filters (`surname`, `given_names`, and the `Relations` group) match a
 substring instead, so a filter finds a name recorded with a particle or a
 compound where a prefix would not.

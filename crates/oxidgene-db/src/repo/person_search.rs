@@ -894,17 +894,18 @@ fn push_word_conditions(
         ));
         return;
     }
-    // Prefix, not substring: FTS5 above matches `"word"*`, and the
-    // two backends have to answer the same question. Prefix is
-    // also the indexable half of the choice, and the one a
-    // typeahead wants.
+    // The prefix of any word of a column, not of the column alone: FTS5
+    // above matches `"word"*` against every token, so "sophie" finds
+    // "anne sophie", and the two backends have to answer the same question.
+    // The stored columns are folded words joined by single spaces, so a
+    // word starts the column or follows a space.
     for word in words {
-        let param = push_value(values, backend, format!("{word}%").into());
+        let param = push_value(values, backend, format!("% {word}%").into());
         conditions.push(format!(
-            "(surname LIKE {param} OR given_names LIKE {param} OR \
-             COALESCE(maiden_name, '') LIKE {param} OR \
-             COALESCE(birth_year, '') LIKE {param} OR \
-             COALESCE(death_year, '') LIKE {param})"
+            "((' ' || surname) LIKE {param} OR (' ' || given_names) LIKE {param} OR \
+             (' ' || COALESCE(maiden_name, '')) LIKE {param} OR \
+             (' ' || COALESCE(birth_year, '')) LIKE {param} OR \
+             (' ' || COALESCE(death_year, '')) LIKE {param})"
         ));
     }
 }
@@ -1248,10 +1249,10 @@ mod tests {
         );
         let word = |n: usize| {
             format!(
-                "(surname LIKE ${n} OR given_names LIKE ${n} OR \
-                 COALESCE(maiden_name, '') LIKE ${n} OR \
-                 COALESCE(birth_year, '') LIKE ${n} OR \
-                 COALESCE(death_year, '') LIKE ${n})"
+                "((' ' || surname) LIKE ${n} OR (' ' || given_names) LIKE ${n} OR \
+                 (' ' || COALESCE(maiden_name, '')) LIKE ${n} OR \
+                 (' ' || COALESCE(birth_year, '')) LIKE ${n} OR \
+                 (' ' || COALESCE(death_year, '')) LIKE ${n})"
             )
         };
         let expected = format!(
@@ -1293,8 +1294,8 @@ mod tests {
             values(&stmt),
             vec![
                 text("00000000-0000-0000-0000-000000000000"),
-                text("an\"n%"),
-                text("doe%"),
+                text("% an\"n%"),
+                text("% doe%"),
                 text("female"),
                 text("%doe%"),
                 text("%ann%"),

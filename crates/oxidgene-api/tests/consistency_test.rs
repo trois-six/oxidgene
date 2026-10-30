@@ -461,6 +461,64 @@ async fn the_person_list_filters_by_name_on_both_surfaces() {
     assert_eq!(all["total_count"], 2);
 }
 
+/// The `search` of the person and place lists ignores case on both
+/// backends: a bare `LIKE` does on SQLite only, so on PostgreSQL "birch"
+/// found no "Birchley".
+#[tokio::test]
+async fn the_list_searches_ignore_case_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Cases").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": "Bernard",
+            "surname": "Birchley",
+            "is_primary": true
+        })),
+    )
+    .await;
+    new_place(&app, &tree_id, "Southfield, Shire").await;
+
+    for search in ["birch", "BIRCHLEY", "bErNaRd"] {
+        let list = common::ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/persons?search={search}"),
+            None,
+        )
+        .await;
+        assert_eq!(list["total_count"], 1, "{search}: {list}");
+        let data = common::gql_ok(
+            &app,
+            r#"query($t: ID!, $s: String!) { persons(treeId: $t, search: $s) { totalCount } }"#,
+            json!({ "t": tree_id, "s": search }),
+        )
+        .await;
+        assert_eq!(data["persons"]["totalCount"], 1, "{search}: {data}");
+    }
+    for search in ["southfield", "SHIRE"] {
+        let list = common::ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/places?search={search}"),
+            None,
+        )
+        .await;
+        assert_eq!(list["total_count"], 1, "{search}: {list}");
+        let data = common::gql_ok(
+            &app,
+            r#"query($t: ID!, $s: String!) { places(treeId: $t, search: $s) { totalCount } }"#,
+            json!({ "t": tree_id, "s": search }),
+        )
+        .await;
+        assert_eq!(data["places"]["totalCount"], 1, "{search}: {data}");
+    }
+}
+
 #[tokio::test]
 async fn ancestry_depth_is_bounded_on_both_surfaces() {
     let app = setup_app().await;

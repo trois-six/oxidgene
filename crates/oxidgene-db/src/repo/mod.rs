@@ -122,6 +122,22 @@ pub fn db_err(error: sea_orm::DbErr) -> oxidgene_core::error::OxidGeneError {
     oxidgene_core::error::OxidGeneError::Database(error.to_string())
 }
 
+/// `column` contains `value`, ignoring case: a list's `search` filter. Both
+/// sides are lowered by the database, as in [`lower_trim_eq`]: a bare `LIKE`
+/// ignores case on SQLite but not on PostgreSQL, so the same search would
+/// find different records on the desktop and on the web.
+pub(crate) fn lower_contains<C: sea_orm::ColumnTrait>(
+    column: C,
+    value: &str,
+) -> sea_orm::sea_query::SimpleExpr {
+    use sea_orm::sea_query::{BinOper, Expr, ExprTrait, Func};
+    ExprTrait::binary(
+        Expr::expr(Func::lower(Expr::col(column))),
+        BinOper::Like,
+        Func::lower(Expr::val(format!("%{value}%"))),
+    )
+}
+
 /// `column`, trimmed, equals `value`, trimmed, ignoring case: the way an
 /// entry form's typed title or name finds the record it names. Both sides
 /// are lowered by the database, so what "case" covers is the backend's own
