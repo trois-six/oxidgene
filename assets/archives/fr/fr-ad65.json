@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-detat-civil",
         "engine": "arko_default_636924f5785e7",
-        "content_ids": ["1289558"],
         "display_mode": "arko_default_636927697452e",
         "fields": {
           "locality": "arko_default_63692b66c9e60",
@@ -45,7 +44,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-paroissiaux",
         "engine": "arko_default_636924f5785e7",
-        "content_ids": ["1251085"],
         "display_mode": "arko_default_636927697452e",
         "fields": {
           "locality": "arko_default_63692b66c9e60",
@@ -73,7 +71,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-tables-decennales",
         "engine": "arko_default_63692511cdb76",
-        "content_ids": ["1221560"],
         "display_mode": "arko_default_636927d24ed8e",
         "fields": {
           "locality": "arko_default_63692c0d759ec",
@@ -94,7 +91,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-listes-nominatives-de-recensement-de-population",
         "engine": "arko_default_636925189d555",
-        "content_ids": ["1240570"],
         "display_mode": "arko_default_636927e2ce629",
         "fields": {
           "locality": "arko_default_63692c71b2e69",
@@ -115,7 +111,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-de-matricule-militaire",
         "engine": "arko_default_6369253b10a15",
-        "content_ids": ["1240575"],
         "display_mode": "arko_default_63692812ba70c",
         "fields": {
           "period": { "ref": "arko_default_63692d1ddfe18", "mode": "input", "end": "arko_default_63be729558370" }
@@ -135,7 +130,6 @@
         "transport": "browser",
         "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-de-lenregistrement-1",
         "engine": "arko_default_6369252f2a1dd",
-        "content_ids": ["1325058"],
         "display_mode": "arko_default_636927f29f299",
         "fields": {
           "locality": "arko_default_63692cbb7fd9b",

@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/etat-civil-et-registres-paroissiaux-5",
         "engine": "arko_default_68495321cfc3a",
-        "content_ids": ["106379"],
         "display_mode": "arko_default_685d1d69e49f8",
         "fields": {
           "locality": "arko_default_685baaa065770",
@@ -50,7 +49,6 @@
         "transport": "browser",
         "search_path": "/recensements-de-population",
         "engine": "arko_default_661503e12c9a2",
-        "content_ids": ["98915"],
         "display_mode": "arko_default_6615189dacb02",
         "fields": {
           "locality": "arko_default_661515c01d58f",
@@ -72,7 +70,6 @@
         "transport": "browser",
         "search_path": "/registres-matricules-militaires-1",
         "engine": "arko_default_662ba804bb466",
-        "content_ids": ["100883"],
         "display_mode": "arko_default_662bab98c2931",
         "fields": {
           "period": "arko_default_662ba9be79e2c"

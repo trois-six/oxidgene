@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil",
         "engine": "arko_default_618914e3ee7e4",
-        "content_ids": ["2604849"],
         "display_mode": "arko_default_6189505357e83",
         "fields": {
           "locality": "arko_default_61894fee776d8",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/recensements-de-population/recensements-de-population",
         "engine": "arko_default_60e468d70b912",
-        "content_ids": ["1776683"],
         "display_mode": "arko_default_60e46b269bbfd",
         "fields": {
           "locality": "arko_default_60e469352cafa",
@@ -74,7 +72,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/enregistrementbrtables-referencant-les-actesbret-declarations-de-successions/tables-de-lenregistrement",
         "engine": "arko_default_60e708450211b",
-        "content_ids": ["1286109"],
         "display_mode": "arko_default_60e70c1a57f90",
         "fields": {
           "locality": "arko_default_6123650dc7841",

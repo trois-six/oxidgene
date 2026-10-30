@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/recherche-en-ligne/archives-numerisees/registres-paroissiaux-et-detat-civil",
         "engine": "arko_default_67ebab2c7f97d",
-        "content_ids": ["311484"],
         "display_mode": "arko_default_67ebaf0fd2439",
         "fields": {
           "locality": "arko_default_67ebadbab042e",
@@ -50,7 +49,6 @@
         "transport": "browser",
         "search_path": "/recherche-en-ligne/archives-numerisees/recensements-de-population",
         "engine": "arko_default_67ea8a7b139a2",
-        "content_ids": ["385542"],
         "display_mode": "arko_default_67ea8c2b30fa4",
         "fields": {
           "locality": "arko_default_67ea8b3415e79",
@@ -73,7 +71,6 @@
         "transport": "browser",
         "search_path": "/recherche-en-ligne/archives-numerisees/registres-militaires/registres-matricules-de-1872-a-1940/tables-alphabetiques-et-registres-matricules",
         "engine": "arko_default_67ea6619d54d1",
-        "content_ids": ["314190"],
         "display_mode": "arko_default_67ea6946c439a",
         "fields": {
           "locality": "arko_default_68496c5ba1a8e",
@@ -96,7 +93,6 @@
         "transport": "browser",
         "search_path": "/recherche-en-ligne/archives-numerisees/enregistrement-et-hypotheques/enregistrement-tsa",
         "engine": "arko_default_67ea6f1d1e10a",
-        "content_ids": ["310925"],
         "display_mode": "arko_default_67ea711a17f7a",
         "fields": {
           "locality": "arko_default_67ea6fb1256d5",

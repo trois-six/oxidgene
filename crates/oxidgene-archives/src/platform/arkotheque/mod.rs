@@ -2,14 +2,15 @@
 //! departmental archives.
 //!
 //! Each collection is searched by one engine of the portal's request
-//! interface, `/_recherche-api/moteur`, filtered by the locality, the act
-//! category and the year where the engine has those filters, some of whose
-//! values are first read from the engine's own lists. The answer's result
-//! rows are selected down to one register (`select`), whose viewer endpoint
-//! lists its images; the target is the portal's record page opened on the
-//! cited image, `<search_path>?detail=<record>#<viewer address>/<i>`, the
-//! viewer address naming the image's file and `i` its zero-based position
-//! in that file. A portal that refuses those requests to a script (access
+//! interface, `/_recherche-api/moteur`, with the content identifiers its
+//! search page gives the engine, read from that page first, and filtered by
+//! the locality, the act category and the year where the engine has those
+//! filters, some of whose values are first read from the engine's own
+//! lists. The answer's result rows are selected down to one register
+//! (`select`), whose viewer endpoint lists its images; the target is the
+//! portal's record page opened on the cited image,
+//! `<search_path>?detail=<record>#<viewer address>/<i>`, the viewer address
+//! naming the image's file and `i` its zero-based position in that file. A portal that refuses those requests to a script (access
 //! `page`) is searched by loading its search page with the filters in its
 //! address, whose scripts render the same rows, and is never sent a request.
 //! Archive Portals §4.3 specifies the settings and requests.
@@ -148,6 +149,31 @@ async fn keys(
     Ok(Some(keys))
 }
 
+/// Reads into `settings` the content identifiers the collection's search
+/// page gives its engine, which every request to the engine carries. A
+/// portal read by its pages needs none: its page's script sends them.
+async fn read_contents(
+    settings: &mut Settings,
+    fetch: &dyn PortalFetch,
+) -> Result<(), ResolveError> {
+    if !settings.reads_pages() {
+        let page = fetch.get(&settings.search_path).await?;
+        settings.contents = page::content_ids(&page, &settings.engine)?;
+    }
+    Ok(())
+}
+
+/// The collection's settings, with the content identifiers its search page
+/// gives the engine.
+async fn read_settings(
+    collection: &Collection,
+    fetch: &dyn PortalFetch,
+) -> Result<Settings, ResolveError> {
+    let mut settings = Settings::read(collection).map_err(|_| ResolveError::NoAdapter)?;
+    read_contents(&mut settings, fetch).await?;
+    Ok(settings)
+}
+
 /// The answer of a search with `filters`: the engine's, or for a portal
 /// read by its pages, the search page filtered the same way as its scripts
 /// render it.
@@ -255,7 +281,7 @@ async fn resolve(
     citation: &CitationParts,
     fetch: &dyn PortalFetch,
 ) -> Result<ArchiveTarget, ResolveError> {
-    let settings = Settings::read(collection).map_err(|_| ResolveError::NoAdapter)?;
+    let settings = read_settings(collection, fetch).await?;
     let Some(keys) = keys(&settings, citation, fetch).await? else {
         return Ok(ArchiveTarget::Results {
             url: settings.results_page(citation, &Keys::default()),

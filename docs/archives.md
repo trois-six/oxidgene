@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-10-30T08:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T17:45:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -565,15 +565,27 @@ document kinds may sit in several engines, each then its own collection. The
 | `transport` | `any`; `browser` when a challenge blocks other clients; or `page` when the portal refuses even the requests a page's script sends, which is then searched by its pages (below). Default `any`. |
 | `search_path` | Path of the collection's search page, where records and views open. |
 | `engine` | The engine's unique reference, such as `arko_default_…`. |
-| `content_ids` | The numeric content identifiers of the search page's filter component (`data-contenu` of its `data-component="filtres"` element, not the results'), which a portal renumbers when it rebuilds its pages, some every few weeks. Most engines answer alike whatever the identifiers, but on some portals (Cantal, Hautes-Pyrénées) the content restricts the engine's records, and an engine sent none answers with more of them: the identifiers stay current. |
 | `display_mode` | The list display mode reference. |
 | `fields` | The engine's filters the search sends, each optional: `locality` (the commune, or for a series the recruitment or registration bureau, or a canton), `act`, and `period` (the year, or a military class). Each is a filter reference, or an object `{"ref", "mode", "keyed", "end", "span"}`: `mode`, the request's `[extras][mode]`, is `popup` for the locality, `select` for the act and `slider` (`<year>\|<year>`) for the period by default, `input` or `autocomplete` for a typed year (`<year>`); `keyed` means the filter takes its listed values with their record keys only; `end` names the second input of a period searched by its first and last year; `span` makes a slider search the cited period (`1917\|1918` for a register of `1917-1918`) rather than its first year, for an engine dating each part of a register by its own dates, which lists the parts after the first year only so. |
 | `acts` | Map from document code to the act filter value or values, as the portal writes them: `Baptèmes[[arko_fiche_…]]` for a list value with its record key, without which a list matches nothing, or a plain text value (`Registre matricule`, `Baptêmes / Naissances`). Several values (the decennial tables of each kind, the typologies of a series) are searched together, any of them matching. Two codes may share a value (`Baptêmes / Naissances` for `B` and `N`). Empty for an engine without an act filter. Where the engine has an act filter, every kind the collection holds needs a value; a combined act (`BMS`) without its own entry is searched by its first kind, publications of banns as marriages. |
 | `locality_style` | How the portal writes a locality (§3.2 `platform/locality.rs`): `plain` (`Le Mans`, default), `article_suffix` (`Mans (Le)`), `article_comma` (`Mans, Le`), `article_dash` (`MANS - LE`), `qualified` (`Le Mans (Sarthe, France)`: searched by the name alone, and a hamlet's `Hamlet (Commune, Department, France)` is never its commune), `district` (`05` for a city's fifth district: `Paris 5e`), or `enclosing` (`Saint-Exemple (EXAMPLEVILLE)`, a city's parish listed apart, or `Office (City, Department, France)`, read as the city, the part before the parentheses being the parish). |
 | `cells` | Where the result rows show what selection reads, each optional: `locality`, `parish`, `act`, `period`, `numbers` and `call_number`. A cell is a `data-champ` name, `#<n>` for the n-th column of a row that shows the part without a name, `#title` for the record's title (`resultats.results[].intitule`), or `#none`. Without a `locality` cell, every row the engine returned is kept (a census listed by canton). The `act` cell joins every span of its name (one per kind). `numbers` is one cell (`1 à 1586`) or two, whose last numbers are the first and last (`mat_debut`, `mat_fin`; `… (acte n° 4024)`, `… (acte n° 4081)`). `call_number` defaults to `#title`. An engine without an act filter whose collection holds several kinds needs the `act` cell. |
 
+The engine's requests also carry content identifiers, which the settings do
+not hold: a portal renumbers them whenever it rebuilds its pages, some every
+few weeks. Most engines answer alike whatever the identifiers, but on some
+portals (Cantal, Hautes-Pyrénées) the content restricts the engine's records,
+and an engine sent none answers with more of them. Resolution reads them from
+the search page, as the page's own script does.
+
 Resolution:
 
+0. `GET <search_path>`: the content identifiers are the `data-contenu` of
+   the page's elements whose `data-moteur` is the engine and whose
+   `data-component` is `filtres`, failing any those whose `data-component`
+   is `resultats`. A page naming none is an unexpected answer (a
+   maintenance or anti-bot page is told apart, §9.1). A portal read by its
+   pages skips this step: its page's script sends the identifiers itself.
 1. Where a filter is `keyed` and the citation has its part, `GET` of the
    engine's bare answer (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`,
    the request the search page sends on load), whose aggregations list each
@@ -585,19 +597,21 @@ Resolution:
    match —, the period's the
    one naming the cited year alone (`Classe 1911`, `1936`) — none leaves the
    period filter out.
-2. `GET /_recherche-api/moteur?refUnique=<engine>` with the filters: the
+2. `GET /_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`
+   with the filters: the
    locality in the portal's style, by name (the engines accept a plain name
    as a text match), or its key; the act filter value or values, with
    `[op]=OR` for several; and the year as the period mode writes it, in both
    inputs for an `end`, the cited period's first and last years for a
    `span`. Each filter carries its `[op]` and its
    `[extras][mode]`, and the query ends with `from`, `resultSize=100` (the
-   engines accept 25, 50 or 100), the content identifiers and the display
-   mode, all prefixed with `<engine>--` and percent-encoded. A series cited
-   without a locality is searched without the locality filter. `results_url`
-   is the search page with the same filters (keyed ones left out, since
-   their keys need a request) and `resultSize=25`, the portal's default,
-   which renders faster for the reader than 100.
+   engines accept 25, 50 or 100) and the display mode, all prefixed with
+   `<engine>--` and percent-encoded. A series cited without a locality is
+   searched without the locality filter. `results_url` is the search page
+   with the same filters (keyed ones left out, since their keys need a
+   request) and `resultSize=25`, the portal's default, which renders faster
+   for the reader than 100; a page's address carries no content identifier,
+   which its script would replace with those of its markup.
 3. The answer's `resultats.results` gives each register's record reference
    (`refUnique`) and title (`intitule`), `resultats.total` the rows of every
    page, and `resultats.html` renders the same registers, in the same order,
@@ -3091,7 +3105,7 @@ What each platform's probe reads, and where its viewer shows the view:
 
 | Platform | Step 1: references and localities | Step 4: viewer |
 |---|---|---|
-| Arkothèque | The search page's `data-moteur` and `data-contenu`; the engine's bare answer, the one the page requests on load (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its `filtres` hold the locality, act and period filters, its `restits` the display mode, the act filter's values every `acts` value with its record key; the localities are its aggregation of the locality filter's field. A portal read by its pages: its unfiltered search page as rendered names the engine, the content and each filter (`aria-filtre-<filter>`), and its rows the localities; the search of the first act checks the act values, and the rows count the images. | `input[data-cy="input-position-image"]`, count `[data-cy="nb-total-images"]`, after `button[data-cy="accept-license"]` (Sarthe). |
+| Arkothèque | The search page's `data-moteur` and a content component of the engine (renumbered contents are read, not compared); the engine's bare answer, the one the page requests on load (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its `filtres` hold the locality, act and period filters, its `restits` the display mode, the act filter's values every `acts` value with its record key; the localities are its aggregation of the locality filter's field. A portal read by its pages: its unfiltered search page as rendered names the engine, the content and each filter (`aria-filtre-<filter>`), and its rows the localities; the search of the first act checks the act values, and the rows count the images. | `input[data-cy="input-position-image"]`, count `[data-cy="nb-total-images"]`, after `button[data-cy="accept-license"]` (Sarthe). |
 | Mnesys | The form `/search/form/<form>`: each select is an `enhanced-select` whose `data-options` lists its labels; every input of `fields` exists, a select named with its `[]` and a plain input without; the act select holds every `acts` label; the localities are the locality select's labels that a `locality_label` pattern names, or, for a plain locality input, the context entries of a search without it. A form without a locality input is searched without one. A row whose image count spans several lots is counted by the viewer's state. | `.media-browse .pagination-form input`, count `.media-browse .page-count`, after `input.btn.primary[value="Accepter"]`; the viewer's image requests are aborted, since it shows its view without them. |
 | Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | Monocle: `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`; Binocle (Hautes-Alpes): `.bn-gallery-counter input.bn-gallery-counter-current`, count `.bn-gallery-counter` (` sur 29`). |
 | Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |

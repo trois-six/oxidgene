@@ -1,9 +1,10 @@
 //! The Arkothèque part of the live checks (Archive Portals §9.1).
 //!
-//! The search page names its engine and content components
-//! (`data-moteur`, `data-contenu`); everything else the settings reference
-//! is declared by the engine's bare answer, the one the page requests on
-//! load, `/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`:
+//! The search page names its engine and gives it its content components
+//! (`data-moteur`, `data-contenu`), which resolution reads there; everything
+//! else the settings reference is declared by the engine's bare answer, the
+//! one the page requests on load,
+//! `/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`:
 //! its `filtres` (each filter's reference and indexed field), its `restits`
 //! (the display modes), and per field an aggregation of the values the
 //! filter offers, the most frequent first. List values carry their record
@@ -13,7 +14,7 @@
 
 use super::page::{self, EngineAnswer, without_key};
 use super::settings::{Filter, Keys, Values};
-use super::{Arkotheque, Settings, keys, rows, search_answer};
+use super::{Arkotheque, Settings, keys, read_contents, rows, search_answer};
 use crate::catalog::Collection;
 use crate::citation::{Act, CitationParts};
 use crate::live::{Failure, Probe, Register, Step};
@@ -24,16 +25,15 @@ use crate::platform::select::Candidate;
 use crate::transport::PortalFetch;
 
 impl Settings {
-    /// What the search page lacks of the settings' references.
+    /// What the search page lacks of the settings' references: the engine,
+    /// and a content component of the engine, whose identifiers the
+    /// requests carry.
     fn missing_from_page(&self, page: &str) -> Vec<String> {
         let mut missing = Vec::new();
         if !page.contains(&format!("data-moteur=\"{}\"", self.engine)) {
             missing.push("engine".to_owned());
-        }
-        for id in &self.content_ids {
-            if !page.contains(&format!("data-contenu=\"{id}\"")) {
-                missing.push(format!("content {id}"));
-            }
+        } else if page::content_ids(page, &self.engine).is_err() {
+            missing.push("content".to_owned());
         }
         missing
     }
@@ -131,7 +131,7 @@ fn first_locality(
 
 async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result<String, Failure> {
     let step = Step::SearchPage;
-    let settings = settings(collection, step)?;
+    let mut settings = settings(collection, step)?;
     if settings.reads_pages() {
         return rendered_search_page(&settings, fetch).await;
     }
@@ -148,6 +148,8 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
             format!("missing: {}", missing.join(", ")),
         ));
     }
+    settings.contents = page::content_ids(&page, &settings.engine)
+        .map_err(|error| Failure::from_error(step, "the engine's content", &error))?;
 
     let expected = "the engine's filters, display modes and aggregations";
     let answer = fetch
@@ -283,7 +285,10 @@ async fn registers(
     fetch: &dyn PortalFetch,
 ) -> Result<Vec<Register>, Failure> {
     let step = Step::Discovery;
-    let settings = settings(collection, step)?;
+    let mut settings = settings(collection, step)?;
+    read_contents(&mut settings, fetch)
+        .await
+        .map_err(|error| Failure::from_error(step, "the search page's content", &error))?;
     let mut searched = locality;
     let mut rows = discover(&settings, searched, act, fetch).await?;
     // A locality listed for other document kinds only: the kind anywhere.

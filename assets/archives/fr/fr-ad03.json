@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-numerisees/genealogie-histoire-des-familles/etat-civil-en-ligne",
         "engine": "arko_default_5f992f52cfc55",
-        "content_ids": ["485773"],
         "display_mode": "arko_default_5f9930ee2342a",
         "fields": {
           "locality": "arko_default_5f99316db4ce5",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/genealogie-histoire-des-familles/recensement",
         "engine": "arko_default_5f993f0ce41a9",
-        "content_ids": ["7838805"],
         "display_mode": "arko_default_5f99419420e3d",
         "fields": {
           "locality": "arko_default_5f994181e64ce",
@@ -74,7 +72,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/genealogie-histoire-des-familles/tables-et-registres-matricules",
         "engine": "arko_default_5fb3df021fad5",
-        "content_ids": ["486200"],
         "display_mode": "arko_default_5fb3df12d254e",
         "fields": {
           "act": "arko_default_5fb3df76b5357",
@@ -99,7 +96,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/genealogie-histoire-des-familles/tables-et-registres-matricules",
         "engine": "arko_default_5fb3df021fad5",
-        "content_ids": ["486200"],
         "display_mode": "arko_default_5fb3df12d254e",
         "fields": {
           "act": "arko_default_5fb3df76b5357",
@@ -124,7 +120,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/tables-des-successions-et-absences",
         "engine": "arko_default_660126d0a00a8",
-        "content_ids": ["472155"],
         "display_mode": "arko_default_6601294e412c0",
         "fields": {
           "locality": "arko_default_660129d202f12",

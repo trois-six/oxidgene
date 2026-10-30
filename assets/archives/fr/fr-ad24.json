@@ -17,7 +17,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil",
         "engine": "arko_default_6197500eceff4",
-        "content_ids": ["8997516"],
         "display_mode": "arko_default_61975079d8dee",
         "fields": {
           "locality": "arko_default_6197504d97f6f",
@@ -42,7 +41,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/genealogie/tables-decennales",
         "engine": "arko_default_6076dc317a162",
-        "content_ids": ["8998035"],
         "display_mode": "arko_default_6076dd00e75c8",
         "fields": {
           "locality": "arko_default_607fcd0a8401e"
@@ -63,7 +61,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/genealogie/denombrements-de-population",
         "engine": "arko_default_6076a37360df7",
-        "content_ids": ["8997544"],
         "display_mode": "arko_default_6076a524314f9",
         "fields": {
           "locality": "arko_default_6076a4257d83d",
@@ -86,7 +83,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/registres-matricules/registres-matricules-1878-1886-sans-indexation-nominative-fonds-ouvert-a-lannotation-collaborative",
         "engine": "arko_default_6076d72382d34",
-        "content_ids": ["9026757"],
         "display_mode": "arko_default_6076d85eabe9f",
         "fields": {
           "locality": "arko_default_6076d7aeda903",

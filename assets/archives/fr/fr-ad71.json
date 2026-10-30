@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/consulter/en-ligne/familles-et-individus/etat-civil",
         "engine": "arko_default_61b1ccdceb9a7",
-        "content_ids": ["15079187"],
         "display_mode": "arko_default_61b1cd85eef9b",
         "fields": {
           "locality": "arko_default_61b1cd7726c84",
@@ -50,7 +49,6 @@
         "transport": "browser",
         "search_path": "/consulter/en-ligne/familles-et-individus/tables-decennales",
         "engine": "arko_default_61b1d00bd98a3",
-        "content_ids": ["4216641"],
         "display_mode": "arko_default_61b1d090ea2b3",
         "fields": {
           "locality": "arko_default_61b1d08071ee5",
@@ -77,7 +75,6 @@
         "transport": "browser",
         "search_path": "/consulter/en-ligne/familles-et-individus/recensement-de-la-population",
         "engine": "arko_default_61b1d169384c3",
-        "content_ids": ["15079062"],
         "display_mode": "arko_default_61b1d1aba0244",
         "fields": {
           "locality": "arko_default_61b1d19cc33d5",
@@ -100,7 +97,6 @@
         "transport": "browser",
         "search_path": "/consulter/en-ligne/familles-et-individus/controle-des-actes-et-enregistrement",
         "engine": "arko_default_61c065045dec4",
-        "content_ids": ["9059334"],
         "display_mode": "arko_default_61c0656a9d368",
         "fields": {
           "locality": "arko_default_61c065494e269",

@@ -18,7 +18,6 @@
         "transport": "browser",
         "search_path": "/vos-archives/etat-civil/recherche-dans-letat-civil",
         "engine": "arko_default_5f8ef8b61e0d4",
-        "content_ids": ["2896685"],
         "display_mode": "arko_default_5f8ef94134942",
         "fields": {
           "locality": "arko_default_5f8ef8e7d58fc",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/rechercher/genealogie/listes-nominatives-de-recensement-numerisees",
         "engine": "arko_default_5f9274ef15acf",
-        "content_ids": ["3040579"],
         "display_mode": "arko_default_5f92759e26bf3",
         "fields": {
           "locality": "arko_default_5f92754366c4c",
@@ -73,7 +71,6 @@
         "transport": "browser",
         "search_path": "/rechercher/genealogie/registres-matricules/recherche-dans-les-registres-matricules",
         "engine": "arko_default_5fad071380c17",
-        "content_ids": ["2896695"],
         "display_mode": "arko_default_5fad0870469ea",
         "fields": {
           "period": { "ref": "arko_default_5fad07a633cb7", "mode": "input" }
@@ -94,7 +91,6 @@
         "transport": "browser",
         "search_path": "/rechercher/genealogie/tables-des-successions-et-absences-numerisees",
         "engine": "arko_default_5f92736d8fb73",
-        "content_ids": ["2687900"],
         "display_mode": "arko_default_5f92748adad4b",
         "fields": {
           "locality": "arko_default_5f9274376bb90",

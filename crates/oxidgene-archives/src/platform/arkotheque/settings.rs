@@ -28,8 +28,12 @@ pub(super) struct Settings {
     pub(super) search_path: String,
     /// The engine's unique reference, `arko_default_…`.
     pub(super) engine: String,
-    /// The search component's content identifiers.
-    pub(super) content_ids: Vec<String>,
+    /// The content identifiers of the search page's components, which the
+    /// engine's requests carry: read from the page at each resolution
+    /// ([`super::read_contents`]), never from the catalogue, since a portal
+    /// renumbers them whenever it rebuilds its pages.
+    #[serde(skip)]
+    pub(super) contents: Vec<String>,
     /// The list display mode, whose rows carry the cells read below.
     pub(super) display_mode: String,
     #[serde(default)]
@@ -279,14 +283,6 @@ impl Settings {
         {
             return Err(invalid("only a slider spans the cited period"));
         }
-        if self.content_ids.is_empty()
-            || !self
-                .content_ids
-                .iter()
-                .all(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
-        {
-            return Err(invalid("content_ids must be numeric identifiers"));
-        }
         if self.reads_pages() {
             self.check_pages()?;
         }
@@ -495,22 +491,28 @@ impl Settings {
     }
 
     /// What every search's query ends with: the page of `size` rows from
-    /// row `from`, the content identifiers and the display mode.
+    /// row `from` and the display mode. The search page's address carries
+    /// no content identifier: its script sends those of its own markup.
     fn query_tail(&self, query: &mut Query, size: &str, from: usize) {
         let engine = &self.engine;
         query
             .push(format!("{engine}--from"), from.to_string())
-            .push(format!("{engine}--resultSize"), size);
-        for id in &self.content_ids {
-            query.push(format!("{engine}--contenuIds[]"), id.as_str());
+            .push(format!("{engine}--resultSize"), size)
+            .push(format!("{engine}--modeRestit"), self.display_mode.as_str());
+    }
+
+    /// The engine's request with the page's content identifiers.
+    fn engine_query(&self) -> Query {
+        let mut query = Query::new();
+        query.push("refUnique", self.engine.as_str());
+        for id in &self.contents {
+            query.push(format!("{}--contenuIds[]", self.engine), id.as_str());
         }
-        query.push(format!("{engine}--modeRestit"), self.display_mode.as_str());
+        query
     }
 
     pub(super) fn search_request(&self, filters: &Query) -> String {
-        let mut query = Query::new();
-        query.push("refUnique", self.engine.as_str());
-        format!("{SEARCH_PATH}?{query}&{filters}")
+        format!("{SEARCH_PATH}?{}&{filters}", self.engine_query())
     }
 
     /// The search page filtered as `filters` say, a path on the portal's
@@ -523,12 +525,7 @@ impl Settings {
     /// The engine's bare answer, as the search page requests it on load: its
     /// filters, display modes and the values each filter lists.
     pub(super) fn engine_request(&self) -> String {
-        let mut query = Query::new();
-        query.push("refUnique", self.engine.as_str());
-        for id in &self.content_ids {
-            query.push(format!("{}--contenuIds[]", self.engine), id.as_str());
-        }
-        format!("{SEARCH_PATH}?{query}")
+        format!("{SEARCH_PATH}?{}", self.engine_query())
     }
 
     /// The search page filtered as the search is, on the portal's default

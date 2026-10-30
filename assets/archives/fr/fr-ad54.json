@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-paroissiaux-et-detat-civil",
         "engine": "arko_default_62bc67565d099",
-        "content_ids": ["457658"],
         "display_mode": "arko_default_62bc67b55c7d2",
         "fields": {
           "locality": "arko_default_62bc67951f875",
@@ -49,7 +48,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/listes-nominatives-de-recensement-de-population",
         "engine": "arko_default_62bc69dac0628",
-        "content_ids": ["457506"],
         "display_mode": "arko_default_62bc6a152c9ad",
         "fields": {
           "locality": "arko_default_62bc6a05bc53e",
@@ -71,7 +69,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-matricules-militaires",
         "engine": "arko_default_62bc69358b041",
-        "content_ids": ["457671"],
         "display_mode": "arko_default_62bc697ad38e3",
         "fields": {
           "locality": "arko_default_62bc696c3d40b",
@@ -98,7 +95,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/tables-de-successions-et-absences",
         "engine": "arko_default_62bc6aac086d6",
-        "content_ids": ["457500"],
         "display_mode": "arko_default_62bc6ae1b35f5",
         "fields": {
           "locality": "arko_default_62bc6ad59d381",

@@ -18,7 +18,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-paroissiaux-etat-civil",
         "engine": "arko_default_6319dbb9a1c43",
-        "content_ids": ["662961"],
         "display_mode": "arko_default_6319dc08a3d64",
         "fields": {
           "locality": "arko_default_6319dbfb4cff8",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-detat-civil-posterieurs-a-1902",
         "engine": "arko_default_678f538cb2d58",
-        "content_ids": ["613476"],
         "display_mode": "arko_default_678f5402e1f06",
         "fields": {
           "locality": "arko_default_678f5464dc4c3",
@@ -80,7 +78,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/listes-nominatives-de-recensement-de-population",
         "engine": "arko_default_6319dda7da548",
-        "content_ids": ["558791"],
         "display_mode": "arko_default_6319ddc7d390a",
         "fields": {
           "locality": "arko_default_6319ddb99eb73"
@@ -102,7 +99,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-matricules-militaires/acces-par-classe-et-par-bureau/registres-matricules-1860-a-1921",
         "engine": "arko_default_632ac7263f2d8",
-        "content_ids": ["508612"],
         "display_mode": "arko_default_632ac7ced5bcf",
         "fields": {
           "locality": "arko_default_632ac7c3db831",
@@ -126,7 +122,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-matricules-militaires/acces-par-classe-et-par-bureau/tables-alphabetiques-des-conscrits-1874-1940",
         "engine": "arko_default_6319d8a73d9f9",
-        "content_ids": ["508609"],
         "display_mode": "arko_default_6319d8d8ab39c",
         "fields": {
           "locality": "arko_default_6319d8ca67163",
@@ -149,7 +144,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/tables-de-lenregistrement-sous-serie-3-q",
         "engine": "arko_default_6319da5195025",
-        "content_ids": ["551640"],
         "display_mode": "arko_default_6319da7c27cf2",
         "fields": {
           "locality": "arko_default_6319da70cbd62",

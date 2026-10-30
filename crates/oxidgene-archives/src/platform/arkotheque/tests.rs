@@ -49,7 +49,28 @@ struct Fixtures {
     engine: &'static str,
     viewer: &'static str,
     info: &'static str,
+    /// The search page, which gives the resolved collection's engine its
+    /// content components ([`search_page`]).
+    page: Mutex<String>,
     requests: Mutex<Vec<String>>,
+    /// The reads of the search page, apart from the requests.
+    pages: Mutex<Vec<String>>,
+}
+
+/// The content identifier the search page gives the engine's filters.
+const FILTER_CONTENT: &str = "4242";
+
+/// A search page of `engine`, with a result and a filter component, as the
+/// portals lay them out.
+fn search_page(engine: &str) -> String {
+    format!(
+        "<html><body>\
+         <div class=\"arko-recherche resultats_facettes\" data-moteur=\"{engine}\" \
+         data-contenu=\"4241\" data-component=\"resultats\"></div>\
+         <div class=\"arko-recherche filtres_facettes\" data-moteur=\"{engine}\" \
+         data-contenu=\"{FILTER_CONTENT}\" data-component=\"filtres\"></div>\
+         </body></html>"
+    )
 }
 
 impl Fixtures {
@@ -61,12 +82,18 @@ impl Fixtures {
             engine: AD44_ENGINE,
             viewer: AD44_VIEWER,
             info: AD44_INFO,
+            page: Mutex::new(String::new()),
             requests: Mutex::new(Vec::new()),
+            pages: Mutex::new(Vec::new()),
         }
     }
 
     fn requests(&self) -> Vec<String> {
         self.requests.lock().unwrap().clone()
+    }
+
+    fn pages(&self) -> Vec<String> {
+        self.pages.lock().unwrap().clone()
     }
 }
 
@@ -76,8 +103,12 @@ impl PortalFetch for Fixtures {
         request: &'a PortalRequest,
     ) -> BoxFuture<'a, Result<String, FetchError>> {
         Box::pin(async move {
-            self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
+            if !url.starts_with("/_recherche-") && !url.starts_with("/iiif/") {
+                self.pages.lock().unwrap().push(request.url.clone());
+                return Ok(self.page.lock().unwrap().clone());
+            }
+            self.requests.lock().unwrap().push(request.url.clone());
             let first_page = url.contains("--from=0&");
             let answer = self
                 .answers
@@ -114,6 +145,8 @@ fn resolve(
 ) -> Result<ArchiveTarget, ResolveError> {
     let citation = registry.parse(title).expect("a normalized citation");
     let (archive, collections) = registry.candidates(&citation).expect("a catalogued act");
+    let engine = Settings::read(collections[0]).unwrap().engine;
+    *fetch.page.lock().unwrap() = search_page(&engine);
     block_on(Arkotheque.resolve(archive, collections[0], &citation, fetch))
 }
 
@@ -172,11 +205,17 @@ fn one_register_opens_on_the_cited_view() {
         "%5Bq%5D%5B%5D=Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3%5D%5D&",
         "%5Bq%5D%5B%5D=1660%7C1660&",
         "--resultSize=100&",
-        "--contenuIds%5B%5D=1290186&",
+        &format!("--contenuIds%5B%5D={FILTER_CONTENT}&"),
         "--modeRestit=arko_default_6a6b4d95b8dc8",
     ] {
         assert!(search.contains(expected), "{expected} in {search}");
     }
+    // The content identifiers come from the search page, read first.
+    assert_eq!(
+        fetch.pages(),
+        ["/chercher/etat-civil-et-registres-paroissiaux"]
+    );
+    assert_eq!(search.matches("contenuIds").count(), 1, "{search}");
     // The portal learns the locality, act and year, never the rest.
     for private in ["acte", "Saint-Exemple", "d%C3%A9p%C3%B4t", "vue"] {
         assert!(!search.contains(private), "{private} in {search}");
@@ -677,7 +716,9 @@ fn validates_its_settings_against_the_collection() {
         }),
         ("absolute path", |p| p["search_path"] = "chercher".into()),
         ("references", |p| p["engine"] = "arko default".into()),
-        ("numeric", |p| p["content_ids"] = serde_json::json!([])),
+        ("unknown field", |p| {
+            p["content_ids"] = serde_json::json!(["1"])
+        }),
         ("empty filter value", |p| p["acts"]["B"] = "".into()),
         (
             "only the period filter has an end",
@@ -1442,4 +1483,40 @@ fn a_commune_listed_under_a_shorter_name_is_searched_again() {
         }
         other => panic!("expected results, got {other:?}"),
     }
+}
+
+/// The content identifiers are read as the page's script reads them: the
+/// engine's filter components, failing any its result components; another
+/// engine's are not the collection's.
+#[test]
+fn the_search_page_gives_the_engine_its_contents() {
+    let page = include_str!("../../../fixtures/arkotheque/ad44-search-page.html");
+    let engine = "arko_default_6a6b4ac0309a5";
+    assert_eq!(
+        page::content_ids(page, engine),
+        Ok(vec!["1290186".to_owned()])
+    );
+    let results_only = page.replace("data-component=\"filtres\"", "data-component=\"autre\"");
+    assert_eq!(
+        page::content_ids(&results_only, engine),
+        Ok(vec!["1290185".to_owned()])
+    );
+    let other = page.replace(engine, "arko_default_000000000009");
+    assert!(matches!(
+        page::content_ids(&other, engine),
+        Err(ResolveError::UnexpectedResponse(_))
+    ));
+}
+
+/// The search page's address carries no content identifier: its script
+/// sends those of its markup, whatever the address says.
+#[test]
+fn the_results_page_names_no_content() {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry
+        .parse("AD44 - Exampletown - (aucun) - B - 1700")
+        .unwrap();
+    let (_, collections) = registry.candidates(&citation).unwrap();
+    let url = Arkotheque.results_url(collections[0], &citation).unwrap();
+    assert!(!url.contains("contenuIds"), "{url}");
 }

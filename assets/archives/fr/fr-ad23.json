@@ -18,7 +18,6 @@
         "transport": "any",
         "search_path": "/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil",
         "engine": "arko_default_6089614c0e9ed",
-        "content_ids": ["2293931"],
         "display_mode": "arko_default_60896998ef13f",
         "fields": {
           "locality": "arko_default_6089619817b3c",
@@ -50,7 +49,6 @@
         "transport": "any",
         "search_path": "/rechercher/archives-numerisees/recensementreprise",
         "engine": "arko_default_65b36ef5b3d14",
-        "content_ids": ["2293900"],
         "display_mode": "arko_default_65b373417e547",
         "fields": {
           "locality": "arko_default_65b3719267fe3",
@@ -72,7 +70,6 @@
         "transport": "any",
         "search_path": "/rechercher/archives-numerisees/registres-matricules-recherche-par-classe-dincorporation",
         "engine": "arko_default_6089632f7cb9e",
-        "content_ids": ["2293630"],
         "display_mode": "arko_default_608969b36cbc2",
         "fields": {
           "period": { "ref": "arko_default_608963842d0ce", "mode": "input" }
@@ -93,7 +90,6 @@
         "transport": "any",
         "search_path": "/rechercher/archives-numerisees/tables-du-controle-des-actes-et-de-lenregistrement-1",
         "engine": "arko_default_68b6dc6d73648",
-        "content_ids": ["2066904"],
         "display_mode": "arko_default_68b702a1207b4",
         "fields": {
           "locality": "arko_default_68b7eeb8569d4",

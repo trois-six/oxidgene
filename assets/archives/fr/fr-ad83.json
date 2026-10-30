@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/rechercher-dans-les-archives-numerisees-et-les-inventaires-5/registres-paroissiaux-et-de-letat-civil",
         "engine": "arko_default_68638fc9de3cb",
-        "content_ids": ["624434"],
         "display_mode": "arko_default_686392c1eea05",
         "fields": {
           "locality": "arko_default_686391c21f7f7",
@@ -50,7 +49,6 @@
         "transport": "browser",
         "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/tables-decennales",
         "engine": "arko_default_685bea67512f6",
-        "content_ids": ["624426"],
         "display_mode": "arko_default_685bf00394bb7",
         "fields": {
           "locality": "arko_default_685bef8ff3374",
@@ -73,7 +71,6 @@
         "transport": "browser",
         "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/recensements-de-population",
         "engine": "arko_default_685bf5e5e4e33",
-        "content_ids": ["696375"],
         "display_mode": "arko_default_685bf73fac13d",
         "fields": {
           "locality": "arko_default_685bf6b07d626",
@@ -96,7 +93,6 @@
         "transport": "browser",
         "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/registres-matricules",
         "engine": "arko_default_685aa21544ef5",
-        "content_ids": ["693009"],
         "display_mode": "arko_default_685aa46155e7a",
         "fields": {
           "locality": "arko_default_685aa31d0d8e2",
@@ -119,7 +115,6 @@
         "transport": "browser",
         "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/controle-des-actes-et-enregistrement",
         "engine": "arko_default_6863e881f24c5",
-        "content_ids": ["684401"],
         "display_mode": "arko_default_6863e9f3cf0c8",
         "fields": {
           "locality": "arko_default_6863e952bc23e",

@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/etat-civil",
         "engine": "arko_default_603517b8650b3",
-        "content_ids": ["687638"],
         "display_mode": "arko_default_60351d21d72ee",
         "fields": {
           "locality": "arko_default_616d87384282a",
@@ -50,7 +49,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/recensements-de-la-population",
         "engine": "arko_default_6040e10bf3e4b",
-        "content_ids": ["685229"],
         "display_mode": "arko_default_6040e21044e9b",
         "fields": {
           "locality": "arko_default_6040e1579c8d2",
@@ -72,7 +70,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/registres-militaires/registres-militaires-recherche-par-registres",
         "engine": "arko_default_60363483e20cb",
-        "content_ids": ["699609"],
         "display_mode": "arko_default_603635f3e2209",
         "fields": {
           "locality": "arko_default_60363574d9003",
@@ -98,7 +95,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/registres-militaires/registres-militaires-recherche-par-registres",
         "engine": "arko_default_60363483e20cb",
-        "content_ids": ["699609"],
         "display_mode": "arko_default_603635f3e2209",
         "fields": {
           "locality": "arko_default_69ad81b02f941",
@@ -124,7 +120,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/declarations-et-tables-des-successions-1790-1968",
         "engine": "arko_default_6040ed485345e",
-        "content_ids": ["472988"],
         "display_mode": "arko_default_6040ee15d4fc7",
         "fields": {
           "locality": "arko_default_6040ed940dd77",

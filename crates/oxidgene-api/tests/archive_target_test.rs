@@ -27,6 +27,9 @@ const AD44_ONE: &str = include_str!("../../oxidgene-archives/fixtures/arkotheque
 const AD44_VIEWER: &str =
     include_str!("../../oxidgene-archives/fixtures/arkotheque/ad44-viewer.json");
 const AD44_INFO: &str = include_str!("../../oxidgene-archives/fixtures/arkotheque/ad44-info.json");
+/// The search page, read first for the content identifiers of its engine.
+const AD44_SEARCH_PAGE: &str =
+    include_str!("../../oxidgene-archives/fixtures/arkotheque/ad44-search-page.html");
 
 /// A Loire-Atlantique register, a portal any client reaches; the citation's
 /// page names the act and the view.
@@ -101,6 +104,8 @@ impl PortalFetch for Fetch {
             let url = request.url.as_str();
             let body = if url.starts_with("/_recherche-api/moteur?") {
                 search
+            } else if url.starts_with("/chercher/") {
+                AD44_SEARCH_PAGE
             } else if url.starts_with("/_recherche-api/visionneuse-infos/") {
                 AD44_VIEWER
             } else if url.starts_with("/_recherche-images/") && url.ends_with("/info.json") {

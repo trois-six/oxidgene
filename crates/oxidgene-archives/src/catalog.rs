@@ -473,7 +473,6 @@ mod tests {
             "origin": "https://archives.example.org",
             "search_path": search_path,
             "engine": "arko_default_000000000001",
-            "content_ids": ["1"],
             "display_mode": "arko_default_000000000002",
             "fields": { "locality": "arko_default_000000000003", "act": "arko_default_000000000004" },
             "acts": {

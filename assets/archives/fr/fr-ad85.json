@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/consulter/etat-civil-et-recensements/etat-civil",
         "engine": "arko_default_643d0101d83ae",
-        "content_ids": ["688016"],
         "display_mode": "arko_default_643d01a9df905",
         "fields": {
           "locality": "arko_default_643d01a17501e",
@@ -47,7 +46,6 @@
         "transport": "browser",
         "search_path": "/consulter/etat-civil-et-recensements/etat-civil",
         "engine": "arko_default_643d0101d83ae",
-        "content_ids": ["688016"],
         "display_mode": "arko_default_643d01a9df905",
         "fields": {
           "locality": "arko_default_643d01a17501e"
@@ -70,7 +68,6 @@
         "transport": "browser",
         "search_path": "/consulter/etat-civil-et-recensements/listes-nominatives-recensements-de-population",
         "engine": "arko_default_643d0253983b3",
-        "content_ids": ["688000"],
         "display_mode": "arko_default_643d0301cf693",
         "fields": {
           "locality": "arko_default_643d029dedcdc",

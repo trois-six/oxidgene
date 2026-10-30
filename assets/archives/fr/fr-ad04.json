@@ -18,7 +18,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/etat-civil/actes-etat-civil",
         "engine": "arko_default_6704d5bc7830f",
-        "content_ids": ["115742"],
         "display_mode": "arko_default_6704d61aa1ace",
         "fields": {
           "locality": "arko_default_6704d5d99881d",
@@ -52,7 +51,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/etat-civil/actes-paroissiaux",
         "engine": "arko_default_674d9f3f32f92",
-        "content_ids": ["116127"],
         "display_mode": "arko_default_674da1a7c748c",
         "fields": {
           "locality": "arko_default_674d9ff4b9101",
@@ -82,7 +80,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/etat-civil/tables-decennales",
         "engine": "arko_default_674daf40ce8b9",
-        "content_ids": ["116136"],
         "display_mode": "arko_default_674db0b9da797",
         "fields": {
           "locality": "arko_default_674daffeab540",
@@ -105,7 +102,6 @@
         "transport": "browser",
         "search_path": "/rechercher/archives-en-ligne/recensements-de-la-population",
         "engine": "arko_default_67111213b7ada",
-        "content_ids": ["115756"],
         "display_mode": "arko_default_671113fb88e27",
         "fields": {
           "locality": "arko_default_67111344779b7",

@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/etat-civil-de-la-haute-loire",
         "engine": "arko_default_616fd22b91d20",
-        "content_ids": ["2508036"],
         "display_mode": "arko_default_616fd47714b7b",
         "fields": {
           "locality": "arko_default_616fd46414cf1",
@@ -49,7 +48,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-decennales-et-cantonales-de-letat-civil",
         "engine": "arko_default_6155b2b4c96b4",
-        "content_ids": ["2508057"],
         "display_mode": "arko_default_615c3290d76bb",
         "fields": {
           "locality": "arko_default_615c3271179ac"
@@ -70,7 +68,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/recensements-de-population",
         "engine": "arko_default_615c3449307fa",
-        "content_ids": ["2508066"],
         "display_mode": "arko_default_615c35a86fac8",
         "fields": {
           "locality": "arko_default_615c35995d4e0",
@@ -92,7 +89,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-et-registres-matricules-militaires",
         "engine": "arko_default_616fd4be9e095",
-        "content_ids": ["2512873"],
         "display_mode": "arko_default_616fd648a113e",
         "fields": {
           "act": "arko_default_616fd62e0eb33",
@@ -118,7 +114,6 @@
         "transport": "browser",
         "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-du-controle-des-actes-et-de-lenregistrement",
         "engine": "arko_default_616fd68c54a1b",
-        "content_ids": ["2508096"],
         "display_mode": "arko_default_616fd806d2663",
         "fields": {
           "locality": "arko_default_616fd7da1900b",

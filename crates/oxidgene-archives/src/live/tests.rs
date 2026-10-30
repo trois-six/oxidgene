@@ -144,36 +144,62 @@ fn builds_its_citation_from_the_portal_and_resolves_it() {
 fn discovers_with_a_handful_of_sequential_requests() {
     let transport = Scripted::new();
     let report = check(&transport);
-    // The page, the engine, the discovery search and the chosen register's
-    // viewer, which counts its images, then a search and the viewer per
-    // resolution, with and without the call number.
+    // The page, the engine, the page again for its content, the discovery
+    // search and the chosen register's viewer, which counts its images,
+    // then the page, a search and the viewer per resolution, with and
+    // without the call number.
     let requests = transport.requests.lock().unwrap().clone();
-    assert_eq!(report.requests, 9);
-    assert_eq!(requests.len(), 9);
+    assert_eq!(report.requests, 12);
+    assert_eq!(requests.len(), 12);
     // The portal's pace first, then its search page and engine.
     assert_eq!(requests[0], "/robots.txt");
     let requests = &requests[1..];
     assert_eq!(requests[0], "/chercher/etat-civil-et-registres-paroissiaux");
-    assert!(requests[1].contains("contenuIds"));
+    assert!(requests[1].contains("--contenuIds%5B%5D=1290186"));
     assert!(!requests[1].contains("ficheFocus"));
     // The discovery searches the first listed locality and the first act,
     // without a year.
-    assert!(requests[2].contains("Exampleville"));
-    assert!(requests[2].contains("Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3"));
-    assert!(!requests[2].contains("slider"));
-    assert!(requests[3].starts_with("/_recherche-api/visionneuse-infos/"));
-    assert!(requests[4].contains("1658%7C1658"));
+    assert_eq!(requests[2], "/chercher/etat-civil-et-registres-paroissiaux");
+    assert!(requests[3].contains("Exampleville"));
+    assert!(requests[3].contains("Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3"));
+    assert!(!requests[3].contains("slider"));
+    assert!(requests[4].starts_with("/_recherche-api/visionneuse-infos/"));
+    assert_eq!(requests[5], "/chercher/etat-civil-et-registres-paroissiaux");
+    assert!(requests[6].contains("1658%7C1658"));
+}
+
+/// A portal renumbers its contents whenever it rebuilds its pages: the
+/// check, as resolution, sends those the page gives the engine now.
+#[test]
+fn a_renumbered_content_is_read_from_the_page() {
+    let mut transport = Scripted::new();
+    transport.page = SEARCH_PAGE.replace("data-contenu=\"1290186\"", "data-contenu=\"1\"");
+    let report = check(&transport);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.failure);
+    let requests = transport.requests.lock().unwrap().clone();
+    let engine = requests
+        .iter()
+        .filter(|r| r.starts_with("/_recherche-api/moteur?"));
+    for request in engine {
+        let contents: Vec<&str> = request
+            .split('&')
+            .filter(|part| part.contains("--contenuIds"))
+            .collect();
+        assert_eq!(contents, ["arko_default_6a6b4ac0309a5--contenuIds%5B%5D=1"]);
+    }
 }
 
 #[test]
 fn reports_what_the_portal_lacks_as_drift() {
     let mut transport = Scripted::new();
-    transport.page = SEARCH_PAGE.replace("data-contenu=\"1290186\"", "data-contenu=\"1\"");
+    transport.page = SEARCH_PAGE
+        .replace("data-contenu=\"1290185\" ", "")
+        .replace("data-contenu=\"1290186\" ", "");
     let report = check(&transport);
     assert_eq!(report.outcome, Outcome::Drift);
     let failure = report.failure.unwrap();
     assert_eq!(failure.step, Step::SearchPage);
-    assert_eq!(failure.received, "missing: content 1290186");
+    assert_eq!(failure.received, "missing: content");
     assert_eq!(report.opening, None);
 
     let mut transport = Scripted::new();

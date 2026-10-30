@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/fonds-numerises/etat-civil",
         "engine": "arko_default_61a0b234355b3",
-        "content_ids": ["387008"],
         "display_mode": "arko_default_61a0b365ba252",
         "fields": {
           "locality": "arko_default_61a0b2b3cb0f3",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/fonds-numerises/recensements-de-population",
         "engine": "arko_default_61a0ae5412613",
-        "content_ids": ["388809"],
         "display_mode": "arko_default_61a0af55b85ed",
         "fields": {
           "locality": "arko_default_61a0aef03216d",
@@ -74,7 +72,6 @@
         "transport": "browser",
         "search_path": "/fonds-numerises/registres-matricules-militaires/consultation-des-tables-et-registres",
         "engine": "arko_default_61a0af701dbbd",
-        "content_ids": ["389787"],
         "display_mode": "arko_default_61a0b074b396a",
         "fields": {
           "locality": "arko_default_61a0afd2eb0bd",
@@ -101,7 +98,6 @@
         "transport": "browser",
         "search_path": "/fonds-numerises/registres-matricules-militaires/consultation-des-tables-et-registres",
         "engine": "arko_default_61a0af701dbbd",
-        "content_ids": ["389787"],
         "display_mode": "arko_default_61a0b074b396a",
         "fields": {
           "locality": "arko_default_61a0afd2eb0bd",
@@ -128,7 +124,6 @@
         "transport": "browser",
         "search_path": "/fonds-numerises/enregistrement-sous-serie-3-q",
         "engine": "arko_default_620a54016cd23",
-        "content_ids": ["403809"],
         "display_mode": "arko_default_620a64a9a3ae8",
         "fields": {
           "locality": "arko_default_620f7fbeeedbd",

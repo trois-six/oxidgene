@@ -18,7 +18,6 @@
         "transport": "browser",
         "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/etat-civil-et-registres-paroissiaux",
         "engine": "arko_default_6825f9c6950b1",
-        "content_ids": ["714088"],
         "display_mode": "arko_default_6825feeddb0b9",
         "fields": {
           "locality": "arko_default_6825fa8970a3c",
@@ -51,7 +50,6 @@
         "transport": "browser",
         "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/recensements-de-population",
         "engine": "arko_default_6841a02713045",
-        "content_ids": ["714168"],
         "display_mode": "arko_default_6841a676df74e",
         "fields": {
           "locality": "arko_default_6841a23ec5162",
@@ -73,7 +71,6 @@
         "transport": "browser",
         "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/registres-matricules-militaires",
         "engine": "arko_default_67fcd5fcb1798",
-        "content_ids": ["718419"],
         "display_mode": "arko_default_67fcd74de1b83",
         "fields": {
           "locality": "arko_default_67fcd6447e69c",
@@ -100,7 +97,6 @@
         "transport": "browser",
         "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/tables-de-successions-et-absences",
         "engine": "arko_default_6808b90641494",
-        "content_ids": ["725647"],
         "display_mode": "arko_default_6808ba6660989",
         "fields": {
           "locality": "arko_default_6808b962c96a1",

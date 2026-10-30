@@ -485,6 +485,40 @@ impl EngineAnswer {
 
 /// A filter value without its record key: `Exampleville` for
 /// `Exampleville[[arko_fiche_…]]`.
+/// The content identifiers the search page gives `engine`, read as the
+/// page's own script reads them: the `data-contenu` of the engine's filter
+/// components (`data-component="filtres"`), failing any those of its result
+/// components. A page naming none is a page the adapter cannot read.
+pub(super) fn content_ids(page: &str, engine: &str) -> Result<Vec<String>, ResolveError> {
+    let components: Vec<(String, String)> = page
+        .split('<')
+        .filter_map(|tag| {
+            let tag = &tag[..tag.find('>')?];
+            (markup::attribute(tag, "data-moteur")? == engine).then_some(())?;
+            let id = markup::attribute(tag, "data-contenu")?;
+            let numeric = !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit());
+            numeric.then_some((markup::attribute(tag, "data-component")?, id))
+        })
+        .collect();
+    let of = |kind: &str| -> Vec<String> {
+        components
+            .iter()
+            .filter(|(component, _)| component == kind)
+            .map(|(_, id)| id.clone())
+            .collect()
+    };
+    let ids = Some(of("filtres"))
+        .filter(|ids| !ids.is_empty())
+        .unwrap_or_else(|| of("resultats"));
+    if ids.is_empty() {
+        return Err(markup::unreadable(
+            page,
+            "arkotheque: the search page names no content of the engine".to_owned(),
+        ));
+    }
+    Ok(ids)
+}
+
 pub(super) fn without_key(value: &str) -> &str {
     value
         .split_once("[[")

@@ -17,7 +17,6 @@
         "transport": "browser",
         "search_path": "/faire-vos-recherches/archives-numerisees/etat-civil",
         "engine": "arko_default_61e6b3f775f99",
-        "content_ids": ["2134922"],
         "display_mode": "arko_default_61e6b60a6943c",
         "fields": {
           "locality": "arko_default_61e6b4731902f",
@@ -49,7 +48,6 @@
         "transport": "browser",
         "search_path": "/faire-vos-recherches/archives-numerisees/recensements-de-population",
         "engine": "arko_default_617a570882544",
-        "content_ids": ["2134945"],
         "display_mode": "arko_default_617a596b66bd3",
         "fields": {
           "locality": "arko_default_617a5768cc0b6",
@@ -71,7 +69,6 @@
         "transport": "browser",
         "search_path": "/faire-vos-recherches/archives-numerisees/registres-matricules-militaires",
         "engine": "arko_default_61e6e5dd36b3d",
-        "content_ids": ["2415826"],
         "display_mode": "arko_default_61e6e85b2d8bb",
         "fields": {
           "locality": "arko_default_61e6e66029535",
@@ -99,7 +96,6 @@
         "transport": "browser",
         "search_path": "/faire-vos-recherches/archives-numerisees/tables-de-successions",
         "engine": "arko_default_617a4c4f3c3b4",
-        "content_ids": ["2239647"],
         "display_mode": "arko_default_617a4e0d4b4b0",
         "fields": {
           "locality": "arko_default_617a4ce42b3d5",

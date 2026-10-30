@@ -30,7 +30,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860/consulter-les-actes-detat-civil",
         "engine": "arko_default_64ca19f9b29b5",
-        "content_ids": ["10873331"],
         "display_mode": "arko_default_64ca1b2347e81",
         "fields": {
           "locality": "arko_default_64ca1a89a5742",
@@ -62,7 +61,6 @@
         "transport": "any",
         "search_path": "/archives-numerisees/sources-genealogiques-complementaires/cimetieres-et-pompes-funebres/cimetieres/consulter-les-registres-journaliers-dinhumation",
         "engine": "arko_default_64c11d444499f",
-        "content_ids": ["10841969"],
         "display_mode": "arko_default_64c11df9e0c32",
         "fields": {
           "locality": { "ref": "arko_default_64c11dabb5212", "mode": "select" },
