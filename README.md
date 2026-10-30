@@ -11,13 +11,9 @@ statistics on a map, consistency tools, kinship, cited registers opened on
 the archives' own sites, and a history of every change. It runs as a desktop
 application that works offline, or as a web deployment for your own server.
 
-<table align="center">
-	<tr>
-		<td valign="middle"><a href="https://trois-six.github.io/oxidgene/#tour-15" title="Previous view, in the interactive tour"><b>‹</b></a></td>
-		<td><img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="840"></td>
-		<td valign="middle"><a href="https://trois-six.github.io/oxidgene/#tour-2" title="Next view, in the interactive tour"><b>›</b></a></td>
-	</tr>
-</table>
+<p align="center">
+	<img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, media viewer, fan chart, couple, statistics map, kinship, search, sources and places of the dictionary, tags, media library, ancestry completeness, history and themes, on a fictitious family" width="900">
+</p>
 
 <sub>The family shown is fictitious; the portraits are public-domain studio
 photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credits</a>).</sub>
