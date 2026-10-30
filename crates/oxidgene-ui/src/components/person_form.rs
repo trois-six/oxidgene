@@ -192,24 +192,36 @@ enum FormOpening {
 #[component]
 pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut created = use_signal(|| None::<(Uuid, FormOpening)>);
-    match created() {
-        Some((person_id, opening)) => rsx! {
-            PersonFormBody {
-                key: "{person_id}",
-                form: PersonFormProps {
-                    person_id: Some(person_id),
-                    create_context: None,
-                    ..props
+    // The edit form of the created person is a new body, with its own state
+    // and its own loads. Dioxus compares keys between siblings only: the
+    // body is therefore a child, keyed, not the root this component
+    // returns, whose key is never read. As the root, both arms render the
+    // same template — one component — and a release build, which merges
+    // identical templates, kept the create body with the edit props.
+    rsx! {
+        {
+            match created() {
+                Some((person_id, opening)) => rsx! {
+                    PersonFormBody {
+                        key: "{person_id}",
+                        form: PersonFormProps {
+                            person_id: Some(person_id),
+                            create_context: None,
+                            ..props
+                        },
+                        opening,
+                    }
                 },
-                opening,
+                None => rsx! {
+                    PersonFormBody {
+                        // No person yet: the nil id, which none has.
+                        key: "{Uuid::nil()}",
+                        form: props,
+                        on_created: move |created_as: (Uuid, FormOpening)| created.set(Some(created_as)),
+                    }
+                },
             }
-        },
-        None => rsx! {
-            PersonFormBody {
-                form: props,
-                on_created: move |created_as: (Uuid, FormOpening)| created.set(Some(created_as)),
-            }
-        },
+        }
     }
 }
 
