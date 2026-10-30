@@ -30,6 +30,7 @@ technical documentation, and runs Zola on them:
 live reload.
 """
 
+import ast
 import json
 import os
 import re
@@ -333,6 +334,24 @@ def statics() -> None:
     shutil.copy2(ROOT / "assets" / "brand" / "logo_64.png", STATIC / "favicon.png")
 
 
+def tour() -> list[str]:
+    """The home pages whose tour does not show the README carousel's
+    screenshots (CAROUSEL in scripts/screenshots.py) in its order."""
+    script = ast.parse((ROOT / "scripts" / "screenshots.py").read_text(encoding="utf-8"))
+    carousel = next(
+        ast.literal_eval(node.value)
+        for node in script.body
+        if isinstance(node, ast.Assign) and any(getattr(target, "id", None) == "CAROUSEL" for target in node.targets)
+    )
+    drifted = []
+    for home in sorted((SITE / "content").glob("_index*.md")):
+        block = re.search(r"^tour = \[\n(.*?)^\]", home.read_text(encoding="utf-8"), re.DOTALL | re.MULTILINE)
+        names = re.findall(r'name = "([^"]+)"', block.group(1)) if block else []
+        if names != carousel:
+            drifted.append(f"site/content/{home.name}")
+    return drifted
+
+
 def rustdoc() -> None:
     """The rustdoc of the library crates, which also builds the API crate
     and so writes the OpenAPI document `rest_reference` reads."""
@@ -352,6 +371,10 @@ def prepare() -> int:
     shutil.rmtree(TECH, ignore_errors=True)
     TECH.mkdir(parents=True)
     statics()
+    drifted = tour()
+    if drifted:
+        print(f"{', '.join(drifted)}: `tour` differs from CAROUSEL in scripts/screenshots.py", file=sys.stderr)
+        return 1
     names = specifications()
     for weight, name in enumerate(names, start=1):
         text = (DOCS / name).read_text(encoding="utf-8")

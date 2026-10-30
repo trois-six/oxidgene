@@ -1177,9 +1177,9 @@ builds it from `site/`; its version is pinned in `mise.toml` and in
 | Path | Contents |
 |---|---|
 | `site/content/guide/`, `site/content/workflows/` | The user guide and the workflows, one Markdown page per subject, `name.md` in English and `name.fr.md` in French |
-| `site/content/_index.md`, `_index.fr.md` | The home page's text, in its front matter |
+| `site/content/_index.md`, `_index.fr.md` | The home page's text, in its front matter, the tour's captions among it |
 | `site/templates/` | The layout, and the components the pages call, such as the screenshot (`{{ <screenshot name="pedigree" alt="…" lang={lang} /> }}`) |
-| `site/static/` | The stylesheet, in the application's colours and typefaces, and the search script |
+| `site/static/` | The stylesheet, in the application's colours and typefaces, the search script and the tour's script (`tour.js`) |
 | `site/config.toml` | The site, its two languages and the template texts in each |
 
 `uv run scripts/site.py build` (`just site`) documents the library crates
@@ -1203,6 +1203,31 @@ that describe it, in both languages, quoting the interface's labels from
 images it changes. A page shows the French capture of a screenshot when there
 is one, the English one otherwise. Zola fails on a broken internal link or
 anchor, so `just site` checks the pages' links.
+
+The home page opens on a tour of the application (`id="tour"`): the
+screenshots of the README carousel, in the order of `CAROUSEL` in
+`scripts/screenshots.py`, as stills rather than the animated image, each in
+the page's language when it was captured in it and with a caption from the
+front matter's `tour` list. One shows at a time, its caption beneath, then a
+row of controls: a pause and play button, previous and next, and a dot per
+screenshot, the current one an elongated accent-coloured pill marked
+`aria-current` (below 640 pixels wide, a counter such as "3 / 17" replaces
+the dots). `site/static/tour.js` drives it, without dependencies, after the
+WAI-ARIA carousel pattern: the arrow keys, Home and End while the focus is in
+it, a horizontal swipe on a touch screen, and a rotation every five seconds
+that runs only while the tour is on screen, pauses under the mouse or the
+keyboard focus, stops once the reader picks a screenshot, and starts off when
+the system asks for reduced motion, which also drops the cross-fade. The
+address names the screenshot shown, `#tour-N` counting from 1: the page
+opens at it, the tour scrolled into view, and the hash follows the reader
+without adding to the history. The tour is never wider than lets it fit the
+window whole, caption and controls included, below the sticky header, so
+that a link to `#tour` (the README's carousel links there) shows all of it.
+The images are lazy, with their dimensions,
+so nothing moves as they load; only the one shown and its two neighbours are
+fetched. Without JavaScript the first screenshot shows alone, its controls
+hidden. `scripts/site.py` fails when either language's `tour` names other
+screenshots than `CAROUSEL`, or in another order.
 
 `.github/workflows/pages.yml` builds the site and deploys it on every push to
 `main` that touches the site, the specifications, the screenshots or the

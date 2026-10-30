@@ -6,7 +6,27 @@ description = "Une application de généalogie libre pour l’ordinateur et le w
 headline = "Votre histoire familiale, entre vos mains"
 platforms = "Windows · macOS · Linux · votre propre serveur web — logiciel libre"
 start = "@/guide/install.md"
-tour_alt = "Visite d’OxidGene : arbre, fiche individuelle, roue, couple, carte des lieux, parenté, recherche, médiathèque, historique et réglages"
+tour_title = "Visite de l’application"
+# The tour, in the order of CAROUSEL in scripts/screenshots.py.
+tour = [
+    { name = "pedigree", caption = "L’arbre et son panneau d’événements" },
+    { name = "person", caption = "La fiche d’une personne" },
+    { name = "events-timeline", caption = "Les événements d’une personne avec leurs sources et leurs documents" },
+    { name = "archive-register", caption = "Un registre cité ouvert sur le portail des archives" },
+    { name = "media-viewer", caption = "Une photographie dans la visionneuse, avec les personnes qu’elle montre" },
+    { name = "fan-chart-dark", caption = "Une roue dans le thème sombre" },
+    { name = "couple", caption = "La fiche d’un couple" },
+    { name = "statistics-map", caption = "Les lieux sur une carte de chaleur" },
+    { name = "kinship", caption = "La parenté entre deux cousins" },
+    { name = "search", caption = "Une recherche et ses filtres" },
+    { name = "dictionary-sources", caption = "Les sources du dictionnaire" },
+    { name = "dictionary-places", caption = "Les lieux du dictionnaire" },
+    { name = "tags", caption = "Les étiquettes du dictionnaire" },
+    { name = "media-library", caption = "La médiathèque" },
+    { name = "tools-ancestry", caption = "La complétude de l’ascendance, génération par génération" },
+    { name = "history", caption = "L’historique d’une personne, comparé" },
+    { name = "app-settings-dark", caption = "Les thèmes de l’application" },
+]
 
 steps_title = "Commencez votre généalogie en trois étapes"
 steps = [

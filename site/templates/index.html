@@ -4,6 +4,9 @@
 
 {% block languages %}{{<languages translations={section.translations} lang={lang} />}}{% endblock languages %}
 
+{#- Without JavaScript the tour shows its first screenshot alone. -#}
+{% block head %}<noscript><style>.tour-controls { display: none; }</style></noscript>{% endblock head %}
+
 {% block main %}
 {%- set x = section.extra %}
 <section class="hero">
@@ -17,9 +20,44 @@
     <p class="platforms">{{ x.platforms }}</p>
 </section>
 
-<div class="tour">
-    <img src="{{ get_url(path='screenshots/readme-carousel.webp') }}" alt="{{ x.tour_alt }}" width="1200" height="750">
-</div>
+{#- The tour: the README carousel's screenshots (CAROUSEL in
+    scripts/screenshots.py, which scripts/site.py checks `tour` against),
+    one at a time, in the page's language when captured in it. tour.js
+    drives it; without it the first one shows, its controls hidden. -#}
+{%- set count = x.tour | length %}
+<section class="tour" id="tour" aria-roledescription="{{ trans(key='tour_carousel', lang=lang) }}" aria-label="{{ x.tour_title }}"
+    data-play="{{ trans(key='tour_play', lang=lang) }}" data-pause="{{ trans(key='tour_pause', lang=lang) }}">
+    <div class="tour-slides" aria-live="polite">
+    {%- for f in x.tour %}
+        {%- set localized = "screenshots/" ~ lang ~ "/" ~ f.name ~ ".webp" %}
+        {%- set file = localized if get_image_metadata(path=localized, allow_missing=true) else "screenshots/" ~ f.name ~ ".webp" %}
+        {%- set meta = get_image_metadata(path=file) %}
+        <figure class="tour-slide" role="group" aria-roledescription="{{ trans(key='tour_slide', lang=lang) }}" aria-label="{{ loop.index }} / {{ count }}"{% if not loop.first %} hidden{% endif %}>
+            <img src="{{ get_url(path=file) }}" alt="{{ f.caption }}" width="{{ meta.width }}" height="{{ meta.height }}"{% if loop.first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} decoding="async">
+            <figcaption aria-hidden="true">{{ f.caption }}</figcaption>
+        </figure>
+    {%- endfor %}
+    </div>
+    <div class="tour-controls">
+        <button type="button" class="tour-button tour-play" aria-label="{{ trans(key='tour_pause', lang=lang) }}">
+            <svg class="icon-pause" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1"/><rect x="9.5" y="2.5" width="3" height="11" rx="1"/></svg>
+            <svg class="icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4a.8.8 0 0 0 1.2.7l8.2-5.2a.8.8 0 0 0 0-1.4L5.7 2.1a.8.8 0 0 0-1.2.7z"/></svg>
+        </button>
+        <button type="button" class="tour-button tour-prev" aria-label="{{ trans(key='tour_previous', lang=lang) }}">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
+        </button>
+        <div class="tour-dots" role="group" aria-label="{{ trans(key='tour_choose', lang=lang) }}">
+        {%- for f in x.tour %}
+            <button type="button" aria-label="{{ f.caption }}"{% if loop.first %} aria-current="true"{% endif %}></button>
+        {%- endfor %}
+        </div>
+        <span class="tour-count" aria-hidden="true">1 / {{ count }}</span>
+        <button type="button" class="tour-button tour-next" aria-label="{{ trans(key='tour_next', lang=lang) }}">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
+        </button>
+    </div>
+</section>
+<script src="{{ get_url(path='tour.js', cachebust=true) }}" defer></script>
 
 <div class="home-sections">
     <section class="band">

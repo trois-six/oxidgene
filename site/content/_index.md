@@ -6,7 +6,27 @@ description = "A free genealogy application for the desktop and the web: import,
 headline = "Your family history, in your hands"
 platforms = "Windows · macOS · Linux · your own web server — free software"
 start = "@/guide/install.md"
-tour_alt = "A tour of OxidGene: pedigree, person page, fan chart, couple, places map, kinship, search, media library, history and settings"
+tour_title = "A tour of the application"
+# The tour, in the order of CAROUSEL in scripts/screenshots.py.
+tour = [
+    { name = "pedigree", caption = "The pedigree and its events panel" },
+    { name = "person", caption = "A person's page" },
+    { name = "events-timeline", caption = "A person's events with their sources and documents" },
+    { name = "archive-register", caption = "A cited register opened on the archive's portal" },
+    { name = "media-viewer", caption = "A photograph in the media viewer, with the persons it shows" },
+    { name = "fan-chart-dark", caption = "A fan chart in the dark theme" },
+    { name = "couple", caption = "A couple's page" },
+    { name = "statistics-map", caption = "The places on a heat map" },
+    { name = "kinship", caption = "Kinship between two cousins" },
+    { name = "search", caption = "A search with its filters" },
+    { name = "dictionary-sources", caption = "The sources of the dictionary" },
+    { name = "dictionary-places", caption = "The places of the dictionary" },
+    { name = "tags", caption = "The tags of the dictionary" },
+    { name = "media-library", caption = "The media library" },
+    { name = "tools-ancestry", caption = "Ancestry completeness, generation by generation" },
+    { name = "history", caption = "A person's history, compared" },
+    { name = "app-settings-dark", caption = "The application's themes" },
+]
 
 steps_title = "Start your genealogy in three steps"
 steps = [

@@ -9,6 +9,7 @@
     <link rel="icon" type="image/png" href="{{ get_url(path='favicon.png') }}">
     <link rel="stylesheet" href="{{ get_url(path='style.css', cachebust=true) }}">
     {%- block alternates %}{% endblock alternates %}
+    {%- block head %}{% endblock head %}
 </head>
 <body>
     <a class="skip" href="#main">{{ trans(key="skip", lang=lang) }}</a>
