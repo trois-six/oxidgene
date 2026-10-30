@@ -256,6 +256,12 @@ impl HistoryRepo {
         tree_id: Uuid,
         limit: u64,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
+        // Entry IDs are UUID v7: the greatest is the latest write. PostgreSQL
+        // has no `max(uuid)`; the canonical text form orders as the bytes do.
+        let latest = match db.get_database_backend() {
+            sea_orm::DatabaseBackend::Postgres => Expr::cust("MAX(audit_entry.id::text)"),
+            _ => audit_entry::Column::Id.max(),
+        };
         audit_entry::Entity::find()
             .select_only()
             .column(audit_entry::Column::SubjectId)
@@ -267,8 +273,7 @@ impl HistoryRepo {
                  AND person.deleted_at IS NULL)",
             ))
             .group_by(audit_entry::Column::SubjectId)
-            // Entry IDs are UUID v7: the greatest is the latest write.
-            .order_by(audit_entry::Column::Id.max(), Order::Desc)
+            .order_by(latest, Order::Desc)
             .limit(limit)
             .into_tuple()
             .all(db)
