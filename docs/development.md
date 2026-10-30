@@ -164,7 +164,9 @@ Algorithmic complexity is tested at three levels.
 | `just dev-web-watch` | Run the API and browser application with hot reload for both processes. |
 
 `just web` uses `OXIDGENE_API_URL` when set; otherwise it connects to
-`http://127.0.0.1:8080`. Repository commands invoke Dioxus through
+`http://127.0.0.1:8080`. Set but empty, as the web image builds it by
+default, it makes the bundle call the API on the page's own origin, the one
+the Helm chart's ingress serves both from. Repository commands invoke Dioxus through
 `scripts/dx.sh`. The Dioxus rustc wrapper serializes its build environment under
 `target/dx/.captured-args`, so the launcher removes credential-shaped environment
 variables before starting `dx`. Direct `dx serve` and `dx build` invocations are

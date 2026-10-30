@@ -24,6 +24,26 @@ pub fn main() {
     dioxus::launch(WebApp);
 }
 
+/// The API's base URL: the one baked in at build time or, when that is empty
+/// (an image serving the API on the page's own origin, behind an ingress), the
+/// page's origin. The client needs an absolute URL: a relative one is never
+/// requested, and would make every address look like the backend's.
+fn api_base_url() -> String {
+    if !API_URL.is_empty() {
+        return API_URL.to_owned();
+    }
+    js_sys::Reflect::get(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str("location"),
+    )
+    .and_then(|location| {
+        js_sys::Reflect::get(&location, &wasm_bindgen::JsValue::from_str("origin"))
+    })
+    .ok()
+    .and_then(|origin| origin.as_string())
+    .expect("a page has an origin")
+}
+
 fn runtime_otlp_endpoint() -> Option<String> {
     let value = js_sys::Reflect::get(
         &js_sys::global(),
@@ -36,7 +56,7 @@ fn runtime_otlp_endpoint() -> Option<String> {
 
 #[component]
 fn WebApp() -> Element {
-    use_context_provider(|| ApiClient::new(API_URL));
+    use_context_provider(|| ApiClient::new(&api_base_url()));
     // No `CustomThemeSource` is provided: the browser build has no folder to
     // read themes from, so only the built-in ones are offered.
     rsx! { oxidgene_ui::App {} }
