@@ -3,7 +3,7 @@
 //! All tests run against an in-memory SQLite database using Axum's tower
 //! `ServiceExt::oneshot` for zero-network-overhead request testing.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
@@ -4641,7 +4641,7 @@ async fn a_merge_takes_the_chosen_name_sex_and_events() {
 /// committed so that suite needs no Rust to run: it must stay the generated
 /// `family_blocks_gedcom(3)`, thirty persons whose block 0 root is "Anchor".
 /// After changing the generator, rewrite it with
-/// `OXIDGENE_BLESS_E2E_FIXTURE=1 cargo nextest run -p oxidgene-api --test rest_test e2e_fixture`.
+/// `OXIDGENE_BLESS_E2E_FIXTURE=1 cargo nextest run -p oxidgene-api --test integration e2e_fixture`.
 #[tokio::test]
 async fn e2e_fixture_is_the_generated_family_blocks_tree() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

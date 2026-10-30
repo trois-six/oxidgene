@@ -5,7 +5,7 @@
 //! what both surfaces add around it: tree scoping, validation, and the person
 //! rows that come with the paths.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};

@@ -9,7 +9,7 @@
 //! ```text
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
 //!   cargo test --release -p oxidgene-geneanet \
-//!     --test phash_separation a_rendition_is_never_matched_to_the_wrong_original \
+//!     --test integration a_rendition_is_never_matched_to_the_wrong_original \
 //!     -- --ignored --nocapture
 //! ```
 //!
@@ -19,7 +19,7 @@
 //! ```text
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
 //!   cargo test --release -p oxidgene-geneanet \
-//!     --test phash_separation compare_full_and_reduced_decode \
+//!     --test integration compare_full_and_reduced_decode \
 //!     -- --ignored --nocapture
 //! ```
 //!

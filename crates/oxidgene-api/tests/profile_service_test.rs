@@ -6,7 +6,7 @@
 //! cache, these tests can assert what a cache never could: that a projection is
 //! durable across service instances and never observed stale after a mutation.
 
-mod common;
+use crate::common;
 
 use std::time::Instant;
 

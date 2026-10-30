@@ -6,7 +6,7 @@
 //! Each case runs over both surfaces with the same assertions. All data is
 //! fictitious.
 
-mod common;
+use crate::common;
 
 use axum::Router;
 use axum::http::{Method, StatusCode};

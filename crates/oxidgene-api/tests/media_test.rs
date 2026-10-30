@@ -3,7 +3,7 @@
 //! Each test gets its own SQLite database and its own media directory, so an
 //! upload in one cannot be observed by another, and nothing is left on disk.
 
-mod common;
+use crate::common;
 
 use std::io::Cursor;
 use std::path::PathBuf;

@@ -5,7 +5,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;

@@ -7,7 +7,7 @@
 //! "Anchor", is the SOSA root, with parents, grandparents, two siblings and
 //! a wife.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode, header};
 use common::{all_profiles, family_blocks_tree, gql_ok, ok, send, setup_db};

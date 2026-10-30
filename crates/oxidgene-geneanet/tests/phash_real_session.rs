@@ -33,7 +33,7 @@
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
 //! OXIDGENE_GENEANET_PAIRING_OUT=/tmp/pairing-reference.tsv \
 //!   cargo test --release -p oxidgene-geneanet \
-//!     --test phash_real_session the_matcher_resolves_a_real_session \
+//!     --test integration the_matcher_resolves_a_real_session \
 //!     -- --ignored --nocapture
 //! ```
 //!

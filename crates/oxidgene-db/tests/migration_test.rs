@@ -51,7 +51,8 @@ async fn test_migrate_up_and_down_sqlite() {
 ///
 /// ```text
 /// OXIDGENE_TEST_DATABASE_URL=postgres://fixture:fixture@localhost/fixture_test \
-///   cargo test -p oxidgene-db --features postgres --test migration_test -- --ignored
+///   cargo nextest run -p oxidgene-db --features postgres --test integration \
+///     --run-ignored only -E 'test(/^migration_test::/)'
 /// ```
 #[tokio::test]
 #[cfg(feature = "postgres")]

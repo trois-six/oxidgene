@@ -1,6 +1,6 @@
 //! Session readers share the same external collection and archive contract.
 
-mod common;
+use crate::common;
 
 use axum::{body::Body, http::Request};
 use base64::Engine as _;

@@ -12,7 +12,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

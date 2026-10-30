@@ -7,7 +7,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use oxidgene_core::history::{RecordSnapshot, RecordType};

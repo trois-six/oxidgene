@@ -13,7 +13,7 @@
 //! ```text
 //! OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
 //!   cargo test --release -p oxidgene-geneanet \
-//!     --test phash_cost where_a_perceptual_hash_spends_its_time \
+//!     --test integration where_a_perceptual_hash_spends_its_time \
 //!     -- --ignored --nocapture
 //! ```
 //!

@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -97,3 +98,9 @@ tracing-subscriber = { workspace = true }
 oxidgene-observability = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+
+# One integration test binary, linked once: `tests/integration.rs` declares
+# the other files of `tests/` as its modules (`autotests` is off).
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

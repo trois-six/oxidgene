@@ -3,7 +3,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use common::{app_on, import_gedcom, new_tree, setup_db};
 use oxidgene_db::entities::place;

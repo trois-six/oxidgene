@@ -1,10 +1,11 @@
 //! Repository guards: tests that read the workspace's sources, manifests and
 //! specifications and fail when they drift from the rules of `AGENTS.md`.
 //!
-//! The tests live under `tests/`, one file per rule; this library holds what
-//! they share. Nothing here is linked into a product binary. Each guard's
-//! module documentation says what drift it prevents and how to fix a
-//! failure; docs/development.md lists them with their tier and CI job.
+//! The tests are the modules of one test binary, `tests/integration.rs`, one
+//! per rule; this library holds what they share. Nothing here is linked
+//! into a product binary. Each guard's module documentation says what drift
+//! it prevents and how to fix a failure; docs/development.md lists them
+//! with their tier and CI job.
 
 use std::path::{Path, PathBuf};
 

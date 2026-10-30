@@ -19,7 +19,7 @@
 //! opt-in: `just scaling` runs them in release mode. The SQL side of the
 //! same question is answered deterministically by `query_scaling_test`.
 
-mod common;
+use crate::common;
 
 use std::collections::{HashMap, HashSet};
 use std::hint::black_box;

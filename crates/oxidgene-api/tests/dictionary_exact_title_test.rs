@@ -5,7 +5,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use common::{app_on, gql, gql_ok, new_tree, ok, send, setup_db};

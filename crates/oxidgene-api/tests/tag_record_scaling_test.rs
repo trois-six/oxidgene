@@ -1,12 +1,13 @@
 //! The batched reads of places, repositories and notes cost the same whatever
 //! the number of records they return, the place dictionary included. Counting
-//! statements is deterministic, so this runs in the normal suite. It lives in
-//! its own test binary: the statement counter is a tracing layer, and other
-//! tests running alongside it would skew the callsite interest it relies on.
+//! statements is deterministic, so this runs in the normal suite, where
+//! nextest gives each test a process of its own: the statement counter is a
+//! tracing layer, and other tests running alongside it in one process would
+//! skew the callsite interest it relies on.
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

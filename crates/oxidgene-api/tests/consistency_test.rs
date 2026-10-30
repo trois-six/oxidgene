@@ -5,7 +5,7 @@
 //! so that a rule enforced on one and forgotten on the other fails here. All
 //! data is fictitious.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use serde_json::json;

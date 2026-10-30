@@ -240,7 +240,7 @@ jobs:
 
   # ── Tier 2 ────────────────────────────────────────────────────────────
 
-  # The integration test targets, the database guards of `guards_test`
+  # The integration test targets, the database guards of oxidgene-api
   # included: cross-tree access, pagination, purge, history, log privacy,
   # REST/GraphQL parity, and the statement counts of `query_scaling_test`;
   # then the SQL plans, from the same build.
@@ -257,7 +257,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The test executables are not kept, at 6 GB: each one relinks.
+      # The test executables are not kept: one per crate, they relink in seconds.
       - id: cache
         uses: ./.github/actions/rust-build-cache
         with:
@@ -270,7 +270,7 @@ jobs:
       # `just sql-plans`: no statement scans a large table without an index.
       # The workspace build enables GraphQL, as `--features graphql` does.
       - name: Read the query plans
-        run: cargo nextest run --locked --workspace --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+        run: cargo nextest run --locked --workspace --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6

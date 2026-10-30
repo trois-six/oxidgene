@@ -1,6 +1,6 @@
 //! Shared media validation must protect both public API surfaces.
 
-mod common;
+use crate::common;
 
 use axum::{
     Router,

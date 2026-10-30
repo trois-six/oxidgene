@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-30T09:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T17:15:00Z }
 ---
 
 # Development Environment and Workflows
@@ -355,6 +355,16 @@ runs it (`just bench`, `just test-postgres`, `just test-s3`,
 `just real-import`, `just scaling`, `just import-memory`,
 `just archives-live`), and a guard fails on a reason that names none.
 
+Each crate builds a single integration test binary, `tests/integration.rs`,
+which declares the other files of `tests/` as its modules: Cargo would
+otherwise build every file as an executable of its own, each linking the
+crate and all its dependencies again, some 200 MB apiece for
+`oxidgene-api`. The manifests turn `autotests` off for that, and the Test
+targets guard fails on a file no root declares, which would never run. A
+test is named after its file, as `rest_test::test_create_tree`, so one
+file's tests run with `--test integration -E 'test(/^rest_test::/)'`; nextest
+still runs every test in a process of its own.
+
 The GEDCOM round trip of oxidged's "every structure" conformance files
 (`crates/oxidgene-gedcom/tests/conformance_round_trip.rs`, fixtures and their
 licence in `fixtures/conformance/`) imports each file, exports it for its own
@@ -543,20 +553,21 @@ of both passed (the next-toolchain jobs report without failing).
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` is one release of pdf.js's legacy build, the one its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
+| Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
-| REST/GraphQL parity | 1 | `just test` (`guards_test`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
-| api.md and schema | 1 | `just test` (`guards_test`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
+| REST/GraphQL parity | 1 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
+| api.md and schema | 1 | `just test` (`guards` of `oxidgene-api`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
 | Clippy matrix | 1 | `just clippy`, `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features`, of `-p oxidgene-api` and of `-p oxidgene-archives --features native,live` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
 | Unused dependencies | 1 | `cargo machete` (in `just deps`) | Unused dependencies | No dependency declared and unused |
-| Stack depth | 2 | `just test` (`guards_test`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
-| Cross-tree access | 2 | `just test` (`guards_test`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
-| Pagination | 2 | `just test` (`guards_test`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
-| Purge completeness | 2 | `just test` (`guards_test`) | Functional tests | A purged tree leaves no row in any table and no file in the media store |
-| History without duplicates | 2 | `just test` (`guards_test`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
+| Stack depth | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
+| Cross-tree access | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
+| Pagination | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
+| Purge completeness | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | A purged tree leaves no row in any table and no file in the media store |
+| History without duplicates | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does |
-| Privacy of logs | 2 | `just test` (`guards_test`) | Functional tests | No span or event field carries a name, place, note or SQL value |
+| Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |
 | SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
 | Dependencies | 2 | `just deps` | Dependencies | No advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |

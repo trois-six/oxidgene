@@ -19,7 +19,7 @@
 //! SeaORM opens one `sea_orm.*` span per statement (its `tracing-spans`
 //! feature); a thread-local subscriber counts them for the request under test.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -75,7 +75,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Time the tree-wide computations
-        run: cargo nextest run --locked --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
+        run: cargo nextest run --locked --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
 
   # `just import-memory`: a Geneanet import of a generated tree against its
   # peak and retained memory budgets.
@@ -99,7 +99,7 @@ jobs:
       - name: Measure an import's memory
         run: |
           mkdir -p target/import-memory
-          TMPDIR="$PWD/target/import-memory" cargo nextest run --locked --release -p oxidgene-api --test import_memory_test --run-ignored only --no-capture
+          TMPDIR="$PWD/target/import-memory" cargo nextest run --locked --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^import_memory_test::/)'
 
   # The size of every shipped binary and the crates it links, against
   # scripts/budgets.json.

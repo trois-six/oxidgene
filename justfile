@@ -124,7 +124,7 @@ check: fmt-check clippy cyclomatic doc-check test
 # and a quiet machine. --no-capture runs the tests one at a time and shows
 # each growth.
 scaling:
-    cargo nextest run --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
+    cargo nextest run --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
 
 # Import your own exports end to end through the desktop's backend, in release
 # mode, and check the trees they produce (see docs/development.md). Opt-in: the
@@ -138,8 +138,8 @@ real-import *args:
     trap 'rm -rf "$work"' EXIT
     mkdir -p "$work/tmp"
     TMPDIR="$work/tmp" OXIDGENE_REAL_WORKDIR="$work" \
-      cargo nextest run --release -p oxidgene-api --test real_import_test \
-        --run-ignored only --no-capture {{ args }}
+      cargo nextest run --release -p oxidgene-api --test integration \
+        --run-ignored only --no-capture -E 'test(/^real_import_test::/)' {{ args }}
 
 # Measure the memory of a Geneanet import of a generated, fictitious tree, in
 # release mode, and fail over its budget (see docs/development.md). The
@@ -151,8 +151,8 @@ import-memory:
     work="$PWD/target/import-memory"
     trap 'rm -rf "$work"' EXIT
     mkdir -p "$work"
-    TMPDIR="$work" cargo nextest run --release -p oxidgene-api --test import_memory_test \
-      --run-ignored only --no-capture
+    TMPDIR="$work" cargo nextest run --release -p oxidgene-api --test integration \
+      --run-ignored only --no-capture -E 'test(/^import_memory_test::/)'
 
 # Fail when the share of duplicated Rust code grows past its budget
 # (scripts/duplication.py); `just duplication --report` lists the blocks.
@@ -172,7 +172,7 @@ deps:
 # Read the query plan of every statement the API runs over a populated tree
 # and fail on a full scan of a large table (docs/development.md, guards).
 sql-plans:
-    cargo nextest run -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+    cargo nextest run -p oxidgene-api --features graphql --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
 # The live end-to-end checks of the archive portals (docs/archives.md §9.1):
 # every catalogued archive with an adapter and live checks, or those named
@@ -192,12 +192,12 @@ archives-live *archives:
 # release mode, one at a time. They print timings and assert nothing a shared
 # machine could fail by being slow.
 bench:
-    cargo nextest run --release -p oxidgene-api -p oxidgene-db --test profile_service_test --test person_search_test --run-ignored only --no-capture
+    cargo nextest run --release -p oxidgene-api -p oxidgene-db --test integration --run-ignored only --no-capture -E 'test(/^(profile_service_test|person_search_test)::/)'
 
 # Migrate an empty, disposable PostgreSQL database up and down; the
 # OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
 test-postgres:
-    cargo nextest run -p oxidgene-db --features postgres --test migration_test --run-ignored only
+    cargo nextest run -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
 
 # Round-trip media through the RustFS service of docker/docker-compose.yml,
 # which must be running (`docker compose -f docker/docker-compose.yml up -d`).
@@ -207,12 +207,12 @@ test-s3:
 # Refuse a bulk target past 10,000 persons end to end on both surfaces. It
 # creates 10,001 persons, so it runs only on request.
 tag-bounds:
-    cargo nextest run -p oxidgene-api --features graphql --test tag_bulk_test --run-ignored only -E 'test(a_target_past_ten_thousand_persons_is_refused)'
+    cargo nextest run -p oxidgene-api --features graphql --test integration --run-ignored only -E 'test(a_target_past_ten_thousand_persons_is_refused)'
 
 # Stream a private Geneanet session archive, named by
 # OXIDGENE_GENEANET_SESSION, through REST without logging its contents.
 session-check:
-    cargo nextest run -p oxidgene-api --features graphql --test geneanet_session_test --run-ignored only
+    cargo nextest run -p oxidgene-api --features graphql --test integration --run-ignored only -E 'test(/^geneanet_session_test::/)'
 
 # Run the Geneanet content-matching harnesses on your own archives, in
 # release mode (see docs/development.md, *Geneanet content matching*). Each
@@ -248,7 +248,7 @@ pdfjs version integrity:
 # Rewrite docs/schema.graphql, the committed SDL of the GraphQL schema, after
 # an intended schema change (a guard fails while the two differ).
 graphql-schema:
-    OXIDGENE_BLESS=1 cargo nextest run -p oxidgene-api --features graphql --test guards_test -E 'test(the_schema_matches_its_snapshot)'
+    OXIDGENE_BLESS=1 cargo nextest run -p oxidgene-api --features graphql --test integration -E 'test(the_schema_matches_its_snapshot)'
 
 # Regenerate the OpenAPI specification from the REST router
 openapi:

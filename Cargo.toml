@@ -26,8 +26,7 @@ members = [
 # and it fails once the code no longer needs it, where an `allow` would stay
 # behind, silent. `allow_attributes` bans an outer `#[allow]` outright;
 # `allow_attributes_without_reason` requires a reason on an inner
-# `#![allow]`, the one form left for an exception an `expect` cannot state
-# (`dead_code` in a module each test binary compiles and uses in part). The
+# `#![allow]`, the one form left, for an exception an `expect` cannot state. The
 # `lint_discipline` guard of `oxidgene-guards` checks that every member opts
 # in and that none caps or allows a lint crate-wide.
 [workspace.lints.clippy]

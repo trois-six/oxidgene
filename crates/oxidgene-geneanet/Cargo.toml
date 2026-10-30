@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -34,6 +35,8 @@ tempfile = { workspace = true }
 zune-core = { workspace = true }
 zune-jpeg = { workspace = true }
 
+# One integration test binary, linked once: `tests/integration.rs` declares
+# the other files of `tests/` as its modules (`autotests` is off).
 [[test]]
-name = "phash_separation"
-path = "tests/phash_separation.rs"
+name = "integration"
+path = "tests/integration.rs"

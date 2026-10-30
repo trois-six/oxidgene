@@ -17,7 +17,7 @@
 //!
 //! ```text
 //! OXIDGENE_GW=/path/tree.gw OXIDGENE_REFERENCES=/path/references \
-//!   cargo test -p oxidgene-geneanet --test unkeyed_references -- --ignored --nocapture
+//!   cargo test -p oxidgene-geneanet --test integration unkeyed_references -- --ignored --nocapture
 //! ```
 
 use std::collections::HashMap;

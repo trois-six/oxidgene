@@ -6,7 +6,7 @@
 
 #![cfg(feature = "mcp")]
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};

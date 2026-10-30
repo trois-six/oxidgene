@@ -2,7 +2,7 @@
 //! tree's whole lists, on REST and GraphQL alike: a source by its title, a
 //! place by its name or by id, and the tree's places as suggestions.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use common::{gql_ok, new_tree, ok, send, setup_app};

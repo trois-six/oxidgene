@@ -6,7 +6,7 @@
 //!
 //! All data is fictitious.
 
-mod common;
+use crate::common;
 
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};

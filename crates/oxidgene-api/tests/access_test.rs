@@ -1,7 +1,7 @@
 //! Who may reach the backend: the desktop's per-launch token and the
 //! standalone server's same-origin writes.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};

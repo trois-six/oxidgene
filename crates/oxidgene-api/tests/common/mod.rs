@@ -1,17 +1,12 @@
 //! What the integration tests share: a fresh database, a router over it, and
 //! a JSON request against that router.
-//!
-//! Every test file is its own crate and compiles its own copy of this module,
-//! using only some of it; hence the one `dead_code` allowance below. It is an
-//! `allow`, not an `expect`: a binary that happened to use every helper would
-//! leave an expectation unfulfilled. Clippy's `allow_attributes` ban covers
-//! outer attributes only, and this inner one carries its reason.
-#![allow(
-    dead_code,
-    reason = "each integration-test binary compiles this module and uses only some helpers"
-)]
 
 pub mod capture;
+// Shared with the unit tests of `media`, which alone write a locked PDF.
+#[expect(
+    dead_code,
+    reason = "`pdf::locked` serves the unit tests of `media` only"
+)]
 pub mod pdf;
 pub mod populated;
 

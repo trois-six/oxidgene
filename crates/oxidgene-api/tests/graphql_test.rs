@@ -4,7 +4,7 @@
 //! (`setup_app`) or an in-memory one (`setup_db`). Requests are sent to
 //! `POST /graphql` via Axum's tower `ServiceExt::oneshot`.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
