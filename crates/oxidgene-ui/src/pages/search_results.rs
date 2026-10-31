@@ -515,7 +515,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 return Ok(None);
             }
             let Some(tid) = tree_id else {
-                return Err(crate::api::ApiError::invalid_tree_id(&i18n));
+                return Err(crate::api::ApiError::invalid_tree_id());
             };
             if still_typing {
                 crate::utils::sleep_ms(200).await;

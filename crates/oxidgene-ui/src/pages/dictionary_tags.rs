@@ -440,7 +440,7 @@ fn TaggedKind(
         async move {
             api.list_tagged_records(tree_id, tag_id, kind, RECORDS_PAGE, cursor.as_deref())
                 .await
-                .map_err(|err| err.to_string())
+                .map_err(|err| err.message(&i18n))
         }
     });
     let mut first = records.first;

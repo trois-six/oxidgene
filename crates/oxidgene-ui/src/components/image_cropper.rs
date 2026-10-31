@@ -400,7 +400,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                     event_id.set(String::new());
                     on_saved.call(vignette);
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
             saving.set(false);
         });

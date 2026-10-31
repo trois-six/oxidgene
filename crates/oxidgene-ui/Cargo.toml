@@ -35,7 +35,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 rfd = { workspace = true }
-thiserror = { workspace = true }
 tracing = { workspace = true }
 opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }

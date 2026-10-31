@@ -130,10 +130,7 @@ async fn poll_export(
     .await?;
     match status.phase.as_str() {
         "cancelled" => Ok(None),
-        "failed" => Err(ApiError::Api {
-            status: 422,
-            body: status.error.unwrap_or_else(|| "export_failed".to_string()),
-        }),
+        "failed" => Err(ApiError::job_failed(status.error)),
         _ => {
             let size_bytes = status.size_bytes;
             status
@@ -146,10 +143,7 @@ async fn poll_export(
                     size_bytes,
                 })
                 .map(Some)
-                .ok_or_else(|| ApiError::Api {
-                    status: 500,
-                    body: "completed export has no artifact".to_string(),
-                })
+                .ok_or(ApiError::Client("error.unexpected_response"))
         }
     }
 }
@@ -223,7 +217,7 @@ async fn export_gedzip(
     };
     let Some(export) = wait_for_export(api, tid, choices, signals.job)
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.message(i18n))?
     else {
         return Ok(None);
     };
@@ -247,7 +241,7 @@ async fn export_gedzip(
 ) -> ExportOutcome {
     let Some(export) = wait_for_export(api, tid, choices, signals.job)
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.message(i18n))?
     else {
         return Ok(None);
     };
@@ -325,7 +319,7 @@ async fn save_gedzip(
         api.download_to_file(&export.download_url, &path),
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| error.message(i18n))?;
     let path_display = path.display().to_string();
     Ok(Some(i18n.t_args(
         "settings.export_saved_to",
@@ -346,7 +340,7 @@ async fn export_gedcom(
     let exported =
         trace_ui_action_step(UiActionStep::ExportRequest, api.export_gedcom(tid, choices))
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| error.message(i18n))?;
     let outcome = save_gedcom(exported.gedcom, file_name, i18n).await;
     if matches!(outcome, Ok(Some(_))) {
         report.set(Some(exported.report));
@@ -773,7 +767,7 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
                         tree_cache.refresh_tree(tree_id, tree);
                         success.set(Some(i18n.t("settings.tree_name_saved").to_string()));
                     }
-                    Err(e) => error.set(Some(e.to_string())),
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
                 loading.set(false);
             });
@@ -932,7 +926,7 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
                     local.set(Some(person));
                     message.set(true);
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
     });
@@ -1053,7 +1047,7 @@ fn PrivacySection(
                                         };
                                         match api.update_tree(tid, &body).await {
                                             Ok(_) => tree_cache.invalidate(),
-                                            Err(e) => save_error.set(Some(e.to_string())),
+                                            Err(e) => save_error.set(Some(e.message(&i18n))),
                                         }
                                     });
                                 }
@@ -1201,7 +1195,7 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
                     tree_cache.refresh_tree(tree_id, tree);
                     saved.set(true);
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
             saving.set(false);
         });
@@ -1947,7 +1941,7 @@ fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
                     tree_cache.refresh_tree(tree_id, tree);
                     saved.set(true);
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
             saving.set(false);
         });

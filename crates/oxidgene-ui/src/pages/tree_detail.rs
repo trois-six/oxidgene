@@ -268,6 +268,7 @@ impl Overlays {
 #[derive(Clone)]
 struct TreeWrites {
     api: ApiClient,
+    i18n: I18n,
     tree_id: Signal<Option<Uuid>>,
     tree_cache: TreeCache,
     overlays: Overlays,
@@ -301,6 +302,7 @@ impl TreeWrites {
         };
         let Self {
             api,
+            i18n,
             tree_cache,
             overlays,
             mut selected_root,
@@ -321,7 +323,7 @@ impl TreeWrites {
                     }
                     tree_cache.invalidate();
                 }
-                Err(e) => delete_error.set(Some(format!("{e}"))),
+                Err(e) => delete_error.set(Some(e.message(&i18n))),
             }
         });
     }
@@ -533,7 +535,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
-                return Err(ApiError::invalid_tree_id(&i18n));
+                return Err(ApiError::invalid_tree_id());
             };
             fetch_tree_cached(&api, &tree_cache, tid).await
         }
@@ -558,7 +560,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 return std::future::pending().await;
             };
             let Some(tid) = tid else {
-                return Err(ApiError::invalid_tree_id(&i18n));
+                return Err(ApiError::invalid_tree_id());
             };
             let levels = vs.as_ref().map_or(
                 (defaults.ancestor_levels, defaults.descendant_levels),
@@ -617,6 +619,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     let writes = TreeWrites {
         api: api.clone(),
+        i18n,
         tree_id: tree_id_parsed,
         tree_cache,
         overlays,

@@ -93,7 +93,7 @@ pub fn CancelJobButton(kind: JobKind, tree_id: Uuid, job_id: Uuid) -> Element {
                     requested.set(true);
                     confirming.set(false);
                 }
-                Err(e) => error.set(Some(format!("{e}"))),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
     };

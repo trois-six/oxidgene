@@ -316,7 +316,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                     api.invalidate_tree(tree_id);
                     cancelled.set(true);
                 }
-                Err(e) => error.set(Some(format!("{e}"))),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -485,10 +485,9 @@ async fn run_file_import_job(
     .await?;
     ended
         .map(|status| {
-            status.result.ok_or_else(|| ApiError::Api {
-                status: 500,
-                body: "completed import has no result".to_string(),
-            })
+            status
+                .result
+                .ok_or(ApiError::Client("error.unexpected_response"))
         })
         .transpose()
 }
@@ -509,10 +508,7 @@ async fn follow_import_job(
     let status = follow_job(|wait| api.file_import_status(tree_id, job_id, wait), report).await?;
     match status.phase.as_str() {
         "cancelled" => Ok(None),
-        "failed" => Err(ApiError::Api {
-            status: 422,
-            body: status.error.unwrap_or_else(|| "import_failed".to_string()),
-        }),
+        "failed" => Err(ApiError::job_failed(status.error)),
         _ => Ok(Some(status)),
     }
 }
@@ -567,10 +563,7 @@ async fn start_file_import_upload(
             }
             Ok(UploadEvent::Started { job_id }) => break Ok(job_id),
             Ok(UploadEvent::Error) | Err(_) => {
-                break Err(crate::api::ApiError::Api {
-                    status: 0,
-                    body: "file upload failed".to_string(),
-                });
+                break Err(crate::api::ApiError::Client("error.upload_failed"));
             }
         }
     }
@@ -867,7 +860,7 @@ fn GeneanetTab(
                 )
                 .await;
             let Some(needed) = planned
-                .map_err(|e| preview_error.set(Some(format!("{e}"))))
+                .map_err(|e| preview_error.set(Some(e.message(&i18n))))
                 .ok()
             else {
                 return;
@@ -950,6 +943,7 @@ fn GeneanetTab(
             import_job.set(None);
 
             settle_import(
+                &i18n,
                 outcome,
                 &api,
                 tree_id,
@@ -1277,6 +1271,7 @@ struct ImportEndSignals {
 /// Shows the import's receipt and tells the caller, says it was cancelled,
 /// or shows why it failed.
 fn settle_import(
+    i18n: &I18n,
     outcome: Result<Option<GeneanetImportResult>, ApiError>,
     api: &ApiClient,
     tree_id: Uuid,
@@ -1294,7 +1289,7 @@ fn settle_import(
             api.invalidate_tree(tree_id);
             end.cancelled.set(true);
         }
-        Err(e) => end.error.set(Some(format!("{e}"))),
+        Err(e) => end.error.set(Some(e.message(i18n))),
     }
 }
 
@@ -1333,10 +1328,9 @@ async fn upload_and_follow(
         .await?;
     ended
         .map(|status| {
-            status.geneanet_result.ok_or_else(|| ApiError::Api {
-                status: 500,
-                body: "completed Geneanet import has no result".to_string(),
-            })
+            status
+                .geneanet_result
+                .ok_or(ApiError::Client("error.unexpected_response"))
         })
         .transpose()
 }
@@ -1528,7 +1522,7 @@ fn GwStep(
                     let message = if name.to_lowercase().ends_with(".ged") {
                         i18n.t("geneanet.error_is_gedcom")
                     } else {
-                        format!("{e}")
+                        e.message(&i18n)
                     };
                     gw_error.set(Some(message));
                 }
@@ -1703,7 +1697,7 @@ fn ArchiveStep(
                     archives.set(rows.into_iter().filter(|a| a.error.is_none()).collect());
                     archives_skipped.set(false);
                 }
-                Err(e) => archive_error.set(Some(format!("{e}"))),
+                Err(e) => archive_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -1908,7 +1902,7 @@ fn SessionControls(
             {
                 Ok(archive) => archive,
                 Err(e) => {
-                    error.set(Some(format!("{e}")));
+                    error.set(Some(e.message(&i18n)));
                     return;
                 }
             };
@@ -1998,7 +1992,7 @@ fn SessionControls(
                         on_loaded.call(());
                     }
                 }
-                Err(e) => error.set(Some(format!("{e}"))),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
     };

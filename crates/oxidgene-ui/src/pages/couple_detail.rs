@@ -149,7 +149,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         let (tid, fid) = (tree_id_parsed(), family_id_parsed());
         async move {
             let (Some(tid), Some(fid)) = (tid, fid) else {
-                return Err(ApiError::invalid_ids(&i18n));
+                return Err(ApiError::invalid_ids());
             };
             let bundle = api.get_couple_detail_bundle(tid, fid).await?;
             Ok(Arc::new(CoupleData::from_bundle(bundle)))
@@ -164,13 +164,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let right_id = use_memo(move || sides().1);
     use_back_to_tree_when_deleted(&tree_id, couple_resource, left_id, right_id);
 
-    let tree_resource = use_tree_resource(
-        load_trace.clone(),
-        api.clone(),
-        tree_id_parsed,
-        refresh,
-        i18n,
-    );
+    let tree_resource = use_tree_resource(load_trace.clone(), api.clone(), tree_id_parsed, refresh);
 
     // Every picture of the page — the three galleries and both portraits —
     // in one request once the couple is in.
@@ -229,7 +223,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let couple_read = couple_resource.read();
     let (data, load_error) = match &*couple_read {
         Some(Ok(data)) => (Some(Arc::clone(data)), None),
-        Some(Err(error)) => (None, Some(error.to_string())),
+        Some(Err(error)) => (None, Some(error.message(&i18n))),
         None => (None, None),
     };
     drop(couple_read);

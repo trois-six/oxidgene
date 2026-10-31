@@ -342,6 +342,7 @@ impl MediaOpening {
 #[component]
 pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
 
     let tree_id = props.tree_id;
     let owner = props.owner;
@@ -465,7 +466,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let items: Vec<MediaWithLink> = match &*tiles.read_unchecked() {
         Some(Ok(items)) => items.clone(),
         Some(Err(e)) => {
-            let message = e.to_string();
+            let message = e.message(&i18n);
             return rsx! { div { class: "error-msg", "{message}" } };
         }
         None => Vec::new(),
@@ -837,7 +838,7 @@ fn MediaTile(
                 media_id: (!is_portrait).then_some(media_id),
                 vignette_id: None,
             };
-            spawn(tile_action(busy, error, on_changed, async move {
+            spawn(tile_action(i18n, busy, error, on_changed, async move {
                 api.set_person_portrait(tree_id, person_id, body)
                     .await
                     .map(|_| ())
@@ -867,7 +868,7 @@ fn MediaTile(
                             error.set(Some(retained_message.clone()));
                         }
                     }
-                    Err(err) => delete_error.set(Some(err.to_string())),
+                    Err(err) => delete_error.set(Some(err.message(&i18n))),
                 }
                 deleting.set(false);
             });
@@ -893,7 +894,7 @@ fn MediaTile(
                         delete_confirming.set(true);
                     }
                     Ok(false) => error.set(Some(retained_message)),
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
                 checking_delete.set(false);
             });
@@ -904,7 +905,7 @@ fn MediaTile(
         let api = api.clone();
         move |(event_id, attach): (Uuid, bool)| {
             let api = api.clone();
-            spawn(tile_action(busy, error, on_changed, async move {
+            spawn(tile_action(i18n, busy, error, on_changed, async move {
                 set_event_link(&api, tree_id, media_id, event_id, attach).await
             }));
         }
@@ -1093,7 +1094,7 @@ fn MediaTile(
                         move |()| {
                             let api = api.clone();
                             let mut confirming = confirming;
-                            spawn(tile_action(busy, error, on_changed, async move {
+                            spawn(tile_action(i18n, busy, error, on_changed, async move {
                                 api.delete_media_link(tree_id, link_id).await?;
                                 confirming.set(false);
                                 Ok(())
@@ -1180,6 +1181,7 @@ fn TileCaption(
 /// Runs a tile's `action` with the tile marked busy: `on_changed` once it
 /// succeeds, its error shown when it fails.
 async fn tile_action(
+    i18n: I18n,
     mut busy: Signal<bool>,
     mut error: Signal<Option<String>>,
     on_changed: EventHandler<()>,
@@ -1188,7 +1190,7 @@ async fn tile_action(
     busy.set(true);
     match action.await {
         Ok(()) => on_changed.call(()),
-        Err(e) => error.set(Some(e.to_string())),
+        Err(e) => error.set(Some(e.message(&i18n))),
     }
     busy.set(false);
 }
@@ -1580,7 +1582,7 @@ fn VignetteTile(
                 };
                 match api.set_person_portrait(tree_id, person_id, body).await {
                     Ok(_) => on_changed.call(()),
-                    Err(e) => error.set(Some(e.to_string())),
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
                 busy.set(false);
             });
@@ -1599,7 +1601,7 @@ fn VignetteTile(
                         menu_at.set(None);
                         on_changed.call(());
                     }
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
                 busy.set(false);
             });
@@ -1940,7 +1942,7 @@ fn MediaEditPanel(
                         on_changed.call(());
                         on_close.call(());
                     }
-                    Err(e) => error.set(Some(e.to_string())),
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
                 saving.set(false);
             });
@@ -1956,7 +1958,7 @@ fn MediaEditPanel(
             spawn(async move {
                 let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 if let Err(e) = result {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.message(&i18n)));
                 }
                 link_revision += 1;
             });
@@ -2443,7 +2445,7 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                         revision += 1;
                         on_changed.call(());
                     }
-                    Err(e) => error.set(Some(e.to_string())),
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
             });
         }
@@ -2465,7 +2467,7 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                         revision += 1;
                         on_changed.call(());
                     }
-                    Err(e) => error.set(Some(e.to_string())),
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
                 deleting.set(false);
             });
@@ -2921,7 +2923,7 @@ fn MediaRelations(
                 error.set(None);
                 match api.delete_media_link(tree_id, link_id).await {
                     Ok(()) => on_changed.call(()),
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
                 busy.set(false);
             });
@@ -2937,7 +2939,7 @@ fn MediaRelations(
                 error.set(None);
                 match api.delete_vignette(tree_id, vignette_id).await {
                     Ok(_) => on_changed.call(()),
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
                 busy.set(false);
             });
@@ -3258,7 +3260,7 @@ fn MediaEventLinks(
                 let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 match result {
                     Ok(()) => on_changed.call(()),
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
             });
         }
@@ -3561,7 +3563,7 @@ fn MediaViewer(
                 api.media_viewer_bundle(tree_id, opening.media_id, requested)
                     .await
                     .map(Rc::new)
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error.message(&i18n))
             }
         }
     });
@@ -4321,7 +4323,7 @@ fn MediaDeleteButton(
                 {
                     Ok(true) => delete_confirming.set(true),
                     Ok(false) => delete_error.set(Some(retained_message)),
-                    Err(err) => delete_error.set(Some(err.to_string())),
+                    Err(err) => delete_error.set(Some(err.message(&i18n))),
                 }
                 checking_delete.set(false);
             });
@@ -4349,7 +4351,7 @@ fn MediaDeleteButton(
                         delete_confirming.set(false);
                         delete_error.set(Some(retained_message));
                     }
-                    Err(err) => delete_error.set(Some(err.to_string())),
+                    Err(err) => delete_error.set(Some(err.message(&i18n))),
                 }
                 deleting.set(false);
             });
@@ -4432,7 +4434,7 @@ fn MediaAttachmentPicker(
                         attachment_mode.set(None);
                         on_changed.call(());
                     }
-                    Err(error) => attachment_error.set(Some(error.to_string())),
+                    Err(error) => attachment_error.set(Some(error.message(&i18n))),
                 }
                 attachment_busy.set(false);
             });
@@ -4471,7 +4473,7 @@ fn MediaAttachmentPicker(
                             attachment_mode.set(Some(MediaAttachmentMode::CoupleFamily));
                         }
                     }
-                    Err(error) => attachment_error.set(Some(error.to_string())),
+                    Err(error) => attachment_error.set(Some(error.message(&i18n))),
                 }
                 attachment_busy.set(false);
             });
@@ -4503,7 +4505,7 @@ fn MediaAttachmentPicker(
                         attachment_mode.set(None);
                         on_changed.call(());
                     }
-                    Err(error) => attachment_error.set(Some(error.to_string())),
+                    Err(error) => attachment_error.set(Some(error.message(&i18n))),
                 }
                 attachment_busy.set(false);
             });

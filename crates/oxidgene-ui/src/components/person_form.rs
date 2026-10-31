@@ -126,7 +126,7 @@ impl ParentLink {
         api.add_spouse(tid, fid, &spouse_body)
             .await
             .map(drop)
-            .map_err(|e| format!("{e}"))
+            .map_err(|e| e.message(i18n))
     }
 }
 
@@ -752,7 +752,7 @@ fn PersonFormBody(
                     on_saved_name.call(());
                     refresh += 1;
                 }
-                Err(e) => name_form_error.set(Some(format!("{e}"))),
+                Err(e) => name_form_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -790,7 +790,7 @@ fn PersonFormBody(
             {
                 Ok(place_id) => place_id,
                 Err(e) => {
-                    event_form_error.set(Some(format!("{e}")));
+                    event_form_error.set(Some(e.message(&i18n)));
                     return;
                 }
             };
@@ -829,7 +829,7 @@ fn PersonFormBody(
                     on_saved_event.call(());
                     refresh += 1;
                 }
-                Err(e) => event_form_error.set(Some(format!("{e}"))),
+                Err(e) => event_form_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -859,7 +859,7 @@ fn PersonFormBody(
             {
                 Ok(place_id) => place_id,
                 Err(e) => {
-                    profession_form_error.set(Some(format!("{e}")));
+                    profession_form_error.set(Some(e.message(&i18n)));
                     return;
                 }
             };
@@ -893,7 +893,7 @@ fn PersonFormBody(
                     on_saved_profession.call(());
                     refresh += 1;
                 }
-                Err(e) => profession_form_error.set(Some(format!("{e}"))),
+                Err(e) => profession_form_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -928,7 +928,7 @@ fn PersonFormBody(
                     on_saved_note.call(());
                     refresh += 1;
                 }
-                Err(e) => note_form_error.set(Some(format!("{e}"))),
+                Err(e) => note_form_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -1062,7 +1062,7 @@ fn PersonFormBody(
                         privacy: Some(parse_privacy(&privacy_str)),
                     };
                     if let Err(e) = api.update_person(tid, pid, &person_body).await {
-                        save_error.set(Some(format!("{e}")));
+                        save_error.set(Some(e.message(&i18n)));
                         saving.set(false);
                         return;
                     }
@@ -1083,7 +1083,7 @@ fn PersonFormBody(
                             sort_order: None,
                         };
                         if let Err(e) = api.update_person_name(tid, pid, bnid, &name_body).await {
-                            save_error.set(Some(format!("{e}")));
+                            save_error.set(Some(e.message(&i18n)));
                             saving.set(false);
                             return;
                         }
@@ -1100,7 +1100,7 @@ fn PersonFormBody(
                             sort_order: 0,
                         };
                         if let Err(e) = api.create_person_name(tid, pid, &name_body).await {
-                            save_error.set(Some(format!("{e}")));
+                            save_error.set(Some(e.message(&i18n)));
                             saving.set(false);
                             return;
                         }
@@ -1146,7 +1146,7 @@ fn PersonFormBody(
                             Ok(Some(stored)) => target.set(stored),
                             Ok(None) => {}
                             Err(e) => {
-                                save_error.set(Some(format!("{e}")));
+                                save_error.set(Some(e.message(&i18n)));
                                 saving.set(false);
                                 return;
                             }
@@ -1213,7 +1213,7 @@ fn PersonFormBody(
                         on_close.call(());
                     }
                     Err(e) => {
-                        delete_error.set(Some(format!("{e}")));
+                        delete_error.set(Some(e.message(&i18n)));
                         deleting.set(false);
                     }
                 }
@@ -1369,7 +1369,7 @@ fn PersonFormBody(
                                                                     spawn(async move {
                                                                         match api.delete_event(tid, eid).await {
                                                                             Ok(_) => { on_saved_profession_del.call(()); refresh += 1; }
-                                                                            Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                            Err(e) => save_error.set(Some(e.message(&i18n))),
                                                                         }
                                                                     });
                                                                 }
@@ -1555,7 +1555,7 @@ fn PersonFormBody(
                                                                                     on_saved_name_edit.call(());
                                                                                     refresh += 1;
                                                                                 }
-                                                                                Err(e) => edit_name_error.set(Some(format!("{e}"))),
+                                                                                Err(e) => edit_name_error.set(Some(e.message(&i18n))),
                                                                             }
                                                                         });
                                                                     }
@@ -1616,7 +1616,7 @@ fn PersonFormBody(
                                                                         spawn(async move {
                                                                             match api.delete_person_name(tid, pid, nid).await {
                                                                                 Ok(_) => { on_saved_name_del.call(()); refresh += 1; }
-                                                                                Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                                Err(e) => save_error.set(Some(e.message(&i18n))),
                                                                             }
                                                                         });
                                                                     }
@@ -1631,7 +1631,7 @@ fn PersonFormBody(
                                     }
                                     }
                                 }
-                                Some(Err(e)) => rsx! { div { class: "error-msg", "Failed to load names: {e}" } },
+                                Some(Err(e)) => rsx! { div { class: "error-msg", {i18n.t_args("person_form.load_names_error", &[("error", &e.message(&i18n))])} } },
                                 None => rsx! { div { class: "loading", {i18n.t("person_form.loading_names")} } },
                             }
                         }
@@ -1717,7 +1717,7 @@ fn PersonFormBody(
                                                                                     on_saved_note_edit.call(());
                                                                                     refresh += 1;
                                                                                 }
-                                                                                Err(e) => edit_note_error.set(Some(format!("{e}"))),
+                                                                                Err(e) => edit_note_error.set(Some(e.message(&i18n))),
                                                                             }
                                                                         });
                                                                     }
@@ -1761,7 +1761,7 @@ fn PersonFormBody(
                                                                         spawn(async move {
                                                                             match api.delete_note(tid, nid).await {
                                                                                 Ok(_) => { on_saved_note_del.call(()); refresh += 1; }
-                                                                                Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                                Err(e) => save_error.set(Some(e.message(&i18n))),
                                                                             }
                                                                         });
                                                                     }
@@ -1951,7 +1951,7 @@ fn PersonFormBody(
                                                             spawn(async move {
                                                                 match api.delete_event(tid, eid).await {
                                                                     Ok(_) => { on_saved_event_del.call(()); refresh += 1; }
-                                                                    Err(e) => save_error.set(Some(format!("{e}"))),
+                                                                    Err(e) => save_error.set(Some(e.message(&i18n))),
                                                                 }
                                                             });
                                                         }
@@ -2710,7 +2710,7 @@ async fn create_person(
     };
     api.create_person_name(tree_id, person_id, &name)
         .await
-        .map_err(|e| format!("{e}"))?;
+        .map_err(|e| e.message(i18n))?;
 
     for (event_type, (parts, place, notes, source)) in [
         (EventType::Birth, &new.birth),
@@ -2727,7 +2727,7 @@ async fn create_person(
         };
         save_vital_event(api, tree_id, person_id, i18n.0.reference_code(), event)
             .await
-            .map_err(|e| format!("{e}"))?;
+            .map_err(|e| e.message(i18n))?;
     }
 
     let _ = save_notes_source(
@@ -3428,7 +3428,7 @@ pub fn EventEditor(
                     loaded.set(Some(stored));
                     on_saved.call(());
                 }
-                Err(e) => error.set(Some(format!("{e}"))),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
             saving.set(false);
         });

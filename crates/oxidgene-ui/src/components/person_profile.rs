@@ -1120,7 +1120,6 @@ pub(crate) fn use_tree_resource(
     api: ApiClient,
     tree_id: Signal<Option<Uuid>>,
     refresh: Signal<u32>,
-    i18n: I18n,
 ) -> Resource<Result<Tree, ApiError>> {
     let tree_cache = use_tree_cache();
     use_traced_resource(load_trace, "tree", move || {
@@ -1130,7 +1129,7 @@ pub(crate) fn use_tree_resource(
         let tid = tree_id();
         async move {
             let Some(tid) = tid else {
-                return Err(ApiError::invalid_tree_id(&i18n));
+                return Err(ApiError::invalid_tree_id());
             };
             fetch_tree_cached(&api, &tree_cache, tid).await
         }
@@ -1192,7 +1191,6 @@ pub(crate) fn use_ancestor_pedigree(
     api: ApiClient,
     tree_id: Signal<Option<Uuid>>,
     person_id: ReadSignal<Option<Uuid>>,
-    i18n: I18n,
 ) -> Resource<Result<Option<Pedigree>, ApiError>> {
     use_traced_resource(load_trace, "ancestor_pedigree", move || {
         let api = api.clone();
@@ -1200,7 +1198,7 @@ pub(crate) fn use_ancestor_pedigree(
         let pid = person_id();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(ApiError::invalid_ids(&i18n));
+                return Err(ApiError::invalid_ids());
             };
             api.get_pedigree(tid, pid, 2, 0).await.map(Some)
         }
@@ -1561,7 +1559,7 @@ pub(crate) fn notes_section(
             }
         },
         Some(Err(e)) => rsx! {
-            div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.to_string())])} }
+            div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.message(i18n))])} }
         },
         _ => rsx! {},
     }
@@ -2070,10 +2068,11 @@ pub(crate) fn timeline_placeholder(i18n: &I18n, error: Option<&str>) -> Element 
 
 /// Why a mini pedigree could not be loaded, once its load failed.
 pub(crate) fn pedigree_failure(
+    i18n: &I18n,
     pedigree: &Resource<Result<Option<Pedigree>, ApiError>>,
 ) -> Option<String> {
     match &*pedigree.read() {
-        Some(Err(error)) => Some(error.to_string()),
+        Some(Err(error)) => Some(error.message(i18n)),
         _ => None,
     }
 }

@@ -63,7 +63,7 @@ pub fn OccupationEditor(
                     Ok(_) => on_saved.call(()),
                     Err(e) => {
                         saving.set(false);
-                        error.set(Some(e.to_string()));
+                        error.set(Some(e.message(&i18n)));
                     }
                 }
             });
@@ -291,7 +291,7 @@ pub fn PlaceEditor(
                     Ok(_) => on_saved.call(()),
                     Err(e) => {
                         saving.set(false);
-                        error.set(Some(e.to_string()));
+                        error.set(Some(e.message(&i18n)));
                     }
                 }
             });

@@ -478,12 +478,12 @@ async fn create_document(
 ) -> Result<Uuid, String> {
     request.place_id = resolve_place(api, tree_id, &place, i18n.0.reference_code())
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| err.message(i18n))?;
     let title = Some(title.as_str()).filter(|title| !title.is_empty());
     let document = api
         .create_media_document(tree_id, title)
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| err.message(i18n))?;
     let written = write_document(api, tree_id, document.id, owner, request, i18n).await;
     if written.is_err() {
         let _ = api.delete_media(tree_id, document.id).await;
@@ -696,7 +696,7 @@ fn RegisterViewButtons(
                         list.insert(at, page);
                     }
                     Ok(None) => error.set(Some(i18n.t("archive_viewer.view_unavailable"))),
-                    Err(err) => error.set(Some(err.to_string())),
+                    Err(err) => error.set(Some(err.message(&i18n))),
                 }
                 adding.set(false);
             });
@@ -908,7 +908,7 @@ async fn write_document(
         },
     )
     .await
-    .map_err(|err| err.to_string())?;
+    .map_err(|err| err.message(i18n))?;
 
     if !note.is_empty() {
         api.create_note(
@@ -924,14 +924,14 @@ async fn write_document(
             },
         )
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| err.message(i18n))?;
     }
 
     // Linked last: until this runs the document belongs to nobody, which is
     // exactly what a rollback wants to be true.
     link_document(api, tree_id, document_id, owner, event_ids, source_id)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.message(i18n))
 }
 
 /// Add one page to a document: uploaded when it is a file, recorded by its

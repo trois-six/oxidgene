@@ -286,20 +286,15 @@ impl BatchUpload {
     }
 }
 
-/// Turn an API error into something worth showing a user.
+/// What a reader is told of a failed upload.
 ///
-/// The upload endpoint answers `400` with a message that already says what is
-/// wrong ("unsupported file type; accepted types are …"), so a rejected file
-/// is worth quoting; anything else is plumbing and reads better generically.
+/// The upload endpoint refuses an empty file or one of a type it does not
+/// accept with a `validation_error`, which says nothing of the file in the
+/// generic wording of [`ApiError::message`](crate::api::ApiError::message).
 pub fn friendly(err: &crate::api::ApiError, i18n: &crate::i18n::I18n) -> String {
-    match err {
-        crate::api::ApiError::Api { status: 400, body } => {
-            serde_json::from_str::<serde_json::Value>(body)
-                .ok()
-                .and_then(|v| v["message"].as_str().map(str::to_string))
-                .unwrap_or_else(|| body.clone())
-        }
-        crate::api::ApiError::Api { status: 413, .. } => i18n.t("media.error_too_large"),
-        other => other.to_string(),
+    if err.code().as_deref() == Some("validation_error") {
+        i18n.t("media.error_rejected")
+    } else {
+        err.message(i18n)
     }
 }

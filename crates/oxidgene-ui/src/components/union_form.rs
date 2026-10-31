@@ -530,7 +530,7 @@ impl FormScope {
         }
         resolve_place(&self.api, self.tid, place, self.i18n.0.reference_code())
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.message(&self.i18n))
     }
 
     /// Links an existing person as a child of the couple.
@@ -547,7 +547,7 @@ impl FormScope {
                 let added = scope.api.add_child(scope.tid, scope.fid, &body).await;
                 if scope
                     .writes
-                    .settle(added.map_err(|e| e.to_string()))
+                    .settle(added.map_err(|e| e.message(&scope.i18n)))
                     .is_some()
                 {
                     show_add_child.set(false);
@@ -563,7 +563,9 @@ impl FormScope {
             let scope = scope.clone();
             spawn(async move {
                 let deleted = scope.api.delete_event(scope.tid, event_id).await;
-                scope.writes.settle(deleted.map_err(|e| e.to_string()));
+                scope
+                    .writes
+                    .settle(deleted.map_err(|e| e.message(&scope.i18n)));
             });
         }
     }
@@ -588,7 +590,7 @@ impl FormScope {
                 saving.set(true);
                 for link_id in to_detach {
                     if let Err(e) = scope.api.remove_child(scope.tid, scope.fid, link_id).await {
-                        save_error.set(Some(format!("{e}")));
+                        save_error.set(Some(e.message(&scope.i18n)));
                         saving.set(false);
                         return;
                     }
@@ -619,7 +621,7 @@ impl FormScope {
                         on_close.call(());
                     }
                     Err(e) => {
-                        delete_error.set(Some(format!("{e}")));
+                        delete_error.set(Some(e.message(&scope.i18n)));
                         deleting.set(false);
                     }
                 }
@@ -800,7 +802,7 @@ async fn save_marriage(
                 .map(|ev| Some(ev.id))
         }
     };
-    saved.map_err(|e| e.to_string())
+    saved.map_err(|e| e.message(&scope.i18n))
 }
 
 /// The fields of a union event being added.
@@ -896,7 +898,7 @@ async fn create_union_event(
         .create_event(scope.tid, &body)
         .await
         .map(|ev| ev.id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.message(&scope.i18n))
 }
 
 /// The union block: the marriage shorthand, the other events, and the form
@@ -1140,7 +1142,7 @@ impl ChildrenSection<'_> {
                     }
                 },
                 Some(Err(e)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("union_form.load_children_error", &[("error", &e.to_string())])} }
+                    div { class: "error-msg", {i18n.t_args("union_form.load_children_error", &[("error", &e.message(&i18n))])} }
                 },
                 None => rsx! {
                     div { class: "loading", {i18n.t("union_form.loading_children")} }

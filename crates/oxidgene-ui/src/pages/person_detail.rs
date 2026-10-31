@@ -79,7 +79,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::invalid_ids(&i18n));
+                return Err(crate::api::ApiError::invalid_ids());
             };
             // Shared, not owned: the render reads the bundle on every pass and
             // it carries every thumbnail as a base64 data URI, so handing out
@@ -99,19 +99,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::invalid_ids(&i18n));
+                return Err(crate::api::ApiError::invalid_ids());
             };
             api.list_notes(tid, Some(pid), None, None, None, None).await
         }
     });
 
-    let tree_resource = use_tree_resource(
-        load_trace.clone(),
-        api.clone(),
-        tree_id_parsed,
-        refresh,
-        i18n,
-    );
+    let tree_resource = use_tree_resource(load_trace.clone(), api.clone(), tree_id_parsed, refresh);
     // The gallery's pictures and this person's portrait — reused by the
     // header and the mini pedigree — in one request once the bundle is in.
     let wanted_pictures = use_memo(move || {
@@ -142,7 +136,6 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         api.clone(),
         tree_id_parsed,
         person_id_parsed.into(),
-        i18n,
     );
     let mini_pedigree = use_mini_pedigree(ancestor_pedigree_resource);
 
@@ -179,7 +172,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         .unwrap_or_default();
 
     let detail_error = match &*detail_resource.read() {
-        Some(Err(error)) => Some(error.to_string()),
+        Some(Err(error)) => Some(error.message(&i18n)),
         _ => None,
     };
     let profile = profile();
@@ -209,7 +202,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         person: None,
                     });
                 }
-                Err(e) => delete_error.set(Some(format!("{e}"))),
+                Err(e) => delete_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -404,7 +397,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     {family_section(ctx, profile, None)}
                     {timeline_section(ctx, profile, i18n.t("person.events_section"), &events)}
-                    {ancestors_section(&i18n, pedigree_failure(&ancestor_pedigree_resource), mini_pedigree(), portraits.clone(), on_navigate)}
+                    {ancestors_section(&i18n, pedigree_failure(&i18n, &ancestor_pedigree_resource), mini_pedigree(), portraits.clone(), on_navigate)}
                 }
             }
             _ => rsx! {

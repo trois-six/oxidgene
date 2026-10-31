@@ -34,7 +34,7 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
         async move {
             api.list_audit(tree_id, category, cursor.as_deref())
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.message(&i18n))
         }
     });
 
@@ -161,7 +161,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
         async move {
             api.list_audit_changes(tree_id, entry_id, cursor.as_deref())
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.message(&i18n))
         }
     });
 
@@ -185,7 +185,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                         tree_cache.invalidate();
                         refresh += 1;
                     }
-                    Err(error) => restore_error.set(Some(error.to_string())),
+                    Err(error) => restore_error.set(Some(error.message(&i18n))),
                 }
             });
         }

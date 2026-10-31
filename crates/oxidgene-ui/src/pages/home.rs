@@ -19,7 +19,7 @@ use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::view_toggle::ViewToggle;
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{
     UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace, use_ui_resource,
@@ -110,7 +110,7 @@ pub fn Home() -> Element {
                     tree_cache.forget(id);
                     refresh_counter += 1;
                 }
-                Err(e) => delete_error.set(Some(format!("{e}"))),
+                Err(e) => delete_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -118,6 +118,7 @@ pub fn Home() -> Element {
     let on_duplicate = move |(tid, name): (Uuid, String)| {
         let name = format!("{name}{}", i18n.t("home.duplicate_suffix"));
         spawn(duplicate_tree(
+            i18n,
             api_dup.clone(),
             tid,
             name,
@@ -245,6 +246,7 @@ pub fn Home() -> Element {
 
 /// Duplicates tree `tid` as `name`, blocking the page meanwhile.
 async fn duplicate_tree(
+    i18n: I18n,
     api: ApiClient,
     tid: Uuid,
     name: String,
@@ -258,7 +260,7 @@ async fn duplicate_tree(
     duplicating.set(None);
     match result {
         Ok(_) => refresh_counter += 1,
-        Err(e) => action_error.set(Some(format!("{e}"))),
+        Err(e) => action_error.set(Some(e.message(&i18n))),
     }
 }
 
@@ -545,7 +547,7 @@ fn CreateTreeModal(on_close: EventHandler<()>, on_created: EventHandler<()>) -> 
             };
             match api.create_tree(&body).await {
                 Ok(_) => on_created.call(()),
-                Err(e) => form_error.set(Some(format!("{e}"))),
+                Err(e) => form_error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -633,7 +635,7 @@ fn RenameTreeModal(
                     tree_cache.refresh_tree(tree_id, tree);
                     on_renamed.call(());
                 }
-                Err(e) => rename_error.set(Some(format!("{e}"))),
+                Err(e) => rename_error.set(Some(e.message(&i18n))),
             }
         });
     };

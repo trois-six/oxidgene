@@ -536,6 +536,11 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
   required to complete a task.
 - Full-page errors provide localized retry and safe-navigation actions.
 - A failed mutation retains or restores the user's staged input.
+- A failed request is shown as the translation of its error code (§4.2), or
+  of how it failed when no envelope came back (unreachable server, unreadable
+  answer, refused upload). The server's body and the transport's own text are
+  never shown: they are English and may hold identifiers. Logs record the
+  failure's kind and status instead.
 
 ### 6.2 Loading
 

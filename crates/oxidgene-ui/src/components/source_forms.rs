@@ -136,7 +136,7 @@ pub fn SourceEditor(
                 Ok(_) => on_saved.call(()),
                 Err(e) => {
                     saving.set(false);
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.message(&i18n)));
                 }
             }
         });
@@ -283,7 +283,7 @@ fn SourceRepositories(
                     medium.set(None);
                     on_changed.call(());
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
     };
@@ -320,7 +320,7 @@ fn SourceRepositories(
                                         busy.set(false);
                                         match result {
                                             Ok(()) => on_changed.call(()),
-                                            Err(e) => error.set(Some(e.to_string())),
+                                            Err(e) => error.set(Some(e.message(&i18n))),
                                         }
                                     });
                                 },
@@ -766,7 +766,7 @@ pub fn RepositoryEditor(
                 Ok(()) => on_saved.call(()),
                 Err(e) => {
                     saving.set(false);
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.message(&i18n)));
                 }
             }
         });
@@ -890,7 +890,7 @@ pub fn RepositoryEditor(
                                 Ok(()) => on_saved.call(()),
                                 Err(e) => {
                                     saving.set(false);
-                                    error.set(Some(e.to_string()));
+                                    error.set(Some(e.message(&i18n)));
                                 }
                             }
                         });

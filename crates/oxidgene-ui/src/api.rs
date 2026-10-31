@@ -2927,33 +2927,97 @@ pub struct ApiClient {
 }
 
 /// Errors returned by the API client.
-#[derive(Debug, thiserror::Error)]
+///
+/// Deliberately without `Display`: what a transport error or the server's
+/// body says is English plumbing that may hold identifiers, so the reader is
+/// told [`ApiError::message`], in their language, and logs record
+/// [`ApiError::kind`] and [`ApiError::status`].
+#[derive(Debug)]
 pub enum ApiError {
-    #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Http(reqwest::Error),
+    Json(serde_json::Error),
+    Io(std::io::Error),
+    Api {
+        status: u16,
+        body: String,
+    },
+    /// A failure the client found itself, named by the translation key of
+    /// what the reader is told.
+    Client(&'static str),
+}
 
-    #[error("API error ({status}): {body}")]
-    Api { status: u16, body: String },
+impl From<reqwest::Error> for ApiError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Http(error)
+    }
+}
+
+impl From<serde_json::Error> for ApiError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 
 impl ApiError {
     /// What a view reports when the tree id in its route does not parse.
-    pub fn invalid_tree_id(i18n: &crate::i18n::I18n) -> Self {
-        Self::Api {
-            status: 400,
-            body: i18n.t("common.invalid_tree_id"),
-        }
+    pub fn invalid_tree_id() -> Self {
+        Self::Client("common.invalid_tree_id")
     }
 
     /// What a view reports when one of the ids in its route does not parse.
-    pub fn invalid_ids(i18n: &crate::i18n::I18n) -> Self {
+    pub fn invalid_ids() -> Self {
+        Self::Client("common.invalid_ids")
+    }
+
+    /// A server job that ended `failed`, with the stable code its status
+    /// carries (`invalid_job_input`, `job_failed`), read as the server's
+    /// error envelope would be.
+    pub fn job_failed(code: Option<String>) -> Self {
         Self::Api {
-            status: 400,
-            body: i18n.t("common.invalid_ids"),
+            status: 422,
+            body: serde_json::json!({ "error": code.as_deref().unwrap_or("job_failed") })
+                .to_string(),
+        }
+    }
+
+    /// What the reader is told, in their language: the translation of the
+    /// server's error code (`cross-cutting.md` §4.1), else of how the request
+    /// failed. Never the server's body nor the transport's own text.
+    pub fn message(&self, i18n: &crate::i18n::I18n) -> String {
+        i18n.t(self.message_key())
+    }
+
+    /// The translation key of [`ApiError::message`].
+    fn message_key(&self) -> &'static str {
+        let status = match self {
+            Self::Client(key) => return key,
+            Self::Http(_) => return "error.unreachable",
+            Self::Json(_) => return "error.unexpected_response",
+            Self::Io(_) => return "error.io",
+            Self::Api { status, .. } => *status,
+        };
+        match (self.code().as_deref(), status) {
+            (Some("validation_error"), _) | (None, 400 | 422) => "error.validation",
+            (Some("gedcom_error" | "invalid_job_input"), _) => "error.invalid_file",
+            (Some("unauthenticated"), _) | (None, 401) => "error.unauthenticated",
+            (Some("forbidden"), _) | (None, 403) => "error.forbidden",
+            (Some("not_found"), _) | (None, 404) => "error.not_found",
+            (Some("conflict"), _) | (None, 409) => "error.conflict",
+            (Some("payload_too_large"), _) | (None, 413) => "error.too_large",
+            (Some("unsupported_media_type"), _) | (None, 415) => "error.unsupported_format",
+            (Some("rate_limited"), _) | (None, 429) => "error.rate_limited",
+            (Some("not_an_archive_citation" | "no_adapter"), _) => "error.no_archive",
+            (Some("unexpected_response" | "challenged" | "unreachable"), _) | (None, 502) => {
+                "error.archive_unavailable"
+            }
+            (Some("timeout"), _) | (None, 503 | 504) => "error.timeout",
+            _ => "error.server",
         }
     }
 
@@ -2968,6 +3032,7 @@ impl ApiError {
             Self::Json(_) => "json",
             Self::Io(_) => "io",
             Self::Api { .. } => "api",
+            Self::Client(_) => "client",
         }
     }
 
@@ -2986,7 +3051,7 @@ impl ApiError {
         match self {
             Self::Http(error) => error.status().map(|status| status.as_u16()),
             Self::Api { status, .. } => Some(*status),
-            Self::Json(_) | Self::Io(_) => None,
+            Self::Json(_) | Self::Io(_) | Self::Client(_) => None,
         }
     }
 }
@@ -6265,6 +6330,62 @@ mod tests {
         }
         for running in ["queued", "parsing", "media", "cancelling"] {
             assert!(!is_job_over(running), "{running}");
+        }
+    }
+
+    /// The reader is told the translation of the server's code, or of the
+    /// status when the answer is no envelope, and never the body itself.
+    #[test]
+    fn an_api_error_tells_the_reader_its_code_in_their_language() {
+        let fr = crate::i18n::I18n::new(crate::i18n::Language::try_from_code("fr").unwrap());
+        let api = |status: u16, body: &str| ApiError::Api {
+            status,
+            body: body.to_string(),
+        };
+        let cases = [
+            (
+                api(409, r#"{"error":"conflict","message":"x"}"#),
+                "error.conflict",
+            ),
+            (
+                api(400, r#"{"error":"validation_error"}"#),
+                "error.validation",
+            ),
+            (
+                api(400, r#"{"error":"gedcom_error"}"#),
+                "error.invalid_file",
+            ),
+            (api(404, "Not Found"), "error.not_found"),
+            (api(413, ""), "error.too_large"),
+            (api(504, r#"{"error":"timeout"}"#), "error.timeout"),
+            (
+                api(502, r#"{"error":"challenged"}"#),
+                "error.archive_unavailable",
+            ),
+            (
+                api(500, r#"{"error":"internal_error","request_id":"r"}"#),
+                "error.server",
+            ),
+            (api(500, "<html>Bad</html>"), "error.server"),
+            (
+                ApiError::job_failed(Some("invalid_job_input".to_string())),
+                "error.invalid_file",
+            ),
+            (ApiError::job_failed(None), "error.server"),
+            (ApiError::invalid_tree_id(), "common.invalid_tree_id"),
+            (
+                ApiError::Json(serde_json::from_str::<u8>("x").unwrap_err()),
+                "error.unexpected_response",
+            ),
+        ];
+        for (error, key) in cases {
+            assert_eq!(error.message_key(), key, "{error:?}");
+            let message = error.message(&fr);
+            assert_eq!(message, fr.t(key));
+            assert!(
+                !message.contains('{') && !message.contains("API error"),
+                "{message}"
+            );
         }
     }
 

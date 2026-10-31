@@ -56,7 +56,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
             };
             api.list_versions(tid, RecordType::Person, pid, cursor.as_deref())
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.message(&i18n))
         }
     });
     let versions = use_memo({
@@ -114,7 +114,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                         tree_cache.invalidate();
                         refresh += 1;
                     }
-                    Err(error) => restore_error.set(Some(error.to_string())),
+                    Err(error) => restore_error.set(Some(error.message(&i18n))),
                 }
             });
         }

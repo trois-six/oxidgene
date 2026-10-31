@@ -817,7 +817,7 @@ fn DictionaryPage(
                     return None;
                 }
                 let Some(tid) = tid else {
-                    return Some(Err(ApiError::invalid_tree_id(&i18n)));
+                    return Some(Err(ApiError::invalid_tree_id()));
                 };
                 Some(api.dictionary_family_names(tid).await)
             }
@@ -834,7 +834,7 @@ fn DictionaryPage(
                     return None;
                 }
                 let Some(tid) = tid else {
-                    return Some(Err(ApiError::invalid_tree_id(&i18n)));
+                    return Some(Err(ApiError::invalid_tree_id()));
                 };
                 Some(api.dictionary_occupations(tid).await)
             }
@@ -851,7 +851,7 @@ fn DictionaryPage(
                 return None;
             }
             let Some(tid) = tid else {
-                return Some(Err(ApiError::invalid_tree_id(&i18n)));
+                return Some(Err(ApiError::invalid_tree_id()));
             };
             Some(load_sources_view(&api, tid, step.as_ref()).await)
         }
@@ -871,7 +871,7 @@ fn DictionaryPage(
                 return None;
             }
             let Some(tid) = tid else {
-                return Some(Err(ApiError::invalid_tree_id(&i18n)));
+                return Some(Err(ApiError::invalid_tree_id()));
             };
             Some(api.dictionary_places(tid).await)
         }
@@ -1298,7 +1298,7 @@ fn FamilyNameEditor(
                     Ok(()) => on_saved.call(()),
                     Err(e) => {
                         saving.set(false);
-                        error.set(Some(e.to_string()));
+                        error.set(Some(e.message(&i18n)));
                     }
                 }
             });

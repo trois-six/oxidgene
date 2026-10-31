@@ -218,7 +218,7 @@ fn kinship_status(
         },
         Some(Some(Err(error))) => rsx! {
             div { class: "error-msg kin-status",
-                {i18n.t_args("kinship.error", &[("error", &error.to_string())])}
+                {i18n.t_args("kinship.error", &[("error", &error.message(i18n))])}
             }
         },
         Some(Some(Ok(report))) => render_report(report, selected, portraits, tree_id, i18n),
