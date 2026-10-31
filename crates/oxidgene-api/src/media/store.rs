@@ -611,7 +611,9 @@ impl S3Store {
         if let Some(endpoint) = config.endpoint {
             builder = builder.with_endpoint(endpoint);
         }
-        let store = builder.build().map_err(|_| s3_error("configuration"))?;
+        let store = builder
+            .build()
+            .map_err(|error| s3_error("configuration", &error))?;
         Ok(Self { store })
     }
 
@@ -623,9 +625,43 @@ impl S3Store {
     }
 }
 
+/// The error of a failed S3 `operation`, logged with the bounded kind of
+/// its cause — never the cause's message, which names object paths.
+///
+/// A missing object is the same I/O "not found" the filesystem store
+/// reports, so callers see one error whichever backend holds the media.
 #[cfg(feature = "s3")]
-fn s3_error(operation: &str) -> OxidGeneError {
+fn s3_error(operation: &'static str, error: &object_store::Error) -> OxidGeneError {
+    let kind = s3_error_kind(error);
+    tracing::warn!(
+        error = "s3_storage",
+        error.kind = kind,
+        operation,
+        "S3 media storage operation failed"
+    );
+    if kind == "not_found" {
+        return OxidGeneError::Io(std::io::ErrorKind::NotFound.into());
+    }
     OxidGeneError::Internal(format!("S3 media storage {operation} failed"))
+}
+
+/// The bounded category of an S3 failure: what an operator needs to tell
+/// bad credentials from a missing bucket or an unreachable service.
+#[cfg(feature = "s3")]
+fn s3_error_kind(error: &object_store::Error) -> &'static str {
+    match error {
+        object_store::Error::NotFound { .. } => "not_found",
+        object_store::Error::PermissionDenied { .. } => "permission_denied",
+        object_store::Error::Unauthenticated { .. } => "unauthenticated",
+        object_store::Error::AlreadyExists { .. } | object_store::Error::Precondition { .. } => {
+            "conflict"
+        }
+        object_store::Error::InvalidPath { .. } => "invalid_path",
+        object_store::Error::NotSupported { .. } | object_store::Error::NotImplemented { .. } => {
+            "not_supported"
+        }
+        _ => "other",
+    }
 }
 
 #[cfg(feature = "s3")]
@@ -650,13 +686,13 @@ impl MediaStore for S3Store {
                 });
             }
             Err(object_store::Error::NotFound { .. }) => {}
-            Err(_) => return Err(s3_error("lookup")),
+            Err(error) => return Err(s3_error("lookup", &error)),
         }
 
         self.store
             .put(&location, bytes.into())
             .await
-            .map_err(|_| s3_error("write"))?;
+            .map_err(|error| s3_error("write", &error))?;
 
         Ok(StoredObject {
             key: key.to_string(),
@@ -674,7 +710,7 @@ impl MediaStore for S3Store {
             .put(&Self::location(key)?, bytes.to_vec().into())
             .await
             .map(drop)
-            .map_err(|_| s3_error("write"))
+            .map_err(|error| s3_error("write", &error))
     }
 
     #[cfg(feature = "auth")]
@@ -686,7 +722,7 @@ impl MediaStore for S3Store {
             .put(&Self::location(key)?, bytes.to_vec().into())
             .await
             .map(drop)
-            .map_err(|_| s3_error("write"))
+            .map_err(|error| s3_error("write", &error))
     }
 
     async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError> {
@@ -696,7 +732,7 @@ impl MediaStore for S3Store {
             .list(Some(&prefix))
             .try_collect()
             .await
-            .map_err(|_| s3_error("job listing"))?;
+            .map_err(|error| s3_error("job listing", &error))?;
         Ok(objects
             .into_iter()
             .map(|object| object.location.to_string())
@@ -710,8 +746,11 @@ impl MediaStore for S3Store {
             .store
             .get(&location)
             .await
-            .map_err(|_| s3_error("read"))?;
-        let bytes = object.bytes().await.map_err(|_| s3_error("read"))?;
+            .map_err(|error| s3_error("read", &error))?;
+        let bytes = object
+            .bytes()
+            .await
+            .map_err(|error| s3_error("read", &error))?;
         // The buffer itself when nothing else holds it, not a copy of it.
         Ok(Vec::from(bytes))
     }
@@ -723,7 +762,7 @@ impl MediaStore for S3Store {
             .store
             .put_multipart(&location)
             .await
-            .map_err(|_| s3_error("multipart start"))?;
+            .map_err(|error| s3_error("multipart start", &error))?;
         let mut writer = WriteMultipart::new(upload);
         let mut file = tokio::fs::File::open(path).await?;
         let mut buffer = vec![0; 1024 * 1024];
@@ -735,13 +774,13 @@ impl MediaStore for S3Store {
             writer
                 .wait_for_capacity(4)
                 .await
-                .map_err(|_| s3_error("multipart write"))?;
+                .map_err(|error| s3_error("multipart write", &error))?;
             writer.write(&buffer[..read]);
         }
         writer
             .finish()
             .await
-            .map_err(|_| s3_error("multipart finish"))?;
+            .map_err(|error| s3_error("multipart finish", &error))?;
         Ok(StoredObject {
             key: key.to_string(),
             sha256,
@@ -756,7 +795,7 @@ impl MediaStore for S3Store {
             .store
             .get(&location)
             .await
-            .map_err(|_| s3_error("read"))?;
+            .map_err(|error| s3_error("read", &error))?;
         let mut stream = object.into_stream();
         let mut file = tokio::fs::OpenOptions::new()
             .write(true)
@@ -766,7 +805,7 @@ impl MediaStore for S3Store {
         while let Some(chunk) = stream
             .try_next()
             .await
-            .map_err(|_| s3_error("stream read"))?
+            .map_err(|error| s3_error("stream read", &error))?
         {
             file.write_all(&chunk).await?;
         }
@@ -780,9 +819,11 @@ impl MediaStore for S3Store {
             .store
             .get(&location)
             .await
-            .map_err(|_| s3_error("get"))?;
+            .map_err(|error| s3_error("get", &error))?;
         Ok(Box::pin(
-            result.into_stream().map_err(|_| s3_error("stream read")),
+            result
+                .into_stream()
+                .map_err(|error| s3_error("stream read", &error)),
         ))
     }
 
@@ -797,21 +838,21 @@ impl MediaStore for S3Store {
         let location = Self::location(key)?;
         match self.store.delete(&location).await {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-            Err(_) => Err(s3_error("delete")),
+            Err(error) => Err(s3_error("delete", &error)),
         }
     }
 
     async fn delete_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
         self.delete_prefix(&object_store::path::Path::from(tree_id.to_string()))
             .await
-            .map_err(|_| s3_error("tree delete"))
+            .map_err(|error| s3_error("tree delete", &error))
     }
 
     async fn delete_job(&self, job_id: Uuid) -> Result<(), OxidGeneError> {
         let prefix = object_store::path::Path::from_iter(["jobs".to_string(), job_id.to_string()]);
         self.delete_prefix(&prefix)
             .await
-            .map_err(|_| s3_error("job delete"))
+            .map_err(|error| s3_error("job delete", &error))
     }
 
     async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
@@ -819,7 +860,7 @@ impl MediaStore for S3Store {
             .store
             .list_with_delimiter(Some(&object_store::path::Path::from("jobs")))
             .await
-            .map_err(|_| s3_error("job listing"))?;
+            .map_err(|error| s3_error("job listing", &error))?;
         Ok(listing
             .common_prefixes
             .iter()
@@ -1140,6 +1181,29 @@ mod tests {
         ] {
             assert!(plain_http_off_loopback(endpoint), "{endpoint}");
         }
+    }
+
+    #[cfg(feature = "s3")]
+    #[test]
+    fn an_s3_failure_keeps_its_kind_and_a_missing_object_is_not_found() {
+        let missing = object_store::Error::NotFound {
+            path: "tree/aa/bb/digest.jpg".into(),
+            source: "absent".into(),
+        };
+        assert!(matches!(
+            s3_error("read", &missing),
+            OxidGeneError::Io(error) if error.kind() == std::io::ErrorKind::NotFound
+        ));
+
+        let denied = object_store::Error::PermissionDenied {
+            path: "tree/aa/bb/digest.jpg".into(),
+            source: "denied".into(),
+        };
+        assert_eq!(s3_error_kind(&denied), "permission_denied");
+        assert!(matches!(
+            s3_error("write", &denied),
+            OxidGeneError::Internal(_)
+        ));
     }
 
     #[cfg(feature = "s3")]

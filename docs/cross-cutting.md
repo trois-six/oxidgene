@@ -325,6 +325,10 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
   error kind, or `panic`/`cancelled` for a blocking task — never the error
   message, which may carry SQL values, paths, or genealogy. Request events add
   the route template and method; job events add the job kind and format.
+  The same `error.kind` goes with every failure logged without a request: a
+  startup step that ends the process, a step of a tree purge, and an S3 media
+  storage operation (`not_found`, `permission_denied`, `unauthenticated`, …;
+  a missing S3 object is the same I/O "not found" a missing file is).
 - Retried operations log the attempt and final outcome without duplicating a
   full error at every layer.
 - Metrics use aggregate dimensions with bounded cardinality; personal data and

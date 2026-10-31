@@ -140,7 +140,8 @@ async fn main() {
 /// its value.
 async fn start_auth() -> Arc<Auth> {
     let settings = or_exit(
-        ServerConfig::load_auth(),
+        // Its text may quote a value, and is not logged.
+        ServerConfig::load_auth().map_err(|error| error.to_string()),
         "auth_config_invalid",
         "Failed to load the authentication settings",
     );

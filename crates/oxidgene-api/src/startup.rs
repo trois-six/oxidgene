@@ -9,21 +9,88 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
+use oxidgene_core::OxidGeneError;
 use oxidgene_db::repo::{BackgroundJobRepo, Connections, connect, run_migrations};
-use oxidgene_db::sea_orm::DatabaseConnection;
-use tokio::task::JoinHandle;
+use oxidgene_db::sea_orm::{DatabaseConnection, DbErr};
+use tokio::task::{JoinError, JoinHandle};
 use tracing::error;
 
 use crate::AppState;
+use crate::error_contract::error_kind;
 use crate::service::background_job::BackgroundJobWorker;
 
 /// The value of `result`, or the end of the process: `message` is logged
-/// under the `error` code `code` and the process exits with status 1.
-pub fn or_exit<T, E>(result: Result<T, E>, code: &'static str, message: &'static str) -> T {
-    result.unwrap_or_else(|_| {
-        error!(error = code, "{message}");
+/// under the `error` code `code`, with the [`FailureKind`] of the error as
+/// `error.kind`, and the process exits with status 1.
+pub fn or_exit<T, E: FailureKind>(
+    result: Result<T, E>,
+    code: &'static str,
+    message: &'static str,
+) -> T {
+    result.unwrap_or_else(|failure| {
+        error!(
+            error = code,
+            error.kind = failure.failure_kind(),
+            "{message}"
+        );
         std::process::exit(1)
     })
+}
+
+/// The bounded category of a startup failure's cause, logged beside its
+/// code: never the cause's message, which may hold a connection string, a
+/// path or a credential.
+pub trait FailureKind {
+    fn failure_kind(&self) -> &'static str;
+}
+
+impl FailureKind for OxidGeneError {
+    fn failure_kind(&self) -> &'static str {
+        error_kind(self)
+    }
+}
+
+impl FailureKind for DbErr {
+    fn failure_kind(&self) -> &'static str {
+        // Classified from the rendered error, which is not logged.
+        error_kind(&OxidGeneError::Database(self.to_string()))
+    }
+}
+
+impl FailureKind for std::io::Error {
+    fn failure_kind(&self) -> &'static str {
+        error_kind(&OxidGeneError::Io(self.kind().into()))
+    }
+}
+
+impl FailureKind for JoinError {
+    fn failure_kind(&self) -> &'static str {
+        if self.is_panic() {
+            "panic"
+        } else {
+            "cancelled"
+        }
+    }
+}
+
+impl FailureKind for axum::http::header::InvalidHeaderValue {
+    fn failure_kind(&self) -> &'static str {
+        "invalid_header_value"
+    }
+}
+
+#[cfg(feature = "auth")]
+impl FailureKind for crate::auth::StoreUnavailable {
+    fn failure_kind(&self) -> &'static str {
+        "unavailable"
+    }
+}
+
+/// A configuration error: its text is the caller's to log, if anything.
+impl FailureKind for String {
+    fn failure_kind(&self) -> &'static str {
+        "configuration"
+    }
 }
 
 /// The static reference tables, loading on a blocking thread.
@@ -106,4 +173,23 @@ pub fn with_health_check(api: Router) -> Router {
 
 async fn healthz() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "status": "ok" }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_startup_failure_keeps_the_kind_of_its_cause() {
+        let refused = DbErr::Conn(oxidgene_db::sea_orm::RuntimeErr::Internal(
+            "refused".to_string(),
+        ));
+        assert_eq!(refused.failure_kind(), "connection");
+
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(denied.failure_kind(), "io_permission_denied");
+
+        let missing = OxidGeneError::Validation("absent".to_string());
+        assert_eq!(missing.failure_kind(), "validation");
+    }
 }
