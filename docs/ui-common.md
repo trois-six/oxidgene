@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-31T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -58,9 +58,14 @@ the contextual topbar.
 - Background: `var(--nav-bg)` with `backdrop-filter: blur(12px)`.
 - Bottom border: `1px solid var(--border)`.
 - The back and forward buttons ([§2.4](#24-back-and-forward)), then the
-  OxidGene logo linking to `/`, are its only MVP content.
-- Future account, notification, and global navigation controls must not be
-  documented as current behavior until implemented.
+  OxidGene logo linking to `/`, lead it.
+- In the web build's `oidc` mode its right zone holds **Sign in** for a
+  visitor, or the signed-in user's avatar ([§4.19](#419-useravatar)) opening
+  the account menu: their name and email, **Profile**, **Sign out**
+  ([Authentication §10](authentication.md#10-user-interface)). The desktop and
+  the web build's `none` mode render no right zone at all.
+- Future notification and global navigation controls must not be documented
+  as current behavior until implemented.
 
 ### 2.2 Contextual topbar
 
@@ -80,6 +85,7 @@ the contextual topbar.
 | Search | tree name / Search | Pre-filled person search and fit action |
 | Person | tree name / person display name | Page actions |
 | App settings | Home / Settings | Empty |
+| Profile (web, `oidc`) | Home / Profile | Empty |
 
 Breadcrumb links use `var(--text-secondary)`, switch to `var(--orange)` on
 hover, and truncate from the oldest intermediate crumb on narrow screens.
@@ -311,6 +317,13 @@ Tokens derived in the stylesheet rather than set by a theme:
 | `--shadow-sm` | `0 1px 3px var(--shadow-weak)` |
 | `--shadow-md` | `0 4px 16px var(--shadow-strong)` |
 | `--select-arrow` | Data URI of the select chevron, in `--text-secondary` |
+
+The avatar colours are the one fixed palette of the stylesheet:
+`--avatar-0-bg` to `--avatar-7-bg`, each with its text colour
+`--avatar-N-fg`, declared in `LAYOUT_STYLES` and the same under every theme,
+so that a user's generated avatar ([§4.19](#419-useravatar)) has one colour
+on every device and in every theme. Each pair keeps a contrast of at least
+4.5:1, which a unit test of `components/user_avatar.rs` checks.
 
 Two semantic aliases map generic component names to core tokens: `--white`
 (`--on-accent`) and `--shadow-black` (`--shadow`). Every other rule reads the
@@ -838,6 +851,11 @@ the focus person's trigger (`menu-guard: delegates to`), and the history
 arrows (§2.4), which list their pages on a long press or a secondary click as
 a browser's do (`menu-guard: history arrows`).
 
+A trigger may show something else than the "⋮" (`trigger`), with an
+accessible name of its own (`label`), where the menu is the element itself
+rather than its secondary actions: the navbar's avatar opening the account
+menu ([§2.1](#21-navbar)) is the one such trigger.
+
 A chart draws the trigger of its selected element in its own SVG,
 `ChartMenuButton`, rather than a `MenuButton` in a `foreignObject`, which
 WebKitGTK places without the transforms of the groups above it: a round "⋮"
@@ -1139,6 +1157,35 @@ that carries tags ([Tags](tags.md)):
 
 Each colour is a theme token, `--tag-0` to `--tag-11`,
 applied through the dot's inline style.
+
+### 4.19 UserAvatar
+
+One component, `UserAvatar` (`components/user_avatar.rs`), draws the avatar
+of a user of the instance wherever one appears: the navbar's account menu,
+the profile page, the administrator's list of users
+([Authentication §6.7](authentication.md#67-profile-and-avatar)). It is a
+circle, 32 px in a bar or a row, 96 px on the profile page, named for
+assistive technology by the user's name.
+
+- **Uploaded.** The image the user uploaded, at the stored size nearest
+  twice the drawn one (64 or 256 px), fetched through the API client with its
+  version in the address and kept in memory for the session, so a navigation
+  draws it at once.
+- **Generated.** Without one, or while it loads, the initials — the first
+  letter of each of the first two words of the display name, upper-cased,
+  `?` without a name — on the avatar colour (§3.2) the first byte of the
+  SHA-256 of the user's id, its sixteen bytes, picks among the eight. Nothing
+  is requested.
+
+The square of an uploaded avatar is chosen in `AvatarCropper`
+(`components/avatar_cropper.rs`), a dialog in the shared `Modal`: the picture
+fitted into a 320 px stage, and over it a square the size of its shorter
+side, centred, with the round avatar's outline inside. The square is dragged
+with the pointer — moves listened to during the drag only (§6.5) — or moved
+with the arrow keys, and **Zoom** shrinks it to a quarter of that side around
+its centre. It never leaves the picture. It is sent in pixels of the upright
+picture. The vignette cropper (§4.5), which draws a free rectangle on a
+stored media, is a different tool.
 
 ## 5. Accessibility
 

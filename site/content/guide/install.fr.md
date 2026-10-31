@@ -90,6 +90,6 @@ OxidGene peut aussi fonctionner comme une application web, utilisée depuis un n
 - **Docker Compose**, pour essayer la version web sur une seule machine ;
 - **Kubernetes avec Helm**, pour un déploiement sur serveur.
 
-La version web n’a pas encore de comptes utilisateurs : quiconque peut l’atteindre peut lire, modifier et supprimer tous les arbres. Gardez-la sur un réseau privé ou derrière une passerelle d’authentification. Quelques fonctions sont réservées à l’application de bureau, dont l’import des photos depuis Geneanet et la connexion d’un assistant IA.
+Reliée à un fournisseur d’identité, la version web a des comptes utilisateurs : chacun se connecte, et seuls les utilisateurs connectés accèdent aux arbres (voir [Comptes et profil](@/guide/accounts.fr.md)). Qui peut lire ou modifier quel arbre n’est pas encore décidé : tout utilisateur connecté peut lire, modifier et supprimer tous les arbres, n’admettez donc que des personnes de confiance. Exploitée sans fournisseur d’identité, elle n’a aucun compte, comme l’application de bureau : quiconque peut l’atteindre peut tout faire, gardez-la donc sur un réseau privé. Quelques fonctions sont réservées à l’application de bureau, dont l’import des photos depuis Geneanet et la connexion d’un assistant IA.
 
 En savoir plus : [guide de démarrage technique](@/tech/quickstart.md) (en anglais).

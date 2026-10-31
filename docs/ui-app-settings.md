@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, and the AI assistant connection."
+description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, the AI assistant connection, and the web build administrator's Instance section."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 
@@ -99,6 +99,10 @@ Items:
 
 Active item: primary text, bold weight, and the neutral selection background
 (`var(--sel-bg)`), matching Tree Settings.
+
+In the web build's `oidc` mode, an instance administrator also finds a second
+group, "Instance", below it, with **Users** (§11). Nobody else sees it, and
+neither the desktop nor the web build's `none` mode has it.
 
 ---
 
@@ -560,7 +564,33 @@ specified in [Assistant Access](mcp.md).
   through i18n, in every interface language. The command, the JSON and the
   flag are not translated.
 
-## 11. Responsive
+## 11. Section: Instance (web only)
+
+The instance's administrators manage its users here
+([Authorization §2](authorization.md#2-principals-and-instance-roles),
+[Authentication §10](authentication.md#10-user-interface)). The section is
+`InstanceUsersSection` (`pages/instance_users.rs`).
+
+- **List.** Every user, a page of 50 at a time by cursor with *Load more*:
+  the avatar ([Common UI §4.19](ui-common.md#419-useravatar)), the display
+  name with badges for *Administrator*, *Creates trees* and *Deactivated*,
+  the username and email, and the last sign-in. An erased user reads
+  *Former member*, initials `?`, and has no menu.
+- **Menu.** Each other user's row ends in the shared ⋮
+  ([Common UI §4.8](ui-common.md#48-contextmenu)): *Make administrator* or
+  *Remove the administrator role*, *Allow creating trees* or *Stop allowing
+  tree creation*, *Deactivate* or *Reactivate*, *Change identity…* — a dialog
+  with the issuer and subject, pre-filled — and *Erase*, behind a
+  confirmation naming the user. The administrator's own row has no menu.
+- **Refusals.** A change the identity provider's roles claim decides, a
+  missing value, a user erased meanwhile or an identity another user holds
+  is refused by the server, and the section says which in a translated
+  message above the list. A change that succeeds reloads the list.
+
+The trees, the access log and the messaging reports join the group with the
+phases that store them.
+
+## 12. Responsive
 
 - Outer content max-width: 1200px, responsive padding; settings content max-width: 860px
 - At or below **768px**: the left navigation stacks above the content area as one
@@ -574,12 +604,13 @@ specified in [Assistant Access](mcp.md).
 
 ---
 
-## 12. Future Sections
+## 13. Future Sections
 
-Additional sections may be added in future EPICs:
+Additional sections may be added in future EPICs. The account is not one of
+them: it is the web build's profile page (`/profile`,
+[Authentication §10](authentication.md#10-user-interface)).
 
 | Section | Description |
 |---|---|
 | AI | Providers and keys each user brings for the AI features on media — see [AI Features](ai.md) §4 |
-| Account | Web only, not a section here: the user's profile page (`/profile`) holds the display name, avatar, language, notification preferences, sessions, API clients, messaging security, blocked users and account deletion — see [Authentication §10](authentication.md#10-user-interface) |
-| Instance | Web only, administrators: users, trees, access log, reports — see [Authorization §11](authorization.md#11-user-interface) |
+| Instance | Web only, administrators: the trees, the access log and the reports join *Users* (§11) — see [Authorization §11](authorization.md#11-user-interface) |

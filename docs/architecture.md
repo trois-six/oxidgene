@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 
@@ -90,7 +90,7 @@ For full entity definitions, see [Data Model](data-model.md).
 - Application crates provide the web server, its background-job worker, the
     browser frontend, and the desktop application. There is no CLI.
 
-**Authentication and authorization (planned, web build only).** EPIC G adds
+**Authentication and authorization (web build only).** EPIC G adds
 sign-in against an OpenID Connect provider, users, tree roles, sharing,
 exclusions, privacy for viewers, notifications, mail, end-to-end encrypted
 messaging and API clients ([Authentication](authentication.md),
@@ -98,9 +98,10 @@ messaging and API clients ([Authentication](authentication.md),
 [Messaging and Notifications](messaging.md)). It is compiled and active only
 in the web build, the way GraphQL is: an optional `auth` feature of
 `oxidgene-api` that `oxidgene-server` and `oxidgene-worker` enable, and UI
-capabilities that only `oxidgene-web` injects into `oxidgene-ui` (with a
-`messaging` feature for the MLS client). The desktop enables neither and
-keeps its single local user with full access and its launch-token, host and
+capabilities that only `oxidgene-web` injects into `oxidgene-ui`: the
+account UI's `account::Accounts` since phase 1, and a `messaging` feature for
+the MLS client to come. The desktop enables neither and keeps its single
+local user with full access and its launch-token, host and
 header guards, unchanged
 ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
 In the web build an authentication layer in front of the merged REST and

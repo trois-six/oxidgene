@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -16,8 +16,8 @@ generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 
 **Status: in progress.** The deployment of §8 — the development stack, the
 Helm chart's modes and the Rauthy they bundle — the end-to-end sign-in suite
-of §12, and the server's part of phase 1 (identity, sessions, accounts and
-the profile API) are in place; the frontend is being built. This document
+of §12, and phase 1 — identity, sessions, accounts and the profile, on the
+server and in the web frontend (§10) — are in place. This document
 fixes the contract EPIC G follows;
 [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks its
 phases. Until per-tree permissions ship, the backend is never exposed to an
@@ -587,12 +587,14 @@ and account deletion, which the other sections and specifications define.
   `Cache-Control: private, max-age=86400`, `Vary: Cookie, Authorization`,
   `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`,
   and `If-None-Match` answered `304`. The frontend fetches it through its
-  client and shows it as a `blob:` image, as it does every media
-  ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
+  client and draws it from memory, as it does every media
+  ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)):
+  the address of the backend never reaches the markup.
 - **Generated avatar.** Without an upload, the avatar is the user's initials —
   the first letter of the first two words of the display name, upper-cased,
   `?` when there is none — on a background chosen from the user's id: the
-  first byte of the id's SHA-256 indexes a fixed palette of avatar colours
+  first byte of the SHA-256 of the id's sixteen bytes, modulo the palette's
+  size, indexes a fixed palette of eight avatar colours
   defined among the design tokens of `components/layout.rs` for every theme,
   each paired with a text colour that keeps a contrast of at least 4.5:1. The
   frontend draws it itself; no request, no external service, the same colour
@@ -934,16 +936,38 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
 
 ## 10. User interface
 
+The account UI is one capability of `oxidgene-ui` (`account.rs`), which the
+web entry point injects and the desktop does not (§7). With it, the
+application asks `/auth/session` as it starts, without making the page wait
+for the answer, so that the `none` mode loads as fast as the desktop. A
+`none` answer, or none at all, leaves the interface exactly the desktop's,
+and no other account route is ever called.
+
 - **Navbar.** In `oidc` mode the right zone shows **Sign in** to an anonymous
-  visitor, or the user's avatar opening a menu: their name, **Profile**,
-  **Sign out**. `none` mode shows neither, nor any banner: the interface is the
-  desktop's (§2).
-- **Sign in** navigates to `/auth/login?return_to=` the current path. A
-  failed sign-in shows the translated `auth_error` message on the page it
-  returns to.
+  visitor, or the user's avatar opening a menu: their name and email,
+  **Profile**, **Sign out**. `none` mode shows neither, nor any banner: the interface is the
+  desktop's (§2). The avatar is the shared trigger of a menu
+  ([Common UI §4.8](ui-common.md#48-contextmenu)) and the one avatar component
+  ([Common UI §4.19](ui-common.md#419-useravatar)).
+- **Sign in** navigates to `/auth/login?return_to=` the current route, with
+  `lang` the interface language. A failed sign-in shows the translated
+  `auth_error` message in a dialog on the page it returns to, with **Try
+  again**, and the code leaves the address so a reload does not show it again.
+- **A visitor.** Until phase 2 there is nothing an anonymous visitor may read
+  (§4.8): once the answer names nobody, the home page, every page of a tree
+  and the profile show, instead of their content and its refused requests,
+  *Sign in to continue* with **Sign in**, which returns to that page. The
+  application settings stay open: they are the device's.
+- **Signed in.** Every state-changing request carries the session's CSRF token
+  (§4.4). The account's language becomes the interface's on a device where
+  none was chosen, without being stored as the device's choice.
 - **Session end.** A `401` on a request the page made opens a dialog —
-  *Your session has ended* — whose **Sign in again** keeps the current route;
-  an open form keeps its entries in memory until the user is back.
+  *Your session has ended* — whose **Sign in again** keeps the current route,
+  and whose **Close** leaves the page as it was: an open form keeps its
+  entries in memory, for the user to copy before signing in again.
+- **Sign out** posts `/auth/logout` and goes to the provider's end-session
+  address it answers, or to the home page; either way the page loads afresh,
+  with nothing of the account left in memory.
 - **Profile page** (`/profile`, web only, signed in), in the `sub-page`
   layout with a left navigation like App Settings:
   - *Profile*: the avatar with **Upload** (file picker, then a square crop
@@ -961,8 +985,26 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
     password and second factor, **Download my account data**, and **Delete
     my account**, which lists the trees to transfer or delete first.
 
+  Phase 1 ships *Profile*, *Language*, *Sessions* and *Account*; the other
+  sections join the page with their phases. Until memberships exist (phase 2)
+  no user owns a tree, so deletion has nothing to list; a refusal (`409`)
+  says to transfer or delete the trees first. On the desktop and in `none`
+  mode, `/profile` is not found.
+- **Instance.** An administrator finds an *Instance* group in App Settings
+  ([App Settings §12](ui-app-settings.md#11-section-instance-web-only)) whose *Users*
+  section lists every user by cursor — avatar, name, username and email, role,
+  tree creation, status, last sign-in — with a menu per user: the
+  administrator role and tree creation granted or withdrawn, deactivation and
+  reactivation, **Change identity…** (issuer and subject, §6.4) and **Erase**
+  behind a confirmation. An erased user is listed as *Former member*, with no
+  menu; the administrator's own row has none either, their account being
+  their profile's. A change the roles claim decides (§6.3) is refused by the
+  server, and the section says so.
+
   Another user's name or avatar, wherever it appears, opens a small card
-  with both, for whoever may see that user.
+  with both, for whoever may see that user. The card arrives with the first
+  surface that shows other users to those who are not administrators
+  (members, phase 5); the administrator's list already shows what it would.
 - Every label, message, dialog and accessibility text goes through i18n in
   every interface language.
 

@@ -60,6 +60,8 @@ Les paramètres de l’application comptent sept sections : **Apparence**, **Lan
 
 Ces préférences sont conservées sur cet appareil. Sur un autre ordinateur, ou dans un autre navigateur, vous les choisissez de nouveau.
 
+Dans la version web avec comptes, un administrateur de l’instance trouve aussi un groupe **Instance** avec une section **Utilisateurs**, décrite dans [Comptes et profil](@/guide/accounts.fr.md#gerer-les-utilisateurs-de-l-instance). La langue de votre compte se choisit dans votre [profil](@/guide/accounts.fr.md#langue).
+
 {{ <screenshot name="app-settings-dark" alt="Sélecteur de thème des paramètres de l’application, dans le thème sombre" lang={lang} /> }}
 
 ### Apparence

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 
@@ -50,7 +50,8 @@ Minimal shared navbar, always visible at the top. See [Common UI](ui-common.md).
 
 - Logo (`OxidGene.svg`) on the left, acts as a link to the homepage
 - No navigation links in MVP
-- **Planned, web build only (EPIC G)**: sign-in or the user's avatar opening the menu to their profile page ([Authentication §10](authentication.md#10-user-interface)), the notifications bell and messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone; the cards' role badges, *My trees* and *Shared with me* filters and pending invitations of [Authorization §11](authorization.md#11-user-interface). The desktop keeps this page as it is
+- **Web build, `oidc` mode only**: **Sign in**, or the user's avatar opening the account menu to their profile page, in the navbar right zone ([Authentication §10](authentication.md#10-user-interface)). Until someone is signed in, the page shows *Sign in to continue* and **Sign in** in place of the header, toolbar and cards. The desktop and the web build's `none` mode keep this page as it is
+- **Planned, web build only (EPIC G)**: the notifications bell and messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone; the cards' role badges, *My trees* and *Shared with me* filters and pending invitations of [Authorization §11](authorization.md#11-user-interface)
 
 ---
 

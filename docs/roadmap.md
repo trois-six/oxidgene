@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -290,25 +290,26 @@ string in every language, and the user guide. In order:
      logout ([Authentication §4](authentication.md#4-browser-sessions-backend-for-frontend)).
    - [x] Users: provisioning and the signup gate, instance roles from claims,
      deactivation, erasure, account data, the administrator's user list.
-   - [ ] The sign-in, account menu and session-end dialog of the web
+   - [x] The sign-in, account menu and session-end dialog of the web
      frontend, and its `none` mode identical to the desktop's interface
      ([Authentication §2](authentication.md#2-deployment-modes)).
    - [x] The profile API on REST and GraphQL: display name, the uploaded
      avatar with its crop, re-encoding and serving, language, sessions,
      account data and deletion
      ([Authentication §6.7](authentication.md#67-profile-and-avatar)).
-   - [ ] The profile page over it, with the generated initials avatar; its
-     notification, API-client, messaging-security and blocked-users sections
-     arrive with phases 4, 6 and 7.
+   - [x] The profile page over it, with the generated initials avatar, and
+     the administrator's Instance › Users section in App Settings; the
+     profile's notification, API-client, messaging-security and
+     blocked-users sections arrive with phases 4, 6 and 7.
    - [x] The Compose stack's Rauthy with its development setup and Mailpit,
      the web container's proxy, `just dev-idp-up`, and the chart's
      `auth.idp.mode` `external` and `none` with its values, Ingress paths
      and rendering tests ([Authentication §8](authentication.md#8-deployment)).
    - [x] The mock provider of the integration tests.
-   - [ ] The opt-in end-to-end sign-in suite (`just e2e-auth`): written
+   - [x] The opt-in end-to-end sign-in suite (`just e2e-auth`): written
      against the Compose stack, it skips itself until the server answers
-     `/auth/session` in `oidc` mode; run it green against the server's
-     routes.
+     `/auth/session` in `oidc` mode, and covers the web interface's sign-in,
+     account menu, ended session, profile page and user list.
 2. **Roles and enforcement.**
    - [ ] Memberships with the Owner, Editor and Guest roles, tree creation
      rights, ownership transfer, ownerless trees

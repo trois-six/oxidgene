@@ -60,6 +60,8 @@ The application settings have seven sections: **Appearance**, **Language**, **Pe
 
 These preferences are kept on this device. On another computer, or in another browser, you choose them again.
 
+In the web version with accounts, an administrator of the instance also finds an **Instance** group with a **Users** section, described in [Accounts and profile](@/guide/accounts.md#manage-the-instance-s-users). Your account's own language is chosen in your [profile](@/guide/accounts.md#language).
+
 {{ <screenshot name="app-settings-dark" alt="Theme picker of the application settings, in the dark theme" lang={lang} /> }}
 
 ### Appearance
