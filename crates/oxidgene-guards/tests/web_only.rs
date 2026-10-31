@@ -22,6 +22,11 @@ const WEB_ONLY_FEATURES: &[&str] = &["auth", "graphql"];
 const WEB_ONLY_CRATES: &[&str] = &["jsonwebtoken", "redis", "async-graphql"];
 
 /// `cargo tree` of `package` with its features, for every target.
+///
+/// Not `--offline`: a build only downloads the crates of its own target,
+/// and the tree of every target needs the others' too (Android's, Windows'),
+/// which a fresh CI runner has never fetched. `--locked` keeps the graph the
+/// lockfile's.
 fn tree(package: &str) -> String {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let output = Command::new(cargo)
@@ -29,7 +34,6 @@ fn tree(package: &str) -> String {
         .args([
             "tree",
             "--locked",
-            "--offline",
             "--package",
             package,
             "--edges",
