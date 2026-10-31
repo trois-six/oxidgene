@@ -533,6 +533,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "GET",
+        "/api/v1/trees/{tree_id}/media/{media_id}/card",
+        RestOnly(BINARY),
+    ),
+    (
+        "GET",
         "/api/v1/trees/{tree_id}/media/{media_id}/vignettes",
         Gql(&["Query.mediaVignettes"]),
     ),
@@ -930,6 +935,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     (
         "GET",
         "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image",
+        RestOnly(BINARY),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/card",
         RestOnly(BINARY),
     ),
 ];

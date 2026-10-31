@@ -4988,13 +4988,25 @@ impl ApiClient {
     }
 
     /// The portraits of people whose sources a payload already carried —
-    /// pedigree nodes, search rows — in one request.
+    /// pedigree nodes, search rows — in one request, at the size of a
+    /// portrait on a card: every one of them is drawn at most 66 pixels wide
+    /// (pedigree cards, result rows, the events panel), where the thumbnail
+    /// would ship nine times the pixels. A profile's header, larger, resolves
+    /// its portrait through [`Self::resolve_pictures`] at thumbnail size.
     pub async fn portraits_from_refs(
         &self,
         tree_id: Uuid,
         portraits: &[(Uuid, oxidgene_core::types::PortraitRef)],
     ) -> HashMap<Uuid, CroppedSource> {
-        self.resolve_pictures(tree_id, &[], portraits)
+        let card_sized: Vec<_> = portraits
+            .iter()
+            .map(|(person_id, portrait)| {
+                let mut portrait = portrait.clone();
+                portrait.source = portrait.source.card_sized();
+                (*person_id, portrait)
+            })
+            .collect();
+        self.resolve_pictures(tree_id, &[], &card_sized)
             .await
             .portraits
     }

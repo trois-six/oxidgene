@@ -24,6 +24,7 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::media::MediaStore;
+use crate::media::thumbnail::Rendition;
 
 /// Bounded like every other batch operation. A screen asks for what it draws.
 pub const MAX_IMAGES_PER_REQUEST: usize = 1_024;
@@ -72,20 +73,21 @@ pub async fn load_image_data_urls(
 /// What producing one picture takes: a stored blob, and for a crop the
 /// rectangle to cut out of it.
 enum BlobRead {
-    Thumbnail {
-        key: String,
-    },
-    /// A held, drawable medium (its storage key known) and the rectangle.
+    /// A stored picture: a thumbnail or a card rendition.
+    Stored { key: String },
+    /// A held, drawable medium (its storage key known), the rectangle, and
+    /// the size to send it at.
     Crop {
         medium: Box<Media>,
         rect: (i32, i32, i32, i32),
+        rendition: Rendition,
     },
 }
 
 impl BlobRead {
     async fn load(self, store: &Arc<dyn MediaStore>) -> Option<String> {
         match self {
-            Self::Thumbnail { key } => {
+            Self::Stored { key } => {
                 let bytes = store.get(&key).await.ok()?;
                 // `ingest` only ever writes `jpg` or `png`, and the key says
                 // which.
@@ -96,9 +98,13 @@ impl BlobRead {
                 };
                 Some(data_url(mime_type, &bytes))
             }
-            Self::Crop { medium, rect } => {
+            Self::Crop {
+                medium,
+                rect,
+                rendition,
+            } => {
                 let key = medium.storage_key.as_deref()?;
-                let cropped = crate::media::cut_vignette(&**store, &medium, key, rect)
+                let cropped = crate::media::cut_vignette(&**store, &medium, key, rect, rendition)
                     .await
                     .ok()?;
                 Some(data_url("image/jpeg", &cropped))
@@ -119,7 +125,9 @@ async fn plan_reads(
     sources: &[ImageSource],
 ) -> Result<Vec<Option<BlobRead>>, OxidGeneError> {
     let vignette_ids = sorted_unique(sources.iter().filter_map(|source| match source {
-        ImageSource::Crop { vignette_id } => Some(*vignette_id),
+        ImageSource::Crop { vignette_id } | ImageSource::CardCrop { vignette_id } => {
+            Some(*vignette_id)
+        }
         _ => None,
     }));
     let vignettes: HashMap<Uuid, Vignette> = VignetteRepo::get_many(db, &vignette_ids)
@@ -131,7 +139,9 @@ async fn plan_reads(
         sources
             .iter()
             .filter_map(|source| match source {
-                ImageSource::Thumbnail { media_id } => Some(*media_id),
+                ImageSource::Thumbnail { media_id } | ImageSource::Card { media_id } => {
+                    Some(*media_id)
+                }
                 _ => None,
             })
             .chain(vignettes.values().map(|vignette| vignette.media_id)),
@@ -149,9 +159,18 @@ async fn plan_reads(
             ImageSource::Remote { .. } => None,
             ImageSource::Thumbnail { media_id } => {
                 let key = media.get(media_id)?.thumbnail_key.clone()?;
-                Some(BlobRead::Thumbnail { key })
+                Some(BlobRead::Stored { key })
             }
-            ImageSource::Crop { vignette_id } => {
+            ImageSource::Card { media_id } => {
+                let medium = media.get(media_id)?;
+                let key = card_or_thumbnail(medium)?.to_owned();
+                Some(BlobRead::Stored { key })
+            }
+            ImageSource::Crop { vignette_id } | ImageSource::CardCrop { vignette_id } => {
+                let rendition = match source {
+                    ImageSource::CardCrop { .. } => Rendition::Card,
+                    _ => Rendition::Thumbnail,
+                };
                 let vignette = vignettes.get(vignette_id)?;
                 let medium = media.get(&vignette.media_id)?;
                 if !crate::media::thumbnail::can_crop(&medium.mime_type)
@@ -162,10 +181,21 @@ async fn plan_reads(
                 Some(BlobRead::Crop {
                     medium: Box::new(medium.clone()),
                     rect: (vignette.x, vignette.y, vignette.width, vignette.height),
+                    rendition,
                 })
             }
         })
         .collect())
+}
+
+/// The key a card-sized picture of `medium` is read from: its card
+/// rendition, or its thumbnail where it has none — a picture stored before
+/// card renditions existed, or one whose card could not be stored.
+pub fn card_or_thumbnail(medium: &Media) -> Option<&str> {
+    medium
+        .card_key
+        .as_deref()
+        .or(medium.thumbnail_key.as_deref())
 }
 
 fn data_url(mime_type: &str, bytes: &[u8]) -> String {

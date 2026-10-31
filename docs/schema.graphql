@@ -1721,7 +1721,9 @@ type GqlImageCrop {
 """
 Where a picture lives.
 
-Exactly one of the three payload fields is set, matching `kind`. A held
+Exactly one of the three payload fields is set, matching `kind`: `url`
+for `REMOTE`, `mediaId` for `THUMBNAIL` and `CARD`, `vignetteId` for
+`CROP` and `CARD_CROP`. A held
 picture names its resource rather than a URL: turning it into something
 drawable is the client's business, because until authentication ships no
 backend address may appear in the markup.
@@ -1733,11 +1735,11 @@ type GqlImageSource {
 	"""
 	url: String
 	"""
-	Set when `kind` is `THUMBNAIL`.
+	Set when `kind` is `THUMBNAIL` or `CARD`.
 	"""
 	mediaId: ID
 	"""
-	Set when `kind` is `CROP`.
+	Set when `kind` is `CROP` or `CARD_CROP`.
 	"""
 	vignetteId: ID
 }
@@ -1761,6 +1763,15 @@ enum GqlImageSourceKind {
 	The region this backend cuts out of a media it holds.
 	"""
 	CROP
+	"""
+	The card rendition of a media it holds: the thumbnail at the size of a
+	portrait on a card.
+	"""
+	CARD
+	"""
+	The region it cuts, at the size of a portrait on a card.
+	"""
+	CARD_CROP
 }
 
 """
@@ -1885,6 +1896,11 @@ type GqlMedia {
 	null when none could be made and for byte-less records.
 	"""
 	thumbnailKey: String
+	"""
+	Key of the card rendition: the picture at the size of a portrait on a
+	card, made beside the thumbnail of a raster page.
+	"""
+	cardKey: String
 	"""
 	For a page held only as a URL, the address of a small picture of it
 	that its server also serves; gallery tiles draw it instead of the

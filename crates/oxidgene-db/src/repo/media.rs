@@ -27,6 +27,8 @@ pub struct UploadedMedia {
     pub sha256: String,
     pub file_size: i64,
     pub thumbnail_key: Option<String>,
+    /// Key of the card rendition, made beside the thumbnail.
+    pub card_key: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub page_count: i32,
@@ -198,6 +200,7 @@ impl MediaRepo {
             storage_key: Set(None),
             sha256: Set(None),
             thumbnail_key: Set(None),
+            card_key: Set(None),
             thumbnail_url: Set(None),
             width: Set(None),
             height: Set(None),
@@ -246,6 +249,7 @@ impl MediaRepo {
             storage_key: Set(Some(upload.storage_key)),
             sha256: Set(Some(upload.sha256)),
             thumbnail_key: Set(upload.thumbnail_key),
+            card_key: Set(upload.card_key),
             thumbnail_url: Set(None),
             width: Set(upload.width),
             height: Set(upload.height),
@@ -301,6 +305,7 @@ impl MediaRepo {
         active.storage_key = Set(Some(upload.storage_key));
         active.sha256 = Set(Some(upload.sha256));
         active.thumbnail_key = Set(upload.thumbnail_key);
+        active.card_key = Set(upload.card_key);
         // Our own copy has a thumbnail of its own now.
         active.thumbnail_url = Set(None);
         active.width = Set(upload.width);
@@ -343,6 +348,7 @@ impl MediaRepo {
             storage_key: Set(None),
             sha256: Set(None),
             thumbnail_key: Set(None),
+            card_key: Set(None),
             thumbnail_url: Set(None),
             width: Set(None),
             height: Set(None),
@@ -537,10 +543,14 @@ impl MediaRepo {
         let candidate_keys: HashSet<String> = std::iter::once(&root)
             .chain(pages.iter())
             .flat_map(|media| {
-                [media.storage_key.as_ref(), media.thumbnail_key.as_ref()]
-                    .into_iter()
-                    .flatten()
-                    .cloned()
+                [
+                    media.storage_key.as_ref(),
+                    media.thumbnail_key.as_ref(),
+                    media.card_key.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                .cloned()
             })
             .collect();
         let retained_keys =
@@ -623,7 +633,8 @@ impl MediaRepo {
 
 impl MediaRepo {
     /// Of the store keys `keys`, all under tree `tree_id`, those a media row
-    /// of the tree names as its file or its thumbnail, deleted or not. A key
+    /// of the tree names as its file, its thumbnail or its card rendition,
+    /// deleted or not. A key
     /// is scoped to its tree, so no other tree's row can name it.
     pub async fn referenced_keys(
         db: &impl ConnectionTrait,
@@ -632,16 +643,17 @@ impl MediaRepo {
     ) -> Result<HashSet<String>, OxidGeneError> {
         let wanted: HashSet<&String> = keys.iter().collect();
         let mut referenced = HashSet::new();
-        // Each key is bound twice, once per column.
-        for chunk in keys.chunks(crate::repo::batch::MAX_BOUND_IDS / 2) {
-            let rows: Vec<(Option<String>, Option<String>)> = Entity::find()
+        // Each key is bound three times, once per column.
+        for chunk in keys.chunks(crate::repo::batch::MAX_BOUND_IDS / 3) {
+            let rows: Vec<(Option<String>, Option<String>, Option<String>)> = Entity::find()
                 .select_only()
-                .columns([Column::StorageKey, Column::ThumbnailKey])
+                .columns([Column::StorageKey, Column::ThumbnailKey, Column::CardKey])
                 .filter(Column::TreeId.eq(tree_id))
                 .filter(
                     Condition::any()
                         .add(Column::StorageKey.is_in(chunk.iter().cloned()))
-                        .add(Column::ThumbnailKey.is_in(chunk.iter().cloned())),
+                        .add(Column::ThumbnailKey.is_in(chunk.iter().cloned()))
+                        .add(Column::CardKey.is_in(chunk.iter().cloned())),
                 )
                 .into_tuple()
                 .all(db)
@@ -649,7 +661,9 @@ impl MediaRepo {
                 .map_err(db_err)?;
             referenced.extend(
                 rows.into_iter()
-                    .flat_map(|(storage_key, thumbnail_key)| [storage_key, thumbnail_key])
+                    .flat_map(|(storage_key, thumbnail_key, card_key)| {
+                        [storage_key, thumbnail_key, card_key]
+                    })
                     .flatten()
                     .filter(|key| wanted.contains(key)),
             );
@@ -799,7 +813,7 @@ async fn page_document(
 ///
 /// Keys are content-addressed within a tree (they begin with its id), so only
 /// that tree's media can share one, and only the candidates are asked about:
-/// the answer reads two columns of the rows that share a key, not every
+/// the answer reads three columns of the rows that share a key, not every
 /// medium of every tree.
 async fn keys_of_other_media(
     db: &impl ConnectionTrait,
@@ -810,16 +824,17 @@ async fn keys_of_other_media(
     if candidates.is_empty() {
         return Ok(HashSet::new());
     }
-    let rows: Vec<(Option<String>, Option<String>)> = Entity::find()
+    let rows: Vec<(Option<String>, Option<String>, Option<String>)> = Entity::find()
         .select_only()
-        .columns([Column::StorageKey, Column::ThumbnailKey])
+        .columns([Column::StorageKey, Column::ThumbnailKey, Column::CardKey])
         .filter(Column::TreeId.eq(tree_id))
         .filter(Column::DeletedAt.is_null())
         .filter(Column::Id.is_not_in(excluded.iter().copied()))
         .filter(
             Condition::any()
                 .add(Column::StorageKey.is_in(candidates.iter().cloned()))
-                .add(Column::ThumbnailKey.is_in(candidates.iter().cloned())),
+                .add(Column::ThumbnailKey.is_in(candidates.iter().cloned()))
+                .add(Column::CardKey.is_in(candidates.iter().cloned())),
         )
         .into_tuple()
         .all(db)
@@ -827,7 +842,7 @@ async fn keys_of_other_media(
         .map_err(db_err)?;
     Ok(rows
         .into_iter()
-        .flat_map(|(storage_key, thumbnail_key)| [storage_key, thumbnail_key])
+        .flat_map(|(storage_key, thumbnail_key, card_key)| [storage_key, thumbnail_key, card_key])
         .flatten()
         .filter(|key| candidates.contains(key))
         .collect())
@@ -921,6 +936,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         storage_key: m.storage_key,
         sha256: m.sha256,
         thumbnail_key: m.thumbnail_key,
+        card_key: m.card_key,
         thumbnail_url: m.thumbnail_url,
         width: m.width,
         height: m.height,

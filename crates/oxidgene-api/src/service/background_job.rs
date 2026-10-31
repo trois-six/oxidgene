@@ -2128,7 +2128,8 @@ mod tests {
             files_under(&root.path().join("jobs")).is_empty(),
             "no record is left"
         );
-        // Every stored file is named by a row: the pages and their thumbnails.
+        // Every stored file is named by a row: the pages, their thumbnails
+        // and their card renditions.
         use sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
         let mut named: Vec<String> = oxidgene_db::entities::media::Entity::find()
             .filter(oxidgene_db::entities::media::Column::TreeId.eq(tree_id))
@@ -2136,7 +2137,7 @@ mod tests {
             .await
             .expect("lists media")
             .into_iter()
-            .flat_map(|row| [row.storage_key, row.thumbnail_key])
+            .flat_map(|row| [row.storage_key, row.thumbnail_key, row.card_key])
             .flatten()
             .collect();
         named.sort();

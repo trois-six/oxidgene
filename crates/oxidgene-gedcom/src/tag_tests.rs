@@ -55,6 +55,7 @@ fn stored_document(tree_id: Uuid, tags: Vec<TagRef>) -> (Media, Media) {
         storage_key: None,
         sha256: None,
         thumbnail_key: None,
+        card_key: None,
         thumbnail_url: None,
         width: None,
         height: None,

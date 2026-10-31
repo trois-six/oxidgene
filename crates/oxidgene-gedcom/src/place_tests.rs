@@ -64,6 +64,7 @@ fn document_at(tree_id: Uuid, place_id: Uuid) -> (Media, Media) {
         storage_key: None,
         sha256: None,
         thumbnail_key: None,
+        card_key: None,
         thumbnail_url: None,
         width: None,
         height: None,

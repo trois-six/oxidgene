@@ -47,7 +47,7 @@ durable job status and can create export jobs, while clients use REST to upload
 import sources and download export artifacts. Pagination envelopes follow each
 transport's conventions.
 
-Direct media reads (`/file`, `/download`, `/archive`, `/thumbnail`, and vignette `/image`)
+Direct media reads (`/file`, `/download`, `/archive`, `/thumbnail`, `/card`, and vignette `/image` and `/card`)
 remain HTTP representations because their cache validators, content types,
 download disposition and conditional `ETag` semantics are HTTP behaviour rather
 than product operations. GraphQL exposes the underlying metadata and checked
@@ -529,6 +529,7 @@ meaning.
 | `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes, served **inline** for previews. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
 | `GET` | `/trees/{tree_id}/media/{media_id}/download` | Stream one stored original of any supported media type with `Content-Disposition: attachment`, its MIME type, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`. Always transfers the file rather than returning a conditional `304`. `404` for absent, deleted, foreign-tree or byte-less records; remote URLs are never fetched or redirected to |
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px): a PNG when a pixel of the source is transparent, a JPEG otherwise — an alpha channel opaque everywhere, as photographs saved as PNG often carry, counts as none. For a PDF it is the scan its first page paints (see **Upload rules**). `404` when none was made — a PDF whose first page paints no image we decode, or a file whose decoding failed — so a gallery can fall back to an icon on the status alone |
+| `GET` | `/trees/{tree_id}/media/{media_id}/card` | The card rendition, generated with the thumbnail of a raster page and stored the same way: the picture scaled so its shorter edge is 132 pixels and its longer at most 528, never enlarged — a portrait on a pedigree card is at most 66 pixels wide and drawn to cover its square, so this is what it needs at device pixel ratio 2. PNG or JPEG as the thumbnail. A page without one (stored before card renditions existed, or whose card could not be stored) is answered its thumbnail; `404` when it has neither. Media get it when they are uploaded or imported: there is no backfill, since a schema change recreates the database and re-imports it |
 | `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every live page of a document, in one ZIP attachment (`application/zip`, `private, no-store`, `nosniff`). Entries are prefixed `001_`, `002_` in current reading order; padding grows beyond 999 pages so lexical order remains correct. A page held only as an `http(s)` URL contributes a `.url` Internet Shortcut (`[InternetShortcut]` + `URL=`, CRLF, control characters stripped) instead of bytes, so the archive has one entry per page and the address survives the round trip. Empty documents and any other page without stored bytes return `404`; pages are never silently skipped |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata. `width`/`height` are sent together or not at all, and only for a page whose bytes we do not hold — the browser that displayed a remote picture is the only witness to its size, and for our own copy the size is read from the bytes. Recording them re-checks the regions already drawn on that page. `thumbnail_url` sets a remote page's thumbnail address (`null` clears it); repointing `file_path` without one clears it |
 | `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
@@ -668,6 +669,7 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
 | `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/card` | The same region at card size: scaled so its shorter edge is 132 pixels (its longer at most 528), never enlarged — what a portrait on a card draws at device pixel ratio 2. Same rules as `/image`, with an `ETag` of its own |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read and scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). It carries an `ETag` derived from the source file's digest and the rectangle, and answers `If-None-Match` with `304`. `400` for a PDF, even one with a thumbnail — crops are raster-only, and a PDF's thumbnail shows one image of its first page, not the page a region was drawn on |
 
 Creation and updates require a page, never a document shell (`400`), and a live
@@ -1597,8 +1599,16 @@ picture's **address**, never its bytes. A source is one of:
 | `remote` | `url` | An address outside our control. The client fetches it directly; we never proxy somebody else's file |
 | `thumbnail` | `media_id` | The thumbnail we generated, served by `GET /trees/{tree_id}/media/{media_id}/thumbnail` |
 | `crop` | `vignette_id` | The region we cut, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/image` |
+| `card` | `media_id` | The card rendition we generated, served by `GET /trees/{tree_id}/media/{media_id}/card` |
+| `card_crop` | `vignette_id` | The region we cut, at card size, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/card` |
 
-GraphQL exposes the same three shapes as an `ImageSource` object whose `kind`
+Payloads name a held picture at thumbnail size (`thumbnail`, `crop`). A
+client drawing it as a portrait of at most 66 pixels — a pedigree card, a
+result row, the events panel — asks for the card size instead (`card`,
+`card_crop`), about a ninth of the pixels; a remote source has no rendition
+of ours and stays as it is.
+
+GraphQL exposes the same five shapes as an `ImageSource` object whose `kind`
 selects which of `url`, `mediaId` and `vignetteId` is set, and takes the same
 shape as `ImageSourceInput`.
 

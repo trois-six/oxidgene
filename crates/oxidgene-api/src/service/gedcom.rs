@@ -383,6 +383,7 @@ fn apply_ingested_media(
     media.sha256 = Some(ingested.sha256);
     media.file_size = ingested.file_size;
     media.thumbnail_key = ingested.thumbnail_key;
+    media.card_key = ingested.card_key;
     media.width = ingested.width;
     media.height = ingested.height;
     media.page_count = ingested.page_count;
@@ -515,6 +516,7 @@ async fn insert_standalone_records(
                 storage_key: Set(m.storage_key.clone()),
                 sha256: Set(m.sha256.clone()),
                 thumbnail_key: Set(m.thumbnail_key.clone()),
+                card_key: Set(m.card_key.clone()),
                 thumbnail_url: Set(m.thumbnail_url.clone()),
                 width: Set(m.width),
                 height: Set(m.height),

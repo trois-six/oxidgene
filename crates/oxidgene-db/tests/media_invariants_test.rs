@@ -82,6 +82,7 @@ fn upload(width: i32) -> UploadedMedia {
         sha256: "test-digest".into(),
         file_size: 1,
         thumbnail_key: None,
+        card_key: None,
         width: Some(width),
         height: Some(100),
         page_count: 1,
@@ -531,6 +532,7 @@ async fn a_purge_keeps_the_files_another_medium_still_uses() {
     let (db, tree, document) = setup().await;
     let shared = UploadedMedia {
         thumbnail_key: Some("test/first-thumb.jpg".into()),
+        card_key: Some("test/first-card.jpg".into()),
         ..upload(100)
     };
     let first = MediaRepo::create_uploaded(&db, Uuid::now_v7(), tree, Some(document), shared)
@@ -541,8 +543,12 @@ async fn a_purge_keeps_the_files_another_medium_still_uses() {
         .await
         .unwrap();
 
-    let purge = MediaRepo::purge(&db, first.id).await.unwrap();
-    assert_eq!(purge.storage_keys, vec!["test/first-thumb.jpg".to_string()]);
+    let mut purge = MediaRepo::purge(&db, first.id).await.unwrap();
+    purge.storage_keys.sort();
+    assert_eq!(
+        purge.storage_keys,
+        ["test/first-card.jpg", "test/first-thumb.jpg"]
+    );
 
     let purge = MediaRepo::purge(&db, second.id).await.unwrap();
     assert_eq!(purge.storage_keys, vec!["test/scan.png".to_string()]);

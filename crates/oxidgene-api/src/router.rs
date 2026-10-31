@@ -333,6 +333,10 @@ pub fn build_router(state: AppState) -> Router {
             get(media::download_thumbnail),
         )
         .route(
+            "/{tree_id}/media/{media_id}/card",
+            get(media::download_card),
+        )
+        .route(
             "/{tree_id}/media/{media_id}/vignettes",
             get(vignette::list_media_vignettes).post(vignette::create_vignette),
         );
@@ -348,6 +352,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/vignettes/{vignette_id}/image",
             get(vignette::vignette_image),
+        )
+        .route(
+            "/{tree_id}/vignettes/{vignette_id}/card",
+            get(vignette::vignette_card),
         );
 
     let media_link_routes = Router::new()

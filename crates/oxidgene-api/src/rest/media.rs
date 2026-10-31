@@ -548,6 +548,33 @@ pub async fn download_thumbnail(
     serve(&state, key, mime_type, None, None, &headers).await
 }
 
+/// GET /api/v1/trees/:tree_id/media/:media_id/card
+///
+/// The card rendition: the picture at the size of a portrait on a card, or
+/// its thumbnail where none was made (a picture stored before card
+/// renditions existed). `404` when it has neither.
+pub async fn download_card(
+    State(state): State<AppState>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    let media = MediaRepo::get(&state.reader, media_id).await?;
+    let Some(key) = crate::service::image_bytes::card_or_thumbnail(&media) else {
+        return Err(ApiError(OxidGeneError::NotFound {
+            entity: "Card",
+            id: media_id,
+        }));
+    };
+    // As the thumbnail: `ingest` writes `jpg` or `png`, and no ETag.
+    let mime_type = if key.ends_with(".png") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
+    serve(&state, key, mime_type, None, None, &headers).await
+}
+
 // ── Shared helpers ──────────────────────────────────────────────────
 
 /// The parts of an upload form we read.

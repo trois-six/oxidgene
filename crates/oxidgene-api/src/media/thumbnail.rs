@@ -25,6 +25,28 @@ use oxidgene_core::error::OxidGeneError;
 /// retina display without shipping the full scan to draw a contact sheet.
 pub const THUMBNAIL_MAX_EDGE: u32 = 400;
 
+/// Shorter edge of a card rendition, in pixels.
+///
+/// The largest portrait a pedigree card draws is the medieval theme's
+/// 66-pixel medallion (the classic theme's is 50, a result row's 44, the
+/// events panel's 36), and every one is drawn to cover its square box. At
+/// device pixel ratio 2 that is 132 pixels on the shorter edge; the 400-pixel
+/// thumbnail sent for it weighed about nine times as much.
+pub const CARD_EDGE: u32 = 132;
+
+/// Longest edge of a card rendition: a square box drawn from a picture more
+/// elongated than 4:1 shows a narrow slice of it anyway.
+const CARD_MAX_EDGE: u32 = 4 * CARD_EDGE;
+
+/// Which derived picture a request wants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rendition {
+    /// Fitted inside [`THUMBNAIL_MAX_EDGE`]: a gallery tile, a page preview.
+    Thumbnail,
+    /// Covering a [`CARD_EDGE`] square: a portrait on a card.
+    Card,
+}
+
 /// Ceiling on the decoded pixel buffer, in bytes (1 GiB).
 ///
 /// A few kilobytes of crafted PNG can claim 60000×60000 pixels, and a decoder
@@ -48,6 +70,14 @@ const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 /// its size — its decoder can skip the detail it would only throw away — and
 /// anything else that large is cut from its stored thumbnail.
 const MAX_CROP_DECODED_BYTES: u64 = 128 * 1024 * 1024;
+
+/// The pictures derived from an upload: its thumbnail, and for a raster image
+/// its card rendition.
+#[derive(Debug, Clone)]
+pub struct Renditions {
+    pub thumbnail: Thumbnail,
+    pub card: Option<Thumbnail>,
+}
 
 /// A generated thumbnail, ready to store.
 #[derive(Debug, Clone)]
@@ -124,24 +154,62 @@ pub fn can_crop(mime_type: &str) -> bool {
     )
 }
 
-/// Decode `bytes` and scale them down to fit inside [`THUMBNAIL_MAX_EDGE`].
+/// Decode `bytes` and scale them down to fit inside [`THUMBNAIL_MAX_EDGE`],
+/// and to cover a [`CARD_EDGE`] square for the card rendition.
 ///
 /// An image already smaller than the box is re-encoded rather than scaled up:
 /// the thumbnail endpoint should always be able to answer with one format the
 /// gallery understands, even when the source is a 64×64 GIF.
-pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
+pub fn generate(bytes: &[u8]) -> Result<Renditions, OxidGeneError> {
     let (image, source_format) = decode(bytes, MAX_DECODED_BYTES)?;
-    encode_thumbnail(shrink(image), source_format)
+    let thumb = shrink(&image);
+    // The thumbnail holds enough pixels for the card unless the picture is
+    // more elongated than 3:1, and is far cheaper to scale than the original.
+    let card_source = if thumb.width().min(thumb.height()) >= CARD_EDGE {
+        &thumb
+    } else {
+        &image
+    };
+    let card = encode_thumbnail(card_sized(card_source), source_format)?;
+    drop(image);
+    Ok(Renditions {
+        thumbnail: encode_thumbnail(thumb, source_format)?,
+        card: Some(card),
+    })
 }
 
 /// `image` fitted inside [`THUMBNAIL_MAX_EDGE`], never enlarged.
-fn shrink(image: DynamicImage) -> DynamicImage {
+fn shrink(image: &DynamicImage) -> DynamicImage {
     // `thumbnail` fits to the box in both directions, so a small source would
     // come back enlarged and blurry. Only shrink.
     if image.width() > THUMBNAIL_MAX_EDGE || image.height() > THUMBNAIL_MAX_EDGE {
         image.thumbnail(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE)
     } else {
-        image
+        image.clone()
+    }
+}
+
+/// `image` scaled so its shorter edge is [`CARD_EDGE`] and its longer at
+/// most [`CARD_MAX_EDGE`], never enlarged: what a card's square portrait
+/// box, drawn to cover, needs at device pixel ratio 2.
+fn card_sized(image: &DynamicImage) -> DynamicImage {
+    let (width, height) = (image.width(), image.height());
+    let shorter = width.min(height).max(1);
+    let scale = (f64::from(CARD_EDGE) / f64::from(shorter)).min(1.0);
+    let scaled = |side: u32| ((f64::from(side) * scale).round() as u32).clamp(1, CARD_MAX_EDGE);
+    let (box_width, box_height) = (scaled(width), scaled(height));
+    if box_width >= width && box_height >= height {
+        image.clone()
+    } else {
+        image.thumbnail(box_width, box_height)
+    }
+}
+
+/// `image` sized for `rendition`, never enlarged.
+fn sized_for(image: &DynamicImage, rendition: Rendition) -> DynamicImage {
+    match rendition {
+        Rendition::Thumbnail => shrink(image),
+        Rendition::Card => card_sized(image),
     }
 }
 
@@ -274,7 +342,7 @@ pub fn generate_pdf(pdf: &Pdf) -> Result<Thumbnail, NoPdfThumbnail> {
         [Filter::CcittFaxDecode | Filter::Jbig2Decode | Filter::JpxDecode] => image.decoded()?,
         _ => return Err(NoPdfThumbnail::UnsupportedEncoding),
     };
-    encode_thumbnail(turned(shrink(picture), page.rotation()), None)
+    encode_thumbnail(turned(shrink(&picture), page.rotation()), None)
         .map_err(|_| NoPdfThumbnail::Undecodable)
 }
 
@@ -437,8 +505,9 @@ pub struct TooLargeToCrop;
 pub fn crop(
     bytes: &[u8],
     rect: (i32, i32, i32, i32),
+    rendition: Rendition,
 ) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
-    crop_within(bytes, rect, MAX_CROP_DECODED_BYTES)
+    crop_within(bytes, rect, MAX_CROP_DECODED_BYTES, rendition)
 }
 
 /// [`crop`], decoding at most `max_decoded` bytes.
@@ -446,11 +515,12 @@ fn crop_within(
     bytes: &[u8],
     rect: (i32, i32, i32, i32),
     max_decoded: u64,
+    rendition: Rendition,
 ) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
     let decoded = tracing::info_span!("media.decode", media.input_bytes = bytes.len())
         .in_scope(|| decode_for_crop(bytes, max_decoded))?;
     Ok(match decoded {
-        Some((image, scale)) => encode_crop(&image, scaled_rect(rect, scale)).map(Ok)?,
+        Some((image, scale)) => encode_crop(&image, scaled_rect(rect, scale), rendition).map(Ok)?,
         None => Err(TooLargeToCrop),
     })
 }
@@ -461,11 +531,12 @@ pub fn crop_scaled(
     bytes: &[u8],
     rect: (i32, i32, i32, i32),
     full_width: u32,
+    rendition: Rendition,
 ) -> Result<Vec<u8>, OxidGeneError> {
     let (image, _) = tracing::info_span!("media.decode", media.input_bytes = bytes.len())
         .in_scope(|| decode(bytes, MAX_CROP_DECODED_BYTES))?;
     let scale = f64::from(image.width()) / f64::from(full_width.max(1));
-    encode_crop(&image, scaled_rect(rect, scale))
+    encode_crop(&image, scaled_rect(rect, scale), rendition)
 }
 
 /// `rect` scaled by `scale`, at least one pixel wide and high.
@@ -550,21 +621,19 @@ fn decode_jpeg_reduced(
     Ok(image.map(|image| (image, f64::from(width) / f64::from(info.width))))
 }
 
-/// `image` cut to `(x, y, width, height)`, as JPEG.
+/// `image` cut to `(x, y, width, height)` and sized for `rendition`, as JPEG.
 fn encode_crop(
     image: &DynamicImage,
     (x, y, width, height): (u32, u32, u32, u32),
+    rendition: Rendition,
 ) -> Result<Vec<u8>, OxidGeneError> {
     let cropped = DynamicImage::crop_imm(image, x, y, width, height);
-    // A crop is only ever drawn as a thumbnail — a portrait on a card, a tile
-    // in a gallery — so it is sent at thumbnail size. A face marked on a
-    // high-resolution scan can be two thousand pixels wide, and shipping that
-    // for a sixty-pixel card cost the bytes and the client's decoding.
-    let cropped = if cropped.width() > THUMBNAIL_MAX_EDGE || cropped.height() > THUMBNAIL_MAX_EDGE {
-        cropped.thumbnail(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE)
-    } else {
-        cropped
-    };
+    // A crop is only ever drawn as a thumbnail — a tile in a gallery — or as
+    // a portrait on a card, so it is sent at one of those sizes. A face
+    // marked on a high-resolution scan can be two thousand pixels wide, and
+    // shipping that for a sixty-pixel card cost the bytes and the client's
+    // decoding.
+    let cropped = sized_for(&cropped, rendition);
 
     let encode = tracing::info_span!("media.encode", media.output_bytes = tracing::field::Empty);
     let _entered = encode.enter();
@@ -582,9 +651,10 @@ fn encode_crop(
 pub async fn crop_off_thread(
     bytes: Vec<u8>,
     rect: (i32, i32, i32, i32),
+    rendition: Rendition,
 ) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
     let span = tracing::info_span!("media.crop", media.input_bytes = bytes.len());
-    crate::service::blocking::run(span, move || crop(&bytes, rect)).await?
+    crate::service::blocking::run(span, move || crop(&bytes, rect, rendition)).await?
 }
 
 /// [`crop_scaled`] on the blocking pool, under a `media.crop` span.
@@ -592,9 +662,13 @@ pub async fn crop_scaled_off_thread(
     bytes: Vec<u8>,
     rect: (i32, i32, i32, i32),
     full_width: u32,
+    rendition: Rendition,
 ) -> Result<Vec<u8>, OxidGeneError> {
     let span = tracing::info_span!("media.crop", media.input_bytes = bytes.len());
-    crate::service::blocking::run(span, move || crop_scaled(&bytes, rect, full_width)).await?
+    crate::service::blocking::run(span, move || {
+        crop_scaled(&bytes, rect, full_width, rendition)
+    })
+    .await?
 }
 
 pub(crate) fn decode(
@@ -658,7 +732,7 @@ mod tests {
 
     #[test]
     fn a_wide_image_is_scaled_to_fit_the_box_and_keeps_its_ratio() {
-        let thumb = generate(&jpeg(1600, 800)).unwrap();
+        let thumb = generate(&jpeg(1600, 800)).unwrap().thumbnail;
         assert_eq!(thumb.width, THUMBNAIL_MAX_EDGE);
         assert_eq!(thumb.height, THUMBNAIL_MAX_EDGE / 2);
         assert_eq!(thumb.mime_type, "image/jpeg");
@@ -666,20 +740,20 @@ mod tests {
 
     #[test]
     fn a_tall_image_is_bounded_by_its_height() {
-        let thumb = generate(&jpeg(300, 1200)).unwrap();
+        let thumb = generate(&jpeg(300, 1200)).unwrap().thumbnail;
         assert_eq!(thumb.height, THUMBNAIL_MAX_EDGE);
         assert_eq!(thumb.width, 100);
     }
 
     #[test]
     fn an_image_smaller_than_the_box_is_not_scaled_up() {
-        let thumb = generate(&jpeg(64, 48)).unwrap();
+        let thumb = generate(&jpeg(64, 48)).unwrap().thumbnail;
         assert_eq!((thumb.width, thumb.height), (64, 48));
     }
 
     #[test]
     fn a_transparent_source_stays_png() {
-        let thumb = generate(&png_with_alpha(500, 500)).unwrap();
+        let thumb = generate(&png_with_alpha(500, 500)).unwrap().thumbnail;
         assert_eq!(thumb.mime_type, "image/png");
         assert_eq!(thumb.extension, "png");
     }
@@ -692,7 +766,7 @@ mod tests {
         }
         let mut png = Cursor::new(Vec::new());
         img.write_to(&mut png, ImageFormat::Png).unwrap();
-        let thumb = generate(&png.into_inner()).unwrap();
+        let thumb = generate(&png.into_inner()).unwrap().thumbnail;
         assert_eq!(thumb.mime_type, "image/jpeg");
         assert_eq!(thumb.extension, "jpg");
     }
@@ -703,19 +777,22 @@ mod tests {
         img.put_pixel(39, 39, Rgba([10, 20, 30, 0]));
         let mut png = Cursor::new(Vec::new());
         img.write_to(&mut png, ImageFormat::Png).unwrap();
-        assert_eq!(generate(&png.into_inner()).unwrap().mime_type, "image/png");
+        assert_eq!(
+            generate(&png.into_inner()).unwrap().thumbnail.mime_type,
+            "image/png"
+        );
     }
 
     #[test]
     fn an_opaque_source_becomes_jpeg() {
-        let thumb = generate(&jpeg(500, 500)).unwrap();
+        let thumb = generate(&jpeg(500, 500)).unwrap().thumbnail;
         assert_eq!(thumb.mime_type, "image/jpeg");
         assert_eq!(thumb.extension, "jpg");
     }
 
     #[test]
     fn a_generated_thumbnail_is_itself_decodable() {
-        let thumb = generate(&jpeg(900, 600)).unwrap();
+        let thumb = generate(&jpeg(900, 600)).unwrap().thumbnail;
         assert_eq!(
             dimensions(&thumb.bytes),
             Some((thumb.width, thumb.height)),
@@ -954,14 +1031,16 @@ mod tests {
 
     #[test]
     fn a_crop_of_a_small_image_is_cut_at_full_resolution() {
-        let cropped = crop(&jpeg(64, 48), (8, 8, 16, 12)).unwrap().unwrap();
+        let cropped = crop(&jpeg(64, 48), (8, 8, 16, 12), Rendition::Thumbnail)
+            .unwrap()
+            .unwrap();
         assert_eq!(size_of(&cropped), (16, 12));
     }
 
     #[test]
     fn a_jpeg_over_the_ceiling_is_cropped_from_a_reduced_decode() {
         // 64 x 48 x 3 = 9216 bytes decoded; 4000 admits the half scale only.
-        let cropped = crop_within(&jpeg(64, 48), (8, 8, 16, 12), 4_000)
+        let cropped = crop_within(&jpeg(64, 48), (8, 8, 16, 12), 4_000, Rendition::Thumbnail)
             .unwrap()
             .unwrap();
         assert_eq!(size_of(&cropped), (8, 6));
@@ -971,12 +1050,12 @@ mod tests {
     fn any_other_image_over_the_ceiling_is_left_to_its_thumbnail() {
         let png = png_with_alpha(64, 48);
         assert_eq!(
-            crop_within(&png, (8, 8, 16, 12), 4_000).unwrap(),
+            crop_within(&png, (8, 8, 16, 12), 4_000, Rendition::Thumbnail).unwrap(),
             Err(TooLargeToCrop)
         );
         // The thumbnail of a 64-pixel-wide original, at half its size.
-        let thumbnail = generate(&jpeg(32, 24)).unwrap().bytes;
-        let cropped = crop_scaled(&thumbnail, (8, 8, 16, 12), 64).unwrap();
+        let thumbnail = generate(&jpeg(32, 24)).unwrap().thumbnail.bytes;
+        let cropped = crop_scaled(&thumbnail, (8, 8, 16, 12), 64, Rendition::Thumbnail).unwrap();
         assert_eq!(size_of(&cropped), (8, 6));
     }
 
@@ -988,7 +1067,7 @@ mod tests {
         let _guard =
             tracing::subscriber::set_default(tracing_subscriber::registry().with(spans.clone()));
 
-        let cropped = crop_off_thread(jpeg(64, 48), (8, 8, 16, 16))
+        let cropped = crop_off_thread(jpeg(64, 48), (8, 8, 16, 16), Rendition::Thumbnail)
             .await
             .expect("crop")
             .expect("small enough to crop whole");
@@ -1010,14 +1089,60 @@ mod tests {
 
     #[test]
     fn a_crop_is_sent_at_thumbnail_size_and_a_small_one_as_it_is() {
-        let large = crop(&jpeg(1200, 900), (100, 50, 1000, 800))
+        let large = crop(&jpeg(1200, 900), (100, 50, 1000, 800), Rendition::Thumbnail)
             .expect("crop")
             .expect("small enough to crop whole");
         assert_eq!(
             dimensions(&large),
             Some((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE * 800 / 1000))
         );
-        let small = crop(&jpeg(64, 48), (8, 8, 16, 12))
+        let small = crop(&jpeg(64, 48), (8, 8, 16, 12), Rendition::Thumbnail)
+            .expect("crop")
+            .expect("small enough to crop whole");
+        assert_eq!(dimensions(&small), Some((16, 12)));
+    }
+
+    /// The card rendition covers a 132-pixel square: its shorter edge is
+    /// 132, whether it comes from the thumbnail or, for a picture too
+    /// elongated for the thumbnail to cover it, from the original.
+    #[test]
+    fn the_card_rendition_covers_a_card_square() {
+        let photo = generate(&jpeg(1600, 1200)).unwrap();
+        let card = photo.card.expect("a photo gets a card");
+        assert_eq!((card.width, card.height), (176, CARD_EDGE));
+        assert_eq!(card.mime_type, "image/jpeg");
+        assert!(card.bytes.len() < photo.thumbnail.bytes.len());
+
+        // 4:1: the 400-pixel thumbnail is only 100 high, so the card is
+        // scaled from the original.
+        let strip = generate(&jpeg(1600, 400)).unwrap();
+        assert_eq!((strip.thumbnail.width, strip.thumbnail.height), (400, 100));
+        let card = strip.card.unwrap();
+        assert_eq!((card.width, card.height), (528, CARD_EDGE));
+
+        // Longer than 4:1, the longer edge stops at 528.
+        let card = generate(&jpeg(3000, 500)).unwrap().card.unwrap();
+        assert_eq!((card.width, card.height), (528, 88));
+
+        // A picture already smaller is never enlarged.
+        let card = generate(&jpeg(100, 80)).unwrap().card.unwrap();
+        assert_eq!((card.width, card.height), (100, 80));
+    }
+
+    #[test]
+    fn a_transparent_picture_keeps_its_transparency_on_its_card() {
+        let card = generate(&png_with_alpha(500, 500)).unwrap().card.unwrap();
+        assert_eq!(card.mime_type, "image/png");
+        assert_eq!((card.width, card.height), (CARD_EDGE, CARD_EDGE));
+    }
+
+    #[test]
+    fn a_crop_at_card_size_covers_a_card_square() {
+        let card = crop(&jpeg(1200, 900), (100, 50, 1000, 800), Rendition::Card)
+            .expect("crop")
+            .expect("small enough to crop whole");
+        assert_eq!(dimensions(&card), Some((165, CARD_EDGE)));
+        let small = crop(&jpeg(64, 48), (8, 8, 16, 12), Rendition::Card)
             .expect("crop")
             .expect("small enough to crop whole");
         assert_eq!(dimensions(&small), Some((16, 12)));

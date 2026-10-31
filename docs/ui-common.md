@@ -406,7 +406,10 @@ operation. These surfaces must not issue one thumbnail or vignette request per
 person. Sets larger than the API limit are split into as many bounded batches
 as necessary. A person profile requests only the person it renders;
 single-image endpoints are reserved for media workflows that display one
-selected asset.
+selected asset. A portrait drawn at most 66 pixels wide — a pedigree card,
+the events panel, a result row, a picker, an attachment's square — is asked
+for at card size ([API](api.md), Image sources); the person and couple
+headers, larger, draw the thumbnail.
 
 ### 4.3 DateInput
 

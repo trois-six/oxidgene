@@ -1096,6 +1096,12 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
             GqlImageSourceKind::Crop => Self::Crop {
                 vignette_id: uuid(input.vignette_id.ok_or_else(|| missing("vignetteId"))?)?,
             },
+            GqlImageSourceKind::Card => Self::Card {
+                media_id: uuid(input.media_id.ok_or_else(|| missing("mediaId"))?)?,
+            },
+            GqlImageSourceKind::CardCrop => Self::CardCrop {
+                vignette_id: uuid(input.vignette_id.ok_or_else(|| missing("vignetteId"))?)?,
+            },
         })
     }
 }

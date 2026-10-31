@@ -498,6 +498,7 @@ mod tests {
             storage_key: stored.then(|| "media/register.pdf".to_string()),
             sha256: None,
             thumbnail_key: thumbnail.then(|| "thumbnails/register.jpg".to_string()),
+            card_key: None,
             thumbnail_url: None,
             width: None,
             height: None,

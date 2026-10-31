@@ -56,7 +56,7 @@ pub fn silhouette_slug(sex: Sex) -> &'static str {
 
 /// One picture the backend holds, named by what serves it.
 ///
-/// A closed set of three endpoints rather than an arbitrary path: a shell that
+/// A closed set of endpoints rather than an arbitrary path: a shell that
 /// answers for these is answering for pictures, and cannot be talked into
 /// proxying the rest of the API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,11 @@ pub enum MediaAsset {
     Crop { vignette_id: Uuid },
     /// The stored file itself, at full size.
     File { media_id: Uuid },
+    /// The card rendition of a media: its picture at the size of a portrait
+    /// on a card.
+    Card { media_id: Uuid },
+    /// The region cut out of a media, at the size of a portrait on a card.
+    CardCrop { vignette_id: Uuid },
 }
 
 impl MediaAsset {
@@ -79,6 +84,12 @@ impl MediaAsset {
                 media_id: *media_id,
             }),
             ImageSource::Crop { vignette_id } => Some(Self::Crop {
+                vignette_id: *vignette_id,
+            }),
+            ImageSource::Card { media_id } => Some(Self::Card {
+                media_id: *media_id,
+            }),
+            ImageSource::CardCrop { vignette_id } => Some(Self::CardCrop {
                 vignette_id: *vignette_id,
             }),
         }
@@ -128,11 +139,17 @@ pub fn api_path(tree_id: Uuid, asset: MediaAsset) -> String {
         MediaAsset::File { media_id } => {
             format!("/api/v1/trees/{tree_id}/media/{media_id}/file")
         }
+        MediaAsset::Card { media_id } => {
+            format!("/api/v1/trees/{tree_id}/media/{media_id}/card")
+        }
+        MediaAsset::CardCrop { vignette_id } => {
+            format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/card")
+        }
     }
 }
 
-/// Whether `path` is one [`api_path`] produces: a medium's thumbnail or
-/// file, or a vignette's image, named by UUIDs.
+/// Whether `path` is one [`api_path`] produces: a medium's thumbnail, card
+/// rendition or file, or a vignette's image or card, named by UUIDs.
 ///
 /// A shell that proxies these paths onto the backend answers nothing else,
 /// so whatever reaches the proxy — markup that slipped through, a crafted
@@ -143,11 +160,11 @@ pub fn is_asset_path(path: &str) -> bool {
     let is_id = |segment: &str| segment.parse::<Uuid>().is_ok();
     matches!(
         segments.as_slice(),
-        ["", "api", "v1", "trees", tree, "media", media, "thumbnail" | "file"]
+        ["", "api", "v1", "trees", tree, "media", media, "thumbnail" | "file" | "card"]
             if is_id(tree) && is_id(media)
     ) || matches!(
         segments.as_slice(),
-        ["", "api", "v1", "trees", tree, "vignettes", vignette, "image"]
+        ["", "api", "v1", "trees", tree, "vignettes", vignette, "image" | "card"]
             if is_id(tree) && is_id(vignette)
     )
 }
@@ -163,6 +180,8 @@ mod tests {
             MediaAsset::Thumbnail { media_id: id },
             MediaAsset::Crop { vignette_id: id },
             MediaAsset::File { media_id: id },
+            MediaAsset::Card { media_id: id },
+            MediaAsset::CardCrop { vignette_id: id },
         ] {
             assert!(is_asset_path(&api_path(id, asset)), "{asset:?}");
         }
@@ -175,6 +194,8 @@ mod tests {
             format!("/api/v1/trees/{id}/media/../persons/file"),
             format!("/api/v1/trees/{id}/vignettes/{id}/image?x=1"),
             format!("/api/v1/trees/{id}/notes/{id}/thumbnail"),
+            format!("/api/v1/trees/{id}/notes/{id}/card"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/file"),
         ] {
             assert!(!is_asset_path(&other), "{other}");
         }
@@ -196,6 +217,14 @@ mod tests {
         assert_eq!(
             api_path(id, MediaAsset::File { media_id: id }),
             format!("/api/v1/trees/{zero}/media/{zero}/file")
+        );
+        assert_eq!(
+            api_path(id, MediaAsset::Card { media_id: id }),
+            format!("/api/v1/trees/{zero}/media/{zero}/card")
+        );
+        assert_eq!(
+            api_path(id, MediaAsset::CardCrop { vignette_id: id }),
+            format!("/api/v1/trees/{zero}/vignettes/{zero}/card")
         );
     }
 

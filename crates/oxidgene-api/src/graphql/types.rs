@@ -1863,6 +1863,9 @@ pub struct GqlMedia {
     /// Key of the generated thumbnail, of the scan page 1 paints for a PDF;
     /// null when none could be made and for byte-less records.
     pub thumbnail_key: Option<String>,
+    /// Key of the card rendition: the picture at the size of a portrait on a
+    /// card, made beside the thumbnail of a raster page.
+    pub card_key: Option<String>,
     /// For a page held only as a URL, the address of a small picture of it
     /// that its server also serves; gallery tiles draw it instead of the
     /// full picture.
@@ -1912,6 +1915,7 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             storage_key: m.storage_key,
             sha256: m.sha256,
             thumbnail_key: m.thumbnail_key,
+            card_key: m.card_key,
             thumbnail_url: m.thumbnail_url,
             width: m.width,
             height: m.height,
@@ -3484,11 +3488,18 @@ pub enum GqlImageSourceKind {
     Thumbnail,
     /// The region this backend cuts out of a media it holds.
     Crop,
+    /// The card rendition of a media it holds: the thumbnail at the size of a
+    /// portrait on a card.
+    Card,
+    /// The region it cuts, at the size of a portrait on a card.
+    CardCrop,
 }
 
 /// Where a picture lives.
 ///
-/// Exactly one of the three payload fields is set, matching `kind`. A held
+/// Exactly one of the three payload fields is set, matching `kind`: `url`
+/// for `REMOTE`, `mediaId` for `THUMBNAIL` and `CARD`, `vignetteId` for
+/// `CROP` and `CARD_CROP`. A held
 /// picture names its resource rather than a URL: turning it into something
 /// drawable is the client's business, because until authentication ships no
 /// backend address may appear in the markup.
@@ -3497,9 +3508,9 @@ pub struct GqlImageSource {
     pub kind: GqlImageSourceKind,
     /// Set when `kind` is `REMOTE`.
     pub url: Option<String>,
-    /// Set when `kind` is `THUMBNAIL`.
+    /// Set when `kind` is `THUMBNAIL` or `CARD`.
     pub media_id: Option<ID>,
-    /// Set when `kind` is `CROP`.
+    /// Set when `kind` is `CROP` or `CARD_CROP`.
     pub vignette_id: Option<ID>,
 }
 
@@ -3521,6 +3532,18 @@ impl From<oxidgene_core::types::ImageSource> for GqlImageSource {
             },
             ImageSource::Crop { vignette_id } => Self {
                 kind: GqlImageSourceKind::Crop,
+                url: None,
+                media_id: None,
+                vignette_id: Some(ID(vignette_id.to_string())),
+            },
+            ImageSource::Card { media_id } => Self {
+                kind: GqlImageSourceKind::Card,
+                url: None,
+                media_id: Some(ID(media_id.to_string())),
+                vignette_id: None,
+            },
+            ImageSource::CardCrop { vignette_id } => Self {
+                kind: GqlImageSourceKind::CardCrop,
                 url: None,
                 media_id: None,
                 vignette_id: Some(ID(vignette_id.to_string())),

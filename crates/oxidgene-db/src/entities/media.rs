@@ -16,6 +16,9 @@ pub struct Model {
     pub storage_key: Option<String>,
     pub sha256: Option<String>,
     pub thumbnail_key: Option<String>,
+    /// Key of the card rendition, the picture at the size of a card's
+    /// portrait.
+    pub card_key: Option<String>,
     /// A remote page's thumbnail address, which gallery tiles draw.
     pub thumbnail_url: Option<String>,
     pub width: Option<i32>,

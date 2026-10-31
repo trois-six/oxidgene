@@ -2542,6 +2542,128 @@ async fn a_page_whose_url_names_no_extension_is_still_previewed() {
     );
 }
 
+/// An uploaded picture gets a card rendition beside its thumbnail: the
+/// picture covering a 132-pixel square, served for the media and, cut on
+/// read, for a region of it, and inlined by `image-data` on both surfaces.
+#[tokio::test]
+async fn a_picture_has_a_card_rendition_for_itself_and_its_regions() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (status, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("portrait.png"), &png(1600, 1200))],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    assert!(page["card_key"].is_string(), "{page}");
+    let media_id = page["id"].as_str().unwrap().to_string();
+
+    let (status, headers, card) = raw(&h.app, &format!("{base}/media/{media_id}/card"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
+    let decoded = image::load_from_memory(&card).expect("the card decodes");
+    assert_eq!((decoded.width(), decoded.height()), (176, 132));
+    let (_, _, thumbnail) = raw(&h.app, &format!("{base}/media/{media_id}/thumbnail"), &[]).await;
+    assert!(card.len() < thumbnail.len(), "the card is the lighter one");
+
+    let (status, vignette) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{media_id}/vignettes"),
+        Some(json!({"x": 100, "y": 100, "width": 800, "height": 600})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    let vignette_id = vignette["id"].as_str().unwrap().to_string();
+    let (status, card_headers, crop) =
+        raw(&h.app, &format!("{base}/vignettes/{vignette_id}/card"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    let decoded = image::load_from_memory(&crop).expect("the crop decodes");
+    assert_eq!((decoded.width(), decoded.height()), (176, 132));
+    let (_, image_headers, _) = raw(
+        &h.app,
+        &format!("{base}/vignettes/{vignette_id}/image"),
+        &[],
+    )
+    .await;
+    assert_ne!(
+        card_headers[header::ETAG],
+        image_headers[header::ETAG],
+        "the two sizes are two representations"
+    );
+
+    let (status, rest) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/image-data"),
+        Some(json!({
+            "sources": [
+                { "kind": "card", "media_id": media_id },
+                { "kind": "card_crop", "vignette_id": vignette_id },
+            ]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rest}");
+    let slots = rest.as_array().expect("array response");
+    assert!(
+        slots.iter().all(|slot| slot
+            .as_str()
+            .is_some_and(|s| s.starts_with("data:image/jpeg"))),
+        "{rest}"
+    );
+
+    #[cfg(feature = "graphql")]
+    {
+        let query = format!(
+            r#"{{ imageData(treeId: "{}", sources: [
+                {{ kind: CARD, mediaId: "{media_id}" }},
+                {{ kind: CARD_CROP, vignetteId: "{vignette_id}" }}
+            ]) }}"#,
+            h.tree_id
+        );
+        let (status, gql) = send(
+            &h.app,
+            Method::POST,
+            "/graphql",
+            Some(json!({ "query": query })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{gql}");
+        assert_eq!(gql["data"]["imageData"], rest, "{gql}");
+    }
+}
+
+/// A picture stored without a card rendition is drawn at card size from its
+/// thumbnail rather than not at all.
+#[tokio::test]
+async fn a_picture_without_a_card_rendition_falls_back_to_its_thumbnail() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (_, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[("file", Some("portrait.png"), &png(800, 600))],
+    )
+    .await;
+    let media_id: Uuid = page["id"].as_str().unwrap().parse().unwrap();
+    use sea_orm::{ActiveModelTrait as _, ActiveValue::Set};
+    oxidgene_db::entities::media::ActiveModel {
+        id: Set(media_id),
+        card_key: Set(None),
+        ..Default::default()
+    }
+    .update(&h.db)
+    .await
+    .unwrap();
+
+    let (status, _, card) = raw(&h.app, &format!("{base}/media/{media_id}/card"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, thumbnail) = raw(&h.app, &format!("{base}/media/{media_id}/thumbnail"), &[]).await;
+    assert_eq!(card, thumbnail);
+}
+
 /// The web client has no shell to serve pictures from, so it asks for a whole
 /// screen's worth of bytes at once rather than one request per portrait.
 #[tokio::test]

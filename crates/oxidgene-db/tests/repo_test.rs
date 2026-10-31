@@ -1645,6 +1645,7 @@ async fn uploaded_media_is_created_with_its_metadata() {
             sha256: "0123456789abcdef".into(),
             file_size: 2048,
             thumbnail_key: None,
+            card_key: None,
             width: Some(800),
             height: Some(600),
             page_count: 1,

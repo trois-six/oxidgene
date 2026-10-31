@@ -132,6 +132,8 @@ pub struct IngestedMedia {
     /// Key of the generated thumbnail, absent when none could be made: a PDF
     /// that paints no scan on its first page, or a file that failed to decode.
     pub thumbnail_key: Option<String>,
+    /// Key of the card rendition, made with the thumbnail of a raster image.
+    pub card_key: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     /// Page count, `1` for single-page formats.
@@ -155,6 +157,7 @@ impl IngestedMedia {
             sha256: self.sha256,
             file_size: self.file_size,
             thumbnail_key: self.thumbnail_key,
+            card_key: self.card_key,
             width: self.width,
             height: self.height,
             page_count: self.page_count,
@@ -167,8 +170,9 @@ impl IngestedMedia {
 }
 
 /// What [`ingest`] derives from a stored file: its page count, its pixel
-/// size, and its thumbnail when one can be drawn.
-type Derived = (u32, Option<(u32, u32)>, Option<thumbnail::Thumbnail>);
+/// size, and its thumbnail when one can be drawn, with its card rendition for
+/// a raster image.
+type Derived = (u32, Option<(u32, u32)>, Option<thumbnail::Renditions>);
 
 /// The `media.derive` span of one upload, recording its size.
 fn derive_span(input_bytes: usize) -> tracing::Span {
@@ -183,13 +187,13 @@ fn derive(mime_type: &'static str, bytes: Vec<u8>) -> Derived {
     if oxidgene_core::types::is_pdf_mime(mime_type) {
         return derive_pdf(bytes);
     }
-    let thumb = thumbnail::generate(&bytes)
+    let renditions = thumbnail::generate(&bytes)
         .inspect_err(|_| thumbnail_failed("undecodable"))
         .ok();
     (
         pages::count(mime_type, &bytes),
         thumbnail::dimensions(&bytes),
-        thumb,
+        renditions,
     )
 }
 
@@ -202,7 +206,12 @@ fn derive_pdf(bytes: Vec<u8>) -> Derived {
         .map_err(thumbnail::NoPdfThumbnail::from)
         .and_then(thumbnail::generate_pdf)
         .inspect_err(|reason| thumbnail_failed(reason.reason()))
-        .ok();
+        .ok()
+        .map(|thumbnail| thumbnail::Renditions {
+            thumbnail,
+            // A PDF is never a portrait: nothing draws it on a card.
+            card: None,
+        });
     (pages::count_pdf(pdf.as_ref().ok()), None, thumb)
 }
 
@@ -253,17 +262,15 @@ pub async fn ingest(
 
     // Decoding a large scan is seconds of CPU; keep it off the async runtime.
     let span = derive_span(bytes.len());
-    let (page_count, dimensions, thumb) =
+    let (page_count, dimensions, renditions) =
         crate::service::blocking::run(span, move || derive(mime_type, bytes)).await?;
 
-    let thumbnail_key = match thumb {
-        Some(thumb) => match store.put(tree_id, thumb.extension, &thumb.bytes).await {
-            Ok(stored) => Some(stored.key),
-            Err(_) => {
-                tracing::warn!(error = "thumbnail_storage", "could not store thumbnail");
-                None
-            }
-        },
+    let (thumbnail, card) = renditions.map_or((None, None), |r| (Some(r.thumbnail), r.card));
+    let thumbnail_key = store_rendition(store, tree_id, thumbnail, "thumbnail_storage").await;
+    // A card rendition stands only beside its thumbnail, which is what it is
+    // a smaller copy of.
+    let card_key = match thumbnail_key {
+        Some(_) => store_rendition(store, tree_id, card, "card_storage").await,
         None => None,
     };
 
@@ -274,11 +281,34 @@ pub async fn ingest(
         sha256: stored.sha256,
         file_size: stored.size,
         thumbnail_key,
+        card_key,
         width: dimensions.map(|(w, _)| w as i32),
         height: dimensions.map(|(_, h)| h as i32),
         page_count: page_count as i32,
         deduplicated: stored.deduplicated,
     })
+}
+
+/// Store a derived picture, `None` when there is none or it cannot be
+/// stored: a missing rendition costs a picture its smaller copy, not the
+/// upload, so the failure is logged as `error` and the row written without it.
+async fn store_rendition(
+    store: &dyn MediaStore,
+    tree_id: Uuid,
+    rendition: Option<thumbnail::Thumbnail>,
+    error: &'static str,
+) -> Option<String> {
+    let rendition = rendition?;
+    match store
+        .put(tree_id, rendition.extension, &rendition.bytes)
+        .await
+    {
+        Ok(stored) => Some(stored.key),
+        Err(_) => {
+            tracing::warn!(error, "could not store a derived picture");
+            None
+        }
+    }
 }
 
 /// Apply the domain's page-only crop validation for REST and GraphQL writes.
@@ -313,7 +343,7 @@ fn sanitize_file_name(raw: &str) -> String {
 }
 
 /// Vignette `rect` cut out of held medium `media`, whose bytes are stored
-/// under `storage_key`, as JPEG.
+/// under `storage_key`, as JPEG sized for `rendition`.
 ///
 /// A source too large to decode whole for a crop is cut out of its stored
 /// thumbnail instead, the rectangle scaled to it: a small vignette rather
@@ -323,9 +353,10 @@ pub async fn cut_vignette(
     media: &oxidgene_core::types::Media,
     storage_key: &str,
     rect: (i32, i32, i32, i32),
+    rendition: thumbnail::Rendition,
 ) -> Result<Vec<u8>, OxidGeneError> {
     let bytes = store.get(storage_key).await?;
-    if let Ok(cropped) = thumbnail::crop_off_thread(bytes, rect).await? {
+    if let Ok(cropped) = thumbnail::crop_off_thread(bytes, rect, rendition).await? {
         return Ok(cropped);
     }
     let (Some(thumbnail_key), Some(width)) = (media.thumbnail_key.as_deref(), media.width) else {
@@ -334,7 +365,8 @@ pub async fn cut_vignette(
         ));
     };
     let thumbnail = store.get(thumbnail_key).await?;
-    thumbnail::crop_scaled_off_thread(thumbnail, rect, u32::try_from(width).unwrap_or(1)).await
+    let full_width = u32::try_from(width).unwrap_or(1);
+    thumbnail::crop_scaled_off_thread(thumbnail, rect, full_width, rendition).await
 }
 
 #[cfg(test)]
@@ -374,6 +406,7 @@ mod tests {
             storage_key: Some("key".into()),
             sha256: Some("digest".into()),
             thumbnail_key: None,
+            card_key: None,
             thumbnail_url: None,
             width: Some(800),
             height: Some(600),

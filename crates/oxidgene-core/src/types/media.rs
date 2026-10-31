@@ -36,6 +36,12 @@ pub struct Media {
     /// first page paints no image we can decode, and wherever generation
     /// failed.
     pub thumbnail_key: Option<String>,
+    /// Key of the card rendition: the picture scaled for a portrait on a card,
+    /// generated beside the thumbnail for every raster page that gets one.
+    /// `None` wherever there is no thumbnail, and for a PDF, which is never a
+    /// portrait.
+    #[serde(default)]
+    pub card_key: Option<String>,
     /// For a page held only as a URL, the address of a small picture of it
     /// that its server also serves — an archive's thumbnail of a view. Gallery
     /// tiles draw it instead of the full picture. `None` for every other row,
@@ -346,6 +352,25 @@ pub enum ImageSource {
     Thumbnail { media_id: Uuid },
     /// The region this backend cuts out of a media it holds.
     Crop { vignette_id: Uuid },
+    /// The card rendition of a media it holds: [`Self::Thumbnail`] at the size
+    /// of a portrait on a pedigree card.
+    Card { media_id: Uuid },
+    /// [`Self::Crop`] at the size of a portrait on a pedigree card.
+    CardCrop { vignette_id: Uuid },
+}
+
+impl ImageSource {
+    /// The same picture at the size of a portrait on a card: what a pedigree
+    /// card, a result row or an events panel draws. A remote picture has no
+    /// rendition of ours and stays as it is.
+    #[must_use]
+    pub fn card_sized(self) -> Self {
+        match self {
+            Self::Thumbnail { media_id } => Self::Card { media_id },
+            Self::Crop { vignette_id } => Self::CardCrop { vignette_id },
+            other => other,
+        }
+    }
 }
 
 /// Where a person's portrait is drawn from: the picture's address and, for a
@@ -523,6 +548,7 @@ mod crop_tests {
             storage_key: None,
             sha256: None,
             thumbnail_key: None,
+            card_key: None,
             thumbnail_url: None,
             width: Some(1600),
             height: Some(1200),
@@ -750,5 +776,31 @@ mod mime_tests {
         assert!(is_pdf_mime(" Application/PDF "));
         assert!(!is_pdf_mime("image/jpeg"));
         assert!(!is_pdf_mime(DOCUMENT_MIME));
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn a_card_sized_source_names_the_card_rendition_of_what_we_hold() {
+        let id = Uuid::nil();
+        assert_eq!(
+            ImageSource::Thumbnail { media_id: id }.card_sized(),
+            ImageSource::Card { media_id: id }
+        );
+        assert_eq!(
+            ImageSource::Crop { vignette_id: id }.card_sized(),
+            ImageSource::CardCrop { vignette_id: id }
+        );
+        let remote = ImageSource::Remote {
+            url: "https://archives.example.invalid/1.jpg".into(),
+        };
+        assert_eq!(remote.clone().card_sized(), remote);
+        assert_eq!(
+            serde_json::to_value(ImageSource::CardCrop { vignette_id: id }).unwrap(),
+            serde_json::json!({ "kind": "card_crop", "vignette_id": id })
+        );
     }
 }

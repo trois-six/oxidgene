@@ -349,6 +349,7 @@ async fn document_with_upload(db: &DatabaseConnection, tree: Uuid) -> (Uuid, Uui
             sha256: "test-digest".into(),
             file_size: 1,
             thumbnail_key: None,
+            card_key: None,
             width: Some(100),
             height: Some(100),
             page_count: 1,
