@@ -2,7 +2,10 @@
 // Backend-for-Frontend of §4 and the development stack's Rauthy (§8.5):
 // signing in, the session the browser holds and cannot read, the instance
 // role a groups claim gives, CSRF, sign-out at both ends, sessions ended by
-// the provider or everywhere, and the tokens the API refuses.
+// the provider or everywhere, and the tokens the API refuses; then the web
+// interface over them (§10): the navbar's sign-in and account menu, the
+// failed sign-in and ended-session dialogs, the profile page and the
+// administrator's list of users.
 //
 // Every user is fictitious, named after a role, with that role as password
 // (docker/rauthy/bootstrap/users.json). Every test skips itself while
@@ -10,6 +13,8 @@
 // before authentication, or one started with OXIDGENE_AUTH_MODE=none.
 
 import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+
+import { png } from "../tests/requests";
 
 const baseURL = process.env.E2E_AUTH_BASE_URL ?? "http://localhost:8081";
 // Rauthy's issuer ends with a slash.
@@ -27,11 +32,11 @@ interface Session {
     mode: string;
     authenticated: boolean;
     client_id?: string;
-    csrf_token?: string;
+    csrf_token?: string | null;
     expires_at?: string;
     idle_expires_at?: string;
     account_url?: string;
-    user?: {
+    user?: null | {
         id: string;
         display_name: string;
         email: string;
@@ -72,11 +77,10 @@ function backHome(url: URL): boolean {
     return url.origin === new URL(baseURL).origin && !url.pathname.startsWith("/auth/");
 }
 
-/// Starts a sign-in at the application, signs `role` in on Rauthy's page —
-/// the email, then the password — and waits for the application to take the
-/// browser back.
-async function signIn(page: Page, role: Role, returnTo = "/"): Promise<void> {
-    await page.goto(`/auth/login?return_to=${encodeURIComponent(returnTo)}`);
+/// Signs `role` in on Rauthy's page, where a sign-in started — the email,
+/// then the password — and waits for the application to take the browser
+/// back.
+async function signInAtProvider(page: Page, role: Role): Promise<void> {
     await expect(page).toHaveURL((url) => url.href.startsWith(issuer));
     const email = page.locator('input[name="email"]');
     await email.fill(`${role}@example.invalid`);
@@ -85,6 +89,12 @@ async function signIn(page: Page, role: Role, returnTo = "/"): Promise<void> {
     await password.fill(role);
     await password.press("Enter");
     await page.waitForURL(backHome);
+}
+
+/// Starts a sign-in at the application and signs `role` in.
+async function signIn(page: Page, role: Role, returnTo = "/"): Promise<void> {
+    await page.goto(`/auth/login?return_to=${encodeURIComponent(returnTo)}`);
+    await signInAtProvider(page, role);
 }
 
 /// A new browser with `role` signed in.
@@ -110,8 +120,9 @@ test("an anonymous visitor has no session", async ({ request }) => {
     const anonymous = await session(request);
     expect(anonymous.mode).toBe("oidc");
     expect(anonymous.authenticated).toBe(false);
-    expect(anonymous.user).toBeUndefined();
-    expect(anonymous.csrf_token).toBeUndefined();
+    // Absent or null alike: the server answers `null` (§4.2).
+    expect(anonymous.user ?? undefined).toBeUndefined();
+    expect(anonymous.csrf_token ?? undefined).toBeUndefined();
 });
 
 test("signing in through the provider opens a session the page cannot read", async ({ page, context }) => {
@@ -268,4 +279,148 @@ test("the API refuses tokens it cannot trust", async ({ request }) => {
         expect(response.status(), credential.slice(0, 16)).toBe(401);
         expect(response.headers()["www-authenticate"] ?? "").toContain("Bearer");
     }
+});
+
+// ── The web interface (docs/authentication.md §10) ───────────────────────
+
+test("a visitor signs in from the navbar, and signs out from the account menu", async ({ page }) => {
+    await page.goto("/settings");
+    const navbar = page.locator(".app-nav");
+    // The application settings are the device's: open to a visitor.
+    await expect(page.getByRole("button", { name: "Appearance", exact: true })).toBeVisible();
+    await page.goto("/");
+    // The trees need an account: the page invites the visitor to sign in.
+    await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
+    await navbar.getByRole("button", { name: "Sign in" }).click();
+    await signInAtProvider(page, "owner");
+    expect(new URL(page.url()).pathname).toBe("/");
+
+    const trigger = navbar.getByRole("button", { name: "Account menu" });
+    // The generated avatar: the initials of "Owner Example".
+    await expect(trigger.getByRole("img", { name: "Owner Example" })).toHaveText("OE");
+    await expect(page.getByRole("heading", { name: "Sign in to continue" })).toHaveCount(0);
+    await trigger.click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByText("Owner Example")).toBeVisible();
+    await expect(menu.getByText("owner@example.invalid")).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Profile" })).toBeVisible();
+
+    // Signing out ends the session here and at the provider, which sends the
+    // browser home.
+    await menu.getByRole("menuitem", { name: "Sign out" }).click();
+    await page.waitForURL((url) => url.origin === new URL(baseURL).origin && url.pathname === "/");
+    await expect(navbar.getByRole("button", { name: "Sign in" })).toBeVisible();
+    expect((await session(page.request)).authenticated).toBe(false);
+});
+
+test("a failed sign-in says why on the page it returns to", async ({ page }) => {
+    await page.goto("/?auth_error=signup_closed");
+    const dialog = page.getByRole("dialog", { name: "Sign-in failed" });
+    await expect(dialog).toContainText("only admits the users it invited");
+    // The error leaves the address, so a reload does not show it again.
+    await expect(page).toHaveURL((url) => url.search === "");
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).toBeHidden();
+});
+
+test("a session that ends under a page offers to sign in again to it", async ({ page, request }) => {
+    await signIn(page, "guest", "/profile");
+    await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+
+    await endProviderSessions(request, "guest");
+    await expect.poll(async () => (await session(page.request)).authenticated, { timeout: 15_000 }).toBe(false);
+
+    // The next request the page makes is refused.
+    await page.locator(".settings-nav").getByRole("button", { name: "Sessions" }).click();
+    const dialog = page.getByRole("dialog", { name: "Your session has ended" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Sign in again" }).click();
+    await signInAtProvider(page, "guest");
+    expect(new URL(page.url()).pathname).toBe("/profile");
+    await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+});
+
+test("the profile page changes the name, the avatar and the language, and lists the sessions", async ({ page }) => {
+    await signIn(page, "editor", "/profile");
+    const content = page.locator(".settings-content");
+    const navbar = page.locator(".app-nav");
+
+    // The display name, then the provider's back.
+    const name = page.getByLabel("Display name");
+    await expect(name).toHaveValue("Editor Example");
+    await name.fill("Edwina Example");
+    await content.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(content.getByText("Saved.")).toBeVisible();
+    await expect(navbar.getByRole("img", { name: "Edwina Example" })).toHaveText("EE");
+    await content.getByRole("button", { name: "Use my provider's name (Editor Example)" }).click();
+    await expect(name).toHaveValue("Editor Example");
+    const navbarAvatar = navbar.getByRole("img", { name: "Editor Example" });
+    await expect(navbarAvatar).toHaveText("EE");
+
+    // An avatar cut from a picture, then removed.
+    const chooser = page.waitForEvent("filechooser");
+    await content.getByRole("button", { name: "Upload" }).click();
+    await (await chooser).setFiles({ name: "portrait.png", mimeType: "image/png", buffer: png(320, 240, 7) });
+    const cropper = page.getByRole("dialog", { name: "Choose your avatar" });
+    const square = cropper.getByRole("slider", { name: "Avatar area" });
+    await expect(square).toBeVisible();
+    await square.press("ArrowRight");
+    await cropper.getByRole("button", { name: "Use as avatar" }).click();
+    await expect(cropper).toBeHidden();
+    await expect(content.locator(".user-avatar img")).toBeVisible();
+    await expect(navbarAvatar.locator("img")).toBeVisible();
+    await content.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(content.locator(".user-avatar img")).toHaveCount(0);
+    await expect(navbarAvatar).toHaveText("EE");
+
+    // The account's language is the interface's at once.
+    const sections = page.locator(".settings-nav");
+    await sections.getByRole("button", { name: "Language" }).click();
+    await content.getByRole("button", { name: /Français/ }).click();
+    await expect(page.getByRole("heading", { name: "Votre langue" })).toBeVisible();
+    await content.getByRole("button", { name: /English/ }).click();
+    await expect(page.getByRole("heading", { name: "Your language" })).toBeVisible();
+
+    // This browser's session is listed, and marked.
+    await sections.getByRole("button", { name: "Sessions" }).click();
+    await expect(content.getByText("This browser")).toBeVisible();
+    await expect(content.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+    await expect(content.getByRole("button", { name: "Sign out everywhere" })).toBeVisible();
+
+    // The account section leads to the provider's account page.
+    await sections.getByRole("button", { name: "Account" }).click();
+    await expect(content.getByRole("link", { name: "Open" })).toHaveAttribute("href", `${issuer}account`);
+    await expect(content.getByRole("button", { name: "Delete my account" })).toBeVisible();
+});
+
+test("an administrator manages the users from the application settings", async ({ browser }) => {
+    // Every journey's user exists once signed in.
+    const editor = await signedIn(browser, "editor");
+    await editor.goto("/settings");
+    await expect(editor.getByRole("button", { name: "Appearance", exact: true })).toBeVisible();
+    // Only an administrator has the Instance group.
+    await expect(editor.getByRole("button", { name: "Users", exact: true })).toHaveCount(0);
+    await editor.context().close();
+
+    const admin = await signedIn(browser, "admin");
+    await admin.goto("/settings");
+    await admin.getByRole("button", { name: "Users", exact: true }).click();
+    await expect(admin.getByRole("heading", { name: "Users" })).toBeVisible();
+    const rows = admin.locator(".instance-user");
+    const own = rows.filter({ hasText: "admin@example.invalid" });
+    await expect(own.getByText("Administrator")).toBeVisible();
+    // The administrator's own account is their profile's to change.
+    await expect(own.getByRole("button", { name: /^Actions for / })).toHaveCount(0);
+
+    const editorRow = rows.filter({ hasText: "editor@example.invalid" });
+    await editorRow.getByRole("button", { name: /^Actions for / }).click();
+    const menu = admin.getByRole("menu");
+    for (const action of ["Make administrator", "Deactivate", "Change identity…", "Erase"]) {
+        await expect(menu.getByRole("menuitem", { name: action })).toBeVisible();
+    }
+    // The development stack's groups claim decides the role: the change is
+    // refused, and the section says so.
+    await menu.getByRole("menuitem", { name: "Make administrator" }).click();
+    await expect(admin.getByRole("alert")).toContainText("The change was refused");
+    await admin.context().close();
 });
