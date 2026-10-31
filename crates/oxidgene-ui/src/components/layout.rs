@@ -299,6 +299,20 @@ pub const LAYOUT_STYLES: &str = r#"
         --nav-bg:     color-mix(in srgb, var(--nav-surface) 92%, transparent);
 
         --radius-pill: 999px;
+
+        /* ── Avatar colours: a user's generated avatar draws their initials
+           in one of these pairs, chosen from their id
+           (`components/user_avatar.rs`). The same under every theme, so a
+           user has one colour everywhere; each text colour keeps a contrast
+           of at least 4.5:1 on its background. ─────────────────────── */
+        --avatar-0-bg: #1f5f8b; --avatar-0-fg: #ffffff;
+        --avatar-1-bg: #8a3b12; --avatar-1-fg: #ffffff;
+        --avatar-2-bg: #2e6b3a; --avatar-2-fg: #ffffff;
+        --avatar-3-bg: #6b3fa0; --avatar-3-fg: #ffffff;
+        --avatar-4-bg: #9b2c4a; --avatar-4-fg: #ffffff;
+        --avatar-5-bg: #0f6466; --avatar-5-fg: #ffffff;
+        --avatar-6-bg: #f2c14e; --avatar-6-fg: #3a2a00;
+        --avatar-7-bg: #4a5568; --avatar-7-fg: #ffffff;
         --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace;
 
         /* ── Spacing: --space-N is N steps of the theme's unit, 2px at
@@ -428,6 +442,116 @@ pub const LAYOUT_STYLES: &str = r#"
         align-items: center;
         gap: var(--space-6);
         min-width: 0;
+    }
+
+    /* ── Account (web build, oidc mode): docs/authentication.md §10 ── */
+
+    /* The one avatar of a user (`UserAvatar`): the uploaded image, else
+       the initials on the colour of `--avatar-N-*`. */
+    .user-avatar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border-radius: 50%;
+        overflow: hidden;
+        font-family: var(--font-sans);
+        font-weight: 700;
+        line-height: 1;
+        user-select: none;
+    }
+
+    .avatar-tone-0 { background: var(--avatar-0-bg); color: var(--avatar-0-fg); }
+    .avatar-tone-1 { background: var(--avatar-1-bg); color: var(--avatar-1-fg); }
+    .avatar-tone-2 { background: var(--avatar-2-bg); color: var(--avatar-2-fg); }
+    .avatar-tone-3 { background: var(--avatar-3-bg); color: var(--avatar-3-fg); }
+    .avatar-tone-4 { background: var(--avatar-4-bg); color: var(--avatar-4-fg); }
+    .avatar-tone-5 { background: var(--avatar-5-bg); color: var(--avatar-5-fg); }
+    .avatar-tone-6 { background: var(--avatar-6-bg); color: var(--avatar-6-fg); }
+    .avatar-tone-7 { background: var(--avatar-7-bg); color: var(--avatar-7-fg); }
+
+    .user-avatar-small {
+        width: 32px;
+        height: 32px;
+        font-size: var(--text-80);
+    }
+
+    .user-avatar-large {
+        width: 96px;
+        height: 96px;
+        font-size: var(--text-200);
+    }
+
+    .user-avatar-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .user-avatar-initials {
+        letter-spacing: 0.02em;
+    }
+
+    /* The square an avatar is cut from (`AvatarCropper`). */
+    .modal-card.avatar-cropper {
+        width: min(400px, calc(100vw - 32px));
+    }
+
+    .avatar-crop-hint {
+        margin: var(--space-4) 0 var(--space-8);
+        font-size: var(--text-85);
+        color: var(--text-secondary);
+    }
+
+    .avatar-crop-stage {
+        position: relative;
+        margin: 0 auto;
+        overflow: hidden;
+        background: var(--bg-deep);
+        touch-action: none;
+        user-select: none;
+    }
+
+    .avatar-crop-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+    }
+
+    .avatar-crop-square {
+        position: absolute;
+        border: 2px solid var(--orange);
+        box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--bg-deep) 60%, transparent);
+        cursor: move;
+    }
+
+    .avatar-crop-square:focus-visible {
+        outline: 2px solid var(--on-accent);
+        outline-offset: -4px;
+    }
+
+    /* Where the round avatar will fall inside the square. */
+    .avatar-crop-square::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 1px dashed color-mix(in srgb, var(--on-accent) 75%, transparent);
+    }
+
+    .avatar-crop-zoom {
+        display: flex;
+        align-items: center;
+        gap: var(--space-6);
+        margin-top: var(--space-8);
+        font-size: var(--text-85);
+        color: var(--text-secondary);
+    }
+
+    .avatar-crop-zoom input {
+        flex: 1;
     }
 
     /* ── In-app history: back and forward ─────────────────────────── */

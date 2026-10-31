@@ -23,6 +23,7 @@ pub enum UiPage {
     Statistics,
     Tools,
     AppSettings,
+    Profile,
     NotFound,
     Component,
 }
@@ -552,6 +553,7 @@ span_names! {
         Statistics => "ui.statistics.load",
         Tools => "ui.tools.load",
         AppSettings => "ui.app_settings.load",
+        Profile => "ui.profile.load",
         NotFound => "ui.not_found.load",
         Component => "ui.component.load",
     }
@@ -634,6 +636,7 @@ mod tests {
             (UiPage::Statistics, "ui.statistics.load"),
             (UiPage::Tools, "ui.tools.load"),
             (UiPage::AppSettings, "ui.app_settings.load"),
+            (UiPage::Profile, "ui.profile.load"),
             (UiPage::NotFound, "ui.not_found.load"),
             (UiPage::Component, "ui.component.load"),
         ];

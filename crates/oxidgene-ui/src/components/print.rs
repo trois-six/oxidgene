@@ -43,6 +43,7 @@ pub fn is_printable(route: &Route) -> bool {
         Route::Home {}
         | Route::Settings { .. }
         | Route::AppSettings {}
+        | Route::Profile {}
         | Route::Media { .. }
         | Route::NotFound { .. } => false,
         Route::TreeDetail { .. }
@@ -917,6 +918,7 @@ mod tests {
             Route::Home {},
             Route::Settings { tree_id: tree() },
             Route::AppSettings {},
+            Route::Profile {},
             Route::NotFound {
                 segments: vec!["nowhere".into()],
             },

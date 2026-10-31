@@ -20,6 +20,7 @@ use crate::pages::{
     not_found::NotFound,
     person_detail::PersonDetail,
     person_history::PersonHistory,
+    profile::Profile,
     search_results::SearchResults,
     settings::Settings,
     tree_detail::TreeDetail,
@@ -146,6 +147,11 @@ pub enum Route {
     #[route("/settings")]
     AppSettings {},
 
+    /// The signed-in user's profile: the web build's accounts only
+    /// (docs/authentication.md §10).
+    #[route("/profile")]
+    Profile {},
+
     /// Catch-all 404 page.
     #[end_layout]
     #[route("/:..segments")]
@@ -178,7 +184,9 @@ impl Route {
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
             | Route::Settings { tree_id } => Some(tree_id),
-            Route::Home {} | Route::AppSettings {} | Route::NotFound { .. } => None,
+            Route::Home {} | Route::AppSettings {} | Route::Profile {} | Route::NotFound { .. } => {
+                None
+            }
         }
     }
 
@@ -206,6 +214,7 @@ impl Route {
             Route::Tools { .. } => "tools.breadcrumb",
             Route::Settings { .. } => "settings.breadcrumb",
             Route::AppSettings {} => "app_settings.title",
+            Route::Profile {} => "profile.title",
             Route::NotFound { .. } => "not_found.title",
         }
     }
@@ -213,7 +222,10 @@ impl Route {
     /// Whether the page shows the navbar above everything else; the others
     /// open on their contextual topbar.
     pub fn shows_navbar(&self) -> bool {
-        matches!(self, Route::Home {} | Route::AppSettings {})
+        matches!(
+            self,
+            Route::Home {} | Route::AppSettings {} | Route::Profile {}
+        )
     }
 }
 
@@ -335,6 +347,15 @@ mod tests {
         }
         assert_eq!(Route::Home {}.tree_id(), None);
         assert_eq!(Route::AppSettings {}.tree_id(), None);
+        assert_eq!(Route::Profile {}.tree_id(), None);
+    }
+
+    /// A failed sign-in comes back to the home page with its error in the
+    /// query, which the home route reads past.
+    #[test]
+    fn the_home_page_takes_a_sign_in_error_in_its_address() {
+        let route: Route = "/?auth_error=signup_closed".parse().unwrap();
+        assert_eq!(route, Route::Home {});
     }
 
     /// The history lists every kind of page by a label each language has.
@@ -360,6 +381,7 @@ mod tests {
             "/trees/t/tools",
             "/trees/t/settings",
             "/settings",
+            "/profile",
             "/nowhere",
         ] {
             let route: Route = raw.parse().unwrap();
@@ -436,9 +458,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_homepage_and_the_application_settings_show_the_navbar() {
+    fn only_the_homepage_the_settings_and_the_profile_show_the_navbar() {
         assert!(Route::Home {}.shows_navbar());
         assert!(Route::AppSettings {}.shows_navbar());
+        assert!(Route::Profile {}.shows_navbar());
         assert!(
             !Route::Dictionary {
                 tree_id: "t".into(),

@@ -1,6 +1,7 @@
 //! Shared UI components.
 
 pub mod audit_log;
+pub mod avatar_cropper;
 pub mod breadcrumb;
 pub mod cancel_job;
 pub mod charts;
@@ -48,5 +49,6 @@ pub mod tree_cache;
 pub mod tree_icon_sidebar;
 pub mod tree_page;
 pub mod union_form;
+pub mod user_avatar;
 pub mod view_toggle;
 pub mod year_range;
