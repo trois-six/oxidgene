@@ -118,8 +118,6 @@ pub enum FileImportPhase {
     Media,
     Database,
     Projections,
-    Completed,
-    Failed,
 }
 
 /// Progress shared by a background GEDZIP worker and its status endpoint.
@@ -128,8 +126,6 @@ pub struct FileImportProgress {
     done: std::sync::atomic::AtomicUsize,
     total: std::sync::atomic::AtomicUsize,
     phase: std::sync::Mutex<FileImportPhase>,
-    result: std::sync::Mutex<Option<ImportSummary>>,
-    error: std::sync::Mutex<Option<&'static str>>,
     /// Whether the run was asked to stop.
     cancel: super::background_job::CancelToken,
 }
@@ -179,36 +175,14 @@ impl FileImportProgress {
         self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn complete(&self, result: ImportSummary) {
-        if let Ok(mut current) = self.result.lock() {
-            *current = Some(result);
-        }
-        self.enter(FileImportPhase::Completed);
-    }
-
-    pub fn fail(&self, error: &'static str) {
-        if let Ok(mut current) = self.error.lock() {
-            *current = Some(error);
-        }
-        self.enter(FileImportPhase::Failed);
-    }
-
+    /// The current phase, with the units done and expected in it. How the
+    /// run ends is the job row's to record.
     #[must_use]
-    pub fn read(
-        &self,
-    ) -> (
-        FileImportPhase,
-        usize,
-        usize,
-        Option<ImportSummary>,
-        Option<&'static str>,
-    ) {
+    pub fn read(&self) -> (FileImportPhase, usize, usize) {
         (
             self.phase.lock().map(|phase| *phase).unwrap_or_default(),
             self.done.load(std::sync::atomic::Ordering::Relaxed),
             self.total.load(std::sync::atomic::Ordering::Relaxed),
-            self.result.lock().ok().and_then(|result| result.clone()),
-            self.error.lock().ok().and_then(|error| *error),
         )
     }
 }

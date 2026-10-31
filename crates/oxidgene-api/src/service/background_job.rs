@@ -790,7 +790,7 @@ impl BackgroundJobWorker {
 
         let progress = Arc::new(gedcom::FileImportProgress::cancellable(cancel.clone()));
         let report = || {
-            let (phase, done, total, _, _) = progress.read();
+            let (phase, done, total) = progress.read();
             (import_phase(phase), done, total)
         };
         let store = RecordingStore::new(&*self.media, job.id);
@@ -2363,8 +2363,6 @@ const fn import_phase(phase: gedcom::FileImportPhase) -> &'static str {
         gedcom::FileImportPhase::Media => "media",
         gedcom::FileImportPhase::Database => "database",
         gedcom::FileImportPhase::Projections => "projections",
-        gedcom::FileImportPhase::Completed => "completed",
-        gedcom::FileImportPhase::Failed => "failed",
     }
 }
 
