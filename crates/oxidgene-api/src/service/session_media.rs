@@ -56,6 +56,17 @@ pub(crate) fn decode(
         Ok(handle)
     })
     .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+    // A byte length past the signed range is no file's: GraphQL could only
+    // carry it wrapped negative. The staged media go with `staged`.
+    if session
+        .deposit_sizes
+        .values()
+        .any(|size| i64::try_from(*size).is_err())
+    {
+        return Err(OxidGeneError::Validation(
+            "a deposit size of the session is out of range".to_string(),
+        ));
+    }
 
     let mut registry = staged_media()
         .lock()

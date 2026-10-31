@@ -1740,7 +1740,8 @@ impl TreeMutation {
                     .into_iter()
                     .map(|(deposit_id, size)| GqlGeneanetDepositSize {
                         deposit_id,
-                        size: size as i64,
+                        // `decode` refuses a size past the signed range.
+                        size: i64::try_from(size).unwrap_or(i64::MAX),
                     })
                     .collect(),
                 account: session.account,

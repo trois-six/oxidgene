@@ -84,6 +84,54 @@ async fn graphql_session_contract() {
     session_contract(true).await;
 }
 
+/// A session whose deposit size is past the signed range is refused, never
+/// wrapped negative — on both surfaces.
+#[tokio::test]
+async fn a_session_deposit_size_past_the_signed_range_is_refused() {
+    let db = setup_db().await;
+    let root = tempfile::tempdir().unwrap();
+    let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
+        collection: json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
+        deposit_sizes: std::collections::HashMap::from([(1, u64::MAX)]),
+        ..Default::default()
+    })
+    .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/geneanet/session/decode")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(archive.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{value}");
+    assert_eq!(value["error"], "validation_error", "{value}");
+
+    #[cfg(feature = "graphql")]
+    {
+        let response = common::gql(
+            &app,
+            "mutation($archive: String!) { decodeGeneanetSession(archiveBase64: $archive) { depositSizes { size } } }",
+            json!({ "archive": base64::engine::general_purpose::STANDARD.encode(archive) }),
+        )
+        .await;
+        assert_eq!(
+            common::gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{response}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn session_archive_can_exceed_the_metadata_body_limit() {
     use std::io::Write as _;

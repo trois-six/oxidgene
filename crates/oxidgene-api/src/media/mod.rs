@@ -265,6 +265,7 @@ pub async fn ingest(
     let (page_count, dimensions, renditions) =
         crate::service::blocking::run(span, move || derive(mime_type, bytes)).await?;
 
+    let dimensions = stored_dimensions(dimensions);
     let (thumbnail, card) = renditions.map_or((None, None), |r| (Some(r.thumbnail), r.card));
     let thumbnail_key = store_rendition(store, tree_id, thumbnail, "thumbnail_storage").await;
     // A card rendition stands only beside its thumbnail, which is what it is
@@ -282,11 +283,19 @@ pub async fn ingest(
         file_size: stored.size,
         thumbnail_key,
         card_key,
-        width: dimensions.map(|(w, _)| w as i32),
-        height: dimensions.map(|(_, h)| h as i32),
-        page_count: page_count as i32,
+        width: dimensions.map(|(width, _)| width),
+        height: dimensions.map(|(_, height)| height),
+        page_count: i32::try_from(page_count).unwrap_or(i32::MAX),
         deduplicated: stored.deduplicated,
     })
+}
+
+/// A pixel size as a row stores it. The size comes from the file's header,
+/// unchecked: one past `i32::MAX`, which only a crafted header claims, is no
+/// size rather than a negative one that crops and layouts would trust.
+fn stored_dimensions(dimensions: Option<(u32, u32)>) -> Option<(i32, i32)> {
+    let (width, height) = dimensions?;
+    Some((i32::try_from(width).ok()?, i32::try_from(height).ok()?))
 }
 
 /// Store a derived picture, `None` when there is none or it cannot be
@@ -373,6 +382,14 @@ pub async fn cut_vignette(
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn a_pixel_size_past_the_signed_range_is_no_size() {
+        assert_eq!(stored_dimensions(Some((640, 480))), Some((640, 480)));
+        assert_eq!(stored_dimensions(Some((u32::MAX, 480))), None);
+        assert_eq!(stored_dimensions(Some((640, 1 << 31))), None);
+        assert_eq!(stored_dimensions(None), None);
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let img = image::RgbImage::new(width, height);
