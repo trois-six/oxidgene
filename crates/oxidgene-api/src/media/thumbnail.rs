@@ -145,6 +145,19 @@ fn shrink(image: DynamicImage) -> DynamicImage {
     }
 }
 
+/// Whether a pixel of `image` is not fully opaque. A layout this does not
+/// know is taken as transparent when it has an alpha channel, the safe side.
+fn is_transparent(image: &DynamicImage) -> bool {
+    match image {
+        DynamicImage::ImageLumaA8(pixels) => pixels.pixels().any(|p| p.0[1] < u8::MAX),
+        DynamicImage::ImageRgba8(pixels) => pixels.pixels().any(|p| p.0[3] < u8::MAX),
+        DynamicImage::ImageLumaA16(pixels) => pixels.pixels().any(|p| p.0[1] < u16::MAX),
+        DynamicImage::ImageRgba16(pixels) => pixels.pixels().any(|p| p.0[3] < u16::MAX),
+        DynamicImage::ImageRgba32F(pixels) => pixels.pixels().any(|p| p.0[3] < 1.0),
+        other => other.color().has_alpha(),
+    }
+}
+
 /// `thumb` encoded for storage: PNG when a source of `source_format` had
 /// transparency to keep, JPEG otherwise.
 fn encode_thumbnail(
@@ -156,10 +169,16 @@ fn encode_thumbnail(
     // Only formats that can actually carry transparency get PNG. Flattening a
     // logo with a transparent background onto JPEG's implicit black is the
     // kind of thing nobody notices until it is in a printed family book.
+    //
+    // An alpha channel is not transparency, though: photographs and scans
+    // saved as PNG by many tools carry one that is opaque everywhere, and a
+    // 400 px photograph as PNG weighs ten times its JPEG — measured on a real
+    // tree, a pedigree's portraits went from 0.3 MB apiece to 25 kB. So the
+    // pixels decide, not the channel layout.
     let keep_alpha = matches!(
         source_format,
         Some(ImageFormat::Png) | Some(ImageFormat::Gif) | Some(ImageFormat::WebP)
-    ) && thumb.color().has_alpha();
+    ) && is_transparent(&thumb);
 
     let mut out = Cursor::new(Vec::new());
     let (mime_type, extension) = if keep_alpha {
@@ -663,6 +682,28 @@ mod tests {
         let thumb = generate(&png_with_alpha(500, 500)).unwrap();
         assert_eq!(thumb.mime_type, "image/png");
         assert_eq!(thumb.extension, "png");
+    }
+
+    #[test]
+    fn a_png_whose_alpha_channel_is_opaque_everywhere_becomes_jpeg() {
+        let mut img = RgbaImage::new(500, 500);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = Rgba([(x % 256) as u8, (y % 256) as u8, 90, u8::MAX]);
+        }
+        let mut png = Cursor::new(Vec::new());
+        img.write_to(&mut png, ImageFormat::Png).unwrap();
+        let thumb = generate(&png.into_inner()).unwrap();
+        assert_eq!(thumb.mime_type, "image/jpeg");
+        assert_eq!(thumb.extension, "jpg");
+    }
+
+    #[test]
+    fn a_png_with_a_single_transparent_pixel_stays_png() {
+        let mut img = RgbaImage::from_pixel(40, 40, Rgba([10, 20, 30, u8::MAX]));
+        img.put_pixel(39, 39, Rgba([10, 20, 30, 0]));
+        let mut png = Cursor::new(Vec::new());
+        img.write_to(&mut png, ImageFormat::Png).unwrap();
+        assert_eq!(generate(&png.into_inner()).unwrap().mime_type, "image/png");
     }
 
     #[test]
