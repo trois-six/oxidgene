@@ -8633,6 +8633,7 @@
     "tools.ancestry.depth": "Generaties",
     "tools.ancestry.fact.birth": "Geboorte",
     "tools.ancestry.fact.death": "Overlijden",
+    "tools.ancestry.fact.relation": "Relatie",
     "tools.ancestry.fact.union": "Verbintenis",
     "tools.ancestry.found": "Gevonden voorouders",
     "tools.ancestry.generation": "Generatie",

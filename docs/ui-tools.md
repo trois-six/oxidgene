@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -309,7 +309,10 @@ root, 2n the father and 2n + 1 the mother of n.
     parent of their child in the line (the family that makes them a parent
     of the ancestor below): a marriage, a civil union, banns, a contract, a
     licence or a settlement, or a separation, a divorce filed, a divorce or
-    an annulment. The root has no such union and shows no mark.
+    an annulment. A couple recorded as not married — a `no_marriage` event
+    and none of those — has a relation, not a union: the mark reads
+    *Relation* and is recorded by that `no_marriage` event. The root has no
+    such union and shows no mark.
 - **Missing ancestors**: only the missing parents of known ancestors are
   listed. The ancestors of a missing ancestor are missing too; they are
   counted under each generation ("12 more ancestors are missing because their

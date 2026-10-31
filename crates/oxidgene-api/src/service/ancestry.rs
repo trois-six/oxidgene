@@ -11,8 +11,8 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDate;
-use oxidgene_core::OxidGeneError;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
+use oxidgene_core::{EventType, OxidGeneError};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -85,7 +85,13 @@ pub struct AncestorFacts {
     pub death: Option<RecordDate>,
     pub has_birth: bool,
     pub has_death: bool,
+    /// The union of the line, or for an unmarried couple their relation, is
+    /// recorded.
     pub has_union: bool,
+    /// The couple of the line is recorded as not married (a `no_marriage`
+    /// event and nothing attesting a union): what `has_union` records is a
+    /// relation, not a union.
+    pub unmarried: bool,
     pub living: bool,
 }
 
@@ -211,12 +217,23 @@ pub fn compute(
 fn facts(person: &PersonProfile, family: Option<Uuid>, today: NaiveDate) -> AncestorFacts {
     let dated =
         |event: Option<&ProfileEvent>| event.filter(|e| e.date_value.is_some()).map(record_date);
-    let has_union = person
-        .families_as_spouse
-        .iter()
-        .filter(|link| family.is_none_or(|family| link.family_id == family))
-        .flat_map(|link| &link.events)
-        .any(|event| event.event_type.attests_union() && recorded(Some(event)));
+    let events = || {
+        person
+            .families_as_spouse
+            .iter()
+            .filter(|link| family.is_none_or(|family| link.family_id == family))
+            .flat_map(|link| &link.events)
+    };
+    let unmarried = !events().any(|event| event.event_type.attests_union())
+        && events().any(|event| event.event_type == EventType::NoMarriage);
+    let attests = |event_type: EventType| {
+        if unmarried {
+            event_type == EventType::NoMarriage
+        } else {
+            event_type.attests_union()
+        }
+    };
+    let has_union = events().any(|event| attests(event.event_type) && recorded(Some(event)));
     let has_death = recorded(person.death.as_ref()) || recorded(person.burial.as_ref());
     AncestorFacts {
         person_id: person.person_id.to_string(),
@@ -227,6 +244,7 @@ fn facts(person: &PersonProfile, family: Option<Uuid>, today: NaiveDate) -> Ance
         has_birth: recorded(person.birth.as_ref()) || recorded(person.baptism.as_ref()),
         has_death,
         has_union,
+        unmarried,
         living: !has_death && possibly_alive(person, today),
     }
 }
@@ -235,7 +253,7 @@ fn facts(person: &PersonProfile, family: Option<Uuid>, today: NaiveDate) -> Ance
 mod tests {
     use chrono::Utc;
     use oxidgene_core::projection::{ProfileChildLink, ProfileFamilyLink, ProfileName};
-    use oxidgene_core::{Calendar, ChildType, DateQualifier, EventType, NameType, Sex, SpouseRole};
+    use oxidgene_core::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole};
 
     use super::*;
 
@@ -385,6 +403,48 @@ mod tests {
         // Great-grandparents: only the grandfather's two parents are listed.
         assert_eq!(g[3].entries.len(), 2);
         assert_eq!((g[3].found, g[3].implied_missing), (0, 6));
+    }
+
+    /// A couple recorded as not married has a relation, recorded by its
+    /// dated `no_marriage` event, not a union.
+    #[test]
+    fn an_unmarried_couple_has_a_relation_not_a_union() {
+        let family = Uuid::now_v7();
+        let mut root = person("Child", Sex::Female);
+        root.birth = Some(event(EventType::Birth, Some("1920")));
+        let mut father = person("Father", Sex::Male);
+        spouse_in(
+            &mut father,
+            family,
+            SpouseRole::Husband,
+            vec![event(EventType::NoMarriage, Some("ABT 1919"))],
+        );
+        let mut mother = person("Mother", Sex::Female);
+        spouse_in(
+            &mut mother,
+            family,
+            SpouseRole::Wife,
+            vec![event(EventType::NoMarriage, None)],
+        );
+        child_of(
+            &mut root,
+            family,
+            Some(father.person_id),
+            Some(mother.person_id),
+        );
+        let root_id = root.person_id;
+        let profiles = vec![root, father, mother];
+
+        let result = compute(&profiles, root_id, 2, today());
+        let facts: Vec<_> = result.generations[1]
+            .entries
+            .iter()
+            .filter_map(|e| e.person.as_ref())
+            .map(|p| (p.unmarried, p.has_union))
+            .collect();
+        // The father's relation is dated, the mother's is not.
+        assert_eq!(facts, vec![(true, true), (true, false)]);
+        assert_eq!(result.generations[1].with_union, 1);
     }
 
     #[test]

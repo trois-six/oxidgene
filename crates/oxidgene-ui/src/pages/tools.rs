@@ -954,7 +954,7 @@ fn ancestor_cells(
                     {fact(i18n, "death", person.has_death)}
                 }
                 if generation > 1 {
-                    {fact(i18n, "union", person.has_union)}
+                    {fact(i18n, if person.unmarried { "relation" } else { "union" }, person.has_union)}
                 }
             }
         }

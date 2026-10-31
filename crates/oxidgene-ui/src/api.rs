@@ -581,6 +581,8 @@ pub struct AncestorFacts {
     pub has_birth: bool,
     pub has_death: bool,
     pub has_union: bool,
+    /// The couple of the line is not married: `has_union` is their relation.
+    pub unmarried: bool,
     pub living: bool,
 }
 

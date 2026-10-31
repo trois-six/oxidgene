@@ -8808,6 +8808,7 @@
     "tools.ancestry.depth": "Pokolenia",
     "tools.ancestry.fact.birth": "Urodzenie",
     "tools.ancestry.fact.death": "Zgon",
+    "tools.ancestry.fact.relation": "Relacja",
     "tools.ancestry.fact.union": "Związek",
     "tools.ancestry.found": "Znalezieni przodkowie",
     "tools.ancestry.generation": "Pokolenie",

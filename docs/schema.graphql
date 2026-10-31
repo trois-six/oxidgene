@@ -58,7 +58,17 @@ type AncestorFacts {
 	death: RecordDate
 	hasBirth: Boolean!
 	hasDeath: Boolean!
+	"""
+	The union of the line, or for an unmarried couple their relation, is
+	recorded.
+	"""
 	hasUnion: Boolean!
+	"""
+	The couple of the line is recorded as not married (a `no_marriage`
+	event and nothing attesting a union): what `has_union` records is a
+	relation, not a union.
+	"""
+	unmarried: Boolean!
 	living: Boolean!
 }
 

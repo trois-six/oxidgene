@@ -8633,6 +8633,7 @@
     "tools.ancestry.depth": "Generations",
     "tools.ancestry.fact.birth": "Birth",
     "tools.ancestry.fact.death": "Death",
+    "tools.ancestry.fact.relation": "Relationship",
     "tools.ancestry.fact.union": "Union",
     "tools.ancestry.found": "Ancestors found",
     "tools.ancestry.generation": "Generation",

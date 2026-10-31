@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
 ---
 
 
@@ -1213,8 +1213,10 @@ root), `expected` (2^(generation − 1)), `found`, `with_birth`, `with_death`,
 their child is missing too, not listed) and `entries`: one per found
 ancestor and per missing parent of a found ancestor, `{sosa, person}`,
 `person` being `null` for a missing ancestor or `{person_id, name, sex,
-birth, death, has_birth, has_death, has_union, living}`, the dates as
-recorded with their qualifier and calendar. The rules are those of
+birth, death, has_birth, has_death, has_union, unmarried, living}`, the
+dates as recorded with their qualifier and calendar; `unmarried` says the
+couple of the line is recorded as not married, `has_union` then recording
+their relation. The rules are those of
 [Tools §3](ui-tools.md).
 
 `GET /reference/basemap` serves the country outlines the heat map is drawn
