@@ -16,6 +16,10 @@ use crate::{ArchiveTarget, ArchiveView, Renumbering};
 /// all of them, or none when one lies beyond its images, in which case the
 /// register opens on its first image.
 ///
+/// Every view returned is 1 or more: the adapters index their image lists
+/// with `view - 1`. A view 0, which [`CitedView`]'s public field lets a
+/// caller build though no citation parses to it, opens none either.
+///
 /// A register counting more images than the citation, whose period
 /// (`register_period`, as the portal shows it) ends with the cited period
 /// but starts before it, is a volume the portal merged with earlier years
@@ -39,7 +43,7 @@ pub(crate) fn cited_views(
         .collect();
     if views
         .iter()
-        .all(|view| usize::from(view.view) <= image_count)
+        .all(|view| view.view >= 1 && usize::from(view.view) <= image_count)
     {
         views
     } else {
@@ -138,6 +142,15 @@ mod tests {
         assert_eq!(cited_views(&cited, 13, None).len(), 2);
         assert_eq!(cited_views(&cited, 6, None).len(), 2);
         assert!(cited_views(&cited, 5, None).is_empty());
+    }
+
+    /// A view 0 built by hand opens no view rather than reaching an
+    /// adapter's `view - 1`.
+    #[test]
+    fn a_view_zero_opens_the_register() {
+        let mut cited = citation("AD44 - Exampleville - (aucun) - B - 1660 - vue 5d/13");
+        cited.views[0].view = 0;
+        assert!(cited_views(&cited, 13, None).is_empty());
     }
 
     /// A regression: a register merged with earlier years since the

@@ -300,7 +300,7 @@ impl Act {
     pub fn category(&self, year: Option<u16>) -> Option<DocumentCategory> {
         match self {
             Self::Register(kinds) => register_category(kinds, year),
-            Self::Table(code) => match Self::from_code(&code[1..]) {
+            Self::Table(code) => match code.strip_prefix('T').and_then(Self::from_code) {
                 Some(Self::Register(kinds)) => register_category(&kinds, year),
                 _ => Some(DocumentCategory::CivilRecord),
             },
@@ -2200,6 +2200,16 @@ mod tests {
             ),
         ] {
             assert_eq!(parse(title).unwrap().category(), category, "{title}");
+        }
+    }
+
+    /// A table built by hand with a code no parse yields is a civil record,
+    /// not a slice out of bounds.
+    #[test]
+    fn a_hand_built_table_code_has_a_category() {
+        for code in ["", "é", "TB"] {
+            let category = Act::Table(code.to_owned()).category(None);
+            assert!(category.is_some(), "{code:?}");
         }
     }
 
