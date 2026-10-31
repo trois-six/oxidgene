@@ -656,11 +656,11 @@ fn parse_components(calendar: Calendar, s: &str) -> (Option<i32>, Option<u8>, Op
     let (s, bce) = strip_bce(s);
     if bce {
         let (y, m, d) = parse_components(calendar, s);
-        return (y.map(|y| -y.abs()), m, d);
+        return (y.and_then(i32::checked_abs).map(|y| -y), m, d);
     }
     if let Some(rest) = s.strip_prefix('-') {
         let (y, m, d) = parse_components(calendar, rest);
-        return (y.map(|y| -y.abs()), m, d);
+        return (y.and_then(i32::checked_abs).map(|y| -y), m, d);
     }
     // ISO-ish: digits and dashes only.
     if s.contains('-') && s.chars().all(|c| c.is_ascii_digit() || c == '-') {
@@ -714,11 +714,13 @@ fn parse_components(calendar: Calendar, s: &str) -> (Option<i32>, Option<u8>, Op
 /// readers use. Returns the date without it, and whether one was there.
 fn strip_bce(s: &str) -> (&str, bool) {
     for marker in ["B.C.E.", "BCE", "B.C.", "BC"] {
-        if s.len() > marker.len() {
-            let (head, tail) = s.split_at(s.len() - marker.len());
-            if tail.eq_ignore_ascii_case(marker) {
-                return (head.trim_end(), true);
-            }
+        let Some(cut) = s.len().checked_sub(marker.len()).filter(|&cut| cut > 0) else {
+            continue;
+        };
+        // A free-text phrase is stored verbatim and may end in any character:
+        // a cut inside a multi-byte one cannot precede an ASCII marker.
+        if s.is_char_boundary(cut) && s[cut..].eq_ignore_ascii_case(marker) {
+            return (s[..cut].trim_end(), true);
         }
     }
     (s, false)
@@ -741,7 +743,7 @@ fn format_value(
         .map(|m| names[usize::from(m) - 1]);
     let day = day.filter(|d| (1..=31).contains(d));
     let era = if y < 0 { " BCE" } else { "" };
-    let y = y.abs();
+    let y = y.unsigned_abs();
     Some(match (day, name) {
         (Some(d), Some(name)) => format!("{d} {name} {y}{era}"),
         (None, Some(name)) => format!("{name} {y}{era}"),
@@ -837,7 +839,7 @@ fn literal_components(
             "date.republican_year",
             &[("year", &crate::date_words::roman(y.unsigned_abs()))],
         ),
-        _ => y.abs().to_string(),
+        _ => y.unsigned_abs().to_string(),
     };
     let locale = i18n.0.locale();
     let templates = if numeric {
@@ -1700,6 +1702,27 @@ mod tests {
         assert_eq!(
             fmt(&en(), DateQualifier::Exact, Some("23 FEB 1947"), None),
             "23 Feb 1947"
+        );
+    }
+
+    #[test]
+    fn a_phrase_ending_in_non_ascii_text_is_kept_verbatim() {
+        // The era probe cuts the last bytes off: inside « é », « … » or a
+        // no-break space it used to panic instead of keeping the phrase.
+        for raw in ["(baptisé)", "(né)", "1850…"] {
+            assert_eq!(fmt(&fr(), DateQualifier::Exact, Some(raw), None), raw);
+        }
+        assert_eq!(strip_bce("vers 1850\u{a0}?"), ("vers 1850\u{a0}?", false));
+        assert_eq!(strip_bce("44 bc"), ("44", true));
+    }
+
+    #[test]
+    fn the_lowest_year_does_not_overflow_on_negation() {
+        assert_eq!(greg("MAR -2147483648 BCE"), (None, Some(3), None));
+        assert_eq!(greg("-2147483648"), (None, None, None));
+        assert_eq!(
+            format_value(Calendar::Gregorian, Some(i32::MIN), None, None).as_deref(),
+            Some("2147483648 BCE")
         );
     }
 

@@ -833,6 +833,12 @@ fn pieces(word: &str) -> Option<Vec<Piece>> {
     let mut cost: Vec<usize> = vec![usize::MAX; bytes.len() + 1];
     cost[0] = 0;
     for end in 1..=bytes.len() {
+        // A word folds to letters outside ASCII too (Cyrillic, Greek, «ᵉʳ»):
+        // a piece ends on a character boundary only, so `cost[start]` is
+        // finite at a boundary alone and every slice below is valid.
+        if !word.is_char_boundary(end) {
+            continue;
+        }
         for start in 0..end {
             if cost[start] == usize::MAX {
                 continue;
@@ -859,19 +865,22 @@ fn pieces(word: &str) -> Option<Vec<Piece>> {
 
 /// The value of number pieces read in order.
 fn value(pieces: &[Piece]) -> u32 {
-    let (mut total, mut current) = (0, 0);
+    let (mut total, mut current) = (0_u32, 0_u32);
     for piece in pieces {
         match piece {
-            Piece::Add(v) => current += v,
-            Piece::Hundred => current = current.max(1) * 100,
+            // Words repeated at will ("cent cent cent…") or a custom
+            // locale's large value would overflow; a saturated number is
+            // then refused as a year by `checked`.
+            Piece::Add(v) => current = current.saturating_add(*v),
+            Piece::Hundred => current = current.max(1).saturating_mul(100),
             Piece::Thousand => {
-                total += current.max(1) * 1000;
+                total = current.max(1).saturating_mul(1000).saturating_add(total);
                 current = 0;
             }
             Piece::And => {}
         }
     }
-    total + current
+    total.saturating_add(current)
 }
 
 /// What a word of the text is.
@@ -1064,7 +1073,8 @@ fn roman_reckoning_date(
         .iter()
         .find(|(i, _)| *i > month_pos)
         .map(|(_, n)| *n)
-        .ok_or(ReadError::NoYear)? as i32;
+        .ok_or(ReadError::NoYear)
+        .and_then(year_of)?;
     let (month, day) = match kind {
         Token::Nones => (month, i64::from(nones(month)) - i64::from(count) + 1),
         Token::Ides => (month, i64::from(nones(month) + 8) - i64::from(count) + 1),
@@ -1129,7 +1139,7 @@ fn month_name_date(
         _ => (None, None),
     };
     Ok(Ymd {
-        year: year.ok_or(ReadError::NoYear)? as i32,
+        year: year.ok_or(ReadError::NoYear).and_then(year_of)?,
         month: Some(month),
         day: day.map(|d| d as u8),
     })
@@ -1139,29 +1149,37 @@ fn month_name_date(
 /// ("1650-02-02"), or a month and a year.
 fn figures_date(numbers: &[(usize, u32)]) -> Result<Ymd, ReadError> {
     let values: Vec<u32> = numbers.iter().map(|(_, n)| *n).collect();
+    // A month or day typed beyond `u8` is a date that does not exist, not a
+    // date without that part.
+    let part = |n: u32| u8::try_from(n).map_err(|_| ReadError::NoSuchDay);
     Ok(match values.as_slice() {
         [y] => Ymd {
-            year: *y as i32,
+            year: year_of(*y)?,
             month: None,
             day: None,
         },
         [y, m, d] if *y > 31 => Ymd {
-            year: *y as i32,
-            month: u8::try_from(*m).ok(),
-            day: u8::try_from(*d).ok(),
+            year: year_of(*y)?,
+            month: Some(part(*m)?),
+            day: Some(part(*d)?),
         },
         [d, m, y] => Ymd {
-            year: *y as i32,
-            month: u8::try_from(*m).ok(),
-            day: u8::try_from(*d).ok(),
+            year: year_of(*y)?,
+            month: Some(part(*m)?),
+            day: Some(part(*d)?),
         },
         [m, y] if *m <= 12 => Ymd {
-            year: *y as i32,
-            month: u8::try_from(*m).ok(),
+            year: year_of(*y)?,
+            month: Some(part(*m)?),
             day: None,
         },
         _ => return Err(ReadError::NoYear),
     })
+}
+
+/// A year read from the text, which a number beyond `i32` cannot be.
+fn year_of(n: u32) -> Result<i32, ReadError> {
+    i32::try_from(n).map_err(|_| ReadError::NoYear)
 }
 
 /// `date`, once its year, month and day are known to exist.

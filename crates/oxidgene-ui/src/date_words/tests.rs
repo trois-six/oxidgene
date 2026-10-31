@@ -521,6 +521,39 @@ fn what_cannot_be_read_says_why() {
     assert_eq!(read("31 February 1650"), Err(ReadError::NoSuchDay));
 }
 
+#[test]
+fn words_outside_the_latin_script_are_skipped_not_fatal() {
+    // Pieces were cut at every byte: a word that stays multi-byte once
+    // folded used to panic on a slice inside a character.
+    for text in ["Μαΐου 1850", "五月 1850", "ŋ 1850", "1850²"] {
+        let _ = read(text);
+    }
+    assert_eq!(
+        read("мая 1850"),
+        Ok(Ymd {
+            year: 1850,
+            month: None,
+            day: None
+        })
+    );
+    assert_eq!(read("1ᵉʳ mai 1850"), Ok(ymd(1850, 5, 1)));
+}
+
+#[test]
+fn numbers_too_large_for_their_part_are_refused() {
+    // Repeated hundreds overflowed `u32`; they now saturate into no year.
+    assert_eq!(
+        read("cent cent cent cent cent cent"),
+        Err(ReadError::NoYear)
+    );
+    // A typed day beyond `u8` named no day, so the month alone was kept.
+    assert_eq!(read("1650-02-300"), Err(ReadError::NoSuchDay));
+    assert_eq!(read("300/02/1650"), Err(ReadError::NoSuchDay));
+    assert_eq!(read("1650-300-02"), Err(ReadError::NoSuchDay));
+    // A typed year beyond `i32` used to wrap before the range check.
+    assert_eq!(read("4294967295"), Err(ReadError::NoYear));
+}
+
 fn language(code: &str) -> Language {
     Language::try_from_code(code).unwrap()
 }
