@@ -7,13 +7,12 @@ use std::rc::Rc;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{ContextMenuSurface, focus_trigger};
+use crate::components::context_menu::{
+    ContextMenuSurface, focus_trigger, long_press_end, long_press_start,
+};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{AppHistory, Entry, use_app_history};
 use crate::router::Route;
-
-/// How long a press lasts before it lists the pages rather than moving.
-const LONG_PRESS_MS: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Direction {
@@ -134,10 +133,9 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
     let history = use_app_history();
     let list = use_context::<Signal<Option<HistoryList>>>();
     let mut element = use_signal(|| None::<Rc<MountedData>>);
-    // The press under way, numbered so that a timer outliving its press
-    // does nothing.
-    let mut press = use_signal(|| None::<u32>);
-    let mut presses = use_signal(|| 0_u32);
+    // The presses begun and ended, so that a timer outliving its press does
+    // nothing (`long_press_start`).
+    let press = use_signal(|| 0_u32);
     // The press opened the list: the click that ends it does not move.
     let mut listed = use_signal(|| false);
 
@@ -167,21 +165,15 @@ fn HistoryButton(direction: Direction, enabled: bool) -> Element {
                 if !enabled {
                     return;
                 }
-                let id = presses() + 1;
-                presses.set(id);
-                press.set(Some(id));
-                spawn(async move {
-                    crate::utils::sleep_ms(LONG_PRESS_MS).await;
-                    if press() == Some(id) {
-                        press.set(None);
-                        listed.set(true);
-                        open_arrow_list();
-                    }
+                let point = e.client_coordinates();
+                long_press_start(press, (point.x, point.y), move |_| {
+                    listed.set(true);
+                    open_arrow_list();
                 });
             },
-            onpointerup: move |_| press.set(None),
-            onpointerleave: move |_| press.set(None),
-            onpointercancel: move |_| press.set(None),
+            onpointerup: move |_| long_press_end(press),
+            onpointerleave: move |_| long_press_end(press),
+            onpointercancel: move |_| long_press_end(press),
             button {
                 class: "nav-history-btn",
                 r#type: "button",
