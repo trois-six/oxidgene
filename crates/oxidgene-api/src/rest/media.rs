@@ -606,9 +606,11 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
                         "could not read uploaded file: {e}"
                     )))
                 })?;
+                // The buffer itself when nothing else holds it: an upload
+                // is up to 128 MiB, and a copy would hold it twice.
                 form.file = Some((
                     file_name.unwrap_or_else(|| "upload".to_string()),
-                    bytes.to_vec(),
+                    Vec::from(bytes),
                 ));
             }
             "title" | "description" | "media_id" | "document_id" => {

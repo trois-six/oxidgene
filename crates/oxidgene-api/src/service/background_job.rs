@@ -2174,7 +2174,11 @@ mod tests {
         // A file an attempt stored and recorded before its process stopped.
         let recording = RecordingStore::new(&*media, job_id);
         let orphan = recording
-            .put(tree_id, "png", b"an attempt's page")
+            .put(
+                tree_id,
+                "png",
+                axum::body::Bytes::from_static(b"an attempt's page"),
+            )
             .await
             .expect("stores");
 

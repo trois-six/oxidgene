@@ -49,7 +49,7 @@ impl MediaStore for RecordingStore<'_> {
         &self,
         key: &str,
         sha256: String,
-        bytes: &[u8],
+        bytes: axum::body::Bytes,
     ) -> Result<StoredObject, OxidGeneError> {
         // Named after a fresh time-ordered id, so that no record replaces
         // another, of this attempt or of an earlier one.
@@ -171,8 +171,14 @@ mod tests {
         let tree_id = Uuid::now_v7();
         let store = RecordingStore::new(&inner, job_id);
 
-        let first = store.put(tree_id, "jpg", b"first").await.unwrap();
-        let second = store.put(tree_id, "jpg", b"second").await.unwrap();
+        let first = store
+            .put(tree_id, "jpg", axum::body::Bytes::from_static(b"first"))
+            .await
+            .unwrap();
+        let second = store
+            .put(tree_id, "jpg", axum::body::Bytes::from_static(b"second"))
+            .await
+            .unwrap();
 
         let mut recorded = Vec::new();
         for record in inner.job_keys(job_id).await.unwrap() {

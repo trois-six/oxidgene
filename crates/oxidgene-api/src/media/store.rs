@@ -67,13 +67,16 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
     /// used so a file served straight off disk keeps a recognisable name. It
     /// does not affect addressing: the same bytes stored under two different
     /// extensions are two entries.
+    ///
+    /// `bytes` is shared, not copied: a store that hands them on, as S3's
+    /// request payload does, keeps a reference rather than a second buffer.
     async fn put(
         &self,
         tree_id: Uuid,
         extension: &str,
-        bytes: &[u8],
+        bytes: Bytes,
     ) -> Result<StoredObject, OxidGeneError> {
-        let sha256 = sha256_hex(bytes);
+        let sha256 = sha256_hex(&bytes);
         let key = key_for(tree_id, &sha256, extension);
         self.put_content(&key, sha256, bytes).await
     }
@@ -84,7 +87,7 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
         &self,
         key: &str,
         sha256: String,
-        bytes: &[u8],
+        bytes: Bytes,
     ) -> Result<StoredObject, OxidGeneError>;
 
     /// Write `bytes` at job key `key`, replacing whatever is there.
@@ -350,7 +353,7 @@ impl MediaStore for FsStore {
         &self,
         key: &str,
         sha256: String,
-        bytes: &[u8],
+        bytes: Bytes,
     ) -> Result<StoredObject, OxidGeneError> {
         let path = self.path_for(key)?;
         let size = bytes.len() as i64;
@@ -364,7 +367,7 @@ impl MediaStore for FsStore {
             });
         }
 
-        write_replacing(&path, bytes).await?;
+        write_replacing(&path, &bytes).await?;
         Ok(StoredObject {
             key: key.to_string(),
             sha256,
@@ -632,7 +635,7 @@ impl MediaStore for S3Store {
         &self,
         key: &str,
         sha256: String,
-        bytes: &[u8],
+        bytes: Bytes,
     ) -> Result<StoredObject, OxidGeneError> {
         let location = Self::location(key)?;
         let size = bytes.len() as i64;
@@ -651,7 +654,7 @@ impl MediaStore for S3Store {
         }
 
         self.store
-            .put(&location, bytes.to_vec().into())
+            .put(&location, bytes.into())
             .await
             .map_err(|_| s3_error("write"))?;
 
@@ -709,7 +712,8 @@ impl MediaStore for S3Store {
             .await
             .map_err(|_| s3_error("read"))?;
         let bytes = object.bytes().await.map_err(|_| s3_error("read"))?;
-        Ok(bytes.to_vec())
+        // The buffer itself when nothing else holds it, not a copy of it.
+        Ok(Vec::from(bytes))
     }
 
     async fn put_file(&self, key: &str, path: &Path) -> Result<StoredObject, OxidGeneError> {
@@ -945,7 +949,10 @@ mod tests {
         let store = FsStore::new(root.0.path());
         let id = tree();
 
-        let stored = store.put(id, "jpg", b"not really a jpeg").await.unwrap();
+        let stored = store
+            .put(id, "jpg", Bytes::from_static(b"not really a jpeg"))
+            .await
+            .unwrap();
         assert!(!stored.deduplicated);
         assert_eq!(stored.size, 17);
         assert_eq!(stored.sha256, sha256_hex(b"not really a jpeg"));
@@ -1003,8 +1010,14 @@ mod tests {
         let store = FsStore::new(root.0.path());
         let id = tree();
 
-        let first = store.put(id, "jpg", b"census page").await.unwrap();
-        let second = store.put(id, "jpg", b"census page").await.unwrap();
+        let first = store
+            .put(id, "jpg", Bytes::from_static(b"census page"))
+            .await
+            .unwrap();
+        let second = store
+            .put(id, "jpg", Bytes::from_static(b"census page"))
+            .await
+            .unwrap();
 
         assert_eq!(first.key, second.key);
         assert!(!first.deduplicated);
@@ -1016,8 +1029,14 @@ mod tests {
         let root = TempRoot::new("scoping");
         let store = FsStore::new(root.0.path());
 
-        let a = store.put(tree(), "jpg", b"shared photo").await.unwrap();
-        let b = store.put(tree(), "jpg", b"shared photo").await.unwrap();
+        let a = store
+            .put(tree(), "jpg", Bytes::from_static(b"shared photo"))
+            .await
+            .unwrap();
+        let b = store
+            .put(tree(), "jpg", Bytes::from_static(b"shared photo"))
+            .await
+            .unwrap();
 
         assert_ne!(a.key, b.key, "tree scoping is what makes purge safe");
         assert!(!b.deduplicated);
@@ -1030,8 +1049,14 @@ mod tests {
         let doomed = tree();
         let kept = tree();
 
-        let a = store.put(doomed, "jpg", b"one").await.unwrap();
-        let b = store.put(kept, "jpg", b"two").await.unwrap();
+        let a = store
+            .put(doomed, "jpg", Bytes::from_static(b"one"))
+            .await
+            .unwrap();
+        let b = store
+            .put(kept, "jpg", Bytes::from_static(b"two"))
+            .await
+            .unwrap();
 
         store.delete_tree(doomed).await.unwrap();
 
@@ -1077,7 +1102,10 @@ mod tests {
         let store = FsStore::new(root.0.path());
         let id = tree();
 
-        let stored = store.put(id, "png", b"complete").await.unwrap();
+        let stored = store
+            .put(id, "png", Bytes::from_static(b"complete"))
+            .await
+            .unwrap();
         let dir = root
             .0
             .path()
@@ -1129,9 +1157,18 @@ mod tests {
         let doomed = tree();
         let kept = tree();
 
-        let first = store.put(doomed, "ged", b"0 HEAD\n0 TRLR\n").await.unwrap();
-        let duplicate = store.put(doomed, "ged", b"0 HEAD\n0 TRLR\n").await.unwrap();
-        let survivor = store.put(kept, "gw", b"encoding: utf-8\n").await.unwrap();
+        let first = store
+            .put(doomed, "ged", Bytes::from_static(b"0 HEAD\n0 TRLR\n"))
+            .await
+            .unwrap();
+        let duplicate = store
+            .put(doomed, "ged", Bytes::from_static(b"0 HEAD\n0 TRLR\n"))
+            .await
+            .unwrap();
+        let survivor = store
+            .put(kept, "gw", Bytes::from_static(b"encoding: utf-8\n"))
+            .await
+            .unwrap();
 
         assert!(!first.deduplicated);
         assert!(duplicate.deduplicated);

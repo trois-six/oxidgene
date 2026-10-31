@@ -258,7 +258,13 @@ pub async fn ingest(
         )));
     };
 
-    let stored = store.put(tree_id, extension_for(mime_type), &bytes).await?;
+    // Shared with the store rather than copied, and whole again once it is
+    // done with them: `derive` takes the buffer itself.
+    let bytes = axum::body::Bytes::from(bytes);
+    let stored = store
+        .put(tree_id, extension_for(mime_type), bytes.clone())
+        .await?;
+    let bytes = Vec::from(bytes);
 
     // Decoding a large scan is seconds of CPU; keep it off the async runtime.
     let span = derive_span(bytes.len());
@@ -309,7 +315,7 @@ async fn store_rendition(
 ) -> Option<String> {
     let rendition = rendition?;
     match store
-        .put(tree_id, rendition.extension, &rendition.bytes)
+        .put(tree_id, rendition.extension, rendition.bytes.into())
         .await
     {
         Ok(stored) => Some(stored.key),
