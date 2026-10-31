@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
 ---
 
 
@@ -436,6 +436,22 @@ its artifact is streamed to that destination. Browsers without that capability
 use a native Blob fallback without moving archive contents through WASM or JSON.
 Desktop artifact downloads stream to a temporary file and only replace the
 selected destination on success.
+
+The section follows the GEDZIP job by the long poll an import uses ([Import
+§6](ui-import.md)): it learns of each change as the server makes it, without
+asking on a timer.
+
+While the GEDZIP job runs, a **Cancel export** button sits beside the
+download button. It opens the shared confirmation dialog — the export stops
+and no archive is produced; nothing in the tree changes — whose buttons are
+**Continue exporting** and **Cancel the export**. Confirming sends `POST
+/export-jobs/{job_id}/cancel` ([API Contract](api.md)) and the poll goes on:
+while the job reports `cancelling` the download button reads “Cancelling…”
+and the Cancel button is gone; at `cancelled` the section says **Export
+cancelled. No archive was produced.**, no file is saved (the browser's save
+picker session is released), and the download button is usable again. A
+cancellation that arrives once the job has completed changes nothing: the
+archive is saved as usual.
 
 The server keeps a completed GEDZIP for one hour, however often it is
 downloaded ([API Contract](api.md)). For that hour the section describes the

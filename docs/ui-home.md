@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-02T04:08:01Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:30:00Z }
 ---
 
 
@@ -118,14 +118,26 @@ An importing card takes no clicks at all.
 | Hover | Orange border, lifted shadow, raised 4px — by its `top`, never a `transform`, which would make the card the containing block of its fixed action menu and open the menu offset by the card's position |
 | New (< 24h) | Green "Recent" badge in footer |
 | Importing | Full-card translucent overlay, activity indicator, and localized “Import in progress” status |
+| Cancelling an import | The same overlay, with the localized “Cancelling import…” status |
 
 An importing card is inert: it renders neither the Open link, nor the three-dot
 menu, nor the recently modified persons, including for keyboard navigation; the
 persons are read once the import is over. The state comes from the backend's
 active job registry through `GET /trees`, so reloading the page cannot expose a
-tree between database persistence and projection completion. While at least one
-card is importing, the home page refreshes the tree list once per second; it
-stops polling and restores the card only after the job becomes terminal.
+tree between database persistence and projection completion. A cancelled
+import ([Import §2](ui-import.md)) keeps the card covered while it unwinds:
+`import_cancelling` turns the status into “Cancelling import…”, and the card
+comes back only once everything the import wrote has been rolled back.
+
+An importing card follows its own job, named by `import_job_id`, by the long
+poll of [Import §6](ui-import.md): nothing else on the page is read again
+while the import runs — not the tree list, not the recently modified persons
+of the other cards. The overlay turns to “Cancelling import…” as soon as the
+job reports `cancelling`. Once the job is terminal — completed, failed or
+cancelled — the card asks for the tree list once, and the list uncovers it;
+should the list still report the import, it is read again a second later
+until it no longer does. A list naming no job falls back to that one-second
+reading.
 
 ### Create-a-tree card
 

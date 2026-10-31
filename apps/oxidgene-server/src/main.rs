@@ -78,6 +78,9 @@ async fn main() {
         // running the jobs a previous run left marked as running.
         spawn_background_worker(&state, uses_sqlite, "embedded-server").await;
     }
+    // Under PostgreSQL the workers may run in other processes: their writes
+    // reach this one's waiting job status reads as notifications.
+    tokio::spawn(oxidgene_api::service::job_watch::listen(state.db.clone()));
     let mut api_router = build_router(state);
     if cfg.graphiql {
         api_router = api_router.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));

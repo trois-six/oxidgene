@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
+use crate::service::background_job::active_job_cancelling;
 use crate::service::gedcom;
 use crate::service::history::{self, Change};
 use crate::service::patch::double_option;
@@ -25,8 +26,9 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 /// A tree as the tree list shows it, with the import running into it.
 ///
-/// The import fields come from the job table, not the tree: they are true
-/// while a job is queued or running and vanish once it completes or fails.
+/// The import fields come from the job queue, not the tree: they are set
+/// while a job is queued or running and vanish once it completes, fails or
+/// is cancelled.
 #[derive(Debug, Clone, Serialize)]
 pub struct TreeListItem {
     #[serde(flatten)]
@@ -35,6 +37,37 @@ pub struct TreeListItem {
     pub import_in_progress: bool,
     /// That import's job, while it is.
     pub import_job_id: Option<Uuid>,
+    /// Whether that import was asked to stop and is undoing what it wrote.
+    pub import_cancelling: bool,
+}
+
+/// The import queued or running into a tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveImport {
+    pub job_id: Uuid,
+    /// It was asked to stop and is undoing what it wrote.
+    pub cancelling: bool,
+}
+
+/// The imports queued or running, by tree. A job cancelled in this
+/// process's memory, its cancellation not written yet, is not.
+async fn active_imports(
+    db: &DatabaseConnection,
+) -> Result<HashMap<Uuid, ActiveImport>, OxidGeneError> {
+    Ok(BackgroundJobRepo::active_imports(db)
+        .await?
+        .into_iter()
+        .filter_map(|job| {
+            let cancelling = active_job_cancelling(job.id, job.cancel_requested)?;
+            Some((
+                job.tree_id,
+                ActiveImport {
+                    job_id: job.id,
+                    cancelling,
+                },
+            ))
+        })
+        .collect())
 }
 
 /// A tree to create.
@@ -77,17 +110,14 @@ pub async fn list_trees(
     params: &PaginationParams,
 ) -> Result<Connection<TreeListItem>, OxidGeneError> {
     let trees = TreeRepo::list(db, params).await?;
-    let active: HashMap<Uuid, Uuid> = BackgroundJobRepo::active_imports(db)
-        .await?
-        .into_iter()
-        .map(|job| (job.tree_id, job.id))
-        .collect();
+    let active = active_imports(db).await?;
     Ok(trees.map(|tree| {
-        let import_job_id = active.get(&tree.id).copied();
+        let import = active.get(&tree.id).copied();
         TreeListItem {
             tree,
-            import_in_progress: import_job_id.is_some(),
-            import_job_id,
+            import_in_progress: import.is_some(),
+            import_job_id: import.map(|import| import.job_id),
+            import_cancelling: import.is_some_and(|import| import.cancelling),
         }
     }))
 }
@@ -96,12 +126,8 @@ pub async fn list_trees(
 pub async fn active_import(
     db: &DatabaseConnection,
     tree_id: Uuid,
-) -> Result<Option<Uuid>, OxidGeneError> {
-    Ok(BackgroundJobRepo::active_imports(db)
-        .await?
-        .into_iter()
-        .find(|job| job.tree_id == tree_id)
-        .map(|job| job.id))
+) -> Result<Option<ActiveImport>, OxidGeneError> {
+    Ok(active_imports(db).await?.remove(&tree_id))
 }
 
 /// Create a tree. A blank name is refused.

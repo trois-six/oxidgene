@@ -25,7 +25,7 @@ use oxidgene_db::repo::{
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
     RecordTagRepo, SosaRepo, VignetteRepo, db_err,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
@@ -104,33 +104,6 @@ impl ProfileService {
         oxidgene_db::repo::refresh_statistics(conn).await;
 
         info!(count = persons.len(), "Completed full projection rebuild");
-        Ok(persons.len())
-    }
-
-    #[instrument(skip_all)]
-    pub(crate) async fn rebuild_tree_full_transactional(
-        &self,
-        conn: &(impl ConnectionTrait + TransactionTrait),
-        tree_id: Uuid,
-    ) -> Result<usize, OxidGeneError> {
-        info!("Starting transactional full projection rebuild");
-
-        let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
-        let persons = build_all_persons(tree_id, &tree_data);
-        debug!(count = persons.len(), "Built projections");
-
-        let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
-        let txn = conn.begin().await.map_err(db_err)?;
-        PersonDenormRepo::replace_tree(&txn, tree_id, &persons).await?;
-        PersonSearchRepo::replace_tree(&txn, tree_id, &search_entries).await?;
-        txn.commit().await.map_err(db_err)?;
-        // The import job's last bulk write, as for `rebuild_tree_full`.
-        oxidgene_db::repo::refresh_statistics(conn).await;
-
-        info!(
-            count = persons.len(),
-            "Completed transactional full projection rebuild"
-        );
         Ok(persons.len())
     }
 

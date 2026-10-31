@@ -58,7 +58,9 @@ generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
   §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
 - [x] Prefer an event-linked vignette over the whole media as its illustration
   ([Person Profile](ui-person-profile.md)).
-- [ ] Add per-media progress and cancellation to the final Geneanet write pass.
+- [x] Add per-media progress and cancellation to the final Geneanet write pass:
+  every import is one transaction a cancellation rolls back
+  ([Architecture §6.3](architecture.md)).
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
@@ -425,7 +427,8 @@ after a restart ([Architecture §6](architecture.md)). Post-MVP:
 - [x] Define queue and worker architecture without a second source of truth.
 - [x] Move imports and exports to durable background jobs.
 - [x] Recover interrupted jobs after a restart.
-- [ ] Let the user cancel a queued or running job.
+- [x] Let the user cancel a queued or running job, and wait for a job's
+  changes instead of polling ([Architecture §6.3, §6.4](architecture.md)).
 - [ ] Add processing notifications.
 - [ ] Add chunked and resumable media uploads.
 - [ ] Validate 100,000-person trees and large media libraries.

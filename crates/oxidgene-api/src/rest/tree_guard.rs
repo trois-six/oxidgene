@@ -13,14 +13,15 @@
 //! One indexed primary-key lookup per tree-scoped request, applied in one
 //! place instead of repeated across fifteen handlers.
 //!
-//! One request skips it: polling the status of a job this process is running.
-//! The job holds the SQLite writer for its whole write transaction, which on
-//! an in-memory database is the only connection, readers included; the
-//! status handler answers from the job's in-memory progress precisely so
-//! that the poll does not wait for it, and a lookup here would make it wait
-//! anyway. Elsewhere the lookup goes to the read pool. That answer carries only the job's
-//! own phase and counters; once the job ends, the poll goes through the
-//! lookup again, and a tree deleted meanwhile answers `404`.
+//! Two requests skip it: polling the status of a job this process knows in
+//! memory — it runs it, or holds a cancellation for it — and cancelling such
+//! a job. The job holds the SQLite writer for its whole write transaction,
+//! which on an in-memory database is the only connection, readers included;
+//! the status and cancel handlers answer from memory precisely so that they
+//! do not wait for it, and a lookup here would make them wait anyway.
+//! Elsewhere the lookup goes to the read pool. That answer carries only the
+//! job's own phase and counters; once the job ends, the poll goes through
+//! the lookup again, and a tree deleted meanwhile answers `404`.
 
 use axum::extract::{Request, State};
 use axum::http::Method;
@@ -29,7 +30,7 @@ use axum::response::{IntoResponse, Response};
 use oxidgene_db::repo::BackgroundJobKind;
 use uuid::Uuid;
 
-use crate::service::background_job::live_job_progress;
+use crate::service::background_job::live_state;
 
 use super::error::ApiError;
 use super::state::AppState;
@@ -49,7 +50,7 @@ pub async fn require_live_tree(
     let first_segment = segments.next().unwrap_or_default();
 
     if let Ok(tree_id) = Uuid::parse_str(first_segment) {
-        if req.method() == Method::GET && is_running_job_status(tree_id, segments) {
+        if is_live_job_request(req.method(), tree_id, segments) {
             return next.run(req).await;
         }
         // `get` already filters on `deleted_at`, so a soft-deleted tree is a
@@ -69,10 +70,15 @@ pub async fn require_live_tree(
     next.run(req).await
 }
 
-/// Whether the path after the tree id, `rest`, is the status of a job of
-/// that tree this process is running: `import-jobs/{id}` or
-/// `export-jobs/{id}`, with nothing after the id.
-fn is_running_job_status<'a>(tree_id: Uuid, mut rest: impl Iterator<Item = &'a str>) -> bool {
+/// Whether `method` on the path after the tree id, `rest`, reads the status
+/// of a job of that tree this process knows in memory, `GET
+/// import-jobs/{id}` or `GET export-jobs/{id}`, or cancels it, the same
+/// paths followed by `/cancel` with `POST`.
+fn is_live_job_request<'a>(
+    method: &Method,
+    tree_id: Uuid,
+    mut rest: impl Iterator<Item = &'a str>,
+) -> bool {
     let kind = match rest.next() {
         Some("import-jobs") => BackgroundJobKind::Import,
         Some("export-jobs") => BackgroundJobKind::Export,
@@ -81,7 +87,12 @@ fn is_running_job_status<'a>(tree_id: Uuid, mut rest: impl Iterator<Item = &'a s
     let Some(Ok(job_id)) = rest.next().map(Uuid::parse_str) else {
         return false;
     };
-    rest.next().is_none() && live_job_progress(tree_id, job_id, kind).is_some()
+    let request = match (method, rest.next()) {
+        (&Method::GET, None) => true,
+        (&Method::POST, Some("cancel")) => rest.next().is_none(),
+        _ => false,
+    };
+    request && live_state(tree_id, job_id, kind).is_some()
 }
 
 #[cfg(test)]
@@ -128,6 +139,113 @@ mod tests {
                     .expect("the status poll does not wait for the connection")
                     .unwrap();
             assert_eq!(response.status(), StatusCode::OK, "{segment}");
+            held.rollback().await.unwrap();
+        }
+    }
+
+    /// The JSON body of `request` sent to `app`, which must answer `200`
+    /// within `limit` although the running job holds the only connection.
+    async fn answered_within(
+        app: &axum::Router,
+        request: Request<Body>,
+        limit: Duration,
+    ) -> serde_json::Value {
+        use http_body_util::BodyExt as _;
+        let response = tokio::time::timeout(limit, app.clone().oneshot(request))
+            .await
+            .expect("the request does not wait for the connection")
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).expect("a JSON body")
+    }
+
+    #[tokio::test]
+    async fn a_running_job_is_cancelled_and_waited_on_without_the_database() {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options).await.expect("connects");
+        run_migrations(&db).await.expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Guard Fixture".into(), None)
+            .await
+            .expect("creates tree");
+        let media_root = tempfile::tempdir().expect("creates media root");
+        let app = build_router(AppState::new(db.clone(), media_root.path()));
+
+        for (segment, kind) in [
+            ("import-jobs", BackgroundJobKind::Import),
+            ("export-jobs", BackgroundJobKind::Export),
+        ] {
+            let job_id = Uuid::now_v7();
+            let live_job = LiveJobGuard::for_test(job_id, tree_id, kind);
+            // As an import holds it for its whole write transaction.
+            let held = db.begin().await.expect("holds the only connection");
+            let job = format!("/api/v1/trees/{tree_id}/{segment}/{job_id}");
+
+            let cancelled = answered_within(
+                &app,
+                Request::post(format!("{job}/cancel"))
+                    .body(Body::empty())
+                    .unwrap(),
+                Duration::from_secs(2),
+            )
+            .await;
+            assert_eq!(cancelled["phase"], "cancelling", "{segment}");
+            assert!(live_job.cancel_token().is_cancelled());
+            // A wait for a change reads memory too, then answers when its
+            // time runs out.
+            let version = cancelled["version"].as_str().unwrap();
+            let waited = answered_within(
+                &app,
+                Request::get(format!("{job}?since={version}&wait=1"))
+                    .body(Body::empty())
+                    .unwrap(),
+                Duration::from_secs(4),
+            )
+            .await;
+            assert_eq!(waited["version"], cancelled["version"]);
+            held.rollback().await.unwrap();
+        }
+    }
+
+    #[cfg(feature = "graphql")]
+    #[tokio::test]
+    async fn a_running_job_is_cancelled_over_graphql_without_the_database() {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options).await.expect("connects");
+        run_migrations(&db).await.expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Guard Fixture".into(), None)
+            .await
+            .expect("creates tree");
+        let media_root = tempfile::tempdir().expect("creates media root");
+        let app = build_router(AppState::new(db.clone(), media_root.path()));
+
+        for (field, kind) in [
+            ("cancelImportJob", BackgroundJobKind::Import),
+            ("cancelExportJob", BackgroundJobKind::Export),
+        ] {
+            let job_id = Uuid::now_v7();
+            let live_job = LiveJobGuard::for_test(job_id, tree_id, kind);
+            let held = db.begin().await.expect("holds the only connection");
+            let query = format!(
+                r#"mutation {{ {field}(treeId: "{tree_id}", jobId: "{job_id}") {{ phase }} }}"#
+            );
+            let response = answered_within(
+                &app,
+                Request::post("/graphql")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "query": query }).to_string(),
+                    ))
+                    .unwrap(),
+                Duration::from_secs(2),
+            )
+            .await;
+            assert_eq!(response["data"][field]["phase"], "cancelling", "{response}");
+            assert!(live_job.cancel_token().is_cancelled());
             held.rollback().await.unwrap();
         }
     }

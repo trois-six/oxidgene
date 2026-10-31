@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -846,7 +846,15 @@ Its surface (`ContextMenuSurface`) is also the one every anchored overlay uses,
 the topbar search panel included. It closes on a click outside, on a context
 click, and when the window is resized: it is placed at coordinates measured
 when it opened, which a resize moves out from under it, so it closes as a
-native menu does rather than float away from its anchor.
+native menu does rather than float away from its anchor. Only the window's
+own size decides: the page behind may re-render, grow or shrink while the
+menu is open — a list refreshed, a section loaded — without closing it. The
+surface and its backdrop are `position: fixed`, so no ancestor of a menu may
+be a containing block of fixed boxes (a `transform`, a `filter`, a
+`backdrop-filter`, layout containment), not even for the duration of an
+entrance animation: it would draw the menu away from its trigger and shrink
+the backdrop to that ancestor. An entrance on a box holding menus fades
+rather than slides.
 
 ### 4.9 Theme picker
 

@@ -55,7 +55,6 @@ use oxidgene_db::repo::{
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect,
-    TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -746,20 +745,20 @@ pub const DUPLICATE_FORMAT: &str = "duplicate";
 
 /// Record a completed import.
 ///
-/// Imports write in several transactions of their own, so this one follows
-/// them rather than joining them. It stores no version: what the import
-/// brought is live, and a record nobody changed since has no past state.
+/// An import job records it on its own transaction, so that the entry
+/// exists exactly when the import committed. It stores no version: what the
+/// import brought is live, and a record nobody changed since has no past
+/// state.
 /// `file_name` is the imported file's, or the other tree's name for a
 /// duplication.
 pub async fn record_import(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     format: &str,
     file_name: Option<String>,
     persons: usize,
 ) -> Result<AuditEntry, OxidGeneError> {
-    let txn = db.begin().await.map_err(db_err)?;
-    let entry = Change::new(tree_id, AuditAction::Import, AuditEntity::Tree, tree_id)
+    Change::new(tree_id, AuditAction::Import, AuditEntity::Tree, tree_id)
         .about_tree()
         .details(AuditDetails {
             format: Some(format.to_string()),
@@ -767,10 +766,8 @@ pub async fn record_import(
             count: Some(persons as u64),
             ..AuditDetails::default()
         })
-        .record_unversioned(&txn)
-        .await?;
-    txn.commit().await.map_err(db_err)?;
-    Ok(entry)
+        .record_unversioned(db)
+        .await
 }
 
 /// Record a completed export. An export writes nothing to the tree, but what

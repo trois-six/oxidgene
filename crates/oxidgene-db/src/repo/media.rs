@@ -621,6 +621,43 @@ impl MediaRepo {
     }
 }
 
+impl MediaRepo {
+    /// Of the store keys `keys`, all under tree `tree_id`, those a media row
+    /// of the tree names as its file or its thumbnail, deleted or not. A key
+    /// is scoped to its tree, so no other tree's row can name it.
+    pub async fn referenced_keys(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        keys: &[String],
+    ) -> Result<HashSet<String>, OxidGeneError> {
+        let wanted: HashSet<&String> = keys.iter().collect();
+        let mut referenced = HashSet::new();
+        // Each key is bound twice, once per column.
+        for chunk in keys.chunks(crate::repo::batch::MAX_BOUND_IDS / 2) {
+            let rows: Vec<(Option<String>, Option<String>)> = Entity::find()
+                .select_only()
+                .columns([Column::StorageKey, Column::ThumbnailKey])
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(
+                    Condition::any()
+                        .add(Column::StorageKey.is_in(chunk.iter().cloned()))
+                        .add(Column::ThumbnailKey.is_in(chunk.iter().cloned())),
+                )
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            referenced.extend(
+                rows.into_iter()
+                    .flat_map(|(storage_key, thumbnail_key)| [storage_key, thumbnail_key])
+                    .flatten()
+                    .filter(|key| wanted.contains(key)),
+            );
+        }
+        Ok(referenced)
+    }
+}
+
 /// Rejects a patch the record cannot take: file fields on a record whose
 /// bytes we hold, a non-positive size, a size too small for an existing
 /// crop, or a place from another tree.

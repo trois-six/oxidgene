@@ -7,7 +7,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use super::dto::{ExportJobStartedResponse, StartExportJobQuery};
+use super::dto::{ExportJobStartedResponse, JobStatusQuery, StartExportJobQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::background_job::{self, DownloadableExport, ExportJobStatus};
@@ -41,12 +41,17 @@ pub async fn downloadable(
 }
 
 /// GET /api/v1/trees/:tree_id/export-jobs/:job_id
+///
+/// With `since` and `wait`, answers once the job's state differs from
+/// version `since`, or after `wait` seconds.
 pub async fn status(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<JobStatusQuery>,
 ) -> Result<Json<ExportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::export_job_status(&state.reader, tree_id, job_id).await?,
+        background_job::wait_export_job_status(&state.reader, tree_id, job_id, &query.wait())
+            .await?,
     ))
 }
 
@@ -70,4 +75,18 @@ pub async fn download(
         Body::from_stream(stream),
     )
         .into_response())
+}
+
+/// POST /api/v1/trees/:tree_id/export-jobs/:job_id/cancel
+///
+/// Stop the export: at once when it is queued, at its next medium when it
+/// runs. Answers where it stands then.
+pub async fn cancel(
+    State(state): State<AppState>,
+    Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<ExportJobStatus>, ApiError> {
+    Ok(Json(
+        background_job::cancel_export_job(&state.db, &state.reader, &*state.media, tree_id, job_id)
+            .await?,
+    ))
 }

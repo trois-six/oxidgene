@@ -5,6 +5,7 @@
 //! the document page count. [`ingest`] is the one entry point handlers call:
 //! it validates, stores, derives, and hands back a row's worth of metadata.
 
+pub(crate) mod job_objects;
 pub mod pages;
 pub mod store;
 pub mod thumbnail;

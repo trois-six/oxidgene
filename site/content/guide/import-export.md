@@ -26,14 +26,25 @@ An import always goes into an existing tree. Create the tree first (see [Trees](
 2. The window **Import into “…”** opens on the **A file** tab.
 3. Drop your file onto **Drop a file here, or click to browse**, or click it to pick the file. It accepts `.ged`, `.gdz` and `.gw` files up to 1 GiB.
 4. Click **Import**.
-5. Wait while the progress bar goes through its stages: the upload, **Reading genealogy…**, **Storing media** for a GEDZIP, **Writing genealogy…** and **Preparing the tree…**. The window cannot be closed while the import runs.
+5. Wait while the progress bar goes through its stages: the upload, **Reading genealogy…**, **Storing media** for a GEDZIP, **Writing genealogy…** and **Preparing the tree…**. The window cannot be closed while the import runs, but the import can be cancelled (see below).
 6. When **Import complete** appears, read the counts: people, families, events, sources, places, images and documents.
 
 If the import produced warnings, a line such as **3 warnings** appears under the counts; click it to read them. Warnings name what the import could not read or connect, such as an age that is not written as an age, a note that points to nothing, or a file a GEDZIP refers to but does not contain. The rest of the file is imported normally.
 
-If the import fails, the window shows the reason and keeps your file selected, so you can try again.
+If the import fails, the window shows the reason and keeps your file selected, so you can try again. A failed import leaves nothing behind: the tree is as it was before.
 
 While the import runs, the tree's card on the home page shows **Import in progress** and cannot be opened. You can reload the page or come back later; the card becomes available again once the import has finished.
+
+### Cancel an import
+
+An import is all or nothing. Once the file has been uploaded, a **Cancel import** button appears beside the progress bar:
+
+1. Click **Cancel import**.
+2. The confirmation explains what is undone: everything the import has added so far — people, families, events, sources and media — is removed, and the tree is left exactly as it was before the import. Click **Cancel the import** to confirm, or **Continue importing** to let it go on.
+3. While the import removes what it added, the progress bar reads **Cancelling: removing what the import added…**, and the tree's card on the home page shows **Cancelling import…**.
+4. When **Import cancelled. The tree is unchanged.** appears, you can close the window, or import the file again.
+
+If the import finishes before your cancellation reaches it, it completes normally and shows its counts.
 
 ### What is imported
 
@@ -69,6 +80,8 @@ Exports are in the tree's settings.
 5. Click **Download .ged** or **Download .gdz**, and choose where to save the file.
 
 The message **Export completed successfully.** confirms the export, and every export is recorded in the tree's history.
+
+Packing a GEDZIP can take a while. While it runs, a **Cancel export** button sits beside the download button: click it, then **Cancel the export** to confirm (**Continue exporting** lets it go on). The export stops and no archive is produced; nothing in the tree changes. **Export cancelled. No archive was produced.** confirms it, and you can export again.
 
 ### Choose the destination program
 

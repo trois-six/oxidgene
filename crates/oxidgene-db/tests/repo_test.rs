@@ -379,13 +379,11 @@ async fn ended_jobs_drop_their_payload_and_can_be_pruned() {
     );
 }
 
-#[tokio::test]
-async fn requeue_running_preserves_the_import_checkpoint() {
-    let db = setup_db().await;
-    let tree_id = create_tree(&db).await;
+/// Queue an import job into tree `tree_id`; its id.
+async fn queue_import(db: &DatabaseConnection, tree_id: Uuid) -> Uuid {
     let job_id = Uuid::now_v7();
     BackgroundJobRepo::create(
-        &db,
+        db,
         NewBackgroundJob {
             id: job_id,
             tree_id,
@@ -400,36 +398,103 @@ async fn requeue_running_preserves_the_import_checkpoint() {
     )
     .await
     .expect("create job");
-    BackgroundJobRepo::claim_next(&db, "worker-a", chrono::Duration::hours(24))
-        .await
-        .expect("claim query")
-        .expect("queued job");
+    job_id
+}
+
+#[tokio::test]
+async fn a_queued_job_is_cancelled_unrun_and_frees_its_tree() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job_id = queue_import(&db, tree_id).await;
+
+    assert!(BackgroundJobRepo::cancel_queued(&db, job_id).await.unwrap());
+    // Only once, and only while queued.
+    assert!(!BackgroundJobRepo::cancel_queued(&db, job_id).await.unwrap());
     assert!(
-        BackgroundJobRepo::checkpoint_import_persisted(
-            &db,
-            job_id,
-            "worker-a",
-            r#"{"persons_count":1}"#.into(),
-            chrono::Duration::hours(24),
-        )
-        .await
-        .expect("checkpoint")
+        !BackgroundJobRepo::request_cancel(&db, job_id)
+            .await
+            .unwrap()
     );
 
+    let job = BackgroundJobRepo::find(&db, job_id).await.unwrap().unwrap();
     assert_eq!(
-        BackgroundJobRepo::requeue_running(&db)
-            .await
-            .expect("requeue running jobs"),
-        1
+        (job.status.as_str(), job.phase.as_str()),
+        ("cancelled", "cancelled")
     );
-    let reclaimed = BackgroundJobRepo::claim_next(&db, "worker-b", chrono::Duration::hours(24))
+    assert!(job.active_tree_id.is_none() && job.finished_at.is_some());
+    assert!(
+        BackgroundJobRepo::claim_next(&db, "worker", chrono::Duration::hours(1))
+            .await
+            .unwrap()
+            .is_none(),
+        "a cancelled job is never claimed"
+    );
+    // The tree takes another job.
+    queue_import(&db, tree_id).await;
+}
+
+#[tokio::test]
+async fn a_running_job_reads_its_cancellation_with_its_progress() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job_id = queue_import(&db, tree_id).await;
+    BackgroundJobRepo::claim_next(&db, "worker-a", chrono::Duration::hours(1))
         .await
-        .expect("reclaim query")
-        .expect("requeued job");
-    assert_eq!(reclaimed.phase, "projections");
+        .unwrap()
+        .expect("queued job");
+    let lease = chrono::Duration::hours(1);
+
     assert_eq!(
-        reclaimed.result_json.as_deref(),
-        Some(r#"{"persons_count":1}"#)
+        BackgroundJobRepo::progress(&db, job_id, "worker-a", "media", 1, 3, lease)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert!(!BackgroundJobRepo::cancel_queued(&db, job_id).await.unwrap());
+    assert!(
+        BackgroundJobRepo::request_cancel(&db, job_id)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        BackgroundJobRepo::progress(&db, job_id, "worker-a", "media", 2, 3, lease)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        BackgroundJobRepo::progress(&db, job_id, "worker-b", "media", 2, 3, lease)
+            .await
+            .unwrap(),
+        None,
+        "another worker holds no lease"
+    );
+    assert!(
+        BackgroundJobRepo::held_by(&db, job_id, "worker-a")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !BackgroundJobRepo::held_by(&db, job_id, "worker-b")
+            .await
+            .unwrap()
+    );
+
+    assert!(
+        BackgroundJobRepo::cancel(&db, job_id, "worker-a")
+            .await
+            .unwrap()
+    );
+    let job = BackgroundJobRepo::find(&db, job_id).await.unwrap().unwrap();
+    assert_eq!(
+        (job.status.as_str(), job.phase.as_str()),
+        ("cancelled", "cancelled")
+    );
+    assert!(job.active_tree_id.is_none());
+    assert!(
+        !BackgroundJobRepo::held_by(&db, job_id, "worker-a")
+            .await
+            .unwrap()
     );
 }
 

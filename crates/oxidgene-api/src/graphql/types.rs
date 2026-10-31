@@ -864,12 +864,15 @@ pub struct GqlTree {
     /// The import running into the tree, when the tree list already knows it:
     /// the list reads every tree's at once rather than one query per tree.
     #[graphql(skip)]
-    pub import_job: Option<Option<Uuid>>,
+    pub import_job: Option<Option<crate::service::tree::ActiveImport>>,
 }
 
 impl GqlTree {
     /// The import queued or running into the tree, if any.
-    async fn active_import(&self, ctx: &Context<'_>) -> Result<Option<Uuid>> {
+    async fn active_import(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Option<crate::service::tree::ActiveImport>> {
         match self.import_job {
             Some(known) => Ok(known),
             None => Ok(
@@ -889,7 +892,19 @@ impl GqlTree {
 
     /// The import job running into the tree, while one is.
     async fn import_job_id(&self, ctx: &Context<'_>) -> Result<Option<ID>> {
-        Ok(self.active_import(ctx).await?.map(|id| ID(id.to_string())))
+        Ok(self
+            .active_import(ctx)
+            .await?
+            .map(|import| ID(import.job_id.to_string())))
+    }
+
+    /// Whether the tree's import was asked to stop and is undoing what it
+    /// wrote. Read from the job queue, like `importInProgress`.
+    async fn import_cancelling(&self, ctx: &Context<'_>) -> Result<bool> {
+        Ok(self
+            .active_import(ctx)
+            .await?
+            .is_some_and(|import| import.cancelling))
     }
 
     /// Count of persons in this tree.
@@ -928,7 +943,13 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
 impl From<crate::service::tree::TreeListItem> for GqlTree {
     fn from(item: crate::service::tree::TreeListItem) -> Self {
         Self {
-            import_job: Some(item.import_job_id),
+            import_job: Some(
+                item.import_job_id
+                    .map(|job_id| crate::service::tree::ActiveImport {
+                        job_id,
+                        cancelling: item.import_cancelling,
+                    }),
+            ),
             ..item.tree.into()
         }
     }
@@ -2339,6 +2360,8 @@ pub struct GqlBackgroundJobStarted {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlExportJobStatus {
     pub phase: String,
+    /// Identifies this state: pass it as `since` to wait for the next.
+    pub version: String,
     pub done: i64,
     pub total: i64,
     pub download_url: Option<String>,
@@ -2401,6 +2424,7 @@ impl From<crate::service::background_job::ExportJobStatus> for GqlExportJobStatu
     fn from(status: crate::service::background_job::ExportJobStatus) -> Self {
         Self {
             phase: status.phase,
+            version: status.version,
             done: status.done,
             total: status.total,
             download_url: status.download_url,
@@ -2416,6 +2440,7 @@ impl From<crate::service::background_job::ImportJobStatus> for GqlImportJobStatu
     fn from(status: crate::service::background_job::ImportJobStatus) -> Self {
         Self {
             phase: status.phase,
+            version: status.version,
             done: status.done,
             total: status.total,
             result: status.result.map(Into::into),
@@ -2429,6 +2454,8 @@ impl From<crate::service::background_job::ImportJobStatus> for GqlImportJobStatu
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlImportJobStatus {
     pub phase: String,
+    /// Identifies this state: pass it as `since` to wait for the next.
+    pub version: String,
     pub done: i64,
     pub total: i64,
     pub result: Option<GqlImportResult>,

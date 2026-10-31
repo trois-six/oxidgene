@@ -8,7 +8,9 @@ use oxidgene_core::Sex;
 use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
+use crate::api::{
+    ApiClient, CreateTreeBody, DuplicateTreeBody, FileImportJobStatus, UpdateTreeBody, follow_job,
+};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::empty_state::EmptyState;
@@ -61,28 +63,13 @@ pub fn Home() -> Element {
         }
     });
     use_context_provider(|| RecentPersonsBatch(recent_resource));
-    let imports_active = use_memo(move || {
-        trees_resource
-            .read()
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .is_some_and(|connection| {
-                connection
-                    .edges
-                    .iter()
-                    .any(|edge| edge.node.import_in_progress)
-            })
-    });
-    let api_poll = api.clone();
-    use_effect(move || {
-        if imports_active() {
-            spawn(poll_imports(
-                api_poll.clone(),
-                imports_active,
-                refresh_counter,
-            ));
-        }
-    });
+    // An importing card follows its own job (`ImportOverlay`) and asks for
+    // the list again once the job is over: the list is what uncovers it.
+    let api_over = api.clone();
+    let on_import_over = move |()| {
+        api_over.invalidate_tree_list();
+        refresh_counter += 1;
+    };
 
     let mut show_create = use_signal(|| false);
     // Delete confirmation state: the tree and its name.
@@ -171,6 +158,7 @@ pub fn Home() -> Element {
                             // inputs and a login, none of which a file
                             // dialog can ask for.
                             on_import: move |tree| importing.set(Some(tree)),
+                            on_import_over,
                         }
                     },
                     Some(Err(_)) => rsx! {
@@ -255,19 +243,6 @@ pub fn Home() -> Element {
     }
 }
 
-/// Re-reads the tree list every second while an import runs.
-async fn poll_imports(
-    api: ApiClient,
-    imports_active: Memo<bool>,
-    mut refresh_counter: Signal<u32>,
-) {
-    while imports_active() {
-        crate::utils::sleep_ms(1_000).await;
-        api.invalidate_tree_list();
-        refresh_counter += 1;
-    }
-}
-
 /// Duplicates tree `tid` as `name`, blocking the page meanwhile.
 async fn duplicate_tree(
     api: ApiClient,
@@ -295,6 +270,10 @@ struct TreeSummary {
     description: String,
     updated_at: chrono::DateTime<Utc>,
     importing: bool,
+    /// Whether that import was asked to cancel and is undoing what it wrote.
+    cancelling: bool,
+    /// The import job running, when the list names it.
+    import_job: Option<Uuid>,
 }
 
 impl TreeSummary {
@@ -304,7 +283,11 @@ impl TreeSummary {
             name: tree.name.clone(),
             description: tree.description.clone().unwrap_or_default(),
             updated_at: tree.updated_at,
-            importing: tree.import_in_progress,
+            // An import unwinding is still active: the tree stays covered
+            // until it is exactly as it was.
+            importing: tree.import_in_progress || tree.import_cancelling,
+            cancelling: tree.import_cancelling,
+            import_job: tree.import_job_id,
         }
     }
 }
@@ -449,6 +432,8 @@ fn TreesGrid(
     on_duplicate: EventHandler<(Uuid, String)>,
     on_delete: EventHandler<(Uuid, String)>,
     on_import: EventHandler<(Uuid, String)>,
+    /// A card's import is over, and the list is to be read again.
+    on_import_over: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let visible = visible_trees(&trees, &query, &sort);
@@ -501,6 +486,9 @@ fn TreesGrid(
                     tree_id: tree.id.to_string(),
                     duplicating: duplicating == Some(tree.id),
                     importing: tree.importing,
+                    cancelling: tree.cancelling,
+                    import_job: tree.import_job,
+                    on_import_over,
                     on_rename: {
                         let tree = (tree.id, tree.name.clone());
                         move |_| on_rename.call(tree.clone())
@@ -719,6 +707,12 @@ fn TreeCard(
     tree_id: String,
     duplicating: bool,
     importing: bool,
+    /// Whether the import was asked to cancel and is undoing what it wrote,
+    /// as the list last said.
+    cancelling: bool,
+    /// The import job running, which the overlay follows.
+    import_job: Option<Uuid>,
+    on_import_over: EventHandler<()>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
     on_delete: EventHandler<()>,
@@ -851,13 +845,69 @@ fn TreeCard(
                     }
                 }
             }
-            if importing {
-                div {
-                    class: "tree-card-import-overlay",
-                    role: "status",
-                    "aria-live": "polite",
-                    div { class: "spinner" }
-                    div { class: "tree-card-import-title", {i18n.t("home.import_in_progress")} }
+            if let (true, Ok(id)) = (importing, Uuid::parse_str(&tree_id)) {
+                ImportOverlay {
+                    tree_id: id,
+                    job_id: import_job,
+                    cancelling,
+                    on_over: on_import_over,
+                }
+            }
+        }
+    }
+}
+
+/// The overlay of a card whose tree is importing.
+///
+/// It follows the import's job by long poll, so the card says as soon as the
+/// import is being cancelled, and once the job is over asks for the list
+/// again — the list, not the job, is what uncovers the card. Nothing else on
+/// the page is read again meanwhile.
+#[component]
+fn ImportOverlay(
+    tree_id: Uuid,
+    job_id: Option<Uuid>,
+    /// Whether the list said the import was being cancelled, until the job
+    /// says so itself.
+    cancelling: bool,
+    on_over: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut phase = use_signal(|| None::<String>);
+    use_future(move || {
+        let api = api.clone();
+        async move {
+            if let Some(job_id) = job_id {
+                // A failed read leaves the end to the list, read below.
+                let _ = follow_job(
+                    |wait| api.file_import_status(tree_id, job_id, wait),
+                    |status: &FileImportJobStatus| phase.set(Some(status.phase.clone())),
+                )
+                .await;
+            }
+            // The list is read once the job is over. Should it still report
+            // the import, its registry a step behind the job, it is read
+            // again a second later, for as long as this card stays covered.
+            loop {
+                on_over.call(());
+                crate::utils::sleep_ms(1_000).await;
+            }
+        }
+    });
+    let cancelling = phase().map_or(cancelling, |phase| phase == "cancelling");
+
+    rsx! {
+        div {
+            class: "tree-card-import-overlay",
+            role: "status",
+            "aria-live": "polite",
+            div { class: "spinner" }
+            div { class: "tree-card-import-title",
+                if cancelling {
+                    {i18n.t("home.import_cancelling")}
+                } else {
+                    {i18n.t("home.import_in_progress")}
                 }
             }
         }
@@ -1142,7 +1192,12 @@ const HOME_STYLES: &str = r#"
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
         gap: var(--space-12);
-        animation: home-fade-up 0.6s 0.15s ease backwards;
+        /* Faded in, not slid: the cards' menus are `position: fixed` inside
+           the grid, and a transform — even for the 0.75 s an entrance runs —
+           makes the grid their containing block, so a menu opened meanwhile
+           would be drawn off its trigger and its backdrop would cover the
+           grid alone. */
+        animation: home-fade-in 0.6s 0.15s ease backwards;
     }
     .trees-grid.trees-list { grid-template-columns: minmax(0, 1fr); }
 
@@ -1485,6 +1540,13 @@ const HOME_STYLES: &str = r#"
         to   { opacity: 1; transform: translateY(0); }
     }
 
+    /* For a box holding `position: fixed` descendants, which a transform,
+       even a passing one, would hold to it. */
+    @keyframes home-fade-in {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+    }
+
     /* ── Import banner ────────────────────────────────────────────── */
 
     .home-import-banner {
@@ -1537,6 +1599,8 @@ mod tests {
             description: String::new(),
             updated_at: Utc::now() - chrono::Duration::hours(hours_ago),
             importing: false,
+            cancelling: false,
+            import_job: None,
         }
     }
 

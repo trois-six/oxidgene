@@ -10,9 +10,10 @@ use uuid::Uuid;
 
 use crate::api::{
     ApiClient, ApiError, ArchiveChoices, DestinationReport, DownloadableExport, ExportChoices,
-    ExportDestination, TagSummary, UpdateTreeBody,
+    ExportDestination, TagSummary, UpdateTreeBody, follow_job,
 };
 use crate::components::audit_log::AuditLogSection;
+use crate::components::cancel_job::{CancelJobButton, JobKind, can_cancel};
 use crate::components::history_diff::format_timestamp;
 use crate::components::person_picker::PersonPicker;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
@@ -35,48 +36,122 @@ fn is_live(export: &DownloadableExport) -> bool {
     chrono::Utc::now() < export.expires_at
 }
 
-/// Queue a GEDZIP export and wait for it: the archive to download.
+/// A GEDZIP export job the page started, and the phase it last reported.
+///
+/// Kept once the job ended only when it was cancelled, which the section
+/// then says; a completed or failed one says so through its message.
+#[derive(Debug, Clone, PartialEq)]
+struct ExportJobView {
+    job_id: Uuid,
+    phase: String,
+}
+
+impl ExportJobView {
+    fn cancelled(&self) -> bool {
+        self.phase == "cancelled"
+    }
+
+    fn cancelling(&self) -> bool {
+        self.phase == "cancelling"
+    }
+}
+
+/// The export button's label: what the export is doing while it runs,
+/// else what it downloads.
+fn export_button_label(
+    i18n: &I18n,
+    is_gedzip: bool,
+    loading: bool,
+    job: Option<&ExportJobView>,
+) -> String {
+    let key = if job.is_some_and(ExportJobView::cancelling) {
+        "settings.export_cancelling"
+    } else if loading {
+        "common.exporting"
+    } else if is_gedzip {
+        "settings.download_gedzip"
+    } else {
+        "settings.download_ged"
+    };
+    i18n.t(key)
+}
+
+/// What the page keeps of its GEDZIP exports: the job running or last
+/// cancelled, and the archive the last completed one produced.
+#[derive(Clone, Copy)]
+struct GedzipSignals {
+    job: Signal<Option<ExportJobView>>,
+    completed: Signal<Option<DownloadableExport>>,
+}
+
+/// Queue a GEDZIP export and wait for it, publishing it in `job` for the
+/// Cancel button: the archive to download, or `None` when it was cancelled.
 async fn wait_for_export(
     api: &ApiClient,
     tree_id: Uuid,
     choices: ArchiveChoices,
-) -> Result<DownloadableExport, ApiError> {
+    mut job: Signal<Option<ExportJobView>>,
+) -> Result<Option<DownloadableExport>, ApiError> {
     let started = trace_ui_action_step(
         UiActionStep::ExportQueue,
         api.start_export_job(tree_id, choices),
     )
     .await?;
-    trace_ui_action_step(UiActionStep::ExportPoll, async {
-        loop {
-            let status = api.export_job_status(tree_id, started.job_id).await?;
-            match status.phase.as_str() {
-                "completed" => {
-                    let size_bytes = status.size_bytes;
-                    return status
-                        .download_url
-                        .zip(status.expires_at)
-                        .map(|(download_url, expires_at)| DownloadableExport {
-                            format: "gedzip".to_string(),
-                            download_url,
-                            expires_at,
-                            size_bytes,
-                        })
-                        .ok_or_else(|| ApiError::Api {
-                            status: 500,
-                            body: "completed export has no artifact".to_string(),
-                        });
-                }
-                "failed" => {
-                    return Err(ApiError::Api {
-                        status: 422,
-                        body: status.error.unwrap_or_else(|| "export_failed".to_string()),
-                    });
-                }
-                _ => crate::utils::sleep_ms(500).await,
-            }
+    let polled = poll_export(api, tree_id, started.job_id, job).await;
+    // A cancelled job stays, for the section to say so.
+    if !job.peek().as_ref().is_some_and(ExportJobView::cancelled) {
+        job.set(None);
+    }
+    polled
+}
+
+/// Follows export job `job_id` until it ends, keeping its phase in `job`:
+/// the archive to download, or `None` when it was cancelled. `cancelling`
+/// is not an end: the job is still stopping. Each read after the first
+/// waits on the server until the job changes ([`follow_job`]).
+async fn poll_export(
+    api: &ApiClient,
+    tree_id: Uuid,
+    job_id: Uuid,
+    mut job: Signal<Option<ExportJobView>>,
+) -> Result<Option<DownloadableExport>, ApiError> {
+    let status = trace_ui_action_step(
+        UiActionStep::ExportPoll,
+        follow_job(
+            |wait| api.export_job_status(tree_id, job_id, wait),
+            |status: &crate::api::ExportJobStatus| {
+                job.set(Some(ExportJobView {
+                    job_id,
+                    phase: status.phase.clone(),
+                }));
+            },
+        ),
+    )
+    .await?;
+    match status.phase.as_str() {
+        "cancelled" => Ok(None),
+        "failed" => Err(ApiError::Api {
+            status: 422,
+            body: status.error.unwrap_or_else(|| "export_failed".to_string()),
+        }),
+        _ => {
+            let size_bytes = status.size_bytes;
+            status
+                .download_url
+                .zip(status.expires_at)
+                .map(|(download_url, expires_at)| DownloadableExport {
+                    format: "gedzip".to_string(),
+                    download_url,
+                    expires_at,
+                    size_bytes,
+                })
+                .map(Some)
+                .ok_or_else(|| ApiError::Api {
+                    status: 500,
+                    body: "completed export has no artifact".to_string(),
+                })
         }
-    })
-    .await
+    }
 }
 
 /// The settings' sections, by group: each group's label and its sections'
@@ -130,7 +205,8 @@ type ExportOutcome = Result<Option<String>, String>;
 
 /// Exports the tree as a GEDZIP, packed by a server job, into the save
 /// picker opened on the click — which already proposed the file name — and
-/// keeps it in `completed` for downloading again.
+/// keeps it in `completed` for downloading again. A cancelled job saves
+/// nothing, and the picker's session is released.
 #[cfg(target_arch = "wasm32")]
 async fn export_gedzip(
     api: &ApiClient,
@@ -139,22 +215,26 @@ async fn export_gedzip(
     _file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
-    mut completed: Signal<Option<DownloadableExport>>,
+    mut signals: GedzipSignals,
 ) -> ExportOutcome {
     // The picker comes first: cancelling it starts no job.
     let Some(destination) = ready_destination(target, i18n).await? else {
         return Ok(None);
     };
-    let export = wait_for_export(api, tid, choices)
+    let Some(export) = wait_for_export(api, tid, choices, signals.job)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
     let download_path = export.download_url.clone();
-    completed.set(Some(export));
+    signals.completed.set(Some(export));
     download_to_destination(api, destination, &download_path, i18n).await
 }
 
 /// Exports the tree as a GEDZIP, packed by a server job, to the file the
-/// user picks, and keeps it in `completed` for downloading again.
+/// user picks, and keeps it in `completed` for downloading again. A
+/// cancelled job asks for no file.
 #[cfg(not(target_arch = "wasm32"))]
 async fn export_gedzip(
     api: &ApiClient,
@@ -163,12 +243,15 @@ async fn export_gedzip(
     file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
-    mut completed: Signal<Option<DownloadableExport>>,
+    mut signals: GedzipSignals,
 ) -> ExportOutcome {
-    let export = wait_for_export(api, tid, choices)
+    let Some(export) = wait_for_export(api, tid, choices, signals.job)
         .await
-        .map_err(|error| error.to_string())?;
-    completed.set(Some(export.clone()));
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    signals.completed.set(Some(export.clone()));
     save_gedzip(api, &export, file_name, i18n, target).await
 }
 
@@ -436,6 +519,7 @@ pub fn Settings(tree_id: String) -> Element {
     let export_scope = use_signal(ExportScope::default);
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
     let mut last_export = use_kept_export(&api, tree_id_parsed, active_section);
+    let mut export_job = use_signal(|| None::<ExportJobView>);
 
     let page = use_tree_page(&tree_id);
     let tree_resource = page.resource;
@@ -477,6 +561,7 @@ pub fn Settings(tree_id: String) -> Element {
         export_error.set(None);
         export_success.set(None);
         export_report.set(None);
+        export_job.set(None);
         // Opened during the click, before any network await.
         let target = save_target(&file_name, is_gedzip);
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
@@ -489,7 +574,10 @@ pub fn Settings(tree_id: String) -> Element {
                     &file_name,
                     &i18n,
                     target,
-                    last_export,
+                    GedzipSignals {
+                        job: export_job,
+                        completed: last_export,
+                    },
                 )
                 .await
             } else {
@@ -514,6 +602,7 @@ pub fn Settings(tree_id: String) -> Element {
         export_error.set(None);
         export_success.set(None);
         export_report.set(None);
+        export_job.set(None);
         if !is_live(&export) {
             last_export.set(None);
             export_error.set(Some(i18n.t("settings.export_expired")));
@@ -586,6 +675,7 @@ pub fn Settings(tree_id: String) -> Element {
                             on_download_again,
                             downloadable: downloadable.clone(),
                             loading: export_loading(),
+                            job: export_job(),
                             error: export_error(),
                             success: export_success(),
                             format: export_format,
@@ -1199,6 +1289,9 @@ fn ExportSection(
     /// when there is none.
     downloadable: Option<String>,
     loading: bool,
+    /// The GEDZIP export job running, which Cancel stops, or the last one
+    /// when it was cancelled.
+    job: Option<ExportJobView>,
     error: Option<String>,
     success: Option<String>,
     format: Signal<String>,
@@ -1220,11 +1313,7 @@ fn ExportSection(
         async move { api.export_destinations().await.unwrap_or_default() }
     });
     let destinations = listed_or_default(listed.read().clone());
-    let download_label = if is_gedzip {
-        i18n.t("settings.download_gedzip")
-    } else {
-        i18n.t("settings.download_ged")
-    };
+    let button_label = export_button_label(&i18n, is_gedzip, loading, job.as_ref());
     let format_title = if is_gedzip {
         i18n.t("settings.gedzip_title")
     } else {
@@ -1260,11 +1349,14 @@ fn ExportSection(
                         option { value: "gedcom", {i18n.t("settings.export_format_gedcom")} }
                         option { value: "gedzip", {i18n.t("settings.export_format_gedzip")} }
                     }
+                    if let (Some(running), Ok(tid)) = (job.as_ref().filter(|j| can_cancel(&j.phase)), tree_id.parse::<Uuid>()) {
+                        CancelJobButton { kind: JobKind::Export, tree_id: tid, job_id: running.job_id }
+                    }
                     button {
                         class: "btn btn-primary",
                         disabled: loading,
                         onclick: on_export,
-                        if loading { {i18n.t("common.exporting")} } else { {download_label} }
+                        "{button_label}"
                     }
                 }
                 if !is_gedzip {
@@ -1307,6 +1399,11 @@ fn ExportSection(
                 if let Some(message) = &success {
                     div { class: "success-msg settings-feedback",
                         "{message}"
+                    }
+                }
+                if job.as_ref().is_some_and(ExportJobView::cancelled) {
+                    div { class: "success-msg settings-feedback", role: "status",
+                        {i18n.t("settings.export_cancelled")}
                     }
                 }
                 if let Some(report) = &report {

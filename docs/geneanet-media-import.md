@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-10-02T10:58:15Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:00:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -811,8 +811,19 @@ request handler reads those paths locally, copies the `.gw`, archives, and
 gathered media to durable job-owned keys, commits a background job, and returns
 its id. The worker reconstructs disposable local inputs from `MediaStore`, runs
 the import, rebuilds projections, stores the receipt in the job, and deletes all
-job inputs on completion or failure. A worker resuming from the persisted
-`projections` checkpoint uses the stored receipt and does not replay the import.
+job inputs on completion, failure or cancellation.
+
+The import is all or nothing ([Architecture §6](architecture.md#6-asynchronous-processing)):
+the people, the media rows and links, the projections, the history entry and
+the job's completion are one database transaction, and the files the media
+phase stored are deleted unless it commits. A photo that cannot be fetched or
+decoded is still skipped and reported; a database error, a cancellation — read
+at each medium, each staged input and each batch of persons — or a stop of the
+process leaves the tree as it was, and an interrupted job runs again from the
+start. The media keep streaming through the bounded window the
+[Import](ui-import.md#97-step-5-local-write) specification describes: the
+transaction holds no bytes, and under SQLite its pages spill to the
+write-ahead log rather than to memory.
 
 The receipt counts what the import stored, and is the receipt of every
 import ([Import §3](ui-import.md)) with the Geneanet counts beside it. Its

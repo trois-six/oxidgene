@@ -30,12 +30,13 @@ use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, ContentIndex, LocalOriginals};
 use oxidgene_geneanet::join::{self, UnjoinedReason};
 use oxidgene_geneanet::model::{GeneanetEvent, GeneanetTranscript, ManifestDeposit, ManifestView};
-use sea_orm::DatabaseConnection;
+use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
 use crate::media::{self, MediaStore};
 
-use super::gedcom::{ImportSummary, persist_import_result_with_progress};
+use super::background_job::CancelToken;
+use super::gedcom::{ImportSummary, persist_import_result_in, persisted_entity_count};
 
 /// How many names each expandable list in the preview carries.
 ///
@@ -508,8 +509,8 @@ pub struct GeneanetImportSummary {
     /// Regions drawn round a person on a picture, from Geneanet's own boxes.
     pub vignettes_count: usize,
     /// Photos that could not be fetched, one line each. A failure here skips
-    /// that photo and no more: the tree is already imported, and losing one
-    /// scan is not a reason to throw away ten thousand people.
+    /// that photo and no more: losing one scan is not a reason to throw away
+    /// ten thousand people.
     pub skipped: Vec<String>,
 }
 
@@ -525,23 +526,25 @@ pub struct GeneanetImportSummary {
 /// [`MediaFidelity::Renditions`] ignores `archive_paths` and `deposit_sizes`
 /// and stores the `normal` rendition the login window fetched for each page.
 ///
-/// # Errors
-///
 /// `fetched` carries the bytes the login window retrieved, keyed by URL — no
 /// direct request to Geneanet succeeds, so nothing here reaches the network.
 ///
+/// Everything is written on `db`, the import's one transaction: the caller
+/// commits it, or rolls it back, people and media alike.
+///
 /// # Errors
 ///
-/// Returns `Err` if the tree does not exist, the `.gw` cannot be parsed, or the
-/// person import fails. Once the persons are in, a photo that cannot be fetched
-/// is recorded in [`GeneanetImportSummary::skipped`] rather than failing the run.
+/// Returns `Err` if the tree does not exist, the `.gw` cannot be parsed, a
+/// database write fails, or `progress`'s run is cancelled. A photo that
+/// cannot be fetched or decoded is recorded in
+/// [`GeneanetImportSummary::skipped`] rather than failing the run.
 #[expect(
     clippy::too_many_arguments,
     reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
 )]
 #[tracing::instrument(name = "import.geneanet", skip_all)]
 pub async fn import(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     store: &dyn MediaStore,
     tree_id: Uuid,
     gw_bytes: &[u8],
@@ -591,8 +594,10 @@ pub async fn import(
     let portraits = take_portrait_urls(&mut import_result, &manifest);
     let person_by_xref = import_result.person_by_xref.clone();
     progress.begin(ImportPhase::People, persisted_entity_count(&import_result));
-    let people = persist_import_result_with_progress(db, import_result, |inserted| {
+    progress.check_cancelled()?;
+    let people = persist_import_result_in(db, import_result, &mut |inserted| {
         progress.advance_by(inserted);
+        progress.check_cancelled()
     })
     .await?;
 
@@ -611,7 +616,7 @@ pub async fn import(
     // dropping them the import creates each one as an isolated `Person`: no
     // events, no family links, just a name and their photographs. A photograph
     // naming nobody else is imported for them all the same.
-    let isolated = create_isolated_people(db, tree_id, &joined, &mut summary).await;
+    let isolated = create_isolated_people(db, tree_id, &joined, &mut summary).await?;
 
     let identities = Identities {
         person_by_xref: &person_by_xref,
@@ -632,10 +637,27 @@ pub async fn import(
         progress,
         &mut summary,
     )
-    .await;
+    .await?;
     progress.begin(ImportPhase::Finishing, 0);
 
     Ok(summary)
+}
+
+/// Report `error`, a failure to write one part of the media phase, as the
+/// line `line` makes of it in `report`, and go on — unless it is a database
+/// error. The whole import is one transaction, which a failed statement
+/// leaves unusable on PostgreSQL: the import then fails and rolls back whole
+/// rather than commit what a broken transaction would not keep.
+fn report_unless_fatal(
+    error: OxidGeneError,
+    report: &mut Vec<String>,
+    line: impl FnOnce(&OxidGeneError) -> String,
+) -> Result<(), OxidGeneError> {
+    if matches!(error, OxidGeneError::Database(_)) {
+        return Err(error);
+    }
+    report.push(line(&error));
+    Ok(())
 }
 
 /// Writes every attached medium and links it to the people on it.
@@ -653,16 +675,16 @@ pub async fn import(
 ///   becomes one document with every page beneath it in page
 ///   order, and the people any of its pages named are linked to the document.
 ///
-/// Errors are collected rather than propagated: by the time this runs the tree
-/// is already in the database, so aborting would leave the user with people and
-/// no photos and no way to tell why.
+/// A photo that cannot be read or stored is reported rather than failing
+/// the run: one lost scan is no reason to give up the tree. A database error
+/// ends it, as does a cancellation, checked at each medium.
 #[expect(
     clippy::too_many_arguments,
     reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
 )]
 #[tracing::instrument(name = "import.media", skip_all, fields(import.format = "geneanet"))]
 async fn attach_media(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     store: &dyn MediaStore,
     tree_id: Uuid,
     manifest: &Manifest,
@@ -673,7 +695,7 @@ async fn attach_media(
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
     summary: &mut GeneanetImportSummary,
-) {
+) -> Result<(), OxidGeneError> {
     let (archives, _) = index_archives(archive_paths);
 
     let deposits: HashMap<i64, &ManifestDeposit> =
@@ -711,7 +733,7 @@ async fn attach_media(
     progress.begin(ImportPhase::Matching, 0);
     let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives, fetched);
     progress.begin(ImportPhase::Media, media_total);
-    let mut places = place_keys(db, tree_id, summary).await;
+    let mut places = place_keys(db, tree_id, summary).await?;
 
     // Every one-page deposit, decoded and stored ahead of the loop below.
     //
@@ -734,9 +756,10 @@ async fn attach_media(
         &mut places,
         summary,
     )
-    .await;
+    .await?;
 
     for (deposit_id, attachments) in by_deposit {
+        progress.check_cancelled()?;
         let Some(deposit) = deposits.get(&deposit_id) else {
             summary
                 .skipped
@@ -767,33 +790,33 @@ async fn attach_media(
                 &mut places,
                 summary,
             )
-            .await
+            .await?
         };
         let Some((owner, pages)) = stored else {
             continue;
         };
-        link_deposit(db, deposit_id, owner, &pages, &people, &references, summary).await;
+        link_deposit(db, deposit_id, owner, &pages, &people, &references, summary).await?;
     }
+    Ok(())
 }
 
 /// The tree's places, by their folded name; none, with a warning, when they
 /// cannot be listed.
 async fn place_keys(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     summary: &mut GeneanetImportSummary,
-) -> HashMap<String, Uuid> {
+) -> Result<HashMap<String, Uuid>, OxidGeneError> {
     match PlaceRepo::list_all_untagged(db, tree_id).await {
-        Ok(places) => places
+        Ok(places) => Ok(places
             .into_iter()
             .map(|place| (place_key(&place.name), place.id))
-            .collect(),
+            .collect()),
         Err(err) => {
-            summary
-                .receipt
-                .warnings
-                .push(format!("could not list places: {err}"));
-            HashMap::new()
+            report_unless_fatal(err, &mut summary.receipt.warnings, |err| {
+                format!("could not list places: {err}")
+            })?;
+            Ok(HashMap::new())
         }
     }
 }
@@ -874,16 +897,16 @@ impl Identities<'_> {
 /// documents, boxes each identification on its page, and sets the portraits
 /// it holds.
 async fn link_deposit(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     deposit_id: i64,
     owner: Uuid,
     pages: &HashMap<i64, Uuid>,
     people: &[Attached],
     references: &[LinkReference],
     summary: &mut GeneanetImportSummary,
-) {
+) -> Result<(), OxidGeneError> {
     let plan = plan_deposit_links(references);
-    link_events_and_couples(db, deposit_id, owner, &plan, summary).await;
+    link_events_and_couples(db, deposit_id, owner, &plan, summary).await?;
 
     // A person links to the document once, but every box remains on the
     // exact page where Geneanet drew it. The same person may therefore have
@@ -902,7 +925,7 @@ async fn link_deposit(
             identification.person_id,
             summary,
         )
-        .await
+        .await?
         {
             boxed.insert(
                 (identification.person_id, identification.view_id),
@@ -926,10 +949,14 @@ async fn link_deposit(
             i32::try_from(order).unwrap_or(0),
         )
         .await;
-        let Ok(link) = created.map_err(|err| {
-            summary.skipped.push(format!("deposit {deposit_id}: {err}"));
-        }) else {
-            continue;
+        let link = match created {
+            Ok(link) => link,
+            Err(err) => {
+                report_unless_fatal(err, &mut summary.skipped, |err| {
+                    format!("deposit {deposit_id}: {err}")
+                })?;
+                continue;
+            }
         };
         summary.links_count += 1;
         // The portrait is a property of the person, so this writes the
@@ -943,20 +970,23 @@ async fn link_deposit(
                 .map_or(Portrait::Media(link.media_id), Portrait::Vignette);
             match PersonRepo::set_portrait(db, person_id, portrait).await {
                 Ok(_) => summary.portraits_count += 1,
-                Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
+                Err(err) => report_unless_fatal(err, &mut summary.skipped, |err| {
+                    format!("deposit {deposit_id}: {err}")
+                })?,
             }
         }
     }
+    Ok(())
 }
 
 /// Links a stored deposit, `owner`, to the events and couples of `plan`.
 async fn link_events_and_couples(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     deposit_id: i64,
     owner: Uuid,
     plan: &DepositLinks,
     summary: &mut GeneanetImportSummary,
-) {
+) -> Result<(), OxidGeneError> {
     for event_id in &plan.event_ids {
         match MediaLinkRepo::create(
             db,
@@ -971,9 +1001,9 @@ async fn link_events_and_couples(
         .await
         {
             Ok(_) => summary.links_count += 1,
-            Err(err) => summary.skipped.push(format!(
-                "deposit {deposit_id}: could not link event {event_id}: {err}"
-            )),
+            Err(err) => report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("deposit {deposit_id}: could not link event {event_id}: {err}")
+            })?,
         }
     }
     for (order, family_id) in plan.family_ids.iter().enumerate() {
@@ -990,9 +1020,12 @@ async fn link_events_and_couples(
         .await
         {
             Ok(_) => summary.links_count += 1,
-            Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
+            Err(err) => report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("deposit {deposit_id}: {err}")
+            })?,
         }
     }
+    Ok(())
 }
 
 /// One person attached to a deposit, and what we know about their place on it.
@@ -1308,17 +1341,19 @@ fn geneanet_place_key(value: &str) -> String {
 /// picture's own dimensions, so a medium we could not decode — a PDF page —
 /// simply has no vignette, rather than one at a guessed size.
 async fn add_vignette(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     media_id: Uuid,
     face: &oxidgene_geneanet::model::FacePosition,
     person_id: Uuid,
     summary: &mut GeneanetImportSummary,
-) -> Option<Uuid> {
-    let media = MediaRepo::get(db, media_id).await.ok()?;
+) -> Result<Option<Uuid>, OxidGeneError> {
+    let media = MediaRepo::get(db, media_id).await?;
     let (Some(width), Some(height)) = (media.width, media.height) else {
-        return None;
+        return Ok(None);
     };
-    let (x, y, w, h) = face.to_pixels(width, height)?;
+    let Some((x, y, w, h)) = face.to_pixels(width, height) else {
+        return Ok(None);
+    };
 
     let input = VignetteInput {
         media_id,
@@ -1333,11 +1368,13 @@ async fn add_vignette(
     match VignetteRepo::create(db, Uuid::now_v7(), input).await {
         Ok(vignette) => {
             summary.vignettes_count += 1;
-            Some(vignette.id)
+            Ok(Some(vignette.id))
         }
         Err(err) => {
-            summary.skipped.push(format!("identification box: {err}"));
-            None
+            report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("identification box: {err}")
+            })?;
+            Ok(None)
         }
     }
 }
@@ -1362,7 +1399,7 @@ async fn add_vignette(
 )]
 #[tracing::instrument(name = "import.media.prepare", skip_all)]
 async fn prepare_single_pages(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     store: &dyn MediaStore,
     tree_id: Uuid,
     deposits: &HashMap<i64, &ManifestDeposit>,
@@ -1374,7 +1411,7 @@ async fn prepare_single_pages(
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
-) -> HashMap<i64, (Uuid, HashMap<i64, Uuid>)> {
+) -> Result<HashMap<i64, StoredDeposit>, OxidGeneError> {
     let single: Vec<(&ManifestDeposit, &ManifestView, &str)> = by_deposit
         .iter()
         .filter_map(|(deposit_id, attachments)| {
@@ -1406,6 +1443,7 @@ async fn prepare_single_pages(
 
     while let Some((deposit, view, name, outcome)) = ingests.next().await {
         progress.advance();
+        progress.check_cancelled()?;
         let ingested = match outcome {
             Ok(Ok(ingested)) => ingested,
             Ok(Err(err)) => {
@@ -1419,52 +1457,37 @@ async fn prepare_single_pages(
                 continue;
             }
         };
-        if let Some(id) = store_single_page(db, tree_id, deposit, ingested, places, summary).await {
+        if let Some(id) = store_single_page(db, tree_id, deposit, ingested, places, summary).await?
+        {
             prepared.insert(deposit.id, (id, HashMap::from([(view.id, id)])));
         }
     }
 
-    prepared
+    Ok(prepared)
 }
 
 /// Writes one-page `deposit`, its picture `ingested`: the document, its
 /// page and the page's transcript. The page's id, or `None` when it could not
 /// be written.
 async fn store_single_page(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     deposit: &ManifestDeposit,
     ingested: media::IngestedMedia,
     places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
-) -> Option<Uuid> {
-    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
+) -> Result<Option<Uuid>, OxidGeneError> {
     let classification = media_classification(deposit);
     let privacy = geneanet_privacy(deposit);
     let created_at = geneanet_created_at(deposit);
 
     // A one-view deposit is still a document, holding a single page:
     // a photograph is not a different kind of thing from a register.
-    let document_id = Uuid::now_v7();
-    if let Err(err) =
-        MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone(), created_at)
-            .await
-    {
-        summary
-            .skipped
-            .push(format!("deposit {}: {err}", deposit.id));
-        return None;
-    }
-    // The record is stored from here on, with its page or without.
-    if let Err(err) =
-        update_media_metadata(db, document_id, classification, privacy, &metadata).await
-    {
-        summary.receipt.media.add_record(0);
-        summary
-            .skipped
-            .push(format!("deposit {}: {err}", deposit.id));
-        return None;
-    }
+    let Some((document_id, metadata)) =
+        deposit_document(db, tree_id, deposit, created_at, places, summary).await?
+    else {
+        return Ok(None);
+    };
     let write = MediaWrite {
         document_id,
         ingested,
@@ -1474,18 +1497,71 @@ async fn store_single_page(
         created_at,
         metadata: &metadata,
     };
-    let page = write_media(db, tree_id, write, summary).await;
+    let page = write_media(db, tree_id, write, summary).await?;
     summary
         .receipt
         .media
         .add_record(usize::from(page.is_some()));
-    let id = page?;
+    let Some(id) = page else {
+        return Ok(None);
+    };
     let transcript = deposit
         .views
         .first()
         .and_then(|view| view.last_transcript.as_ref());
-    import_transcript(db, tree_id, id, transcript, summary).await;
-    Some(id)
+    import_transcript(db, tree_id, id, transcript, summary).await?;
+    Ok(Some(id))
+}
+
+/// A stored deposit: the medium its people link to, and the medium each of
+/// its views, by id, landed in.
+type StoredDeposit = (Uuid, HashMap<i64, Uuid>);
+
+/// Writes the document `deposit` becomes, created at `created_at`, with its
+/// date, place and classification: its id and metadata, or `None` when it
+/// could not be written, which is reported. A document whose metadata could
+/// not be written is stored all the same, without a page, and counted.
+async fn deposit_document(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    deposit: &ManifestDeposit,
+    created_at: DateTime<Utc>,
+    places: &mut HashMap<String, Uuid>,
+    summary: &mut GeneanetImportSummary,
+) -> Result<Option<(Uuid, MediaMetadata)>, OxidGeneError> {
+    let metadata = media_metadata(db, tree_id, deposit, places, summary).await?;
+    let document_id = Uuid::now_v7();
+    let written = match MediaRepo::create_document(
+        db,
+        document_id,
+        tree_id,
+        deposit.title.clone(),
+        created_at,
+    )
+    .await
+    {
+        Ok(_) => {
+            let classification = media_classification(deposit);
+            let privacy = geneanet_privacy(deposit);
+            let updated =
+                update_media_metadata(db, document_id, classification, privacy, &metadata).await;
+            if updated.is_err() {
+                // Stored, without a page.
+                summary.receipt.media.add_record(0);
+            }
+            updated
+        }
+        Err(err) => Err(err),
+    };
+    match written {
+        Ok(()) => Ok(Some((document_id, metadata))),
+        Err(err) => {
+            report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("deposit {}: {err}", deposit.id)
+            })?;
+            Ok(None)
+        }
+    }
 }
 
 /// A view of a deposit, the name it was ingested under, and how that went:
@@ -1548,7 +1624,7 @@ impl ByteSources<'_> {
     reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
 )]
 async fn document(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     store: &dyn MediaStore,
     tree_id: Uuid,
     deposit: &ManifestDeposit,
@@ -1559,34 +1635,15 @@ async fn document(
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
-) -> Option<(Uuid, HashMap<i64, Uuid>)> {
-    let document_id = Uuid::now_v7();
+) -> Result<Option<StoredDeposit>, OxidGeneError> {
     let classification = media_classification(deposit);
     let privacy = geneanet_privacy(deposit);
     let created_at = geneanet_created_at(deposit);
-    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
-    match MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone(), created_at)
-        .await
-    {
-        Ok(_) => {
-            if let Err(err) =
-                update_media_metadata(db, document_id, classification, privacy, &metadata).await
-            {
-                // Stored, without a page.
-                summary.receipt.media.add_record(0);
-                summary
-                    .skipped
-                    .push(format!("deposit {}: {err}", deposit.id));
-                return None;
-            }
-        }
-        Err(err) => {
-            summary
-                .skipped
-                .push(format!("deposit {}: {err}", deposit.id));
-            return None;
-        }
-    }
+    let Some((document_id, metadata)) =
+        deposit_document(db, tree_id, deposit, created_at, places, summary).await?
+    else {
+        return Ok(None);
+    };
 
     // Pages are read and ingested several at a time. Decoding and
     // thumbnailing is what an import spends its minutes on — a 144-page
@@ -1616,6 +1673,7 @@ async fn document(
     let mut prepared_pages = Vec::new();
     while let Some((_, view, name, outcome)) = ingests.next().await {
         progress.advance();
+        progress.check_cancelled()?;
         let ingested = match outcome {
             Ok(Ok(ingested)) => ingested,
             Ok(Err(err)) => {
@@ -1642,7 +1700,7 @@ async fn document(
             created_at,
             metadata: &metadata,
         };
-        if let Some(page_id) = write_media(db, tree_id, write, summary).await {
+        if let Some(page_id) = write_media(db, tree_id, write, summary).await? {
             prepared_pages.push((view, page_id));
         }
     }
@@ -1653,15 +1711,15 @@ async fn document(
     // brought in line with what it holds.
     let mut pages: HashMap<i64, Uuid> = HashMap::new();
     if let Err(err) = MediaRepo::refresh_page_count(db, document_id).await {
-        summary
-            .skipped
-            .push(format!("deposit {} pages: {err}", deposit.id));
-        return Some((document_id, pages));
+        report_unless_fatal(err, &mut summary.skipped, |err| {
+            format!("deposit {} pages: {err}", deposit.id)
+        })?;
+        return Ok(Some((document_id, pages)));
     }
     for (view, page_id) in &prepared_pages {
         pages.insert(view.id, *page_id);
         let transcript = view.last_transcript.as_ref();
-        import_transcript(db, tree_id, *page_id, transcript, summary).await;
+        import_transcript(db, tree_id, *page_id, transcript, summary).await?;
     }
 
     if prepared_pages.is_empty() {
@@ -1672,7 +1730,7 @@ async fn document(
         ));
     }
 
-    Some((document_id, pages))
+    Ok(Some((document_id, pages)))
 }
 
 /// Creates a `Person` for each identification Geneanet marks as outside the
@@ -1694,11 +1752,11 @@ async fn document(
 /// else about them.
 #[tracing::instrument(name = "import.identities", skip_all)]
 async fn create_isolated_people(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     joined: &join::Join,
     summary: &mut GeneanetImportSummary,
-) -> HashMap<String, Uuid> {
+) -> Result<HashMap<String, Uuid>, OxidGeneError> {
     let mut created: HashMap<String, Uuid> = HashMap::new();
 
     for unjoined in &joined.unjoined {
@@ -1715,7 +1773,9 @@ async fn create_isolated_people(
         if let Err(err) =
             PersonRepo::create(db, person_id, tree_id, oxidgene_core::Sex::Unknown).await
         {
-            summary.skipped.push(format!("{}: {err}", unjoined.name));
+            report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("{}: {err}", unjoined.name)
+            })?;
             continue;
         }
 
@@ -1735,7 +1795,9 @@ async fn create_isolated_people(
         )
         .await
         {
-            summary.skipped.push(format!("{}: {err}", unjoined.name));
+            report_unless_fatal(err, &mut summary.skipped, |err| {
+                format!("{}: {err}", unjoined.name)
+            })?;
             continue;
         }
 
@@ -1748,7 +1810,7 @@ async fn create_isolated_people(
         });
     }
 
-    created
+    Ok(created)
 }
 
 /// Drops the `.gw`'s portrait URLs and says which view each named.
@@ -2115,6 +2177,8 @@ pub struct ImportProgress {
     total: std::sync::atomic::AtomicUsize,
     /// What the run is doing, for a line above the bar.
     phase: std::sync::Mutex<ImportPhase>,
+    /// Whether the run was asked to stop.
+    cancel: CancelToken,
 }
 
 /// The stages an import passes through, in order.
@@ -2134,6 +2198,22 @@ pub enum ImportPhase {
 }
 
 impl ImportProgress {
+    /// The progress of a run that stops once `cancel` is cancelled.
+    pub(crate) fn cancellable(cancel: CancelToken) -> Self {
+        Self {
+            cancel,
+            ..Self::default()
+        }
+    }
+
+    /// `Err` once the run was asked to stop: checked between two units of
+    /// work, each batch of persons and each medium.
+    pub(crate) fn check_cancelled(&self) -> Result<(), OxidGeneError> {
+        #[cfg(test)]
+        self.cancel.reach(&format!("{:?}", self.read().0))?;
+        self.cancel.check()
+    }
+
     pub fn begin(&self, phase: ImportPhase, total: usize) {
         if let Ok(mut current) = self.phase.lock() {
             *current = phase;
@@ -2163,23 +2243,6 @@ impl ImportProgress {
     }
 }
 
-fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> usize {
-    result.places.len()
-        + result.sources.len()
-        + result.media.len()
-        + result.persons.len()
-        + result.person_names.len()
-        + result.families.len()
-        + result.family_spouses.len()
-        + result.family_children.len()
-        + result.events.len()
-        + result.event_witnesses.len()
-        + result.citations.len()
-        + result.media_links.len()
-        + result.vignettes.len()
-        + result.notes.len()
-}
-
 /// How many media to read and decode at once.
 ///
 /// Decoding and thumbnailing is CPU-bound and each medium is independent, so
@@ -2206,11 +2269,11 @@ struct MediaWrite<'a> {
 
 /// Writes the `media` row for something already ingested.
 async fn write_media(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     media: MediaWrite<'_>,
     summary: &mut GeneanetImportSummary,
-) -> Option<Uuid> {
+) -> Result<Option<Uuid>, OxidGeneError> {
     let MediaWrite {
         document_id,
         ingested,
@@ -2237,27 +2300,27 @@ async fn write_media(
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, Some(document_id), upload).await {
-        Ok(row) => Some(row.id),
+        Ok(row) => Ok(Some(row.id)),
         Err(err) => {
-            summary.skipped.push(format!("{err}"));
-            None
+            report_unless_fatal(err, &mut summary.skipped, |err| format!("{err}"))?;
+            Ok(None)
         }
     }
 }
 
 async fn import_transcript(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     media_id: Uuid,
     transcript: Option<&GeneanetTranscript>,
     summary: &mut GeneanetImportSummary,
-) {
+) -> Result<(), OxidGeneError> {
     let Some(transcript) = transcript else {
-        return;
+        return Ok(());
     };
     let content = transcript.content.trim();
     if content.is_empty() {
-        return;
+        return Ok(());
     }
 
     match NoteRepo::create(
@@ -2273,6 +2336,7 @@ async fn import_transcript(
     .await
     {
         Ok(_) => summary.receipt.notes_count += 1,
+        Err(error @ OxidGeneError::Database(_)) => return Err(error),
         // Geneanet's deposit, view and transcript identifiers are external
         // archive references, and the error text may quote the transcript:
         // only the failure's category is logged.
@@ -2281,6 +2345,7 @@ async fn import_transcript(
             "could not import Geneanet transcript"
         ),
     }
+    Ok(())
 }
 
 /// Returns Geneanet's source creation timestamp when it is an RFC 3339 date.
@@ -2304,12 +2369,12 @@ struct MediaMetadata {
 }
 
 async fn media_metadata(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     tree_id: Uuid,
     deposit: &ManifestDeposit,
     places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
-) -> MediaMetadata {
+) -> Result<MediaMetadata, OxidGeneError> {
     let place_id = match deposit
         .location
         .as_deref()
@@ -2330,10 +2395,9 @@ async fn media_metadata(
                         Some(place.id)
                     }
                     Err(err) => {
-                        summary
-                            .receipt
-                            .warnings
-                            .push(format!("deposit {} place {name:?}: {err}", deposit.id));
+                        report_unless_fatal(err, &mut summary.receipt.warnings, |err| {
+                            format!("deposit {} place {name:?}: {err}", deposit.id)
+                        })?;
                         None
                     }
                 }
@@ -2342,10 +2406,10 @@ async fn media_metadata(
         None => None,
     };
 
-    MediaMetadata {
+    Ok(MediaMetadata {
         date: geneanet_media_date(deposit),
         place_id,
-    }
+    })
 }
 
 fn place_key(name: &str) -> String {
@@ -2390,7 +2454,7 @@ fn month_name(month: u32) -> &'static str {
 }
 
 async fn update_media_metadata(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     media_id: Uuid,
     (source_media_type, document_category): (
         oxidgene_core::enums::SourceMediaType,
@@ -2871,7 +2935,8 @@ mod tests {
             }),
             &mut summary,
         )
-        .await;
+        .await
+        .expect("imports the transcript");
         import_transcript(
             &db,
             tree_id,
@@ -2882,7 +2947,8 @@ mod tests {
             }),
             &mut summary,
         )
-        .await;
+        .await
+        .expect("skips an empty transcript");
 
         let notes = NoteRepo::list_by_entity(&db, tree_id, None, None, None, None, Some(media_id))
             .await

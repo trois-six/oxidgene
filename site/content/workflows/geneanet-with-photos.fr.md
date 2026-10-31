@@ -79,7 +79,7 @@ OxidGene récupère ensuite les médias par la fenêtre de connexion : tous avec
 
 ## 5. Import
 
-À ce stade, plus rien n’est demandé à Geneanet : vos médias sont déjà sur votre ordinateur. Cliquez sur **Lancer l’import** et laissez la fenêtre ouverte jusqu’à la fin. Enregistrer beaucoup de médias prend quelques minutes.
+À ce stade, plus rien n’est demandé à Geneanet : vos médias sont déjà sur votre ordinateur. Cliquez sur **Lancer l’import** et laissez la fenêtre ouverte jusqu’à la fin. Enregistrer beaucoup de médias prend quelques minutes. Pour l’arrêter, cliquez sur **Annuler l’import** sous la barre de progression et confirmez : tout ce que l’import avait ajouté est supprimé, et l’arbre redevient exactement tel qu’il était.
 
 Quand **Import terminé** s’affiche, le bilan compte les personnes, familles, événements, sources, lieux, images et documents importés, ainsi que les rattachements créés entre les médias et les personnes, les couples et les événements. Il indique aussi combien de personnes ont été créées pour des gens identifiés sur des photos mais absents de votre arbre, et combien de zones d’identification ont été conservées pour voir qui est qui sur une photo. Les médias qui n’ont pas pu être importés sont listés, et les éventuels avertissements se trouvent derrière une ligne à déplier.
 
@@ -102,7 +102,7 @@ Vous pouvez ainsi reprendre après une interruption, ou collecter sur un ordinat
 
 ## Bon à savoir
 
-- Une fois lancé, l’import ne peut pas être annulé. S’il est interrompu pendant l’enregistrement des médias, la généalogie est complète mais certains médias peuvent manquer ; supprimez l’arbre et relancez l’import, en chargeant un fichier enregistré pour ne pas tout redemander à Geneanet.
+- Un import se fait en entier ou pas du tout. Si vous l’annulez, ou s’il échoue, il ne laisse rien dans l’arbre : ni personne, ni média. Relancez-le, en chargeant un fichier enregistré pour ne pas tout redemander à Geneanet.
 - OxidGene n’écrit jamais rien sur Geneanet.
 - Une seule fenêtre de connexion Geneanet peut être ouverte à la fois.
 - Un événement ne reçoit sa photo que s’il peut être identifié avec certitude ; sinon, la photo est rattachée à la personne.

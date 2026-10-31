@@ -12,7 +12,7 @@ use oxidgene_db::repo::TreeRepo;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use super::dto::{FileImportStartedResponse, StartFileImportQuery};
+use super::dto::{FileImportStartedResponse, JobStatusQuery, StartFileImportQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::background_job::{self, ImportJobStatus};
@@ -70,12 +70,32 @@ pub async fn start(
 }
 
 /// GET /api/v1/trees/:tree_id/import-jobs/:job_id
+///
+/// With `since` and `wait`, answers once the job's state differs from
+/// version `since`, or after `wait` seconds.
 pub async fn status(
+    State(state): State<AppState>,
+    Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<JobStatusQuery>,
+) -> Result<Json<ImportJobStatus>, ApiError> {
+    Ok(Json(
+        background_job::wait_import_job_status(&state.reader, tree_id, job_id, &query.wait())
+            .await?,
+    ))
+}
+
+/// POST /api/v1/trees/:tree_id/import-jobs/:job_id/cancel
+///
+/// Stop the import and undo it: at once when it is queued; when it runs, at
+/// its next batch of rows or medium, rolling back everything it wrote.
+/// Answers where it stands then.
+pub async fn cancel(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ImportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::import_job_status(&state.reader, tree_id, job_id).await?,
+        background_job::cancel_import_job(&state.db, &state.reader, &*state.media, tree_id, job_id)
+            .await?,
     ))
 }
 

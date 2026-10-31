@@ -69,16 +69,40 @@ pub struct NewBackgroundJob {
 
 pub type BackgroundJob = background_job::Model;
 
+/// The PostgreSQL notification channel a write to a job is announced on, the
+/// job's id as payload: what wakes the status reads waiting on it in every
+/// process ([`BackgroundJobRepo::announce`]).
+pub const JOB_CHANNEL: &str = "oxidgene_job";
+
 /// The only active-import fields needed by the tree list.
 #[derive(Debug, Clone, Copy, FromQueryResult)]
 pub struct ActiveImport {
     pub id: Uuid,
     pub tree_id: Uuid,
+    /// Whether its cancellation has been requested.
+    pub cancel_requested: bool,
 }
 
 pub struct BackgroundJobRepo;
 
 impl BackgroundJobRepo {
+    /// Announce on [`JOB_CHANNEL`] that job `id` changed, under PostgreSQL;
+    /// within a transaction, the notification leaves when it commits.
+    /// Nothing elsewhere: a SQLite database has a single process.
+    pub async fn announce(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
+        if db.get_database_backend() != sea_orm::DatabaseBackend::Postgres {
+            return Ok(());
+        }
+        db.execute_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT pg_notify($1, $2)",
+            [JOB_CHANNEL.into(), id.to_string().into()],
+        ))
+        .await
+        .map(drop)
+        .map_err(db_err)
+    }
+
     pub async fn create(
         db: &impl ConnectionTrait,
         input: NewBackgroundJob,
@@ -146,12 +170,35 @@ impl BackgroundJobRepo {
             })
     }
 
+    /// Job `id`, whatever its tree, if this database holds it.
+    pub async fn find(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<Option<BackgroundJob>, OxidGeneError> {
+        Entity::find_by_id(id).one(db).await.map_err(db_err)
+    }
+
+    /// Whether job `id` is running under `worker_id`'s lease.
+    pub async fn held_by(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        worker_id: &str,
+    ) -> Result<bool, OxidGeneError> {
+        Entity::find_by_id(id)
+            .filter(Column::Status.eq(BackgroundJobStatus::Running.as_str()))
+            .filter(Column::LeaseOwner.eq(worker_id))
+            .count(db)
+            .await
+            .map(|count| count == 1)
+            .map_err(db_err)
+    }
+
     pub async fn active_imports(
         db: &impl ConnectionTrait,
     ) -> Result<Vec<ActiveImport>, OxidGeneError> {
         Entity::find()
             .select_only()
-            .columns([Column::Id, Column::TreeId])
+            .columns([Column::Id, Column::TreeId, Column::CancelRequested])
             .filter(Column::ActiveTreeId.is_not_null())
             .filter(Column::Kind.eq(BackgroundJobKind::Import.as_str()))
             .into_model::<ActiveImport>()
@@ -219,6 +266,9 @@ impl BackgroundJobRepo {
             .map(Some)
     }
 
+    /// Record running job `id`'s progress and renew `worker_id`'s lease on
+    /// it. `None` when the lease is lost; otherwise whether cancellation of
+    /// the job has been requested ([`Self::request_cancel`]).
     pub async fn progress(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -227,7 +277,7 @@ impl BackgroundJobRepo {
         done: i64,
         total: i64,
         lease_duration: Duration,
-    ) -> Result<bool, OxidGeneError> {
+    ) -> Result<Option<bool>, OxidGeneError> {
         let now = Utc::now();
         let result = Entity::update_many()
             .col_expr(Column::Phase, Expr::value(phase))
@@ -241,29 +291,66 @@ impl BackgroundJobRepo {
             .exec(db)
             .await
             .map_err(db_err)?;
-        Ok(result.rows_affected == 1)
+        if result.rows_affected != 1 {
+            return Ok(None);
+        }
+        Self::announce(db, id).await?;
+        let cancel_requested: Option<bool> = Entity::find_by_id(id)
+            .select_only()
+            .column(Column::CancelRequested)
+            .into_tuple()
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        Ok(cancel_requested)
     }
 
-    pub async fn checkpoint_import_persisted(
+    /// Ask running job `id` to stop: its worker reads the request at its next
+    /// progress report. `false` when the job is not running.
+    pub async fn request_cancel(
         db: &impl ConnectionTrait,
         id: Uuid,
-        worker_id: &str,
-        result_json: String,
-        lease_duration: Duration,
     ) -> Result<bool, OxidGeneError> {
-        let now = Utc::now();
         let result = Entity::update_many()
-            .col_expr(Column::Phase, Expr::value("projections"))
-            .col_expr(Column::ResultJson, Expr::value(result_json))
-            .col_expr(Column::LeaseUntil, Expr::value(now + lease_duration))
-            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .col_expr(Column::CancelRequested, Expr::value(true))
+            .col_expr(Column::UpdatedAt, Expr::value(Utc::now()))
             .filter(Column::Id.eq(id))
             .filter(Column::Status.eq(BackgroundJobStatus::Running.as_str()))
-            .filter(Column::LeaseOwner.eq(worker_id))
             .exec(db)
             .await
             .map_err(db_err)?;
-        Ok(result.rows_affected == 1)
+        if result.rows_affected != 1 {
+            return Ok(false);
+        }
+        Self::announce(db, id).await?;
+        Ok(true)
+    }
+
+    /// Cancel job `id` if it is still queued: it ends at once, unrun.
+    /// `false` when it is not queued any more.
+    pub async fn cancel_queued(db: &impl ConnectionTrait, id: Uuid) -> Result<bool, OxidGeneError> {
+        let now = Utc::now();
+        let result = Entity::update_many()
+            .col_expr(Column::ActiveTreeId, Expr::value(Option::<Uuid>::None))
+            .col_expr(
+                Column::Status,
+                Expr::value(BackgroundJobStatus::Cancelled.as_str()),
+            )
+            .col_expr(Column::Phase, Expr::value("cancelled"))
+            .col_expr(Column::CancelRequested, Expr::value(true))
+            .col_expr(Column::PayloadJson, Expr::value(Option::<String>::None))
+            .col_expr(Column::FinishedAt, Expr::value(Some(now)))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id))
+            .filter(Column::Status.eq(BackgroundJobStatus::Queued.as_str()))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        if result.rows_affected != 1 {
+            return Ok(false);
+        }
+        Self::announce(db, id).await?;
+        Ok(true)
     }
 
     pub async fn complete(
@@ -305,6 +392,26 @@ impl BackgroundJobRepo {
         .await
     }
 
+    /// End running job `id`, which `worker_id` stopped at a cancellation
+    /// request, as cancelled.
+    pub async fn cancel(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        worker_id: &str,
+    ) -> Result<bool, OxidGeneError> {
+        Self::finish(
+            db,
+            id,
+            worker_id,
+            BackgroundJobStatus::Cancelled,
+            "cancelled",
+            None,
+            None,
+            None,
+        )
+        .await
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "one parameter per column a job's completion writes"
@@ -340,7 +447,11 @@ impl BackgroundJobRepo {
             .exec(db)
             .await
             .map_err(db_err)?;
-        Ok(result.rows_affected == 1)
+        if result.rows_affected != 1 {
+            return Ok(false);
+        }
+        Self::announce(db, id).await?;
+        Ok(true)
     }
 }
 

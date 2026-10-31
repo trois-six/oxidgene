@@ -26,14 +26,25 @@ Un import se fait toujours dans un arbre existant. Créez d’abord l’arbre (v
 2. La fenêtre **Importer dans « … »** s’ouvre sur l’onglet **Un fichier**.
 3. Déposez votre fichier sur **Déposez un fichier ici, ou cliquez pour parcourir**, ou cliquez dessus pour le choisir. Elle accepte les fichiers `.ged`, `.gdz` et `.gw` jusqu’à 1 Gio.
 4. Cliquez sur **Importer**.
-5. Patientez pendant que la barre de progression passe par ses étapes : **Envoi du fichier**, **Lecture de la généalogie…**, **Enregistrement des médias** pour un GEDZIP, **Écriture de la généalogie…** puis **Préparation de l’arbre…**. La fenêtre ne peut pas être fermée tant que l’import est en cours.
+5. Patientez pendant que la barre de progression passe par ses étapes : **Envoi du fichier**, **Lecture de la généalogie…**, **Enregistrement des médias** pour un GEDZIP, **Écriture de la généalogie…** puis **Préparation de l’arbre…**. La fenêtre ne peut pas être fermée tant que l’import est en cours, mais l’import peut être annulé (voir plus bas).
 6. Quand **Import terminé** s’affiche, lisez le bilan : personnes, familles, événements, sources, lieux, images et documents.
 
 Si l’import a produit des avertissements, une ligne comme **3 avertissements** apparaît sous le bilan ; cliquez dessus pour les lire. Ils signalent ce que l’import n’a pas pu lire ou relier : un âge qui n’est pas écrit comme un âge, une note qui ne renvoie à rien, un fichier qu’un GEDZIP mentionne sans le contenir. Le reste du fichier est importé normalement.
 
-Si l’import échoue, la fenêtre en donne la raison et garde votre fichier sélectionné, pour que vous puissiez réessayer.
+Si l’import échoue, la fenêtre en donne la raison et garde votre fichier sélectionné, pour que vous puissiez réessayer. Un import qui échoue ne laisse rien derrière lui : l’arbre est tel qu’il était avant.
 
 Pendant l’import, la carte de l’arbre sur la page d’accueil affiche **Import en cours** et ne peut pas être ouverte. Vous pouvez recharger la page ou revenir plus tard : la carte redevient disponible une fois l’import terminé.
+
+### Annuler un import
+
+Un import se fait en entier ou pas du tout. Une fois le fichier envoyé, un bouton **Annuler l’import** apparaît à côté de la barre de progression :
+
+1. Cliquez sur **Annuler l’import**.
+2. La confirmation explique ce qui est défait : tout ce que l’import a ajouté jusqu’ici — personnes, familles, événements, sources et médias — est supprimé, et l’arbre redevient exactement tel qu’il était avant l’import. Cliquez sur **Annuler l’import** pour confirmer, ou sur **Poursuivre l’import** pour le laisser continuer.
+3. Pendant que l’import supprime ce qu’il a ajouté, la barre de progression affiche **Annulation : suppression de ce que l’import a ajouté…**, et la carte de l’arbre sur la page d’accueil affiche **Annulation de l’import…**.
+4. Quand **Import annulé. L’arbre est inchangé.** s’affiche, vous pouvez fermer la fenêtre, ou importer le fichier de nouveau.
+
+Si l’import se termine avant que votre annulation ne lui parvienne, il s’achève normalement et affiche son bilan.
 
 ### Ce qui est importé
 
@@ -69,6 +80,8 @@ L’export se trouve dans les paramètres de l’arbre.
 5. Cliquez sur **Télécharger .ged** ou **Télécharger .gdz**, puis choisissez où enregistrer le fichier.
 
 Le message **Export terminé avec succès.** confirme l’export, et chaque export est consigné dans l’historique de l’arbre.
+
+Préparer un GEDZIP peut prendre un moment. Pendant ce temps, un bouton **Annuler l’export** se trouve à côté du bouton de téléchargement : cliquez dessus, puis sur **Annuler l’export** pour confirmer (**Poursuivre l’export** le laisse continuer). L’export s’arrête et aucune archive n’est produite ; rien ne change dans l’arbre. Le message **Export annulé. Aucune archive n’a été produite.** le confirme, et vous pouvez exporter de nouveau.
 
 ### Choisir le logiciel de destination
 

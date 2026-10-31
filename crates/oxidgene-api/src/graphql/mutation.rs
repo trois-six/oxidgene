@@ -38,9 +38,9 @@ use super::types::{
     GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
     GqlNote, GqlOccupationRename, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult,
     GqlRepository, GqlSource, GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx,
-    media_from_ctx, profiles_from_ctx, purge_from_ctx, require_local_file_access,
+    media_from_ctx, profiles_from_ctx, purge_from_ctx, reader_from_ctx, require_local_file_access,
 };
-use super::types::{GqlBulkTagAction, GqlBulkTagCount};
+use super::types::{GqlBulkTagAction, GqlBulkTagCount, GqlExportJobStatus, GqlImportJobStatus};
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
 ///
@@ -1599,6 +1599,58 @@ impl MutationRoot {
             Ok(GqlBackgroundJobStarted {
                 job_id: ID(job_id.to_string()),
             })
+        })
+        .await
+    }
+
+    /// Cancel an import job: a queued one ends at once, a running one stops
+    /// at its next batch of rows or medium and rolls back everything it
+    /// wrote, people and media alike; its phase reads `cancelling`, then
+    /// `cancelled`. A job that has ended is left as it is. Answers where the
+    /// job stands then, as `importJobStatus`.
+    async fn cancel_import_job(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        job_id: ID,
+    ) -> Result<GqlImportJobStatus> {
+        boxed(async move {
+            // Not `live_tree`: a running job is cancelled in memory, without
+            // the database; the service checks the tree when it has to read.
+            let status = crate::service::background_job::cancel_import_job(
+                db_from_ctx(ctx),
+                reader_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                uuid(&tree_id)?,
+                uuid(&job_id)?,
+            )
+            .await?;
+            Ok(status.into())
+        })
+        .await
+    }
+
+    /// Cancel a GEDZIP export job: a queued one ends at once, a running one
+    /// stops at its next medium and produces no archive. A job that has
+    /// ended is left as it is. Answers where the job stands then, as
+    /// `exportJobStatus`.
+    async fn cancel_export_job(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        job_id: ID,
+    ) -> Result<GqlExportJobStatus> {
+        boxed(async move {
+            // Not `live_tree`, as for `cancelImportJob`.
+            let status = crate::service::background_job::cancel_export_job(
+                db_from_ctx(ctx),
+                reader_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                uuid(&tree_id)?,
+                uuid(&job_id)?,
+            )
+            .await?;
+            Ok(status.into())
         })
         .await
     }

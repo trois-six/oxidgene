@@ -18,6 +18,12 @@ pub struct ConfirmDialogProps {
     /// Label for the confirm button (e.g. "Delete").
     #[props(default = String::new())]
     pub confirm_label: String,
+    /// Label for the button that dismisses the dialog, "Cancel" when empty.
+    ///
+    /// Set when the confirmed action is itself a cancellation, so the two
+    /// buttons do not both read "Cancel".
+    #[props(default = String::new())]
+    pub dismiss_label: String,
     /// CSS class for the confirm button (e.g. "btn btn-danger").
     #[props(default = "btn btn-danger".to_string())]
     pub confirm_class: String,
@@ -60,6 +66,11 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
     } else {
         props.confirm_label.clone()
     };
+    let dismiss_label = if props.dismiss_label.is_empty() {
+        i18n.t("common.cancel")
+    } else {
+        props.dismiss_label.clone()
+    };
 
     let busy = props.busy;
 
@@ -78,7 +89,7 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
                     class: "btn btn-outline",
                     disabled: busy,
                     onclick: move |_| props.on_cancel.call(()),
-                    {i18n.t("common.cancel")}
+                    "{dismiss_label}"
                 }
                 button {
                     class: "{props.confirm_class}",

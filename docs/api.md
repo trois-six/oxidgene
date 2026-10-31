@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-30T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
 ---
 
 
@@ -177,7 +177,7 @@ Base path: `/api/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees` | List trees (cursor-paginated). List nodes add transient `import_in_progress: bool` and `import_job_id: UUID?` fields from the job queue (GraphQL: `importInProgress` and `importJobId` on every `Tree`); these are not persisted tree fields and disappear once the job completes or fails |
+| `GET` | `/trees` | List trees (cursor-paginated). List nodes add transient `import_in_progress: bool`, `import_job_id: UUID?` and `import_cancelling: bool` fields from the job queue (GraphQL: `importInProgress`, `importJobId` and `importCancelling` on every `Tree`); these are not persisted tree fields and disappear once the job completes, fails or is cancelled. `import_cancelling` is true while the import was asked to stop and is undoing what it wrote |
 | `POST` | `/trees` | Create a tree; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}` | Get a tree |
 | `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error` |
@@ -1219,10 +1219,12 @@ writes one to a `.gw`.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
-| `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, geneanet_result?, error? }`. File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A completed status retains the import receipt, `result` for a file import: `{ persons_count, families_count, events_count, sources_count, places_count, notes_count, images_count, documents_count, document_pages_count, warnings }`, or `geneanet_result` for a Geneanet import, the same fields and its own. Media are counted alike for every import, over the records it stored: a record of one page is an image, any other a document, whose pages `document_pages_count` totals. GraphQL: `importJobStatus`, with the same fields in camel case; failure exposes a stable error code rather than internal details |
+| `GET` | `/trees/{tree_id}/import-jobs/{job_id}?since=version&wait=seconds` | Poll `{ phase, version, done, total, result?, geneanet_result?, error? }`; `since` and `wait` make it a [long poll](#waiting-for-a-job). File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A job asked to stop reads `cancelling` while it undoes its work, then `cancelled` (see the cancel row below). A completed status retains the import receipt, `result` for a file import: `{ persons_count, families_count, events_count, sources_count, places_count, notes_count, images_count, documents_count, document_pages_count, warnings }`, or `geneanet_result` for a Geneanet import, the same fields and its own. Media are counted alike for every import, over the records it stored: a record of one page is an image, any other a document, whose pages `document_pages_count` totals. GraphQL: `importJobStatus`, with the same fields in camel case; failure exposes a stable error code rather than internal details |
+| `POST` | `/trees/{tree_id}/import-jobs/{job_id}/cancel` | Cancel an import and undo it. A queued job ends `cancelled` at once, unrun. A running job stops at its next unit of work — a batch of rows, a medium — and rolls back everything it wrote: its persons phase and media phase are one database transaction, projections and history entry included, and the media files it stored are deleted ([Architecture §6.3](architecture.md#63-job-cancellation)); its phase reads `cancelling` until then, `cancelled` after. Cancelling a job that has ended changes nothing. Answers `200` with the job's status, as `GET /import-jobs/{job_id}`, waiting for nothing the running job holds. GraphQL: `cancelImportJob(treeId, jobId)` |
 | `POST` | `/trees/{tree_id}/export-jobs?include_notes_and_sources=bool&include_media=bool&scope=json` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker. The options are those `GET /gedcom/export` below reads for a GEDZIP; the job keeps them until its worker packs the archive, with its `scope` ([Export scope](#export-scope)), validated when the job is created. A GEDZIP takes no destination: it is standard GEDCOM 7.0 (see [GEDZIP](#gedzip)) |
 | `GET` | `/trees/{tree_id}/export-jobs/downloadable` | The tree's most recently completed export whose archive can still be downloaded: `{ job_id, format, download_url, expires_at, size_bytes?, include_notes_and_sources, include_media }`, or `null` (`200`) when there is none — none completed, all past their hour, or the archive gone from storage. `size_bytes` is absent for an archive recorded without it. Lets a page that did not start the export offer it again. GraphQL: `downloadableExport(treeId)`, nullable |
-| `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, expires_at?, size_bytes?, warnings, error? }`. `download_url` and `expires_at` (RFC 3339, an hour after completion) appear together, only while the completed artifact can be downloaded. `size_bytes` is the completed archive's size. A job ended more than a day ago is gone (`404`) |
+| `GET` | `/trees/{tree_id}/export-jobs/{job_id}?since=version&wait=seconds` | Poll `{ phase, version, done, total, download_url?, expires_at?, size_bytes?, warnings, error? }`; `since` and `wait` make it a [long poll](#waiting-for-a-job). `download_url` and `expires_at` (RFC 3339, an hour after completion) appear together, only while the completed artifact can be downloaded. `size_bytes` is the completed archive's size. The phase ends `completed`, `failed` or `cancelled`, reading `cancelling` while a cancelled export stops. A job ended more than a day ago is gone (`404`) |
+| `POST` | `/trees/{tree_id}/export-jobs/{job_id}/cancel` | Cancel an export: a queued job ends `cancelled` at once, a running one stops at its next medium, produces no archive and deletes any it stored; nothing in the tree changes. Cancelling a job that has ended changes nothing. Answers `200` with the job's status, as `GET /export-jobs/{job_id}`. GraphQL: `cancelExportJob(treeId, jobId)` |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete. The artifact can be downloaded any number of times for an hour after completion, then answers `404` and is deleted by the workers' next maintenance pass |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&destination=id&include_notes_and_sources=bool&include_media=bool&scope=json` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`: a GEDCOM 7.0 `gedcom.ged` and the media files, see [GEDZIP](#gedzip)). The text is written for `destination`, an [export destination](#export-destinations)'s id (default `generic-551`, standard GEDCOM 5.5.1); an unknown id is `400 validation_error`. It answers `{ gedcom, warnings, report }`, `report` being what writing for the destination lost: `{ destination, losses: [{ kind, record?, detail }], limits: [{ record?, detail }] }`. A GEDZIP takes no destination (`400 validation_error` with one). `include_notes_and_sources` (default `true`), when `false`, leaves out every note, every source with its citations, and every repository. `include_media` (default `true`) is read for a GEDZIP only: when `false`, the archive holds `gedcom.ged` alone, without any `OBJE` record, media link or vignette; a plain GEDCOM always writes its media's references. Either way no pointer is left dangling. `scope` (default: the whole tree) limits the export to a target, see [Export scope](#export-scope). GraphQL: `exportGedcom(treeId, destination, includeNotesAndSources, scope)`, plain GEDCOM only |
 | `GET` | `/gedcom/export-destinations` | The [export destinations](#export-destinations), standard versions first, then the programs by name: `[{ id, label, version, standard, to_be_verified }]`. GraphQL: `exportDestinations` |
@@ -1283,6 +1285,23 @@ the switch can happen mid-file, so only the reader can decode it; `filename`
 (default `import.gw`) is recorded on every family and quoted in warnings.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
+
+### Waiting for a job
+
+A job status read waits for the job to change rather than the client
+polling it on a timer. Every status carries `version`, an opaque string
+that any visible change of the job — its phase or its counts — changes.
+With `since`, the `version` last read, and `wait`, a number of seconds
+(at most 25), `GET /import-jobs/{job_id}` and `GET /export-jobs/{job_id}`
+answer as soon as the job's state differs from `since` or the job has
+ended, and otherwise once `wait` has passed, with the unchanged state.
+Without `since` or with no `wait`, they answer at once. GraphQL's
+`importJobStatus` and `exportJobStatus` take the same `since` and `wait`
+arguments and return the same `version`. The server waits on notifications,
+never by reading the job over and over ([Architecture §6.4](architecture.md#64-waiting-for-a-job)),
+and bounds how many reads wait at once: past the bound a read answers at
+once, as one without `wait` does, so a client that gets its `since` back
+early waits a moment before it asks again.
 
 ### Geneanet import
 
@@ -1690,7 +1709,8 @@ The schema mirrors §2 operation by operation, following these rules:
   per relation, so a request costs the same number of statements for ten
   records as for a hundred. `Tree.personCount` and
   `Tree.familyCount` are counts, and `Tree.importInProgress` and
-  `Tree.importJobId` are the transient job fields the REST tree list adds.
+  `Tree.importJobId` and `Tree.importCancelling` are the transient job fields
+  the REST tree list adds.
 - **Absence.** A singular query answers `null` for a record that is absent,
   deleted or of another tree, where REST answers `404`; a tree that does not
   exist is `NOT_FOUND` on every field.
@@ -1705,8 +1725,10 @@ obvious; introspection is authoritative. The transport differences the
 operations without a twin: file uploads and direct media reads stay on REST.
 GraphQL reaches the same media through `mediaDownload` and `mediaArchive`
 (the URL to fetch), polls the import jobs the REST upload creates with
-`importJobStatus`, and starts GEDZIP exports with `startExportJob`, which
-takes the export options of `POST /export-jobs`, so no destination.
+`importJobStatus` — waiting for a change as REST's `since` and `wait` do —
+cancels them with `cancelImportJob`, and starts GEDZIP
+exports with `startExportJob`, which takes the export options of
+`POST /export-jobs`, so no destination.
 `exportGedcom` writes plain GEDCOM only, so it takes neither `format` nor
 `includeMedia`.
 

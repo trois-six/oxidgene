@@ -306,6 +306,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Query.exportJobStatus"]),
     ),
     (
+        "POST",
+        "/api/v1/trees/{tree_id}/export-jobs/{job_id}/cancel",
+        Gql(&["Mutation.cancelExportJob"]),
+    ),
+    (
         "GET",
         "/api/v1/trees/{tree_id}/export-jobs/{job_id}/download",
         RestOnly("binary export artifact download (docs/api.md, Surfaces and parity)"),
@@ -416,6 +421,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "GET",
         "/api/v1/trees/{tree_id}/import-jobs/{job_id}",
         Gql(&["Query.importJobStatus"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/import-jobs/{job_id}/cancel",
+        Gql(&["Mutation.cancelImportJob"]),
     ),
     (
         "GET",

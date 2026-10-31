@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
@@ -11,16 +12,18 @@ use oxidgene_db::repo::{
     TreeRepo, db_err,
 };
 use oxidgene_gedcom::export::GedzipFileWriter;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
+use sea_orm::{DatabaseConnection, DatabaseTransaction, DbBackend, TransactionTrait};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
 
+use super::job_watch::{self, JobWait, Versioned};
 use super::tag_bulk::{self, TagTargetSpec};
 use super::{gedcom, geneanet, history};
 use crate::error_contract::error_kind;
 use crate::media::MediaStore;
+use crate::media::job_objects::{self, RecordingStore};
 use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
 use crate::workdir::WorkDir;
@@ -59,6 +62,82 @@ const MAINTENANCE_PERIOD: Duration = Duration::from_secs(6 * 60);
 /// every start, forever, taking every job queued behind it down with it.
 pub const MAX_ATTEMPTS: i32 = 3;
 
+// ── The jobs of this process ───────────────────────────────────────────
+//
+// A worker registers the job it runs here, with its progress and its
+// cancellation token, so that status reads, the tree guard and cancellation
+// requests answer from memory. Under SQLite this is what keeps them from
+// waiting: the running import holds the only writer for its whole
+// transaction, and on an in-memory database the only connection. A
+// cancellation requested under SQLite for a job this process does not run
+// yet — queued, or claimed but not registered — is a mark the worker turns
+// into a database write once the writer is free, or into the token of the
+// job when it registers it (see `docs/architecture.md` §6).
+
+/// A request that a running job stop, shared by its worker and whoever asks
+/// it to stop. The job reads it between two units of work.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CancelToken {
+    cancelled: Arc<AtomicBool>,
+    /// In tests, a stop arriving at a known unit of work.
+    #[cfg(test)]
+    planned: Option<Arc<PlannedStop>>,
+}
+
+/// In tests, a stop a job makes at the `left`-th check of its progress
+/// phase `phase` (a variant's name: `Database`, `People`, `Media`): a
+/// cancellation, or with `fails` a database failure.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct PlannedStop {
+    phase: String,
+    left: std::sync::atomic::AtomicUsize,
+    fails: bool,
+}
+
+impl CancelToken {
+    /// Ask the job to stop.
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether the job was asked to stop.
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Note a check made in progress phase `phase`, stopping the job when it
+    /// is the one a test planned (see [`plan_stop`]).
+    #[cfg(test)]
+    pub(crate) fn reach(&self, phase: &str) -> Result<(), OxidGeneError> {
+        if let Some(planned) = &self.planned
+            && planned.phase == phase
+            && planned
+                .left
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                    left.checked_sub(1)
+                })
+                == Ok(1)
+        {
+            if planned.fails {
+                return Err(OxidGeneError::Database("a planned failure".into()));
+            }
+            self.cancel();
+        }
+        Ok(())
+    }
+
+    /// `Err` once the job was asked to stop: what stops its work at the next
+    /// unit, rolling its transaction back.
+    pub(crate) fn check(&self) -> Result<(), OxidGeneError> {
+        if self.is_cancelled() {
+            Err(OxidGeneError::Conflict("the job was cancelled".into()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LiveJobProgress {
     pub phase: String,
@@ -71,72 +150,250 @@ struct LiveJob {
     tree_id: Uuid,
     kind: String,
     progress: LiveJobProgress,
+    cancel: CancelToken,
 }
 
-static LIVE_JOBS: OnceLock<Mutex<HashMap<Uuid, LiveJob>>> = OnceLock::new();
-
-fn live_jobs() -> &'static Mutex<HashMap<Uuid, LiveJob>> {
-    LIVE_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+/// A cancellation asked, under SQLite, of a job this process was not
+/// running: written by the worker once the writer is free.
+#[derive(Debug)]
+struct CancelMark {
+    tree_id: Uuid,
+    kind: String,
+    /// The job was queued when cancelled, so it ends unrun.
+    queued: bool,
 }
 
+#[derive(Debug, Default)]
+struct Registry {
+    running: HashMap<Uuid, LiveJob>,
+    marked: HashMap<Uuid, CancelMark>,
+    /// In tests, the stops planned for jobs not registered yet.
+    #[cfg(test)]
+    planned: HashMap<Uuid, PlannedStop>,
+}
+
+/// Stop job `job_id`, once a worker of this process runs it, at the `nth`
+/// check of its progress phase `phase`: cancel it, or with `fails` fail it
+/// as a database error would.
+#[cfg(test)]
+pub(crate) fn plan_stop(job_id: Uuid, phase: &str, nth: usize, fails: bool) {
+    registry().planned.insert(
+        job_id,
+        PlannedStop {
+            phase: phase.to_string(),
+            left: std::sync::atomic::AtomicUsize::new(nth),
+            fails,
+        },
+    );
+}
+
+/// `job`, with the stop a test planned for it, if any.
+#[cfg(test)]
+fn with_planned_stop(job_id: Uuid, mut job: LiveJob) -> LiveJob {
+    job.cancel.planned = registry().planned.remove(&job_id).map(Arc::new);
+    job
+}
+
+static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
+
+fn registry() -> MutexGuard<'static, Registry> {
+    REGISTRY
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Forget job `job_id` as running here: its state is the database's again.
 fn remove_live_job(job_id: Uuid) {
-    if let Ok(mut jobs) = live_jobs().lock() {
-        jobs.remove(&job_id);
+    registry().running.remove(&job_id);
+    job_watch::announce(job_id);
+}
+
+/// What this process knows of a job without the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LiveState {
+    /// It runs here: its progress, and whether it was asked to stop.
+    Running {
+        progress: LiveJobProgress,
+        cancelling: bool,
+    },
+    /// Its cancellation waits for the writer: it was queued, and ends unrun.
+    Cancelled,
+    /// Its cancellation waits for its worker to register it.
+    Cancelling,
+}
+
+impl LiveState {
+    /// The phase a status read reports.
+    fn phase(&self) -> String {
+        match self {
+            Self::Running {
+                cancelling: true, ..
+            }
+            | Self::Cancelling => PHASE_CANCELLING.to_string(),
+            Self::Running { progress, .. } => progress.phase.clone(),
+            Self::Cancelled => BackgroundJobStatus::Cancelled.as_str().to_string(),
+        }
+    }
+
+    fn counts(&self) -> (i64, i64) {
+        match self {
+            Self::Running { progress, .. } => (count(progress.done), count(progress.total)),
+            Self::Cancelled | Self::Cancelling => (0, 0),
+        }
     }
 }
 
-pub(crate) fn live_job_progress(
+/// The phase a status reports while a running job stops at a cancellation
+/// and undoes what it wrote.
+const PHASE_CANCELLING: &str = "cancelling";
+
+/// What this process knows of job `job_id` of `kind` in `tree_id` without
+/// reading the database, if anything.
+pub(crate) fn live_state(
     tree_id: Uuid,
     job_id: Uuid,
     kind: BackgroundJobKind,
-) -> Option<LiveJobProgress> {
-    live_jobs().lock().ok().and_then(|jobs| {
-        let job = jobs.get(&job_id)?;
-        (job.tree_id == tree_id && job.kind == kind.as_str()).then(|| job.progress.clone())
-    })
+) -> Option<LiveState> {
+    let registry = registry();
+    if let Some(job) = registry.running.get(&job_id) {
+        return (job.tree_id == tree_id && job.kind == kind.as_str()).then(|| LiveState::Running {
+            progress: job.progress.clone(),
+            cancelling: job.cancel.is_cancelled(),
+        });
+    }
+    let mark = registry.marked.get(&job_id)?;
+    let state = if mark.queued {
+        LiveState::Cancelled
+    } else {
+        LiveState::Cancelling
+    };
+    (mark.tree_id == tree_id && mark.kind == kind.as_str()).then_some(state)
+}
+
+/// How the active job `job_id`, which the database says has
+/// `cancel_requested`, stands for the tree list: `None` once it is
+/// cancelled although the database does not say so yet, otherwise whether
+/// it is being cancelled.
+pub(crate) fn active_job_cancelling(job_id: Uuid, cancel_requested: bool) -> Option<bool> {
+    let registry = registry();
+    if let Some(job) = registry.running.get(&job_id) {
+        return Some(cancel_requested || job.cancel.is_cancelled());
+    }
+    match registry.marked.get(&job_id) {
+        Some(mark) if mark.queued => None,
+        Some(_) => Some(true),
+        None => Some(cancel_requested),
+    }
+}
+
+/// Ask job `job_id` of `kind` in `tree_id`, if this process runs it, to
+/// stop; otherwise, with `mark`, note the request for the worker of this
+/// process. Whether the job runs here.
+fn cancel_here(tree_id: Uuid, job_id: Uuid, kind: BackgroundJobKind, mark: Option<bool>) -> bool {
+    let (runs_here, changed) = {
+        let mut registry = registry();
+        match registry.running.get(&job_id) {
+            Some(job) if job.tree_id == tree_id && job.kind == kind.as_str() => {
+                job.cancel.cancel();
+                (true, true)
+            }
+            Some(_) => (false, false),
+            None => match mark {
+                Some(queued) => {
+                    registry.marked.insert(
+                        job_id,
+                        CancelMark {
+                            tree_id,
+                            kind: kind.as_str().to_string(),
+                            queued,
+                        },
+                    );
+                    (false, true)
+                }
+                None => (false, false),
+            },
+        }
+    };
+    if changed {
+        job_watch::announce(job_id);
+    }
+    runs_here
+}
+
+/// Ask job `job_id`, running here, to stop: its worker read the request in
+/// the database.
+fn cancel_running_job(job_id: Uuid) {
+    let found = registry()
+        .running
+        .get(&job_id)
+        .map(|job| job.cancel.cancel())
+        .is_some();
+    if found {
+        job_watch::announce(job_id);
+    }
 }
 
 pub(crate) struct LiveJobGuard {
     job_id: Uuid,
+    cancel: CancelToken,
 }
 
 impl LiveJobGuard {
     /// Registers a running job of `kind` in `tree_id` at its start.
     #[cfg(test)]
     pub(crate) fn for_test(job_id: Uuid, tree_id: Uuid, kind: BackgroundJobKind) -> Self {
-        if let Ok(mut jobs) = live_jobs().lock() {
-            jobs.insert(
-                job_id,
-                LiveJob {
-                    tree_id,
-                    kind: kind.as_str().to_string(),
-                    progress: LiveJobProgress {
-                        phase: "staging".to_string(),
-                        done: 0,
-                        total: 0,
-                    },
+        Self::register(
+            job_id,
+            LiveJob {
+                tree_id,
+                kind: kind.as_str().to_string(),
+                progress: LiveJobProgress {
+                    phase: "staging".to_string(),
+                    done: 0,
+                    total: 0,
                 },
-            );
-        }
-        Self { job_id }
+                cancel: CancelToken::default(),
+            },
+        )
     }
 
     fn new(job: &BackgroundJob) -> Self {
-        if let Ok(mut jobs) = live_jobs().lock() {
-            jobs.insert(
-                job.id,
-                LiveJob {
-                    tree_id: job.tree_id,
-                    kind: job.kind.clone(),
-                    progress: LiveJobProgress {
-                        phase: job.phase.clone(),
-                        done: job.done,
-                        total: job.total,
-                    },
+        Self::register(
+            job.id,
+            LiveJob {
+                tree_id: job.tree_id,
+                kind: job.kind.clone(),
+                progress: LiveJobProgress {
+                    phase: job.phase.clone(),
+                    done: job.done,
+                    total: job.total,
                 },
-            );
+                cancel: CancelToken::default(),
+            },
+        )
+    }
+
+    /// Register `job` as running here, its token already cancelled when a
+    /// cancellation was marked for it before it got here.
+    fn register(job_id: Uuid, job: LiveJob) -> Self {
+        #[cfg(test)]
+        let job = with_planned_stop(job_id, job);
+        let cancel = job.cancel.clone();
+        {
+            let mut registry = registry();
+            if registry.marked.remove(&job_id).is_some() {
+                cancel.cancel();
+            }
+            registry.running.insert(job_id, job);
         }
-        Self { job_id: job.id }
+        job_watch::announce(job_id);
+        Self { job_id, cancel }
+    }
+
+    /// The job's cancellation token.
+    pub(crate) fn cancel_token(&self) -> CancelToken {
+        self.cancel.clone()
     }
 }
 
@@ -207,6 +464,7 @@ impl BackgroundJobWorker {
 
     /// Claim and execute at most one job. Returns whether work was claimed.
     pub async fn run_once(&self) -> Result<bool, OxidGeneError> {
+        self.write_marked_cancellations().await;
         let Some(job) = BackgroundJobRepo::claim_next(
             &self.db,
             &self.worker_id,
@@ -217,8 +475,11 @@ impl BackgroundJobWorker {
         else {
             return Ok(false);
         };
-        let _live_job =
-            (self.db.get_database_backend() == DbBackend::Sqlite).then(|| LiveJobGuard::new(&job));
+        let live_job = LiveJobGuard::new(&job);
+        let cancel = live_job.cancel_token();
+        if job.cancel_requested {
+            cancel.cancel();
+        }
         if job.attempt > MAX_ATTEMPTS {
             self.fail_exhausted(&job).await?;
             return Ok(true);
@@ -237,29 +498,35 @@ impl BackgroundJobWorker {
             job.trace_state.as_deref(),
         );
         async {
-            if let Err(error) = Box::pin(self.execute(&job)).await {
-                let code = match error {
-                    OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
-                    _ => "job_failed",
-                };
-                // Console logs carry no span context, so the job's bounded
-                // dimensions ride on the event itself.
-                tracing::error!(
-                    error.category = code,
-                    error.kind = error_kind(&error),
+            let Err(error) = Box::pin(self.execute(&job, &cancel)).await else {
+                return Ok(());
+            };
+            if cancel.is_cancelled() {
+                tracing::info!(
                     job.kind = %job.kind,
                     job.format = %job.format,
-                    "background job failed"
+                    "background job cancelled"
                 );
-                if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
-                    remove_live_job(job.id);
-                    self.cleanup_import_inputs(&job).await;
-                }
+                return self.end(&job, Ending::Cancelled).await;
             }
-            Ok::<(), OxidGeneError>(())
+            let code = match error {
+                OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
+                _ => "job_failed",
+            };
+            // Console logs carry no span context, so the job's bounded
+            // dimensions ride on the event itself.
+            tracing::error!(
+                error.category = code,
+                error.kind = error_kind(&error),
+                job.kind = %job.kind,
+                job.format = %job.format,
+                "background job failed"
+            );
+            self.end(&job, Ending::Failed(code)).await
         }
         .instrument(span)
         .await?;
+        drop(live_job);
         // A job is the most memory the process holds; what it freed goes
         // back now rather than sitting in the allocator until the next one.
         let _ = super::blocking::spawn(crate::memory::release_free_memory).await;
@@ -276,13 +543,101 @@ impl BackgroundJobWorker {
             job.attempt = job.attempt,
             "background job stopped too many times; failed without running it again"
         );
-        if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, "job_attempts_exhausted")
-            .await?
-        {
+        self.end(job, Ending::Failed("job_attempts_exhausted"))
+            .await
+    }
+
+    /// End `job`, stopped before it completed, as `ending` says, while this
+    /// worker still holds it: first take back the media it stored — its
+    /// rows are rolled back already, and the tree is still the job's — then
+    /// record how it ended, then remove what it keeps under `jobs/`. A pass
+    /// interrupted halfway leaves the job running, to be claimed again, or
+    /// objects the maintenance sweep finds.
+    async fn end(&self, job: &BackgroundJob, ending: Ending) -> Result<(), OxidGeneError> {
+        let held = BackgroundJobRepo::held_by(&self.db, job.id, &self.worker_id).await?;
+        let discarded = held && self.discard_stored_objects(job.id).await;
+        let ended = match ending {
+            Ending::Cancelled => {
+                BackgroundJobRepo::cancel(&self.db, job.id, &self.worker_id).await?
+            }
+            Ending::Failed(code) => {
+                BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await?
+            }
+        };
+        if ended {
             remove_live_job(job.id);
-            self.cleanup_import_inputs(job).await;
+            if discarded {
+                self.delete_job_objects(job.id).await;
+            }
         }
         Ok(())
+    }
+
+    /// Delete the media objects job `job_id` stored that no row names (see
+    /// [`job_objects`]). Whether it went through; a failure is logged and
+    /// left to the maintenance sweep.
+    async fn discard_stored_objects(&self, job_id: Uuid) -> bool {
+        match job_objects::discard_unreferenced(&self.db, &*self.media, job_id).await {
+            Ok(_) => true,
+            Err(error) => {
+                tracing::warn!(
+                    job_id = %job_id,
+                    error.kind = error_kind(&error),
+                    "could not take back the media of an unfinished import"
+                );
+                false
+            }
+        }
+    }
+
+    /// Delete everything job `job_id` keeps under `jobs/`: its inputs, and
+    /// the artifact of an export that did not complete.
+    async fn delete_job_objects(&self, job_id: Uuid) {
+        if let Err(error) = self.media.delete_job(job_id).await {
+            tracing::warn!(
+                job_id = %job_id,
+                error.kind = error_kind(&error),
+                "could not delete job objects"
+            );
+        }
+    }
+
+    /// Write the cancellations requested of jobs this process did not run
+    /// (see [`cancel_job`]), now that this worker, between two jobs, leaves
+    /// the writer free: a queued job ends cancelled, unrun, and its inputs
+    /// go. A mark naming a job of another database is left alone.
+    async fn write_marked_cancellations(&self) {
+        let marked: Vec<Uuid> = registry().marked.keys().copied().collect();
+        for job_id in marked {
+            match self.write_cancellation(job_id).await {
+                Ok(true) => {
+                    registry().marked.remove(&job_id);
+                }
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    job_id = %job_id,
+                    error.kind = error_kind(&error),
+                    "could not record a job cancellation; retrying"
+                ),
+            }
+        }
+    }
+
+    /// Write the cancellation marked for job `job_id`; `false` when this
+    /// database has no such job.
+    async fn write_cancellation(&self, job_id: Uuid) -> Result<bool, OxidGeneError> {
+        let Some(job) = BackgroundJobRepo::find(&self.db, job_id).await? else {
+            return Ok(false);
+        };
+        if job.status == BackgroundJobStatus::Queued.as_str() {
+            if BackgroundJobRepo::cancel_queued(&self.db, job_id).await? {
+                self.delete_job_objects(job_id).await;
+            }
+        } else if job.status == BackgroundJobStatus::Running.as_str() {
+            BackgroundJobRepo::request_cancel(&self.db, job_id).await?;
+        }
+        job_watch::announce(job_id);
+        Ok(true)
     }
 
     /// Run until the process is shut down.
@@ -321,9 +676,10 @@ impl BackgroundJobWorker {
     /// artifacts of exports completed more than [`EXPORT_ARTIFACT_TTL`] ago,
     /// the rows (and any objects) of jobs ended more than
     /// [`ENDED_JOB_RETENTION`] ago, the objects under `jobs/` that no job
-    /// needs any more, once older than a day, and the working files a
-    /// crashed run left (see [`WorkDir::sweep`]). Failures are logged; the
-    /// next pass retries.
+    /// needs any more, once older than a day, with the media an unfinished
+    /// import stored and did not take back, and the working files a crashed
+    /// run left (see [`WorkDir::sweep`]). Failures are logged; the next pass
+    /// retries.
     pub async fn maintain(&self, now: chrono::DateTime<chrono::Utc>) {
         let work_dir = self.work_dir.clone();
         let swept = tokio::task::spawn_blocking(move || work_dir.sweep(now.into())).await;
@@ -353,73 +709,110 @@ impl BackgroundJobWorker {
         skip_all,
         fields(job.kind = %job.kind, job.format = %job.format)
     )]
-    async fn execute(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
+    async fn execute(
+        &self,
+        job: &BackgroundJob,
+        cancel: &CancelToken,
+    ) -> Result<(), OxidGeneError> {
         match job.kind.as_str() {
-            "import" => Box::pin(self.execute_import(job)).await,
-            "export" => Box::pin(self.execute_export(job)).await,
+            "import" => Box::pin(self.execute_import(job, cancel)).await,
+            "export" => Box::pin(self.execute_export(job, cancel)).await,
             _ => Err(OxidGeneError::Validation("unknown job kind".into())),
         }
     }
 
+    /// Run import `job` all or nothing: its rows, their projections, its
+    /// history entry and its completion commit in one transaction, and the
+    /// media it stores are taken back unless that transaction commits.
     #[tracing::instrument(
         name = "import.job",
         skip_all,
         fields(import.format = %job.format)
     )]
-    async fn execute_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
-        if job.format == "geneanet" {
-            return Box::pin(self.execute_geneanet_import(job)).await;
-        }
+    async fn execute_import(
+        &self,
+        job: &BackgroundJob,
+        cancel: &CancelToken,
+    ) -> Result<(), OxidGeneError> {
         let source_key = job
             .source_key
             .as_deref()
             .ok_or_else(|| OxidGeneError::Validation("import job has no source".into()))?;
-        if job.phase == "projections" {
-            let summary = import_summary(job)?;
-            self.finish_import(job, source_key, summary).await?;
-            return Ok(());
+        // An earlier attempt that stopped with the process committed
+        // nothing: what it stored goes before this one starts.
+        job_objects::discard_unreferenced(&self.db, &*self.media, job.id).await?;
+        if job.format == "geneanet" {
+            return Box::pin(self.execute_geneanet_import(job, source_key, cancel)).await;
         }
         let scratch = self.scratch(job.id)?;
         let source = scratch.path().join(format!("source.{}", job.format));
         self.progress(job.id, "staging", 0, 0).await?;
         self.media.get_to_file(source_key, &source).await?;
+        cancel.check()?;
 
-        let progress = Arc::new(gedcom::FileImportProgress::default());
-        let summary = self
+        let progress = Arc::new(gedcom::FileImportProgress::cancellable(cancel.clone()));
+        let report = || {
+            let (phase, done, total, _, _) = progress.read();
+            (import_phase(phase), done, total)
+        };
+        let store = RecordingStore::new(&*self.media, job.id);
+        let parsed = self
             .with_progress(
                 job.id,
-                Box::pin(self.import_file(job, &source, &progress)),
-                || {
-                    let (phase, done, total, _, _) = progress.read();
-                    (import_phase(phase), done, total)
-                },
+                Box::pin(self.parse_import(job, &store, &source, &progress)),
+                report,
             )
             .await?;
-        self.finish_import(job, source_key, summary).await
+        progress.check_cancelled()?;
+        let transaction = self.db.begin().await.map_err(db_err)?;
+        let written = self
+            .with_progress(
+                job.id,
+                Box::pin(self.write_file_import(&transaction, job.tree_id, parsed, &progress)),
+                report,
+            )
+            .await;
+        let (transaction, summary) = rolled_back_on_error(transaction, written).await?;
+        self.complete_import(transaction, job, summary.persons_count, &summary)
+            .await?;
+        self.release_job_objects(job.id).await;
+        Ok(())
     }
 
-    /// Reads the staged `source` and writes its rows in one transaction,
-    /// with the checkpoint a retry resumes from.
-    async fn import_file(
+    /// Writes the rows of `parsed` and the projections of tree `tree_id` on
+    /// `transaction`, stopping at a cancellation between two batches.
+    async fn write_file_import(
         &self,
-        job: &BackgroundJob,
-        source: &Path,
+        transaction: &DatabaseTransaction,
+        tree_id: Uuid,
+        parsed: oxidgene_gedcom::ImportResult,
         progress: &gedcom::FileImportProgress,
     ) -> Result<gedcom::ImportSummary, OxidGeneError> {
-        let parsed = self.parse_import(job, source, progress).await?;
-        progress.enter(gedcom::FileImportPhase::Database);
-        let transaction = self.db.begin().await.map_err(db_err)?;
-        let summary = gedcom::persist_import_result_in(&transaction, parsed).await?;
-        self.checkpoint_import(&transaction, job.id, &summary)
+        progress.begin(
+            gedcom::FileImportPhase::Database,
+            gedcom::persisted_entity_count(&parsed),
+        );
+        let summary = gedcom::persist_import_result_in(transaction, parsed, &mut |inserted| {
+            progress.advance_by(inserted);
+            progress.check_cancelled()
+        })
+        .await?;
+        progress.check_cancelled()?;
+        progress.enter(gedcom::FileImportPhase::Projections);
+        self.profiles
+            .rebuild_tree_full(transaction, tree_id)
+            .instrument(tracing::info_span!("import.projections"))
             .await?;
-        transaction.commit().await.map_err(db_err)?;
+        progress.check_cancelled()?;
         Ok(summary)
     }
 
-    /// Reads the staged `source` of a GEDCOM, GEDZIP or GeneWeb import.
+    /// Reads the staged `source` of a GEDCOM, GEDZIP or GeneWeb import,
+    /// storing a GEDZIP's media in `store`.
     async fn parse_import(
         &self,
         job: &BackgroundJob,
+        store: &dyn MediaStore,
         source: &Path,
         progress: &gedcom::FileImportProgress,
     ) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError> {
@@ -433,9 +826,7 @@ impl BackgroundJobWorker {
                 })
                 .await
             }
-            "gedzip" => {
-                gedcom::prepare_gedzip_file(&*self.media, job.tree_id, source, progress).await
-            }
+            "gedzip" => gedcom::prepare_gedzip_file(store, job.tree_id, source, progress).await,
             "geneweb" => {
                 progress.enter(gedcom::FileImportPhase::Parsing);
                 let source = tokio::fs::read(source).await?;
@@ -462,50 +853,61 @@ impl BackgroundJobWorker {
         }
     }
 
-    async fn execute_geneanet_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
-        let source_key = job
-            .source_key
-            .as_deref()
-            .ok_or_else(|| OxidGeneError::Validation("import job has no source".into()))?;
+    async fn execute_geneanet_import(
+        &self,
+        job: &BackgroundJob,
+        source_key: &str,
+        cancel: &CancelToken,
+    ) -> Result<(), OxidGeneError> {
         let payload = geneanet_payload(job)?;
-        if job.phase == "projections" {
-            let summary = geneanet_summary(job)?;
-            self.finish_geneanet_import(job, summary).await?;
-            return Ok(());
-        }
-
         let scratch = self.scratch(job.id)?;
         self.progress(job.id, "staging", 0, 0).await?;
         let source = scratch.path().join("source.gw");
         self.media.get_to_file(source_key, &source).await?;
 
-        let (archive_paths, fetched) = self.stage_geneanet_inputs(scratch.path(), &payload).await?;
+        let (archive_paths, fetched) = self
+            .stage_geneanet_inputs(scratch.path(), &payload, cancel)
+            .await?;
 
         let gw = tokio::fs::read(source).await?;
         let origin_file = safe_origin_file(job.original_filename.as_deref());
-        let progress = Arc::new(geneanet::ImportProgress::default());
-        let import = geneanet::import(
-            &self.db,
-            &*self.media,
-            job.tree_id,
-            &gw,
-            &origin_file,
-            &payload.collection,
-            &payload.deposit_sizes,
-            &archive_paths,
-            &fetched,
-            payload.media_fidelity,
-            &progress,
-        );
-        let summary = self
+        let progress = Arc::new(geneanet::ImportProgress::cancellable(cancel.clone()));
+        let store = RecordingStore::new(&*self.media, job.id);
+        let transaction = self.db.begin().await.map_err(db_err)?;
+        let import = async {
+            let summary = geneanet::import(
+                &transaction,
+                &store,
+                job.tree_id,
+                &gw,
+                &origin_file,
+                &payload.collection,
+                &payload.deposit_sizes,
+                &archive_paths,
+                &fetched,
+                payload.media_fidelity,
+                &progress,
+            )
+            .await?;
+            progress.check_cancelled()?;
+            self.profiles
+                .rebuild_tree_full(&transaction, job.tree_id)
+                .instrument(tracing::info_span!("import.projections"))
+                .await?;
+            progress.check_cancelled()?;
+            Ok(summary)
+        };
+        let written = self
             .with_progress(job.id, Box::pin(import), || {
                 let (phase, done, total) = progress.read();
                 (geneanet_phase(phase), done, total)
             })
+            .await;
+        let (transaction, summary) = rolled_back_on_error(transaction, written).await?;
+        self.complete_import(transaction, job, summary.receipt.persons_count, &summary)
             .await?;
-
-        self.checkpoint_import(&self.db, job.id, &summary).await?;
-        self.finish_geneanet_import(job, summary).await
+        self.release_job_objects(job.id).await;
+        Ok(())
     }
 
     /// Downloads a Geneanet import's archives and fetched pages next to its
@@ -514,11 +916,13 @@ impl BackgroundJobWorker {
         &self,
         scratch: &Path,
         payload: &GeneanetJobPayload,
+        cancel: &CancelToken,
     ) -> Result<(Vec<String>, HashMap<String, String>), OxidGeneError> {
         let archive_root = scratch.join("archives");
         tokio::fs::create_dir_all(&archive_root).await?;
         let mut archive_paths = Vec::with_capacity(payload.archives.len());
         for (index, input) in payload.archives.iter().enumerate() {
+            cancel.check()?;
             let path = archive_root.join(format!("{index}-{}", input.file_name));
             self.media.get_to_file(&input.key, &path).await?;
             archive_paths.push(path.to_string_lossy().into_owned());
@@ -528,6 +932,7 @@ impl BackgroundJobWorker {
         tokio::fs::create_dir_all(&fetched_root).await?;
         let mut fetched = HashMap::with_capacity(payload.fetched.len());
         for (index, input) in payload.fetched.iter().enumerate() {
+            cancel.check()?;
             let path = fetched_root.join(index.to_string());
             self.media.get_to_file(&input.key, &path).await?;
             fetched.insert(input.url.clone(), path.to_string_lossy().into_owned());
@@ -535,58 +940,19 @@ impl BackgroundJobWorker {
         Ok((archive_paths, fetched))
     }
 
-    /// Records on `conn` that an import's rows are persisted, with its
-    /// summary, so that a retry resumes at the projections.
-    async fn checkpoint_import(
-        &self,
-        conn: &impl ConnectionTrait,
-        job_id: Uuid,
-        summary: &impl Serialize,
-    ) -> Result<(), OxidGeneError> {
-        let result_json = serde_json::to_string(summary)
-            .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        if !BackgroundJobRepo::checkpoint_import_persisted(
-            conn,
-            job_id,
-            &self.worker_id,
-            result_json,
-            chrono::Duration::from_std(self.lease_duration)
-                .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
-        )
-        .await?
-        {
-            return Err(OxidGeneError::Internal("background job lease lost".into()));
-        }
-        Ok(())
-    }
-
-    async fn finish_geneanet_import(
-        &self,
-        job: &BackgroundJob,
-        summary: geneanet::GeneanetImportSummary,
-    ) -> Result<(), OxidGeneError> {
-        self.progress(job.id, "projections", 0, 0).await?;
-        self.complete_import(job, summary.receipt.persons_count, &summary)
-            .await?;
-        self.cleanup_import_inputs(job).await;
-        Ok(())
-    }
-
-    /// Rebuilds the tree's projections after an import of `persons_count`
-    /// persons, records it in the history and completes the job with its
-    /// summary.
+    /// Records the import of `persons_count` persons in the tree's history
+    /// and completes the job with its summary, on the import's
+    /// `transaction`, then commits it: the import's rows, its history entry
+    /// and its completion become visible together, or not at all.
     async fn complete_import(
         &self,
+        transaction: DatabaseTransaction,
         job: &BackgroundJob,
         persons_count: usize,
         summary: &impl Serialize,
     ) -> Result<(), OxidGeneError> {
-        self.profiles
-            .rebuild_tree_full_transactional(&self.db, job.tree_id)
-            .instrument(tracing::info_span!("import.projections"))
-            .await?;
         history::record_import(
-            &self.db,
+            &transaction,
             job.tree_id,
             &job.format,
             job.original_filename.clone(),
@@ -595,50 +961,24 @@ impl BackgroundJobWorker {
         .await?;
         let result = serde_json::to_string(summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
+        if !BackgroundJobRepo::complete(&transaction, job.id, &self.worker_id, None, Some(result))
             .await?
         {
+            // Dropped, the transaction rolls back.
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
+        transaction.commit().await.map_err(db_err)?;
         remove_live_job(job.id);
         Ok(())
     }
 
-    async fn cleanup_import_inputs(&self, job: &BackgroundJob) {
-        let mut keys = job
-            .source_key
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let payload = (job.format == "geneanet")
-            .then(|| geneanet_payload(job).ok())
-            .flatten();
-        if let Some(payload) = &payload {
-            keys.extend(payload.archives.iter().map(|input| input.key.as_str()));
-            keys.extend(payload.fetched.iter().map(|input| input.key.as_str()));
+    /// Remove what completed import `job_id` leaves in store beyond its
+    /// media: its inputs, its records of what it stored, and any file it
+    /// stored that no row ended up naming.
+    async fn release_job_objects(&self, job_id: Uuid) {
+        if self.discard_stored_objects(job_id).await {
+            self.delete_job_objects(job_id).await;
         }
-        for key in keys {
-            if let Err(error) = self.media.delete(key).await {
-                tracing::warn!(
-                    job_id = %job.id,
-                    %key,
-                    error.kind = error_kind(&error),
-                    "could not delete job input"
-                );
-            }
-        }
-    }
-
-    async fn finish_import(
-        &self,
-        job: &BackgroundJob,
-        source_key: &str,
-        summary: gedcom::ImportSummary,
-    ) -> Result<(), OxidGeneError> {
-        self.complete_import(job, summary.persons_count, &summary)
-            .await?;
-        self.media.delete(source_key).await?;
-        Ok(())
     }
 
     #[tracing::instrument(
@@ -646,7 +986,11 @@ impl BackgroundJobWorker {
         skip_all,
         fields(export.format = %job.format)
     )]
-    async fn execute_export(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
+    async fn execute_export(
+        &self,
+        job: &BackgroundJob,
+        cancel: &CancelToken,
+    ) -> Result<(), OxidGeneError> {
         if job.format != "gedzip" {
             return Err(OxidGeneError::Validation("unknown export format".into()));
         }
@@ -666,16 +1010,46 @@ impl BackgroundJobWorker {
                 ),
             )
             .await?;
+        cancel.check()?;
 
+        let (artifact_key, size) = self
+            .publish_gedzip(
+                job.id,
+                scratch.path(),
+                data.gedcom,
+                &data.media_files,
+                cancel,
+            )
+            .await?;
+        cancel.check()?;
+        let receipt = ExportReceipt {
+            warnings: data.warnings,
+            size_bytes: Some(size),
+        };
+        self.complete_export(job, artifact_key, &receipt, scope.as_ref())
+            .await
+    }
+
+    /// Packs `gedcom` and the media of `media_files` into export `job_id`'s
+    /// GEDZIP in `scratch`, then stores it: its key and size.
+    async fn publish_gedzip(
+        &self,
+        job_id: Uuid,
+        scratch: &Path,
+        gedcom: String,
+        media_files: &[(String, String)],
+        cancel: &CancelToken,
+    ) -> Result<(String, i64), OxidGeneError> {
         let staged_media = self
-            .stage_export_media(job.id, scratch.path(), &data.media_files)
+            .stage_export_media(job_id, scratch, media_files, cancel)
             .await?;
-        let artifact_path = scratch.path().join("artifact.gdz");
-        self.package_gedzip(job.id, data.gedcom, staged_media, &artifact_path)
+        let artifact_path = scratch.join("artifact.gdz");
+        self.package_gedzip(job_id, gedcom, staged_media, &artifact_path, cancel)
             .await?;
-        let artifact_key = job_blob_key(job.id, "artifact", "gdz")?;
+        cancel.check()?;
+        let artifact_key = job_blob_key(job_id, "artifact", "gdz")?;
         let stored = self
-            .with_heartbeat(job.id, "publishing", async {
+            .with_heartbeat(job_id, "publishing", async {
                 self.media.put_file(&artifact_key, &artifact_path).await
             })
             .instrument(tracing::info_span!(
@@ -683,21 +1057,31 @@ impl BackgroundJobWorker {
                 export.format = "gedzip"
             ))
             .await?;
+        Ok((artifact_key, stored.size))
+    }
+
+    /// Records export `job` in its tree's history and completes it with
+    /// `artifact_key` and `receipt`, both in one transaction.
+    async fn complete_export(
+        &self,
+        job: &BackgroundJob,
+        artifact_key: String,
+        receipt: &ExportReceipt,
+        scope: Option<&TagTargetSpec>,
+    ) -> Result<(), OxidGeneError> {
+        let result = serde_json::to_string(receipt)
+            .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+        let transaction = self.db.begin().await.map_err(db_err)?;
         history::record_export(
-            &self.db,
+            &transaction,
             job.tree_id,
             &job.format,
             None,
-            gedcom::scope_details(scope.as_ref())?,
+            gedcom::scope_details(scope)?,
         )
         .await?;
-        let result = serde_json::to_string(&ExportReceipt {
-            warnings: data.warnings,
-            size_bytes: Some(stored.size),
-        })
-        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::complete(
-            &self.db,
+            &transaction,
             job.id,
             &self.worker_id,
             Some(artifact_key),
@@ -707,6 +1091,7 @@ impl BackgroundJobWorker {
         {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
+        transaction.commit().await.map_err(db_err)?;
         remove_live_job(job.id);
         Ok(())
     }
@@ -719,6 +1104,7 @@ impl BackgroundJobWorker {
         job_id: Uuid,
         scratch: &Path,
         media_files: &[(String, String)],
+        cancel: &CancelToken,
     ) -> Result<Vec<(String, std::path::PathBuf)>, OxidGeneError> {
         let media_root = scratch.join("media");
         tokio::fs::create_dir_all(&media_root).await?;
@@ -731,6 +1117,7 @@ impl BackgroundJobWorker {
         let mut staged_media = Vec::with_capacity(media_files.len());
         async {
             for (index, (key, archive_path)) in media_files.iter().enumerate() {
+                cancel.check()?;
                 let local_path = media_root.join(index.to_string());
                 match self.media.get_to_file(key, &local_path).await {
                     Ok(()) => {
@@ -753,15 +1140,17 @@ impl BackgroundJobWorker {
     }
 
     /// Writes the GEDZIP at `artifact_path` from `gedcom` and the staged
-    /// media.
+    /// media, stopping at a cancellation between two media.
     async fn package_gedzip(
         &self,
         job_id: Uuid,
         gedcom: String,
         staged_media: Vec<(String, std::path::PathBuf)>,
         artifact_path: &Path,
+        cancel: &CancelToken,
     ) -> Result<(), OxidGeneError> {
         let archive_path = artifact_path.to_path_buf();
+        let cancel = cancel.clone();
         // The packaging span is opened here so the blocking thread runs
         // inside it rather than in a trace of its own.
         let package_span = tracing::info_span!("export.package", export.format = "gedzip");
@@ -769,6 +1158,7 @@ impl BackgroundJobWorker {
             let mut writer =
                 GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
             for (entry_path, local_path) in staged_media {
+                cancel.check()?;
                 let bytes = std::fs::read(local_path)?;
                 writer
                     .add_media_file(&entry_path, &bytes)
@@ -829,16 +1219,18 @@ impl BackgroundJobWorker {
         done: i64,
         total: i64,
     ) -> Result<(), OxidGeneError> {
+        if let Some(job) = registry().running.get_mut(&job_id) {
+            job.progress = LiveJobProgress {
+                phase: phase.to_string(),
+                done,
+                total,
+            };
+        }
+        job_watch::announce(job_id);
+        // Under SQLite the running import holds the writer: the job's
+        // progress, liveness and cancellation live in this process only,
+        // and its long lease is not renewed (see `docs/architecture.md` §6).
         if self.db.get_database_backend() == DbBackend::Sqlite {
-            if let Ok(mut jobs) = live_jobs().lock()
-                && let Some(job) = jobs.get_mut(&job_id)
-            {
-                job.progress = LiveJobProgress {
-                    phase: phase.to_string(),
-                    done,
-                    total,
-                };
-            }
             return Ok(());
         }
 
@@ -853,10 +1245,15 @@ impl BackgroundJobWorker {
                 .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
         )
         .await?;
-        if renewed {
-            Ok(())
-        } else {
-            Err(OxidGeneError::Internal("background job lease lost".into()))
+        match renewed {
+            // Asked to stop through the database, by a server of another
+            // process.
+            Some(true) => {
+                cancel_running_job(job_id);
+                Ok(())
+            }
+            Some(false) => Ok(()),
+            None => Err(OxidGeneError::Internal("background job lease lost".into())),
         }
     }
 
@@ -928,6 +1325,36 @@ where
     }
 }
 
+/// How a job that did not complete ends.
+#[derive(Debug, Clone, Copy)]
+enum Ending {
+    /// It stopped at a cancellation request.
+    Cancelled,
+    /// It failed, with this stable error code.
+    Failed(&'static str),
+}
+
+/// `outcome`, with `transaction` to go on with, or its error once
+/// `transaction` is rolled back.
+async fn rolled_back_on_error<T>(
+    transaction: DatabaseTransaction,
+    outcome: Result<T, OxidGeneError>,
+) -> Result<(DatabaseTransaction, T), OxidGeneError> {
+    match outcome {
+        Ok(value) => Ok((transaction, value)),
+        Err(error) => {
+            if let Err(rollback) = transaction.rollback().await {
+                // Dropped, the connection rolls back before its next use.
+                tracing::warn!(
+                    error.kind = error_kind(&db_err(rollback)),
+                    "could not roll back an import"
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
 fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duration {
     poll_interval.min(lease_duration / 3)
 }
@@ -961,6 +1388,18 @@ async fn expire_artifacts(
     Ok(())
 }
 
+/// Delete everything job `job_id` keeps in `media`: the media files it
+/// stored that no row names (an import stopped before it could take them
+/// back), then whatever lies under its `jobs/` prefix.
+async fn delete_job_objects(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    job_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    job_objects::discard_unreferenced(db, media, job_id).await?;
+    media.delete_job(job_id).await
+}
+
 /// Delete the rows and the objects of the jobs ended before `now` less
 /// [`ENDED_JOB_RETENTION`]. Objects first, so that an interrupted pass
 /// leaves rows to find again rather than objects nothing points at.
@@ -971,7 +1410,7 @@ async fn prune_ended_jobs(
 ) -> Result<(), OxidGeneError> {
     let ended = BackgroundJobRepo::ended_before(db, before(now, ENDED_JOB_RETENTION)).await?;
     for job_id in &ended {
-        media.delete_job(*job_id).await?;
+        delete_job_objects(db, media, *job_id).await?;
     }
     BackgroundJobRepo::delete_ended(db, &ended).await?;
     Ok(())
@@ -979,9 +1418,10 @@ async fn prune_ended_jobs(
 
 /// Delete the objects under `jobs/` that no job needs — its row gone, or
 /// ended without an artifact to download — once they are older than
-/// [`ORPHAN_GRACE`], measured by the job id's own time stamp. A crash
-/// between storing a job's inputs and creating its row, or between ending
-/// it and removing them, leaves such objects.
+/// [`ORPHAN_GRACE`], measured by the job id's own time stamp, with the media
+/// files they record an unfinished import stored. A crash between storing a
+/// job's inputs and creating its row, or between ending it and removing
+/// them, leaves such objects.
 async fn sweep_orphaned_job_objects(
     db: &DatabaseConnection,
     media: &dyn MediaStore,
@@ -996,7 +1436,7 @@ async fn sweep_orphaned_job_objects(
         .collect();
     let needed = BackgroundJobRepo::holding_objects(db, &old).await?;
     for job_id in old.into_iter().filter(|job_id| !needed.contains(job_id)) {
-        media.delete_job(job_id).await?;
+        delete_job_objects(db, media, job_id).await?;
     }
     Ok(())
 }
@@ -1263,12 +1703,454 @@ mod tests {
         .expect("progress succeeds");
 
         assert_eq!(
-            live_job_progress(tree_id, job_id, BackgroundJobKind::Import),
-            Some(LiveJobProgress {
-                phase: "people".to_string(),
-                done: 100,
-                total: 250,
+            live_state(tree_id, job_id, BackgroundJobKind::Import),
+            Some(LiveState::Running {
+                progress: LiveJobProgress {
+                    phase: "people".to_string(),
+                    done: 100,
+                    total: 250,
+                },
+                cancelling: false,
             })
+        );
+    }
+
+    /// Under PostgreSQL a job's worker may run in another process: a
+    /// cancellation reaches it through the database, and its progress
+    /// wakes a waiting status read through a notification.
+    ///
+    /// `OXIDGENE_TEST_DATABASE_URL` must name an empty disposable database,
+    /// which the test leaves empty.
+    #[cfg(feature = "postgres")]
+    #[tokio::test]
+    #[ignore = "needs an empty disposable PostgreSQL database: run by `just test-postgres`"]
+    async fn on_postgres_cancellation_and_progress_cross_processes() {
+        let url = std::env::var("OXIDGENE_TEST_DATABASE_URL")
+            .expect("set OXIDGENE_TEST_DATABASE_URL to an empty disposable PostgreSQL database");
+        let db = oxidgene_db::repo::connect(&url).await.expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let listener = tokio::spawn(job_watch::listen(db.clone()));
+        let root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        // Another process's worker claims it.
+        let lease = chrono::Duration::minutes(5);
+        BackgroundJobRepo::claim_next(&db, "elsewhere", lease)
+            .await
+            .expect("claims")
+            .expect("the queued job");
+        let since = import_job_status(&db, tree_id, job_id)
+            .await
+            .expect("reads")
+            .version;
+        // Let the listener open its connection.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let waiting = tokio::spawn({
+            let db = db.clone();
+            async move {
+                let wait = JobWait {
+                    since: Some(since),
+                    wait: job_watch::MAX_WAIT,
+                };
+                wait_import_job_status(&db, tree_id, job_id, &wait).await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        BackgroundJobRepo::progress(&db, job_id, "elsewhere", "database", 1, 2, lease)
+            .await
+            .expect("reports progress");
+        let woken = tokio::time::timeout(Duration::from_secs(10), waiting)
+            .await
+            .expect("the notification ends the wait")
+            .unwrap()
+            .expect("reads");
+        assert_eq!((woken.phase.as_str(), woken.done), ("database", 1));
+
+        let status = cancel_import_job(&db, &db, &*media, tree_id, job_id)
+            .await
+            .expect("cancels");
+        assert_eq!(status.phase, "cancelling");
+        assert_eq!(
+            BackgroundJobRepo::progress(&db, job_id, "elsewhere", "database", 2, 2, lease)
+                .await
+                .expect("reports progress"),
+            Some(true),
+            "the worker reads the request with its progress"
+        );
+
+        listener.abort();
+        oxidgene_db::repo::rollback_migrations(&db)
+            .await
+            .expect("leaves the database empty");
+    }
+
+    // ── Cancellation and all-or-nothing imports ──────────────────────────
+
+    fn worker_over(db: &DatabaseConnection, media: &Arc<dyn MediaStore>) -> BackgroundJobWorker {
+        BackgroundJobWorker::new(
+            db.clone(),
+            Arc::new(ProfileService::new(db.clone())),
+            Arc::clone(media),
+            "test",
+        )
+    }
+
+    /// GEDCOM text of `families` couples, each with a child.
+    fn families_gedcom(families: usize) -> String {
+        let mut text = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n");
+        for family in 0..families {
+            for (role, sex) in [("H", "M"), ("W", "F"), ("C", "M")] {
+                text.push_str(&format!(
+                    "0 @I{role}{family}@ INDI\n1 NAME Person_{role} /BRANCH_{family}/\n1 SEX {sex}\n"
+                ));
+            }
+            text.push_str(&format!(
+                "0 @F{family}@ FAM\n1 HUSB @IH{family}@\n1 WIFE @IW{family}@\n1 CHIL @IC{family}@\n"
+            ));
+        }
+        text.push_str("0 TRLR\n");
+        text
+    }
+
+    /// A new tree of `db`, and an import of GEDCOM `text` queued into it,
+    /// its source in `media`: the tree's id and the job's.
+    async fn queued_gedcom(
+        db: &DatabaseConnection,
+        media: &dyn MediaStore,
+        text: &str,
+    ) -> (Uuid, Uuid) {
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(db, tree_id, "Cancellation".into(), None)
+            .await
+            .expect("creates tree");
+        let source = tempfile::NamedTempFile::new().expect("creates source");
+        std::fs::write(source.path(), text).expect("writes source");
+        let job_id = Uuid::now_v7();
+        stage_import(db, media, job_id, tree_id, "gedcom", None, source.path())
+            .await
+            .expect("queues the import");
+        (tree_id, job_id)
+    }
+
+    /// How many rows tree `tree_id` holds of what an import writes: persons,
+    /// media, projections and audit entries.
+    async fn tree_rows(db: &DatabaseConnection, tree_id: Uuid) -> [u64; 4] {
+        use oxidgene_db::entities::{audit_entry, media, person, person_denorm};
+        use sea_orm::{ColumnTrait as _, EntityTrait as _, PaginatorTrait as _, QueryFilter as _};
+        [
+            person::Entity::find()
+                .filter(person::Column::TreeId.eq(tree_id))
+                .count(db)
+                .await
+                .expect("counts persons"),
+            media::Entity::find()
+                .filter(media::Column::TreeId.eq(tree_id))
+                .count(db)
+                .await
+                .expect("counts media"),
+            person_denorm::Entity::find()
+                .filter(person_denorm::Column::TreeId.eq(tree_id))
+                .count(db)
+                .await
+                .expect("counts projections"),
+            audit_entry::Entity::find()
+                .filter(audit_entry::Column::TreeId.eq(tree_id))
+                .count(db)
+                .await
+                .expect("counts audit entries"),
+        ]
+    }
+
+    /// Every file under `dir`, recursively.
+    fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .flat_map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    files_under(&path)
+                } else {
+                    vec![path]
+                }
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_queued_job_is_cancelled_at_once_and_never_runs() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(2)).await;
+
+        let status = cancel_import_job(&db, &db, &*media, tree_id, job_id)
+            .await
+            .expect("cancels");
+        assert_eq!(status.phase, "cancelled");
+        assert_eq!(
+            crate::service::tree::active_import(&db, tree_id)
+                .await
+                .expect("reads the active import"),
+            None,
+            "a cancelled job no longer holds its tree"
+        );
+
+        // The worker writes the cancellation, then finds nothing to run.
+        let worker = worker_over(&db, &media);
+        assert!(!worker.run_once().await.expect("polls"));
+        let cancelled = job(&db, job_id).await;
+        assert_eq!(
+            (cancelled.status.as_str(), cancelled.phase.as_str()),
+            ("cancelled", "cancelled")
+        );
+        assert!(cancelled.active_tree_id.is_none());
+        assert!(
+            files_under(&root.path().join("jobs")).is_empty(),
+            "its source is gone"
+        );
+        assert_eq!(tree_rows(&db, tree_id).await, [0; 4]);
+        assert_eq!(
+            import_job_status(&db, tree_id, job_id)
+                .await
+                .expect("reads")
+                .phase,
+            "cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_import_cancelled_between_two_batches_of_persons_leaves_the_tree_as_it_was() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        // Three batches of persons.
+        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(400)).await;
+        plan_stop(job_id, "Database", 2, false);
+
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+
+        let cancelled = job(&db, job_id).await;
+        assert_eq!(
+            (cancelled.status.as_str(), cancelled.error_code.as_deref()),
+            ("cancelled", None)
+        );
+        assert_eq!(
+            tree_rows(&db, tree_id).await,
+            [0; 4],
+            "nothing of it is left"
+        );
+        assert!(files_under(root.path()).is_empty());
+
+        // The same file imports whole when nobody stops it.
+        let (tree_id, _) = queued_gedcom(&db, &*media, &families_gedcom(400)).await;
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+        assert_eq!(tree_rows(&db, tree_id).await, [1200, 0, 1200, 1]);
+    }
+
+    /// A Geneanet import queued into a new tree of `db`: a couple, and a
+    /// document of two pages naming one of them, its pages fetched into
+    /// `scratch`. The tree's id and the job's.
+    async fn queued_geneanet(
+        db: &DatabaseConnection,
+        media: &dyn MediaStore,
+        scratch: &Path,
+    ) -> (Uuid, Uuid) {
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(db, tree_id, "Geneanet".into(), None)
+            .await
+            .expect("creates tree");
+        let mut fetched = HashMap::new();
+        for page in 1..=2u32 {
+            let path = scratch.join(format!("page{page}.png"));
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::RgbImage::from_pixel(40 + page, 30, image::Rgb([page as u8 * 60, 90, 120]))
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .expect("encodes a page");
+            std::fs::write(&path, bytes.into_inner()).expect("writes a page");
+            fetched.insert(
+                format!("https://example.invalid/deposit/page{page}.png"),
+                path.to_string_lossy().into_owned(),
+            );
+        }
+        let collection = serde_json::json!({
+            "deposits": [{
+                "id": 1, "title": "t", "type": "civil", "private": true,
+                "views": [
+                    {"id": 10, "page": 1, "files": {"normal": "https://example.invalid/deposit/page1.png"}},
+                    {"id": 11, "page": 2, "files": {"normal": "https://example.invalid/deposit/page2.png"}},
+                ],
+            }],
+            "references": [],
+            "view_references": {"1:10": [{
+                "lastname": "BRANCH_A", "firstname": "person_a",
+                "reference_extra_geneweb": {"ref": "branch a|person a|"},
+            }]},
+        })
+        .to_string();
+        let job_id = stage_geneanet_import(
+            db,
+            media,
+            &WorkDir::temporary(),
+            tree_id,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 3/4/1900 + BRANCH_B person_b.0\n",
+            "family.gw".into(),
+            collection,
+            HashMap::new(),
+            &[],
+            &fetched,
+            geneanet::MediaFidelity::Renditions,
+        )
+        .await
+        .expect("queues the import");
+        (tree_id, job_id)
+    }
+
+    #[tokio::test]
+    async fn a_geneanet_import_cancelled_in_its_media_takes_back_what_it_stored() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let scratch = tempfile::tempdir().expect("creates scratch");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+        // Past the document's first page, stored and written; at its second,
+        // stored too.
+        plan_stop(job_id, "Media", 3, false);
+
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+
+        assert_eq!(job(&db, job_id).await.status, "cancelled");
+        assert_eq!(tree_rows(&db, tree_id).await, [0; 4], "no row is left");
+        assert!(
+            files_under(root.path()).is_empty(),
+            "every object it stored is deleted: {:?}",
+            files_under(root.path())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_geneanet_import_failing_in_its_media_rolls_back_whole() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let scratch = tempfile::tempdir().expect("creates scratch");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+        plan_stop(job_id, "Media", 3, true);
+
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+
+        let failed = job(&db, job_id).await;
+        assert_eq!(
+            (failed.status.as_str(), failed.error_code.as_deref()),
+            ("failed", Some("job_failed"))
+        );
+        assert_eq!(tree_rows(&db, tree_id).await, [0; 4]);
+        assert!(
+            files_under(root.path()).is_empty(),
+            "{:?}",
+            files_under(root.path())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_completed_geneanet_import_keeps_its_media_and_no_records() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let scratch = tempfile::tempdir().expect("creates scratch");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+
+        assert_eq!(job(&db, job_id).await.status, "completed");
+        let [persons, media_rows, _, audit] = tree_rows(&db, tree_id).await;
+        assert_eq!(
+            (persons, media_rows, audit),
+            (2, 3, 1),
+            "a document and its pages"
+        );
+        assert!(
+            files_under(&root.path().join("jobs")).is_empty(),
+            "no record is left"
+        );
+        // Every stored file is named by a row: the pages and their thumbnails.
+        use sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+        let mut named: Vec<String> = oxidgene_db::entities::media::Entity::find()
+            .filter(oxidgene_db::entities::media::Column::TreeId.eq(tree_id))
+            .all(&db)
+            .await
+            .expect("lists media")
+            .into_iter()
+            .flat_map(|row| [row.storage_key, row.thumbnail_key])
+            .flatten()
+            .collect();
+        named.sort();
+        named.dedup();
+        let mut stored: Vec<String> = files_under(root.path())
+            .iter()
+            .map(|path| {
+                path.strip_prefix(root.path())
+                    .expect("under the root")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        stored.sort();
+        assert!(named.len() >= 2, "both pages are stored");
+        assert_eq!(stored, named);
+    }
+
+    #[tokio::test]
+    async fn an_earlier_attempts_media_go_before_the_import_runs_again() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        // A file an attempt stored and recorded before its process stopped.
+        let recording = RecordingStore::new(&*media, job_id);
+        let orphan = recording
+            .put(tree_id, "png", b"an attempt's page")
+            .await
+            .expect("stores");
+
+        assert!(worker_over(&db, &media).run_once().await.expect("runs"));
+
+        assert_eq!(job(&db, job_id).await.status, "completed");
+        assert!(!media.exists(&orphan.key).await, "nothing names it");
+        assert!(files_under(root.path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_cancellation_reaches_a_running_job_in_memory_on_sqlite() {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options).await.expect("connects");
+        let media_root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> =
+            Arc::new(crate::media::store::FsStore::new(media_root.path()));
+        let (job_id, tree_id) = (Uuid::now_v7(), Uuid::now_v7());
+        let live_job = LiveJobGuard::for_test(job_id, tree_id, BackgroundJobKind::Import);
+        // As the running import holds it for its whole transaction.
+        let _transaction = db.begin().await.expect("holds the only connection");
+
+        let status = tokio::time::timeout(
+            Duration::from_millis(500),
+            cancel_import_job(&db, &db, &*media, tree_id, job_id),
+        )
+        .await
+        .expect("the request waits for nothing")
+        .expect("cancels");
+
+        assert_eq!(status.phase, "cancelling");
+        assert!(live_job.cancel_token().is_cancelled());
+        assert_eq!(
+            crate::service::background_job::active_job_cancelling(job_id, false),
+            Some(true)
         );
     }
 }
@@ -1308,28 +2190,12 @@ const fn geneanet_phase(phase: geneanet::ImportPhase) -> &'static str {
     }
 }
 
-fn import_summary(job: &BackgroundJob) -> Result<gedcom::ImportSummary, OxidGeneError> {
-    let result = job
-        .result_json
-        .as_deref()
-        .ok_or_else(|| OxidGeneError::Internal("persisted import has no result".into()))?;
-    serde_json::from_str(result).map_err(|error| OxidGeneError::Internal(error.to_string()))
-}
-
 fn geneanet_payload(job: &BackgroundJob) -> Result<GeneanetJobPayload, OxidGeneError> {
     let payload = job
         .payload_json
         .as_deref()
         .ok_or_else(|| OxidGeneError::Validation("Geneanet import job has no payload".into()))?;
     serde_json::from_str(payload).map_err(|error| OxidGeneError::Validation(error.to_string()))
-}
-
-fn geneanet_summary(job: &BackgroundJob) -> Result<geneanet::GeneanetImportSummary, OxidGeneError> {
-    let result = job
-        .result_json
-        .as_deref()
-        .ok_or_else(|| OxidGeneError::Internal("persisted import has no result".into()))?;
-    serde_json::from_str(result).map_err(|error| OxidGeneError::Internal(error.to_string()))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1497,6 +2363,9 @@ pub async fn stage_geneanet_import(
 #[derive(Debug, Clone, Serialize)]
 pub struct ExportJobStatus {
     pub phase: String,
+    /// Identifies this state, to wait for the next one with: see
+    /// [`job_watch`].
+    pub version: String,
     pub done: i64,
     pub total: i64,
     /// Where to download the archive, once it is complete and until
@@ -1522,6 +2391,9 @@ pub struct ExportJobStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportJobStatus {
     pub phase: String,
+    /// Identifies this state, to wait for the next one with: see
+    /// [`job_watch`].
+    pub version: String,
     pub done: i64,
     pub total: i64,
     /// The receipt of a completed file import.
@@ -1628,11 +2500,14 @@ pub async fn export_job_status(
     tree_id: Uuid,
     job_id: Uuid,
 ) -> Result<ExportJobStatus, OxidGeneError> {
-    if let Some(progress) = live_job_progress(tree_id, job_id, BackgroundJobKind::Export) {
+    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Export) {
+        let (done, total) = live.counts();
+        let phase = live.phase();
         return Ok(ExportJobStatus {
-            phase: progress.phase,
-            done: count(progress.done),
-            total: count(progress.total),
+            version: version_of(&phase, done, total),
+            phase,
+            done,
+            total,
             download_url: None,
             expires_at: None,
             size_bytes: None,
@@ -1649,10 +2524,12 @@ pub async fn export_job_status(
     let expires_at = downloadable_until(&job);
     let download_url =
         expires_at.map(|_| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
     Ok(ExportJobStatus {
-        phase: job.phase,
-        done: count(job.done),
-        total: count(job.total),
+        version: version_of(&phase, done, total),
+        phase,
+        done,
+        total,
         download_url,
         expires_at,
         size_bytes,
@@ -1667,11 +2544,14 @@ pub async fn import_job_status(
     tree_id: Uuid,
     job_id: Uuid,
 ) -> Result<ImportJobStatus, OxidGeneError> {
-    if let Some(progress) = live_job_progress(tree_id, job_id, BackgroundJobKind::Import) {
+    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Import) {
+        let (done, total) = live.counts();
+        let phase = live.phase();
         return Ok(ImportJobStatus {
-            phase: progress.phase,
-            done: count(progress.done),
-            total: count(progress.total),
+            version: version_of(&phase, done, total),
+            phase,
+            done,
+            total,
             result: None,
             geneanet_result: None,
             error: None,
@@ -1684,14 +2564,178 @@ pub async fn import_job_status(
     } else {
         (receipt(serialized)?, None)
     };
+    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
     Ok(ImportJobStatus {
-        phase: job.phase,
-        done: count(job.done),
-        total: count(job.total),
+        version: version_of(&phase, done, total),
+        phase,
+        done,
+        total,
         result,
         geneanet_result,
         error: job.error_code,
     })
+}
+
+/// The phase a status read reports for `job`, read from the database:
+/// `cancelling` once a running job was asked to stop.
+fn reported_phase(job: &BackgroundJob) -> String {
+    if job.cancel_requested && job.status == BackgroundJobStatus::Running.as_str() {
+        PHASE_CANCELLING.to_string()
+    } else {
+        job.phase.clone()
+    }
+}
+
+/// Cancel import job `job_id` of tree `tree_id`: a queued job ends at once,
+/// a running one stops at its next unit of work and rolls back. Where it
+/// stands then.
+pub async fn cancel_import_job(
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    cancel_job(
+        writer,
+        reader,
+        media,
+        tree_id,
+        job_id,
+        BackgroundJobKind::Import,
+    )
+    .await?;
+    import_job_status(reader, tree_id, job_id).await
+}
+
+/// Cancel export job `job_id` of tree `tree_id`: a queued job ends at once,
+/// a running one stops at its next medium. Where it stands then.
+pub async fn cancel_export_job(
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    cancel_job(
+        writer,
+        reader,
+        media,
+        tree_id,
+        job_id,
+        BackgroundJobKind::Export,
+    )
+    .await?;
+    export_job_status(reader, tree_id, job_id).await
+}
+
+/// Ask job `job_id` of `kind` in tree `tree_id` to stop.
+///
+/// A queued job ends at once, cancelled, unrun. A running job stops at its
+/// next unit of work — a batch of rows, a medium — rolls back everything it
+/// wrote and ends cancelled; its status reads `cancelling` meanwhile. A job
+/// that has ended already is left as it is.
+///
+/// The request waits for nothing the job holds. A job this process runs
+/// gets the request in memory. Under SQLite, whose only writer the running
+/// import holds, a request for any other job is noted in memory too, and
+/// the worker writes it once the writer is free — the statuses and the tree
+/// list report it meanwhile. Under PostgreSQL the request goes to the
+/// database, where the worker of another process reads it with its next
+/// progress report.
+async fn cancel_job(
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+    kind: BackgroundJobKind,
+) -> Result<(), OxidGeneError> {
+    if cancel_here(tree_id, job_id, kind, None) {
+        return Ok(());
+    }
+    let job = job_of_kind(reader, tree_id, job_id, kind).await?;
+    let queued = job.status == BackgroundJobStatus::Queued.as_str();
+    if !queued && job.status != BackgroundJobStatus::Running.as_str() {
+        return Ok(());
+    }
+    if writer.get_database_backend() == DbBackend::Sqlite {
+        cancel_here(tree_id, job_id, kind, Some(queued));
+        return Ok(());
+    }
+    if queued && BackgroundJobRepo::cancel_queued(writer, job_id).await? {
+        if let Err(error) = media.delete_job(job_id).await {
+            tracing::warn!(
+                job_id = %job_id,
+                error.kind = error_kind(&error),
+                "could not delete the inputs of a cancelled job"
+            );
+        }
+    } else {
+        // Running, or claimed since it was read.
+        BackgroundJobRepo::request_cancel(writer, job_id).await?;
+    }
+    job_watch::announce(job_id);
+    Ok(())
+}
+
+/// Where import job `job_id` of tree `tree_id` stands, once it differs from
+/// what `wait` last read or `wait`'s time has run out (see [`job_watch`]).
+pub async fn wait_import_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    wait: &JobWait,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    job_watch::wait_for(job_id, wait, || import_job_status(db, tree_id, job_id)).await
+}
+
+/// Where export job `job_id` of tree `tree_id` stands, once it differs from
+/// what `wait` last read or `wait`'s time has run out (see [`job_watch`]).
+pub async fn wait_export_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    wait: &JobWait,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    job_watch::wait_for(job_id, wait, || export_job_status(db, tree_id, job_id)).await
+}
+
+/// What identifies a job's visible state: its phase and counts. Everything
+/// else a status carries changes only with its phase.
+fn version_of(phase: &str, done: i64, total: i64) -> String {
+    format!("{phase}.{done}.{total}")
+}
+
+/// Whether a job in `phase` has ended.
+fn has_ended(phase: &str) -> bool {
+    [
+        BackgroundJobStatus::Completed,
+        BackgroundJobStatus::Failed,
+        BackgroundJobStatus::Cancelled,
+    ]
+    .iter()
+    .any(|status| status.as_str() == phase)
+}
+
+impl Versioned for ImportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn has_ended(&self) -> bool {
+        has_ended(&self.phase)
+    }
+}
+
+impl Versioned for ExportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn has_ended(&self) -> bool {
+        has_ended(&self.phase)
+    }
 }
 
 /// A completed export of a tree whose archive can still be downloaded.

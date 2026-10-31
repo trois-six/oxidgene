@@ -57,7 +57,7 @@ Dupliquer un arbre permet d’essayer d’abord sur une copie une opération ris
 
 ### Pendant un import
 
-Pendant qu’un fichier est importé dans un arbre, sa carte est recouverte de la mention **Import en cours** et ne peut être ni ouverte, ni renommée, ni supprimée. Elle redevient disponible d’elle-même une fois l’import terminé, même si vous rechargez la page entre-temps.
+Pendant qu’un fichier est importé dans un arbre, sa carte est recouverte de la mention **Import en cours** et ne peut être ni ouverte, ni renommée, ni supprimée. Elle redevient disponible d’elle-même une fois l’import terminé, même si vous rechargez la page entre-temps. Quand un import est annulé (voir [Annuler un import](@/guide/import-export.fr.md#annuler-un-import)), la carte affiche **Annulation de l’import…** pendant que l’import supprime ce qu’il a ajouté, puis redevient disponible avec l’arbre exactement tel qu’il était.
 
 ## Désigner la racine SOSA
 

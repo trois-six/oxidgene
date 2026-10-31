@@ -484,6 +484,27 @@ pub struct StartFileImportQuery {
     pub filename: Option<String>,
 }
 
+/// How a job status read waits for the job to change (see
+/// [`crate::service::job_watch`]).
+#[derive(Debug, Deserialize)]
+pub struct JobStatusQuery {
+    /// The `version` last read: the read answers once the job's state
+    /// differs from it. Without it the read answers at once.
+    pub since: Option<String>,
+    /// How many seconds to wait at most for that change, capped at 25.
+    pub wait: Option<u64>,
+}
+
+impl JobStatusQuery {
+    /// The wait these parameters ask for.
+    pub fn wait(&self) -> crate::service::job_watch::JobWait {
+        crate::service::job_watch::JobWait {
+            since: self.since.clone(),
+            wait: std::time::Duration::from_secs(self.wait.unwrap_or(0)),
+        }
+    }
+}
+
 /// Operation identifier returned once the upload has reached durable storage.
 #[derive(Debug, Serialize)]
 pub struct FileImportStartedResponse {

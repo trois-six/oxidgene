@@ -774,6 +774,10 @@ pub struct TreeListItem {
     pub import_in_progress: bool,
     #[serde(default)]
     pub import_job_id: Option<Uuid>,
+    /// Whether the active import was asked to cancel and is still undoing
+    /// what it wrote.
+    #[serde(default)]
+    pub import_cancelling: bool,
 }
 
 impl std::ops::Deref for TreeListItem {
@@ -2266,12 +2270,115 @@ pub struct ImportResult {
 /// Pollable state of an asynchronous genealogy file import.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct FileImportJobStatus {
+    /// Opaque; changes with every visible change of the job, and is what a
+    /// long poll waits on ([`JobWait`]).
+    #[serde(default)]
+    pub version: String,
     pub phase: String,
     pub done: usize,
     pub total: usize,
     pub result: Option<ImportResult>,
     pub geneanet_result: Option<GeneanetImportResult>,
     pub error: Option<String>,
+}
+
+/// A long poll of a background job's status: answer once the job's state
+/// differs from version `since` or the job has ended, else after `seconds`
+/// with the state unchanged. The server caps the wait, and answers at once
+/// when too many requests already wait; [`follow_job`] paces its loop for
+/// that.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JobWait {
+    pub since: String,
+    #[serde(rename = "wait")]
+    pub seconds: u32,
+}
+
+impl JobWait {
+    /// How long a long poll asks to wait: the server's cap.
+    pub const SECONDS: u32 = 25;
+
+    /// How long to pause before the next status request, after one that
+    /// waited on `since` and read `version` in `elapsed_ms`: nothing when
+    /// the job changed or the wait ran its course, a second when the server
+    /// answered an unchanged state at once — it declined to hold the request
+    /// — so that a busy server is not asked in a tight loop.
+    #[must_use]
+    pub fn pause_ms(since: Option<&str>, version: &str, elapsed_ms: i64) -> u32 {
+        match since {
+            Some(since) if since == version && elapsed_ms < 1_000 => 1_000,
+            _ => 0,
+        }
+    }
+}
+
+/// The status of a background job, as [`follow_job`] reads it.
+pub trait JobStatus {
+    /// Opaque; changes with every visible change of the job.
+    fn version(&self) -> &str;
+    fn phase(&self) -> &str;
+}
+
+impl JobStatus for FileImportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn phase(&self) -> &str {
+        &self.phase
+    }
+}
+
+impl JobStatus for ExportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn phase(&self) -> &str {
+        &self.phase
+    }
+}
+
+/// Whether a job in `phase` has ended. `cancelling` has not: the job is
+/// still stopping, or undoing what it wrote.
+#[must_use]
+pub fn is_job_over(phase: &str) -> bool {
+    matches!(phase, "completed" | "failed" | "cancelled")
+}
+
+/// Follows a background job until it ends, reading its status with `read`
+/// and handing every status read to `report`; the status it ended with.
+///
+/// The first read answers at once; every later one is a long poll on the
+/// version last read ([`JobWait`]), so the server answers as soon as the job
+/// changes, and nothing is asked while nothing happens.
+pub async fn follow_job<S, F>(
+    mut read: impl FnMut(Option<JobWait>) -> F,
+    mut report: impl FnMut(&S),
+) -> Result<S, ApiError>
+where
+    S: JobStatus,
+    F: std::future::Future<Output = Result<S, ApiError>>,
+{
+    let mut since: Option<String> = None;
+    loop {
+        let asked = chrono::Utc::now();
+        let wait = since.clone().map(|since| JobWait {
+            since,
+            seconds: JobWait::SECONDS,
+        });
+        let status = read(wait).await?;
+        report(&status);
+        if is_job_over(status.phase()) {
+            return Ok(status);
+        }
+        let elapsed = (chrono::Utc::now() - asked).num_milliseconds();
+        let pause = JobWait::pause_ms(since.as_deref(), status.version(), elapsed);
+        if pause > 0 {
+            crate::utils::sleep_ms(pause).await;
+        }
+        since = Some(status.version().to_string());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -2366,6 +2473,10 @@ pub struct ExportJobStarted {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ExportJobStatus {
+    /// Opaque; changes with every visible change of the job, and is what a
+    /// long poll waits on ([`JobWait`]).
+    #[serde(default)]
+    pub version: String,
     pub phase: String,
     pub done: usize,
     pub total: usize,
@@ -5468,21 +5579,40 @@ impl ApiClient {
         Self::handle_response("POST", response).await
     }
 
-    /// Poll a file import without caching its deliberately changing response.
+    /// Read a file import's status without caching its deliberately changing
+    /// response: at once, or with `wait` once it changed ([`JobWait`]).
     pub async fn file_import_status(
         &self,
         tree_id: Uuid,
         job_id: Uuid,
+        wait: Option<JobWait>,
     ) -> Result<FileImportJobStatus, ApiError> {
         let response = self
             .send_request(
                 "GET",
                 self.client
-                    .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"))),
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}")))
+                    .query(&wait),
             )
             .await?;
         let response = Self::require_success(response).await?;
         Ok(response.json().await?)
+    }
+
+    /// Ask import job `job_id` to stop and undo everything it wrote; its
+    /// status afterwards, never cached. A job still queued answers
+    /// `cancelled` at once, a running one `cancelling` until it has unwound,
+    /// and one already over its own terminal status, unchanged.
+    pub async fn cancel_file_import(
+        &self,
+        tree_id: Uuid,
+        job_id: Uuid,
+    ) -> Result<FileImportJobStatus, ApiError> {
+        let path = format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}/cancel");
+        let response = self
+            .send_write("POST", &path, self.client.post(self.url(&path)))
+            .await?;
+        Self::handle_response("POST", response).await
     }
 
     // ── Geneanet import wizard ──────────────────────────────────────
@@ -5627,20 +5757,42 @@ impl ApiClient {
         Self::handle_response("POST", response).await
     }
 
-    /// Poll an export job without caching its changing response.
+    /// Read an export job's status without caching its changing response:
+    /// at once, or with `wait` once it changed ([`JobWait`]).
     pub async fn export_job_status(
+        &self,
+        tree_id: Uuid,
+        job_id: Uuid,
+        wait: Option<JobWait>,
+    ) -> Result<ExportJobStatus, ApiError> {
+        let response = self
+            .send_request(
+                "GET",
+                self.client
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}")))
+                    .query(&wait),
+            )
+            .await?;
+        Self::handle_response("GET", response).await
+    }
+
+    /// Ask export job `job_id` to stop without producing its archive; its
+    /// status afterwards, never cached. The tree is left alone, so its cached
+    /// reads are too. A job already over answers its terminal status.
+    pub async fn cancel_export_job(
         &self,
         tree_id: Uuid,
         job_id: Uuid,
     ) -> Result<ExportJobStatus, ApiError> {
         let response = self
             .send_request(
-                "GET",
-                self.client
-                    .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"))),
+                "POST",
+                self.client.post(self.url(&format!(
+                    "/api/v1/trees/{tree_id}/export-jobs/{job_id}/cancel"
+                ))),
             )
             .await?;
-        Self::handle_response("GET", response).await
+        Self::handle_response("POST", response).await
     }
 
     /// The tree's most recent export that can still be downloaded, if any;
@@ -5977,6 +6129,46 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_job_status_read_asks_to_wait_only_once_it_knows_a_version() {
+        let client = reqwest::Client::new();
+        let at_once = client
+            .get("http://127.0.0.1/status")
+            .query(&None::<JobWait>)
+            .build()
+            .unwrap();
+        assert_eq!(at_once.url().query(), None);
+        let waiting = client
+            .get("http://127.0.0.1/status")
+            .query(&Some(JobWait {
+                since: "v7".to_string(),
+                seconds: JobWait::SECONDS,
+            }))
+            .build()
+            .unwrap();
+        assert_eq!(waiting.url().query(), Some("since=v7&wait=25"));
+    }
+
+    #[test]
+    fn a_long_poll_pauses_only_when_the_server_declined_to_wait() {
+        // The first read, a change, or a wait that ran its course: at once.
+        assert_eq!(JobWait::pause_ms(None, "v1", 5), 0);
+        assert_eq!(JobWait::pause_ms(Some("v1"), "v2", 5), 0);
+        assert_eq!(JobWait::pause_ms(Some("v1"), "v1", 25_000), 0);
+        // Unchanged, and answered at once: the server held nothing.
+        assert_eq!(JobWait::pause_ms(Some("v1"), "v1", 40), 1_000);
+    }
+
+    #[test]
+    fn only_completion_failure_and_cancellation_end_a_job() {
+        for over in ["completed", "failed", "cancelled"] {
+            assert!(is_job_over(over), "{over}");
+        }
+        for running in ["queued", "parsing", "media", "cancelling"] {
+            assert!(!is_job_over(running), "{running}");
+        }
+    }
 
     #[test]
     fn an_api_error_reads_its_envelope_code() {

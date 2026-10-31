@@ -130,9 +130,40 @@ pub struct FileImportProgress {
     phase: std::sync::Mutex<FileImportPhase>,
     result: std::sync::Mutex<Option<ImportSummary>>,
     error: std::sync::Mutex<Option<&'static str>>,
+    /// Whether the run was asked to stop.
+    cancel: super::background_job::CancelToken,
 }
 
 impl FileImportProgress {
+    /// The progress of a run that stops once `cancel` is cancelled.
+    pub(crate) fn cancellable(cancel: super::background_job::CancelToken) -> Self {
+        Self {
+            cancel,
+            ..Self::default()
+        }
+    }
+
+    /// `Err` once the run was asked to stop: checked between two units of
+    /// work, each medium and each batch of rows.
+    pub(crate) fn check_cancelled(&self) -> Result<(), OxidGeneError> {
+        #[cfg(test)]
+        self.cancel.reach(&format!("{:?}", self.read().0))?;
+        self.cancel.check()
+    }
+
+    /// Enter `phase`, of `total` units, none done yet.
+    pub(crate) fn begin(&self, phase: FileImportPhase, total: usize) {
+        self.done.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.expect(total);
+        self.enter(phase);
+    }
+
+    /// Count `amount` more units done.
+    pub(crate) fn advance_by(&self, amount: usize) {
+        self.done
+            .fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn enter(&self, phase: FileImportPhase) {
         if let Ok(mut current) = self.phase.lock() {
             *current = phase;
@@ -195,11 +226,12 @@ pub struct ExportData {
 }
 
 /// Insert a batch of active models using `insert_many`, chunked to stay within
-/// SQLite's variable limit.
+/// SQLite's variable limit. `on_inserted` hears of each chunk written; its
+/// `Err`, a cancellation, stops the insertion.
 async fn batch_insert<E, A>(
     txn: &impl sea_orm::ConnectionTrait,
     models: Vec<A>,
-    on_inserted: &mut impl FnMut(usize),
+    on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<(), OxidGeneError>
 where
     E: EntityTrait,
@@ -213,9 +245,28 @@ where
         }
         let inserted = chunk.len();
         E::insert_many(chunk).exec(txn).await.map_err(db_err)?;
-        on_inserted(inserted);
+        on_inserted(inserted)?;
     }
     Ok(())
+}
+
+/// How many rows persisting `result` inserts in measured batches: the
+/// total of an import's database phase.
+pub(crate) fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> usize {
+    result.places.len()
+        + result.sources.len()
+        + result.media.len()
+        + result.persons.len()
+        + result.person_names.len()
+        + result.families.len()
+        + result.family_spouses.len()
+        + result.family_children.len()
+        + result.events.len()
+        + result.event_witnesses.len()
+        + result.citations.len()
+        + result.media_links.len()
+        + result.vignettes.len()
+        + result.notes.len()
 }
 
 /// Parse a GEDCOM string and persist all extracted entities into the database.
@@ -285,6 +336,7 @@ pub(crate) async fn prepare_gedzip_file(
     let media_span = tracing::info_span!("import.media", import.format = "gedzip");
     async {
         for (media_id, entry_name) in files {
+            progress.check_cancelled()?;
             let display_name = names.get(&media_id).map_or("upload", String::as_str);
             let outcome = match reader.read_media_file(&entry_name) {
                 Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
@@ -312,9 +364,10 @@ pub(crate) async fn prepare_gedzip_file(
             }
             progress.advance();
         }
+        Ok::<(), OxidGeneError>(())
     }
     .instrument(media_span)
-    .await;
+    .await?;
 
     Ok(result)
 }
@@ -348,33 +401,20 @@ pub(crate) async fn persist_import_result(
     db: &DatabaseConnection,
     result: oxidgene_gedcom::ImportResult,
 ) -> Result<ImportSummary, OxidGeneError> {
-    persist_import_result_with_progress(db, result, |_| {}).await
-}
-
-#[tracing::instrument(name = "import.persist", skip_all)]
-pub(crate) async fn persist_import_result_with_progress(
-    db: &DatabaseConnection,
-    result: oxidgene_gedcom::ImportResult,
-    mut on_inserted: impl FnMut(usize),
-) -> Result<ImportSummary, OxidGeneError> {
     let txn = db.begin().await.map_err(db_err)?;
-    let summary = persist_import_result_in_with_progress(&txn, result, &mut on_inserted).await?;
+    let summary = persist_import_result_in(&txn, result, &mut |_| Ok(())).await?;
     txn.commit().await.map_err(db_err)?;
     Ok(summary)
 }
 
+/// [`persist_import_result`] on `db`, a transaction the caller ends.
+/// `on_inserted` hears of each batch of rows written; its `Err`, a
+/// cancellation, stops the import there.
 #[tracing::instrument(name = "import.persist", skip_all)]
 pub(crate) async fn persist_import_result_in(
     db: &impl ConnectionTrait,
     result: oxidgene_gedcom::ImportResult,
-) -> Result<ImportSummary, OxidGeneError> {
-    persist_import_result_in_with_progress(db, result, &mut |_| {}).await
-}
-
-async fn persist_import_result_in_with_progress(
-    db: &impl ConnectionTrait,
-    result: oxidgene_gedcom::ImportResult,
-    on_inserted: &mut impl FnMut(usize),
+    on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<ImportSummary, OxidGeneError> {
     let now = Utc::now();
     if let Some(submitter) = &result.submitter {
@@ -416,7 +456,7 @@ async fn insert_standalone_records(
     db: &impl ConnectionTrait,
     result: &oxidgene_gedcom::ImportResult,
     now: DateTime<Utc>,
-    on_inserted: &mut impl FnMut(usize),
+    on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<(), OxidGeneError> {
     // 1. Places (no FKs to other imported entities)
     if !result.places.is_empty() {
@@ -652,7 +692,7 @@ async fn insert_tags(
                 }),
         );
     }
-    batch_insert::<record_tag::Entity, _>(db, links, &mut |_| {}).await
+    batch_insert::<record_tag::Entity, _>(db, links, &mut |_| Ok(())).await
 }
 
 /// Inserts the imported repositories and the sources' links to them.
@@ -677,7 +717,7 @@ async fn insert_repositories(
             deleted_at: Set(None),
         })
         .collect();
-    batch_insert::<repository::Entity, _>(db, models, &mut |_| {}).await?;
+    batch_insert::<repository::Entity, _>(db, models, &mut |_| Ok(())).await?;
     let links: Vec<source_repository::ActiveModel> = result
         .source_repositories
         .iter()
@@ -690,7 +730,7 @@ async fn insert_repositories(
             sort_order: Set(l.sort_order),
         })
         .collect();
-    batch_insert::<source_repository::Entity, _>(db, links, &mut |_| {}).await
+    batch_insert::<source_repository::Entity, _>(db, links, &mut |_| Ok(())).await
 }
 
 /// Inserts the imported persons and their names, then the families with
@@ -699,7 +739,7 @@ async fn insert_persons_and_families(
     db: &impl ConnectionTrait,
     result: &oxidgene_gedcom::ImportResult,
     now: DateTime<Utc>,
-    on_inserted: &mut impl FnMut(usize),
+    on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<(), OxidGeneError> {
     // 4. Persons (FK → tree)
     if !result.persons.is_empty() {
@@ -803,7 +843,7 @@ async fn insert_attached_records(
     db: &impl ConnectionTrait,
     result: &oxidgene_gedcom::ImportResult,
     now: DateTime<Utc>,
-    on_inserted: &mut impl FnMut(usize),
+    on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<(), OxidGeneError> {
     // 9. Events (FK → tree, person?, family?, place?)
     if !result.events.is_empty() {
@@ -973,7 +1013,7 @@ async fn insert_spouse_ages(
             })
         })
         .collect();
-    batch_insert::<event_spouse_age::Entity, _>(db, models, &mut |_| {}).await
+    batch_insert::<event_spouse_age::Entity, _>(db, models, &mut |_| Ok(())).await
 }
 
 /// The export choices a request's options make, REST's and GraphQL's alike:

@@ -72,7 +72,26 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
         tree_id: Uuid,
         extension: &str,
         bytes: &[u8],
+    ) -> Result<StoredObject, OxidGeneError> {
+        let sha256 = sha256_hex(bytes);
+        let key = key_for(tree_id, &sha256, extension);
+        self.put_content(&key, sha256, bytes).await
+    }
+
+    /// Write `bytes`, whose SHA-256 is `sha256`, at their content key `key`
+    /// (`{tree_id}/{aa}/{bb}/{digest}.{ext}`), unless an object is there already.
+    async fn put_content(
+        &self,
+        key: &str,
+        sha256: String,
+        bytes: &[u8],
     ) -> Result<StoredObject, OxidGeneError>;
+
+    /// Write `bytes` at job key `key`, replacing whatever is there.
+    async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError>;
+
+    /// The keys stored under `jobs/{job_id}/`.
+    async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError>;
 
     /// Read back the bytes at `key`.
     async fn get(&self, key: &str) -> Result<Vec<u8>, OxidGeneError>;
@@ -163,6 +182,14 @@ async fn file_digest(path: &Path) -> Result<(String, i64), OxidGeneError> {
     Ok((sha256, size))
 }
 
+/// The tree a content key belongs to; `None` for any other key.
+pub fn content_key_tree(key: &str) -> Option<Uuid> {
+    if content_key_error(key).is_some() {
+        return None;
+    }
+    key.split('/').next()?.parse().ok()
+}
+
 /// Build the store key for a digest under a tree.
 fn key_for(tree_id: Uuid, digest: &str, extension: &str) -> String {
     if extension.is_empty() {
@@ -200,15 +227,18 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
 fn job_key_error(job_key: &str) -> Option<&'static str> {
     let mut parts = job_key.split('/');
     let (Some(job_id), Some(file), None) = (parts.next(), parts.next(), parts.next()) else {
-        return Some("expected jobs/{job_id}/{source|artifact|input-N}[.ext]");
+        return Some("expected jobs/{job_id}/{source|artifact|input-N|created-N}[.ext]");
     };
     if Uuid::parse_str(job_id).is_err() {
         return Some("job segment is not a UUID");
     }
     let (role, extension) = file.split_once('.').unwrap_or((file, ""));
-    let numbered_input = role.strip_prefix("input-").is_some_and(|index| {
-        !index.is_empty() && index.chars().all(|character| character.is_ascii_digit())
-    });
+    let numbered = |prefix: &str| {
+        role.strip_prefix(prefix).is_some_and(|index| {
+            !index.is_empty() && index.chars().all(|character| character.is_ascii_digit())
+        })
+    };
+    let numbered_input = numbered("input-") || numbered("created-");
     let known_role = matches!(role, "source" | "artifact") || numbered_input;
     let plain_extension = extension
         .chars()
@@ -276,47 +306,58 @@ impl FsStore {
 
 #[async_trait::async_trait]
 impl MediaStore for FsStore {
-    async fn put(
+    async fn put_content(
         &self,
-        tree_id: Uuid,
-        extension: &str,
+        key: &str,
+        sha256: String,
         bytes: &[u8],
     ) -> Result<StoredObject, OxidGeneError> {
-        let digest = sha256_hex(bytes);
-        let key = key_for(tree_id, &digest, extension);
-        let path = self.path_for(&key)?;
+        let path = self.path_for(key)?;
         let size = bytes.len() as i64;
 
         if tokio::fs::metadata(&path).await.is_ok() {
             return Ok(StoredObject {
-                key,
-                sha256: digest,
+                key: key.to_string(),
+                sha256,
                 size,
                 deduplicated: true,
             });
         }
 
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Write beside the target and rename into place. A reader that finds
-        // the final name finds the whole file: an upload killed halfway leaves
-        // a stray temp file, never a truncated one that would then be trusted
-        // as a match for its own digest.
-        let temp = path.with_extension(format!("{extension}.part-{}", Uuid::now_v7()));
-        tokio::fs::write(&temp, bytes).await?;
-        if let Err(err) = tokio::fs::rename(&temp, &path).await {
-            let _ = tokio::fs::remove_file(&temp).await;
-            return Err(err.into());
-        }
-
+        write_replacing(&path, bytes).await?;
         Ok(StoredObject {
-            key,
-            sha256: digest,
+            key: key.to_string(),
+            sha256,
             size,
             deduplicated: false,
         })
+    }
+
+    async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
+        if !key.starts_with("jobs/") {
+            return Err(OxidGeneError::Validation("not a job key".into()));
+        }
+        write_replacing(&self.path_for(key)?, bytes).await
+    }
+
+    async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError> {
+        let directory = self.root.join("jobs").join(job_id.to_string());
+        let mut entries = match tokio::fs::read_dir(&directory).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err.into()),
+        };
+        let mut keys = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if let Some(name) = entry.file_name().to_str() {
+                let key = format!("jobs/{job_id}/{name}");
+                // A temporary file of a write under way is no key.
+                if validate_key(&key).is_ok() {
+                    keys.push(key);
+                }
+            }
+        }
+        Ok(keys)
     }
 
     async fn get(&self, key: &str) -> Result<Vec<u8>, OxidGeneError> {
@@ -415,6 +456,25 @@ impl MediaStore for FsStore {
         }
         Ok(ids)
     }
+}
+
+/// Write `bytes` at `path`, beside it first and then renamed into place: a
+/// reader that finds the final name finds the whole file. A write killed
+/// halfway leaves a stray temporary file, never a truncated one that would
+/// then be trusted as a match for its own digest.
+async fn write_replacing(path: &Path, bytes: &[u8]) -> Result<(), OxidGeneError> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
+    temp_name.push(format!(".part-{}", Uuid::now_v7()));
+    let temp = path.with_file_name(temp_name);
+    tokio::fs::write(&temp, bytes).await?;
+    if let Err(err) = tokio::fs::rename(&temp, path).await {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 /// Remove the directory at `path` and everything in it; a missing one is
@@ -520,22 +580,20 @@ fn s3_error(operation: &str) -> OxidGeneError {
 #[cfg(feature = "s3")]
 #[async_trait::async_trait]
 impl MediaStore for S3Store {
-    async fn put(
+    async fn put_content(
         &self,
-        tree_id: Uuid,
-        extension: &str,
+        key: &str,
+        sha256: String,
         bytes: &[u8],
     ) -> Result<StoredObject, OxidGeneError> {
-        let digest = sha256_hex(bytes);
-        let key = key_for(tree_id, &digest, extension);
-        let location = Self::location(&key)?;
+        let location = Self::location(key)?;
         let size = bytes.len() as i64;
 
         match self.store.head(&location).await {
             Ok(_) => {
                 return Ok(StoredObject {
-                    key,
-                    sha256: digest,
+                    key: key.to_string(),
+                    sha256,
                     size,
                     deduplicated: true,
                 });
@@ -550,11 +608,37 @@ impl MediaStore for S3Store {
             .map_err(|_| s3_error("write"))?;
 
         Ok(StoredObject {
-            key,
-            sha256: digest,
+            key: key.to_string(),
+            sha256,
             size,
             deduplicated: false,
         })
+    }
+
+    async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
+        if !key.starts_with("jobs/") {
+            return Err(OxidGeneError::Validation("not a job key".into()));
+        }
+        self.store
+            .put(&Self::location(key)?, bytes.to_vec().into())
+            .await
+            .map(drop)
+            .map_err(|_| s3_error("write"))
+    }
+
+    async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError> {
+        let prefix = object_store::path::Path::from_iter(["jobs".to_string(), job_id.to_string()]);
+        let objects: Vec<_> = self
+            .store
+            .list(Some(&prefix))
+            .try_collect()
+            .await
+            .map_err(|_| s3_error("job listing"))?;
+        Ok(objects
+            .into_iter()
+            .map(|object| object.location.to_string())
+            .filter(|key| validate_key(key).is_ok())
+            .collect())
     }
 
     async fn get(&self, key: &str) -> Result<Vec<u8>, OxidGeneError> {

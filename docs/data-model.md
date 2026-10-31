@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
 ---
 
 
@@ -898,9 +898,11 @@ A job's `payload_json` is cleared when it ends; its `result_json` stays for
 the status poll. Workers delete the rows of jobs ended more than a day ago,
 and an export's `artifact_key` is cleared when its artifact is deleted, an
 hour after completion whatever the downloads (see
-[Architecture §6](architecture.md)). `cancel_requested` and the `cancelled`
-status are part of the schema but nothing sets them yet: no API cancels a
-job.
+[Architecture §6](architecture.md)). A job ends `completed`, `failed` or
+`cancelled`. `cancel_requested` is the request that a running job stop, set
+under PostgreSQL for the worker to read with its next progress report; under
+SQLite a running job's request reaches its worker in memory instead
+([Architecture §6.3](architecture.md#63-job-cancellation)).
 
 Read models are durable database data, not a cache tier. They are derived from
 the normalized entities above, refreshed with mutations, and rebuilt when

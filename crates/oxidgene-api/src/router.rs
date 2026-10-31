@@ -526,6 +526,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/{tree_id}/export-jobs/{job_id}", get(file_export::status))
         .route(
+            "/{tree_id}/export-jobs/{job_id}/cancel",
+            post(file_export::cancel),
+        )
+        .route(
             "/{tree_id}/export-jobs/{job_id}/download",
             get(file_export::download),
         )
@@ -535,6 +539,10 @@ pub fn build_router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(file_import::FILE_IMPORT_BODY_LIMIT)),
         )
         .route("/{tree_id}/import-jobs/{job_id}", get(file_import::status))
+        .route(
+            "/{tree_id}/import-jobs/{job_id}/cancel",
+            post(file_import::cancel),
+        )
         // GEDZIP is the archive form of the same export, so it rides on
         // `gedcom/export?format=gedzip` rather than a route of its own.
         .route(

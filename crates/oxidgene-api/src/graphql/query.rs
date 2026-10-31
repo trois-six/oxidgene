@@ -53,6 +53,18 @@ use super::types::{
     require_local_file_access,
 };
 
+/// How a job status query waits: REST's `since` and `wait`, a negative wait
+/// being none.
+fn job_wait(since: Option<String>, wait: Option<i32>) -> crate::service::job_watch::JobWait {
+    crate::service::job_watch::JobWait {
+        since,
+        wait: std::time::Duration::from_secs(
+            wait.and_then(|seconds| u64::try_from(seconds).ok())
+                .unwrap_or(0),
+        ),
+    }
+}
+
 /// A read's record, or `None` when the record is not there — the shape of
 /// every single-record query. Any other failure is an error.
 fn found<T, G: From<T>>(read: Result<T, OxidGeneError>) -> Result<Option<G>> {
@@ -1747,21 +1759,27 @@ impl QueryRoot {
         .await
     }
 
-    /// Poll a durable GEDZIP export created by `startExportJob`.
+    /// Poll a durable GEDZIP export created by `startExportJob`. With
+    /// `since`, the `version` last read, and `wait`, in seconds (at most
+    /// 25), answer once the job's state differs from that version, or when
+    /// the wait runs out.
     async fn export_job_status(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         job_id: ID,
+        since: Option<String>,
+        wait: Option<i32>,
     ) -> Result<GqlExportJobStatus> {
         boxed(async move {
             // Not `live_tree`: a running job answers from memory, without the
             // database; the service checks the tree when it has to read.
             let tree_id = uuid(&tree_id)?;
-            let status = crate::service::background_job::export_job_status(
+            let status = crate::service::background_job::wait_export_job_status(
                 reader_from_ctx(ctx),
                 tree_id,
                 uuid(&job_id)?,
+                &job_wait(since, wait),
             )
             .await?;
             Ok(status.into())
@@ -1789,20 +1807,26 @@ impl QueryRoot {
     }
 
     /// Poll a durable genealogy file import created by `startFileImportJob`.
+    /// With `since`, the `version` last read, and `wait`, in seconds (at
+    /// most 25), answer once the job's state differs from that version, or
+    /// when the wait runs out.
     async fn import_job_status(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         job_id: ID,
+        since: Option<String>,
+        wait: Option<i32>,
     ) -> Result<GqlImportJobStatus> {
         boxed(async move {
             // Not `live_tree`: a running job answers from memory, without the
             // database; the service checks the tree when it has to read.
             let tree_id = uuid(&tree_id)?;
-            let status = crate::service::background_job::import_job_status(
+            let status = crate::service::background_job::wait_import_job_status(
                 reader_from_ctx(ctx),
                 tree_id,
                 uuid(&job_id)?,
+                &job_wait(since, wait),
             )
             .await?;
             Ok(status.into())

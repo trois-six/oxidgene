@@ -57,7 +57,7 @@ Duplicating a tree is a good way to try something risky, such as a large import 
 
 ### While an import runs
 
-While a file is being imported into a tree, its card is covered by **Import in progress** and cannot be opened, renamed or deleted. The card comes back by itself once the import has finished, even if you reload the page in the meantime.
+While a file is being imported into a tree, its card is covered by **Import in progress** and cannot be opened, renamed or deleted. The card comes back by itself once the import has finished, even if you reload the page in the meantime. When an import is cancelled (see [Cancel an import](@/guide/import-export.md#cancel-an-import)), the card shows **Cancelling import…** while the import removes what it added, then comes back with the tree exactly as it was.
 
 ## Set the SOSA root
 

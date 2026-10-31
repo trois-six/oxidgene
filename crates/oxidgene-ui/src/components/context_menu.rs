@@ -535,18 +535,24 @@ pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
     rsx! {
         div {
             class: "context-menu-backdrop",
-            // The backdrop covers the window, so it resizes with it. The
-            // first report is the size it opened at, not a resize.
-            onresize: move |evt: Event<ResizeData>| {
-                let Ok(size) = evt.get_content_box_size() else {
-                    return;
-                };
-                let size = (size.width, size.height);
-                match opened_at() {
-                    None => opened_at.set(Some(size)),
-                    Some(opened) if opened != size => props.on_close.call(()),
-                    Some(_) => {}
-                }
+            // The backdrop covers the window, so it resizes with it; but only
+            // the window's own size says whether the window was resized. An
+            // ancestor that is a containing block of fixed boxes — one with a
+            // transform, such as an entrance animation running — sizes the
+            // backdrop to itself, and it then follows that box: a page whose
+            // content moves under the menu, or that animation ending, is not
+            // a resize. The first report is the size it opened at.
+            onresize: move |_: Event<ResizeData>| {
+                spawn(async move {
+                    let Some(size) = window_size().await else {
+                        return;
+                    };
+                    match opened_at() {
+                        None => opened_at.set(Some(size)),
+                        Some(opened) if opened != size => props.on_close.call(()),
+                        Some(_) => {}
+                    }
+                });
             },
             onclick: move |evt: Event<MouseData>| {
                 evt.stop_propagation();
@@ -618,6 +624,14 @@ async fn visible_area(surface: &str) -> Option<(f64, f64, f64, f64)> {
         return [l, t, r - l, b - t];"#
     );
     let value = document::eval(&script).await.ok()?;
+    serde_json::from_value(value).ok()
+}
+
+/// The size of the window's viewport, `(width, height)`.
+async fn window_size() -> Option<(f64, f64)> {
+    let value = document::eval("return [window.innerWidth, window.innerHeight];")
+        .await
+        .ok()?;
     serde_json::from_value(value).ok()
 }
 

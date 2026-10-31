@@ -79,7 +79,7 @@ OxidGene then fetches the media through the login window: all of them with Genea
 
 ## 5. Import
 
-Nothing more is needed from Geneanet at this point: your media are already on your computer. Click **Start the import**, and leave the window open until it finishes. Storing many media takes a few minutes.
+Nothing more is needed from Geneanet at this point: your media are already on your computer. Click **Start the import**, and leave the window open until it finishes. Storing many media takes a few minutes. To stop it, click **Cancel import** under the progress bar and confirm: everything the import had added is removed, and the tree is left exactly as it was.
 
 When **Import complete** appears, the receipt counts the persons, families, events, sources, places, images and documents imported, and the attachments made between media and persons, couples and events. It also says how many persons were created for people identified on photos but not in your tree, and how many identification boxes were kept to show who is who on a photo. Media that could not be imported are listed, and any warnings sit behind a line you can unfold.
 
@@ -102,7 +102,7 @@ This lets you start again after an interruption, or collect on one computer and 
 
 ## Good to know
 
-- The import cannot be cancelled once started. If it is interrupted while storing media, the genealogy is complete but some media may be missing; delete the tree and import again, using a saved file to avoid asking Geneanet a second time.
+- An import is all or nothing. If you cancel it, or if it fails, nothing of it stays in the tree: no person and no media. Run it again, using a saved file to avoid asking Geneanet a second time.
 - OxidGene never writes anything to Geneanet.
 - Only one Geneanet login window can be open at a time.
 - An event gets its photo only when the event can be identified exactly; otherwise the photo is attached to the person.

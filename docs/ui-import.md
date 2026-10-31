@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-17T22:06:57Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:30:00Z }
 ---
 
 
@@ -58,6 +58,22 @@ scrolls.
 the ✕ responds — dismissing would throw away however many steps had been
 settled and orphan a request still writing to the tree, and a stray click on
 the page behind is all it would take.
+
+**The way out of a running import is its own Cancel.** Once the server job
+exists — after the file tab's upload has returned its job, and as soon as
+the Geneanet step 5 has queued its import — the progress view offers
+**Cancel import** beside the progress bar. It opens the shared confirmation
+dialog, which says what is undone: everything the import has added so far —
+people, families, events, sources and media — is removed, and the tree is
+left exactly as it was before the import. Its two buttons are **Continue
+importing** and **Cancel the import**, so neither reads a bare "Cancel".
+Confirming sends `POST /import-jobs/{job_id}/cancel` ([API Contract](api.md))
+and the poll goes on: while the job reports `cancelling` the progress label
+reads that it is removing what the import added, the bar is indeterminate and
+the button is gone; at `cancelled` the poll stops, the view reads **Import
+cancelled. The tree is unchanged.**, and the modal can be closed again. A
+cancellation that arrives once the job has ended changes nothing: the poll
+reads the job's real end, and a completed import shows its receipt as usual.
 
 Dismissal is on *press*, not click: a click fires on the common ancestor of
 mousedown and mouseup, so selecting text inside the modal and releasing outside
@@ -147,7 +163,8 @@ tiles the gallery shows. Warnings collapse behind a disclosure with a count.
 | Condition | Message |
 |---|---|
 | The file cannot be read | The reader's own message |
-| The import fails | The API's message, and the modal stays open with the file still chosen |
+| The import fails | The API's message, and the modal stays open with the file still chosen; the failed import has written nothing |
+| The import is cancelled | **Import cancelled. The tree is unchanged.**, with the file still chosen |
 
 ---
 
@@ -238,8 +255,22 @@ so archive-only handling would merely move the same renderer crash to `.ged`.
 Upload progress is measured in bytes but its visible readout is a percentage;
 raw byte counters are not shown. Server progress then names the parsing,
 media-storage, database, and projection phases; the media phase is determinate
-when a GEDZIP contains referenced files. The modal cannot be dismissed while
-the run is active.
+when a GEDZIP contains referenced files, and a cancellation adds an
+indeterminate cancelling phase (§2). The modal cannot be dismissed while the
+run is active; it offers Cancel instead.
+
+The modal follows the job by long poll rather than on a timer. Its first
+status read answers at once; every later one passes the `version` it last
+read (`?since=<version>&wait=25`), and the server answers as soon as the job
+changes or ends, or after 25 seconds with the state unchanged ([API
+Contract](api.md)). The next read leaves at once, unless the server answered
+an unchanged state in under a second — it declined to hold the request, as it
+does when too many already wait — in which case the client pauses a second
+first. A job that does not move costs one request every 25 seconds; one that
+does is shown as soon as it moves. The status requests are never cached, and
+no client timeout cuts them short: the desktop and native client's is
+300 seconds, the browser's fetch has none. The Geneanet tab (§9.7) and the
+GEDZIP export ([Settings](ui-settings.md)) follow their jobs the same way.
 
 The temporary filename is the operation's server-generated UUIDv7, with no
 original-name component. Concurrent uploads of identically named files cannot
@@ -250,17 +281,19 @@ before destructors could run.
 
 Reloading the page does not make a running tree available. The home page reads
 active jobs from `GET /trees`, blocks the corresponding card with an “Import in
-progress” overlay, and polls until the job has completed or failed. A page
-reload during the upload itself aborts that upload and invokes partial-file
-cleanup; only a fully received upload creates a server job.
+progress” overlay — “Cancelling import…” while `import_cancelling` says the
+job is unwinding a cancellation — and follows that job by the same long poll
+until it has completed, failed or been cancelled ([Homepage](ui-home.md)). A
+page reload during the upload itself aborts that upload and invokes
+partial-file cleanup; only a fully received upload creates a server job.
 
 ### 6.1 Performance trace
 
 Starting an import creates a client `ui.import` span with only the stable
 `import.format` attribute. File imports separate `ui.import.upload` from
-`ui.import.poll`; polling intentionally includes the 500 ms waits so the trace
-shows elapsed user time while each individual status request remains visible
-as an HTTP child.
+`ui.import.poll`; polling spans the whole wait for the job, server-side waits
+and the occasional one-second pause included, so the trace shows elapsed user
+time while each individual status request remains visible as an HTTP child.
 
 The Geneanet workflow additionally exposes local read and inspection, archive
 indexing, login-window collection, preview and planning, media collection,
@@ -282,7 +315,7 @@ and parameters.
 
 | Key | Behavior |
 |---|---|
-| `Escape` | Close the modal — inert while an import is running |
+| `Escape` | Close the modal — inert while an import is running; in the cancel confirmation, dismiss it and let the import continue |
 | `Enter` | Activate the focused control |
 | `Tab` | Move between controls |
 
@@ -547,8 +580,8 @@ processing, independently of the job lease duration. On desktop SQLite, active
 progress is process-local so the long import transaction and status polling do
 not contend for the single database connection. REST and GraphQL consult that
 live state before the durable job row. PostgreSQL workers persist the same
-progress while renewing the job lease. Completion, failure, and import
-checkpoints remain durable on both databases.
+progress while renewing the job lease. Completion, failure, and cancellation
+are durable on both databases.
 
 Geneanet media bytes enter through the desktop filesystem. The login WebView
 writes each gathered medium to a temporary directory shared with the embedded
@@ -559,15 +592,24 @@ and gathered files to durable job-owned `MediaStore` keys and commits the job.
 It then returns a job id (`202` over REST), so the UI closes the login WebView
 and polls the same import-job status used by ordinary file imports. The worker
 performs the write, rebuilds projections, publishes the Geneanet receipt, and
-removes the staged job inputs on completion or failure.
+removes the staged job inputs on completion, failure or cancellation.
 
-If a worker stops after persisting the import checkpoint, its replacement
-resumes at projection rebuilding rather than importing the genealogy again.
-This workflow remains desktop-only because the initial path handoff requires
-the UI and embedded backend to share a filesystem.
+The whole import — genealogy, media records and projections — is one database
+transaction, so an import is all or nothing. Cancelling it (§2), or a failure
+of the import itself, rolls back everything it wrote, people and media alike,
+and the tree is exactly as it was; an interrupted import likewise leaves
+nothing behind and is simply run again. This workflow remains desktop-only
+because the initial path handoff requires the UI and embedded backend to share
+a filesystem.
+
+The step's progress view carries the same **Cancel import** as the file tab
+(§2) once the job is queued. After a cancellation it reads **Import
+cancelled. The tree is unchanged.** and offers the start button again, as
+after a failure.
 
 - Shared media are stored once and linked many times.
-- Failed media are reported and skipped without rolling back the genealogy.
+- A medium that cannot be fetched or decoded is reported and skipped; it does
+	not fail the import.
 - Archive matches are never downloaded again.
 - Archives are neither staged into job storage nor read under the renditions
 	answer, whatever paths the request carries.
@@ -600,8 +642,6 @@ decided. Nothing is asked when no created person has a homonym.
 
 ### 9.8 Known limitations
 
-- Import cancellation is not implemented. Interrupting the media pass can
-	leave complete genealogy with partial media.
 - The renditions answer stores what Geneanet serves. Those bytes are not
 	guaranteed to be the uploaded file, and a PDF page becomes an image.
 - Unlinked media are counted but not imported.

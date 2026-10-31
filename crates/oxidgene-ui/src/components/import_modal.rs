@@ -49,10 +49,12 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ArchiveIndex, GeneanetImportBody, GeneanetImportResult, GeneanetIsolatedPerson,
-    GeneanetPreview, GeneanetPreviewBody, GeneanetSessionBody, GwInspection, ImportProgress,
-    ImportResult, IndexedArchive, MediaFidelity,
+    ApiClient, ApiError, ArchiveIndex, FileImportJobStatus, GeneanetImportBody,
+    GeneanetImportResult, GeneanetIsolatedPerson, GeneanetPreview, GeneanetPreviewBody,
+    GeneanetSessionBody, GwInspection, ImportProgress, ImportResult, IndexedArchive, MediaFidelity,
+    follow_job,
 };
+use crate::components::cancel_job::{CancelJobButton, JobKind, can_cancel};
 use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
 use crate::components::modal::Modal;
 use crate::geneanet::{Collect, GeneanetBridge, GeneanetEvent, WindowStrings, use_geneanet_bridge};
@@ -149,7 +151,8 @@ pub fn ImportModal(
 
     // Set while an import is in flight. Dismissing then would throw away four
     // settled steps and orphan a request that is still writing to the tree,
-    // and a stray click on the page behind is all it would take.
+    // and a stray click on the page behind is all it would take. The way out
+    // is the import's own Cancel button, which undoes what it wrote.
     let busy = use_signal(|| false);
 
     // The scroll offset lives on `.import-modal-body`, which outlives every
@@ -265,6 +268,10 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
     let mut error = use_signal(|| None::<String>);
     let mut result = use_signal(|| None::<ImportResult>);
     let mut progress = use_signal(|| None::<FileImportUiProgress>);
+    // The server job, once the upload has created it: what Cancel stops.
+    let mut job = use_signal(|| None::<Uuid>);
+    // Set when the last run was cancelled, which left the tree unchanged.
+    let mut cancelled = use_signal(|| false);
 
     // Reading `result` inside the effect is what makes it re-run when the
     // import lands and the receipt replaces the drop zone.
@@ -286,21 +293,28 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         let name = last_path_segment(&file.name()).to_string();
         busy.set(true);
         error.set(None);
+        cancelled.set(false);
         progress.set(None);
         spawn(async move {
             let format = format_of(&name);
             let outcome = trace_ui_action(
                 UiAction::Import(format.api_name()),
-                run_file_import_job(&api, tree_id, format, file, &mut progress),
+                run_file_import_job(&api, tree_id, format, file, &mut progress, job),
             )
             .await;
             busy.set(false);
             progress.set(None);
+            job.set(None);
             match outcome {
-                Ok(imported) => {
+                Ok(Some(imported)) => {
                     api.invalidate_tree(tree_id);
                     result.set(Some(imported.clone()));
                     on_imported.call(ImportOutcome::File(imported));
+                }
+                // Rolled back whole: the tree reads as it did before.
+                Ok(None) => {
+                    api.invalidate_tree(tree_id);
+                    cancelled.set(true);
                 }
                 Err(e) => error.set(Some(format!("{e}"))),
             }
@@ -334,6 +348,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                         dragging.set(false);
                         picked.set(event.files().into_iter().next());
                         error.set(None);
+                        cancelled.set(false);
                         result.set(None);
                         progress.set(None);
                     },
@@ -355,33 +370,18 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
             if let Some(err) = error() {
                 div { class: "error-msg", "{err}" }
             }
+            if cancelled() {
+                div { class: "success-msg", role: "status", {i18n.t("import.cancelled")} }
+            }
 
             if let Some(current) = progress() {
-                match current {
-                    FileImportUiProgress::Upload { done, total } => rsx! {
-                        ProgressBar {
-                            label: i18n.t("import.phase_upload"),
-                            done,
-                            total,
-                        }
-                    },
-                    FileImportUiProgress::Server { phase, done, total } => rsx! {
-                        ProgressBar {
-                            label: i18n.t(match phase.as_str() {
-                                "parsing" => "import.phase_parsing",
-                                "media" => "import.phase_media",
-                                "database" => "import.phase_database",
-                                "projections" => "import.phase_projections",
-                                _ => "import.phase_starting",
-                            }),
-                            done,
-                            total: if phase == "media" { total } else { 0 },
-                        }
-                    },
-                }
+                FileImportProgress { progress: current }
             }
 
             div { class: "modal-actions",
+                if let Some(job_id) = job().filter(|_| server_phase(progress().as_ref()).is_some_and(can_cancel)) {
+                    CancelJobButton { kind: JobKind::Import, tree_id, job_id }
+                }
                 button {
                     class: "btn btn-primary",
                     disabled: picked().is_none() || busy(),
@@ -390,6 +390,44 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                 }
             }
         }
+    }
+}
+
+/// The file tab's bar: the upload's bytes, then the server job's phase,
+/// determinate only while it stores media.
+#[component]
+fn FileImportProgress(progress: FileImportUiProgress) -> Element {
+    let i18n = use_i18n();
+    match progress {
+        FileImportUiProgress::Upload { done, total } => rsx! {
+            ProgressBar {
+                label: i18n.t("import.phase_upload"),
+                done,
+                total,
+            }
+        },
+        FileImportUiProgress::Server { phase, done, total } => rsx! {
+            ProgressBar {
+                label: i18n.t(match phase.as_str() {
+                    "parsing" => "import.phase_parsing",
+                    "media" => "import.phase_media",
+                    "database" => "import.phase_database",
+                    "projections" => "import.phase_projections",
+                    "cancelling" => "import.phase_cancelling",
+                    _ => "import.phase_starting",
+                }),
+                done,
+                total: if phase == "media" { total } else { 0 },
+            }
+        },
+    }
+}
+
+/// The phase the server job last reported; none while uploading.
+fn server_phase(progress: Option<&FileImportUiProgress>) -> Option<&str> {
+    match progress? {
+        FileImportUiProgress::Server { phase, .. } => Some(phase),
+        FileImportUiProgress::Upload { .. } => None,
     }
 }
 
@@ -415,46 +453,68 @@ enum UploadEvent {
     Error,
 }
 
+/// Uploads `file`, then follows its import job — published in `job` for the
+/// Cancel button — to the end: the import's result, or `None` when it was
+/// cancelled and rolled back.
 async fn run_file_import_job(
     api: &ApiClient,
     tree_id: Uuid,
     format: FileFormat,
     file: dioxus::html::FileData,
     progress: &mut Signal<Option<FileImportUiProgress>>,
-) -> Result<ImportResult, crate::api::ApiError> {
+    mut job: Signal<Option<Uuid>>,
+) -> Result<Option<ImportResult>, ApiError> {
     let job_id = trace_ui_action_step(
         UiActionStep::ImportUpload,
         start_file_import_upload(api, tree_id, format, file, progress),
     )
     .await?;
+    job.set(Some(job_id));
     api.invalidate_tree_list();
 
-    trace_ui_action_step(UiActionStep::ImportPoll, async {
-        loop {
-            let status = api.file_import_status(tree_id, job_id).await?;
+    let ended = trace_ui_action_step(
+        UiActionStep::ImportPoll,
+        follow_import_job(api, tree_id, job_id, |status| {
             progress.set(Some(FileImportUiProgress::Server {
                 phase: status.phase.clone(),
                 done: status.done,
                 total: status.total,
             }));
-            match status.phase.as_str() {
-                "completed" => {
-                    return status.result.ok_or_else(|| crate::api::ApiError::Api {
-                        status: 500,
-                        body: "completed import has no result".to_string(),
-                    });
-                }
-                "failed" => {
-                    return Err(crate::api::ApiError::Api {
-                        status: 422,
-                        body: status.error.unwrap_or_else(|| "import_failed".to_string()),
-                    });
-                }
-                _ => crate::utils::sleep_ms(500).await,
-            }
-        }
-    })
-    .await
+        }),
+    )
+    .await?;
+    ended
+        .map(|status| {
+            status.result.ok_or_else(|| ApiError::Api {
+                status: 500,
+                body: "completed import has no result".to_string(),
+            })
+        })
+        .transpose()
+}
+
+/// Follows import job `job_id` until it ends, handing every status it reads
+/// to `report`: the status it completed with, or `None` when it was
+/// cancelled — which undid everything it wrote.
+///
+/// `cancelling` is not an end: the job is still unwinding, and the tree is
+/// only as it was once it reads `cancelled`. Each read after the first waits
+/// on the server until the job changes ([`follow_job`]).
+async fn follow_import_job(
+    api: &ApiClient,
+    tree_id: Uuid,
+    job_id: Uuid,
+    report: impl FnMut(&FileImportJobStatus),
+) -> Result<Option<FileImportJobStatus>, ApiError> {
+    let status = follow_job(|wait| api.file_import_status(tree_id, job_id, wait), report).await?;
+    match status.phase.as_str() {
+        "cancelled" => Ok(None),
+        "failed" => Err(ApiError::Api {
+            status: 422,
+            body: status.error.unwrap_or_else(|| "import_failed".to_string()),
+        }),
+        _ => Ok(Some(status)),
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -662,6 +722,10 @@ fn GeneanetTab(
     let mut fetch_progress = use_signal(|| None::<(usize, usize)>);
     let mut import_error = use_signal(|| None::<String>);
     let import_result = use_signal(|| None::<GeneanetImportResult>);
+    // The import job once queued, which Cancel stops; and whether the last
+    // run was cancelled, leaving the tree unchanged.
+    let mut import_job = use_signal(|| None::<Uuid>);
+    let mut import_cancelled = use_signal(|| false);
 
     // Set once the window has been closed, so neither of the two paths that
     // close it can do so twice.
@@ -853,6 +917,7 @@ fn GeneanetTab(
         }
         importing.set(true);
         import_error.set(None);
+        import_cancelled.set(false);
 
         import_progress.set(Some(ImportProgress {
             phase: "staging".to_string(),
@@ -877,17 +942,22 @@ fn GeneanetTab(
                 &body,
                 || close_window(bridge.as_ref(), window_closed),
                 import_progress,
+                import_job,
             )
             .await;
             importing.set(false);
             import_progress.set(None);
+            import_job.set(None);
 
             settle_import(
                 outcome,
                 &api,
                 tree_id,
-                import_result,
-                import_error,
+                ImportEndSignals {
+                    result: import_result,
+                    error: import_error,
+                    cancelled: import_cancelled,
+                },
                 on_imported,
             );
             // The assistant is over either way: closing the trace here rather
@@ -1007,12 +1077,15 @@ fn GeneanetTab(
                 summary: None,
                 on_open: move |_| open.set(Step::Import),
                 ImportStep {
+                    tree_id,
                     preview: preview(),
                     fidelity: fidelity(),
                     gathered: fetched.read().len(),
                     importing: importing(),
+                    job: import_job(),
                     progress: import_progress(),
                     error: import_error(),
+                    cancelled: import_cancelled(),
                     on_start: run_import,
                 }
             }
@@ -1194,35 +1267,50 @@ async fn gather_media(
     }
 }
 
-/// Shows the import's receipt and tells the caller, or shows why it failed.
+/// Where step 5 shows how its import ended.
+struct ImportEndSignals {
+    result: Signal<Option<GeneanetImportResult>>,
+    error: Signal<Option<String>>,
+    cancelled: Signal<bool>,
+}
+
+/// Shows the import's receipt and tells the caller, says it was cancelled,
+/// or shows why it failed.
 fn settle_import(
-    outcome: Result<GeneanetImportResult, crate::api::ApiError>,
+    outcome: Result<Option<GeneanetImportResult>, ApiError>,
     api: &ApiClient,
     tree_id: Uuid,
-    mut import_result: Signal<Option<GeneanetImportResult>>,
-    mut import_error: Signal<Option<String>>,
+    mut end: ImportEndSignals,
     on_imported: EventHandler<ImportOutcome>,
 ) {
     match outcome {
-        Ok(result) => {
+        Ok(Some(result)) => {
             api.invalidate_tree(tree_id);
-            import_result.set(Some(result.clone()));
+            end.result.set(Some(result.clone()));
             on_imported.call(ImportOutcome::Geneanet(result));
         }
-        Err(e) => import_error.set(Some(format!("{e}"))),
+        // Rolled back whole: the tree reads as it did before.
+        Ok(None) => {
+            api.invalidate_tree(tree_id);
+            end.cancelled.set(true);
+        }
+        Err(e) => end.error.set(Some(format!("{e}"))),
     }
 }
 
 /// Uploads the import, then — the login window no longer needed, so
-/// `window_done` runs — follows its job to the end.
+/// `window_done` runs — follows its job, published in `import_job` for the
+/// Cancel button, to the end: the import's result, or `None` when it was
+/// cancelled and rolled back.
 async fn upload_and_follow(
     api: &ApiClient,
     trace: &UiActionTrace,
     tree_id: Uuid,
     body: &GeneanetImportBody,
     window_done: impl FnOnce(),
-    import_progress: Signal<Option<ImportProgress>>,
-) -> Result<GeneanetImportResult, crate::api::ApiError> {
+    mut import_progress: Signal<Option<ImportProgress>>,
+    mut import_job: Signal<Option<Uuid>>,
+) -> Result<Option<GeneanetImportResult>, ApiError> {
     let started = trace
         .step(
             UiActionStep::GeneanetUpload,
@@ -1230,47 +1318,27 @@ async fn upload_and_follow(
         )
         .await?;
     window_done();
-    trace
+    import_job.set(Some(started.job_id));
+    let ended = trace
         .step(
             UiActionStep::GeneanetPoll,
-            poll_geneanet_import(api, tree_id, started.job_id, import_progress),
+            follow_import_job(api, tree_id, started.job_id, |status| {
+                import_progress.set(Some(ImportProgress {
+                    phase: status.phase.clone(),
+                    done: status.done,
+                    total: status.total,
+                }));
+            }),
         )
-        .await
-}
-
-/// Follows import job `job_id` until it completes or fails, reporting its
-/// progress; the import's result.
-async fn poll_geneanet_import(
-    api: &ApiClient,
-    tree_id: Uuid,
-    job_id: Uuid,
-    mut import_progress: Signal<Option<ImportProgress>>,
-) -> Result<GeneanetImportResult, crate::api::ApiError> {
-    loop {
-        let status = api.file_import_status(tree_id, job_id).await?;
-        import_progress.set(Some(ImportProgress {
-            phase: status.phase.clone(),
-            done: status.done,
-            total: status.total,
-        }));
-        match status.phase.as_str() {
-            "completed" => {
-                return status
-                    .geneanet_result
-                    .ok_or_else(|| crate::api::ApiError::Api {
-                        status: 500,
-                        body: "completed Geneanet import has no result".to_string(),
-                    });
-            }
-            "failed" => {
-                return Err(crate::api::ApiError::Api {
-                    status: 422,
-                    body: status.error.unwrap_or_else(|| "import_failed".to_string()),
-                });
-            }
-            _ => crate::utils::sleep_ms(500).await,
-        }
-    }
+        .await?;
+    ended
+        .map(|status| {
+            status.geneanet_result.ok_or_else(|| ApiError::Api {
+                status: 500,
+                body: "completed Geneanet import has no result".to_string(),
+            })
+        })
+        .transpose()
 }
 
 /// Step 2's summary: skipped, or how many archives and files.
@@ -1331,6 +1399,8 @@ fn phase_key(phase: Option<&str>, fidelity: MediaFidelity) -> &'static str {
         Some("matching") if fidelity.uses_archives() => "geneanet.phase_matching",
         Some("matching" | "media") => "geneanet.phase_media",
         Some("finishing" | "projections") => "geneanet.phase_finishing",
+        // Whatever it had reached, it is now undoing it.
+        Some("cancelling") => "import.phase_cancelling",
         // Including `staging`, which is the request in flight: people are
         // what it is about to write.
         _ => "geneanet.phase_people",
@@ -2232,12 +2302,18 @@ fn ImportStep(
     /// over. Nothing past this step can fetch another, so this is what says
     /// whether they are here to be imported at all.
     gathered: usize,
+    tree_id: Uuid,
     importing: bool,
+    /// The import job once queued, which Cancel stops.
+    job: Option<Uuid>,
     progress: Option<crate::api::ImportProgress>,
     error: Option<String>,
+    /// Whether the last run was cancelled, leaving the tree unchanged.
+    cancelled: bool,
     on_start: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let cancellable = job.filter(|_| progress.as_ref().is_some_and(|p| can_cancel(&p.phase)));
 
     rsx! {
         if let Some(stats) = preview.clone() {
@@ -2268,12 +2344,15 @@ fn ImportStep(
         if let Some(err) = error {
             div { class: "error-msg", "{err}" }
         }
+        if cancelled {
+            div { class: "success-msg", role: "status", {i18n.t("import.cancelled")} }
+        }
 
         if importing {
             // Ten thousand people and several hundred pictures is minutes of
             // work, and a bar that cannot move makes a long import look like a
-            // hung one.
-            match progress.as_ref().filter(|p| p.total > 0) {
+            // hung one. Undoing it has no count to show.
+            match progress.as_ref().filter(|p| p.total > 0 && can_cancel(&p.phase)) {
                 Some(p) => rsx! {
                     ProgressBar {
                         label: i18n.t(phase_key(Some(&p.phase), fidelity)),
@@ -2293,6 +2372,11 @@ fn ImportStep(
                         div { class: "gn-progress-count", {i18n.t("geneanet.step5_dont_close")} }
                     }
                 },
+            }
+            if let Some(job_id) = cancellable {
+                div { class: "modal-actions",
+                    CancelJobButton { kind: JobKind::Import, tree_id, job_id }
+                }
             }
         } else {
             div { class: "modal-actions",
@@ -2615,6 +2699,10 @@ mod tests {
             assert_eq!(
                 phase_key(Some("projections"), fidelity),
                 "geneanet.phase_finishing"
+            );
+            assert_eq!(
+                phase_key(Some("cancelling"), fidelity),
+                "import.phase_cancelling"
             );
         }
     }

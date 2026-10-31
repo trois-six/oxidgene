@@ -308,9 +308,7 @@ for (const language of LANGUAGES) {
         await page.goto("/");
         const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: "Landrevel family" }) });
         await card.getByRole("button", { name: t(language, "common.actions_for", { name: "Landrevel family" }) }).click();
-        // The menu keeps measuring its place under the pinned clock, which
-        // Playwright reads as never stable: the click is dispatched.
-        await page.getByRole("menuitem", { name: t(language, "common.import"), exact: true }).dispatchEvent("click");
+        await page.getByRole("menuitem", { name: t(language, "common.import"), exact: true }).click();
         await expect(page.getByText(t(language, "import.tab_geneanet"))).toBeVisible();
         await shoot(page, language, "import");
     });

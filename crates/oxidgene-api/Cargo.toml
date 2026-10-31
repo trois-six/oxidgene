@@ -46,7 +46,7 @@ serde_json = { workspace = true }
 # `v4` draws the desktop's per-launch access token (see `access`).
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
-tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio = { workspace = true, features = ["fs", "io-util", "sync", "time"] }
 tracing = { workspace = true }
 # Decodes the embedded data (see `embedded`); `build.rs` compresses it.
 brotli-decompressor = { workspace = true }

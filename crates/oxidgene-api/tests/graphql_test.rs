@@ -5658,3 +5658,118 @@ async fn graphql_anomaly_thresholds_are_a_tree_setting_the_anomalies_apply() {
     let kept = rules(app, tree_id).await;
     assert_eq!(kept["thresholds"]["maxLifespanYears"], 90);
 }
+
+#[tokio::test]
+async fn a_job_is_cancelled_and_waited_on_over_graphql() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!("oxidgene-gql-cancel-{}", uuid::Uuid::now_v7())),
+    );
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        state.db.clone(),
+        state.profiles.clone(),
+        state.media.clone(),
+        "graphql-cancel",
+    );
+    let app = build_router(state.clone());
+    let response = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "GQL cancellation" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&response)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // GraphQL takes no upload: the import is queued as REST's upload does.
+    let source = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        source.path(),
+        "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /SAMPLE/\n0 TRLR\n",
+    )
+    .unwrap();
+    let job_id = uuid::Uuid::now_v7();
+    oxidgene_api::service::background_job::stage_import(
+        &state.db,
+        &*state.media,
+        job_id,
+        tree_id.parse().unwrap(),
+        "gedcom",
+        None,
+        source.path(),
+    )
+    .await
+    .unwrap();
+
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase version }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let queued = data(&response)["importJobStatus"].clone();
+    assert_eq!(queued["phase"], "queued");
+    let waiting = tokio::spawn({
+        let app = app.clone();
+        let query = format!(
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}", since: "{}", wait: 25) {{ phase version }} }}"#,
+            queued["version"].as_str().unwrap()
+        );
+        async move { graphql(app, &query, None).await }
+    });
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ cancelImportJob(treeId: "{tree_id}", jobId: "{job_id}") {{ phase version }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&response)["cancelImportJob"]["phase"], "cancelled");
+    let woken = tokio::time::timeout(std::time::Duration::from_secs(10), waiting)
+        .await
+        .expect("the change ends the wait")
+        .unwrap();
+    assert_eq!(data(&woken)["importJobStatus"]["phase"], "cancelled");
+    let response = graphql(
+        app.clone(),
+        &format!(r#"{{ tree(id: "{tree_id}") {{ importInProgress importCancelling }} }}"#),
+        None,
+    )
+    .await;
+    let tree = &data(&response)["tree"];
+    assert_eq!(tree["importInProgress"], false);
+    assert_eq!(tree["importCancelling"], false);
+    assert!(!worker.run_once().await.unwrap(), "it never runs");
+
+    // An export, queued then cancelled, and one cancelled too late.
+    let start = format!(r#"mutation {{ startExportJob(treeId: "{tree_id}") {{ jobId }} }}"#);
+    let cancel = |job: &str| {
+        format!(
+            r#"mutation {{ cancelExportJob(treeId: "{tree_id}", jobId: "{job}") {{ phase version downloadUrl }} }}"#
+        )
+    };
+    let response = graphql(app.clone(), &start, None).await;
+    let export = data(&response)["startExportJob"]["jobId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let response = graphql(app.clone(), &cancel(&export), None).await;
+    assert_eq!(data(&response)["cancelExportJob"]["phase"], "cancelled");
+    assert!(!worker.run_once().await.unwrap());
+
+    let response = graphql(app.clone(), &start, None).await;
+    let export = data(&response)["startExportJob"]["jobId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(worker.run_once().await.unwrap());
+    let response = graphql(app.clone(), &cancel(&export), None).await;
+    let late = &data(&response)["cancelExportJob"];
+    assert_eq!(late["phase"], "completed");
+    assert!(late["downloadUrl"].is_string());
+}

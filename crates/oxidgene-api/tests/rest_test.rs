@@ -3245,7 +3245,7 @@ async fn geneanet_local_paths_are_refused_by_default() {
 }
 
 #[tokio::test]
-async fn test_geneanet_import_resumes_from_projection_checkpoint() {
+async fn an_interrupted_geneanet_import_runs_again_whole() {
     let test_id = uuid::Uuid::now_v7();
     let media_root = std::env::temp_dir().join(format!("oxidgene-test-geneanet-resume-{test_id}"));
     let db = setup_db().await;
@@ -3278,32 +3278,7 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
             .expect("claim job")
             .expect("queued job");
     assert_eq!(claimed.id, job_id);
-    let summary = oxidgene_api::service::geneanet::GeneanetImportSummary {
-        receipt: oxidgene_api::service::gedcom::ImportSummary {
-            persons_count: 7,
-            families_count: 3,
-            warnings: vec!["checkpoint restored".to_string()],
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    assert!(
-        BackgroundJobRepo::checkpoint_import_persisted(
-            &state.db,
-            job_id,
-            interrupted_worker,
-            serde_json::to_string(&summary).expect("serialize summary"),
-            chrono::Duration::seconds(30),
-        )
-        .await
-        .expect("checkpoint import")
-    );
-    let source_key = job_blob_key(job_id, "source", "gw").expect("source key");
-    state
-        .media
-        .delete(&source_key)
-        .await
-        .expect("remove staged source");
+    // Its process stops here: whatever it wrote was never committed.
     assert_eq!(
         BackgroundJobRepo::requeue_running(&state.db)
             .await
@@ -3328,11 +3303,20 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(completed["phase"], "completed", "job status: {completed}");
-    assert_eq!(completed["geneanet_result"]["persons_count"], 7);
-    assert_eq!(completed["geneanet_result"]["families_count"], 3);
-    assert_eq!(
-        completed["geneanet_result"]["warnings"],
-        serde_json::json!(["checkpoint restored"])
+    assert_eq!(completed["geneanet_result"]["persons_count"], 2);
+    assert_eq!(completed["geneanet_result"]["families_count"], 1);
+    let (_, persons) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(persons["edges"].as_array().map(Vec::len), Some(2), "once");
+    let source_key = job_blob_key(job_id, "source", "gw").expect("source key");
+    assert!(
+        !state.media.exists(&source_key).await,
+        "its inputs are gone"
     );
 
     let _ = std::fs::remove_dir_all(media_root);
@@ -5299,4 +5283,138 @@ async fn anomaly_thresholds_are_a_tree_setting_the_anomalies_apply() {
     // A refused change keeps the thresholds set before.
     let (_, tree) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
     assert_eq!(tree["anomaly_thresholds"]["max_lifespan_years"], 90);
+}
+
+/// `GET path` on `app`, its body once it answers `200`.
+async fn get_ok(app: &axum::Router, path: &str) -> Value {
+    let (status, body) = send(app, Method::GET, path, None).await;
+    assert_eq!(status, StatusCode::OK, "GET {path}: {body}");
+    body
+}
+
+#[tokio::test]
+async fn a_job_is_cancelled_and_waited_on_over_rest() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join(format!("oxidgene-rest-cancel-{}", uuid::Uuid::now_v7())),
+    );
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-cancel-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree_via_api(&app).await;
+    let (status, started) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/import-jobs?format=gedcom"),
+        minimal_gedcom().as_bytes().to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job_id = started["job_id"].as_str().expect("job id").to_owned();
+    let job = format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}");
+
+    let queued = get_ok(&app, &job).await;
+    assert_eq!(queued["phase"], "queued");
+    let version = queued["version"].as_str().expect("a version").to_owned();
+    // A read waiting for the job to change is answered by the cancellation.
+    let waiting = tokio::spawn({
+        let app = app.clone();
+        let job = job.clone();
+        async move { get_ok(&app, &format!("{job}?since={version}&wait=25")).await }
+    });
+    let (status, cancelled) = send(&app, Method::POST, &format!("{job}/cancel"), None).await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["phase"], "cancelled");
+    let woken = tokio::time::timeout(std::time::Duration::from_secs(10), waiting)
+        .await
+        .expect("the change ends the wait")
+        .unwrap();
+    assert_eq!(woken["phase"], "cancelled");
+    let trees = get_ok(&app, "/api/v1/trees").await;
+    let listed = trees["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|edge| edge["node"]["id"] == tree_id.as_str())
+        .expect("the tree is listed");
+    assert_eq!(listed["node"]["import_in_progress"], false);
+    assert_eq!(listed["node"]["import_cancelling"], false);
+
+    // Never run, and nothing imported.
+    assert!(!worker.run_once().await.expect("polls"));
+    assert_eq!(get_ok(&app, &job).await["phase"], "cancelled");
+    let persons = get_ok(&app, &format!("/api/v1/trees/{tree_id}/persons")).await;
+    assert_eq!(persons["edges"].as_array().map(Vec::len), Some(0));
+    // Cancelling an ended job changes nothing.
+    let (status, again) = send(&app, Method::POST, &format!("{job}/cancel"), None).await;
+    assert_eq!(
+        (status, &again["phase"]),
+        (StatusCode::OK, &Value::from("cancelled"))
+    );
+
+    // An export: queued, cancelled; another one completed, then too late.
+    let (status, export) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{export}");
+    let export = format!(
+        "/api/v1/trees/{tree_id}/export-jobs/{}",
+        export["job_id"].as_str().unwrap()
+    );
+    let (status, cancelled) = send(&app, Method::POST, &format!("{export}/cancel"), None).await;
+    assert_eq!(
+        (status, &cancelled["phase"]),
+        (StatusCode::OK, &Value::from("cancelled"))
+    );
+    assert!(cancelled["download_url"].is_null());
+    assert!(!worker.run_once().await.expect("polls"));
+
+    let (_, export) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    let export = format!(
+        "/api/v1/trees/{tree_id}/export-jobs/{}",
+        export["job_id"].as_str().unwrap()
+    );
+    assert!(worker.run_once().await.expect("runs the export"));
+    let completed = get_ok(&app, &export).await;
+    assert_eq!(completed["phase"], "completed");
+    // An ended job answers its wait at once.
+    let version = completed["version"].as_str().unwrap();
+    let ended = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        get_ok(&app, &format!("{export}?since={version}&wait=25")),
+    )
+    .await
+    .expect("an ended job is not waited on");
+    assert_eq!(ended["phase"], "completed");
+    let (status, late) = send(&app, Method::POST, &format!("{export}/cancel"), None).await;
+    assert_eq!(
+        (status, &late["phase"]),
+        (StatusCode::OK, &Value::from("completed"))
+    );
+    assert!(late["download_url"].is_string(), "the archive stays");
+
+    // Another tree's job is not found.
+    let other_tree = create_tree_via_api(&app).await;
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{other_tree}/import-jobs/{job_id}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

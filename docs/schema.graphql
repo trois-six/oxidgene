@@ -1354,6 +1354,10 @@ Pollable state of a durable GEDZIP export.
 """
 type GqlExportJobStatus {
 	phase: String!
+	"""
+	Identifies this state: pass it as `since` to wait for the next.
+	"""
+	version: String!
 	done: Int!
 	total: Int!
 	downloadUrl: String
@@ -1764,6 +1768,10 @@ Pollable state of a durable genealogy file import.
 """
 type GqlImportJobStatus {
 	phase: String!
+	"""
+	Identifies this state: pass it as `since` to wait for the next.
+	"""
+	version: String!
 	done: Int!
 	total: Int!
 	result: GqlImportResult
@@ -3275,6 +3283,11 @@ type GqlTree {
 	"""
 	importJobId: ID
 	"""
+	Whether the tree's import was asked to stop and is undoing what it
+	wrote. Read from the job queue, like `importInProgress`.
+	"""
+	importCancelling: Boolean!
+	"""
 	Count of persons in this tree.
 	"""
 	personCount: Int!
@@ -3892,6 +3905,21 @@ type MutationRoot {
 	"""
 	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean, scope: TagTargetInput): GqlBackgroundJobStarted!
 	"""
+	Cancel an import job: a queued one ends at once, a running one stops
+	at its next batch of rows or medium and rolls back everything it
+	wrote, people and media alike; its phase reads `cancelling`, then
+	`cancelled`. A job that has ended is left as it is. Answers where the
+	job stands then, as `importJobStatus`.
+	"""
+	cancelImportJob(treeId: ID!, jobId: ID!): GqlImportJobStatus!
+	"""
+	Cancel a GEDZIP export job: a queued one ends at once, a running one
+	stops at its next medium and produces no archive. A job that has
+	ended is left as it is. Answers where the job stands then, as
+	`exportJobStatus`.
+	"""
+	cancelExportJob(treeId: ID!, jobId: ID!): GqlExportJobStatus!
+	"""
 	Encode a Geneanet wizard session as a base64 archive.
 	"""
 	encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GqlGeneanetSessionArchive!
@@ -4399,9 +4427,12 @@ type QueryRoot {
 	"""
 	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean, scope: TagTargetInput): GqlExportGedcomResult!
 	"""
-	Poll a durable GEDZIP export created by `startExportJob`.
+	Poll a durable GEDZIP export created by `startExportJob`. With
+	`since`, the `version` last read, and `wait`, in seconds (at most
+	25), answer once the job's state differs from that version, or when
+	the wait runs out.
 	"""
-	exportJobStatus(treeId: ID!, jobId: ID!): GqlExportJobStatus!
+	exportJobStatus(treeId: ID!, jobId: ID!, since: String, wait: Int): GqlExportJobStatus!
 	"""
 	The tree's most recent GEDZIP export whose archive can still be
 	downloaded, or `null`.
@@ -4409,8 +4440,11 @@ type QueryRoot {
 	downloadableExport(treeId: ID!): GqlDownloadableExport
 	"""
 	Poll a durable genealogy file import created by `startFileImportJob`.
+	With `since`, the `version` last read, and `wait`, in seconds (at
+	most 25), answer once the job's state differs from that version, or
+	when the wait runs out.
 	"""
-	importJobStatus(treeId: ID!, jobId: ID!): GqlImportJobStatus!
+	importJobStatus(treeId: ID!, jobId: ID!, since: String, wait: Int): GqlImportJobStatus!
 	"""
 	Inspect a GeneWeb export before selecting its destination tree.
 	"""

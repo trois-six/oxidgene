@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-18T12:16:38Z }
+generated: { by: human:maintainer, at: 2026-10-30T21:00:00Z }
 ---
 
 
@@ -119,7 +119,8 @@ whose pool already reads concurrently, use one pool for both. A job's status
 is still answered from the worker's in-memory progress while this process
 runs the job, on REST and GraphQL alike, and the tree guard skips its lookup
 for that one request, so the poll waits for nothing even on a single
-connection.
+connection. A cancellation request is answered the same way
+([§6.3](#63-job-cancellation)).
 
 ---
 
@@ -159,10 +160,9 @@ and flow — are listed in the [specification index](index.md).
 ## 6. Asynchronous Processing
 
 - Imports and exports are durable background jobs. The database is the source
-    of truth for job state, progress, results and worker leases (its
-    `cancel_requested` column is reserved for cancellation, which no operation
-    offers); Redis remains reserved for authenticated sessions and is not a
-    job queue.
+    of truth for job state, progress, results and worker leases; Redis
+    remains reserved for authenticated sessions and is not a job queue. A job
+    ends `completed`, `failed` or `cancelled` ([Job cancellation](#63-job-cancellation)).
 - The Axum API receives import files into durable staging storage, creates jobs,
     reports their status, and serves or redirects completed export artifacts. It
     never performs parsing, media ingestion, projection rebuilding or archive
@@ -209,12 +209,16 @@ and flow — are listed in the [specification index](index.md).
     (`job_attempts_exhausted`) once it has been claimed more than three times:
     a job that brings the process down is retried at the next starts, not
     forever. Other failures report `job_failed`.
-- Import database writes and their durable phase transition commit together.
-    Once data have committed, recovery resumes projection rebuilding rather than
-    inserting the imported records again.
+- An import is all or nothing. Its rows — persons phase and media phase —
+    their projections, its history entry and the job's completion are
+    written in one database transaction, which a cancellation or a failure
+    rolls back, and the media files it stored are deleted unless that
+    transaction commits ([§6.3](#63-job-cancellation)). An import that
+    stopped with its process committed nothing: it is simply run again.
 - The UI hides transport orchestration: one action starts a job, progress is
-    polled, and a completed export starts a normal browser download with
-    `Content-Disposition: attachment`.
+    followed by a long poll that the server answers when the job changes
+    ([§6.4](#64-waiting-for-a-job)), and a completed export starts a normal
+    browser download with `Content-Disposition: attachment`.
 
 ### 6.1 Import Job Flow
 
@@ -237,11 +241,19 @@ The API streams an uploaded source to durable storage before creating the job.
 For Geneanet, it similarly copies the `.gw`, every selected data archive, and
 every gathered medium from the desktop filesystem into job-owned objects before
 returning `202` or a GraphQL job id. The worker copies inputs to disposable
-scratch space, selects the GEDCOM, GEDZIP, GeneWeb, or Geneanet importer,
-persists the result, rebuilds projections, and records a serializable summary
-in the job. After the import checkpoint reaches `projections`, recovery rebuilds
-projections from the stored result instead of replaying the import. Terminal
-Geneanet jobs remove all of their staged input objects.
+scratch space, selects the GEDCOM, GEDZIP, GeneWeb, or Geneanet importer, then
+persists the result, rebuilds projections, records the import in the tree's
+history and completes the job with a serializable summary, all in one
+transaction. A file is parsed, and a GEDZIP's media stored, before that
+transaction opens. A terminal job removes all of its staged input objects.
+
+The transaction keeps no dataset in memory: rows are inserted in bounded
+batches, and media are read, decoded and stored through the bounded window
+of the media phase, one at a time per slot. Under SQLite, in write-ahead-log
+mode, the pages an uncommitted transaction writes go to the `-wal` file
+rather than to memory once the page cache is full, so a long import costs
+disk until it commits, not RAM; PostgreSQL keeps them in its own buffers and
+files.
 
 ### 6.2 Export Job Flow
 
@@ -268,7 +280,8 @@ completed artifact can be downloaded; the UI then starts the browser download
 automatically, and offers to download it again until it expires. The artifact
 is a full copy of the tree and its media, so it is kept one hour after
 completion whatever the downloads — long enough to retry a save that went
-wrong — and then refused and deleted.
+wrong — and then refused and deleted. An export's history entry and its
+completion commit together.
 
 The archive's `gedcom.ged` is GEDCOM 7.0, as GEDZIP requires, written by
 `oxidged` from the records a `.ged` export builds (see
@@ -278,6 +291,87 @@ that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored
 without recompression; raw or potentially uncompressed formats such as BMP and
 TIFF remain Deflated. This keeps common exports bounded by I/O without inflating
 raw scans.
+
+### 6.3 Job cancellation
+
+REST `POST /trees/{tree_id}/import-jobs/{job_id}/cancel` and
+`…/export-jobs/{job_id}/cancel`, GraphQL `cancelImportJob` and
+`cancelExportJob`, ask a job to stop ([API Contract](api.md#import--export)).
+A queued job ends `cancelled` at once, unrun. A running job stops
+cooperatively at its next unit of work — a batch of rows, a medium, a staged
+input, an exported medium — and its status reads `cancelling` until it has
+undone its work and ended `cancelled`. A job that has ended is left as it
+is.
+
+**What is undone.** An import's rows are rolled back with its transaction,
+history entry included. The media files it stored are outside that
+transaction, and content addressing can make one of them a file the tree
+already held. Before storing a file, the import records its key under its
+own prefix, `jobs/{job_id}/created-N`; once the transaction has ended, the
+recorded files no media row names are deleted, then the records. After a
+rollback that is every file the import added and none the tree already had;
+after a commit, only a file whose row was never written. The pass runs while
+the job still holds its tree, before the job is marked ended, and is
+idempotent: an import that stopped with its process takes back the previous
+attempt's files before it starts again, and the maintenance sweep runs the
+same pass before deleting the objects of a job no longer running. A cancelled
+export deletes the artifact it may have stored. Scratch files go with the
+job's working directory either way.
+
+**Where the request goes.** A worker registers the job it runs in an
+in-process registry — its progress, its cancellation token, and its
+liveness, the entry existing — which status reads, the tree guard, the tree
+list and cancellation requests consult before the database.
+
+- *SQLite* (desktop, local server): the worker runs in the same process
+  as the API, and the running import holds the only writer for its whole
+  transaction, so the job writes nothing else while it runs: its progress
+  lives in the registry only, its lease (a day long) is not renewed, and its
+  cancellation is the token, set by the request in memory. A request for a
+  job this process does not run yet — queued, or claimed and not yet
+  registered — is a mark in the registry: the worker turns it into the
+  job's token when it registers the job, or writes the cancellation of a
+  queued job, and deletes its inputs, as soon as it is between two jobs and
+  the writer is free. Statuses and the tree list report the mark meanwhile,
+  so the request answers at once and waits for nothing. A mark lives in
+  memory: a process stopped before the worker wrote it loses the request, and
+  the queued job runs at the next start.
+- *PostgreSQL* (web): workers run in their own pods, several at once, and a
+  write waits for no other. The request writes the database: a queued job
+  ends `cancelled` there at once and its inputs are deleted; a running one
+  gets `cancel_requested`, which its worker reads with each progress report
+  — at least once a second, as it renews its lease — and turns into its
+  token. A job claimed with the flag set stops before it starts.
+
+The worker then rolls back, takes back the stored files, records the job
+`cancelled` (a failure records `failed`), and deletes what the job kept under
+`jobs/`.
+
+### 6.4 Waiting for a job
+
+Clients follow a job by a long poll, the same on REST and GraphQL
+([API Contract](api.md#waiting-for-a-job)) — no WebSocket or event stream,
+which only one of the two surfaces could carry. A status read with `since`,
+the `version` it last read, waits up to 25 seconds for the job to change
+(`oxidgene_api::service::job_watch`). The waiting reads nothing: the read
+subscribes to a `tokio::sync::watch` channel of its job, reads the job's
+state once, and reads it again only when the channel signals a change.
+
+- *Same process.* The worker of this process signals the channel when it
+  registers a job, reports its progress, records a cancellation and ends
+  it — the embedded worker of the desktop and of a SQLite server, whose
+  progress lives in the registry ([§6.3](#63-job-cancellation)).
+- *Other processes (PostgreSQL).* Every write to a job row — progress, a
+  cancellation request, its end — sends `pg_notify('oxidgene_job', job_id)`,
+  on the job's transaction when it has one, so the notification leaves when
+  the write commits. Each API process listens on that channel with one
+  connection (`PgListener`) and signals the channel of the job named;
+  after a lost connection it listens again and wakes every waiter, since
+  what it missed is unknown.
+
+At most 256 reads wait at once in a process; past them a read answers at
+once, and the client pauses before it asks again. A home page waits on the
+active jobs only and reads the tree list again once one ends.
 
 ---
 

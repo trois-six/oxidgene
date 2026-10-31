@@ -16,9 +16,7 @@ test("a GEDCOM file is imported into a tree from its card's menu", async ({ page
     await page.locator(".home-search-input").fill(name);
     const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: name }) });
     await card.getByRole("button", { name: `Actions for ${name}` }).click();
-    // The menu keeps measuring its place, which Playwright reads as never
-    // stable (as in the screenshot script): the click is dispatched.
-    await page.getByRole("menuitem", { name: "Import", exact: true }).dispatchEvent("click");
+    await page.getByRole("menuitem", { name: "Import", exact: true }).click();
 
     const modal = page.locator(".import-modal");
     await expect(modal.getByText(`Import into “${name}”`)).toBeVisible();
