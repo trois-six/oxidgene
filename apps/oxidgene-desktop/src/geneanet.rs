@@ -45,7 +45,7 @@ use futures_channel::mpsc::UnboundedSender;
 use oxidgene_api::workdir::WorkDir;
 use oxidgene_geneanet::{is_geneanet_host, script};
 use oxidgene_ui::geneanet::{
-    Collect, GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings,
+    Collect, GeneanetBridge, GeneanetCollector, GeneanetEvent, GeneanetFailure, WindowStrings,
 };
 use serde::Deserialize;
 use tracing::{debug, warn};
@@ -397,9 +397,8 @@ pub fn install<T: 'static>(
             match request {
                 Request::Open(events, strings, collect) => {
                     if session.is_some() {
-                        let _ = events.unbounded_send(GeneanetEvent::Failed(
-                            "a Geneanet window is already open".into(),
-                        ));
+                        let _ = events
+                            .unbounded_send(GeneanetEvent::Failed(GeneanetFailure::AlreadyOpen));
                         continue;
                     }
                     session = open(
@@ -416,11 +415,8 @@ pub fn install<T: 'static>(
                 Request::Fetch(urls, events) => match session.as_mut() {
                     Some(open) => open.begin_fetch(urls, events),
                     None => {
-                        let _ = events.unbounded_send(GeneanetEvent::Failed(
-                            "the Geneanet window is closed, so nothing can be fetched \
-                             — sign in again"
-                                .into(),
-                        ));
+                        let _ = events
+                            .unbounded_send(GeneanetEvent::Failed(GeneanetFailure::WindowClosed));
                     }
                 },
             }
@@ -518,9 +514,8 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
                         %reason,
                         "could not read the collection the Geneanet window produced"
                     );
-                    let message = open.strings.invalid_collection.clone();
                     let done = session.take()?;
-                    done.send(GeneanetEvent::Failed(message));
+                    done.send(GeneanetEvent::Failed(GeneanetFailure::InvalidCollection));
                     return Some(done);
                 }
             };
@@ -577,12 +572,22 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
             open.finish_fetch();
             None
         }
-        Message::Error { message } => {
-            let done = session.take()?;
-            done.send(GeneanetEvent::Failed(message));
-            Some(done)
-        }
+        Message::Error { message } => script_failed(session, &message),
     }
+}
+
+/// Ends the session on the collection script's own failure. Its error text
+/// (an HTTP status, a JavaScript exception) is for the log; the wizard words
+/// the failure in the user's language.
+fn script_failed(session: &mut Option<Session>, message: &str) -> Option<Session> {
+    warn!(
+        error = "collection_script",
+        %message,
+        "the Geneanet collection failed"
+    );
+    let done = session.take()?;
+    done.send(GeneanetEvent::Failed(GeneanetFailure::CollectionFailed));
+    Some(done)
 }
 
 /// Reports the collection — and leaves the window open.
@@ -601,9 +606,7 @@ fn finish(session: &mut Option<Session>, deposit_sizes: HashMap<i64, u64>) -> Op
     let collection = session.as_ref()?.collection.clone();
     let Some(collection) = collection else {
         let done = session.take()?;
-        done.send(GeneanetEvent::Failed(
-            "the login window reported no collection".into(),
-        ));
+        done.send(GeneanetEvent::Failed(GeneanetFailure::NoCollection));
         return Some(done);
     };
 

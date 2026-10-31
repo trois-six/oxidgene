@@ -41,16 +41,10 @@ pub enum GeneanetEvent {
     /// The session is established; collection is starting.
     SignedIn,
     /// Stage 1 — reading the photo list. `total` is 0 until known.
-    Collecting {
-        done: usize,
-        total: usize,
-    },
+    Collecting { done: usize, total: usize },
     /// Stage 2 — asking Geneanet each photo's exact byte length, which is what
     /// the archives are matched against.
-    Sizing {
-        done: usize,
-        total: usize,
-    },
+    Sizing { done: usize, total: usize },
     /// Everything gathered. `collection` is the JSON the server turns into a
     /// manifest; `deposit_sizes` is stage 2's output; `cookie` is the session
     /// the download step will need if the archives do not cover every photo.
@@ -82,16 +76,43 @@ pub enum GeneanetEvent {
         error: Option<String>,
     },
     /// Progress through a fetch batch.
-    Fetching {
-        done: usize,
-        total: usize,
-    },
+    Fetching { done: usize, total: usize },
     /// Every URL of the batch has been attempted.
     FetchDone,
     /// The user closed the window before signing in. Not an error — the step
     /// simply returns to its initial state.
     Cancelled,
-    Failed(String),
+    /// The window could not go on. A reason rather than a message: the
+    /// desktop binary has no translation tables, the wizard words it.
+    Failed(GeneanetFailure),
+}
+
+/// Why the login window stopped, as the wizard tells the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeneanetFailure {
+    /// A second window was asked for while one is open.
+    AlreadyOpen,
+    /// Media were asked for after the window was closed.
+    WindowClosed,
+    /// The window finished without having read a collection.
+    NoCollection,
+    /// The collection script failed in the page.
+    CollectionFailed,
+    /// Geneanet returned a collection shape OxidGene cannot read.
+    InvalidCollection,
+}
+
+impl GeneanetFailure {
+    /// The translation key of the message the wizard shows.
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::AlreadyOpen => "geneanet.error_window_open",
+            Self::WindowClosed => "geneanet.error_window_closed",
+            Self::NoCollection => "geneanet.error_no_collection",
+            Self::CollectionFailed => "geneanet.error_collection_failed",
+            Self::InvalidCollection => "geneanet.error_collection_invalid",
+        }
+    }
 }
 
 /// What the login window puts on screen, already translated.
@@ -110,8 +131,6 @@ pub struct WindowStrings {
     pub reading_list: String,
     /// Shown while photos are being matched against the local archives.
     pub matching: String,
-    /// Shown when Geneanet returns a collection shape OxidGene cannot read.
-    pub invalid_collection: String,
     /// The line telling the user that closing the window cancels.
     pub cancel_hint: String,
     /// Shown once collection is done and the window is only being kept for the
@@ -216,4 +235,32 @@ impl std::fmt::Debug for GeneanetBridge {
 /// desktop app rather than offering a button that cannot work.
 pub fn use_geneanet_bridge() -> Option<GeneanetBridge> {
     try_use_context::<GeneanetBridge>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::{DateStyle, I18n, Language};
+
+    /// Every reason the login window can stop with is worded in each built-in
+    /// language, rather than shown as English text from the desktop binary.
+    #[test]
+    fn every_failure_is_translated() {
+        for failure in [
+            GeneanetFailure::AlreadyOpen,
+            GeneanetFailure::WindowClosed,
+            GeneanetFailure::NoCollection,
+            GeneanetFailure::CollectionFailed,
+            GeneanetFailure::InvalidCollection,
+        ] {
+            for language in Language::builtins() {
+                let i18n = I18n(language, DateStyle::DEFAULT);
+                assert!(
+                    i18n.try_t(failure.i18n_key()).is_some(),
+                    "{failure:?} in {}",
+                    language.code()
+                );
+            }
+        }
+    }
 }

@@ -802,7 +802,6 @@ fn GeneanetTab(
                     heading: i18n.t("geneanet.window_heading"),
                     reading_list: i18n.t("geneanet.step3_stage1"),
                     matching: i18n.t("geneanet.step3_stage2"),
-                    invalid_collection: i18n.t("geneanet.error_collection_invalid"),
                     cancel_hint: i18n.t("geneanet.window_cancel_hint"),
                     idle: i18n.t("geneanet.window_idle"),
                 },
@@ -813,7 +812,7 @@ fn GeneanetTab(
                 trace
                     .step(
                         UiActionStep::GeneanetConnect,
-                        follow_login(rx, connecting, collected, connect_error, open),
+                        follow_login(rx, i18n, connecting, collected, connect_error, open),
                     )
                     .await;
             });
@@ -882,7 +881,7 @@ fn GeneanetTab(
             trace
                 .step(
                     UiActionStep::GeneanetCollect,
-                    gather_media(rx, fetched, fetch_progress, preview_error),
+                    gather_media(rx, i18n, fetched, fetch_progress, preview_error),
                 )
                 .await;
 
@@ -1131,6 +1130,7 @@ fn forget_unmeasured(mut collected: Signal<Option<Collected>>) {
 /// simply returns to where it was.
 async fn follow_login(
     mut rx: futures_channel::mpsc::UnboundedReceiver<GeneanetEvent>,
+    i18n: I18n,
     mut connecting: Signal<Option<Connecting>>,
     mut collected: Signal<Option<Collected>>,
     mut connect_error: Signal<Option<String>>,
@@ -1170,8 +1170,8 @@ async fn follow_login(
                 connecting.set(None);
                 return;
             }
-            GeneanetEvent::Failed(message) => {
-                connect_error.set(Some(message));
+            GeneanetEvent::Failed(failure) => {
+                connect_error.set(Some(i18n.t(failure.i18n_key())));
                 connecting.set(None);
                 return;
             }
@@ -1236,6 +1236,7 @@ fn urls_to_fetch(
 /// medium is reported by the import as skipped; it does not end the run.
 async fn gather_media(
     mut rx: futures_channel::mpsc::UnboundedReceiver<GeneanetEvent>,
+    i18n: I18n,
     mut fetched: Signal<HashMap<String, String>>,
     mut fetch_progress: Signal<Option<(usize, usize)>>,
     mut preview_error: Signal<Option<String>>,
@@ -1252,8 +1253,8 @@ async fn gather_media(
             }
             GeneanetEvent::Fetching { done, total } => fetch_progress.set(Some((done, total))),
             GeneanetEvent::FetchDone | GeneanetEvent::Cancelled => break,
-            GeneanetEvent::Failed(message) => {
-                preview_error.set(Some(message));
+            GeneanetEvent::Failed(failure) => {
+                preview_error.set(Some(i18n.t(failure.i18n_key())));
                 break;
             }
             _ => {}
