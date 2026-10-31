@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-10-30T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T20:10:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -433,6 +433,9 @@ endpoint carries the catalogue's `insecure_http` mark (§3.1), which admits
 plain `http` for that endpoint only. `FetchError` tells a timeout, a network failure (a closed window
 included), an error status, an oversized body, a request or redirect leaving
 the endpoint's origins, and a refused header, body or kind of request apart.
+A request the HTTP client itself cannot build (a header value it refuses) is
+a refused request, not a network failure, and running out of redirects on
+the endpoint's own origins is the error status of the last redirect.
 
 An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request. A portal that
@@ -472,8 +475,10 @@ request travels:
 
 The `native` transport sends the identifying `User-Agent` (§8), follows at
 most five redirects itself so that each hop's address is checked against
-the endpoint's origins — a relative `Location` resolved in the current
-address's directory, as a browser resolves it (THOT, §4.9) —, and keeps
+the endpoint's origins — a relative `Location` resolved as a browser
+resolves it (RFC 3986 §5.2): a path in the current address's directory
+(THOT, §4.9), a query alone on the current path, and an address in a query
+read as part of that query —, and keeps
 the cookies responses set, by origin, in a
 jar that lives as long as the fetcher: one resolution. The jar keeps names
 and values only — within one resolution on a few origins of one portal, the

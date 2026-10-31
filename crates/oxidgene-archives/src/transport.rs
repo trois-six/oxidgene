@@ -324,23 +324,31 @@ impl PageAnswer {
     }
 }
 
-/// The address a redirect's `Location` names from `current`: an absolute
-/// address as written, an absolute path on `current`'s origin, and a
-/// relative path in `current`'s directory, as a browser resolves it
-/// (`FrmRechListeHaut.asp?RechDoc=1` from `/base/Recherche/FrmRechDOCCritere.asp`).
+/// The address a redirect's `Location` names from `current`, as a browser
+/// resolves it (RFC 3986 §5.2): an absolute address as written, an absolute
+/// path on `current`'s origin, a query alone on `current`'s path
+/// (`?page=2` from `/base/Form.asp?MOD=1` is `/base/Form.asp?page=2`), and a
+/// relative path in `current`'s directory (`FrmRechListeHaut.asp?RechDoc=1`
+/// from `/base/Recherche/FrmRechDOCCritere.asp`).
 pub fn redirect_url(current: &str, location: &str) -> String {
     let Some(origin) = origin_of(current) else {
         return location.to_owned();
     };
-    if location.contains("://") || location.starts_with("//") {
+    // A scheme ends at the first `:`, ahead of any `/`, `?` or `#`: an
+    // address in the query of a relative reference is no scheme.
+    let head = &location[..location.find(['/', '?', '#']).unwrap_or(location.len())];
+    if head.contains(':') || location.starts_with("//") {
         location.to_owned()
     } else if location.starts_with('/') {
         format!("{origin}{location}")
     } else {
         let path = &current[origin.len()..];
         let path = &path[..path.find(['?', '#']).unwrap_or(path.len())];
+        let path = if path.is_empty() { "/" } else { path };
+        if location.starts_with('?') {
+            return format!("{origin}{path}{location}");
+        }
         let directory = &path[..path.rfind('/').map_or(0, |slash| slash + 1)];
-        let directory = if directory.is_empty() { "/" } else { directory };
         format!("{origin}{directory}{location}")
     }
 }
@@ -381,7 +389,11 @@ mod native {
     }
 
     impl NativeTransport {
-        pub fn new() -> Result<Self, FetchError> {
+        /// # Errors
+        ///
+        /// The `reqwest` error when the client cannot be built (its TLS
+        /// backend fails to initialise), for the caller to log.
+        pub fn new() -> Result<Self, reqwest::Error> {
             let client = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .timeout(TIMEOUT)
@@ -392,8 +404,7 @@ mod native {
                 // reused connection mid-answer (Pas-de-Calais). A resolution
                 // sends a handful of requests, so pooling saves little.
                 .pool_max_idle_per_host(0)
-                .build()
-                .map_err(|_| FetchError::Network)?;
+                .build()?;
             Ok(Self { client })
         }
     }
@@ -429,6 +440,7 @@ mod native {
         async fn send(&self, request: &PortalRequest) -> Result<String, FetchError> {
             let mut hop = request.clone();
             hop.url = request_url(&self.endpoint, request)?;
+            let mut redirect = 0;
             for _ in 0..=MAX_REDIRECTS {
                 let response = self.send_one(&hop).await?;
                 let status = response.status();
@@ -445,6 +457,7 @@ mod native {
                     .get(reqwest::header::LOCATION)
                     .and_then(|value| value.to_str().ok())
                     .ok_or(FetchError::Status(status.as_u16()))?;
+                redirect = status.as_u16();
                 let next = redirect_url(&hop.url, location);
                 hop.url = request_url(&self.endpoint, &PortalRequest::get(next))?;
                 // A 303, and in practice a 301 or 302 after a form, turn the
@@ -454,7 +467,9 @@ mod native {
                     hop.body = None;
                 }
             }
-            Err(FetchError::NotSameOrigin)
+            // Out of redirects, on the portal's own origins: a loop the
+            // portal answers, reported with its last redirect status.
+            Err(FetchError::Status(redirect))
         }
 
         /// One hop, with the jar's cookies for its origin, keeping the
@@ -505,9 +520,14 @@ mod native {
         Ok(String::from_utf8_lossy(&body).into_owned())
     }
 
+    /// A `reqwest` failure as the transport reports it: a request it could
+    /// not even build (a header value it refuses) is one this crate may not
+    /// send, not a portal out of reach.
     fn classify(error: reqwest::Error) -> FetchError {
         if error.is_timeout() {
             FetchError::Timeout
+        } else if error.is_builder() {
+            FetchError::NotAllowed
         } else {
             FetchError::Network
         }
@@ -566,6 +586,16 @@ mod native {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn a_request_reqwest_cannot_build_is_not_allowed() {
+            let error = reqwest::Client::new()
+                .get("https://archives.example.org/")
+                .header("x-test", "a\0b")
+                .build()
+                .expect_err("a NUL byte is no header value");
+            assert_eq!(classify(error), FetchError::NotAllowed);
+        }
 
         #[test]
         fn builds_a_client_that_is_not_a_browser() {
@@ -850,12 +880,24 @@ mod tests {
                 "https://elsewhere.example.org/x",
             ),
             ("//elsewhere.example.org/x", "//elsewhere.example.org/x"),
+            (
+                "?page=2",
+                "https://archives.example.org/base/Recherche/Form.asp?page=2",
+            ),
+            (
+                "List.asp?back=https://archives.example.org/x",
+                "https://archives.example.org/base/Recherche/List.asp?back=https://archives.example.org/x",
+            ),
         ] {
             assert_eq!(redirect_url(current, location), expected, "{location}");
         }
         assert_eq!(
             redirect_url("https://archives.example.org", "list.asp"),
             "https://archives.example.org/list.asp"
+        );
+        assert_eq!(
+            redirect_url("https://archives.example.org", "?page=2"),
+            "https://archives.example.org/?page=2"
         );
     }
 

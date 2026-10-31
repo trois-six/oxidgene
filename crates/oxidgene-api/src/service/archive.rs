@@ -76,9 +76,12 @@ impl ArchivePortals {
         self.transport
             .get_or_init(|| match NativeTransport::new() {
                 Ok(transport) => Arc::new(transport),
-                Err(_) => {
+                Err(reason) => {
+                    // A client-construction failure (the TLS backend): it
+                    // names no portal, request or user data.
                     warn!(
                         error = "archive_transport",
+                        %reason,
                         "could not build the archive portal client"
                     );
                     Arc::new(Unavailable)
