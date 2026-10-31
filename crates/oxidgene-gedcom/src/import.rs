@@ -584,7 +584,7 @@ fn node_text(node: View<'_, Node>) -> Option<Cow<'_, str>> {
 ///
 /// All entities are assigned to the given `tree_id`. A record whose
 /// identifier an earlier record of its type holds is left out with a
-/// warning (see [`drop_duplicate_records`]), so `data` is taken mutably.
+/// warning, the first of each identifier kept, so `data` is taken mutably.
 /// The conversion never fails: what it cannot map is a warning.
 pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> ImportResult {
     let mut warnings = Vec::new();
