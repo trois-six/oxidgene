@@ -358,12 +358,14 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 /// Seeds the privacy choice once from the stored family.
 fn use_seed_privacy(family: Resource<Option<Family>>, mut privacy: Signal<Privacy>) {
     let mut loaded = use_signal(|| false);
-    if !loaded()
-        && let Some(Some(family)) = &*family.read_unchecked()
-    {
-        privacy.set(family.privacy);
-        loaded.set(true);
-    }
+    use_effect(move || {
+        if let Some(Some(family)) = &*family.read()
+            && !*loaded.peek()
+        {
+            privacy.set(family.privacy);
+            loaded.set(true);
+        }
+    });
 }
 
 /// The links to delete to detach the children staged by person: the family's
@@ -710,9 +712,15 @@ fn use_marriage_draft(events: Resource<Result<Vec<StoredEvent>, ApiError>>) -> M
         event_id: use_signal(|| None::<Uuid>),
     };
     let mut loaded = use_signal(|| false);
-    if !loaded()
-        && let Some(Ok(events)) = &*events.read()
-    {
+    // An effect, not a write while rendering; `peek` keeps a reload from
+    // overwriting what the user typed since.
+    use_effect(move || {
+        let Some(Ok(events)) = &*events.read() else {
+            return;
+        };
+        if *loaded.peek() {
+            return;
+        }
         if let Some(ev) = events.iter().find(|ev| is_marriage_like(ev.event_type)) {
             draft.event_id.set(Some(ev.id));
             draft.parts.set(DateParts::from_fields(
@@ -728,7 +736,7 @@ fn use_marriage_draft(events: Resource<Result<Vec<StoredEvent>, ApiError>>) -> M
             draft.ages.set(typed_spouse_ages(&ev.spouse_ages));
         }
         loaded.set(true);
-    }
+    });
     draft
 }
 
@@ -1236,6 +1244,72 @@ mod tests {
             assert_eq!(parse_event_type(event_type_value(et)), et);
             assert!(is_union_event(et) || et == EventType::Other, "{et:?}");
         }
+    }
+
+    /// The marriage event id and description the shorthand held at a render.
+    type DraftSeen = (Option<Uuid>, String);
+
+    /// Probe of what the marriage shorthand holds after each render.
+    #[derive(Clone, Default)]
+    struct DraftProbe(std::rc::Rc<std::cell::RefCell<Vec<DraftSeen>>>);
+
+    impl PartialEq for DraftProbe {
+        fn eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    fn marriage(id: u128, description: &str) -> StoredEvent {
+        serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(id),
+            "tree_id": Uuid::from_u128(1),
+            "event_type": EventType::Marriage,
+            "date_qualifier": oxidgene_core::DateQualifier::Exact,
+            "calendar": oxidgene_core::Calendar::Gregorian,
+            "date_value": "12 JUN 1850",
+            "family_id": Uuid::from_u128(2),
+            "description": description,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }))
+        .unwrap()
+    }
+
+    fn draft_host(probe: DraftProbe) -> Element {
+        let events = crate::ui_observability::use_ui_resource("test_events", || async {
+            Ok::<_, ApiError>(vec![marriage(7, "Town hall")])
+        });
+        let draft = use_marriage_draft(events);
+        let (event_id, mut desc) = (draft.event_id, draft.desc);
+        // The user's edit, typed once the draft is seeded, must survive the
+        // renders that follow.
+        use_effect(move || {
+            if event_id().is_some() && *desc.peek() == "Town hall" {
+                desc.set("Edited".to_string());
+            }
+        });
+        probe.0.borrow_mut().push((event_id(), desc()));
+        rsx! {}
+    }
+
+    /// The shorthand is seeded from the stored marriage once, by an effect,
+    /// and what the user types afterwards is not overwritten by it.
+    #[tokio::test]
+    async fn the_marriage_draft_is_seeded_once_from_the_stored_events() {
+        let probe = DraftProbe::default();
+        let mut dom = VirtualDom::new_with_props(draft_host, probe.clone());
+        dom.rebuild_in_place();
+        for _ in 0..8 {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work())
+                .await;
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+        let seen = probe.0.borrow();
+        assert_eq!(seen.first(), Some(&(None, String::new())));
+        assert_eq!(
+            seen.last(),
+            Some(&(Some(Uuid::from_u128(7)), "Edited".to_string()))
+        );
     }
 
     fn child(link: u128, person: u128) -> FamilyChild {

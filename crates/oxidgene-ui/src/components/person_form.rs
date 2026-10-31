@@ -249,10 +249,21 @@ fn PersonFormBody(
     let pid = props.person_id.unwrap_or_default();
 
     // ── Sex & Privacy ──
-    let mut sex_val = use_signal(|| Sex::Unknown);
-    let mut sex_loaded = use_signal(|| false);
+    // A parent being added starts with the sex the context implies; an
+    // edited person's are seeded from the stored person below.
+    let initial_sex = match props.create_context {
+        Some(PersonFormCreateContext::AddParent { is_father, .. }) => {
+            if is_father {
+                Sex::Male
+            } else {
+                Sex::Female
+            }
+        }
+        _ => Sex::Unknown,
+    };
+    let mut sex_val = use_signal(|| initial_sex);
     let mut privacy_val = use_signal(|| Privacy::Default);
-    let mut privacy_loaded = use_signal(|| false);
+    let mut person_seeded = use_signal(|| false);
 
     // ── Birth identity (mandatory surname + given names) ──
     // Managed directly under Civil Status rather than through the generic
@@ -260,7 +271,13 @@ fn PersonFormBody(
     let mut birth_name_id = use_signal(|| None::<Uuid>);
     let mut birth_identity_loaded = use_signal(|| false);
     let mut birth_given = use_signal(String::new);
-    let mut birth_surname = use_signal(String::new);
+    // A father being added starts with the child's surname.
+    let initial_surname = props
+        .create_context
+        .as_ref()
+        .and_then(PersonFormCreateContext::initial_surname)
+        .unwrap_or_default();
+    let mut birth_surname = use_signal(|| initial_surname);
     // `None` = trust automatic particle detection; `Some(p)` = the user took
     // control, where an empty `p` means "no particle".
     let mut birth_particle_override = use_signal(|| None::<String>);
@@ -272,7 +289,7 @@ fn PersonFormBody(
     // AKA), not new name types (see parse_name_type). Each entry is just a
     // single value: a name-like string for every type except Sobriquet,
     // which fills the nickname piece instead.
-    let mut show_name_form = use_signal(|| false);
+    let mut show_name_form = use_signal(|| opening == Some(FormOpening::Information));
     let mut name_form_type = use_signal(|| "Married".to_string());
     let mut name_form_value = use_signal(String::new);
     let mut name_form_particle_override = use_signal(|| None::<String>);
@@ -294,14 +311,14 @@ fn PersonFormBody(
     // ── Birth state ──
     // Calendar, qualifier and the day/month/year triplet all live in DateParts,
     // which is what the DateInput widget edits.
-    let mut birth_parts = use_signal(DateParts::default);
-    let mut birth_place_id = use_signal(String::new);
-    let mut birth_event_id = use_signal(|| None::<Uuid>);
+    let birth_parts = use_signal(DateParts::default);
+    let birth_place_id = use_signal(String::new);
+    let birth_event_id = use_signal(|| None::<Uuid>);
 
     // ── Death state ──
-    let mut death_parts = use_signal(DateParts::default);
-    let mut death_place_id = use_signal(String::new);
-    let mut death_event_id = use_signal(|| None::<Uuid>);
+    let death_parts = use_signal(DateParts::default);
+    let death_place_id = use_signal(String::new);
+    let death_event_id = use_signal(|| None::<Uuid>);
 
     let mut birth_death_loaded = use_signal(|| false);
 
@@ -324,7 +341,7 @@ fn PersonFormBody(
     let mut open_event_notes = use_signal(|| None::<Uuid>);
 
     // ── Profession(s) CRUD state ──
-    let mut show_profession_form = use_signal(|| false);
+    let mut show_profession_form = use_signal(|| opening == Some(FormOpening::Profession));
     let mut profession_form_label = use_signal(String::new);
     let mut profession_form_parts = use_signal(DateParts::default);
     let mut profession_form_place_id = use_signal(String::new);
@@ -333,7 +350,7 @@ fn PersonFormBody(
     let mut profession_form_error = use_signal(|| None::<String>);
 
     // ── Other event CRUD state ──
-    let mut show_event_form = use_signal(|| false);
+    let mut show_event_form = use_signal(|| opening == Some(FormOpening::Event));
     let mut event_form_type = use_signal(|| EventType::Baptism);
     let mut event_form_parts = use_signal(DateParts::default);
     let mut event_form_place_id = use_signal(String::new);
@@ -347,21 +364,12 @@ fn PersonFormBody(
     let mut event_form_error = use_signal(|| None::<String>);
 
     // ── Note CRUD state ──
-    let mut show_note_form = use_signal(|| false);
+    let mut show_note_form = use_signal(|| opening == Some(FormOpening::Note));
     let mut note_form_text = use_signal(String::new);
     let mut note_form_error = use_signal(|| None::<String>);
     let mut editing_note_id = use_signal(|| None::<Uuid>);
     let mut edit_note_text = use_signal(String::new);
     let mut edit_note_error = use_signal(|| None::<String>);
-
-    // The part the user asked to add while the person was being created.
-    use_hook(move || match opening {
-        Some(FormOpening::Profession) => show_profession_form.set(true),
-        Some(FormOpening::Information) => show_name_form.set(true),
-        Some(FormOpening::Note) => show_note_form.set(true),
-        Some(FormOpening::Event) => show_event_form.set(true),
-        Some(FormOpening::Media) | None => {}
-    });
 
     // ── Section fold state ──
     // Every section opens with the form; folding one is a way to get it out of
@@ -500,101 +508,80 @@ fn PersonFormBody(
         }
     });
 
-    // ── Populate sex + privacy (once) ──
+    // ── Populate the form from what is stored (once each) ──
+    //
+    // Effects, not writes in the body: a write while rendering schedules a
+    // second render, and the flags read with `peek` keep a reload (after
+    // `refresh`) from overwriting what the user typed since.
 
-    // Create mode: pre-fill sex from context (once).
-    if is_create && !sex_loaded() {
-        if let Some(PersonFormCreateContext::AddParent { is_father, .. }) = &props.create_context {
-            sex_val.set(if *is_father { Sex::Male } else { Sex::Female });
-        }
-        sex_loaded.set(true);
-        privacy_loaded.set(true);
-    }
-
-    if is_create && !birth_identity_loaded() {
-        if let Some(child_surname) = props
-            .create_context
-            .as_ref()
-            .and_then(PersonFormCreateContext::initial_surname)
+    use_effect(move || {
+        if let Some(Ok(person)) = &*person_resource.read()
+            && !*person_seeded.peek()
         {
-            birth_surname.set(child_surname);
+            sex_val.set(person.sex);
+            privacy_val.set(person.privacy);
+            person_seeded.set(true);
         }
-        birth_identity_loaded.set(true);
-    }
+    });
 
-    if !sex_loaded()
-        && let Some(Ok(person)) = &*person_resource.read()
-    {
-        sex_val.set(person.sex);
-        sex_loaded.set(true);
-    }
-    if !privacy_loaded()
-        && let Some(Ok(person)) = &*person_resource.read()
-    {
-        privacy_val.set(person.privacy);
-        privacy_loaded.set(true);
-    }
-
-    // ── Populate birth/death (once) ──
-    if !birth_death_loaded()
-        && let Some(Ok(events)) = &*events_resource.read()
-    {
+    use_effect(move || {
+        let Some(Ok(events)) = &*events_resource.read() else {
+            return;
+        };
+        if *birth_death_loaded.peek() {
+            return;
+        }
         for ev in events {
-            match ev.event_type {
-                EventType::Birth => {
-                    birth_event_id.set(Some(ev.id));
-                    birth_parts.set(DateParts::from_fields(
-                        ev.calendar,
-                        ev.date_qualifier,
-                        ev.date_value.as_deref(),
-                        ev.date_value2.as_deref(),
-                    ));
-                    birth_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                }
-                EventType::Death => {
-                    death_event_id.set(Some(ev.id));
-                    death_parts.set(DateParts::from_fields(
-                        ev.calendar,
-                        ev.date_qualifier,
-                        ev.date_value.as_deref(),
-                        ev.date_value2.as_deref(),
-                    ));
-                    death_place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
-                }
-                _ => {}
-            }
+            let (mut event_id, mut parts, mut place_id) = match ev.event_type {
+                EventType::Birth => (birth_event_id, birth_parts, birth_place_id),
+                EventType::Death => (death_event_id, death_parts, death_place_id),
+                _ => continue,
+            };
+            event_id.set(Some(ev.id));
+            parts.set(DateParts::from_fields(
+                ev.calendar,
+                ev.date_qualifier,
+                ev.date_value.as_deref(),
+                ev.date_value2.as_deref(),
+            ));
+            place_id.set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
         }
         birth_death_loaded.set(true);
-    }
+    });
 
-    // ── Populate notes + source (once) ──
-    if !is_create
-        && !bd_ns_loaded()
-        && let Some((birth, death)) = &*bd_ns_resource.read()
-    {
-        birth_notes.set(birth.notes.clone());
-        birth_source.set(birth.source_title.clone());
-        birth_ns.set(birth.clone());
-        death_notes.set(death.notes.clone());
-        death_source.set(death.source_title.clone());
-        death_ns.set(death.clone());
-        bd_ns_loaded.set(true);
-    }
+    use_effect(move || {
+        if let Some((birth, death)) = &*bd_ns_resource.read()
+            && !is_create
+            && !*bd_ns_loaded.peek()
+        {
+            birth_notes.set(birth.notes.clone());
+            birth_source.set(birth.source_title.clone());
+            birth_ns.set(birth.clone());
+            death_notes.set(death.notes.clone());
+            death_source.set(death.source_title.clone());
+            death_ns.set(death.clone());
+            bd_ns_loaded.set(true);
+        }
+    });
 
-    if !is_create
-        && !person_ns_loaded()
-        && let Some(ns) = &*person_ns_resource.read()
-    {
-        person_source.set(ns.source_title.clone());
-        person_ns.set(ns.clone());
-        person_ns_loaded.set(true);
-    }
+    use_effect(move || {
+        if let Some(ns) = &*person_ns_resource.read()
+            && !is_create
+            && !*person_ns_loaded.peek()
+        {
+            person_source.set(ns.source_title.clone());
+            person_ns.set(ns.clone());
+            person_ns_loaded.set(true);
+        }
+    });
 
-    // ── Populate birth identity (once) ──
-    if !is_create
-        && !birth_identity_loaded()
-        && let Some(Ok(names)) = &*names_resource.read()
-    {
+    use_effect(move || {
+        let Some(Ok(names)) = &*names_resource.read() else {
+            return;
+        };
+        if is_create || *birth_identity_loaded.peek() {
+            return;
+        }
         let primary = names
             .iter()
             .find(|n| n.name_type == NameType::Birth && n.is_primary)
@@ -609,7 +596,7 @@ fn PersonFormBody(
             birth_surname.set(full);
         }
         birth_identity_loaded.set(true);
-    }
+    });
 
     // ── Derived ──
 
@@ -3356,17 +3343,19 @@ pub fn EventEditor(
         async move { load_notes_source(&api, tree_id, person_id, Some(event_id)).await }
     });
 
-    if loaded().is_none()
-        && let Some(ns) = &*resource.read()
-    {
-        notes.set(ns.notes.clone());
-        source_title.set(ns.source_title.clone());
-        reliability.set(ns.confidence);
-        if ns.confidence.is_some() {
-            more.set(true);
+    use_effect(move || {
+        if let Some(ns) = &*resource.read()
+            && loaded.peek().is_none()
+        {
+            notes.set(ns.notes.clone());
+            source_title.set(ns.source_title.clone());
+            reliability.set(ns.confidence);
+            if ns.confidence.is_some() {
+                more.set(true);
+            }
+            loaded.set(Some(ns.clone()));
         }
-        loaded.set(Some(ns.clone()));
-    }
+    });
 
     let api_save = api.clone();
     let on_save = move |_| {

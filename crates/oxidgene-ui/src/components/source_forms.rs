@@ -102,9 +102,13 @@ pub fn SourceEditor(
         async move { load_source_state(&api, tree_id, source_id).await }
     });
 
-    if !loaded()
-        && let Some(Ok(loaded_state)) = &*state.read()
-    {
+    use_effect(move || {
+        let Some(Ok(loaded_state)) = &*state.read() else {
+            return;
+        };
+        if *loaded.peek() {
+            return;
+        }
         let source = &loaded_state.source;
         title.set(source.title.clone());
         author.set(source.author.clone().unwrap_or_default());
@@ -114,7 +118,7 @@ pub fn SourceEditor(
         // Open from the start when it holds something.
         more.set(source.agency.is_some() || !loaded_state.links.is_empty());
         loaded.set(true);
-    }
+    });
 
     let save = move |_| {
         let api = api.clone();
@@ -728,12 +732,14 @@ pub fn RepositoryEditor(
         let repository = loading.clone();
         async move { load_repository_state(&api, tree_id, repository).await }
     });
-    if !note_loaded()
-        && let Some(Ok(loaded)) = &*state.read()
-    {
-        note.set(loaded.note.clone());
-        note_loaded.set(true);
-    }
+    use_effect(move || {
+        if let Some(Ok(loaded)) = &*state.read()
+            && !*note_loaded.peek()
+        {
+            note.set(loaded.note.clone());
+            note_loaded.set(true);
+        }
+    });
 
     let merge = target
         .as_ref()
