@@ -1,0 +1,65 @@
+{{- /*
+Rauthy's configuration with auth.idp.mode=rauthy (docs/authentication.md
+§8.2), rendered by templates/rauthy.yaml into a ConfigMap mounted at
+/app/config.toml. Secrets are not here: the environment, which overrides
+this file, carries them from Secrets (ENC_KEYS, HQL_SECRET_*, PG_*,
+SMTP_PASSWORD, BOOTSTRAP_ADMIN_PASSWORD_PLAIN).
+Reference: https://sebadob.github.io/rauthy/config/config.html
+*/ -}}
+{{- $rauthy := .Values.auth.idp.rauthy -}}
+{{- $name := include "oxidgene.rauthyName" . -}}
+{{- $headless := printf "%s-headless.%s.svc.%s" $name .Release.Namespace .Values.clusterDomain -}}
+[server]
+# Plain HTTP inside the cluster, behind the Ingress that terminates TLS.
+scheme = "http"
+port_http = 8080
+pub_url = {{ $rauthy.hostname | quote }}
+proxy_mode = true
+trusted_proxies = {{ $rauthy.trustedProxies | toJson }}
+
+[cluster]
+# Each pod takes its id from its StatefulSet ordinal.
+node_id_from = "k8s"
+nodes = [
+{{- range $i, $_ := until (int $rauthy.replicas) }}
+  "{{ add $i 1 }} {{ $name }}-{{ $i }}.{{ $headless }}:8100 {{ $name }}-{{ $i }}.{{ $headless }}:8200",
+{{- end }}
+]
+data_dir = "/app/data"
+
+[database]
+{{- if eq $rauthy.database.mode "cloudnativepg" }}
+hiqlite = false
+pg_host = {{ printf "%s-rw" (include "oxidgene.rauthyDatabaseClusterName" .) | quote }}
+pg_port = 5432
+pg_db_name = {{ $rauthy.database.cloudnativepg.database | quote }}
+pg_tls = "require"
+pg_tls_no_verify = true
+{{- else }}
+hiqlite = true
+{{- end }}
+
+[bootstrap]
+{{- with $rauthy.admin.email }}
+admin_email = {{ . | quote }}
+{{- end }}
+
+[email]
+{{- with $rauthy.admin.email }}
+rauthy_admin_email = {{ . | quote }}
+{{- end }}
+{{- with $rauthy.smtp }}
+{{- if .host }}
+smtp_url = {{ .host | quote }}
+smtp_port = {{ int .port }}
+smtp_tls_mode = {{ .tlsMode | quote }}
+smtp_from = {{ .from | quote }}
+{{- with .user }}
+smtp_username = {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+[webauthn]
+rp_id = {{ $rauthy.hostname | quote }}
+rp_origin = {{ printf "https://%s:443" $rauthy.hostname | quote }}

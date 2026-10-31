@@ -177,7 +177,9 @@ cloudnative-pg:
     clusterWide: true
 
 redis:
-  # disabled: do not configure Redis before authenticated sessions are enabled.
+  # disabled: keep sessions in the backend process, which then runs as one
+  #   replica (rendering fails for more, or for autoscaling, while
+  #   authentication is on).
   # existing: consume a Redis URL from an existing Secret.
   # operator: create a persistent Redis instance through Redis Operator.
   mode: disabled
@@ -265,13 +267,159 @@ s3:
       affinity: {}
       topologySpreadConstraints: []
 
+# Authentication of the web deployment (docs/authentication.md §8).
+auth:
+  idp:
+    # external: any OpenID Connect provider, named by auth.oidc.issuer.
+    # rauthy: a Rauthy this release deploys, with OxidGene's clients, groups
+    #   and API scopes bootstrapped.
+    # none: no authentication; every request acts as a local owner of every
+    #   tree, for a single trusted user only.
+    # Rendering fails with `external` until an issuer is set, so a deployment
+    # chooses its provider explicitly.
+    mode: external
+    rauthy:
+      # The StatefulSet and its Services; empty means <release>-rauthy.
+      name: ""
+      image: ghcr.io/sebadob/rauthy:0.37.2
+      imagePullPolicy: IfNotPresent
+      # 1, or 3 and more (an odd number) for a highly available Raft cluster.
+      replicas: 1
+      # Rauthy's own host, such as auth.genealogy.example.invalid. The issuer
+      # becomes https://<hostname>/auth/v1/.
+      hostname: ""
+      # An Ingress for that host, TLS terminating there.
+      ingress:
+        enabled: true
+        className: ""
+        annotations: {}
+        tlsSecret: ""
+      # Addresses of the proxies whose forwarded headers Rauthy trusts: the
+      # Ingress controller's pods.
+      trustedProxies: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      # Existing Secret holding Rauthy's own secrets:
+      #   enc-keys        encryption keys, `id/base64-32-bytes`, one per line
+      #   enc-key-active  the id of the key that encrypts
+      #   raft-secret, api-secret  Hiqlite's, 16 characters at least
+      #   api-key         64 alphanumeric characters at least: the key with
+      #                   which the chart's job completes oxidgene-web
+      # The web client's secret (auth.oidc.clientSecret) must be 64
+      # alphanumeric characters too.
+      secret: oxidgene-rauthy
+      # Rauthy's administrator, for its admin UI. With passwordKey empty,
+      # Rauthy prints a random first password in its log, once.
+      admin:
+        email: ""
+        passwordKey: ""
+      database:
+        # hiqlite: Rauthy's embedded, Raft-replicated SQLite, on a volume per
+        #   pod. cloudnativepg: a CloudNativePG Cluster of its own.
+        mode: hiqlite
+        hiqlite:
+          storage:
+            size: 1Gi
+            storageClass: ""
+        cloudnativepg:
+          requireCrd: true
+          clusterName: ""
+          instances: 2
+          imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+          database: rauthy
+          owner: rauthy
+          storage:
+            size: 5Gi
+            storageClass: ""
+          resources: {}
+      # Rauthy's own mail (address verification, password reset, new-login
+      # notices). Empty host: none.
+      smtp:
+        host: ""
+        port: 587
+        # tls or starttls.
+        tlsMode: starttls
+        from: ""
+        user: ""
+        passwordSecret:
+          secret: rauthy-smtp
+          key: password
+      # Completes the oxidgene-web client through Rauthy's admin API after
+      # each install and upgrade.
+      initImage: curlimages/curl:8.23.0
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+  # OXIDGENE_PUBLIC_URL, required unless auth.idp.mode is none: the
+  # application's external origin, normally https:// plus ingress.host.
+  publicUrl: ""
+  oidc:
+    # Required with `external`; derived from the Rauthy hostname with
+    # `rauthy`.
+    issuer: ""
+    # Base URL of the backend's requests to the provider, when the issuer's
+    # host is not reachable from the pods. Set to the Rauthy Service with
+    # `rauthy`.
+    backchannelUrl: ""
+    clientId: oxidgene-web
+    # Existing Secret holding the web client's secret.
+    clientSecret:
+      secret: oxidgene-oidc
+      key: client-secret
+    # Dotted path of a claim listing the user's groups or roles, and the
+    # values of it that make an instance administrator, let a user create
+    # trees, or let a user sign in at all (auth.signup=claim). With `rauthy`,
+    # empty means its `groups` claim with the bootstrapped groups.
+    rolesClaim: ""
+    adminValues: []
+    creatorValues: []
+    allowedValues: []
+    # Treat `email` as verified when the provider sends no email_verified.
+    trustEmail: false
+    # Client ids, besides the web client, whose user tokens the API accepts.
+    trustedClients: []
+    # The provider's account page, linked from the user's profile.
+    accountUrl: ""
+  # invitation, claim, or open.
+  signup: invitation
+  # everyone, or claim.
+  treeCreation: everyone
+  # A verified email whose first sign-in becomes instance administrator while
+  # none exists.
+  bootstrapAdminEmail: ""
+  session:
+    # Existing Secret holding OXIDGENE_SESSION_KEYS: comma-separated base64
+    # 32-byte keys, the first encrypting.
+    keysSecret:
+      secret: oxidgene-session
+      key: keys
+    idleTimeout: 2h
+    absoluteLifetime: 7d
+
 ingress:
   enabled: false
-  # The backend has no authentication yet: whoever reaches /api or /graphql
-  # through this Ingress can read and change every tree. Rendering refuses an
-  # enabled Ingress until this acknowledges that access to it is restricted
-  # some other way — an authenticating proxy configured through `annotations`,
-  # or a host only trusted users can reach.
+  # With auth.idp.mode=none the backend has no authentication: whoever
+  # reaches /api or /graphql through this Ingress can read and change every
+  # tree. Rendering then refuses an enabled Ingress until this acknowledges
+  # that access to it is restricted some other way — an authenticating proxy
+  # configured through `annotations`, or a host only trusted users can reach.
+  # Other modes ignore it.
   exposeApiWithoutAuth: false
   className: ""
   annotations: {}

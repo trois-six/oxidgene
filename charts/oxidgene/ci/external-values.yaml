@@ -1,0 +1,22 @@
+# Rendering values of scripts/chart-tests.py: any OpenID Connect provider,
+# sessions in an existing Redis, two backends behind the Ingress.
+auth:
+  idp:
+    mode: external
+  publicUrl: https://genealogy.example.invalid
+  oidc:
+    issuer: https://idp.example.invalid/realms/genealogy
+    rolesClaim: groups
+    adminValues: [genealogy-admins]
+  bootstrapAdminEmail: admin@example.invalid
+
+redis:
+  mode: existing
+
+ingress:
+  enabled: true
+  className: nginx
+  host: genealogy.example.invalid
+  tls:
+    - secretName: oxidgene-tls
+      hosts: [genealogy.example.invalid]

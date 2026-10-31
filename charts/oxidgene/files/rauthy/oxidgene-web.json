@@ -1,0 +1,26 @@
+{{- /*
+oxidgene-web's whole definition, which the chart's job applies through
+Rauthy's admin API (PUT /auth/v1/clients/oxidgene-web) after each install
+and upgrade: Rauthy's bootstrap files cannot set `default_aud`, the
+resource identifier every access token's `aud` must carry (§5.2).
+*/ -}}
+{{- $publicUrl := .Values.auth.publicUrl -}}
+{{- $apiScopes := list "tree:read" "tree:write" "media:read" "media:write" "import" "export" "history:read" "tree:admin" "instance:admin" -}}
+{
+  "name": "OxidGene",
+  "confidential": true,
+  "redirect_uris": [{{ printf "%s/auth/callback" $publicUrl | toJson }}],
+  "post_logout_redirect_uris": [{{ printf "%s/" $publicUrl | toJson }}],
+  "backchannel_logout_uri": {{ printf "%s/auth/backchannel-logout" $publicUrl | toJson }},
+  "enabled": true,
+  "flows_enabled": ["authorization_code", "refresh_token"],
+  "access_token_alg": "EdDSA",
+  "id_token_alg": "EdDSA",
+  "auth_code_lifetime": 60,
+  "access_token_lifetime": 300,
+  "scopes": {{ concat (list "openid" "profile" "email" "groups") $apiScopes | toJson }},
+  "default_scopes": {{ concat (list "openid" "profile" "email" "groups") $apiScopes | toJson }},
+  "challenges": ["S256"],
+  "force_mfa": false,
+  "default_aud": [{{ $publicUrl | toJson }}]
+}

@@ -1,0 +1,16 @@
+# Rendering values of scripts/chart-tests.py: no authentication, on
+# ephemeral storage, behind an Ingress whose host is restricted otherwise.
+auth:
+  idp:
+    mode: none
+
+database:
+  mode: disabled
+
+s3:
+  mode: disabled
+
+ingress:
+  enabled: true
+  exposeApiWithoutAuth: true
+  host: genealogy.example.invalid

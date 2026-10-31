@@ -1,0 +1,9 @@
+[
+  {
+    "name": "oxidgene-chart",
+    "secret": { "Plain": "__RAUTHY_API_KEY__" },
+    "access": [
+      { "group": "Clients", "access_rights": ["read", "update"] }
+    ]
+  }
+]

@@ -275,6 +275,15 @@ dev-db-up:
 dev-db-down:
     docker compose -f docker/docker-compose.yml stop postgres
 
+# Lints the chart with each values file of charts/oxidgene/ci and renders
+# every authentication mode, asserting on what it produces and refuses and
+# on the Rauthy setup it ships against the development one (scripts/chart-tests.py,
+# docs/authentication.md §12). Needs Helm; fetches the chart's dependencies.
+# Lint and test the Helm chart
+chart-test:
+    helm dependency build charts/oxidgene
+    uv run --quiet scripts/chart-tests.py
+
 # The Compose stack's Rauthy alone — with its mail relay and the step
 # completing its web client — on http://localhost:8180, for
 # `OXIDGENE_AUTH_MODE=oidc just dev-web` (docs/authentication.md §8.5)

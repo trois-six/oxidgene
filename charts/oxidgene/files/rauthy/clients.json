@@ -1,0 +1,59 @@
+{{- /*
+The clients Rauthy creates at its first start (docs/authentication.md §8.3),
+rendered by templates/rauthy.yaml. The init container replaces
+__OXIDGENE_WEB_CLIENT_SECRET__ with the value of auth.oidc.clientSecret's
+Secret. oxidgene-web's whole definition, OxidGene's audience included, is
+applied again after each install and upgrade from oxidgene-web.json.
+*/ -}}
+{{- $publicUrl := .Values.auth.publicUrl -}}
+{{- $apiScopes := list "tree:read" "tree:write" "media:read" "media:write" "import" "export" "history:read" "tree:admin" "instance:admin" -}}
+[
+  {
+    "id": {{ .Values.auth.oidc.clientId | toJson }},
+    "name": "OxidGene",
+    "secret": { "Plain": "__OXIDGENE_WEB_CLIENT_SECRET__" },
+    "redirect_uris": [{{ printf "%s/auth/callback" $publicUrl | toJson }}],
+    "post_logout_redirect_uris": [{{ printf "%s/" $publicUrl | toJson }}],
+    "backchannel_logout_uri": {{ printf "%s/auth/backchannel-logout" $publicUrl | toJson }},
+    "enabled": true,
+    "flows_enabled": ["authorization_code", "refresh_token"],
+    "access_token_alg": "EdDSA",
+    "id_token_alg": "EdDSA",
+    "auth_code_lifetime": 60,
+    "access_token_lifetime": 300,
+    "scopes": {{ concat (list "openid" "profile" "email" "groups") $apiScopes | toJson }},
+    "default_scopes": {{ concat (list "openid" "profile" "email" "groups") $apiScopes | toJson }},
+    "challenges": ["S256"],
+    "force_mfa": false
+  },
+  {
+    "id": "oxidgene-mcp",
+    "name": "OxidGene assistant access",
+    "redirect_uris": ["http://127.0.0.1/*", "http://localhost/*"],
+    "enabled": true,
+    "flows_enabled": ["authorization_code", "refresh_token"],
+    "access_token_alg": "EdDSA",
+    "id_token_alg": "EdDSA",
+    "auth_code_lifetime": 60,
+    "access_token_lifetime": 300,
+    "scopes": {{ concat (list "openid" "profile" "email") (without $apiScopes "instance:admin") | toJson }},
+    "default_scopes": ["openid", "profile", "email"],
+    "challenges": ["S256"],
+    "force_mfa": false
+  },
+  {
+    "id": "oxidgene-worker",
+    "name": "OxidGene worker",
+    "secret": "generate",
+    "redirect_uris": [],
+    "enabled": true,
+    "flows_enabled": ["client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"],
+    "access_token_alg": "EdDSA",
+    "id_token_alg": "EdDSA",
+    "auth_code_lifetime": 60,
+    "access_token_lifetime": 300,
+    "scopes": ["openid"],
+    "default_scopes": ["openid"],
+    "force_mfa": false
+  }
+]

@@ -1,7 +1,8 @@
 {{- if .Values.ingress.enabled }}
-{{- if not .Values.ingress.exposeApiWithoutAuth }}
-{{- fail "ingress.enabled routes /api and /graphql to a backend that has no authentication yet: anyone who reaches the Ingress can read and change every tree. Restrict the Ingress to trusted users (an authenticating proxy through ingress.annotations, a private network) and then set ingress.exposeApiWithoutAuth=true to acknowledge it." }}
+{{- if and (not (include "oxidgene.authEnabled" .)) (not .Values.ingress.exposeApiWithoutAuth) }}
+{{- fail "ingress.enabled with auth.idp.mode=none routes /api and /graphql to a backend without authentication: anyone who reaches the Ingress can read and change every tree. Choose an identity provider (auth.idp.mode=external or keycloak-operator), or restrict the Ingress to trusted users (an authenticating proxy through ingress.annotations, a private network) and then set ingress.exposeApiWithoutAuth=true to acknowledge it." }}
 {{- end }}
+{{- $backend := dict "service" (dict "name" (printf "%s-backend" (include "oxidgene.fullname" .)) "port" (dict "number" .Values.backend.service.port)) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,27 +21,19 @@ spec:
     - host: {{ required "ingress.host is required when ingress is enabled" .Values.ingress.host | quote }}
       http:
         paths:
-          - path: /api
+          {{- /* The API, the sign-in routes, the assistant endpoint and its
+          protected-resource metadata share the frontend's origin
+          (docs/authentication.md §8.1). */}}
+          {{- range list "/api" "/graphql" "/auth" "/mcp" "/.well-known/oauth-protected-resource" }}
+          - path: {{ . }}
             pathType: Prefix
             backend:
-              service:
-                name: {{ include "oxidgene.fullname" . }}-backend
-                port:
-                  number: {{ .Values.backend.service.port }}
-          - path: /graphql
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "oxidgene.fullname" . }}-backend
-                port:
-                  number: {{ .Values.backend.service.port }}
+              {{- toYaml $backend | nindent 14 }}
+          {{- end }}
           - path: /healthz
             pathType: Exact
             backend:
-              service:
-                name: {{ include "oxidgene.fullname" . }}-backend
-                port:
-                  number: {{ .Values.backend.service.port }}
+              {{- toYaml $backend | nindent 14 }}
           - path: /
             pathType: Prefix
             backend:

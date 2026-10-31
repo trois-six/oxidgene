@@ -19,18 +19,45 @@ Check provisioning with:
 {{- else if eq .Values.redis.mode "existing" }}
 Redis Secret: {{ .Values.redis.existing.secret }}
 {{- else }}
-Redis is disabled until authenticated sessions are implemented.
+Redis is disabled.
+{{- if include "oxidgene.authEnabled" . }} Sessions live in the single backend process and end when it restarts.{{ end }}
+{{- end }}
+
+Authentication: {{ .Values.auth.idp.mode }}
+{{- if include "oxidgene.authEnabled" . }}
+Issuer: {{ include "oxidgene.oidcIssuer" . }}
+Sign-in redirect URI: {{ .Values.auth.publicUrl }}/auth/callback
+Secrets read by the backend: {{ .Values.auth.oidc.clientSecret.secret }} (web client secret), {{ .Values.auth.session.keysSecret.secret }} (session keys)
+{{- if eq .Values.auth.idp.mode "rauthy" }}
+Rauthy: {{ include "oxidgene.rauthyName" . }} at https://{{ .Values.auth.idp.rauthy.hostname }}/auth/v1/
+Check it with:
+  kubectl rollout status statefulset/{{ include "oxidgene.rauthyName" . }} -n {{ .Release.Namespace }}
+{{- if .Values.auth.idp.rauthy.admin.passwordKey }}
+Its administrator signs in at https://{{ .Values.auth.idp.rauthy.hostname }}/auth/v1/admin with the password
+of the Secret {{ .Values.auth.idp.rauthy.secret }}.
+{{- else }}
+Its administrator's first password is printed once in the log of {{ include "oxidgene.rauthyName" . }}-0:
+sign in at https://{{ .Values.auth.idp.rauthy.hostname }}/auth/v1/admin and change it.
+{{- end }}
+Create users, or connect upstream providers, in its admin UI; add the
+instance administrators to the group oxidgene-admins.
+{{- end }}
+{{- else }}
+
+WARNING: auth.idp.mode=none. Every tree is readable and writable by whoever
+reaches the backend, as a local owner of every tree.
+{{- if .Values.ingress.enabled }} Anyone who can reach
+https://{{ .Values.ingress.host }} can read, change and delete every tree: keep
+the host behind an authenticating proxy or on a network only trusted users
+reach (ingress.exposeApiWithoutAuth=true records that you did).
+{{- end }}
 {{- end }}
 
 {{- if .Values.ingress.enabled }}
-Application URL: https://{{ .Values.ingress.host }}
 
-WARNING: the Ingress routes /api and /graphql to a backend without
-authentication. Anyone who can reach https://{{ .Values.ingress.host }} can read,
-change and delete every tree. Keep the host behind an authenticating proxy or
-on a network only trusted users reach (ingress.exposeApiWithoutAuth=true
-records that you did).
+Application URL: https://{{ .Values.ingress.host }}
 {{- else }}
+
 Expose the frontend service or enable ingress to access the application.
 {{- end }}
 

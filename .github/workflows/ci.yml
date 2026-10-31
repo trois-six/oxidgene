@@ -380,14 +380,18 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v5
 
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.1"
+
       - name: Build chart dependencies
         run: helm dependency build charts/oxidgene
 
-      - name: Lint chart
-        run: helm lint charts/oxidgene
-
-      - name: Render chart
-        run: helm template oxidgene charts/oxidgene > /dev/null
+      # `just chart-test`: lint with every values file of charts/oxidgene/ci,
+      # and render each authentication mode, the values it requires and
+      # refuses, and the realm it ships (scripts/chart-tests.py).
+      - name: Lint and test the chart
+        run: uv run --quiet scripts/chart-tests.py
 
   # A single required status check.
   #

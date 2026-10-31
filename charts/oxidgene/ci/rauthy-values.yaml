@@ -1,0 +1,27 @@
+# Rendering values of scripts/chart-tests.py: a Rauthy this release deploys,
+# three Raft members on Hiqlite, its own Ingress with TLS, its own mail.
+auth:
+  idp:
+    mode: rauthy
+    rauthy:
+      replicas: 3
+      hostname: auth.genealogy.example.invalid
+      ingress:
+        className: nginx
+        tlsSecret: rauthy-tls
+      admin:
+        email: idp-admin@example.invalid
+        passwordKey: admin-password
+      smtp:
+        host: smtp.example.invalid
+        from: OxidGene identity <identity@example.invalid>
+        user: relay
+  publicUrl: https://genealogy.example.invalid
+
+backend:
+  replicaCount: 1
+
+ingress:
+  enabled: true
+  className: nginx
+  host: genealogy.example.invalid

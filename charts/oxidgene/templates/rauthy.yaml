@@ -1,0 +1,444 @@
+{{- /*
+auth.idp.mode=rauthy (docs/authentication.md §8.2): Rauthy as a StatefulSet,
+its configuration and first-start bootstrap, its Services and Ingress, the
+job that completes the oxidgene-web client, and with
+database.mode=cloudnativepg its own PostgreSQL. No operator, no CRD of its
+own.
+*/ -}}
+{{- if eq .Values.auth.idp.mode "rauthy" }}
+{{- include "oxidgene.authValidate" . }}
+{{- $rauthy := .Values.auth.idp.rauthy }}
+{{- $name := include "oxidgene.rauthyName" . }}
+{{- $hiqlite := eq $rauthy.database.mode "hiqlite" }}
+{{- $labels := include "oxidgene.labels" . }}
+{{- $selector := printf "%s\napp.kubernetes.io/component: identity-provider" (include "oxidgene.selectorLabels" .) }}
+{{- if not $hiqlite }}
+{{- $cnpg := $rauthy.database.cloudnativepg }}
+{{- $operatorEnabled := dig "cloudnative-pg" "enabled" false .Values.AsMap }}
+{{- if and $cnpg.requireCrd (not $operatorEnabled) (not (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1/Cluster")) }}
+{{- fail "auth.idp.rauthy.database.mode=cloudnativepg requires the postgresql.cnpg.io/v1 Cluster CRD; enable cloudnative-pg.enabled or install CloudNativePG first" }}
+{{- end }}
+# Rauthy's database, apart from the genealogy's: its own lifecycle, backups
+# and blast radius.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "oxidgene.rauthyDatabaseClusterName" . }}
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-database
+spec:
+  instances: {{ $cnpg.instances }}
+  {{- with $cnpg.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ required "auth.idp.rauthy.database.cloudnativepg.database is required" $cnpg.database | quote }}
+      owner: {{ required "auth.idp.rauthy.database.cloudnativepg.owner is required" $cnpg.owner | quote }}
+      dataChecksums: true
+  enableSuperuserAccess: false
+  storage:
+    size: {{ required "auth.idp.rauthy.database.cloudnativepg.storage.size is required" $cnpg.storage.size }}
+    {{- with $cnpg.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  {{- with $cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+data:
+  config.toml: |
+    {{- tpl (.Files.Get "files/rauthy/config.toml") . | nindent 4 }}
+---
+# The first start's bootstrap, applied only while Rauthy's database is empty,
+# and oxidgene-web's definition, which the job below applies at every
+# install and upgrade. No secret: the init container fills them in.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-bootstrap
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+data:
+  groups.json: |
+    {{- .Files.Get "files/rauthy/groups.json" | nindent 4 }}
+  scopes.json: |
+    {{- .Files.Get "files/rauthy/scopes.json" | nindent 4 }}
+  clients.json: |
+    {{- tpl (.Files.Get "files/rauthy/clients.json") . | nindent 4 }}
+  api_keys.json: |
+    {{- .Files.Get "files/rauthy/api_keys.json" | nindent 4 }}
+  oxidgene-web.json: |
+    {{- tpl (.Files.Get "files/rauthy/oxidgene-web.json") . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    {{- $selector | nindent 4 }}
+---
+# The Raft peers find each other through it, ready or not.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-headless
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: raft
+      port: 8100
+      targetPort: raft
+    - name: raft-api
+      port: 8200
+      targetPort: raft-api
+  selector:
+    {{- $selector | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  serviceName: {{ $name }}-headless
+  replicas: {{ int $rauthy.replicas }}
+  # The Raft members start together and elect a leader.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- $selector | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ tpl (.Files.Get "files/rauthy/config.toml") . | sha256sum }}
+      labels:
+        {{- $selector | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $rauthy.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Rauthy's image has no shell: this one writes the bootstrap files with
+      # their secrets into a volume only the pod sees.
+      initContainers:
+        - name: bootstrap
+          image: {{ $rauthy.initImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- toYaml $rauthy.securityContext | nindent 12 }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              for file in groups.json scopes.json clients.json api_keys.json; do
+                sed -e "s|__OXIDGENE_WEB_CLIENT_SECRET__|${OXIDGENE_WEB_CLIENT_SECRET}|" \
+                    -e "s|__RAUTHY_API_KEY__|${RAUTHY_API_KEY}|" \
+                    "/bootstrap-templates/${file}" > "/bootstrap/${file}"
+              done
+          env:
+            - name: OXIDGENE_WEB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.clientSecret.secret | quote }}
+                  key: {{ .Values.auth.oidc.clientSecret.key | quote }}
+            - name: RAUTHY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: api-key
+          volumeMounts:
+            - name: bootstrap-templates
+              mountPath: /bootstrap-templates
+              readOnly: true
+            - name: bootstrap
+              mountPath: /bootstrap
+      containers:
+        - name: rauthy
+          image: {{ $rauthy.image | quote }}
+          imagePullPolicy: {{ $rauthy.imagePullPolicy }}
+          securityContext:
+            {{- toYaml $rauthy.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: raft
+              containerPort: 8100
+            - name: raft-api
+              containerPort: 8200
+          env:
+            - name: ENC_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: enc-keys
+            - name: ENC_KEY_ACTIVE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: enc-key-active
+            - name: HQL_SECRET_RAFT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: raft-secret
+            - name: HQL_SECRET_API
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: api-secret
+            {{- with $rauthy.admin.passwordKey }}
+            - name: BOOTSTRAP_ADMIN_PASSWORD_PLAIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: {{ . | quote }}
+            {{- end }}
+            {{- if not $hiqlite }}
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-app" (include "oxidgene.rauthyDatabaseClusterName" .) | quote }}
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-app" (include "oxidgene.rauthyDatabaseClusterName" .) | quote }}
+                  key: password
+            {{- end }}
+            {{- if and $rauthy.smtp.host $rauthy.smtp.user }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.smtp.passwordSecret.secret | quote }}
+                  key: {{ $rauthy.smtp.passwordSecret.key | quote }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /auth/v1/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: raft-api
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /auth/v1/health
+              port: http
+            periodSeconds: 20
+          resources:
+            {{- toYaml $rauthy.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.toml
+              subPath: config.toml
+              readOnly: true
+            - name: bootstrap
+              mountPath: /app/bootstrap
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: bootstrap-templates
+          configMap:
+            name: {{ $name }}-bootstrap
+        - name: bootstrap
+          emptyDir:
+            medium: Memory
+        - name: tmp
+          emptyDir: {}
+        {{- if not $hiqlite }}
+        # Hiqlite only caches with PostgreSQL: nothing durable here.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- with $rauthy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $rauthy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $rauthy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if $hiqlite }}
+  # Rauthy's data: one volume per Raft member.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with $rauthy.database.hiqlite.storage.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ required "auth.idp.rauthy.database.hiqlite.storage.size is required" $rauthy.database.hiqlite.storage.size }}
+  {{- end }}
+{{- if gt (int $rauthy.replicas) 1 }}
+---
+# A Raft cluster keeps its majority through voluntary disruptions.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- $selector | nindent 6 }}
+{{- end }}
+{{- if $rauthy.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+  {{- with $rauthy.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $rauthy.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $rauthy.hostname | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+  {{- with $rauthy.ingress.tlsSecret }}
+  tls:
+    - secretName: {{ . | quote }}
+      hosts:
+        - {{ $rauthy.hostname | quote }}
+  {{- end }}
+{{- end }}
+---
+# Rauthy's bootstrap files cannot set a client's extra audiences: after each
+# install and upgrade, this applies oxidgene-web's whole definition through
+# the admin API — OxidGene's resource identifier in its tokens' `aud`
+# included — retrying until Rauthy answers. The chart owns that client: a
+# change made to it in Rauthy's admin UI lasts until the next upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-configure
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "oxidgene.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: identity-provider-configure
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $rauthy.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: configure
+          image: {{ $rauthy.initImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- toYaml $rauthy.securityContext | nindent 12 }}
+          env:
+            - name: RAUTHY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $rauthy.secret | quote }}
+                  key: api-key
+          args:
+            - --fail-with-body
+            - --silent
+            - --show-error
+            - --output
+            - /dev/null
+            - --retry
+            - "120"
+            - --retry-all-errors
+            - --retry-delay
+            - "5"
+            - --request
+            - PUT
+            - --header
+            - "Authorization: API-Key oxidgene-chart$$$(RAUTHY_API_KEY)"
+            - --header
+            - "Content-Type: application/json"
+            - --data
+            - "@/client/oxidgene-web.json"
+            - {{ printf "http://%s.%s.svc.%s:8080/auth/v1/clients/%s" $name .Release.Namespace .Values.clusterDomain .Values.auth.oidc.clientId | quote }}
+          volumeMounts:
+            - name: client
+              mountPath: /client
+              readOnly: true
+      volumes:
+        - name: client
+          configMap:
+            name: {{ $name }}-bootstrap
+            items:
+              - key: oxidgene-web.json
+                path: oxidgene-web.json
+{{- end }}
