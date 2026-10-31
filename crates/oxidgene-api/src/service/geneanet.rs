@@ -274,7 +274,11 @@ impl Preview {
             // from its rendition instead, and that rendition has to be
             // retrieved first.
             self.to_match += pages;
-        } else if held_locally(deposit, deposit.views[0].id, deposit_sizes, archives) {
+        } else if pages == 0 {
+            // A deposit listing no view has nothing to fetch or match: the
+            // collection is a request body, and may list a deposit twice,
+            // once without its views.
+        } else if held_locally(deposit, deposit_sizes, archives) {
             self.in_archives += 1;
         } else {
             self.to_download += 1;
@@ -366,7 +370,6 @@ pub fn preview(
 /// `Content-Length`, so no length is available to match on.
 fn held_locally(
     deposit: &ManifestDeposit,
-    _view_id: i64,
     deposit_sizes: &HashMap<i64, u64>,
     archives: &ArchiveSet,
 ) -> bool {
@@ -3346,7 +3349,7 @@ mod tests {
         let sizes = HashMap::from([(1, 5)]);
 
         // An empty archive set cannot hold it, so it must be downloaded.
-        assert!(!held_locally(&deposit, 10, &sizes, &ArchiveSet::new()));
+        assert!(!held_locally(&deposit, &sizes, &ArchiveSet::new()));
     }
 
     #[test]
@@ -3356,7 +3359,7 @@ mod tests {
         let deposit = deposit(1, vec![view(10, Some(1)), view(11, Some(2))]);
         let sizes = HashMap::from([(1, 5)]);
 
-        assert!(!held_locally(&deposit, 10, &sizes, &ArchiveSet::new()));
+        assert!(!held_locally(&deposit, &sizes, &ArchiveSet::new()));
     }
 
     fn collection_with(deposits: &str) -> String {
@@ -3657,6 +3660,31 @@ mod tests {
         assert_eq!(needed.len(), 1);
         assert!(needed[0].url.contains("deposits[]=1"));
         assert!(needed[0].original);
+    }
+
+    #[test]
+    fn a_deposit_listed_again_without_its_views_is_counted_once() {
+        // The collection is a request body: a deposit listed a second time
+        // with no view once indexed its first view, which does not exist.
+        let (gw, collection) = attached_case(
+            r#"{"id":1,"title":"t","type":"portraits","private":true,
+                "views":[{"id":10,"page":1,"files":{"normal":"/n1.jpg"}}]},
+               {"id":1,"title":"t","type":"portraits","private":true,"views":[]}"#,
+        );
+
+        let stats = preview(
+            gw,
+            "tree.gw",
+            &collection,
+            &HashMap::new(),
+            &ArchiveSet::new(),
+            MediaFidelity::Originals,
+        )
+        .expect("previews");
+
+        assert_eq!(stats.to_download, 1);
+        assert_eq!(stats.in_archives, 0);
+        assert_eq!(stats.to_match, 0);
     }
 
     #[test]
