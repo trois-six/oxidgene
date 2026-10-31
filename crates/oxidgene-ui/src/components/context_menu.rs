@@ -217,13 +217,6 @@ fn notify_open(on_open_change: Option<EventHandler<bool>>, open: bool) {
     }
 }
 
-/// The one "⋮" trigger of every element with secondary actions, and the
-/// shared menu it opens.
-///
-/// The trigger is always visible, muted, and stronger on hover or focus. A
-/// click, the Enter or Space key, or ArrowDown opens the menu beside the
-/// trigger; Escape or a click outside closes it and returns the focus to the
-/// trigger. The trigger is never the only route: each element that opens this
 /// The "⋮" of the element a chart has selected, drawn in the chart's own SVG
 /// rather than as a [`MenuButton`] in a `foreignObject`: WebKitGTK, the
 /// desktop's engine, places a `foreignObject`'s content without the
@@ -286,6 +279,13 @@ pub fn ChartMenuButton(
     }
 }
 
+/// The one "⋮" trigger of every element with secondary actions, and the
+/// shared menu it opens.
+///
+/// The trigger is always visible, muted, and stronger on hover or focus. A
+/// click, the Enter or Space key, or ArrowDown opens the menu beside the
+/// trigger; Escape or a click outside closes it and returns the focus to the
+/// trigger. The trigger is never the only route: each element that opens this
 /// menu from a right click, the menu key or a long press does so with the same
 /// entries. A trigger with `on_request` hands its activation to the page.
 #[component]
