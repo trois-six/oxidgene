@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
-use crate::service::background_job::active_job_cancelling;
+use crate::service::background_job::{active_job_cancelling, parse_off_thread};
 use crate::service::gedcom;
 use crate::service::history::{self, Change};
 use crate::service::patch::double_option;
@@ -221,6 +221,10 @@ pub async fn delete_tree(
 /// The copy never enables the export's compatibility options: those trade
 /// fidelity for third-party importers, which a copy inside OxidGene has no
 /// use for. Both trees record the duplication in their audit log.
+///
+/// The new tree, its rows, its projections and both audit entries are
+/// written in one transaction: a copy that fails at any step leaves no
+/// tree behind. The file is parsed before it opens, off the async workers.
 pub async fn duplicate_tree(
     db: &DatabaseConnection,
     profiles: &ProfileService,
@@ -238,11 +242,18 @@ pub async fn duplicate_tree(
     )
     .await?;
     let new_tree_id = Uuid::now_v7();
-    let tree = TreeRepo::create(db, new_tree_id, name, None).await?;
-    let summary = gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;
-    profiles.rebuild_tree_full(db, new_tree_id).await?;
+    let text = export.gedcom;
+    let parsed = parse_off_thread("gedcom", move || {
+        Ok(oxidgene_gedcom::import::import_gedcom(&text, new_tree_id))
+    })
+    .await?;
+
+    let txn = begin_tx(db).await?;
+    let tree = TreeRepo::create(&txn, new_tree_id, name, None).await?;
+    let summary = gedcom::persist_import_result_in(&txn, parsed, &mut |_| Ok(())).await?;
+    profiles.rebuild_tree_full(&txn, new_tree_id).await?;
     history::record_import(
-        db,
+        &txn,
         new_tree_id,
         history::DUPLICATE_FORMAT,
         Some(source_name),
@@ -250,16 +261,18 @@ pub async fn duplicate_tree(
     )
     .await?;
     history::record_export(
-        db,
+        &txn,
         source_tree_id,
         history::DUPLICATE_FORMAT,
-        Some(tree.name.clone()),
+        Some(tree.name),
         None,
     )
     .await?;
     // As the import left it: it fills the settings the file carries, such
     // as the submitter.
-    TreeRepo::get(db, new_tree_id).await
+    let tree = TreeRepo::get(&txn, new_tree_id).await?;
+    commit_tx(txn).await?;
+    Ok(tree)
 }
 
 fn require_name(name: &str) -> Result<(), OxidGeneError> {

@@ -1216,6 +1216,54 @@ async fn statistics_include_what_an_import_writes() {
     }
 }
 
+/// A copy that fails at its last step — the source tree's audit entry —
+/// leaves nothing behind: no tree, no rows, no entry for the new tree — on
+/// both surfaces.
+#[tokio::test]
+async fn a_failed_duplication_leaves_no_tree() {
+    // The trigger that makes the last write fail is SQLite's.
+    let db = common::setup_sqlite_db().await;
+    let app = app_on(db.clone());
+    let tree = create_tree(&app).await;
+    create_person(&app, &tree, "Nu", "Fixture").await;
+    let persons = scalar(&db, "SELECT COUNT(*) AS n FROM person").await;
+    let entries = scalar(&db, "SELECT COUNT(*) AS n FROM audit_entry").await;
+    db.execute_unprepared(
+        "CREATE TRIGGER refuse_export BEFORE INSERT ON audit_entry \
+         WHEN NEW.action = 'export' BEGIN SELECT RAISE(ABORT, 'refused'); END",
+    )
+    .await
+    .unwrap();
+
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/duplicate"),
+        Some(json!({ "name": "Copy" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(body["error"], "database_error", "{body}");
+    let response = common::gql(
+        &app,
+        "mutation($t: ID!) { duplicateTree(treeId: $t, name: \"Copy\") { id } }",
+        json!({ "t": tree }),
+    )
+    .await;
+    assert_eq!(common::gql_error_code(&response), "DATABASE_ERROR");
+
+    assert_eq!(scalar(&db, "SELECT COUNT(*) AS n FROM tree").await, 1);
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS n FROM person").await,
+        persons
+    );
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS n FROM audit_entry").await,
+        entries
+    );
+}
+
 #[tokio::test]
 async fn graphql_mirrors_the_history_surface() {
     let (db, app) = setup().await;

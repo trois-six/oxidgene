@@ -801,7 +801,7 @@ reusable indefinitely, so it need only succeed once.
 ## 9. Output
 
 **A tree.** The `.gw` goes through the existing `import_geneweb` →
-`persist_import_result` path, and the manifest then produces `Media` rows plus
+`persist_import_result_in` path, and the manifest then produces `Media` rows plus
 one `MediaLink` per person the photo is attached to.
 
 REST and GraphQL are control planes for this desktop workflow: their import

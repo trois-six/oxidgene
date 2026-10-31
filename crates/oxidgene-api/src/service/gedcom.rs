@@ -24,9 +24,8 @@ use oxidgene_db::repo::{
     RepositoryRepo, SourceRepo, SourceRepositoryRepo, TagRepo, TreeRepo, VignetteRepo, db_err,
 };
 pub use oxidgene_gedcom::export::ExportChoices;
-use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
+    ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -270,25 +269,6 @@ pub(crate) fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> 
         + result.notes.len()
 }
 
-/// Parse a GEDCOM string and persist all extracted entities into the database.
-///
-/// See `persist_import_result` for the persistence guarantees.
-#[tracing::instrument(name = "import.gedcom", skip_all)]
-pub async fn import_and_persist(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    gedcom_str: &str,
-) -> Result<ImportSummary, OxidGeneError> {
-    // Verify tree exists
-    let _tree = TreeRepo::get(db, tree_id).await?;
-
-    // Parse GEDCOM
-    let result = tracing::info_span!("import.parse", import.format = "gedcom")
-        .in_scope(|| import_gedcom(gedcom_str, tree_id));
-
-    persist_import_result(db, result).await
-}
-
 /// Parse and ingest a seekable GEDZIP source without writing database rows.
 #[tracing::instrument(name = "import.gedzip.prepare", skip_all)]
 pub(crate) async fn prepare_gedzip_file(
@@ -375,28 +355,17 @@ fn apply_ingested_media(
     media.page_count = ingested.page_count;
 }
 
-/// Persist every entity of a parsed import into the database.
+/// Persist every entity of a parsed import on `db`, a transaction the
+/// caller ends. `on_inserted` hears of each batch of rows written; its
+/// `Err`, a cancellation, stops the import there.
 ///
 /// Format-agnostic: it takes the domain-model output of any importer (GEDCOM,
-/// GeneWeb `.gw`), so all import formats share one persistence path.
+/// GEDZIP, GeneWeb `.gw`), so all import formats share one persistence path.
 ///
-/// Uses a single database transaction for atomicity, and batch inserts for
-/// performance. Entities are inserted in FK-safe order: places → sources →
-/// media → persons → person_names → families → family_spouses →
-/// family_children → events → citations → media_links → vignettes → notes.
-pub(crate) async fn persist_import_result(
-    db: &DatabaseConnection,
-    result: oxidgene_gedcom::ImportResult,
-) -> Result<ImportSummary, OxidGeneError> {
-    let txn = db.begin().await.map_err(db_err)?;
-    let summary = persist_import_result_in(&txn, result, &mut |_| Ok(())).await?;
-    txn.commit().await.map_err(db_err)?;
-    Ok(summary)
-}
-
-/// [`persist_import_result`] on `db`, a transaction the caller ends.
-/// `on_inserted` hears of each batch of rows written; its `Err`, a
-/// cancellation, stops the import there.
+/// Uses batch inserts for performance. Entities are inserted in FK-safe
+/// order: places → sources → media → persons → person_names → families →
+/// family_spouses → family_children → events → citations → media_links →
+/// vignettes → notes.
 #[tracing::instrument(name = "import.persist", skip_all)]
 pub(crate) async fn persist_import_result_in(
     db: &impl ConnectionTrait,
