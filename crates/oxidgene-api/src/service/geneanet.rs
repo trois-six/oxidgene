@@ -20,7 +20,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures_util::stream::StreamExt;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::{EventType, Privacy};
-use oxidgene_core::types::Portrait;
+use oxidgene_core::types::{Portrait, is_remote_url};
 use oxidgene_db::repo::{
     MediaLinkRepo, MediaPatch, MediaRepo, NoteFilter, NoteRepo, PersonNamePieces, PersonNameRepo,
     PersonRepo, PlaceRepo, TreeRepo, UploadedMedia, UploadedMediaMetadata, VignetteInput,
@@ -2656,8 +2656,8 @@ fn rendition_url_in_order(view: &ManifestView, order: [&str; 4]) -> Option<Strin
         if let Some(path) = view.files.get(rendition) {
             // Manifest paths are host-relative and served from the gw
             // subdomain, not the www one the API lives on.
-            return Some(if path.starts_with("http") {
-                path.clone()
+            return Some(if is_remote_url(path) {
+                path.trim().to_owned()
             } else {
                 format!("{}{path}", oxidgene_geneanet::RENDITION_BASE_URL)
             });
@@ -3660,6 +3660,28 @@ mod tests {
         assert_eq!(needed.len(), 1);
         assert!(needed[0].url.contains("deposits[]=1"));
         assert!(needed[0].original);
+    }
+
+    #[test]
+    fn a_rendition_path_is_host_relative_unless_it_is_a_web_address() {
+        let mut page = view(10, None);
+        page.files = BTreeMap::from([("normal".to_string(), "httpdocs/n.png".to_string())]);
+        assert_eq!(
+            rendition_url(&page),
+            Some(format!(
+                "{}httpdocs/n.png",
+                oxidgene_geneanet::RENDITION_BASE_URL
+            ))
+        );
+
+        page.files = BTreeMap::from([(
+            "normal".to_string(),
+            " https://cdn.example.invalid/n.png".to_string(),
+        )]);
+        assert_eq!(
+            rendition_url(&page).as_deref(),
+            Some("https://cdn.example.invalid/n.png")
+        );
     }
 
     #[test]

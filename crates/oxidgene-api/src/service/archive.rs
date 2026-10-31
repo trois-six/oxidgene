@@ -23,7 +23,7 @@ use oxidgene_archives::{
     ResolveError, Resolver, SuppliedParts, Unrecognized,
 };
 use oxidgene_core::error::{ArchiveFailure, OxidGeneError};
-use oxidgene_core::types::{Citation, Source};
+use oxidgene_core::types::{Citation, Source, is_remote_url};
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PersonNameRepo, PlaceRepo,
     RepositoryRepo, SourceRepo, SourceRepositoryRepo,
@@ -308,7 +308,6 @@ pub async fn source_addresses(
         .map(|(_, media)| media.id)
         .collect();
     let pages = MediaRepo::list_pages_for(db, &documents).await?;
-    let remote = |path: &str| path.starts_with("https://") || path.starts_with("http://");
     let mut addresses = Vec::new();
     for (link, media) in &linked {
         let Some(source_id) = link.source_id else {
@@ -319,12 +318,12 @@ pub async fn source_addresses(
                 pages
                     .iter()
                     .filter(|page| {
-                        page.parent_media_id == Some(media.id) && remote(&page.file_path)
+                        page.parent_media_id == Some(media.id) && is_remote_url(&page.file_path)
                     })
-                    .map(|page| (source_id, page.file_path.clone())),
+                    .map(|page| (source_id, page.file_path.trim().to_owned())),
             );
-        } else if remote(&media.file_path) {
-            addresses.push((source_id, media.file_path.clone()));
+        } else if is_remote_url(&media.file_path) {
+            addresses.push((source_id, media.file_path.trim().to_owned()));
         }
     }
     Ok(addresses)

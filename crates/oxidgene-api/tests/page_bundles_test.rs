@@ -743,6 +743,17 @@ async fn the_base_map_is_cacheable_and_revalidated_without_a_body() {
 /// A source cited for an event of `person_id`, held at a repository under a
 /// call number and with a remote page linked to it.
 async fn held_source(app: &axum::Router, tree: &str, person_id: &str) {
+    held_source_at(
+        app,
+        tree,
+        person_id,
+        "https://archives.example.invalid/ark:/99999/a1/v4",
+    )
+    .await;
+}
+
+/// [`held_source`], its remote page stored as `file_path`.
+async fn held_source_at(app: &axum::Router, tree: &str, person_id: &str, file_path: &str) {
     let post = |path: String, body: Value| async move {
         ok(app, Method::POST, &path, Some(body)).await["id"]
             .as_str()
@@ -785,7 +796,7 @@ async fn held_source(app: &axum::Router, tree: &str, person_id: &str) {
             "document_id": document,
             "file_name": "view.jpg",
             "mime_type": "image/jpeg",
-            "file_path": "https://archives.example.invalid/ark:/99999/a1/v4",
+            "file_path": file_path,
             "file_size": 0
         }),
     )
@@ -795,6 +806,47 @@ async fn held_source(app: &axum::Router, tree: &str, person_id: &str) {
         json!({ "media_id": document, "source_id": source }),
     )
     .await;
+}
+
+/// A remote page stored with surrounding blanks is still a remote page: it
+/// is offered, trimmed, among the addresses that recognize archive
+/// citations — on both surfaces.
+#[tokio::test]
+async fn a_remote_page_stored_with_blanks_is_still_a_source_address() {
+    let f = fixture().await;
+    held_source_at(
+        &f.app,
+        &f.tree,
+        &f.anchor,
+        "  https://archives.example.invalid/ark:/99999/a1/v7 ",
+    )
+    .await;
+    let bundle = ok(
+        &f.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/persons/{}/detail-bundle",
+            f.tree, f.anchor
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        bundle["source_links"][0]["url"], "https://archives.example.invalid/ark:/99999/a1/v7",
+        "{bundle}"
+    );
+
+    let data = gql_ok(
+        &f.app,
+        r#"query($t: ID!, $p: ID!) { personDetailBundle(treeId: $t, personId: $p) {
+            sourceLinks { url } } }"#,
+        json!({ "t": f.tree, "p": f.anchor }),
+    )
+    .await;
+    assert_eq!(
+        data["personDetailBundle"]["sourceLinks"][0]["url"],
+        bundle["source_links"][0]["url"]
+    );
 }
 
 #[tokio::test]
