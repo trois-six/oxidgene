@@ -166,7 +166,9 @@ fn republican_new_year_jdn(year: i32) -> Option<i64> {
     // (`y % 4 == 3`, see `republican_leap`) from XIV up to `year`.
     let year = i64::from(year);
     let sextiles = fdiv(year, 4) - fdiv(LAST, 4);
-    Some(anchor(REPUBLICAN_NEW_YEAR[REPUBLICAN_NEW_YEAR.len() - 1]) + 365 * (year - LAST) + sextiles)
+    Some(
+        anchor(REPUBLICAN_NEW_YEAR[REPUBLICAN_NEW_YEAR.len() - 1]) + 365 * (year - LAST) + sextiles,
+    )
 }
 
 // ── Hebrew ────────────────────────────────────────────────────────────────
@@ -408,7 +410,11 @@ pub fn convert(
 
 /// The year that follows, skipping the year 0 that no calendar here has.
 const fn year_after(year: i32) -> i32 {
-    if year == -1 { 1 } else { year.saturating_add(1) }
+    if year == -1 {
+        1
+    } else {
+        year.saturating_add(1)
+    }
 }
 
 #[cfg(test)]

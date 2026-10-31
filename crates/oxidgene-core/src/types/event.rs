@@ -308,7 +308,10 @@ mod tests {
 
         let mut gregorian = dated("1691", DateQualifier::Between);
         gregorian.date_value2 = Some("20 AUG 1693".to_owned());
-        assert_eq!(gregorian.qualified_year().unwrap().to_string(), "1691..1693");
+        assert_eq!(
+            gregorian.qualified_year().unwrap().to_string(),
+            "1691..1693"
+        );
 
         let mut julian = dated("1700", DateQualifier::Or);
         julian.calendar = Calendar::Julian;
