@@ -1880,7 +1880,8 @@ impl TreeQuery {
                 .map_err(|error| {
                     OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
                 })?;
-            let inspection = crate::service::geneanet::inspect_gw(&bytes, &file_name)?;
+            let inspection =
+                crate::service::geneanet::inspect_gw_off_thread(bytes, file_name).await?;
             Ok(GqlGeneanetInspection {
                 person_count: inspection.person_count as i64,
                 family_count: inspection.family_count as i64,
@@ -1898,7 +1899,7 @@ impl TreeQuery {
     ) -> Result<GqlGeneanetArchiveIndex> {
         boxed(async move {
             require_local_file_access(ctx)?;
-            let (set, reports) = crate::service::geneanet::index_archives(&paths);
+            let (set, reports) = crate::service::geneanet::index_archives_off_thread(paths).await?;
             Ok(GqlGeneanetArchiveIndex {
                 file_count: set.file_count() as i64,
                 archives: reports
@@ -1929,17 +1930,17 @@ impl TreeQuery {
                 .map_err(|error| {
                     OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
                 })?;
-            let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
-            let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
-            Ok(crate::service::geneanet::preview(
-                &gw,
-                &input.file_name,
-                &input.collection,
-                &deposit_sizes,
-                &archives,
-                input.media_fidelity.into(),
-            )?
-            .into())
+            let inputs = crate::service::geneanet::JoinInputs {
+                gw,
+                deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
+                file_name: input.file_name,
+                collection: input.collection,
+                archive_paths: input.archive_paths,
+                fidelity: input.media_fidelity.into(),
+            };
+            Ok(crate::service::geneanet::preview_off_thread(inputs)
+                .await?
+                .into())
         })
         .await
     }
@@ -1957,19 +1958,19 @@ impl TreeQuery {
                 .map_err(|error| {
                     OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
                 })?;
-            let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
-            let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
-            Ok(crate::service::geneanet::plan(
-                &gw,
-                &input.file_name,
-                &input.collection,
-                &deposit_sizes,
-                &archives,
-                input.media_fidelity.into(),
-            )?
-            .into_iter()
-            .map(Into::into)
-            .collect())
+            let inputs = crate::service::geneanet::JoinInputs {
+                gw,
+                deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
+                file_name: input.file_name,
+                collection: input.collection,
+                archive_paths: input.archive_paths,
+                fidelity: input.media_fidelity.into(),
+            };
+            Ok(crate::service::geneanet::plan_off_thread(inputs)
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect())
         })
         .await
     }

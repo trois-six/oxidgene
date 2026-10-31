@@ -46,9 +46,11 @@ pub async fn inspect_geneweb_handler(
     Query(query): Query<ImportGenewebQuery>,
     body: Bytes,
 ) -> Result<Json<InspectGenewebResponse>, ApiError> {
-    let file_name = query.filename.as_deref().unwrap_or(DEFAULT_ORIGIN_FILE);
+    let file_name = query
+        .filename
+        .unwrap_or_else(|| DEFAULT_ORIGIN_FILE.to_string());
 
-    let inspection = geneanet::inspect_gw(&body, file_name)?;
+    let inspection = geneanet::inspect_gw_off_thread(body, file_name).await?;
 
     Ok(Json(InspectGenewebResponse {
         person_count: inspection.person_count,
@@ -69,7 +71,7 @@ pub async fn index_archives_handler(
     Json(body): Json<IndexArchivesRequest>,
 ) -> Result<Json<IndexArchivesResponse>, ApiError> {
     state.local_file_access.require()?;
-    let (set, reports) = geneanet::index_archives(&body.paths);
+    let (set, reports) = geneanet::index_archives_off_thread(body.paths).await?;
 
     Ok(Json(IndexArchivesResponse {
         file_count: <_ as oxidgene_geneanet::archive::LocalOriginals>::file_count(&set),
@@ -96,17 +98,7 @@ pub async fn preview_handler(
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPreviewResponse>, ApiError> {
     state.local_file_access.require()?;
-    let gw = decode_gw(&body.gw_base64)?;
-    let (archives, _) = geneanet::index_archives(&body.archive_paths);
-
-    let preview = geneanet::preview(
-        &gw,
-        &body.file_name,
-        &body.collection,
-        &body.deposit_sizes,
-        &archives,
-        body.media_fidelity,
-    )?;
+    let preview = geneanet::preview_off_thread(join_inputs(body)?).await?;
 
     Ok(Json(GeneanetPreviewResponse {
         person_count: preview.person_count,
@@ -243,17 +235,7 @@ pub async fn plan_handler(
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPlanResponse>, ApiError> {
     state.local_file_access.require()?;
-    let gw = decode_gw(&body.gw_base64)?;
-    let (archives, _) = geneanet::index_archives(&body.archive_paths);
-
-    let needed = geneanet::plan(
-        &gw,
-        &body.file_name,
-        &body.collection,
-        &body.deposit_sizes,
-        &archives,
-        body.media_fidelity,
-    )?;
+    let needed = geneanet::plan_off_thread(join_inputs(body)?).await?;
 
     Ok(Json(GeneanetPlanResponse {
         needed: needed
@@ -306,6 +288,18 @@ pub async fn import_handler(
 /// JSON cannot hold the raw bytes and the raw bytes are what the reader needs,
 /// so the two calls that bundle a `.gw` with other fields encode it. The two
 /// that send nothing else take it as a raw body instead.
+/// What a preview or a plan request joins, its `.gw` decoded.
+fn join_inputs(body: GeneanetPreviewRequest) -> Result<geneanet::JoinInputs, ApiError> {
+    Ok(geneanet::JoinInputs {
+        gw: decode_gw(&body.gw_base64)?,
+        file_name: body.file_name,
+        collection: body.collection,
+        deposit_sizes: body.deposit_sizes,
+        archive_paths: body.archive_paths,
+        fidelity: body.media_fidelity,
+    })
+}
+
 fn decode_gw(encoded: &str) -> Result<Vec<u8>, ApiError> {
     use base64::Engine as _;
 

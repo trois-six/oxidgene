@@ -85,6 +85,21 @@ pub fn inspect_gw(bytes: &[u8], file_name: &str) -> Result<GwInspection, OxidGen
     })
 }
 
+/// [`inspect_gw`] on the blocking pool: a `.gw` of tens of megabytes is
+/// seconds of parsing, which would hold an async worker and every request
+/// queued behind it.
+///
+/// # Errors
+///
+/// As [`inspect_gw`].
+pub async fn inspect_gw_off_thread(
+    bytes: impl AsRef<[u8]> + Send + 'static,
+    file_name: String,
+) -> Result<GwInspection, OxidGeneError> {
+    let span = tracing::info_span!("geneweb.inspect", input.bytes = bytes.as_ref().len());
+    super::blocking::run(span, move || inspect_gw(bytes.as_ref(), &file_name)).await?
+}
+
 /// What one data archive turned out to hold. Step 2 of the wizard.
 #[derive(Debug, Clone)]
 pub struct ArchiveReport {
@@ -95,6 +110,20 @@ pub struct ArchiveReport {
     /// Set when this archive could not be read. The others still stand — one
     /// corrupt ZIP is not a reason to discard the four that opened.
     pub error: Option<String>,
+}
+
+/// [`index_archives`] on the blocking pool: opening each archive reads its
+/// central directory from disk.
+///
+/// # Errors
+///
+/// Only when the blocking task itself fails; an archive that cannot be read
+/// is reported in its own row.
+pub async fn index_archives_off_thread(
+    paths: Vec<String>,
+) -> Result<(ArchiveSet, Vec<ArchiveReport>), OxidGeneError> {
+    let span = tracing::info_span!("geneanet.archives.index", archive.count = paths.len());
+    super::blocking::run(span, move || index_archives(&paths)).await
 }
 
 /// Indexes each archive's central directory, extracting nothing.
@@ -284,6 +313,80 @@ impl Preview {
             self.to_download += 1;
         }
     }
+}
+
+/// [`preview`] or [`plan`]: a join of [`JoinInputs`] once the archives are
+/// indexed.
+type Join<T> = fn(
+    &[u8],
+    &str,
+    &str,
+    &HashMap<i64, u64>,
+    &ArchiveSet,
+    MediaFidelity,
+) -> Result<T, OxidGeneError>;
+
+/// What the preview and the plan join: the `.gw`, the collection the login
+/// window gathered and the local archives, owned so they can go to the
+/// blocking pool.
+pub struct JoinInputs {
+    pub gw: Vec<u8>,
+    pub file_name: String,
+    pub collection: String,
+    pub deposit_sizes: HashMap<i64, u64>,
+    pub archive_paths: Vec<String>,
+    pub fidelity: MediaFidelity,
+}
+
+impl JoinInputs {
+    /// Index the archives and hand everything to `join`, on the blocking
+    /// pool: the `.gw` parse and the ZIP indexes are seconds of work.
+    async fn run_off_thread<T: Send + 'static>(
+        self,
+        span: tracing::Span,
+        join: Join<T>,
+    ) -> Result<T, OxidGeneError> {
+        super::blocking::run(span, move || {
+            let (archives, _) = index_archives(&self.archive_paths);
+            join(
+                &self.gw,
+                &self.file_name,
+                &self.collection,
+                &self.deposit_sizes,
+                &archives,
+                self.fidelity,
+            )
+        })
+        .await?
+    }
+}
+
+/// [`preview`] of `inputs`, off the async workers.
+///
+/// # Errors
+///
+/// As [`preview`].
+pub async fn preview_off_thread(inputs: JoinInputs) -> Result<Preview, OxidGeneError> {
+    let span = tracing::info_span!(
+        "geneanet.preview",
+        input.bytes = inputs.gw.len(),
+        archive.count = inputs.archive_paths.len()
+    );
+    inputs.run_off_thread(span, preview).await
+}
+
+/// [`plan`] of `inputs`, off the async workers.
+///
+/// # Errors
+///
+/// As [`plan`].
+pub async fn plan_off_thread(inputs: JoinInputs) -> Result<Vec<NeededMedia>, OxidGeneError> {
+    let span = tracing::info_span!(
+        "geneanet.plan",
+        input.bytes = inputs.gw.len(),
+        archive.count = inputs.archive_paths.len()
+    );
+    inputs.run_off_thread(span, plan).await
 }
 
 /// Joins the collected mapping onto the `.gw` and reports what would happen.
