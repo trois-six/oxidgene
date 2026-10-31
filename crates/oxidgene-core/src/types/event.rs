@@ -103,15 +103,14 @@ impl Event {
     /// A `Between`/`Or` date carries both of its years, since the range is the
     /// fact — "between 1691 and 1693" says more than either year alone.
     pub fn qualified_year(&self) -> Option<QualifiedYear> {
-        let year2 = self
-            .date_qualifier
-            .needs_second_date()
-            .then(|| year_from_date(None, self.date_value2.as_deref()))
-            .flatten();
         Some(QualifiedYear {
             year: self.year()?,
             qualifier: self.date_qualifier,
-            year2,
+            year2: range_end_year(
+                self.calendar,
+                self.date_qualifier,
+                self.date_value2.as_deref(),
+            ),
         })
     }
 }
@@ -193,6 +192,28 @@ pub fn year_from_date(date_sort: Option<NaiveDate>, date_value: Option<&str>) ->
     })
 }
 
+/// The far end of a `Between`/`Or` date as a Gregorian year, the scale
+/// [`Event::year`] reads its near end on: that one comes from `date_sort`,
+/// normalised to Gregorian, while `date_value2` stays written in the event's
+/// `calendar`. A Hebrew `BET 5784 AND 5785` thus reads `2023..2025`, not
+/// `2023..5785`. The year is converted as a whole, through its middle, as
+/// [`crate::calendar::convert`] reads a year alone. `None` for a date with no
+/// second bound, or one whose year cannot be read or converted.
+pub fn range_end_year(
+    calendar: Calendar,
+    qualifier: DateQualifier,
+    date_value2: Option<&str>,
+) -> Option<i32> {
+    if !qualifier.needs_second_date() {
+        return None;
+    }
+    let year = year_from_date(None, date_value2)?;
+    if calendar == Calendar::Gregorian {
+        return Some(year);
+    }
+    crate::calendar::convert(calendar, Calendar::Gregorian, year, None, None).map(|(y, _, _)| y)
+}
+
 /// A witness (or godparent, etc.) linked to an [`Event`] — a pointer to
 /// another [`Person`](crate::types::Person) in the tree, mirroring GEDCOM's
 /// `ASSO`/`RELA` association structure. `relation` is free text (e.g.
@@ -272,5 +293,31 @@ mod tests {
         let mut undated = dated("", DateQualifier::About);
         undated.date_value = None;
         assert!(undated.qualified_year().is_none());
+    }
+
+    /// Both ends of a range are read on the Gregorian scale `date_sort` uses,
+    /// whatever calendar the date was written in.
+    #[test]
+    fn a_range_written_in_another_calendar_reads_both_years_in_gregorian() {
+        let mut hebrew = dated("5784", DateQualifier::Between);
+        hebrew.calendar = Calendar::Hebrew;
+        // 1 Tishrei 5784, as the import derives it.
+        hebrew.date_sort = NaiveDate::from_ymd_opt(2023, 9, 16);
+        hebrew.date_value2 = Some("5785".to_owned());
+        assert_eq!(hebrew.qualified_year().unwrap().year2, Some(2025));
+
+        let mut gregorian = dated("1691", DateQualifier::Between);
+        gregorian.date_value2 = Some("20 AUG 1693".to_owned());
+        assert_eq!(gregorian.qualified_year().unwrap().to_string(), "1691..1693");
+
+        let mut julian = dated("1700", DateQualifier::Or);
+        julian.calendar = Calendar::Julian;
+        julian.date_value2 = Some("1701".to_owned());
+        assert_eq!(julian.qualified_year().unwrap().year2, Some(1701));
+
+        // No second bound without a range qualifier.
+        let mut about = dated("ABT 1849", DateQualifier::About);
+        about.date_value2 = Some("1850".to_owned());
+        assert_eq!(about.qualified_year().unwrap().year2, None);
     }
 }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T13:50:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T18:07:00Z }
 ---
 
 
@@ -206,7 +206,10 @@ the event, and both the person edit modal and the events panel still name it in
 full (« vers 1849 », « avant 1917 »).
 
 **Ranges get both years when they fit.** `Or` and `Between` name two dates, and
-the range is the fact — `1691..1693` says more than either year alone. Measured
+the range is the fact — `1691..1693` says more than either year alone. Both
+years are Gregorian whatever calendar the date was written in, as a single year
+is: a Hebrew `BET 5784 AND 5785` reads `2023..2025`, its second year converted
+whole (`oxidgene_core::types::range_end_year`). Measured
 against the project's own width estimator at 10px:
 
 | Rendering | Width | Full card (105px) | Compact card (72px) |

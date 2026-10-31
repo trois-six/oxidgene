@@ -11,7 +11,7 @@ use dioxus::prelude::*;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
 use std::collections::HashMap;
 
-use oxidgene_core::types::{PortraitRef, QualifiedYear, year_from_date};
+use oxidgene_core::types::{PortraitRef, QualifiedYear, range_end_year, year_from_date};
 use oxidgene_core::{DateQualifier, Sex};
 use uuid::Uuid;
 
@@ -230,11 +230,11 @@ fn profile_event_year(event: &Option<ProfileEvent>) -> Option<QualifiedYear> {
     Some(QualifiedYear {
         year: year_from_date(event.date_sort, event.date_value.as_deref())?,
         qualifier: event.date_qualifier,
-        year2: event
-            .date_qualifier
-            .needs_second_date()
-            .then(|| year_from_date(None, event.date_value2.as_deref()))
-            .flatten(),
+        year2: range_end_year(
+            event.calendar,
+            event.date_qualifier,
+            event.date_value2.as_deref(),
+        ),
     })
 }
 

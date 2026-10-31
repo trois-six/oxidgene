@@ -27,7 +27,7 @@ pub use descent::{
     DESCENT_BRANCH_PAGE, DESCENT_LINE_BUDGET, DescentBranch, DescentLine, DescentLineKind,
     DescentPerson, SurnameDescent,
 };
-pub use event::{Event, EventWitness, QualifiedYear, SpouseAge, year_from_date};
+pub use event::{Event, EventWitness, QualifiedYear, SpouseAge, range_end_year, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use gedcom_kept::{GedcomKept, KeptEntityKind};
 pub use kinship::{Kinship, KinshipPath, KinshipSegment};
