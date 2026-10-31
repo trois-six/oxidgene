@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 
+use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use oxidgene_core::enums::SpouseRole;
@@ -257,15 +258,13 @@ impl SosaRepo {
         .await?;
         rows.iter()
             .map(|row| {
-                let role: String = row.try_get("", "role").map_err(db_err)?;
+                // The stored enum's own conversion: an unknown role is an
+                // error, not a partner the numbering would skip.
+                let role: sea_enums::SpouseRole = row.try_get("", "role").map_err(db_err)?;
                 Ok(ParentLink {
                     child_id: row.try_get("", "child_id").map_err(db_err)?,
                     parent_id: row.try_get("", "parent_id").map_err(db_err)?,
-                    role: match role.as_str() {
-                        "husband" => SpouseRole::Husband,
-                        "wife" => SpouseRole::Wife,
-                        _ => SpouseRole::Partner,
-                    },
+                    role: role.into(),
                 })
             })
             .collect()

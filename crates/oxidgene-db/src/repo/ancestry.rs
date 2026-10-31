@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use oxidgene_core::enums::SpouseRole;
@@ -132,15 +133,13 @@ impl AncestryRepo {
 
         rows.iter()
             .map(|row| {
-                let role = row.try_get::<Option<String>>("", "role").map_err(db_err)?;
+                let role = row
+                    .try_get::<Option<sea_enums::SpouseRole>>("", "role")
+                    .map_err(db_err)?;
                 Ok(FamilyLink {
                     family_id: row.try_get("", "family_id").map_err(db_err)?,
                     person_id: row.try_get("", "person_id").map_err(db_err)?,
-                    spouse_role: role.map(|role| match role.as_str() {
-                        "husband" => SpouseRole::Husband,
-                        "wife" => SpouseRole::Wife,
-                        _ => SpouseRole::Partner,
-                    }),
+                    spouse_role: role.map(Into::into),
                     sort_order: row.try_get("", "sort_order").map_err(db_err)?,
                 })
             })
