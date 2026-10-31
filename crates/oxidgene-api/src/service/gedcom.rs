@@ -7,7 +7,7 @@
 
 mod export_scope;
 
-use crate::service::background_job::parse_off_thread;
+use crate::service::background_job::{parse_off_thread, reader_failure};
 use crate::service::tag_bulk::{self, TagTargetSpec};
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
@@ -24,9 +24,7 @@ use oxidgene_db::repo::{
     RepositoryRepo, SourceRepo, SourceRepositoryRepo, TagRepo, TreeRepo, VignetteRepo, db_err,
 };
 pub use oxidgene_gedcom::export::ExportChoices;
-use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set,
-};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tracing::Instrument as _;
@@ -278,9 +276,18 @@ pub(crate) async fn prepare_gedzip_file(
         for (media_id, entry_name) in files {
             progress.check_cancelled()?;
             let display_name = names.get(&media_id).map_or("upload", String::as_str);
-            let outcome = match reader.read_media_file(&entry_name) {
+            // Inflating an entry is CPU and disk: the reader goes to the
+            // blocking pool for each one and comes back with its bytes.
+            let (returned, read) = super::blocking::spawn(move || {
+                let read = reader.read_media_file(&entry_name);
+                (reader, read.map_err(|error| (entry_name, error)))
+            })
+            .await
+            .map_err(|error| reader_failure("gedzip", &error))?;
+            reader = returned;
+            let outcome = match read {
                 Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
-                Err(error) => {
+                Err((entry_name, error)) => {
                     result.warnings.push(format!(
                         "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
                     ));
@@ -1089,29 +1096,31 @@ pub async fn load_and_export(
         media_files.push((key, path));
     }
 
-    // Export to GEDCOM
-    let export_result = tracing::info_span!("export.serialize", export.format = "gedcom")
-        .in_scope(|| {
-            oxidgene_gedcom::export::export_gedcom(
-                &records.export_records(),
-                &oxidgene_gedcom::export::ExportOptions {
-                    choices,
-                    target: if for_archive {
-                        oxidgene_gedcom::export::ExportTarget::Gedzip {
-                            media_paths: &media_paths,
-                        }
-                    } else {
-                        oxidgene_gedcom::export::ExportTarget::Gedcom
-                    },
-                    self_person_id: tree.self_person_id,
-                    submitter: oxidgene_gedcom::export::SubmitterSettings {
-                        name: tree.submitter_name.as_deref(),
-                        email: tree.submitter_email.as_deref(),
-                        address: tree.submitter_address.as_deref(),
-                    },
+    // Serializing a whole tree is seconds of CPU on a large one: off the
+    // async workers, which the desktop shares with every page load.
+    let span = tracing::info_span!("export.serialize", export.format = "gedcom");
+    let export_result = super::blocking::run(span, move || {
+        oxidgene_gedcom::export::export_gedcom(
+            &records.export_records(),
+            &oxidgene_gedcom::export::ExportOptions {
+                choices,
+                target: if for_archive {
+                    oxidgene_gedcom::export::ExportTarget::Gedzip {
+                        media_paths: &media_paths,
+                    }
+                } else {
+                    oxidgene_gedcom::export::ExportTarget::Gedcom
                 },
-            )
-        })?;
+                self_person_id: tree.self_person_id,
+                submitter: oxidgene_gedcom::export::SubmitterSettings {
+                    name: tree.submitter_name.as_deref(),
+                    email: tree.submitter_email.as_deref(),
+                    address: tree.submitter_address.as_deref(),
+                },
+            },
+        )
+    })
+    .await??;
 
     Ok(ExportData {
         gedcom: export_result.gedcom,

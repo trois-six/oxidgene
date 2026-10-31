@@ -15,6 +15,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use futures_util::stream::StreamExt;
@@ -35,7 +36,7 @@ use uuid::Uuid;
 
 use crate::media::{self, MediaStore};
 
-use super::background_job::CancelToken;
+use super::background_job::{CancelToken, parse_off_thread};
 use super::gedcom::{ImportSummary, persist_import_result_in, persisted_entity_count};
 
 /// How many names each expandable list in the preview carries.
@@ -510,7 +511,7 @@ pub struct NeededMedia {
 /// nothing smaller is fetched to match with.
 ///
 /// Under [`MediaFidelity::Originals`] the rule per medium, in the order
-/// `resolve_bytes` applies it:
+/// `ByteLookup::resolve` applies it:
 ///
 /// - resolvable from the archives by **exact byte length** → nothing needed
 /// - otherwise, a **single-page** deposit → its original, which is exact
@@ -653,9 +654,9 @@ pub async fn import(
     db: &impl ConnectionTrait,
     store: &dyn MediaStore,
     tree_id: Uuid,
-    gw_bytes: &[u8],
-    file_name: &str,
-    collection_json: &str,
+    gw_bytes: Vec<u8>,
+    file_name: String,
+    collection_json: String,
     deposit_sizes: &HashMap<i64, u64>,
     archive_paths: &[String],
     fetched: &HashMap<String, String>,
@@ -674,19 +675,21 @@ pub async fn import(
         &[]
     };
 
-    let (mut import_result, manifest, joined) =
-        tracing::info_span!("import.parse", import.format = "geneanet").in_scope(|| {
-            let (database, _) = oxidgene_geneanet::parse_gw(gw_bytes, file_name)
-                .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
-            let manifest = oxidgene_geneanet::manifest_from_collection(collection_json)
-                .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
-            let index = join::PersonIndex::from_database(&database);
-            let joined = join::join(&manifest, &index);
-            let import_result =
-                oxidgene_gedcom::geneweb::import_geneweb(gw_bytes, file_name, tree_id)
-                    .map_err(OxidGeneError::Gedcom)?;
-            Ok::<_, OxidGeneError>((import_result, manifest, joined))
-        })?;
+    // Parsing the `.gw` twice and joining it are seconds of CPU on a large
+    // tree: off the async workers, as every file import's reader is.
+    let (mut import_result, manifest, joined) = parse_off_thread("geneanet", move || {
+        let (database, _) = oxidgene_geneanet::parse_gw(&gw_bytes, &file_name)
+            .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+        let manifest = oxidgene_geneanet::manifest_from_collection(&collection_json)
+            .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+        let index = join::PersonIndex::from_database(&database);
+        let joined = join::join(&manifest, &index);
+        let import_result =
+            oxidgene_gedcom::geneweb::import_geneweb(&gw_bytes, &file_name, tree_id)
+                .map_err(OxidGeneError::Gedcom)?;
+        Ok((import_result, manifest, joined))
+    })
+    .await?;
 
     // A `.gw` carries one `#image` per person — the portrait, as a URL that
     // 403s for anyone not logged in. We are about to import that very photo
@@ -802,7 +805,8 @@ async fn attach_media(
     progress: &ImportProgress,
     summary: &mut GeneanetImportSummary,
 ) -> Result<(), OxidGeneError> {
-    let (archives, _) = index_archives(archive_paths);
+    // Shared with the blocking tasks that read, inflate and hash from them.
+    let archives = Arc::new(index_archives_off_thread(archive_paths.to_vec()).await?.0);
 
     let deposits: HashMap<i64, &ManifestDeposit> =
         manifest.deposits.iter().map(|d| (d.id, d)).collect();
@@ -837,7 +841,8 @@ async fn attach_media(
         .sum();
 
     progress.begin(ImportPhase::Matching, 0);
-    let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives, fetched);
+    let hashes =
+        build_content_index(&deposits, &by_deposit, deposit_sizes, &archives, fetched).await?;
     progress.begin(ImportPhase::Media, media_total);
     let mut places = place_keys(db, tree_id, summary).await?;
 
@@ -1511,8 +1516,8 @@ async fn prepare_single_pages(
     deposits: &HashMap<i64, &ManifestDeposit>,
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
     deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
-    hashes: Option<&ContentIndex>,
+    archives: &Arc<ArchiveSet>,
+    hashes: Option<&Arc<ContentIndex>>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
@@ -1684,8 +1689,8 @@ type IngestOutcome<'d> = (
 #[derive(Clone, Copy)]
 struct ByteSources<'a> {
     deposit_sizes: &'a HashMap<i64, u64>,
-    archives: &'a ArchiveSet,
-    hashes: Option<&'a ContentIndex>,
+    archives: &'a Arc<ArchiveSet>,
+    hashes: Option<&'a Arc<ContentIndex>>,
     fetched: &'a HashMap<String, String>,
 }
 
@@ -1703,16 +1708,16 @@ impl ByteSources<'_> {
         view: &'d ManifestView,
         name: String,
     ) -> IngestOutcome<'d> {
-        let outcome = match resolve_bytes(
-            deposit,
-            view,
-            self.deposit_sizes,
-            self.archives,
-            self.hashes,
-            self.fetched,
-        )
-        .await
-        {
+        let lookup = ByteLookup::of(deposit, view, self.deposit_sizes, self.fetched);
+        let archives = Arc::clone(self.archives);
+        let hashes = self.hashes.cloned();
+        // Reading, inflating and hashing are disk and CPU: on the blocking
+        // pool, so the views in flight are read in parallel rather than one
+        // at a time on this worker.
+        let read = super::blocking::spawn(move || lookup.resolve(&archives, hashes.as_deref()))
+            .await
+            .unwrap_or_else(|_| Err("reading it did not finish".to_string()));
+        let outcome = match read {
             Ok(bytes) => Ok(media::ingest(store, tree_id, &name, bytes).await),
             Err(err) => Err(err),
         };
@@ -1735,8 +1740,8 @@ async fn document(
     tree_id: Uuid,
     deposit: &ManifestDeposit,
     deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
-    hashes: Option<&ContentIndex>,
+    archives: &Arc<ArchiveSet>,
+    hashes: Option<&Arc<ContentIndex>>,
     fetched: &HashMap<String, String>,
     progress: &ImportProgress,
     places: &mut HashMap<String, Uuid>,
@@ -2072,43 +2077,45 @@ fn view_id_in_path(path: &str) -> Option<i64> {
     })
 }
 
-/// The distinct dimensions of every rendition this run could query the index
+/// Where the window wrote every rendition this run could query the index
 /// with.
 ///
 /// Only multi-page deposits contribute: a single-page one is recognised by its
 /// byte length and never reaches the perceptual matcher.
-///
-/// A rendition that is absent or does not decode contributes nothing. It can
-/// never be hashed — [`oxidgene_geneanet::archive::image_dimensions`] and
-/// `phash::hash_image` open the same decoder, so failing one means failing the
-/// other — therefore it can never be matched, and admitting it as a target of
-/// unknown size would widen the filter to accept every entry in the archive.
-fn hashable_target_dimensions(
+fn hashable_rendition_paths(
     deposits: &HashMap<i64, &ManifestDeposit>,
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
     fetched: &HashMap<String, String>,
-) -> std::collections::BTreeSet<(u32, u32)> {
-    let mut dimensions = std::collections::BTreeSet::new();
+) -> Vec<String> {
+    by_deposit
+        .keys()
+        .filter_map(|deposit_id| deposits.get(deposit_id))
+        .filter(|deposit| deposit.views.len() > 1)
+        .flat_map(|deposit| &deposit.views)
+        .filter_map(|view| fetched.get(&rendition_url(view)?).cloned())
+        .collect()
+}
 
-    for deposit_id in by_deposit.keys() {
-        let Some(deposit) = deposits.get(deposit_id) else {
-            continue;
-        };
-        if deposit.views.len() <= 1 {
-            continue;
-        }
-        for view in &deposit.views {
-            let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url))
-            else {
-                continue;
-            };
-            if let Some(found) = oxidgene_geneanet::archive::image_dimensions(&bytes) {
-                dimensions.insert(found);
-            }
-        }
-    }
+/// The renditions at `paths` that read; one that does not is left out.
+fn read_renditions(paths: &[String]) -> Vec<Vec<u8>> {
+    paths
+        .iter()
+        .filter_map(|path| std::fs::read(path).ok())
+        .collect()
+}
 
-    dimensions
+/// The distinct dimensions of `renditions`.
+///
+/// A rendition that does not decode contributes nothing. It can never be
+/// hashed — [`oxidgene_geneanet::archive::image_dimensions`] and
+/// `phash::hash_image` open the same decoder, so failing one means failing the
+/// other — therefore it can never be matched, and admitting it as a target of
+/// unknown size would widen the filter to accept every entry in the archive.
+fn target_dimensions(renditions: &[Vec<u8>]) -> std::collections::BTreeSet<(u32, u32)> {
+    renditions
+        .iter()
+        .filter_map(|bytes| oxidgene_geneanet::archive::image_dimensions(bytes))
+        .collect()
 }
 
 /// Hashes the archive entries a document page might be, and only those.
@@ -2125,66 +2132,53 @@ fn hashable_target_dimensions(
 /// - and never an entry whose aspect ratio matches no target, which only the
 ///   header is read to establish.
 ///
-/// It runs under `block_in_place` because it is seconds of CPU inside an async
-/// handler. Without that it pins a runtime worker for the duration, and the
-/// rest of the app — the tree list, the page the user goes back to — waits
-/// behind it.
+/// The renditions are read and the entries hashed on the blocking pool:
+/// it is seconds of CPU, which would otherwise pin a runtime worker — and
+/// with it the job's progress heartbeat, the tree list and the page the user
+/// goes back to.
 #[tracing::instrument(name = "import.media.index", skip_all)]
-fn build_content_index(
+async fn build_content_index(
     deposits: &HashMap<i64, &ManifestDeposit>,
     by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
     deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
+    archives: &Arc<ArchiveSet>,
     fetched: &HashMap<String, String>,
-) -> Option<ContentIndex> {
+) -> Result<Option<Arc<ContentIndex>>, OxidGeneError> {
     if archives.is_empty() {
-        return None;
+        return Ok(None);
     }
-
-    let target_dimensions = hashable_target_dimensions(deposits, by_deposit, fetched);
-
-    // Nothing hashable to match against: every rendition this import could
-    // query the index with is absent or undecodable, so the index would be
-    // built and never asked a question.
-    if target_dimensions.is_empty() {
-        return None;
-    }
-
-    Some(index_unclaimed_entries(
-        deposits,
-        by_deposit,
-        deposit_sizes,
-        archives,
-        fetched,
-        target_dimensions,
-    ))
-}
-
-/// Hashes the archive entries no single-page deposit claims by its byte
-/// length, for the pages' `target_dimensions` and renditions, and logs how
-/// many it filtered and hashed.
-fn index_unclaimed_entries(
-    deposits: &HashMap<i64, &ManifestDeposit>,
-    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
-    deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
-    fetched: &HashMap<String, String>,
-    target_dimensions: std::collections::BTreeSet<(u32, u32)>,
-) -> ContentIndex {
+    let paths = hashable_rendition_paths(deposits, by_deposit, fetched);
     let claimed = claimed_by_size(deposits, by_deposit, deposit_sizes, archives);
     let candidates: Vec<usize> = (0..archives.entry_count())
         .filter(|position| !claimed.contains(position))
         .collect();
-    let target_dimensions: Vec<_> = target_dimensions.into_iter().collect();
+    let archives = Arc::clone(archives);
+    let index = super::blocking::run(tracing::Span::current(), move || {
+        // The renditions the run will look up. They are what decides where
+        // the coarse tier stops: an entry falls to the fine tier precisely
+        // because no page claimed it cheaply.
+        let queries = read_renditions(&paths);
+        let target_dimensions: Vec<_> = target_dimensions(&queries).into_iter().collect();
+        // Nothing hashable to match against: every rendition this import
+        // could query the index with is absent or undecodable, so the index
+        // would be built and never asked a question.
+        (!target_dimensions.is_empty())
+            .then(|| index_unclaimed_entries(&archives, &candidates, &target_dimensions, &queries))
+    })
+    .await?;
+    Ok(index.map(Arc::new))
+}
 
-    // The renditions the run will look up. They are what decides where the
-    // coarse tier stops: an entry falls to the fine tier precisely because no
-    // page claimed it cheaply.
-    let queries = hashable_renditions(deposits, by_deposit, fetched);
-
-    let index = tokio::task::block_in_place(|| {
-        ContentIndex::build(archives, &candidates, &target_dimensions, &queries)
-    });
+/// Hashes the archive `candidates` no single-page deposit claims by its
+/// byte length, for the pages' `target_dimensions` and renditions, and logs
+/// how many it filtered and hashed.
+fn index_unclaimed_entries(
+    archives: &ArchiveSet,
+    candidates: &[usize],
+    target_dimensions: &[(u32, u32)],
+    queries: &[Vec<u8>],
+) -> ContentIndex {
+    let index = ContentIndex::build(archives, candidates, target_dimensions, queries);
     let (coarse, fine) = index.hashed_counts();
     tracing::info!(
         candidates = candidates.len(),
@@ -2223,32 +2217,6 @@ fn claimed_by_size(
 
 /// The rendition bytes of every page that could be looked up by content.
 ///
-/// Same selection as [`hashable_target_dimensions`], carrying the bytes rather
-/// than their shape.
-fn hashable_renditions(
-    deposits: &HashMap<i64, &ManifestDeposit>,
-    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
-    fetched: &HashMap<String, String>,
-) -> Vec<Vec<u8>> {
-    let mut renditions = Vec::new();
-
-    for deposit_id in by_deposit.keys() {
-        let Some(deposit) = deposits.get(deposit_id) else {
-            continue;
-        };
-        if deposit.views.len() <= 1 {
-            continue;
-        }
-        for view in &deposit.views {
-            if let Some(bytes) = rendition_url(view).and_then(|url| read_fetched(fetched, &url)) {
-                renditions.push(bytes);
-            }
-        }
-    }
-
-    renditions
-}
-
 /// A deposit's pages in the order they should be read.
 ///
 /// Sorted by Geneanet's own page number rather than left in whatever order the
@@ -2641,80 +2609,89 @@ fn geneanet_privacy(deposit: &ManifestDeposit) -> Privacy {
     }
 }
 
-/// Gets a medium's bytes, preferring a copy the user already has.
-///
-/// Three sources, most exact first:
-///
-/// 1. **Exact byte length** — only a single-page deposit states one, and it
-///    identifies the file outright.
-/// 2. **The same picture, recognised by content** — a page of a multi-page
-///    deposit has no length to match on, so its rendition is hashed against
-///    the archive. `fetched` carries that rendition, because the window is the
-///    only thing that can retrieve it (see below).
-/// 3. **The bytes themselves**, when the window had to fetch the original.
-///
-/// Nothing here reaches the network. Every direct request to Geneanet is
-/// challenged by Cloudflare whatever the cookie, so the bytes arrive already
-/// fetched by the login window and are handed in through `fetched`, keyed by
-/// URL. A medium that none of the three can supply is reported and skipped.
-async fn resolve_bytes(
-    deposit: &ManifestDeposit,
-    view: &ManifestView,
-    deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
-    hashes: Option<&ContentIndex>,
-    fetched: &HashMap<String, String>,
-) -> Result<Vec<u8>, String> {
-    // 1. A single-page deposit *is* the file, so its length names it.
-    if deposit.views.len() == 1
-        && let Some(size) = deposit_sizes.get(&deposit.id)
-        && let Ok(Some(bytes)) = archives.resolve(*size)
-    {
-        return Ok(bytes);
+/// Where the bytes of one view may come from, looked up ahead: everything
+/// [`ByteLookup::resolve`] needs, owned, so that it can run on the blocking
+/// pool.
+struct ByteLookup {
+    /// The deposit's byte length, when it is a single page that states one.
+    size: Option<u64>,
+    /// Where the window wrote the rendition the view is recognised by.
+    sample: Option<String>,
+    /// Where the window wrote a copy worth keeping: the original first, then
+    /// the rendition to store.
+    copies: [Option<String>; 2],
+}
+
+impl ByteLookup {
+    fn of(
+        deposit: &ManifestDeposit,
+        view: &ManifestView,
+        deposit_sizes: &HashMap<i64, u64>,
+        fetched: &HashMap<String, String>,
+    ) -> Self {
+        let path = |url: Option<String>| fetched.get(&url?).cloned();
+        Self {
+            size: (deposit.views.len() == 1)
+                .then(|| deposit_sizes.get(&deposit.id).copied())
+                .flatten(),
+            sample: path(rendition_url(view)),
+            copies: [
+                path(original_url(deposit)),
+                path(stored_rendition_url(view)),
+            ],
+        }
     }
 
-    let rendition = rendition_url(view);
-    let stored_rendition = stored_rendition_url(view);
+    /// Gets a medium's bytes, preferring a copy the user already has.
+    ///
+    /// Three sources, most exact first:
+    ///
+    /// 1. **Exact byte length** — only a single-page deposit states one, and it
+    ///    identifies the file outright.
+    /// 2. **The same picture, recognised by content** — a page of a multi-page
+    ///    deposit has no length to match on, so its rendition is hashed against
+    ///    the archive. `fetched` carries that rendition, because the window is the
+    ///    only thing that can retrieve it (see below).
+    /// 3. **The bytes themselves**, when the window had to fetch the original.
+    ///
+    /// Nothing here reaches the network. Every direct request to Geneanet is
+    /// challenged by Cloudflare whatever the cookie, so the bytes arrive already
+    /// fetched by the login window and are handed in through `fetched`, keyed by
+    /// URL. A medium that none of the three can supply is reported and skipped.
+    fn resolve(
+        self,
+        archives: &ArchiveSet,
+        hashes: Option<&ContentIndex>,
+    ) -> Result<Vec<u8>, String> {
+        // 1. A single-page deposit *is* the file, so its length names it.
+        if let Some(size) = self.size
+            && let Ok(Some(bytes)) = archives.resolve(size)
+        {
+            return Ok(bytes);
+        }
 
-    // 2. Recognise it in the archive from its rendition.
-    let sample = rendition
-        .as_ref()
-        .and_then(|url| read_fetched(fetched, url));
-
-    if let Some(sample) = &sample
-        && !archives.is_empty()
-    {
-        // A rendition we cannot decode is not a failure — it just cannot be
-        // matched, and the fetched bytes below still stand.
-        if let Some(index) = hashes
+        // 2. Recognise it in the archive from its rendition. A rendition we
+        // cannot decode is not a failure — it just cannot be matched, and the
+        // fetched bytes below still stand.
+        let sample = self.sample.and_then(|path| std::fs::read(path).ok());
+        if let Some(sample) = &sample
+            && !archives.is_empty()
+            && let Some(index) = hashes
             && let Ok(Some(bytes)) = index.resolve(archives, sample)
         {
             return Ok(bytes);
         }
+
+        // 3. Whatever the window fetched for this view, original preferred.
+        self.copies
+            .into_iter()
+            .flatten()
+            .find_map(|path| std::fs::read(path).ok())
+            .or(sample)
+            .ok_or_else(|| {
+                "not in the archives, and the Geneanet window fetched no copy of it".to_string()
+            })
     }
-
-    // 3. Whatever the window fetched for this view, original preferred.
-    if let Some(bytes) = original_url(deposit)
-        .and_then(|url| read_fetched(fetched, &url))
-        .or_else(|| {
-            stored_rendition
-                .as_ref()
-                .and_then(|url| read_fetched(fetched, url))
-        })
-        .or(sample)
-    {
-        return Ok(bytes);
-    }
-
-    Err("not in the archives, and the Geneanet window fetched no copy of it".to_string())
-}
-
-/// Reads a medium the login window wrote to disk.
-///
-/// A path that will not read is not an error worth stopping for: that medium
-/// is reported as skipped and the rest of the import stands.
-fn read_fetched(fetched: &HashMap<String, String>, url: &str) -> Option<Vec<u8>> {
-    std::fs::read(fetched.get(url)?).ok()
 }
 
 /// The URL a deposit's original is downloaded from.
@@ -2817,6 +2794,16 @@ mod tests {
         assert_eq!(stored["document_pages_count"], 3);
     }
 
+    /// The dimensions the index of a run would be built for.
+    fn hashable_target_dimensions(
+        deposits: &HashMap<i64, &ManifestDeposit>,
+        by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
+        fetched: &HashMap<String, String>,
+    ) -> std::collections::BTreeSet<(u32, u32)> {
+        let paths = hashable_rendition_paths(deposits, by_deposit, fetched);
+        target_dimensions(&read_renditions(&paths))
+    }
+
     fn view(id: i64, page: Option<i64>) -> ManifestView {
         ManifestView {
             id,
@@ -2905,6 +2892,48 @@ mod tests {
         let dimensions = hashable_target_dimensions(&deposits, &by_deposit, &fetched);
 
         assert_eq!(dimensions.iter().copied().collect::<Vec<_>>(), [(40, 30)]);
+    }
+
+    #[tokio::test]
+    async fn a_content_index_builds_on_a_current_thread_runtime() {
+        // It was built under `block_in_place`, which panics on such a
+        // runtime and froze the job's progress on any other.
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let archive = dir.path().join("photos.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).expect("creates"));
+        zip.start_file("scan.png", zip::write::SimpleFileOptions::default())
+            .expect("starts the entry");
+        zip.write_all(&png_bytes(40, 30)).expect("writes the entry");
+        zip.finish().expect("closes the archive");
+        let page = dir.path().join("page.png");
+        std::fs::write(&page, png_bytes(40, 30)).expect("writes the rendition");
+        let (first, second) = (
+            "http://archive.invalid/p1.png",
+            "http://archive.invalid/p2.png",
+        );
+        let scanned = deposit(
+            7,
+            vec![
+                view_with_rendition(1, first),
+                view_with_rendition(2, second),
+            ],
+        );
+        let deposits = HashMap::from([(7i64, &scanned)]);
+        let by_deposit = BTreeMap::from([(7i64, Vec::new())]);
+        let page = page.to_string_lossy().into_owned();
+        let fetched = HashMap::from([
+            (first.to_string(), page.clone()),
+            (second.to_string(), page),
+        ]);
+        let archives = Arc::new(index_archives(&[archive.to_string_lossy().into_owned()]).0);
+
+        let index =
+            build_content_index(&deposits, &by_deposit, &HashMap::new(), &archives, &fetched)
+                .await
+                .expect("builds");
+
+        assert!(index.is_some());
     }
 
     #[test]
@@ -3100,9 +3129,9 @@ mod tests {
             &db,
             &store,
             tree_id,
-            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
-            "family.gw",
-            &collection,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n".to_vec(),
+            "family.gw".to_string(),
+            collection,
             &HashMap::new(),
             &[],
             &HashMap::from([(url.to_string(), photo.to_string_lossy().into_owned())]),
@@ -3193,9 +3222,9 @@ mod tests {
             &db,
             &store,
             tree_id,
-            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 3/4/1900 + BRANCH_B person_b.0\n",
-            "family.gw",
-            &collection,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 3/4/1900 + BRANCH_B person_b.0\n".to_vec(),
+            "family.gw".to_string(),
+            collection,
             &HashMap::new(),
             &[],
             &fetched,
@@ -3292,9 +3321,9 @@ mod tests {
             &db,
             &store,
             tree_id,
-            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
-            "family.gw",
-            &collection,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n".to_vec(),
+            "family.gw".to_string(),
+            collection,
             &HashMap::new(),
             &[],
             &fetched,

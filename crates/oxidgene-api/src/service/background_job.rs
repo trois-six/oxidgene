@@ -900,7 +900,7 @@ impl BackgroundJobWorker {
         source_key: &str,
         cancel: &CancelToken,
     ) -> Result<(), OxidGeneError> {
-        let payload = geneanet_payload(job)?;
+        let mut payload = geneanet_payload(job)?;
         let scratch = self.scratch(job.id)?;
         self.progress(job.id, "staging", 0, 0).await?;
         let source = scratch.path().join("source.gw");
@@ -911,6 +911,7 @@ impl BackgroundJobWorker {
             .await?;
 
         let gw = tokio::fs::read(source).await?;
+        let collection = std::mem::take(&mut payload.collection);
         let origin_file = safe_origin_file(job.original_filename.as_deref());
         let progress = Arc::new(geneanet::ImportProgress::cancellable(cancel.clone()));
         let store = RecordingStore::new(&*self.media, job.id);
@@ -920,9 +921,9 @@ impl BackgroundJobWorker {
                 &transaction,
                 &store,
                 job.tree_id,
-                &gw,
-                &origin_file,
-                &payload.collection,
+                gw,
+                origin_file,
+                collection,
                 &payload.deposit_sizes,
                 &archive_paths,
                 &fetched,
