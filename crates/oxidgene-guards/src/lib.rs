@@ -87,18 +87,23 @@ pub fn workspace_members() -> Vec<String> {
 }
 
 /// `source` without its `#[cfg(test)]` modules, so a guard about production
-/// code does not trip on a test fixture. A test module is cut from its
-/// attribute to the end of the file, where this codebase keeps them.
+/// code does not trip on a test fixture. An inline test module is cut from
+/// its attribute to the end of the file, where this codebase keeps them. An
+/// out-of-line declaration (`#[cfg(test)] mod tests;`) holds no code of its
+/// own and may sit anywhere, so the production code after it is kept.
 #[must_use]
 pub fn without_test_modules(source: &str) -> &str {
     let mut search = 0;
     while let Some(found) = source[search..].find("#[cfg(test)]") {
         let at = search + found;
-        let after = source[at + "#[cfg(test)]".len()..].trim_start();
+        search = at + "#[cfg(test)]".len();
+        let after = source[search..].trim_start();
         if after.starts_with("mod ") || after.starts_with("pub(crate) mod ") {
-            return &source[..at];
+            let line = after.lines().next().unwrap_or_default();
+            if !line.trim_end().ends_with(';') {
+                return &source[..at];
+            }
         }
-        search = at + 1;
     }
     source
 }
@@ -181,6 +186,15 @@ mod tests {
         assert_eq!(
             without_test_modules(source),
             "fn a() {}\n#[cfg(test)]\nfn helper() {}\n"
+        );
+    }
+
+    #[test]
+    fn an_out_of_line_test_module_keeps_the_code_after_it() {
+        let source = "#[cfg(test)]\nmod place_tests;\nfn a() {}\n#[cfg(test)]\nmod tests {}\n";
+        assert_eq!(
+            without_test_modules(source),
+            "#[cfg(test)]\nmod place_tests;\nfn a() {}\n"
         );
     }
 
