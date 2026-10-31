@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use super::{Register, unexpected};
+use super::{Register, unexpected, unreadable};
 use crate::ResolveError;
 use crate::platform::markup::fold;
 use crate::platform::select::Candidate;
@@ -14,12 +14,12 @@ pub(super) fn api_key(config: &str) -> Result<String, ResolveError> {
         .split_once("apiKey")
         .and_then(|(_, rest)| rest.split_once(':'))
         .map(|(_, rest)| rest.trim_start())
-        .ok_or_else(|| unexpected("the configuration lacks apiKey"))?;
+        .ok_or_else(|| unreadable(config, "the configuration lacks apiKey"))?;
     let quote = after
         .chars()
         .next()
         .filter(|quote| matches!(quote, '\'' | '"'))
-        .ok_or_else(|| unexpected("the configuration lacks apiKey"))?;
+        .ok_or_else(|| unreadable(config, "the configuration lacks apiKey"))?;
     let key = after[1..]
         .split(quote)
         .next()
@@ -30,7 +30,7 @@ pub(super) fn api_key(config: &str) -> Result<String, ResolveError> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
         })
-        .ok_or_else(|| unexpected("the configuration's apiKey is malformed"))?;
+        .ok_or_else(|| unreadable(config, "the configuration's apiKey is malformed"))?;
     Ok(key.to_owned())
 }
 
@@ -52,7 +52,7 @@ struct Facet {
 /// and the apostrophe either way.
 pub(super) fn locality(answer: &str, wanted: &[String]) -> Result<Option<String>, ResolveError> {
     let facets: Facets = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the locality answer lacks searchAggsMetaTag"))?;
+        .map_err(|_| unreadable(answer, "the locality answer lacks searchAggsMetaTag"))?;
     let wanted: Vec<String> = wanted.iter().map(|form| fold(form)).collect();
     Ok(facets
         .values
@@ -133,8 +133,12 @@ pub(super) fn registers(
     api: &str,
     locality: &str,
 ) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
-    let answer: Answer = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the search answer lacks total or listResponseObject"))?;
+    let answer: Answer = serde_json::from_str(answer).map_err(|_| {
+        unreadable(
+            answer,
+            "the search answer lacks total or listResponseObject",
+        )
+    })?;
     let prefix = format!("{api}/iiif/presentation/v3/");
     let rows = answer
         .results
@@ -164,4 +168,23 @@ pub(super) fn registers(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok((rows, answer.total))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A challenge served as a success in place of the configuration or a
+    /// JSON answer is a challenge, not drift.
+    #[test]
+    fn a_challenge_in_place_of_an_answer_is_challenged() {
+        let challenge = "<html><body>Request Rejected</body></html>";
+        assert_eq!(api_key(challenge), Err(ResolveError::Challenged));
+        assert_eq!(locality(challenge, &[]), Err(ResolveError::Challenged));
+        let maintenance = "<TITLE>Site under MAINTENANCE</TITLE>";
+        assert!(matches!(
+            registers(maintenance, "https://api.example.org", "Exampleville"),
+            Err(ResolveError::Unreachable)
+        ));
+    }
 }

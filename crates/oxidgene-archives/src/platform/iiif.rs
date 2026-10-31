@@ -9,6 +9,7 @@
 
 use serde::Deserialize;
 
+use super::markup;
 use crate::{ArchiveImage, ResolveError};
 
 /// The longest side the viewer asks for where the service scales freely.
@@ -41,8 +42,13 @@ pub(crate) struct ImageInfo {
 }
 
 /// Reads an `info.json`; one without a pixel size is a changed answer.
+/// An answer that is no `info.json` at all goes through
+/// [`markup::unreadable`]: an anti-bot or maintenance page served as a
+/// success is told apart from drift.
 pub(crate) fn image_info(answer: &str) -> Result<ImageInfo, ResolveError> {
-    let info: ImageInfo = serde_json::from_str(answer).map_err(|_| unexpected())?;
+    let info: ImageInfo = serde_json::from_str(answer).map_err(|_| {
+        markup::unreadable(answer, "iiif: info.json lacks the image size".to_owned())
+    })?;
     if info.width == 0 || info.height == 0 {
         return Err(unexpected());
     }
@@ -122,6 +128,23 @@ impl ImageInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An anti-bot or maintenance page served as a success is told apart
+    /// from an info.json that changed shape.
+    #[test]
+    fn tells_a_challenge_or_an_outage_from_a_changed_info() {
+        let challenge = "<title>Making sure you&#39;re not a bot!</title> Anubis";
+        assert_eq!(image_info(challenge).err(), Some(ResolveError::Challenged));
+        let maintenance = "<TITLE>Site under MAINTENANCE</TITLE>";
+        assert_eq!(
+            image_info(maintenance).err(),
+            Some(ResolveError::Unreachable)
+        );
+        assert!(matches!(
+            image_info("{}").err(),
+            Some(ResolveError::UnexpectedResponse(_))
+        ));
+    }
 
     #[test]
     fn builds_a_view_on_a_level_2_service() {

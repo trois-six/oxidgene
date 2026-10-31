@@ -88,6 +88,12 @@ fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("prismia: {detail}"))
 }
 
+/// The error of a whole answer that does not parse: a challenge or a
+/// maintenance page served as a success, or drift (`markup::unreadable`).
+fn unreadable(answer: &str, detail: &str) -> ResolveError {
+    super::markup::unreadable(answer, format!("prismia: {detail}"))
+}
+
 fn is_text(text: &str) -> bool {
     !text.is_empty() && !text.chars().any(char::is_control)
 }

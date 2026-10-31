@@ -20,6 +20,12 @@ fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("mnesys: {detail}"))
 }
 
+/// The error of a whole answer that does not parse: a challenge or a
+/// maintenance page served as a success, or drift (`markup::unreadable`).
+fn unreadable(answer: &str, detail: &str) -> ResolveError {
+    markup::unreadable(answer, format!("mnesys: {detail}"))
+}
+
 /// A register's persistent address, `/ark:/<naan>/<name>`, and its first
 /// image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,8 +238,8 @@ pub(super) fn is_image_id(text: &str) -> bool {
 /// starts at `start`. The endpoint answers an array for a window that starts
 /// at the first image and an object keyed by index otherwise.
 pub(super) fn window_image(answer: &str, start: u16, index: u16) -> Result<String, ResolveError> {
-    let window: Value =
-        serde_json::from_str(answer).map_err(|_| unexpected("the viewer window is not JSON"))?;
+    let window: Value = serde_json::from_str(answer)
+        .map_err(|_| unreadable(answer, "the viewer window is not JSON"))?;
     let entry = match &window {
         Value::Array(entries) => entries.get(usize::from(index - start)),
         Value::Object(entries) => entries.get(&index.to_string()),
@@ -251,8 +257,8 @@ pub(super) fn window_image(answer: &str, start: u16, index: u16) -> Result<Strin
 /// image (`/visualizer/api?arkName=<name>&uuid=<image>`): `counts.media`,
 /// the images of the lot that image opens.
 pub(super) fn viewer_count(answer: &str) -> Result<u16, ResolveError> {
-    let state: Value =
-        serde_json::from_str(answer).map_err(|_| unexpected("the viewer state is not JSON"))?;
+    let state: Value = serde_json::from_str(answer)
+        .map_err(|_| unreadable(answer, "the viewer state is not JSON"))?;
     state
         .pointer("/counts/media")
         .and_then(Value::as_u64)
@@ -317,7 +323,7 @@ struct ManifestCanvas {
 /// own host.
 pub(super) fn manifest_canvases(answer: &str) -> Result<Vec<Canvas>, ResolveError> {
     let manifest: Manifest = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the manifest lacks items with id and size"))?;
+        .map_err(|_| unreadable(answer, "the manifest lacks items with id and size"))?;
     manifest
         .items
         .into_iter()
@@ -341,6 +347,19 @@ pub(super) fn manifest_canvases(answer: &str) -> Result<Vec<Canvas>, ResolveErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A challenge served as a success in place of a JSON answer is a
+    /// challenge, not drift.
+    #[test]
+    fn a_challenge_in_place_of_json_is_challenged() {
+        let challenge = "<html><body>Request Rejected</body></html>";
+        assert_eq!(viewer_count(challenge), Err(ResolveError::Challenged));
+        assert_eq!(window_image(challenge, 0, 0), Err(ResolveError::Challenged));
+        assert!(matches!(
+            manifest_canvases(challenge),
+            Err(ResolveError::Challenged)
+        ));
+    }
 
     #[test]
     fn reads_every_call_number_of_a_cell() {

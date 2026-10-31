@@ -578,11 +578,12 @@ impl Settings {
         fetch: &dyn PortalFetch,
     ) -> Result<page::Results, ResolveError> {
         let answer = fetch.get(&self.search_request(filters)).await?;
+        // The parser's own error describes drift; a challenge or a
+        // maintenance page served as a success is told apart first.
         page::results(&answer, RESULTS_PER_PAGE).map_err(|error| {
-            if markup::is_challenge(&answer) {
-                ResolveError::Challenged
-            } else {
-                error
+            match markup::unreadable(&answer, String::new()) {
+                ResolveError::UnexpectedResponse(_) => error,
+                classified => classified,
             }
         })
     }

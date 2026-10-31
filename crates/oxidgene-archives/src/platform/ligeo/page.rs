@@ -24,6 +24,12 @@ fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("ligeo: {detail}"))
 }
 
+/// The error of a whole answer that does not parse: a challenge or a
+/// maintenance page served as a success, or drift (`markup::unreadable`).
+fn unreadable_answer(answer: &str, detail: &str) -> ResolveError {
+    unreadable(answer, format!("ligeo: {detail}"))
+}
+
 /// What the adapter keeps of a register to open it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Register {
@@ -536,7 +542,7 @@ struct Service {
 /// read: its renderings and file names name server paths.
 pub(super) fn manifest(answer: &str) -> Result<Vec<Canvas>, ResolveError> {
     let manifest: Manifest = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the manifest lacks sequences[].canvases"))?;
+        .map_err(|_| unreadable_answer(answer, "the manifest lacks sequences[].canvases"))?;
     let canvases = manifest
         .sequences
         .into_iter()
