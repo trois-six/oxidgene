@@ -44,7 +44,7 @@ pub fn Home() -> Element {
     let trees_resource = use_traced_resource(load_trace.clone(), "trees", move || {
         let api = api_res.clone();
         let _tick = refresh_counter();
-        async move { api.list_trees(Some(100), None).await }
+        async move { api.list_trees().await }
     });
     // Every card's recent persons, in one request once the list is in.
     let api_recent = api.clone();
@@ -54,7 +54,7 @@ pub fn Home() -> Element {
             .read()
             .as_ref()
             .and_then(|result| result.as_ref().ok())
-            .map(|connection| connection.edges.iter().map(|edge| edge.node.id).collect())
+            .map(|trees| trees.iter().map(|item| item.id).collect())
             .unwrap_or_default();
         async move {
             api.recent_persons_of_trees(&tree_ids, RECENT_PERSONS)
@@ -139,9 +139,9 @@ pub fn Home() -> Element {
 
                 // ── Trees grid ───────────────────────────────────────
                 match &*trees_resource.read() {
-                    Some(Ok(conn)) => rsx! {
+                    Some(Ok(trees)) => rsx! {
                         TreesGrid {
-                            trees: conn.edges.iter().map(|edge| TreeSummary::of(&edge.node)).collect::<Vec<_>>(),
+                            trees: trees.iter().map(TreeSummary::of).collect::<Vec<_>>(),
                             query: search_query(),
                             sort: sort_mode(),
                             list: list_view(),

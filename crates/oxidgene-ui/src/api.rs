@@ -3602,19 +3602,9 @@ impl ApiClient {
 
     // ── Trees ───────────────────────────────────────────────────────
 
-    pub async fn list_trees(
-        &self,
-        first: Option<u64>,
-        after: Option<&str>,
-    ) -> Result<PaginatedResponse<TreeListItem>, ApiError> {
-        let mut params = Vec::new();
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
-        self.get_with_query("/api/v1/trees", &params).await
+    /// Every tree, all pages read: the home page lists them all.
+    pub async fn list_trees(&self) -> Result<Vec<TreeListItem>, ApiError> {
+        self.collect_pages("/api/v1/trees", 100, Vec::new()).await
     }
 
     /// Force the next home-page tree list request to observe live job state.
@@ -6783,6 +6773,43 @@ mod tests {
 
         let ids: Vec<Uuid> = events.iter().map(|event| event.id).collect();
         assert_eq!(ids, [residence.id, birth.id]);
+    }
+
+    /// The home page lists the trees past the first hundred too.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn every_tree_is_listed_past_the_first_page() {
+        let api = ApiClient::new("http://127.0.0.1:9");
+        let tree = |n: u128| {
+            serde_json::json!({
+                "id": Uuid::from_u128(n),
+                "name": format!("Tree {n}"),
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            })
+        };
+        let page = |n: u128, end_cursor: Option<&str>| {
+            serde_json::to_vec(&serde_json::json!({
+                "edges": [{ "cursor": n.to_string(), "node": tree(n) }],
+                "page_info": { "has_next_page": end_cursor.is_some(), "end_cursor": end_cursor },
+                "total_count": 2,
+            }))
+            .unwrap()
+        };
+        let key = |after: Option<&str>| {
+            let mut params = vec![("first", "100".to_string())];
+            if let Some(after) = after {
+                params.push(("after", after.to_string()));
+            }
+            format!("/api/v1/trees?{}", serde_json::to_string(&params).unwrap())
+        };
+        api.cache.set(key(None), page(1, Some("c1")));
+        api.cache.set(key(Some("c1")), page(2, None));
+
+        let trees = api.list_trees().await.unwrap();
+
+        let ids: Vec<Uuid> = trees.iter().map(|item| item.id).collect();
+        assert_eq!(ids, [Uuid::from_u128(1), Uuid::from_u128(2)]);
     }
 
     #[test]
