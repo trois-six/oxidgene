@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:20:00Z }
 ---
 
 
@@ -929,6 +929,18 @@ merge refreshes every profile carrying the tag. Nested event values
 retain qualifier, both date bounds, calendar, place ID, and place display name,
 and `age`: the age the record gives for the profile's person — an individual
 event's own, or this spouse's age at a family event.
+
+The payload is compact. A field holding nothing — `None`, an empty list, a
+zero count, the `exact` qualifier, the Gregorian calendar, a biological child
+link — is left out and reads back as that value. Nothing is stored twice
+within one profile: a union's marriage is one of its family link's `events`
+(`ProfileFamilyLink::marriage()` finds it), its number of children is the
+length of `children_ids`, and the occupation a card shows is the description
+of the person's last occupation event (`PersonProfile::occupation()`). The
+payload also leaves out `person_id`, `tree_id` and `built_at`, which are the
+row's `person_id`, `tree_id` and `updated_at`; reading the row puts them back.
+A union's events are still held by each spouse's profile: their `age` is that
+spouse's, and a profile stays one primary-key read (§4.7).
 
 `PROJECTION_SCHEMA_VERSION` is incremented whenever `PersonProfile` or any
 nested projection type changes. Reads filter by the current version. An older

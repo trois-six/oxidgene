@@ -938,7 +938,8 @@ async fn event_writes_carry_the_date_precision_and_witnesses() {
     assert_eq!(updated["description"], "Sample description");
     let birth = &harness.profile(&tree_id, &person_id).await["birth"];
     assert_eq!(birth["date_value"], "12 MAR 1849");
-    assert_eq!(birth["date_qualifier"], "exact");
+    // `exact`, the default qualifier, is left out of a profile.
+    assert!(birth["date_qualifier"].is_null());
 
     let witness = harness
         .ok(
@@ -1111,7 +1112,7 @@ async fn family_writes_link_persons_and_kinship_reads_them() {
         .await;
     assert_eq!(
         harness.profile(&tree_id, &father).await["families_as_spouse"],
-        json!([])
+        Value::Null
     );
 
     harness
@@ -1122,7 +1123,7 @@ async fn family_writes_link_persons_and_kinship_reads_them() {
         .await;
     assert_eq!(
         harness.profile(&tree_id, &mother).await["families_as_spouse"],
-        json!([])
+        Value::Null
     );
 
     harness
@@ -1254,7 +1255,7 @@ async fn sources_citations_notes_and_tags_are_written() {
         .await;
     assert_eq!(
         harness.profile(&tree_id, &person_id).await["tags"],
-        json!([])
+        Value::Null
     );
     let tags = harness.ok("list_tags", json!({ "tree_id": tree_id })).await;
     assert_eq!(tags["items"][0]["counts"]["notes"], 1);
@@ -1283,8 +1284,9 @@ async fn sources_citations_notes_and_tags_are_written() {
         )
         .await;
     let profile = harness.profile(&tree_id, &person_id).await;
-    assert_eq!(profile["note_count"], 0);
-    assert_eq!(profile["citation_count"], 0);
+    // A zero count is left out of a profile.
+    assert!(profile["note_count"].is_null());
+    assert!(profile["citation_count"].is_null());
     assert_eq!(
         harness
             .ok(

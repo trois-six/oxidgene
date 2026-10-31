@@ -402,8 +402,8 @@ fn relative_rows(
         row("children", &|p| {
             p.families_as_spouse
                 .iter()
-                .map(|f| f.children_count)
-                .sum::<u32>()
+                .map(|f| f.children_ids.len())
+                .sum::<usize>()
                 .to_string()
         }),
     ]

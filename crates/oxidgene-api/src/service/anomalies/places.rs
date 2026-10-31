@@ -23,11 +23,7 @@ pub(super) fn events_of(p: &PersonProfile) -> impl Iterator<Item = &ProfileEvent
         .into_iter()
         .flatten()
         .chain(&p.other_events)
-        .chain(
-            p.families_as_spouse
-                .iter()
-                .flat_map(|l| l.events.iter().chain(l.marriage.as_ref())),
-        )
+        .chain(p.families_as_spouse.iter().flat_map(|l| &l.events))
 }
 
 /// The day an event is dated to, when its date is a single complete one.
@@ -106,12 +102,9 @@ pub(super) fn distant_places(
         // A pair of one union's events is the union's: reported by the
         // spouse whose links come first, the other's being the same.
         let shared = me.profile.families_as_spouse.iter().find(|l| {
-            [a, b].iter().all(|e| {
-                l.events
-                    .iter()
-                    .chain(l.marriage.as_ref())
-                    .any(|f| f.event_id == e.event_id)
-            })
+            [a, b]
+                .iter()
+                .all(|e| l.events.iter().any(|f| f.event_id == e.event_id))
         });
         if let Some(link) = shared
             && link.spouse_id.is_some_and(|s| s < me.profile.person_id)

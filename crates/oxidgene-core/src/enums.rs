@@ -90,10 +90,13 @@ impl std::fmt::Display for SpouseRole {
 }
 
 /// Type of relationship between a child and a family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Biological by default, as GEDCOM reads a `FAMC` without a `PEDI`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChildType {
+    #[default]
     Biological,
     Adopted,
     Foster,

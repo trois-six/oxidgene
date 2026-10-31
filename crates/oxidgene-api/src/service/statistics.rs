@@ -508,10 +508,10 @@ impl<'a> Tree<'a> {
             for link in &profile.families_as_spouse {
                 let union = by_family.entry(link.family_id).or_insert_with(|| {
                     let dated = |e: &&ProfileEvent| e.date_sort.is_some();
-                    let date =
-                        link.marriage.as_ref().filter(dated).or_else(|| {
-                            link.events.iter().filter(dated).min_by_key(|e| e.date_sort)
-                        });
+                    let date = link
+                        .marriage()
+                        .filter(dated)
+                        .or_else(|| link.events.iter().filter(dated).min_by_key(|e| e.date_sort));
                     let end = link
                         .events
                         .iter()
@@ -828,7 +828,7 @@ fn events_of(profile: &PersonProfile) -> impl Iterator<Item = &ProfileEvent> {
         profile
             .families_as_spouse
             .iter()
-            .flat_map(|link| link.marriage.iter().chain(link.events.iter())),
+            .flat_map(|link| link.events.iter()),
     )
 }
 
@@ -1119,7 +1119,7 @@ fn count_event_types(profiles: &[PersonProfile]) -> (Vec<CountEntry>, (i32, i32)
         let shared = profile
             .families_as_spouse
             .iter()
-            .flat_map(|link| link.marriage.iter().chain(&link.events))
+            .flat_map(|link| &link.events)
             .filter(|e| family_events.insert(e.event_id));
         for event in own.chain(shared.collect::<Vec<_>>()) {
             *types.entry(event.event_type).or_default() += 1;
@@ -1200,7 +1200,6 @@ pub fn compute(
             .iter()
             .filter(|e| e.event_type == EventType::Occupation)
             .filter_map(|e| e.description.clone())
-            .chain(p.occupation.clone())
             .filter(move |o| seen.insert(o.trim().to_lowercase()))
             .collect::<Vec<_>>()
     }));
@@ -1492,7 +1491,6 @@ mod tests {
             death: died.map(|d| event(EventType::Death, d)),
             baptism: None,
             burial: None,
-            occupation: None,
             other_events: vec![],
             families_as_spouse: vec![],
             family_as_child: None,
@@ -1519,10 +1517,8 @@ mod tests {
             spouse_surname: None,
             spouse_given_names: None,
             spouse_sex: None,
-            marriage: Some(event(EventType::Marriage, marriage)),
-            events: vec![],
+            events: vec![event(EventType::Marriage, marriage)],
             children_ids: children.to_vec(),
-            children_count: children.len() as u32,
         }
     }
 

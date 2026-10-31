@@ -82,7 +82,6 @@ fn full_profile() -> PersonProfile {
         death: Some(event()),
         baptism: Some(event()),
         burial: Some(event()),
-        occupation: Some("Weaver".into()),
         other_events: vec![event()],
         families_as_spouse: vec![ProfileFamilyLink {
             family_id: id(6),
@@ -92,14 +91,12 @@ fn full_profile() -> PersonProfile {
             spouse_surname: Some("Ashdown".into()),
             spouse_given_names: Some("Spouse".into()),
             spouse_sex: Some(Sex::Male),
-            marriage: Some(event()),
             events: vec![event()],
             children_ids: vec![id(8)],
-            children_count: 1,
         }],
         family_as_child: Some(ProfileChildLink {
             family_id: id(9),
-            child_type: ChildType::Biological,
+            child_type: ChildType::Adopted,
             father_id: Some(id(10)),
             father_display_name: Some("Father Ashdown".into()),
             father_surname: Some("Ashdown".into()),

@@ -163,7 +163,7 @@ impl From<PersonProfile> for PersonSearchSummary {
             children_count: profile
                 .families_as_spouse
                 .iter()
-                .map(|family| family.children_count)
+                .map(|family| family.children_ids.len() as u32)
                 .sum(),
             // A profile does not say where its portrait is drawn from.
             portrait: Portrait::Unknown,

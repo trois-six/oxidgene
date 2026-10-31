@@ -1722,7 +1722,14 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
         "the identical birth name is not doubled"
     );
     assert_eq!(other_names[0]["surname"], "Spouse");
-    assert_eq!(profile["occupation"], "Weaver");
+    let occupations: Vec<&Value> = profile["other_events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["event_type"] == "occupation")
+        .map(|event| &event["description"])
+        .collect();
+    assert_eq!(occupations, [&Value::from("Weaver")]);
     assert_eq!(profile["note_count"], 1);
     assert_eq!(profile["family_as_child"]["family_id"], parents.as_str());
     let unions = profile["families_as_spouse"].as_array().unwrap();

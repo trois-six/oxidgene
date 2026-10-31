@@ -796,10 +796,7 @@ async fn a_family_link_is_only_removed_through_its_own_family() {
         None,
     )
     .await;
-    assert!(
-        profile["families_as_spouse"].as_array().unwrap().is_empty(),
-        "{profile}"
-    );
+    assert!(profile["families_as_spouse"].is_null(), "{profile}");
 }
 
 #[tokio::test]
@@ -1924,7 +1921,10 @@ async fn deleting_a_media_rewrites_the_cards_that_drew_it_on_both_surfaces() {
     for person in [&rest_person, &gql_person] {
         let card = profile(&app, &tree_id, person).await;
         assert!(card["primary_media"].is_null(), "{card}");
-        assert_eq!(card["media_count"], 0, "{card}");
+        assert!(
+            card["media_count"].is_null(),
+            "a zero count is left out: {card}"
+        );
     }
 }
 
@@ -2174,7 +2174,10 @@ async fn linking_a_picture_over_graphql_rewrites_the_card_as_rest_does() {
     )
     .await;
     let card = profile(&app, &tree_id, &person_id).await;
-    assert_eq!(card["media_count"], 0, "{card}");
+    assert!(
+        card["media_count"].is_null(),
+        "a zero count is left out: {card}"
+    );
     assert!(card["primary_media"].is_null(), "{card}");
 }
 

@@ -355,11 +355,7 @@ fn place_records(profiles: &[PersonProfile], out: &mut Vec<StatRecord>) {
             .into_iter()
             .flatten()
             .chain(&p.other_events)
-            .chain(
-                p.families_as_spouse
-                    .iter()
-                    .flat_map(|link| link.marriage.iter().chain(&link.events)),
-            )
+            .chain(p.families_as_spouse.iter().flat_map(|link| &link.events))
             .filter_map(|e| e.place_id)
             .collect();
         (places.len() as f64, p)

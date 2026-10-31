@@ -272,10 +272,27 @@ impl PersonDenormRepo {
     }
 }
 
+/// The fields of a [`PersonProfile`] its row holds as columns, which the
+/// payload therefore leaves out: `person_id` and `tree_id` are the row's own,
+/// and `built_at` is its `updated_at`. [`decode`] puts them back.
+const ROW_FIELDS: [&str; 3] = ["person_id", "tree_id", "built_at"];
+
 /// Serialize a projection into its storage row.
 fn encode(person: &PersonProfile) -> Result<ActiveModel, OxidGeneError> {
-    let payload = serde_json::to_string(person)
-        .map_err(|e| OxidGeneError::Database(format!("person_denorm encode: {e}")))?;
+    let encode_err =
+        |e: serde_json::Error| OxidGeneError::Database(format!("person_denorm encode: {e}"));
+    let mut fields = match serde_json::to_value(person).map_err(encode_err)? {
+        serde_json::Value::Object(fields) => fields,
+        _ => {
+            return Err(OxidGeneError::Database(
+                "person_denorm encode: not an object".into(),
+            ));
+        }
+    };
+    for field in ROW_FIELDS {
+        fields.remove(field);
+    }
+    let payload = serde_json::to_string(&fields).map_err(encode_err)?;
     Ok(ActiveModel {
         person_id: Set(person.person_id),
         tree_id: Set(person.tree_id),
@@ -310,12 +327,17 @@ impl EncodedProfiles {
     }
 }
 
-/// Deserialize a storage row back into a projection.
+/// Deserialize a storage row back into a projection, with the fields its
+/// columns hold ([`ROW_FIELDS`]).
 fn decode(model: Model) -> Result<PersonProfile, OxidGeneError> {
-    serde_json::from_str(&model.payload).map_err(|e| {
+    let mut person: PersonProfile = serde_json::from_str(&model.payload).map_err(|e| {
         OxidGeneError::Database(format!(
             "person_denorm decode for person {}: {e}",
             model.person_id
         ))
-    })
+    })?;
+    person.person_id = model.person_id;
+    person.tree_id = model.tree_id;
+    person.built_at = model.updated_at.with_timezone(&chrono::Utc);
+    Ok(person)
 }

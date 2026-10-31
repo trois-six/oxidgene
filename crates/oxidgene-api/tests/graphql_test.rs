@@ -2080,7 +2080,7 @@ async fn graphql_merge_moves_the_duplicate_onto_the_kept_person() {
         &format!(
             r#"{{ personProfile(treeId: "{tree_id}", personId: "{kept}") {{
                 otherNames {{ surname }}
-                occupation
+                otherEvents {{ eventType description }}
                 familyAsChild {{ familyId }}
                 familiesAsSpouse {{ familyId spouseId }}
             }} }}"#
@@ -2090,7 +2090,14 @@ async fn graphql_merge_moves_the_duplicate_onto_the_kept_person() {
     .await;
     let profile = &data(&resp)["personProfile"];
     assert!(profile["otherNames"].as_array().unwrap().is_empty());
-    assert_eq!(profile["occupation"], "Weaver");
+    let occupations: Vec<&Value> = profile["otherEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["eventType"] == "OCCUPATION")
+        .map(|event| &event["description"])
+        .collect();
+    assert_eq!(occupations, [&Value::from("Weaver")]);
     assert_eq!(profile["familyAsChild"]["familyId"], parents.as_str());
     assert_eq!(profile["familiesAsSpouse"][0]["familyId"], union.as_str());
     assert_eq!(profile["familiesAsSpouse"][0]["spouseId"], partner.as_str());

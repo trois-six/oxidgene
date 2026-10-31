@@ -99,7 +99,11 @@ impl Fixture {
 }
 
 /// The labels of a JSON array of tag references, in order.
+/// A projection leaves an empty list out, so an absent `tags` has none.
 fn labels(tags: &Value) -> Vec<String> {
+    if tags.is_null() {
+        return Vec::new();
+    }
     tags.as_array()
         .expect("an array of tags")
         .iter()
@@ -232,7 +236,7 @@ async fn a_family_event_tag_refreshes_both_spouse_profiles_over_rest() {
     for spouse in [&husband, &wife] {
         let profile = f.profile(spouse).await;
         let link = &profile["families_as_spouse"][0];
-        assert_eq!(labels(&link["marriage"]["tags"]), ["Ledger"], "{spouse}");
+        assert_eq!(labels(&link["events"][0]["tags"]), ["Ledger"], "{spouse}");
     }
 
     tag::update(
@@ -249,7 +253,7 @@ async fn a_family_event_tag_refreshes_both_spouse_profiles_over_rest() {
         let profile = f.profile(spouse).await;
         let link = &profile["families_as_spouse"][0];
         assert_eq!(
-            labels(&link["marriage"]["tags"]),
+            labels(&link["events"][0]["tags"]),
             ["Ledger two"],
             "{spouse}"
         );
@@ -266,7 +270,7 @@ async fn a_family_event_tag_refreshes_both_spouse_profiles_over_rest() {
     for spouse in [&husband, &wife] {
         let profile = f.profile(spouse).await;
         let link = &profile["families_as_spouse"][0];
-        assert!(labels(&link["marriage"]["tags"]).is_empty(), "{spouse}");
+        assert!(labels(&link["events"][0]["tags"]).is_empty(), "{spouse}");
     }
 }
 
@@ -484,14 +488,14 @@ async fn a_family_event_tag_shows_on_the_spouse_profile_over_graphql() {
         &f.app,
         r#"query ($tree: ID!, $person: ID!) {
             personProfile(treeId: $tree, personId: $person) {
-                familiesAsSpouse { marriage { tags { label } } }
+                familiesAsSpouse { events { tags { label } } }
             }
         }"#,
         json!({ "tree": f.tree, "person": wife }),
     )
     .await;
     assert_eq!(
-        labels(&data["personProfile"]["familiesAsSpouse"][0]["marriage"]["tags"]),
+        labels(&data["personProfile"]["familiesAsSpouse"][0]["events"][0]["tags"]),
         ["Ledger"]
     );
 }

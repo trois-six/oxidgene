@@ -2695,7 +2695,7 @@ pub struct GqlPersonProfile {
     pub death: Option<GqlProfileEvent>,
     pub baptism: Option<GqlProfileEvent>,
     pub burial: Option<GqlProfileEvent>,
-    pub occupation: Option<String>,
+    /// Every other event of the person's own, occupations included.
     pub other_events: Vec<GqlProfileEvent>,
     pub families_as_spouse: Vec<GqlProfileFamilyLink>,
     pub family_as_child: Option<GqlProfileChildLink>,
@@ -2725,9 +2725,15 @@ pub struct GqlProfileEvent {
     pub event_id: ID,
     pub event_type: GqlEventType,
     pub date_value: Option<String>,
+    /// The normalized Gregorian date the event sorts by, `YYYY-MM-DD`.
+    pub date_sort: Option<String>,
     /// How precise `date_value` is — without it a client cannot tell
     /// "1849" from "about 1849".
     pub date_qualifier: GqlDateQualifier,
+    /// The far end of an `Or`/`Between` range.
+    pub date_value2: Option<String>,
+    /// The calendar the date was recorded in.
+    pub calendar: GqlCalendar,
     pub place_name: Option<String>,
     pub place_id: Option<ID>,
     pub description: Option<String>,
@@ -2745,9 +2751,10 @@ pub struct GqlProfileFamilyLink {
     pub spouse_surname: Option<String>,
     pub spouse_given_names: Option<String>,
     pub spouse_sex: Option<GqlSex>,
-    pub marriage: Option<GqlProfileEvent>,
+    /// Every event of the union: marriage, divorce, annulment and the rest.
+    pub events: Vec<GqlProfileEvent>,
+    /// The union's children, in birth order.
     pub children_ids: Vec<ID>,
-    pub children_count: i32,
 }
 
 /// A child link (child's relationship to parents).
@@ -2769,6 +2776,8 @@ pub struct GqlProfileChildLink {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlProfileMediaRef {
     pub media_id: ID,
+    /// Set when the portrait is a region of that media rather than all of it.
+    pub vignette_id: Option<ID>,
     pub file_path: String,
     pub mime_type: String,
     pub title: Option<String>,
@@ -3942,7 +3951,6 @@ impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {
             death: p.death.map(Into::into),
             baptism: p.baptism.map(Into::into),
             burial: p.burial.map(Into::into),
-            occupation: p.occupation,
             other_events: p.other_events.into_iter().map(Into::into).collect(),
             families_as_spouse: p.families_as_spouse.into_iter().map(Into::into).collect(),
             family_as_child: p.family_as_child.map(Into::into),
@@ -3975,7 +3983,10 @@ impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
             event_id: ID(e.event_id.to_string()),
             event_type: e.event_type.into(),
             date_value: e.date_value,
+            date_sort: e.date_sort.map(|d| d.to_string()),
             date_qualifier: e.date_qualifier.into(),
+            date_value2: e.date_value2,
+            calendar: e.calendar.into(),
             place_name: e.place_name,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             description: e.description,
@@ -3995,13 +4006,12 @@ impl From<oxidgene_core::projection::ProfileFamilyLink> for GqlProfileFamilyLink
             spouse_surname: f.spouse_surname,
             spouse_given_names: f.spouse_given_names,
             spouse_sex: f.spouse_sex.map(Into::into),
-            marriage: f.marriage.map(Into::into),
+            events: f.events.into_iter().map(Into::into).collect(),
             children_ids: f
                 .children_ids
                 .into_iter()
                 .map(|id| ID(id.to_string()))
                 .collect(),
-            children_count: f.children_count as i32,
         }
     }
 }
@@ -4027,6 +4037,7 @@ impl From<oxidgene_core::projection::ProfileMediaRef> for GqlProfileMediaRef {
     fn from(m: oxidgene_core::projection::ProfileMediaRef) -> Self {
         Self {
             media_id: ID(m.media_id.to_string()),
+            vignette_id: m.vignette_id.map(|id| ID(id.to_string())),
             file_path: m.file_path,
             mime_type: m.mime_type,
             title: m.title,

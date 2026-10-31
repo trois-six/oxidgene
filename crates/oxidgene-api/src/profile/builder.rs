@@ -392,7 +392,6 @@ fn build_one_person(
         death: events.death,
         baptism: events.baptism,
         burial: events.burial,
-        occupation: events.occupation,
         other_events: events.others,
         families_as_spouse,
         family_as_child,
@@ -437,7 +436,6 @@ struct KeyEvents {
     death: Option<ProfileEvent>,
     baptism: Option<ProfileEvent>,
     burial: Option<ProfileEvent>,
-    occupation: Option<String>,
     others: Vec<ProfileEvent>,
 }
 
@@ -451,10 +449,6 @@ impl KeyEvents {
                 EventType::Death => events.death = Some(cached),
                 EventType::Baptism => events.baptism = Some(cached),
                 EventType::Burial => events.burial = Some(cached),
-                EventType::Occupation => {
-                    events.occupation = event.description.clone();
-                    events.others.push(cached);
-                }
                 _ => events.others.push(cached),
             }
         }
@@ -478,10 +472,6 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         .flatten()
         .map(|e| build_profile_event(e, &idx.places_by_id, &idx.tags_by_event, pid))
         .collect();
-    let marriage = events
-        .iter()
-        .find(|e| e.event_type == EventType::Marriage)
-        .cloned();
     let children_ids: Vec<Uuid> = idx
         .children_by_family
         .get(&family_id)
@@ -497,9 +487,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         spouse_surname: spouse_id.and_then(|sid| idx.surname_of(sid)),
         spouse_given_names: spouse_id.and_then(|sid| idx.given_names_of(sid)),
         spouse_sex: spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied()),
-        marriage,
         events,
-        children_count: children_ids.len() as u32,
         children_ids,
     }
 }
@@ -624,7 +612,7 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
     let children_count = person
         .families_as_spouse
         .iter()
-        .map(|f| f.children_count)
+        .map(|f| f.children_ids.len() as u32)
         .sum();
 
     SearchEntry {
@@ -803,7 +791,7 @@ pub fn build_pedigree_node(
         // a card with "1620" beats a card with nothing.
         birth: person.birth_or_baptism().cloned(),
         death: person.death_or_burial().cloned(),
-        occupation: person.occupation.clone(),
+        occupation: person.occupation().map(str::to_owned),
         primary_media_path: person.primary_media.as_ref().map(|m| m.file_path.clone()),
         generation,
         sosa_number,
@@ -968,7 +956,6 @@ mod tests {
             death: None,
             baptism: None,
             burial: None,
-            occupation: None,
             other_events: Vec::new(),
             families_as_spouse: Vec::new(),
             family_as_child: None,

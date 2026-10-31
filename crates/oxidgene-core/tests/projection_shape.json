@@ -84,7 +84,6 @@
     },
     "families_as_spouse": [
       {
-        "children_count": "number",
         "children_ids": [
           "string"
         ],
@@ -111,26 +110,6 @@
           }
         ],
         "family_id": "string",
-        "marriage": {
-          "age": "string",
-          "calendar": "string",
-          "date_qualifier": "string",
-          "date_sort": "string",
-          "date_value": "string",
-          "date_value2": "string",
-          "description": "string",
-          "event_id": "string",
-          "event_type": "string",
-          "place_id": "string",
-          "place_name": "string",
-          "tags": [
-            {
-              "color": "number",
-              "id": "string",
-              "label": "string"
-            }
-          ]
-        },
         "role": "string",
         "spouse_display_name": "string",
         "spouse_given_names": "string",
@@ -153,7 +132,6 @@
     },
     "media_count": "number",
     "note_count": "number",
-    "occupation": "string",
     "other_events": [
       {
         "age": "string",
@@ -211,5 +189,5 @@
     "tree_id": "string",
     "updated_at": "string"
   },
-  "schema_version": 9
+  "schema_version": 10
 }

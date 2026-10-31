@@ -127,8 +127,12 @@ impl Fixture {
     }
 }
 
-/// The labels of a JSON array of tag references, in order.
+/// The labels of a JSON array of tag references, in order; none for an
+/// absent array, which is how a profile writes an empty one.
 fn labels(tags: &Value) -> Vec<String> {
+    if tags.is_null() {
+        return Vec::new();
+    }
     tags.as_array()
         .expect("an array of tags")
         .iter()

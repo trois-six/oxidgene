@@ -234,7 +234,7 @@ async fn targeted_person_build_denormalizes_family() {
     assert_eq!(link.spouse_id, Some(mother));
     assert_eq!(link.spouse_display_name.as_deref(), Some("Jane Smith"));
     assert!(link.children_ids.contains(&child));
-    assert!(link.marriage.is_some(), "marriage event denormalized");
+    assert!(link.marriage().is_some(), "marriage event denormalized");
 }
 
 #[tokio::test]

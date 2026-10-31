@@ -41,7 +41,6 @@ fn person(given: &str, surname: &str, sex: Sex) -> PersonProfile {
         death: None,
         baptism: None,
         burial: None,
-        occupation: None,
         other_events: Vec::new(),
         families_as_spouse: Vec::new(),
         family_as_child: None,
@@ -184,10 +183,8 @@ fn what_rules_a_pair_out() {
         spouse_surname: None,
         spouse_given_names: None,
         spouse_sex: None,
-        marriage: None,
         events: Vec::new(),
         children_ids: Vec::new(),
-        children_count: 0,
     });
     assert!(pairs(&[a, b]).is_empty());
 }

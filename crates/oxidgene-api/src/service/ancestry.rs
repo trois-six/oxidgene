@@ -215,7 +215,7 @@ fn facts(person: &PersonProfile, family: Option<Uuid>, today: NaiveDate) -> Ance
         .families_as_spouse
         .iter()
         .filter(|link| family.is_none_or(|family| link.family_id == family))
-        .flat_map(|link| link.events.iter().chain(link.marriage.as_ref()))
+        .flat_map(|link| &link.events)
         .any(|event| event.event_type.attests_union() && recorded(Some(event)));
     let has_death = recorded(person.death.as_ref()) || recorded(person.burial.as_ref());
     AncestorFacts {
@@ -275,7 +275,6 @@ mod tests {
             death: None,
             baptism: None,
             burial: None,
-            occupation: None,
             other_events: Vec::new(),
             families_as_spouse: Vec::new(),
             family_as_child: None,
@@ -322,10 +321,8 @@ mod tests {
             spouse_surname: None,
             spouse_given_names: None,
             spouse_sex: None,
-            marriage: None,
             events,
             children_ids: Vec::new(),
-            children_count: 0,
         });
     }
 

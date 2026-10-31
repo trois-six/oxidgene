@@ -1180,7 +1180,6 @@ fn group_unions<'a>(sorted: &[&'a PersonProfile], limits: &Limits) -> BTreeMap<U
                 let date = link
                     .events
                     .iter()
-                    .chain(link.marriage.as_ref())
                     .filter(|e| dates_union(e.event_type))
                     .filter_map(|e| Span::of(Some(e), limits.slack_days))
                     .min_by_key(|s| s.from);
@@ -1211,7 +1210,7 @@ fn family_events(
     let mut checked_events = HashSet::new();
     for profile in sorted {
         for link in &profile.families_as_spouse {
-            for event in link.events.iter().chain(link.marriage.as_ref()) {
+            for event in &link.events {
                 if checked_events.insert(event.event_id) {
                     let persons = by_family[&link.family_id]
                         .spouses
@@ -1712,7 +1711,7 @@ fn owned_events<'a>(
             events.insert(event.event_id, (event, vec![profile.person_id], None));
         }
         for link in &profile.families_as_spouse {
-            for event in link.events.iter().chain(link.marriage.as_ref()) {
+            for event in &link.events {
                 let entry = events
                     .entry(event.event_id)
                     .or_insert_with(|| (event, Vec::new(), Some(link.family_id)));

@@ -59,7 +59,6 @@ fn person(given: &str, sex: Sex) -> PersonProfile {
         death: None,
         baptism: None,
         burial: None,
-        occupation: None,
         other_events: Vec::new(),
         families_as_spouse: Vec::new(),
         family_as_child: None,
@@ -105,10 +104,8 @@ fn family(
             spouse_surname: None,
             spouse_given_names: None,
             spouse_sex: None,
-            marriage: None,
             events: events.clone(),
             children_ids: children_ids.clone(),
-            children_count: children_ids.len() as u32,
         });
     }
     for child in children.iter_mut() {

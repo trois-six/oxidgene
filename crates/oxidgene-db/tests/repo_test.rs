@@ -3871,3 +3871,70 @@ async fn a_projection_of_any_other_version_leaves_the_tree_unmaterialized() {
         );
     }
 }
+
+/// A stored projection is compact: it leaves out what its row's columns hold
+/// and every empty field, and reads back whole.
+#[tokio::test]
+async fn a_stored_projection_leaves_its_columns_and_empty_fields_out() {
+    use chrono::{TimeZone, Utc};
+    use oxidgene_core::projection::PersonProfile;
+    use oxidgene_db::repo::PersonDenormRepo;
+
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let person_id = create_person(&db, tree_id).await;
+    let built_at = Utc.with_ymd_and_hms(2026, 3, 4, 5, 6, 7).unwrap();
+    let profile = PersonProfile {
+        person_id,
+        tree_id,
+        sex: oxidgene_core::Sex::Female,
+        primary_name: None,
+        other_names: Vec::new(),
+        birth: None,
+        death: None,
+        baptism: None,
+        burial: None,
+        other_events: Vec::new(),
+        families_as_spouse: Vec::new(),
+        family_as_child: None,
+        primary_media: None,
+        media_count: 0,
+        citation_count: 0,
+        note_count: 0,
+        tags: Vec::new(),
+        updated_at: built_at,
+        built_at,
+    };
+    PersonDenormRepo::upsert(&db, std::slice::from_ref(&profile))
+        .await
+        .unwrap();
+
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "SELECT payload FROM person_denorm WHERE person_id = $1",
+            [Value::from(person_id)],
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let payload: serde_json::Value =
+        serde_json::from_str(&row.try_get::<String>("", "payload").unwrap()).unwrap();
+    let mut keys: Vec<&str> = payload
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["sex", "updated_at"]);
+
+    let back = PersonDenormRepo::get(&db, tree_id, person_id)
+        .await
+        .unwrap()
+        .expect("the current projection");
+    assert_eq!(back.person_id, person_id);
+    assert_eq!(back.tree_id, tree_id);
+    assert_eq!(back.built_at, built_at);
+    assert_eq!(back.sex, oxidgene_core::Sex::Female);
+}

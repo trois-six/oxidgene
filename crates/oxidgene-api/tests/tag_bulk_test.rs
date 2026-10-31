@@ -145,11 +145,10 @@ impl Fixture {
             .into_iter()
             .find(|profile| profile["person_id"] == person)
             .map(|profile| {
+                // A profile leaves an empty list out.
                 profile["tags"]
                     .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|tag| tag["label"] == tag_label)
+                    .is_some_and(|tags| tags.iter().any(|tag| tag["label"] == tag_label))
             })
             .expect("the person has a profile")
     }

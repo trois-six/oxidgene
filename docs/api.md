@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-31T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 
@@ -1413,7 +1413,18 @@ roots, then one read of projections, portraits and SOSA marks per step for
 all the windows, so a batch costs the statements of one pedigree whatever
 its number of roots, and each root gets the pedigree it gets alone.
 
-The profile and pedigree vocabulary is identical across REST and GraphQL.
+The profile and pedigree vocabulary is identical across REST and GraphQL: a
+`ProfileEvent` carries `date_sort`, `date_value2` and `calendar` on both, a
+family link its `events` and a portrait reference its `vignette_id`.
+
+**A profile is compact.** In the REST and assistant JSON a field holding
+nothing — `null`, an empty list, a zero count, the `exact` qualifier, the
+Gregorian calendar, a biological child link — is absent, and a client reads
+an absent field as that value; GraphQL answers every field it is asked for.
+Nothing is said twice: a union's marriage is the `marriage` among its family
+link's `events`, its number of children the length of `children_ids`, and
+the person's occupation the description of their last `occupation` event in
+`other_events`.
 
 **A pedigree node carries its portrait and its SOSA mark.** `portrait` is
 the node's portrait source and crop, absent when the person has none, so a

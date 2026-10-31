@@ -2438,7 +2438,9 @@ type GqlPersonProfile {
 	death: GqlProfileEvent
 	baptism: GqlProfileEvent
 	burial: GqlProfileEvent
-	occupation: String
+	"""
+	Every other event of the person's own, occupations included.
+	"""
 	otherEvents: [GqlProfileEvent!]!
 	familiesAsSpouse: [GqlProfileFamilyLink!]!
 	familyAsChild: GqlProfileChildLink
@@ -2667,10 +2669,22 @@ type GqlProfileEvent {
 	eventType: GqlEventType!
 	dateValue: String
 	"""
+	The normalized Gregorian date the event sorts by, `YYYY-MM-DD`.
+	"""
+	dateSort: String
+	"""
 	How precise `date_value` is — without it a client cannot tell
 	"1849" from "about 1849".
 	"""
 	dateQualifier: GqlDateQualifier!
+	"""
+	The far end of an `Or`/`Between` range.
+	"""
+	dateValue2: String
+	"""
+	The calendar the date was recorded in.
+	"""
+	calendar: GqlCalendar!
 	placeName: String
 	placeId: ID
 	description: String
@@ -2691,9 +2705,14 @@ type GqlProfileFamilyLink {
 	spouseSurname: String
 	spouseGivenNames: String
 	spouseSex: GqlSex
-	marriage: GqlProfileEvent
+	"""
+	Every event of the union: marriage, divorce, annulment and the rest.
+	"""
+	events: [GqlProfileEvent!]!
+	"""
+	The union's children, in birth order.
+	"""
 	childrenIds: [ID!]!
-	childrenCount: Int!
 }
 
 """
@@ -2701,6 +2720,10 @@ A media reference (portrait / primary photo).
 """
 type GqlProfileMediaRef {
 	mediaId: ID!
+	"""
+	Set when the portrait is a region of that media rather than all of it.
+	"""
+	vignetteId: ID
 	filePath: String!
 	mimeType: String!
 	title: String

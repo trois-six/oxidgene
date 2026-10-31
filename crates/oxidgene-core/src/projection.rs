@@ -50,52 +50,104 @@ use crate::types::{PortraitRef, TagRef};
 ///
 /// 9: a pedigree node carries its person's tags (`PedigreeNode::tags`), which
 /// the events panel shows beside the selected person.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 9;
+///
+/// 10: the payload is compact. Empty values are left out (`None`, an empty
+/// list, a zero count, the default qualifier, calendar and child type); a
+/// family link no longer copies its marriage out of its `events`, nor its
+/// children's count out of `children_ids`, and the profile no longer copies
+/// the occupation out of `other_events`; and the stored row no longer repeats
+/// its own `person_id`, `tree_id` and build time (see [`PersonProfile`]).
+pub const PROJECTION_SCHEMA_VERSION: i32 = 10;
+
+/// Whether `value` is its type's default, for `skip_serializing_if`: a field
+/// left at its default is left out of a payload, and `#[serde(default)]`
+/// reads it back the same.
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
 /// A fully denormalized person profile, containing everything needed
 /// to display a person card, detail page, or edit modal in a single read.
+///
+/// The payload is compact: a field holding nothing — `None`, an empty list, a
+/// zero count, a default qualifier, calendar or child type — is left out, and
+/// reads back as that value. Nothing is stored twice within one profile: a
+/// union's marriage is one of its `events` ([`ProfileFamilyLink::marriage`]),
+/// its children's count the length of `children_ids`, the occupation one of
+/// `other_events` ([`Self::occupation`]).
+///
+/// The `person_denorm` row stores the payload without `person_id`, `tree_id`
+/// and `built_at`, which are its own `person_id`, `tree_id` and `updated_at`
+/// columns; reading the row puts them back. Every other surface — REST,
+/// GraphQL, MCP — carries them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonProfile {
-    // Core identity
+    // Core identity. Defaulted only so a stored row, which leaves them to its
+    // columns, deserializes: see the type's documentation.
+    #[serde(default)]
     pub person_id: Uuid,
+    #[serde(default)]
     pub tree_id: Uuid,
     pub sex: Sex,
 
     // Names (denormalized from PersonName)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_name: Option<ProfileName>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub other_names: Vec<ProfileName>,
 
     // Key life events (denormalized from Event + Place)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub birth: Option<ProfileEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub death: Option<ProfileEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub baptism: Option<ProfileEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub burial: Option<ProfileEvent>,
-    pub occupation: Option<String>,
+    /// Every other event of the person's own, occupations included.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub other_events: Vec<ProfileEvent>,
 
     // Family links
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub families_as_spouse: Vec<ProfileFamilyLink>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family_as_child: Option<ProfileChildLink>,
 
     // Attached media / sources / notes (counts + primary)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_media: Option<ProfileMediaRef>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub media_count: u32,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub citation_count: u32,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub note_count: u32,
 
     /// Tags put on the person, sorted by folded label.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<TagRef>,
 
     // Metadata
     pub updated_at: DateTime<Utc>,
     /// When this projection was last rebuilt from the normalized tables.
+    #[serde(default)]
     pub built_at: DateTime<Utc>,
 }
 
 impl PersonProfile {
+    /// The occupation a card names: the description of the person's last
+    /// occupation event, when it has one.
+    pub fn occupation(&self) -> Option<&str> {
+        self.other_events
+            .iter()
+            .rfind(|event| event.event_type == crate::enums::EventType::Occupation)
+            .and_then(|event| event.description.as_deref())
+    }
+
     /// The event a card should date this person's life *from*: the birth, or
     /// the baptism when no birth was recorded.
     ///
@@ -149,7 +201,9 @@ pub struct ProfileName {
     pub name_id: Uuid,
     pub name_type: NameType,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub given_names: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surname: Option<String>,
 }
 
@@ -158,74 +212,98 @@ pub struct ProfileName {
 pub struct ProfileEvent {
     pub event_id: Uuid,
     pub event_type: crate::enums::EventType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_sort: Option<NaiveDate>,
-    /// How precise the date is. `serde(default)` because payloads written
-    /// before this field existed are still in `person_denorm`, and an absent
-    /// qualifier means the same thing as `Exact` did back then.
-    #[serde(default)]
+    /// How precise the date is; `Exact` when absent.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub date_qualifier: DateQualifier,
     /// The far end of an `Or`/`Between` range. Without it a "between 11 Nov
     /// 1691 and 20 Aug 1693" reads as a bare "between 1691" — the qualifier
     /// promises a second date the projection could not carry.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_value2: Option<String>,
     /// Calendar the date was recorded in, so a Republican or Hebrew date is
-    /// not silently re-read as Gregorian.
-    #[serde(default)]
+    /// not silently re-read as Gregorian; Gregorian when absent.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub calendar: Calendar,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The age the record gives for the profile's person at this event —
     /// the event's own for an individual event, this spouse's for a family
     /// one — in canonical GEDCOM form.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub age: Option<String>,
     /// Tags put on the event, sorted by folded label.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<TagRef>,
 }
 
 /// A family in which this person is a spouse, with the other spouse's info.
+///
+/// Each spouse's profile carries the union's events, marriage included: the
+/// `age` of a family event is the profile's own person's, so the two copies
+/// differ, and a profile stays one primary-key read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileFamilyLink {
     pub family_id: Uuid,
     pub role: SpouseRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_display_name: Option<String>,
     /// The spouse's primary surname and given names, kept split so search rows
     /// can filter on one or the other without re-parsing `display_name`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_surname: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_given_names: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_sex: Option<Sex>,
-    pub marriage: Option<ProfileEvent>,
     /// All family events (marriage, divorce, annulment, etc.)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<ProfileEvent>,
+    /// The union's children, in birth order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children_ids: Vec<Uuid>,
-    pub children_count: u32,
+}
+
+impl ProfileFamilyLink {
+    /// The union's marriage, the first of its `events` that is one.
+    pub fn marriage(&self) -> Option<&ProfileEvent> {
+        self.events
+            .iter()
+            .find(|event| event.event_type == crate::enums::EventType::Marriage)
+    }
 }
 
 /// The family in which this person is a child, with parent info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileChildLink {
     pub family_id: Uuid,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub child_type: ChildType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub father_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub father_display_name: Option<String>,
     /// Split primary name, for the same reason as [`ProfileFamilyLink`].
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub father_surname: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub father_given_names: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_display_name: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_surname: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_given_names: Option<String>,
 }
 
@@ -236,10 +314,11 @@ pub struct ProfileMediaRef {
     /// Set when the portrait is a region of that media rather than the whole
     /// of it — a face in a group photograph. The cropped image is served from
     /// the vignette, not the media.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vignette_id: Option<Uuid>,
     pub file_path: String,
     pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
 
@@ -418,4 +497,98 @@ pub struct SearchEntry {
 pub struct SearchResult {
     pub entries: Vec<SearchEntry>,
     pub total_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::enums::EventType;
+
+    fn event(event_type: EventType, description: Option<&str>) -> ProfileEvent {
+        ProfileEvent {
+            event_id: Uuid::now_v7(),
+            event_type,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: DateQualifier::Exact,
+            date_value2: None,
+            calendar: Calendar::Gregorian,
+            place_name: None,
+            place_id: None,
+            description: description.map(str::to_owned),
+            age: None,
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_empty_event_is_only_its_identity() {
+        let event = event(EventType::Birth, None);
+        let json = serde_json::to_value(&event).unwrap();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["event_id", "event_type"]);
+        let back: ProfileEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(back.date_qualifier, DateQualifier::Exact);
+        assert_eq!(back.calendar, Calendar::Gregorian);
+        assert!(back.tags.is_empty());
+    }
+
+    #[test]
+    fn a_union_finds_its_marriage_among_its_events() {
+        let marriage = event(EventType::Marriage, None);
+        let link = ProfileFamilyLink {
+            family_id: Uuid::now_v7(),
+            role: SpouseRole::Wife,
+            spouse_id: None,
+            spouse_display_name: None,
+            spouse_surname: None,
+            spouse_given_names: None,
+            spouse_sex: None,
+            events: vec![event(EventType::MarriageBann, None), marriage.clone()],
+            children_ids: Vec::new(),
+        };
+        assert_eq!(link.marriage().map(|e| e.event_id), Some(marriage.event_id));
+        let json = serde_json::to_string(&link).unwrap();
+        assert_eq!(json.matches("\"event_type\":\"marriage\"").count(), 1);
+    }
+
+    #[test]
+    fn the_occupation_is_the_last_occupation_event() {
+        let mut events = vec![
+            event(EventType::Occupation, Some("Weaver")),
+            event(EventType::Residence, Some("Elsewhere")),
+            event(EventType::Occupation, Some("Miller")),
+        ];
+        let profile = |other_events: Vec<ProfileEvent>| PersonProfile {
+            person_id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            sex: Sex::Unknown,
+            primary_name: None,
+            other_names: Vec::new(),
+            birth: None,
+            death: None,
+            baptism: None,
+            burial: None,
+            other_events,
+            families_as_spouse: Vec::new(),
+            family_as_child: None,
+            primary_media: None,
+            media_count: 0,
+            citation_count: 0,
+            note_count: 0,
+            tags: Vec::new(),
+            updated_at: Utc::now(),
+            built_at: Utc::now(),
+        };
+        assert_eq!(profile(events.clone()).occupation(), Some("Miller"));
+        events.truncate(2);
+        assert_eq!(profile(events).occupation(), Some("Weaver"));
+        assert_eq!(profile(Vec::new()).occupation(), None);
+    }
 }
