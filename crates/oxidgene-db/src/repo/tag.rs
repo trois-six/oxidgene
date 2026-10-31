@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
-use oxidgene_core::types::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX};
+use oxidgene_core::types::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, tag_key};
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Expr, OnConflict, Query};
 use sea_orm::{ConnectionTrait, EntityTrait, QueryFilter, QuerySelect, Set};
@@ -104,7 +104,7 @@ impl TagRepo {
         tree_id: Uuid,
         label: &str,
     ) -> Result<Option<tag::Model>, OxidGeneError> {
-        Self::find_by_normalized(db, tree_id, &fold_words(label.trim())).await
+        Self::find_by_normalized(db, tree_id, &tag_key(label)).await
     }
 
     async fn find_by_normalized(
@@ -129,7 +129,7 @@ impl TagRepo {
         label: &str,
     ) -> Result<(tag::Model, bool), OxidGeneError> {
         let label = checked_label(label)?;
-        let normalized = fold_words(&label);
+        let normalized = tag_key(&label);
         if let Some(existing) = Self::find_by_normalized(db, tree_id, &normalized).await? {
             return Ok((existing, false));
         }
@@ -179,7 +179,7 @@ impl TagRepo {
         let mut active: tag::ActiveModel = current.into();
         if let Some(label) = label {
             let label = checked_label(label)?;
-            let normalized = fold_words(&label);
+            let normalized = tag_key(&label);
             if let Some(other) = Self::find_by_normalized(db, tree_id, &normalized).await?
                 && other.id != id
             {

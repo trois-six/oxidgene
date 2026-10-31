@@ -480,7 +480,7 @@ links are [RecordTag](#recordtag) rows; the picker and the badges are in
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree (cascade), with `(id, tree_id)` unique so a link can pair a tag with its tree |
 | `label` | String | The trimmed spelling entered by whoever first created the tag, 1–80 characters |
-| `normalized_label` | String | The label folded as every word of the application is ([Cross-cutting Rules §3.6](cross-cutting.md)); unique with `tree_id` |
+| `normalized_label` | String | The label folded as every word of the application is ([Cross-cutting Rules §3.6](cross-cutting.md)), or its lowercased text when it holds no letter or digit to fold (`★`, `!!`); unique with `tree_id` |
 | `color` | i16 | Index of the tag's colour in the palette, 0–11 ([Common UI §3.2](ui-common.md)) |
 | `created_at` / `updated_at` | DateTime | Auto |
 

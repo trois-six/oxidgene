@@ -193,6 +193,25 @@ async fn bulk_remove_returns_exactly_the_links_it_deleted() {
     );
 }
 
+/// Labels of symbols only fold to nothing: they must not all be one tag.
+#[tokio::test]
+async fn symbol_only_labels_are_distinct_tags() {
+    let (db, tree) = setup().await;
+    let (star, created) = TagRepo::create(&db, tree, "★").await.unwrap();
+    assert!(created);
+    let (heart, created) = TagRepo::create(&db, tree, "♥").await.unwrap();
+    assert!(created, "a second symbol is a tag of its own");
+    assert_ne!(star.id, heart.id);
+    assert_eq!(
+        TagRepo::create(&db, tree, " ★ ").await.unwrap().0.id,
+        star.id
+    );
+    let renamed = TagRepo::update(&db, tree, heart.id, Some("!!"), None)
+        .await
+        .unwrap();
+    assert_eq!(renamed.label, "!!");
+}
+
 #[tokio::test]
 async fn labels_that_fold_alike_are_one_tag() {
     let (db, tree) = setup().await;

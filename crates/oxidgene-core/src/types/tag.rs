@@ -13,6 +13,19 @@ pub const TAG_COLOR_SLOTS: i16 = 12;
 /// Longest label a tag can have, in characters after trimming (docs/data-model.md, Tag).
 pub const TAG_LABEL_MAX: usize = 80;
 
+/// The key two labels share when they are one tag: the label folded as every
+/// word of the application is (`crate::search::fold_words`), so case, accents
+/// and punctuation do not tell tags apart. A label of symbols only ("★",
+/// "!!") folds to nothing, so it keys on its trimmed, lowercased text
+/// instead: two such labels stay two tags.
+pub fn tag_key(label: &str) -> String {
+    let label = label.trim();
+    match crate::search::fold_words(label) {
+        key if key.is_empty() => label.to_lowercase(),
+        key => key,
+    }
+}
+
 /// A tag as a record carries it: its identity, its spelling and its colour
 /// slot. Reads of a taggable record return these, sorted by folded label.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,5 +113,13 @@ mod tests {
             );
         }
         assert!("tag".parse::<RecordKind>().is_err());
+    }
+
+    #[test]
+    fn labels_fold_alike_but_symbol_only_labels_stay_apart() {
+        assert_eq!(tag_key(" À vérifier "), tag_key("a VERIFIER"));
+        assert_eq!(tag_key("★"), "★");
+        assert_ne!(tag_key("★"), tag_key("♥"));
+        assert_ne!(tag_key("!!"), tag_key("??"));
     }
 }

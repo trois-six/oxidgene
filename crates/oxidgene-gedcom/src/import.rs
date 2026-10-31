@@ -37,7 +37,7 @@ use oxidgene_core::types::{
     Citation, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media,
     MediaLink, Note, Person, PersonName, Place, Repository, Source, SourceRepository,
     TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef, Vignette, is_remote_url, last_path_segment,
-    normalize_mime, split_surname_particle, split_surname_with,
+    normalize_mime, split_surname_particle, split_surname_with, tag_key,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -2660,7 +2660,7 @@ fn tag_of_line(line: TagExtension, result: &mut ImportResult) -> Option<TagRef> 
         ));
         return None;
     }
-    let folded = fold_words(label);
+    let folded = tag_key(label);
     if let Some(tag) = result
         .tag_by_folded
         .get(&folded)

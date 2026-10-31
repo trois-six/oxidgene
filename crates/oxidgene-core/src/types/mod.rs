@@ -46,5 +46,5 @@ pub use surname::{
     join_surname_particle, split_surname_at_head, split_surname_particle, split_surname_with,
     surname_sort_key,
 };
-pub use tag::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef};
+pub use tag::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef, tag_key};
 pub use tree::{AnomalyThresholds, Tree};

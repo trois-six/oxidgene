@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::search::fold_words;
-use oxidgene_core::types::{RecordKind, TAG_LABEL_MAX};
+use oxidgene_core::types::{RecordKind, TAG_LABEL_MAX, tag_key};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, TagCounts, TagSummary, TaggedEvent, TaggedRecord};
@@ -779,10 +779,10 @@ fn TagEditor(
                 error.set(Some(i18n.t("tag.error.validation")));
                 return;
             }
-            let folded = fold_words(&typed);
+            let key = tag_key(&typed);
             let clash = vocabulary
                 .iter()
-                .find(|tag| Some(tag.id) != own_id && fold_words(&tag.label) == folded)
+                .find(|tag| Some(tag.id) != own_id && tag_key(&tag.label) == key)
                 .cloned();
             if let Some(other) = clash {
                 if own_id.is_some() {
