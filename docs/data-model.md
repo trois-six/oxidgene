@@ -910,9 +910,13 @@ under PostgreSQL for the worker to read with its next progress report; under
 SQLite a running job's request reaches its worker in memory instead
 ([Architecture §6.3](architecture.md#63-job-cancellation)).
 
-Read models are durable database data, not a cache tier. They are derived from
-the normalized entities above, refreshed with mutations, and rebuilt when
-their schema version changes. The same design is used by SQLite and PostgreSQL.
+Read models are durable database data. They are derived from the normalized
+entities above, refreshed with mutations, and rebuilt when their schema
+version changes. The same design is used by SQLite and PostgreSQL. An API
+process may keep a tree's decoded projections in memory between requests
+(the tree cache, [Architecture §4.1](architecture.md#41-tree-cache)); it
+uses them only while the tree's projection generation (§4.1) says the table
+still holds them.
 
 ### 4.1 Person projection: `person_denorm`
 
@@ -961,13 +965,41 @@ The initial schema defaults `schema_version` to `0`, so a row without an
 explicit current version is stale rather than assumed to contain a current
 payload. The schema migrations never replace this runtime version check.
 
+**Projection generation: `projection_state`.** One row per tree, inserted
+with it by a trigger, deleted with it (cascade):
+
+| Column | Purpose |
+|---|---|
+| `tree_id` | Primary key and FK to `tree`. |
+| `generation` | Moved by every write to the tree's `person_denorm` rows. |
+
+Triggers on `person_denorm` move `generation` in the transaction of the write
+itself, whatever code path or process makes it — a mutation's refresh, an
+import, a whole-tree rebuild after a `PROJECTION_SCHEMA_VERSION` change, a
+person's or a tree's deletion, a cascade: under SQLite one bump per row
+inserted, updated or deleted, SQLite having no statement-level trigger;
+under PostgreSQL one bump per statement and tree, through the statement's
+transition tables, since an import's thousands of updates of one row in one
+transaction would leave as many row versions for every later read to walk.
+A reader that read the generation, then the rows, holds rows at least as
+new as that generation; while the generation it reads again has not moved,
+the rows are still the table's. The tree cache relies on it
+([Architecture §4.1](architecture.md#41-tree-cache)). It is one primary-key
+read. The audit log could not serve: projection maintenance writes no audit
+entry (§5.1).
+
 ### 4.2 Pedigree assembly
 
 Pedigrees are computed on request and are never stored as a second projection.
 The API:
 
 1. runs the bounded recursive ancestry/descendant traversal;
-2. loads reached `person_denorm` rows in a batch;
+2. loads reached `person_denorm` rows in a batch — or borrows them from the
+   tree's decoded projections when the tree cache keeps them and the
+   projection generation has not moved, in which case the tree's
+   materialization check is skipped too, the cached projections having been
+   read from a materialized tree at that generation
+   ([Architecture §4.1](architecture.md#41-tree-cache));
 3. lazily rebuilds missing or stale profiles;
 4. assembles nodes and family edges for the requested depth window.
 
@@ -1096,7 +1128,9 @@ rewrites it at once.
 - A failed or rolled-back mutation leaves neither normalized changes nor new
     projection payloads.
 - Projection rows survive application restart in the same database.
-- There is no Redis, process-memory, or disk-snapshot projection backend.
+- There is no Redis or disk-snapshot projection backend. The tree cache's
+    decoded projections are a copy of the table's rows, used only while the
+    projection generation (§4.1) has not moved.
 
 ### 4.6 Code ownership
 

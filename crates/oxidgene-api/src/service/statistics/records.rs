@@ -83,6 +83,7 @@ pub(super) fn records(
     // Lives.
     let lives: Vec<(f64, &PersonProfile)> = profiles
         .iter()
+        .copied()
         .filter_map(|p| {
             let age = days(tree.birth(p)?.0, tree.death(p)?.0);
             (age >= 0.0).then_some((age, p))
@@ -125,7 +126,7 @@ fn life_records(tree: &Tree<'_>, lives: &[(f64, &PersonProfile)], out: &mut Vec<
             ));
         }
     }
-    let born = profiles.iter().filter_map(|p| {
+    let born = profiles.iter().copied().filter_map(|p| {
         let date = p.birth_or_baptism()?.date_sort?;
         Some((date.num_days_from_ce() as f64, p))
     });
@@ -181,6 +182,7 @@ fn union_count_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
     let unions_of = tree
         .profiles
         .iter()
+        .copied()
         .map(|p| (p.families_as_spouse.len() as f64, p));
     if let Some((count, p)) = extreme(unions_of, true).filter(|(count, _)| *count > 1.0) {
         out.push(record(
@@ -254,7 +256,7 @@ fn descent_records(
     out: &mut Vec<StatRecord>,
 ) {
     let profiles = tree.profiles;
-    let parents_of_most = profiles.iter().filter_map(|p| {
+    let parents_of_most = profiles.iter().copied().filter_map(|p| {
         let children = children_of.get(&p.person_id)?;
         Some((children.len() as f64, p))
     });
@@ -271,6 +273,7 @@ fn descent_records(
     }
     let first_children: Vec<(f64, (&PersonProfile, &PersonProfile))> = profiles
         .iter()
+        .copied()
         .filter_map(|parent| {
             let parent_born = tree.birth(parent)?.0;
             let (child_born, child) = children_of
@@ -307,6 +310,7 @@ fn generation_record(
     let deepest = tree
         .profiles
         .iter()
+        .copied()
         .filter_map(|p| Some((f64::from(*depths.get(&p.person_id)?), p)));
     if let Some((depth, p)) = extreme(deepest, true) {
         out.push(record(
@@ -349,8 +353,8 @@ fn sibling_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
 }
 
 /// The person whose events took place in the most places.
-fn place_records(profiles: &[PersonProfile], out: &mut Vec<StatRecord>) {
-    let travelled = profiles.iter().map(|p| {
+fn place_records(profiles: &[&PersonProfile], out: &mut Vec<StatRecord>) {
+    let travelled = profiles.iter().copied().map(|p| {
         let places: HashSet<Uuid> = [&p.birth, &p.baptism, &p.death, &p.burial]
             .into_iter()
             .flatten()

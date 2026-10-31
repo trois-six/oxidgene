@@ -149,10 +149,6 @@ pub async fn load_pedigrees(
         )));
     }
     let (ancestor_depth, descendant_depth) = (depth(ancestor_depth)?, depth(descendant_depth)?);
-    // The projections are the tree's, not the roots': checked once for the
-    // batch rather than once per pedigree.
-    profiles.ensure_tree_materialized(tree_id).await?;
-
     let pedigrees = profiles
         .assemble_pedigrees(tree_id, root_person_ids, ancestor_depth, descendant_depth)
         .await?;

@@ -17,6 +17,17 @@
 //!   read when first needed. What depends on the tree — the places, their
 //!   usages and their own coordinates — is read from the database on each
 //!   request and weighed against the readings then.
+//! - the tree's decoded person projections ([`TreeProfiles`]), which the
+//!   statistics, the anomalies, the duplicates and the ancestry completeness
+//!   would otherwise read from `person_denorm` and decode on every request
+//!   (75 to 125 ms), and which a pedigree reads its window's persons from
+//!   when they are kept. They are shared read-only, never copied, and kept
+//!   with the generation of the tree's projections they were read at
+//!   (`projection_state`, moved by triggers in the transaction of every
+//!   `person_denorm` write, whatever process makes it): a request reads the
+//!   current generation first — one primary-key read — and uses them only
+//!   while it has not moved, so it never sees projections older than what
+//!   it would read from the table.
 //!
 //! What it holds is bounded and given back:
 //!
@@ -37,6 +48,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::projection::PersonProfile;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -56,7 +68,8 @@ pub const DEFAULT_IDLE: Duration = Duration::from_secs(5 * 60);
 ///
 /// A quarter of the web backend's memory limit in the Helm chart (1 GiB),
 /// which leaves the rest to the requests themselves and the place
-/// dictionary's index; it holds the projections of about 70,000 persons.
+/// dictionary's index; it holds the projections of about 70,000 persons at
+/// the 3.5 KB a person of a real tree, 100,000 of the generated reference one.
 pub const DEFAULT_BUDGET: usize = 256 * 1024 * 1024;
 
 /// Which trees the cache keeps at once.
@@ -133,6 +146,19 @@ struct Entry {
     /// Held while the tree's missing readings are read, so that requests
     /// arriving together read them once.
     places_gate: Arc<tokio::sync::Mutex<()>>,
+    /// The tree's decoded projections, with the generation they were read
+    /// at.
+    profiles: Option<KeptProfiles>,
+    /// Held while the tree's projections are read, so that requests
+    /// arriving together read them once.
+    profiles_gate: Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Debug)]
+struct KeptProfiles {
+    generation: i64,
+    profiles: Arc<TreeProfiles>,
+    bytes: usize,
 }
 
 impl Entry {
@@ -142,13 +168,53 @@ impl Entry {
             places: HashMap::new(),
             place_bytes: 0,
             places_gate: Arc::default(),
+            profiles: None,
+            profiles_gate: Arc::default(),
         }
     }
 
     fn bytes(&self) -> usize {
-        self.place_bytes
+        self.place_bytes + self.profiles.as_ref().map_or(0, |kept| kept.bytes)
     }
 }
+
+/// Every person projection of a tree, decoded once and shared read-only by
+/// the requests that read them, with an index by person.
+#[derive(Debug, Default)]
+pub struct TreeProfiles {
+    persons: Vec<PersonProfile>,
+    index: HashMap<Uuid, usize>,
+}
+
+impl TreeProfiles {
+    /// The projections `persons`, indexed.
+    pub fn new(persons: Vec<PersonProfile>) -> Self {
+        let index = persons
+            .iter()
+            .enumerate()
+            .map(|(at, person)| (person.person_id, at))
+            .collect();
+        Self { persons, index }
+    }
+
+    /// The projection of `person_id`, if the tree has one.
+    pub fn get(&self, person_id: &Uuid) -> Option<&PersonProfile> {
+        self.index.get(person_id).map(|at| &self.persons[*at])
+    }
+}
+
+impl std::ops::Deref for TreeProfiles {
+    type Target = [PersonProfile];
+
+    fn deref(&self) -> &[PersonProfile] {
+        &self.persons
+    }
+}
+
+/// How many bytes decoded projections take in memory for each byte of their
+/// stored payload: on a generated tree of 10,000 persons, release build, the
+/// 13 MiB of payload took 25 to 27 MiB of resident memory once kept.
+pub const DECODED_BYTES_PER_PAYLOAD_BYTE: usize = 2;
 
 impl TreeCache {
     /// An empty cache with `settings`.
@@ -376,6 +442,87 @@ impl TreeCache {
         self.release(dropped);
     }
 
+    /// The projections kept for tree `tree_id`, with the generation they
+    /// were read at, noting a request about the tree: with one tree at a
+    /// time, every other tree is dropped. The caller checks the generation
+    /// is still the table's before using them.
+    pub fn kept_profiles(self: &Arc<Self>, tree_id: Uuid) -> Option<(i64, Arc<TreeProfiles>)> {
+        self.enter(tree_id, |entry| {
+            entry
+                .profiles
+                .as_ref()
+                .map(|kept| (kept.generation, Arc::clone(&kept.profiles)))
+        })
+    }
+
+    /// The gate a request reading tree `tree_id`'s projections holds, so
+    /// that requests arriving together read them once.
+    pub fn profiles_gate(self: &Arc<Self>, tree_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
+        self.enter(tree_id, |entry| Arc::clone(&entry.profiles_gate))
+    }
+
+    /// Drop tree `tree_id`'s projections read at `generation`, which the
+    /// table has moved past, and give their memory back before the caller
+    /// reads them again.
+    pub fn forget_profiles(&self, tree_id: Uuid, generation: i64) {
+        let stale = {
+            let mut inner = self.lock();
+            inner
+                .trees
+                .get_mut(&tree_id)
+                .filter(|entry| {
+                    entry
+                        .profiles
+                        .as_ref()
+                        .is_some_and(|kept| kept.generation == generation)
+                })
+                .and_then(|entry| entry.profiles.take())
+        };
+        if let Some(stale) = stale {
+            self.release_profiles(stale);
+        }
+    }
+
+    /// Keep tree `tree_id`'s projections, read at `generation` and taking
+    /// about `bytes`, unless the tree was dropped meanwhile or they do not
+    /// fit the budget.
+    pub fn keep_profiles(
+        &self,
+        tree_id: Uuid,
+        generation: i64,
+        profiles: Arc<TreeProfiles>,
+        bytes: usize,
+    ) {
+        let mut dropped = Vec::new();
+        let replaced = {
+            let mut inner = self.lock();
+            let Some(entry) = inner.trees.get_mut(&tree_id) else {
+                return;
+            };
+            let replaced = entry.profiles.take();
+            if Self::make_room(&mut inner, tree_id, bytes, &mut dropped)
+                && let Some(entry) = inner.trees.get_mut(&tree_id)
+            {
+                entry.profiles = Some(KeptProfiles {
+                    generation,
+                    profiles,
+                    bytes,
+                });
+            }
+            replaced
+        };
+        if let Some(replaced) = replaced {
+            self.release_profiles(replaced);
+        }
+        self.release(dropped);
+    }
+
+    fn release_profiles(&self, kept: KeptProfiles) {
+        let mut entry = Entry::new(Instant::now());
+        entry.profiles = Some(kept);
+        self.release(vec![entry]);
+    }
+
     /// Start the idle sweep if trees are kept and none runs.
     fn watch(self: &Arc<Self>, inner: &mut Inner) {
         if inner.trees.is_empty() || inner.sweeper.as_ref().is_some_and(|s| !s.is_finished()) {
@@ -532,6 +679,48 @@ mod tests {
         fill(&cache, d, &labels);
         assert_eq!(kept(&cache, d, &labels), 0);
         assert_eq!(kept(&cache, a, &["Nowhere-A"]), 1, "nothing dropped for it");
+    }
+
+    #[tokio::test]
+    async fn projections_are_kept_by_generation_within_the_budget() {
+        let cache = Arc::new(TreeCache::new(CacheSettings::shared(1000, DEFAULT_IDLE)));
+        let (a, b) = (tree(), tree());
+        let profiles = Arc::new(TreeProfiles::default());
+        assert!(cache.kept_profiles(a).is_none());
+        cache.keep_profiles(a, 7, Arc::clone(&profiles), 600);
+        let (generation, kept) = cache.kept_profiles(a).unwrap();
+        assert_eq!(generation, 7);
+        assert!(Arc::ptr_eq(&kept, &profiles), "shared, never copied");
+
+        // Another generation's forgetting leaves them; their own drops them.
+        cache.forget_profiles(a, 6);
+        assert!(cache.kept_profiles(a).is_some());
+        let releases = cache.releases();
+        cache.forget_profiles(a, 7);
+        assert!(cache.kept_profiles(a).is_none());
+        assert_eq!(cache.releases(), releases + 1);
+
+        // b's projections make room by dropping a's, the least recent.
+        cache.keep_profiles(a, 8, Arc::clone(&profiles), 600);
+        cache.kept_profiles(b);
+        cache.keep_profiles(b, 1, Arc::clone(&profiles), 600);
+        assert!(cache.kept_profiles(a).is_none());
+        assert!(cache.kept_profiles(b).is_some());
+        // Projections larger than the whole budget are not kept.
+        cache.keep_profiles(b, 2, profiles, 1001);
+        assert!(cache.kept_profiles(b).is_none());
+        assert_eq!(cache.estimated_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn projections_of_a_dropped_tree_are_not_kept() {
+        let cache = Arc::new(TreeCache::new(CacheSettings::one_tree(DEFAULT_IDLE)));
+        let (a, b) = (tree(), tree());
+        // A request about a reads its projections while b's request comes.
+        let _gate = cache.profiles_gate(a);
+        cache.kept_profiles(b);
+        cache.keep_profiles(a, 1, Arc::default(), 10);
+        assert_eq!(cache.cached_trees(), [b]);
     }
 
     #[tokio::test]

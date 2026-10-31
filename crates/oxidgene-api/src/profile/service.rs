@@ -12,6 +12,7 @@
 //! otherwise compute again on each request, and nothing the database does
 //! not hold.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -36,7 +37,7 @@ use super::builder::{
     self, TreeData, build_all_persons, build_db_search_entry, search_entry_from_db,
 };
 use super::{invalidation, pedigree, sosa};
-use crate::tree_cache::TreeCache;
+use crate::tree_cache::{TreeCache, TreeProfiles};
 
 /// Above this many affected persons, rebuild from a single whole-tree fetch
 /// instead of running targeted per-person queries.
@@ -270,18 +271,75 @@ impl ProfileService {
         Ok(built)
     }
 
-    /// Read every projection of a tree, materializing them if needed.
+    /// Every projection of a tree, materializing them if needed: those the
+    /// tree cache keeps when the table has not changed since they were read,
+    /// else read, decoded and kept.
     ///
     /// The payloads of a large tree run to tens of megabytes of JSON, so
     /// they are decoded on a blocking thread, under `profile.decode`.
-    pub async fn get_all_persons(
+    /// Requests arriving together for the same tree read them once.
+    pub async fn get_all_persons(&self, tree_id: Uuid) -> Result<Arc<TreeProfiles>, OxidGeneError> {
+        if let Some(kept) = self.current_profiles(tree_id).await? {
+            return Ok(kept);
+        }
+        let gate = self.cache.profiles_gate(tree_id);
+        let _reading = gate.lock().await;
+        // Read by the request this one waited for.
+        if let Some(kept) = self.current_profiles(tree_id).await? {
+            return Ok(kept);
+        }
+        self.ensure_materialized(tree_id).await?;
+        // Read before the rows: a write committed in between leaves the
+        // projections newer than their generation, never older, and the
+        // next request reads them again.
+        let generation = PersonDenormRepo::generation(&self.reader, tree_id).await?;
+        let encoded = PersonDenormRepo::list_tree(&self.reader, tree_id).await?;
+        let bytes = encoded.payload_bytes() * crate::tree_cache::DECODED_BYTES_PER_PAYLOAD_BYTE;
+        let span = tracing::info_span!("profile.decode", person.count = encoded.len());
+        let decoded = crate::service::blocking::run(span, move || {
+            encoded
+                .decode()
+                .map(|persons| Arc::new(TreeProfiles::new(persons)))
+        })
+        .await??;
+        if let Some(generation) = generation {
+            self.cache
+                .keep_profiles(tree_id, generation, Arc::clone(&decoded), bytes);
+        }
+        Ok(decoded)
+    }
+
+    /// The projections of tree `tree_id` the tree cache keeps, when the
+    /// table still holds them: the tree's projection generation has not
+    /// moved since they were read. One primary-key read when the cache keeps
+    /// some, none otherwise; projections found outdated are dropped.
+    async fn current_profiles(
         &self,
         tree_id: Uuid,
-    ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        self.ensure_materialized(tree_id).await?;
-        let encoded = PersonDenormRepo::list_tree(&self.reader, tree_id).await?;
-        let span = tracing::info_span!("profile.decode", person.count = encoded.len());
-        crate::service::blocking::run(span, move || encoded.decode()).await?
+    ) -> Result<Option<Arc<TreeProfiles>>, OxidGeneError> {
+        let Some((generation, kept)) = self.cache.kept_profiles(tree_id) else {
+            return Ok(None);
+        };
+        if PersonDenormRepo::generation(&self.reader, tree_id).await? == Some(generation) {
+            return Ok(Some(kept));
+        }
+        drop(kept);
+        self.cache.forget_profiles(tree_id, generation);
+        Ok(None)
+    }
+
+    /// The projections the cache keeps for tree `tree_id` if they are
+    /// current, else none after checking the tree is materialized: what a
+    /// pedigree starts with.
+    async fn pedigree_profiles(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Option<Arc<TreeProfiles>>, OxidGeneError> {
+        let kept = self.current_profiles(tree_id).await?;
+        if kept.is_none() {
+            self.ensure_materialized(tree_id).await?;
+        }
+        Ok(kept)
     }
 
     /// One page of a tree's projections, by person id, materializing the
@@ -301,8 +359,9 @@ impl ProfileService {
     /// Assemble a windowed pedigree for a root person.
     ///
     /// Built fresh on every call by walking the family links and joining the
-    /// reached persons against `person_denorm` — there is nothing to cache and
-    /// nothing to invalidate.
+    /// reached persons against their projections: those the tree cache
+    /// keeps when they are current, `person_denorm` otherwise. Nothing is
+    /// stored.
     #[instrument(skip_all)]
     pub async fn get_or_build_pedigree(
         &self,
@@ -311,29 +370,18 @@ impl ProfileService {
         ancestor_depth: u32,
         descendant_depth: u32,
     ) -> Result<Pedigree, OxidGeneError> {
-        self.ensure_materialized(tree_id).await?;
+        let kept = self.pedigree_profiles(tree_id).await?;
         self.build_pedigree(
             &self.reader,
             tree_id,
             root_person_id,
-            ancestor_depth,
-            descendant_depth,
+            (ancestor_depth, descendant_depth),
+            kept.as_deref(),
         )
         .await
     }
 
-    /// Materialize the projections of tree `tree_id` if they are missing or
-    /// outdated — what [`Self::get_or_build_pedigree`] checks first, for a
-    /// caller assembling several pedigrees that checks it once.
-    pub(crate) async fn ensure_tree_materialized(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        self.ensure_materialized(tree_id).await
-    }
-
-    /// Assemble together the pedigrees of `roots`, in a tree whose
-    /// projections are known to be materialized: each root that is a live
+    /// Assemble together the pedigrees of `roots`: each root that is a live
     /// person of the tree gets the pedigree [`Self::get_or_build_pedigree`]
     /// would give it, the others none.
     ///
@@ -347,6 +395,9 @@ impl ProfileService {
         ancestor_depth: u32,
         descendant_depth: u32,
     ) -> Result<HashMap<Uuid, Pedigree>, OxidGeneError> {
+        // The projections are the tree's, not the roots': checked once for
+        // the batch rather than once per pedigree.
+        let kept = self.pedigree_profiles(tree_id).await?;
         let live = sorted_unique(
             PersonRepo::get_many(&self.reader, roots)
                 .await?
@@ -359,8 +410,8 @@ impl ProfileService {
                 &self.reader,
                 tree_id,
                 &live,
-                ancestor_depth,
-                descendant_depth,
+                (ancestor_depth, descendant_depth),
+                kept.as_deref(),
             )
             .await?;
         Ok(live.into_iter().zip(pedigrees).collect())
@@ -384,7 +435,7 @@ impl ProfileService {
         other_depth: u32,
     ) -> Result<PedigreeDelta, OxidGeneError> {
         let conn = &self.reader;
-        self.ensure_materialized(tree_id).await?;
+        let kept = self.pedigree_profiles(tree_id).await?;
 
         let (before, after) = match direction {
             PedigreeDirection::Ancestors => ((from_depth, other_depth), (to_depth, other_depth)),
@@ -392,10 +443,10 @@ impl ProfileService {
         };
 
         let existing = self
-            .build_pedigree(conn, tree_id, root_person_id, before.0, before.1)
+            .build_pedigree(conn, tree_id, root_person_id, before, kept.as_deref())
             .await?;
         let expanded = self
-            .build_pedigree(conn, tree_id, root_person_id, after.0, after.1)
+            .build_pedigree(conn, tree_id, root_person_id, after, kept.as_deref())
             .await?;
 
         let new_nodes: Vec<PedigreeNode> = expanded
@@ -859,23 +910,34 @@ impl ProfileService {
         Ok(found)
     }
 
-    /// Read into `profiles` the projections of those of `person_ids` it
-    /// lacks. `outside` names the persons outside the pedigree windows that
-    /// they are, for the log.
-    async fn fetch_profiles(
+    /// Gather the projections of those of `person_ids` not gathered yet:
+    /// borrowed from the tree cache's when it keeps them, read otherwise.
+    /// `outside` names the persons outside the pedigree windows that they
+    /// are, for the log.
+    async fn fetch_profiles<'c>(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
-        profiles: &mut HashMap<Uuid, PersonProfile>,
+        gathered: &mut Gathered<'c>,
         person_ids: &[Uuid],
         outside: Option<&str>,
     ) -> Result<(), OxidGeneError> {
-        let wanted = sorted_unique(
+        let profiles = &mut gathered.profiles;
+        let mut wanted = sorted_unique(
             person_ids
                 .iter()
                 .copied()
                 .filter(|id| !profiles.contains_key(id)),
         );
+        if let Some(kept) = gathered.kept {
+            wanted.retain(|id| match kept.get(id) {
+                Some(profile) => {
+                    profiles.insert(*id, Cow::Borrowed(profile));
+                    false
+                }
+                None => true,
+            });
+        }
         if wanted.is_empty() {
             return Ok(());
         }
@@ -889,7 +951,7 @@ impl ProfileService {
         // future, which every step of the assembly would otherwise hold
         // inline, and a debug build's stack a copy of at every level.
         let found = Box::pin(self.projections_for(conn, tree_id, &wanted)).await?;
-        profiles.extend(found.into_iter().map(|p| (p.person_id, p)));
+        profiles.extend(found.into_iter().map(|p| (p.person_id, Cow::Owned(p))));
         Ok(())
     }
 
@@ -914,66 +976,64 @@ impl ProfileService {
         Ok(())
     }
 
-    /// Assemble the pedigree window of a root person from family links and
-    /// the stored projections.
+    /// Assemble the pedigree window of a root person, `depths.0` generations
+    /// up and `depths.1` down, from family links and the projections:
+    /// `kept`, the tree cache's, first.
     async fn build_pedigree(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
         root_person_id: Uuid,
-        ancestor_depth: u32,
-        descendant_depth: u32,
+        depths: (u32, u32),
+        kept: Option<&TreeProfiles>,
     ) -> Result<Pedigree, OxidGeneError> {
-        self.build_pedigrees(
-            conn,
-            tree_id,
-            &[root_person_id],
-            ancestor_depth,
-            descendant_depth,
-        )
-        .await?
-        .pop()
-        .ok_or(OxidGeneError::NotFound {
-            entity: "Person",
-            id: root_person_id,
-        })
+        self.build_pedigrees(conn, tree_id, &[root_person_id], depths, kept)
+            .await?
+            .pop()
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Person",
+                id: root_person_id,
+            })
     }
 
     /// Assemble the pedigree windows of `roots`, distinct, in their order,
-    /// from family links and the stored projections: each step reads what
-    /// all the windows need at once.
+    /// from family links and the projections — `kept`, the tree cache's,
+    /// first, then the stored ones —: each step reads what all the windows
+    /// need at once.
     #[instrument(
         name = "pedigree.build",
         skip_all,
-        fields(roots = roots.len(), ancestor_depth, descendant_depth)
+        fields(roots = roots.len(), ancestor_depth = depths.0, descendant_depth = depths.1)
     )]
     async fn build_pedigrees(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
         roots: &[Uuid],
-        ancestor_depth: u32,
-        descendant_depth: u32,
+        depths: (u32, u32),
+        kept: Option<&TreeProfiles>,
     ) -> Result<Vec<Pedigree>, OxidGeneError> {
+        let (ancestor_depth, descendant_depth) = depths;
         debug!(ancestor_depth, descendant_depth, "Building pedigrees");
         if roots.is_empty() {
             return Ok(Vec::new());
         }
-        let mut profiles = HashMap::new();
+        let mut gathered = Gathered {
+            kept,
+            profiles: HashMap::new(),
+        };
         let windows = self
-            .windows(
-                conn,
-                tree_id,
-                roots,
-                (ancestor_depth, descendant_depth),
-                &mut profiles,
-            )
+            .windows(conn, tree_id, roots, depths, &mut gathered)
             .await?;
-        let mut nodes: Vec<_> = windows.iter().map(|w| w.nodes(&profiles)).collect();
+        let mut nodes: Vec<_> = windows
+            .iter()
+            .map(|w| w.nodes(&gathered.profiles))
+            .collect();
         self.decorate_nodes(conn, tree_id, &mut nodes).await?;
         let families = self
-            .family_units(conn, tree_id, &windows, &nodes, &mut profiles)
+            .family_units(conn, tree_id, &windows, &nodes, &mut gathered)
             .await?;
+        let profiles = gathered.profiles;
 
         let built_at = chrono::Utc::now();
         let pedigrees: Vec<Pedigree> = windows
@@ -1012,7 +1072,7 @@ impl ProfileService {
         tree_id: Uuid,
         roots: &[Uuid],
         depths: (u32, u32),
-        profiles: &mut HashMap<Uuid, PersonProfile>,
+        gathered: &mut Gathered<'_>,
     ) -> Result<Vec<pedigree::Window>, OxidGeneError> {
         let (mut ancestors, mut descendants) = tokio::try_join!(
             AncestryRepo::ancestors_of_many(conn, roots, Some(depths.0 as i32)),
@@ -1030,18 +1090,18 @@ impl ProfileService {
             .iter()
             .flat_map(|w| w.person_ids().iter().copied())
             .collect();
-        self.fetch_profiles(conn, tree_id, profiles, &inside, None)
+        self.fetch_profiles(conn, tree_id, gathered, &inside, None)
             .await?;
 
         // In id order, the order the projections come from the database in.
         let spouses: Vec<Vec<Uuid>> = windows
             .iter()
-            .map(|w| sorted_unique(pedigree::spouses_outside(&w.persons(profiles))))
+            .map(|w| sorted_unique(pedigree::spouses_outside(&w.persons(&gathered.profiles))))
             .collect();
-        self.fetch_profiles(conn, tree_id, profiles, &spouses.concat(), Some("spouses"))
+        self.fetch_profiles(conn, tree_id, gathered, &spouses.concat(), Some("spouses"))
             .await?;
         for (window, spouses) in windows.iter_mut().zip(&spouses) {
-            window.add_spouses(spouses, profiles);
+            window.add_spouses(spouses, &gathered.profiles);
         }
         Ok(windows)
     }
@@ -1056,22 +1116,28 @@ impl ProfileService {
         tree_id: Uuid,
         windows: &[pedigree::Window],
         nodes: &[HashMap<Uuid, PedigreeNode>],
-        profiles: &mut HashMap<Uuid, PersonProfile>,
+        gathered: &mut Gathered<'_>,
     ) -> Result<Vec<HashMap<Uuid, PedigreeFamily>>, OxidGeneError> {
-        let mut families: Vec<_> = windows.iter().map(|w| w.families(profiles)).collect();
+        let mut families: Vec<_> = windows
+            .iter()
+            .map(|w| w.families(&gathered.profiles))
+            .collect();
         let parents: Vec<Vec<Uuid>> = windows
             .iter()
             .zip(&families)
-            .map(|(w, families)| pedigree::parents_to_fetch(families, &w.persons(profiles)))
+            .map(|(w, families)| {
+                pedigree::parents_to_fetch(families, &w.persons(&gathered.profiles))
+            })
             .collect();
         self.fetch_profiles(
             conn,
             tree_id,
-            profiles,
+            gathered,
             &parents.concat(),
             Some("parents for sibling data"),
         )
         .await?;
+        let profiles = &gathered.profiles;
         for (families, parents) in families.iter_mut().zip(&parents) {
             pedigree::adopt_children_lists(families, &pedigree::picked(profiles, parents));
         }
@@ -1084,16 +1150,24 @@ impl ProfileService {
         self.fetch_profiles(
             conn,
             tree_id,
-            profiles,
+            gathered,
             &members.concat(),
             Some("family members"),
         )
         .await?;
+        let profiles = &gathered.profiles;
         for (families, members) in families.iter_mut().zip(&members) {
             pedigree::add_members_outside(families, &pedigree::picked(profiles, members));
         }
         Ok(families)
     }
+}
+
+/// The projections a pedigree assembly has gathered, and the tree cache's,
+/// which it borrows from before reading any.
+struct Gathered<'c> {
+    kept: Option<&'c TreeProfiles>,
+    profiles: pedigree::Profiles<'c>,
 }
 
 /// Give each search row the tags its person has, read from the tag tables in

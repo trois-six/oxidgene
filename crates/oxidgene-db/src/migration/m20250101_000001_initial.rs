@@ -31,7 +31,10 @@ impl MigrationTrait for Migration {
         }
         // PostgreSQL keeps a trigger's function when its table goes.
         if manager.get_database_backend() == DbBackend::Postgres {
-            for function in SOSA_TRIGGER_FUNCTIONS {
+            for function in SOSA_TRIGGER_FUNCTIONS
+                .iter()
+                .chain(PROJECTION_TRIGGER_FUNCTIONS)
+            {
                 conn.execute_raw(Statement::from_string(
                     DbBackend::Postgres,
                     format!("DROP FUNCTION IF EXISTS {function}() CASCADE"),
@@ -51,6 +54,7 @@ impl MigrationTrait for Migration {
             PersonDistinct::Table.into_table_ref(),
             BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
+            ProjectionState::Table.into_table_ref(),
             SosaAncestor::Table.into_table_ref(),
             SosaState::Table.into_table_ref(),
             RecordTag::Table.into_table_ref(),
@@ -390,6 +394,13 @@ enum SosaAncestor {
     PersonId,
     TreeId,
     SosaNumber,
+}
+
+#[derive(DeriveIden)]
+enum ProjectionState {
+    Table,
+    TreeId,
+    Generation,
 }
 
 #[derive(DeriveIden)]
@@ -1999,7 +2010,8 @@ async fn create_traversal_indexes(manager: &SchemaManager<'_>) -> Result<(), DbE
     Ok(())
 }
 
-/// The durable person projections and the indexes of the tree-wide reads.
+/// The durable person projections, their generation, and the indexes of
+/// the tree-wide reads.
 async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     // Durable person projections.
     manager
@@ -2111,8 +2123,104 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    create_projection_state(manager).await
+}
+
+/// The generation of each tree's projections (docs/data-model.md §4.1):
+/// one row per tree, inserted with it, whose `generation` triggers move in
+/// the transaction of every write to the tree's `person_denorm` rows,
+/// whatever code path makes it — a refresh, an import, a rebuild after a
+/// schema version change, a purge. A process holding a tree's decoded
+/// projections in memory compares it with the generation they were read at
+/// (the tree cache, docs/architecture.md §4.1), which works across processes.
+async fn create_projection_state(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ProjectionState::Table)
+                .if_not_exists()
+                .col(uuid(ProjectionState::TreeId).primary_key())
+                .col(big_integer(ProjectionState::Generation).default(0))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_projection_state_tree")
+                        .from(ProjectionState::Table, ProjectionState::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    let backend = manager.get_database_backend();
+    let statements = match backend {
+        DbBackend::Sqlite => SQLITE_PROJECTION_TRIGGERS,
+        _ => POSTGRES_PROJECTION_TRIGGERS,
+    };
+    let conn = manager.get_connection();
+    for sql in statements {
+        conn.execute_raw(Statement::from_string(backend, (*sql).to_owned()))
+            .await?;
+    }
     Ok(())
 }
+
+/// The SQLite triggers that keep `projection_state.generation` moving: one
+/// bump per row written, SQLite having no statement-level trigger.
+const SQLITE_PROJECTION_TRIGGERS: &[&str] = &[
+    "CREATE TRIGGER projection_tree_insert AFTER INSERT ON tree BEGIN \
+         INSERT INTO projection_state (tree_id, generation) VALUES (NEW.id, 0); END",
+    "CREATE TRIGGER projection_insert AFTER INSERT ON person_denorm BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id = NEW.tree_id; END",
+    "CREATE TRIGGER projection_update AFTER UPDATE ON person_denorm BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id IN (OLD.tree_id, NEW.tree_id); END",
+    "CREATE TRIGGER projection_delete AFTER DELETE ON person_denorm BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id = OLD.tree_id; END",
+];
+
+/// The functions behind the PostgreSQL projection triggers, which `down`
+/// drops.
+const PROJECTION_TRIGGER_FUNCTIONS: &[&str] = &[
+    "projection_tree_insert",
+    "projection_rows_added",
+    "projection_rows_changed",
+    "projection_rows_removed",
+];
+
+/// The PostgreSQL counterpart of [`SQLITE_PROJECTION_TRIGGERS`]: one bump per
+/// statement and tree, through its transition tables, rather than one per
+/// row — an import writes a tree's projections in a few statements, and ten
+/// thousand updates of one row in one transaction would leave as many
+/// versions of it for every later read to walk until vacuumed. An upsert
+/// fires both the insert and the update trigger.
+const POSTGRES_PROJECTION_TRIGGERS: &[&str] = &[
+    "CREATE FUNCTION projection_tree_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         INSERT INTO projection_state (tree_id, generation) VALUES (NEW.id, 0); \
+         RETURN NULL; END $$",
+    "CREATE FUNCTION projection_rows_added() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id IN (SELECT tree_id FROM added_rows); RETURN NULL; END $$",
+    "CREATE FUNCTION projection_rows_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id IN (SELECT tree_id FROM added_rows \
+         UNION SELECT tree_id FROM removed_rows); RETURN NULL; END $$",
+    "CREATE FUNCTION projection_rows_removed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         UPDATE projection_state SET generation = generation + 1 \
+         WHERE tree_id IN (SELECT tree_id FROM removed_rows); RETURN NULL; END $$",
+    "CREATE TRIGGER projection_tree_insert AFTER INSERT ON tree \
+         FOR EACH ROW EXECUTE FUNCTION projection_tree_insert()",
+    "CREATE TRIGGER projection_insert AFTER INSERT ON person_denorm \
+         REFERENCING NEW TABLE AS added_rows \
+         FOR EACH STATEMENT EXECUTE FUNCTION projection_rows_added()",
+    "CREATE TRIGGER projection_update AFTER UPDATE ON person_denorm \
+         REFERENCING OLD TABLE AS removed_rows NEW TABLE AS added_rows \
+         FOR EACH STATEMENT EXECUTE FUNCTION projection_rows_changed()",
+    "CREATE TRIGGER projection_delete AFTER DELETE ON person_denorm \
+         REFERENCING OLD TABLE AS removed_rows \
+         FOR EACH STATEMENT EXECUTE FUNCTION projection_rows_removed()",
+];
 
 /// The stored SOSA ancestry of each tree (docs/data-model.md §4.8): the
 /// root and its ancestors, with their SOSA numbers, and the state saying

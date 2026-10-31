@@ -175,7 +175,11 @@ observability <- db/api (feature), server/worker/desktop
   denormalized profiles. The only cache is the in-process tree cache
   (`oxidgene-api::tree_cache`, `architecture.md` §4.1), which holds per tree
   the place dictionary's reading of each place label the tree uses — a value
-  of the label alone, which no write makes wrong. It keeps one tree at a time
+  of the label alone, which no write makes wrong — and the tree's decoded
+  projections, used only while `projection_state.generation`, which triggers
+  move in the transaction of every `person_denorm` write, has not moved since
+  they were read. Never bypass those triggers or copy the cached projections
+  (share the `Arc`). It keeps one tree at a time
   on the desktop and trees within a byte budget (least recently used dropped
   first) on the web, drops a tree after an idle delay, and hands what it
   drops back to the system. Cache nothing else, there or elsewhere, without

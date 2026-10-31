@@ -6,6 +6,7 @@
 //! [`super::ProfileService`] runs the queries between these steps, for all
 //! the windows of a batch at once.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use oxidgene_core::collections::sorted_unique;
@@ -18,6 +19,11 @@ use oxidgene_core::types::AncestryLink;
 use uuid::Uuid;
 
 use super::builder::build_pedigree_node;
+
+/// The projections a pedigree assembly has gathered, by person: borrowed
+/// from the tree cache's when it keeps them, read from the database
+/// otherwise.
+pub(super) type Profiles<'c> = HashMap<Uuid, Cow<'c, PersonProfile>>;
 
 /// One root's pedigree window while it is assembled: whom it holds, and at
 /// which generation.
@@ -56,18 +62,14 @@ impl Window {
     /// The projections of the window's persons, among `profiles`.
     pub(super) fn persons<'a>(
         &self,
-        profiles: &'a HashMap<Uuid, PersonProfile>,
+        profiles: &'a Profiles<'_>,
     ) -> HashMap<Uuid, &'a PersonProfile> {
         picked(profiles, &self.person_ids)
     }
 
     /// Add `spouses`, fetched from outside the window, each at their
     /// partner's generation.
-    pub(super) fn add_spouses(
-        &mut self,
-        spouses: &[Uuid],
-        profiles: &HashMap<Uuid, PersonProfile>,
-    ) {
+    pub(super) fn add_spouses(&mut self, spouses: &[Uuid], profiles: &Profiles<'_>) {
         for spouse in spouses.iter().filter_map(|id| profiles.get(id)) {
             let generation = partner_generation(spouse, &self.depths);
             self.depths.entry(spouse.person_id).or_insert(generation);
@@ -76,10 +78,7 @@ impl Window {
     }
 
     /// A node for each of the window's persons with a projection.
-    pub(super) fn nodes(
-        &self,
-        profiles: &HashMap<Uuid, PersonProfile>,
-    ) -> HashMap<Uuid, PedigreeNode> {
+    pub(super) fn nodes(&self, profiles: &Profiles<'_>) -> HashMap<Uuid, PedigreeNode> {
         nodes(
             &self.person_ids,
             &self.persons(profiles),
@@ -89,10 +88,7 @@ impl Window {
     }
 
     /// The families of the window's persons, as spouses and as children.
-    pub(super) fn families(
-        &self,
-        profiles: &HashMap<Uuid, PersonProfile>,
-    ) -> HashMap<Uuid, PedigreeFamily> {
+    pub(super) fn families(&self, profiles: &Profiles<'_>) -> HashMap<Uuid, PedigreeFamily> {
         let mut families = HashMap::new();
         for person in self.persons(profiles).values() {
             record_membership(&mut families, person, false);
@@ -103,11 +99,11 @@ impl Window {
 
 /// The projections of those of `ids` that `profiles` holds.
 pub(super) fn picked<'a>(
-    profiles: &'a HashMap<Uuid, PersonProfile>,
+    profiles: &'a Profiles<'_>,
     ids: &[Uuid],
 ) -> HashMap<Uuid, &'a PersonProfile> {
     ids.iter()
-        .filter_map(|id| Some((*id, profiles.get(id)?)))
+        .filter_map(|id| Some((*id, &**profiles.get(id)?)))
         .collect()
 }
 

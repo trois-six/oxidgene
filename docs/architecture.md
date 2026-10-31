@@ -156,15 +156,45 @@ tree-wide read would otherwise redo on every request, and nothing the
 database does not hold, so dropping any of it at any time changes no
 answer, only the time of the next one.
 
-**What it holds, per tree.** The place dictionary's reading of each place
-label the tree uses — the place it names, the homonyms it may name, or
-none, with their countries, regions and subdivisions as the dictionary
-writes them ([Place Dictionary §2.1](place-dictionary.md)). The statistics,
-the anomalies and the places not located otherwise read them on every
-request: 120 to 355 ms on a tree of 10,000 persons and 1,400 places, in a
-release build. A reading costs about 300 bytes, 0.4 MiB for such a tree.
+**What it holds, per tree.**
 
-**Why it is never stale.** A reading depends on the label and the embedded
+- The place dictionary's reading of each place label the tree uses — the
+  place it names, the homonyms it may name, or none, with their countries,
+  regions and subdivisions as the dictionary writes them
+  ([Place Dictionary §2.1](place-dictionary.md)). The statistics, the
+  anomalies and the places not located otherwise read them on every
+  request: 120 to 355 ms on a tree of 10,000 persons and 1,400 places, in a
+  release build. A reading costs about 300 bytes, 0.4 MiB for such a tree.
+- The tree's person projections, decoded
+  ([Data Model §4.1](data-model.md#41-person-projection-person_denorm)),
+  with the projection generation they were read at. The statistics, the
+  anomalies, the duplicates and the ancestry completeness otherwise read
+  and decode all of `person_denorm` on every request (75 to 125 ms for
+  10,000 persons), and a pedigree reads its window's persons from them
+  instead of the table when they are kept. They are shared read-only by
+  the requests using them, never copied (copying 10,000 projections costs
+  11 to 26 ms), and take 2.5 to 3.5 KB a person, 25 to 36 MiB for such a
+  tree, estimated as twice their stored payload (a generated tree's 13 MiB
+  of payload took 25 to 27 MiB once kept).
+
+**Why the projections are never stale.** Database triggers move the tree's
+projection generation (`projection_state`) in the transaction of every
+write to its `person_denorm` rows, whichever process makes it — a
+mutation's refresh, an import, a rebuild after a schema version change, a
+purge — so it moves exactly when, and as soon as, the table's content does,
+for every API process and worker sharing the database. A request reads the
+generation first, one primary-key read, and uses the kept projections only
+if it equals theirs; otherwise it drops them, gives their memory back, and
+reads the table again. The projections being read are stamped with the
+generation read *before* them: a write committed in between leaves them
+newer than their stamp, never older, and the next request reads them again.
+A request therefore sees every write committed before it started, as it
+would reading the table; it reads the projections as of its start, as a
+request reading the table at its start would. A pedigree that finds them
+current also skips the tree's materialization check, which they were read
+after.
+
+**Why the readings are never stale.** A reading depends on the label and the embedded
 dictionary alone, so no write can make one wrong, in this process or
 another. What depends on the tree is read from the database on each request
 and applied then: which places are used and how often, and a place's own
@@ -203,7 +233,7 @@ request still in flight holds is freed when it ends, and the release after a
 burst of requests (`oxidgene_api::memory::release_when_idle`) hands it back.
 
 **Concurrency.** Requests arriving together for the same tree's missing
-readings wait on one another and read them once.
+readings, or its projections, wait on one another and read them once.
 
 ---
 

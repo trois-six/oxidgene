@@ -3818,6 +3818,57 @@ async fn restoring_a_version_sanitizes_its_notes() {
     assert_eq!(restored.text, "<p>kept</p>");
 }
 
+/// Every write to a tree's projections moves its generation, through the
+/// repository or around it, and only its own: what lets a process holding
+/// decoded projections know they are still the table's.
+#[tokio::test]
+async fn every_projection_write_moves_its_trees_generation_alone() {
+    use oxidgene_db::repo::PersonDenormRepo;
+
+    let db = setup_db().await;
+    let (tree_id, other_tree) = (create_tree(&db).await, create_tree(&db).await);
+    let generation = |tree| {
+        let db = db.clone();
+        async move { PersonDenormRepo::generation(&db, tree).await.unwrap() }
+    };
+    let start = generation(tree_id).await.expect("created with the tree");
+    let other_start = generation(other_tree).await;
+    let person = create_person(&db, tree_id).await;
+    let row = |payload: &str| {
+        Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "INSERT INTO person_denorm (person_id, tree_id, payload, schema_version, updated_at) \
+             VALUES ($1, $2, $3, 0, CURRENT_TIMESTAMP)",
+            [
+                Value::from(person),
+                Value::from(tree_id),
+                Value::from(payload.to_string()),
+            ],
+        )
+    };
+    let mut seen = vec![start];
+    for write in [
+        row("{}"),
+        Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "UPDATE person_denorm SET payload = '{\"sex\":\"male\"}' WHERE person_id = $1",
+            [Value::from(person)],
+        ),
+        Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "DELETE FROM person_denorm WHERE person_id = $1",
+            [Value::from(person)],
+        ),
+    ] {
+        db.execute_raw(write).await.unwrap();
+        let now = generation(tree_id).await.unwrap();
+        assert!(now > *seen.last().unwrap(), "{seen:?} then {now}");
+        seen.push(now);
+    }
+    assert_eq!(generation(other_tree).await, other_start);
+    assert_eq!(generation(Uuid::now_v7()).await, None, "no such tree");
+}
+
 /// A tree's projections are usable only when every row is of the current
 /// version: a row written by an older build, or by a newer one, makes the
 /// tree stale.

@@ -247,7 +247,7 @@ async fn scaling_anomalies() {
 async fn scaling_statistics() {
     scaling("statistics", |profiles, _| {
         black_box(statistics::compute(
-            profiles,
+            &profiles.iter().collect::<Vec<_>>(),
             &[],
             &[],
             0,

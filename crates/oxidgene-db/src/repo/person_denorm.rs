@@ -14,7 +14,8 @@ use oxidgene_core::projection::{PROJECTION_SCHEMA_VERSION, PersonProfile};
 use sea_orm::ExprTrait as _;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set,
+    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+    Set, Statement,
 };
 use uuid::Uuid;
 
@@ -256,6 +257,35 @@ impl PersonDenormRepo {
         Ok(current.is_some())
     }
 
+    /// The generation of a tree's projections: a number triggers move in the
+    /// transaction of every write to the tree's rows, whatever process makes
+    /// it, so that a reader holding projections read at some generation
+    /// knows they are still what the table holds while it has not moved.
+    /// `None` for a tree that does not exist (any more).
+    ///
+    /// One primary-key read.
+    pub async fn generation(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Option<i64>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let placeholder = match backend {
+            DbBackend::Sqlite => "?",
+            _ => "$1",
+        };
+        let row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                backend,
+                format!("SELECT generation FROM projection_state WHERE tree_id = {placeholder}"),
+                [tree_id.into()],
+            ))
+            .await
+            .map_err(db_err)?;
+        row.map(|row| row.try_get::<i64>("", "generation"))
+            .transpose()
+            .map_err(db_err)
+    }
+
     /// Count every projection row of a tree, current or stale.
     ///
     /// Only for reporting on what is physically stored; use
@@ -319,6 +349,13 @@ impl EncodedProfiles {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// The bytes of the rows' payloads, from which the memory their decoded
+    /// projections take is estimated.
+    #[must_use]
+    pub fn payload_bytes(&self) -> usize {
+        self.0.iter().map(|model| model.payload.len()).sum()
     }
 
     /// Deserialize every row: CPU-bound, so best run on a blocking thread.

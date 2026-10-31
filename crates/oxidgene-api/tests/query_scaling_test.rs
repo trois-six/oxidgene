@@ -245,6 +245,37 @@ async fn no_request_issues_statements_per_record() {
     assert!(grows.is_empty(), "{}", grows.join("\n"));
 }
 
+/// A tree whose projections the tree cache keeps is read with fewer
+/// statements: a tree-wide read checks the projection generation instead of
+/// the materialization and the rows, and a pedigree borrows its persons
+/// instead of reading them.
+#[tokio::test]
+async fn kept_projections_spare_their_statements() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let ids = family_blocks_tree(&app, &db, 4).await;
+    let pedigree =
+        get("/api/v1/trees/{tree}/pedigree/{anchor}?ancestor_depth=5&descendant_depth=3");
+    let duplicates = get("/api/v1/trees/{tree}/duplicates");
+
+    let read_pedigree = statements(&app, &counter, &pedigree, &ids).await;
+    let read_duplicates = statements(&app, &counter, &duplicates, &ids).await;
+    let kept_duplicates = statements(&app, &counter, &duplicates, &ids).await;
+    let kept_pedigree = statements(&app, &counter, &pedigree, &ids).await;
+    assert!(
+        kept_duplicates < read_duplicates,
+        "duplicates: {read_duplicates} statements reading the projections, {kept_duplicates} keeping them"
+    );
+    assert!(
+        kept_pedigree < read_pedigree,
+        "pedigree: {read_pedigree} statements reading the projections, {kept_pedigree} borrowing them"
+    );
+}
+
 /// The media viewer's bundle of the scanned page every person of the tree is
 /// attached to and identified on, through REST and GraphQL: its links,
 /// regions, names, portraits and pictures are read per relation, never per

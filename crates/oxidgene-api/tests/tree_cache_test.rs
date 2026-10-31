@@ -11,10 +11,13 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::http::Method;
-use common::{new_person, new_tree, offline, ok, setup_db, test_media_root};
+use common::{
+    family_blocks_gedcom, family_blocks_tree, import_gedcom, new_person, new_tree, offline, ok,
+    setup_db, test_media_root,
+};
 use oxidgene_api::tree_cache::CacheSettings;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::sea_orm::DatabaseConnection;
+use oxidgene_db::sea_orm::{ConnectionTrait as _, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
 /// Two API processes over one database: their states, each with its own
@@ -154,6 +157,105 @@ async fn every_place_write_is_seen_by_the_next_reads_of_either_process() {
         assert!(unlocated(reader, &tree).await.is_empty());
         assert_eq!(statistics(reader, &tree).await["places"], 2);
     }
+}
+
+/// Every write that changes a tree's projections — a mutation in either
+/// process, an import by the worker, a raw write from another connection,
+/// a rebuild — is seen by the next statistics, anomalies and pedigree of
+/// the process keeping the tree's projections in memory.
+#[tokio::test]
+async fn every_projection_write_is_seen_by_the_next_reads_of_either_process() {
+    let db = setup_db().await;
+    let [(state, app), (_, other)] = two_processes(&db);
+    let (tree, anchor) = family_blocks_tree(&app, &db, 1).await;
+    let persons = |stats: Value| stats["persons"].as_i64().unwrap();
+    let before = persons(statistics(&app, &tree).await);
+    let kept = state.profiles.cache().estimated_bytes();
+    assert!(kept > 10_000, "the projections are kept: {kept} bytes");
+    let t = |path: &str| format!("/api/v1/trees/{tree}{path}");
+
+    // A person created, then named, by the other process.
+    let added = new_person(&other, &tree).await;
+    assert_eq!(persons(statistics(&app, &tree).await), before + 1);
+    ok(
+        &other,
+        Method::POST,
+        &t(&format!("/persons/{added}/names")),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": "Given-A",
+            "surname": "Surname-Fresh",
+            "is_primary": true,
+        })),
+    )
+    .await;
+    let stats = statistics(&app, &tree).await;
+    assert!(
+        stats["top_surnames"].to_string().contains("Surname-Fresh"),
+        "{stats}"
+    );
+
+    // Dead before being born: an anomaly of the next read.
+    let anomalies = |app: Router| {
+        let uri = t("/anomalies");
+        async move { ok(&app, Method::GET, &uri, None).await.to_string() }
+    };
+    assert!(!anomalies(app.clone()).await.contains(&added));
+    for (kind, year) in [("birth", "1900"), ("death", "1850")] {
+        ok(
+            &other,
+            Method::POST,
+            &t("/events"),
+            Some(json!({ "event_type": kind, "date_value": year, "person_id": added })),
+        )
+        .await;
+    }
+    assert!(anomalies(app.clone()).await.contains(&added));
+
+    // A pedigree drawn from the kept projections shows the anchor's change.
+    let pedigree = t(&format!(
+        "/pedigree/{anchor}?ancestor_depth=3&descendant_depth=3"
+    ));
+    let sex = |pedigree: Value| pedigree["persons"][&anchor]["sex"].clone();
+    let drawn = sex(ok(&app, Method::GET, &pedigree, None).await);
+    let changed = if drawn == "male" { "female" } else { "male" };
+    ok(
+        &other,
+        Method::PUT,
+        &t(&format!("/persons/{anchor}")),
+        Some(json!({ "sex": changed })),
+    )
+    .await;
+    statistics(&app, &tree).await;
+    assert_eq!(sex(ok(&app, Method::GET, &pedigree, None).await), changed);
+
+    // Deleted by the other process.
+    ok(
+        &other,
+        Method::DELETE,
+        &t(&format!("/persons/{added}")),
+        None,
+    )
+    .await;
+    assert_eq!(persons(statistics(&app, &tree).await), before);
+
+    // An import, run by the worker with a cache of its own.
+    import_gedcom(&app, &db, &tree, &family_blocks_gedcom(1)).await;
+    assert_eq!(persons(statistics(&app, &tree).await), 2 * before);
+
+    // A raw write on another connection: the trigger moves the generation.
+    let anchor_id: uuid::Uuid = anchor.parse().unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "DELETE FROM person_denorm WHERE person_id = $1",
+        [anchor_id.into()],
+    ))
+    .await
+    .unwrap();
+    assert_eq!(persons(statistics(&app, &tree).await), 2 * before - 1);
+    // The administrative rebuild brings it back.
+    ok(&other, Method::POST, &t("/profiles/rebuild"), None).await;
+    assert_eq!(persons(statistics(&app, &tree).await), 2 * before);
 }
 
 /// A tree read by the desktop drops the previous tree's data, and its

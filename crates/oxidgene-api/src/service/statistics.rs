@@ -495,7 +495,7 @@ struct Union<'a> {
 
 /// The tree as the statistics read it.
 struct Tree<'a> {
-    profiles: &'a [PersonProfile],
+    profiles: &'a [&'a PersonProfile],
     by_id: HashMap<Uuid, &'a PersonProfile>,
     /// The spouses out of scope, read for their dates only.
     others: HashMap<Uuid, &'a PersonProfile>,
@@ -504,7 +504,11 @@ struct Tree<'a> {
 }
 
 impl<'a> Tree<'a> {
-    fn new(profiles: &'a [PersonProfile], others: &'a [PersonProfile], dates: Dates) -> Self {
+    fn new(
+        profiles: &'a [&'a PersonProfile],
+        others: &'a [&'a PersonProfile],
+        dates: Dates,
+    ) -> Self {
         let mut by_family: HashMap<Uuid, Union<'a>> = HashMap::new();
         for profile in profiles {
             for link in &profile.families_as_spouse {
@@ -545,8 +549,8 @@ impl<'a> Tree<'a> {
         unions.sort_by_key(|u| u.family_id);
         Self {
             profiles,
-            by_id: profiles.iter().map(|p| (p.person_id, p)).collect(),
-            others: others.iter().map(|p| (p.person_id, p)).collect(),
+            by_id: profiles.iter().copied().map(|p| (p.person_id, p)).collect(),
+            others: others.iter().map(|p| (p.person_id, *p)).collect(),
             dates,
             unions,
         }
@@ -799,9 +803,9 @@ pub async fn load(
     let persons = profiles.get_all_persons(tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
     let sources = oxidgene_db::repo::SourceRepo::count_in_tree(db, tree_id).await?;
-    let (persons, others, places) = match tag {
-        Some(tag) => limit_to_tag(persons, places, tag),
-        None => (persons, Vec::new(), places),
+    let places = match tag {
+        Some(tag) => places_of_tagged(&persons, places, tag),
+        None => places,
     };
     let readings = PlaceReadings::of_used(profiles.cache(), tree_id, &places).await?;
     let today = chrono::Utc::now().date_naive();
@@ -811,8 +815,12 @@ pub async fn load(
         place.count = places.len(),
     );
     crate::service::blocking::run(span, move || {
+        let (scope, others) = match tag {
+            Some(tag) => tagged(&persons, tag),
+            None => (persons.iter().collect(), Vec::new()),
+        };
         compute(
-            &persons,
+            &scope,
             &others,
             &places,
             i64::try_from(sources).unwrap_or(i64::MAX),
@@ -829,19 +837,12 @@ pub(crate) fn carries(profile: &PersonProfile, tag: Uuid) -> bool {
     profile.tags.iter().any(|t| t.id == tag)
 }
 
-/// The persons carrying `tag`, the untagged spouses of their unions (read for
-/// their dates alone, so that a union ends as it does in the whole tree), and
-/// the places as the events of those persons use them: each event counted
-/// once, though a family event is held by both spouses. Media are not counted,
-/// as they are not on a person's projection.
-fn limit_to_tag(
-    persons: Vec<PersonProfile>,
-    places: Vec<(Place, i64)>,
-    tag: Uuid,
-) -> (Vec<PersonProfile>, Vec<PersonProfile>, Vec<(Place, i64)>) {
-    let (persons, rest): (Vec<PersonProfile>, Vec<PersonProfile>) =
-        persons.into_iter().partition(|p| carries(p, tag));
-    let spouses: HashSet<Uuid> = persons
+/// The persons carrying `tag`, and the untagged spouses of their unions, read
+/// for their dates alone so that a union ends as it does in the whole tree.
+fn tagged(persons: &[PersonProfile], tag: Uuid) -> (Vec<&PersonProfile>, Vec<&PersonProfile>) {
+    let (carriers, rest): (Vec<&PersonProfile>, Vec<&PersonProfile>) =
+        persons.iter().partition(|p| carries(p, tag));
+    let spouses: HashSet<Uuid> = carriers
         .iter()
         .flat_map(|p| {
             p.families_as_spouse
@@ -849,25 +850,36 @@ fn limit_to_tag(
                 .filter_map(|link| link.spouse_id)
         })
         .collect();
-    let others: Vec<PersonProfile> = rest
+    let others = rest
         .into_iter()
         .filter(|p| spouses.contains(&p.person_id))
         .collect();
+    (carriers, others)
+}
+
+/// The places as the events of the persons carrying `tag` use them: each
+/// event counted once, though a family event is held by both spouses. Media
+/// are not counted, as they are not on a person's projection.
+fn places_of_tagged(
+    persons: &[PersonProfile],
+    places: Vec<(Place, i64)>,
+    tag: Uuid,
+) -> Vec<(Place, i64)> {
     let mut seen = HashSet::new();
     let mut uses: HashMap<Uuid, i64> = HashMap::new();
-    for event in persons.iter().flat_map(events_of) {
+    let carriers = persons.iter().filter(|p| carries(p, tag));
+    for event in carriers.flat_map(events_of) {
         if let Some(place) = event.place_id.filter(|_| seen.insert(event.event_id)) {
             *uses.entry(place).or_insert(0) += 1;
         }
     }
-    let places = places
+    places
         .into_iter()
         .map(|(place, _)| {
             let count = uses.get(&place.id).copied().unwrap_or(0);
             (place, count)
         })
-        .collect();
-    (persons, others, places)
+        .collect()
 }
 
 /// Every event a person's projection holds: their own, and the family events
@@ -1160,7 +1172,7 @@ fn first_unions(
 
 /// Event types, each family event once however many spouses carry it, most
 /// frequent first, and the first and last years of any dated event.
-fn count_event_types(profiles: &[PersonProfile]) -> (Vec<CountEntry>, (i32, i32)) {
+fn count_event_types(profiles: &[&PersonProfile]) -> (Vec<CountEntry>, (i32, i32)) {
     let mut types: HashMap<EventType, i64> = HashMap::new();
     let mut family_events = HashSet::new();
     let mut years = (i32::MAX, i32::MIN);
@@ -1205,8 +1217,8 @@ fn count_event_types(profiles: &[PersonProfile]) -> (Vec<CountEntry>, (i32, i32)
 /// the place dictionary; `approximate` lets ages and averages use dates
 /// about, calculated or estimated.
 pub fn compute(
-    profiles: &[PersonProfile],
-    others: &[PersonProfile],
+    profiles: &[&PersonProfile],
+    others: &[&PersonProfile],
     places: &[(Place, i64)],
     sources: i64,
     today: NaiveDate,
@@ -1244,15 +1256,17 @@ pub fn compute(
     let surnames = || {
         profiles
             .iter()
+            .copied()
             .filter_map(|p| p.primary_name.as_ref().and_then(|n| n.surname.clone()))
     };
     let given = |sex: Option<Sex>| {
         profiles
             .iter()
+            .copied()
             .filter(move |p| sex.is_none_or(|s| p.sex == s))
             .filter_map(first_given_name)
     };
-    let top_occupations = top(profiles.iter().flat_map(|p| {
+    let top_occupations = top(profiles.iter().copied().flat_map(|p| {
         let mut seen = HashSet::new();
         p.other_events
             .iter()
@@ -1266,8 +1280,9 @@ pub fn compute(
 
     // Who has parents, children and a spouse.
     let children_of = tree.children_of();
-    let count =
-        |keep: &dyn Fn(&PersonProfile) -> bool| profiles.iter().filter(|p| keep(p)).count() as i64;
+    let count = |keep: &dyn Fn(&PersonProfile) -> bool| {
+        profiles.iter().copied().filter(|p| keep(p)).count() as i64
+    };
 
     // Lists.
     let person_record =
@@ -1284,6 +1299,7 @@ pub fn compute(
     let latest = |event: fn(&PersonProfile) -> Option<&ProfileEvent>| {
         let mut dated: Vec<&PersonProfile> = profiles
             .iter()
+            .copied()
             .filter(|p| event(p).and_then(|e| e.date_sort).is_some())
             .collect();
         dated.sort_by_key(|p| std::cmp::Reverse(event(p).and_then(|e| e.date_sort)));
@@ -1298,6 +1314,7 @@ pub fn compute(
 
     let mut alive: Vec<(&PersonProfile, NaiveDate)> = profiles
         .iter()
+        .copied()
         .filter(|p| possibly_alive(p, today))
         .filter_map(|p| {
             p.birth_or_baptism()
@@ -1320,6 +1337,7 @@ pub fn compute(
 
     let mut lives: Vec<(&PersonProfile, f64)> = profiles
         .iter()
+        .copied()
         .filter_map(|p| {
             let (Some((born, _)), Some((died, _))) = (tree.birth(p), tree.death(p)) else {
                 return None;
@@ -1395,11 +1413,12 @@ pub fn compute(
     let birth_places = |part: fn(&PlaceLocation) -> Option<&String>| {
         top(profiles
             .iter()
+            .copied()
             .filter_map(|p| p.birth_or_baptism()?.place_id)
             .filter_map(|id| part(location_of.get(&id)?).cloned()))
     };
 
-    let count_sex = |sex: Sex| profiles.iter().filter(|p| p.sex == sex).count() as i64;
+    let count_sex = |sex: Sex| profiles.iter().copied().filter(|p| p.sex == sex).count() as i64;
     let [
         father_first,
         mother_first,
@@ -1637,8 +1656,12 @@ mod tests {
         vec![PlaceLocation::default(); labels.len()]
     }
 
+    fn refs(people: &[PersonProfile]) -> Vec<&PersonProfile> {
+        people.iter().collect()
+    }
+
     fn stats(people: &[PersonProfile]) -> TreeStatistics {
-        compute(people, &[], &[], 0, today(), false, nowhere)
+        compute(&refs(people), &[], &[], 0, today(), false, nowhere)
     }
 
     fn record<'a>(stats: &'a TreeStatistics, kind: &str) -> &'a StatRecord {
@@ -1754,7 +1777,7 @@ mod tests {
             (place("Place C", None), 1),
             (place("Place D", None), 0),
         ];
-        let stats = compute(&people, &[], &places, 0, today(), false, |labels| {
+        let stats = compute(&refs(&people), &[], &places, 0, today(), false, |labels| {
             labels
                 .iter()
                 .map(|(name, _)| PlaceLocation {
@@ -1889,8 +1912,8 @@ mod tests {
             event.date_qualifier = DateQualifier::About;
         }
         people.push(guessed);
-        let exact = compute(&people, &[], &[], 0, today(), false, nowhere);
-        let approximate = compute(&people, &[], &[], 0, today(), true, nowhere);
+        let exact = compute(&refs(&people), &[], &[], 0, today(), false, nowhere);
+        let approximate = compute(&refs(&people), &[], &[], 0, today(), true, nowhere);
         assert_eq!(exact.lifespan.men.count, 1);
         assert_eq!(approximate.lifespan.men.count, 2);
         // Counting events by year takes every dated one either way.
@@ -1915,17 +1938,25 @@ mod tests {
                 birth.place_id = Some(place.id);
             }
         }
-        let stats = compute(&people, &[], &[(place, 4)], 0, today(), false, |labels| {
-            vec![
-                PlaceLocation {
-                    spot: Some((47.0, -1.0)),
-                    country: Some("Country A".to_string()),
-                    region: Some("Region A".to_string()),
-                    subdivision: Some("Subdivision A".to_string()),
-                };
-                labels.len()
-            ]
-        });
+        let stats = compute(
+            &refs(&people),
+            &[],
+            &[(place, 4)],
+            0,
+            today(),
+            false,
+            |labels| {
+                vec![
+                    PlaceLocation {
+                        spot: Some((47.0, -1.0)),
+                        country: Some("Country A".to_string()),
+                        region: Some("Region A".to_string()),
+                        subdivision: Some("Subdivision A".to_string()),
+                    };
+                    labels.len()
+                ]
+            },
+        );
         assert_eq!(
             stats.births_by_country,
             vec![CountEntry {
