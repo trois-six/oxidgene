@@ -995,8 +995,9 @@ pub struct EncodeSessionRequest {
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     #[serde(default)]
     pub account: Option<String>,
-    /// Media already fetched, base64 by URL. Present only in a save made after
-    /// step 4, and what lets the file be imported with no connection at all.
+    /// Media already fetched: the path of each local file, by URL. Present
+    /// only in a save made after step 4, and what lets the file be imported
+    /// with no connection at all. A path that cannot be read fails the save.
     #[serde(default)]
     pub media: std::collections::HashMap<String, String>,
 }

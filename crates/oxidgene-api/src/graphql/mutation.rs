@@ -1668,24 +1668,19 @@ impl TreeMutation {
             require_local_file_access(ctx)?;
             let media = input
                 .media
-                .iter()
-                .filter_map(|entry| {
-                    std::fs::read(&entry.path).ok().map(|bytes| {
-                        (
-                            entry.url.clone(),
-                            base64::engine::general_purpose::STANDARD.encode(bytes),
-                        )
-                    })
-                })
+                .into_iter()
+                .map(|entry| (entry.url, entry.path))
                 .collect();
-            let archive =
-                oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
+            let archive = oxidgene_geneanet::session::encode_with_media(
+                &oxidgene_geneanet::session::Session {
                     collection: input.collection,
                     deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
                     account: input.account,
                     media,
-                })
-                .map_err(|error| oxidgene_core::OxidGeneError::Validation(error.to_string()))?;
+                },
+                crate::service::session_media::open_staged_medium,
+            )
+            .map_err(|error| oxidgene_core::OxidGeneError::Validation(error.to_string()))?;
             Ok(GqlGeneanetSessionArchive {
                 archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
             })

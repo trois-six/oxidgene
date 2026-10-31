@@ -142,27 +142,17 @@ pub async fn encode_session_handler(
     Json(body): Json<EncodeSessionRequest>,
 ) -> Result<Response, ApiError> {
     state.local_file_access.require()?;
-    // The wizard holds paths; the archive holds bytes. Read them here rather
-    // than making the UI carry several hundred pictures through itself.
-    let media = body
-        .media
-        .iter()
-        .filter_map(|(url, path)| {
-            use base64::Engine as _;
-            let bytes = std::fs::read(path).ok()?;
-            Some((
-                url.clone(),
-                base64::engine::general_purpose::STANDARD.encode(bytes),
-            ))
-        })
-        .collect();
-
-    let archive = session::encode(&session::Session {
-        collection: body.collection,
-        deposit_sizes: body.deposit_sizes,
-        account: body.account,
-        media,
-    })
+    // The wizard holds paths; the archive holds bytes. Each file is streamed
+    // into the archive as it is read rather than carried through the UI.
+    let archive = session::encode_with_media(
+        &session::Session {
+            collection: body.collection,
+            deposit_sizes: body.deposit_sizes,
+            account: body.account,
+            media: body.media,
+        },
+        crate::service::session_media::open_staged_medium,
+    )
     .map_err(|e| ApiError::from(OxidGeneError::Validation(e.to_string())))?;
 
     // The bytes themselves: the wizard writes them straight to the file the

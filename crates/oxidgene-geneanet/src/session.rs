@@ -103,27 +103,47 @@ const MIN_MANIFEST_LIMIT: u64 = 16 * 1024 * 1024;
 ///
 /// `session.json` carries the collection and the sizes; each medium is written
 /// beside it under `media/`, stored rather than deflated — they are already
-/// compressed formats, so deflating them costs CPU to save nothing.
+/// compressed formats, so deflating them costs CPU to save nothing. The media
+/// of `session` are base64, as [`decode`] returns them.
 ///
 /// # Errors
 ///
-/// Returns `Err` if the collection is not a JSON object, or the archive cannot
-/// be assembled.
+/// Returns `Err` if the collection is not a JSON object, a medium is not
+/// base64, or the archive cannot be assembled.
 pub fn encode(session: &Session) -> Result<Vec<u8>> {
     use base64::Engine as _;
+    encode_with_media(session, |encoded| {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        Ok(Box::new(std::io::Cursor::new(bytes)))
+    })
+}
+
+/// [`encode`], each medium read from what `open` gives for its handle in
+/// `session.media` — a staged file's path, as [`decode_with_media`]'s sink
+/// returns them — and copied into the archive as it is read, never held
+/// whole beside the others.
+///
+/// # Errors
+///
+/// Returns `Err` if the collection is not a JSON object, `open` fails or a
+/// medium cannot be read — a session is never saved with media missing —,
+/// or the archive cannot be assembled.
+pub fn encode_with_media(
+    session: &Session,
+    mut open: impl FnMut(&str) -> std::io::Result<Box<dyn Read>>,
+) -> Result<Vec<u8>> {
     use std::io::Write as _;
 
     // Names are assigned here and recorded in the manifest, so a URL never has
     // to survive being turned into a filename.
     let mut names: Map<String, Value> = Map::new();
-    let mut bodies: Vec<(String, Vec<u8>)> = Vec::new();
-    for (index, (url, encoded)) in session.media.iter().enumerate() {
-        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
-            continue;
-        };
+    let mut entries: Vec<(&str, String)> = Vec::with_capacity(session.media.len());
+    for (index, (url, handle)) in session.media.iter().enumerate() {
         let name = format!("{MEDIA_DIR}/{index:05}{}", extension_of(url));
         names.insert(url.clone(), Value::from(name.clone()));
-        bodies.push((name, bytes));
+        entries.push((handle, name));
     }
 
     let manifest = encode_manifest(session, names)?;
@@ -139,11 +159,11 @@ pub fn encode(session: &Session) -> Result<Vec<u8>> {
         zip.write_all(manifest.as_bytes())
             .context("writing the session manifest")?;
 
-        for (name, bytes) in bodies {
+        for (handle, name) in entries {
+            let mut body = open(handle).with_context(|| format!("opening {name}"))?;
             zip.start_file(&name, stored)
                 .with_context(|| format!("starting {name}"))?;
-            zip.write_all(&bytes)
-                .with_context(|| format!("writing {name}"))?;
+            std::io::copy(&mut body, &mut zip).with_context(|| format!("writing {name}"))?;
         }
 
         zip.finish().context("finishing the session archive")?;
@@ -435,6 +455,46 @@ mod tests {
             account: Some("someone".into()),
             media,
         }
+    }
+
+    /// A medium that cannot be read fails the save rather than leaving a
+    /// session without it.
+    #[test]
+    fn a_medium_that_cannot_be_read_fails_the_save() {
+        let broken = session(HashMap::from([(
+            "https://example.invalid/a.jpg".to_owned(),
+            "not base64!".to_owned(),
+        )]));
+        assert!(encode(&broken).is_err());
+
+        let missing = session(HashMap::from([(
+            "https://example.invalid/a.jpg".to_owned(),
+            "/staged/a".to_owned(),
+        )]));
+        let failed = encode_with_media(&missing, |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+        });
+        assert!(failed.is_err());
+    }
+
+    /// Media read through `open` are streamed in under their URL.
+    #[test]
+    fn media_opened_by_handle_round_trip() {
+        let staged = session(HashMap::from([(
+            "https://example.invalid/a.jpg".to_owned(),
+            "/staged/a".to_owned(),
+        )]));
+        let archive = encode_with_media(&staged, |handle| {
+            assert_eq!(handle, "/staged/a");
+            Ok(Box::new(std::io::Cursor::new(b"picture".to_vec())))
+        })
+        .expect("encodes");
+        let restored = decode(&archive).expect("decodes");
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&restored.media["https://example.invalid/a.jpg"])
+            .unwrap();
+        assert_eq!(bytes, b"picture");
     }
 
     #[test]

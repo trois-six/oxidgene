@@ -76,6 +76,13 @@ pub(crate) fn decode(
     Ok(session)
 }
 
+/// The medium the wizard holds at `path` — staged by [`decode`] or fetched
+/// by the login window —, opened for `session::encode_with_media`, which
+/// streams it into the saved archive.
+pub(crate) fn open_staged_medium(path: &str) -> std::io::Result<Box<dyn Read>> {
+    Ok(Box::new(std::fs::File::open(path)?))
+}
+
 /// Delete the staged media among `paths`. A path this registry does not own
 /// — a file the login window fetched, or anything else — is left alone.
 pub(crate) fn remove_owned<'a>(paths: impl IntoIterator<Item = &'a str>) {
