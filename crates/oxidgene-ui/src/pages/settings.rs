@@ -347,7 +347,7 @@ async fn export_gedcom(
         trace_ui_action_step(UiActionStep::ExportRequest, api.export_gedcom(tid, choices))
             .await
             .map_err(|error| error.to_string())?;
-    let outcome = save_gedcom(exported.gedcom.into_bytes(), file_name, i18n).await;
+    let outcome = save_gedcom(exported.gedcom, file_name, i18n).await;
     if matches!(outcome, Ok(Some(_))) {
         report.set(Some(exported.report));
     }
@@ -385,14 +385,16 @@ fn destination_description(i18n: &I18n, id: &str) -> Option<String> {
 
 /// Hands the GEDCOM to the browser as a download.
 #[cfg(target_arch = "wasm32")]
-async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutcome {
-    let byte_array = serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
+async fn save_gedcom(gedcom: String, file_name: &str, i18n: &I18n) -> ExportOutcome {
+    // One string literal, which the Blob writes out as UTF-8: an array of
+    // numbers took about four characters of script for every byte.
+    let text = serde_json::to_string(&gedcom).unwrap_or_else(|_| "\"\"".to_string());
+    drop(gedcom);
     let download_name =
         serde_json::to_string(file_name).unwrap_or_else(|_| "\"export.ged\"".to_string());
     document::eval(&format!(
         r#"
-        const bytes = new Uint8Array({byte_array});
-        const blob = new Blob([bytes], {{ type: 'text/plain' }});
+        const blob = new Blob([{text}], {{ type: 'text/plain' }});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -408,7 +410,7 @@ async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutc
 
 /// Writes the GEDCOM to the file the user picks.
 #[cfg(not(target_arch = "wasm32"))]
-async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutcome {
+async fn save_gedcom(gedcom: String, file_name: &str, i18n: &I18n) -> ExportOutcome {
     let Some(file) = rfd::AsyncFileDialog::new()
         .set_title(i18n.t("gedcom.save_file"))
         .set_file_name(file_name)
@@ -420,7 +422,7 @@ async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutc
         return Ok(None);
     };
     let path = file.path().to_path_buf();
-    trace_ui_action_step(UiActionStep::ExportSave, tokio::fs::write(&path, bytes))
+    trace_ui_action_step(UiActionStep::ExportSave, tokio::fs::write(&path, gedcom))
         .await
         .map_err(|error| {
             i18n.t_args(

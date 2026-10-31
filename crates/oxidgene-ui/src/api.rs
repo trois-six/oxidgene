@@ -5753,8 +5753,17 @@ impl ApiClient {
         tree_id: Uuid,
         choices: &ExportChoices,
     ) -> Result<ExportGedcomResult, ApiError> {
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), choices)
-            .await
+        // Not through the response cache: the whole file would stay there,
+        // in a cache bounded by its number of entries, not their size.
+        let response = self
+            .send_request(
+                "GET",
+                self.client
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/gedcom/export")))
+                    .query(choices),
+            )
+            .await?;
+        Self::handle_response("GET", response).await
     }
 
     /// The programs a GEDCOM export can be written for: the standard
@@ -6740,6 +6749,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(nodes, [1, 2, 3, 4, 5]);
+    }
+
+    /// A GEDCOM export is read straight from the server, never kept in the
+    /// response cache.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_gedcom_export_is_not_cached() {
+        let (listener, address) = test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let tree = Uuid::from_u128(1);
+        let responses = [(200, r#"{"gedcom":"0 HEAD\n0 TRLR\n","warnings":[]}"#)];
+        let choices = ExportChoices {
+            destination: "generic-551".to_string(),
+            include_notes_and_sources: true,
+            scope: None,
+        };
+        let (result, requests) = tokio::join!(
+            api.export_gedcom(tree, &choices),
+            test_server::serve_json(&listener, &responses)
+        );
+        assert_eq!(result.unwrap().gedcom, "0 HEAD\n0 TRLR\n");
+        assert!(requests[0].starts_with(&format!("GET /api/v1/trees/{tree}/gedcom/export")));
+        assert!(api.cache.entries.lock().unwrap().is_empty());
     }
 
     /// A person's events past the first page reach the edit form: a Birth
