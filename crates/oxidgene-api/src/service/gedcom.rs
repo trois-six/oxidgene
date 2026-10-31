@@ -283,8 +283,7 @@ pub async fn import_and_persist(
 
     // Parse GEDCOM
     let result = tracing::info_span!("import.parse", import.format = "gedcom")
-        .in_scope(|| import_gedcom(gedcom_str, tree_id))
-        .map_err(OxidGeneError::Gedcom)?;
+        .in_scope(|| import_gedcom(gedcom_str, tree_id));
 
     persist_import_result(db, result).await
 }
@@ -308,7 +307,7 @@ pub(crate) async fn prepare_gedzip_file(
     })
     .await
     {
-        Ok(prepared) => prepared.map_err(OxidGeneError::Gedcom)?,
+        Ok(prepared) => prepared?,
         Err(error) if error.is_panic() => {
             return Err(OxidGeneError::Gedcom("the file could not be read".into()));
         }
@@ -1182,8 +1181,7 @@ pub async fn load_and_export(
                     },
                 },
             )
-        })
-        .map_err(OxidGeneError::Gedcom)?;
+        })?;
 
     Ok(ExportData {
         gedcom: export_result.gedcom,

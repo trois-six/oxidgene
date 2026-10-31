@@ -11,7 +11,7 @@ use oxidgene_gedcom::import::import_gedcom_bytes;
 use uuid::Uuid;
 
 fn import(text: &str) -> ImportResult {
-    import_gedcom_bytes(text.as_bytes(), Uuid::now_v7()).expect("the text imports")
+    import_gedcom_bytes(text.as_bytes(), Uuid::now_v7())
 }
 
 /// The import exported for `destination_id` with default options.

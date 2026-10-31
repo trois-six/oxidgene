@@ -89,7 +89,7 @@ pub async fn export_gedcom_handler(
 
     let bytes = tracing::info_span!("export.package", export.format = "gedzip")
         .in_scope(|| oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files))
-        .map_err(OxidGeneError::Gedcom)?;
+        .map_err(OxidGeneError::from)?;
     history::record_export(
         &state.db,
         tree_id,

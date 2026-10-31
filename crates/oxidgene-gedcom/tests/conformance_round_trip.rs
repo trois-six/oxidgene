@@ -33,7 +33,7 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 fn import_bytes(bytes: &[u8]) -> ImportResult {
-    import_gedcom_bytes(bytes, Uuid::now_v7()).expect("the text imports")
+    import_gedcom_bytes(bytes, Uuid::now_v7())
 }
 
 /// The import exported again for `destination_id`, its notes, sources and

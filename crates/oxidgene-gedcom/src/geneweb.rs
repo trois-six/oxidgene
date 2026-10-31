@@ -61,7 +61,7 @@ pub fn import_geneweb(
         ));
     }
 
-    let mut result = import_gedcom_data(&mut db.to_gedcom(), tree_id)?;
+    let mut result = import_gedcom_data(&mut db.to_gedcom(), tree_id);
 
     // Prepend the reader's own warnings: they point at source lines of the .gw
     // file, which the GEDCOM-level warnings that follow cannot do.

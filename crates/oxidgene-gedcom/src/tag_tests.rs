@@ -181,7 +181,7 @@ fn person_couple_and_document_tags_survive_a_ged_round_trip() {
     let text = export_ged(&sample);
     assert!(text.contains("_OXIDGENE_TAG"), "the tags are written");
 
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     let person = back.persons.first().expect("the person came back");
     assert_eq!(
         spelled(&person.tags),
@@ -295,7 +295,7 @@ fn a_tagged_document_with_a_page_exports_without_warning() {
 
 #[test]
 fn labels_that_fold_alike_are_one_tag_with_the_first_spelling_and_colour() {
-    let back = import_gedcom(DUPLICATE_LABELS, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(DUPLICATE_LABELS, Uuid::now_v7());
 
     assert_eq!(back.tags.len(), 1, "one vocabulary tag for three spellings");
     let person = &back.persons[0];
@@ -312,7 +312,7 @@ fn labels_that_fold_alike_are_one_tag_with_the_first_spelling_and_colour() {
 
 #[test]
 fn a_re_export_writes_each_tag_once_and_keeps_nothing() {
-    let imported = import_gedcom(DUPLICATE_LABELS, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(DUPLICATE_LABELS, Uuid::now_v7());
     let export =
         export_gedcom(&imported.records(), &options(ExportTarget::Gedcom)).expect("exports");
 
@@ -321,7 +321,7 @@ fn a_re_export_writes_each_tag_once_and_keeps_nothing() {
         2,
         "one line for the person's tag and one for the couple's"
     );
-    let again = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let again = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_eq!(
         spelled(&again.persons[0].tags),
         [("a verifier".to_string(), 2)]
@@ -348,7 +348,7 @@ fn a_tag_line_beneath_an_event_is_read_onto_it() {
 1 FILE photo.jpg\n\
 1 _OXIDGENE_TAG {\"v\":1,\"label\":\"Standalone\",\"color\":6}\n\
 0 TRLR\n";
-    let back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(FILE, Uuid::now_v7());
 
     let birth = back.events.first().expect("the birth came back");
     assert_eq!(
@@ -537,7 +537,7 @@ fn event_source_and_citation_tags_survive_a_ged_round_trip() {
         "one line each for the person, the birth, the occupation, the source and the citation"
     );
 
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     assert_eq!(spelled(&back.persons[0].tags), spelled(&sample.person.tags));
     assert_event_tags_came_back(&back, &sample);
 }
@@ -564,7 +564,7 @@ fn event_source_and_citation_tags_survive_a_gedzip_round_trip() {
 fn a_re_export_writes_event_source_and_citation_tags_once_and_keeps_nothing() {
     let sample = event_sample();
     let text = export_event_sample(&sample, ExportTarget::Gedcom);
-    let imported = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&text, Uuid::now_v7());
     let export =
         export_gedcom(&imported.records(), &options(ExportTarget::Gedcom)).expect("exports");
 
@@ -573,7 +573,7 @@ fn a_re_export_writes_event_source_and_citation_tags_once_and_keeps_nothing() {
         5,
         "each tag line is written once, beneath its structure"
     );
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_event_tags_came_back(&back, &sample);
 }
 
@@ -592,7 +592,7 @@ fn an_event_tag_dropped_in_oxidgene_is_not_written_back_from_the_file() {
 2 DATE 1900\n\
 2 _OXIDGENE_TAG {\"v\":1,\"label\":\"Dropped later\",\"color\":4}\n\
 0 TRLR\n";
-    let mut back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let mut back = import_gedcom(FILE, Uuid::now_v7());
     assert_eq!(back.events[0].tags.len(), 1, "read onto the birth");
     back.events[0].tags.clear();
 
@@ -601,7 +601,7 @@ fn an_event_tag_dropped_in_oxidgene_is_not_written_back_from_the_file() {
         !export.gedcom.contains("Dropped later"),
         "the dropped tag is not written back"
     );
-    let again = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let again = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert!(again.events[0].tags.is_empty());
     assert_nothing_kept(&again.kept);
 }
@@ -619,7 +619,7 @@ fn an_empty_tag_line_is_skipped_with_a_warning() {
 1 FILE photo.jpg\n\
 1 _OXIDGENE_TAG\n\
 0 TRLR\n";
-    let back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(FILE, Uuid::now_v7());
 
     assert!(
         back.tags.is_empty(),
@@ -656,7 +656,7 @@ fn a_duplicated_tag_line_beneath_an_ordinance_or_military_service_is_read_once()
 2 _OXIDGENE_TAG {\"v\":1,\"label\":\"Served\",\"color\":6}\n\
 2 _OXIDGENE_TAG {\"v\":1,\"label\":\"served\",\"color\":6}\n\
 0 TRLR\n";
-    let back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(FILE, Uuid::now_v7());
 
     let baptism = back
         .events
@@ -679,7 +679,7 @@ fn a_duplicated_tag_line_beneath_an_ordinance_or_military_service_is_read_once()
         "one line beneath the baptism and one beneath the service: {}",
         export.gedcom
     );
-    let again = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let again = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_nothing_kept(&again.kept);
 }
 
@@ -867,7 +867,7 @@ fn place_repository_and_note_tags_survive_a_ged_round_trip() {
         "the shared note is written once"
     );
 
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     assert_place_tags_came_back(&back, &sample);
 }
 
@@ -893,7 +893,7 @@ fn place_repository_and_note_tags_survive_a_gedzip_round_trip() {
 fn a_re_export_writes_place_repository_and_note_tags_once_and_keeps_nothing() {
     let sample = place_sample();
     let text = export_place_sample(&sample, ExportTarget::Gedcom);
-    let imported = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&text, Uuid::now_v7());
     let export =
         export_gedcom(&imported.records(), &options(ExportTarget::Gedcom)).expect("exports");
 
@@ -902,7 +902,7 @@ fn a_re_export_writes_place_repository_and_note_tags_once_and_keeps_nothing() {
         6,
         "each tag line is written once beneath its structure"
     );
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_place_tags_came_back(&back, &sample);
 }
 
@@ -925,7 +925,7 @@ fn the_plac_structures_of_one_place_give_it_the_union_of_their_tags() {
 3 _OXIDGENE_TAG {\"v\":1,\"label\":\"To locate\",\"color\":2}\n\
 3 _OXIDGENE_TAG {\"v\":1,\"label\":\"vanished PARISH\",\"color\":9}\n\
 0 TRLR\n";
-    let back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(FILE, Uuid::now_v7());
 
     assert_eq!(back.places.len(), 1, "one name is one place");
     assert_eq!(
@@ -997,7 +997,7 @@ fn a_tagged_place_no_event_names_survives_a_ged_round_trip() {
     );
     assert_eq!(text.matches("_OXIDGENE_TAG").count(), 2);
 
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     assert_unnamed_place_came_back(&back, &place);
 }
 
@@ -1023,7 +1023,7 @@ fn a_tagged_place_no_event_names_survives_a_gedzip_round_trip() {
 fn a_re_export_writes_an_unnamed_place_once_and_keeps_nothing() {
     let place = unnamed_place();
     let text = export_unnamed_place(&place, ExportTarget::Gedcom);
-    let imported = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&text, Uuid::now_v7());
     let export =
         export_gedcom(&imported.records(), &options(ExportTarget::Gedcom)).expect("exports");
 
@@ -1032,7 +1032,7 @@ fn a_re_export_writes_an_unnamed_place_once_and_keeps_nothing() {
         1,
         "the place is written once"
     );
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports again");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_unnamed_place_came_back(&back, &place);
 }
 
@@ -1087,7 +1087,7 @@ fn a_tagged_place_named_only_by_an_unwritten_event_survives_a_ged_round_trip() {
     );
     assert!(!export.gedcom.contains("BIRT"), "the event is not written");
 
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_unnamed_place_came_back(&back, &place);
 }
 
@@ -1161,7 +1161,7 @@ fn assert_transcript_tags_came_back(back: &ImportResult) {
 #[test]
 fn transcript_and_document_note_tags_survive_a_ged_round_trip() {
     let text = export_transcript_sample(ExportTarget::Gedcom);
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     assert_transcript_tags_came_back(&back);
 }
 
@@ -1204,7 +1204,7 @@ fn an_untagged_transcript_is_written_without_a_tags_key() {
 #[test]
 fn a_transcript_tag_line_of_another_version_is_skipped_with_a_warning() {
     let text = export_transcript_sample(ExportTarget::Gedcom).replace("\"v\":1", "\"v\":2");
-    let back = import_gedcom(&text, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&text, Uuid::now_v7());
     let transcript = back
         .notes
         .iter()

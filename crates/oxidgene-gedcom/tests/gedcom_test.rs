@@ -262,7 +262,7 @@ fn assert_primary_name(name: &PersonName, given_names: &str, surname: &str) {
 #[test]
 fn test_import_minimal_individual() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(MINIMAL_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(MINIMAL_GEDCOM, tree_id);
 
     assert_eq!(result.persons.len(), 1);
     assert_eq!(result.person_names.len(), 1);
@@ -302,7 +302,7 @@ fn test_import_minimal_individual() {
 #[test]
 fn test_import_family() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(FAMILY_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(FAMILY_GEDCOM, tree_id);
 
     assert_eq!(result.persons.len(), 3);
     assert_eq!(result.families.len(), 1);
@@ -365,7 +365,7 @@ fn a_repeated_xref_keeps_the_first_record_of_each_type() {
 1 TITL Second register
 0 TRLR
 ";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+    let result = import_gedcom(gedcom, Uuid::now_v7());
 
     assert_eq!(result.persons.len(), 2);
     assert_eq!(result.families.len(), 1);
@@ -394,7 +394,7 @@ fn a_repeated_xref_keeps_the_first_record_of_each_type() {
 #[test]
 fn test_import_source_and_citation() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(SOURCE_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(SOURCE_GEDCOM, tree_id);
 
     assert_eq!(result.sources.len(), 1);
     let src = &result.sources[0];
@@ -414,7 +414,7 @@ fn test_import_source_and_citation() {
 #[test]
 fn test_import_free_text_source_citation_deduplicates() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(FREE_TEXT_SOURCE_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(FREE_TEXT_SOURCE_GEDCOM, tree_id);
 
     // Both individuals cite the same free-text description — deduplicated
     // into a single synthesized Source instead of being dropped.
@@ -439,7 +439,7 @@ fn test_import_free_text_source_citation_deduplicates() {
 #[test]
 fn test_import_multimedia() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(MULTIMEDIA_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(MULTIMEDIA_GEDCOM, tree_id);
 
     assert_eq!(result.media.len(), 2);
     let document = result.media.iter().find(|m| m.is_document()).unwrap();
@@ -465,7 +465,7 @@ fn test_import_multimedia() {
 fn test_import_place_dedup() {
     // London appears twice (birth and marriage) — should be deduplicated
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(FAMILY_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(FAMILY_GEDCOM, tree_id);
 
     // Only one unique place (London, England)
     assert_eq!(result.places.len(), 1);
@@ -498,7 +498,7 @@ const UNREADABLE_AGE_GEDCOM: &str = "\
 /// nothing of the value leaks into the warning.
 #[test]
 fn an_unreadable_age_is_a_warning_rather_than_a_failed_import() {
-    let result = import_gedcom(UNREADABLE_AGE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(UNREADABLE_AGE_GEDCOM, Uuid::now_v7());
     assert_eq!(result.persons.len(), 1);
     let death = event_of(&result, oxidgene_core::EventType::Death);
     assert_eq!(death.date_value.as_deref(), Some("1870"));
@@ -548,7 +548,7 @@ const NOTE_RECORD_GEDCOM: &str = "\
 /// and the event that cite it.
 #[test]
 fn a_note_pointer_imports_the_text_of_its_record() {
-    let result = import_gedcom(NOTE_RECORD_GEDCOM, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(NOTE_RECORD_GEDCOM, Uuid::now_v7());
     let person_id = result.persons[0].id;
     let birth = event_of(&result, oxidgene_core::EventType::Birth);
     let text_of = |owner: &dyn Fn(&Note) -> bool| {
@@ -579,7 +579,7 @@ fn a_shared_note_pointer_of_either_version_resolves_or_is_reported() {
     let gedcom = "0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME Branch /Alpha/\n\
                   1 SNOTE @N1@\n1 NOTE @N9@\n1 NOTE Kept\n1 BIRT\n2 DATE 1801\n2 SNOTE @N1@\n\
                   0 @N1@ SNOTE Shared\n1 CONT remark\n0 TRLR\n";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(gedcom, Uuid::now_v7());
     let person_id = result.persons[0].id;
     let birth = event_of(&result, oxidgene_core::EventType::Birth).id;
     assert_eq!(
@@ -629,7 +629,7 @@ fn shared_note_lines(gedcom: &str) -> (Vec<&str>, Vec<&str>) {
 /// note carries none.
 #[test]
 fn notes_read_from_a_shared_note_record_share_its_group() {
-    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7());
     let shared: Vec<&Note> = imported
         .notes
         .iter()
@@ -652,7 +652,7 @@ fn notes_read_from_a_shared_note_record_share_its_group() {
 /// `NOTE` record, which they point at; the inline note stays inline.
 #[test]
 fn a_shared_note_is_exported_as_one_record_and_pointers_in_551() {
-    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7());
     let exported = reexport(&imported);
     let (records, pointers) = shared_note_lines(&exported);
     assert_eq!(records, ["0 @N1@ NOTE Shared text"], "{exported}");
@@ -664,7 +664,7 @@ fn a_shared_note_is_exported_as_one_record_and_pointers_in_551() {
 /// record and its notes point at it with `SNOTE`.
 #[test]
 fn a_shared_note_is_exported_as_an_snote_record_in_a_gedzip() {
-    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7());
     let paths = HashMap::new();
     let exported = export_as(
         &imported,
@@ -686,7 +686,7 @@ fn a_shared_note_is_exported_as_an_snote_record_in_a_gedzip() {
 /// and a note whose text is changed before the export follows its new text.
 #[test]
 fn a_changed_shared_note_is_exported_as_its_own_record() {
-    let mut imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7());
     let person_two = imported.persons[1].id;
     let changed = imported
         .notes
@@ -710,7 +710,7 @@ fn a_changed_shared_note_is_exported_as_its_own_record() {
 /// first person is `@I1@`, and a shared note record is its group.
 #[test]
 fn the_export_reports_the_entity_behind_each_xref() {
-    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SHARED_NOTE_GEDCOM, Uuid::now_v7());
     let exported = export_as(&imported, ExportTarget::Gedcom);
     assert_eq!(
         exported.xrefs.get("@I1@"),
@@ -754,7 +754,7 @@ const SEVERAL_NOTES_GEDCOM: &str = "\
 /// one is exported again.
 #[test]
 fn every_note_of_a_structure_survives_an_import_and_an_export() {
-    let imported = import_gedcom(SEVERAL_NOTES_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SEVERAL_NOTES_GEDCOM, Uuid::now_v7());
     let check = |result: &oxidgene_gedcom::ImportResult| {
         let person_id = result.persons[0].id;
         let birth = event_of(result, oxidgene_core::EventType::Birth).id;
@@ -778,7 +778,7 @@ fn every_note_of_a_structure_survives_an_import_and_an_export() {
     let exported = reexport(&imported);
     assert_eq!(exported.matches("1 NOTE ").count(), 2, "{exported}");
     assert_eq!(exported.matches("2 NOTE ").count(), 4, "{exported}");
-    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    check(&import_gedcom(&exported, Uuid::now_v7()));
 }
 
 /// A note longer than a GEDCOM line comes back word for word: the export
@@ -787,10 +787,10 @@ fn every_note_of_a_structure_survives_an_import_and_an_export() {
 fn a_long_note_survives_a_round_trip_word_for_word() {
     let text = format!("{} tail and {} more", "x".repeat(260), "word ".repeat(80));
     let gedcom = MINIMAL_GEDCOM.replace("0 TRLR", &format!("1 NOTE {text}\n0 TRLR"));
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let exported = reexport(&imported);
     assert!(exported.lines().all(|line| line.len() <= 255), "{exported}");
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     assert_eq!(
         note_texts(&back, |n| n.person_id.is_some()),
         [text.as_str()]
@@ -807,7 +807,7 @@ fn a_continuation_opening_with_a_space_keeps_it() {
         "0 TRLR",
         &format!("1 NOTE {head}\n2 CONC  tail\n2 CONC   two spaces\n0 TRLR"),
     );
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let expected = format!("{head} tail  two spaces");
     assert_eq!(
         note_texts(&imported, |n| n.person_id.is_some()),
@@ -833,11 +833,11 @@ fn long_values_survive_a_round_trip_word_for_word() {
             "0 TRLR",
             &format!("0 @S1@ SOUR\n1 TITL {}\n0 TRLR", long("title")),
         );
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let exported = reexport(&imported);
     assert!(exported.lines().all(|line| line.len() <= 255), "{exported}");
     assert_eq!(exported.matches(" CONC ").count(), 3, "{exported}");
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     let death = event_of(&back, oxidgene_core::EventType::Death);
     assert_eq!(death.cause.as_deref(), Some(long("cause").as_str()));
     assert_eq!(
@@ -867,8 +867,7 @@ fn a_gedcom_in_a_legacy_character_set_is_decoded() {
         ("UTF-8", "Renée".as_bytes()),
     ] {
         let bytes = one_person_in(charset, given);
-        let result = oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7())
-            .unwrap_or_else(|e| panic!("{charset}: {e}"));
+        let result = oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7());
         let given = result.person_names[0]
             .given_names
             .as_deref()
@@ -893,7 +892,7 @@ fn unicode_compose(text: &str) -> String {
 /// import reads the submitter back — but not `Not Provided`.
 #[test]
 fn the_export_names_its_submitter() {
-    let imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7());
     let export_with = |self_person_id: Option<Uuid>, submitter: SubmitterSettings<'_>| {
         export_gedcom(
             &ExportRecords {
@@ -930,14 +929,14 @@ fn the_export_names_its_submitter() {
     let (_, record) = header_and_submitter(&export(None));
     assert_eq!(record.as_deref(), Some("@SUBM1@ SUBM\n1 NAME Not Provided"));
 
-    let back = import_gedcom(&named, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&named, Uuid::now_v7());
     assert_eq!(back.persons.len(), 3);
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     assert_eq!(
         back.submitter.and_then(|s| s.name).as_deref(),
         Some("Jane Smith")
     );
-    let unnamed = import_gedcom(&export(None), Uuid::now_v7()).expect("re-imports");
+    let unnamed = import_gedcom(&export(None), Uuid::now_v7());
     assert_eq!(unnamed.submitter, None, "Not Provided is no name");
 
     let settings = SubmitterSettings {
@@ -955,7 +954,7 @@ fn the_export_names_its_submitter() {
         record.contains("\n1 ADDR 1 Fixture Road\n2 CONT Sampleton"),
         "{record}"
     );
-    let back = import_gedcom(&set, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&set, Uuid::now_v7());
     assert_eq!(
         back.submitter,
         Some(oxidgene_gedcom::ImportedSubmitter {
@@ -1026,7 +1025,7 @@ fn ages_and_agencies_survive_a_round_trip() {
         );
         assert_eq!(result.sources[0].agency.as_deref(), Some("Sample archives"));
     };
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     check(&imported);
     let exported = reexport(&imported);
     assert!(
@@ -1034,7 +1033,7 @@ fn ages_and_agencies_survive_a_round_trip() {
         "{exported}"
     );
     assert!(!exported.contains("PHRASE"), "{exported}");
-    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    check(&import_gedcom(&exported, Uuid::now_v7()));
 }
 
 /// The `TYPE` beside an attribute's value says what the value is: it is kept
@@ -1070,7 +1069,7 @@ fn an_attribute_type_beside_its_value_survives_a_round_trip() {
             [(Some("Weaver"), Some("Main trade"))]
         );
     };
-    let imported = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(gedcom, Uuid::now_v7());
     classified(&imported);
 
     let exported = reexport(&imported);
@@ -1082,7 +1081,7 @@ fn an_attribute_type_beside_its_value_survives_a_round_trip() {
         assert!(exported.contains(line), "{line:?} missing from\n{exported}");
     }
     assert!(!exported.contains("TYPE Unknown"), "{exported}");
-    classified(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    classified(&import_gedcom(&exported, Uuid::now_v7()));
 
     let gedzip_text = export_gedcom(
         &imported.records(),
@@ -1144,11 +1143,11 @@ fn spouse_ages_survive_a_round_trip() {
         );
         assert_eq!(marriage.age, None);
     };
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     check(&imported);
     let exported = reexport(&imported);
     assert!(exported.contains("2 HUSB\n3 AGE 30y\n"), "{exported}");
-    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    check(&import_gedcom(&exported, Uuid::now_v7()));
 }
 
 /// Repositories with their contact details and notes, a source's citations
@@ -1234,7 +1233,7 @@ fn repositories_survive_a_round_trip() {
         assert_eq!(town_hall[0], town_hall[1]);
         assert_eq!(result.repositories.len(), 2);
     };
-    let imported = import_gedcom(REPOSITORY_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(REPOSITORY_GEDCOM, Uuid::now_v7());
     check(&imported);
     assert!(
         imported
@@ -1253,7 +1252,7 @@ fn repositories_survive_a_round_trip() {
         exported.contains("1 ADDR 1 Fixture Road\n2 CONT Sampleton\n"),
         "{exported}"
     );
-    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    check(&import_gedcom(&exported, Uuid::now_v7()));
 }
 
 /// A source held at one repository under several call numbers, each with
@@ -1286,14 +1285,14 @@ fn every_call_number_of_a_repository_citation_survives_a_round_trip() {
                 .all(|link| link.repository_id == result.repositories[0].id)
         );
     };
-    let imported = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(gedcom, Uuid::now_v7());
     check(&imported);
     let exported = reexport(&imported);
     assert!(
         exported.contains("2 CALN E 123\n3 MEDI film\n"),
         "{exported}"
     );
-    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+    check(&import_gedcom(&exported, Uuid::now_v7()));
 }
 
 /// A line break in a note, whatever its kind, is written as a `CONT` line:
@@ -1303,8 +1302,7 @@ fn every_kind_of_line_break_in_a_note_becomes_a_cont_line() {
     let mut imported = import_gedcom(
         &MINIMAL_GEDCOM.replace("0 TRLR", "1 NOTE placeholder\n0 TRLR"),
         Uuid::now_v7(),
-    )
-    .expect("imports");
+    );
     imported.notes[0].text = "one\r\ntwo\rthree\n\nfive".to_string();
     let exported = reexport(&imported);
     assert!(
@@ -1317,7 +1315,7 @@ fn every_kind_of_line_break_in_a_note_becomes_a_cont_line() {
 /// The text a citation quotes from its source is exported, and comes back.
 #[test]
 fn a_citation_text_survives_a_round_trip() {
-    let imported = import_gedcom(CITATION_TEXT_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(CITATION_TEXT_GEDCOM, Uuid::now_v7());
     let quoted = "Born on the third,\nson of the miller";
     assert_eq!(imported.citations[0].text.as_deref(), Some(quoted));
     let exported = reexport(&imported);
@@ -1325,7 +1323,7 @@ fn a_citation_text_survives_a_round_trip() {
         exported.contains("3 DATA\n4 TEXT Born on the third,\n5 CONT son of the miller\n"),
         "{exported}"
     );
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     assert_eq!(back.citations[0].text.as_deref(), Some(quoted));
     assert_eq!(back.citations[0].page.as_deref(), Some("folio 3"));
 }
@@ -1355,7 +1353,7 @@ fn every_quay_and_its_absence_survive_a_round_trip() {
             })
             .collect()
     };
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     use oxidgene_core::Confidence::{High, Low, Medium, VeryLow};
     let levels: Vec<_> = imported
         .citations
@@ -1387,12 +1385,12 @@ fn a_source_publisher_survives_a_round_trip() {
         "1 TITL Sample register\n",
         "1 TITL Sample register\n1 PUBL Sample press,\n2 CONT second edition\n",
     );
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let publisher = "Sample press,\nsecond edition";
     assert_eq!(imported.sources[0].publisher.as_deref(), Some(publisher));
     let exported = reexport(&imported);
     assert_eq!(exported.matches("1 PUBL").count(), 1, "{exported}");
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     assert_eq!(back.sources[0].publisher.as_deref(), Some(publisher));
 }
 
@@ -1400,7 +1398,7 @@ fn a_source_publisher_survives_a_round_trip() {
 /// 5.5.1 has — by sex, else in order; a third spouse is a warning.
 #[test]
 fn partners_are_exported_as_husband_and_wife() {
-    let mut imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7());
     for spouse in &mut imported.family_spouses {
         spouse.role = oxidgene_core::SpouseRole::Partner;
         // The wife first: her sex, not the order, gives her the WIFE slot.
@@ -1448,14 +1446,14 @@ fn a_qualified_date_in_another_calendar_survives_a_round_trip() {
             "2 DATE 3 MAR 1910",
             "2 DATE BET @#DJULIAN@ 1760 AND @#DJULIAN@ 1765",
         );
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let exported = reexport(&imported);
     assert!(
         exported.contains("2 DATE ABT @#DJULIAN@ 1700\n"),
         "{exported}"
     );
     assert!(exported.contains("2 DATE BET @#DJULIAN@ 1760 AND @#DJULIAN@ 1765\n"));
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     let birth = event_of(&back, oxidgene_core::EventType::Birth);
     assert_eq!(birth.calendar, oxidgene_core::Calendar::Julian);
     assert_eq!(birth.date_qualifier, oxidgene_core::DateQualifier::About);
@@ -1476,7 +1474,7 @@ fn a_geneweb_death_reason_is_the_cause_of_death() {
         "2 PLAC Paris, France\n",
         "2 PLAC Paris, France\n2 NOTE Sample remark\n2 _GWDEATH killed\n",
     );
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let death = event_of(&imported, oxidgene_core::EventType::Death);
     assert_eq!(death.cause.as_deref(), Some("killed"));
     assert_eq!(
@@ -1491,12 +1489,9 @@ fn a_geneweb_death_reason_is_the_cause_of_death() {
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
-    // Empty string — should still succeed (empty data)
+    // Empty string: reading never fails, and finds nothing.
     let result = import_gedcom("", tree_id);
-    // oxidged may or may not error on empty input; either is fine
-    if let Ok(r) = result {
-        assert_eq!(r.persons.len(), 0);
-    }
+    assert_eq!(result.persons.len(), 0);
 }
 
 #[test]
@@ -1515,7 +1510,7 @@ fn test_import_various_date_formats() {
 0 TRLR
 ";
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(gedcom, tree_id).unwrap();
+    let result = import_gedcom(gedcom, tree_id);
 
     // Birth: ABT 1842 → should parse as 1842-01-01
     let birth = event_of(&result, oxidgene_core::EventType::Birth);
@@ -1537,7 +1532,7 @@ fn test_import_various_date_formats() {
 #[test]
 fn test_import_asso_witness_and_godparent() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id);
 
     assert_eq!(result.persons.len(), 5); // I1 Guillaume, I2 Jeanne, I3 witness, I4 baby, I5 godmother
     assert_eq!(result.event_witnesses.len(), 2);
@@ -1587,7 +1582,7 @@ fn asso_on_a_person_with_a_baptism_is_not_reported_as_a_guess() {
 0 TRLR
 ";
 
-    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(gedcom, Uuid::now_v7());
 
     assert_eq!(result.event_witnesses.len(), 1);
     assert!(
@@ -1619,7 +1614,7 @@ fn asso_on_a_person_with_neither_birth_nor_baptism_is_reported() {
 0 TRLR
 ";
 
-    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(gedcom, Uuid::now_v7());
 
     assert_eq!(result.event_witnesses.len(), 1);
     assert!(
@@ -1636,7 +1631,7 @@ fn test_import_asso_dedups_against_nested_event_association() {
     // level-1 `ASSO` on the witness's own record. Both must collapse into
     // a single EventWitness, not two.
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(ASSOCIATION_DUPLICATE_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(ASSOCIATION_DUPLICATE_GEDCOM, tree_id);
 
     assert_eq!(result.event_witnesses.len(), 1);
 }
@@ -1648,7 +1643,7 @@ fn test_import_asso_dedups_against_nested_event_association() {
 #[test]
 fn test_export_produces_valid_gedcom() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(MINIMAL_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(MINIMAL_GEDCOM, tree_id);
 
     let export = export_gedcom(
         &result.records(),
@@ -1675,7 +1670,7 @@ fn test_export_produces_valid_gedcom() {
 #[test]
 fn test_export_family() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(FAMILY_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(FAMILY_GEDCOM, tree_id);
 
     let export = export_gedcom(
         &result.records(),
@@ -1704,7 +1699,7 @@ fn test_export_family() {
 #[test]
 fn test_export_source() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(SOURCE_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(SOURCE_GEDCOM, tree_id);
 
     let export = export_gedcom(
         &result.records(),
@@ -1868,7 +1863,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
     // GEDCOM 5.5.1 only allows `ASSO` as a direct child of an INDI record;
     // Gramps (and other readers) reject it nested inside an event detail.
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(ASSOCIATION_GEDCOM, tree_id);
 
     let export = export_gedcom(
         &result.records(),
@@ -1891,7 +1886,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
     // extension, which the import reads back as the witness it is.
     assert!(export.gedcom.contains("0 @I3@ INDI"));
     assert!(export.gedcom.contains("1 _ASSO @F1@"));
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).unwrap();
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     assert_eq!(back.event_witnesses.len(), result.event_witnesses.len());
 
     // The godmother association is on the baby's own INDI record (@I4@),
@@ -1907,7 +1902,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
 #[test]
 fn test_roundtrip_preserves_individuals() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(FAMILY_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(FAMILY_GEDCOM, tree_id);
 
     let exported = export_gedcom(
         &imported.records(),
@@ -1922,7 +1917,7 @@ fn test_roundtrip_preserves_individuals() {
 
     // Re-import the exported GEDCOM
     let tree_id2 = Uuid::now_v7();
-    let reimported = import_gedcom(&exported.gedcom, tree_id2).unwrap();
+    let reimported = import_gedcom(&exported.gedcom, tree_id2);
 
     // Same number of persons, families, events
     assert_eq!(
@@ -1950,7 +1945,7 @@ fn test_roundtrip_preserves_individuals() {
 #[test]
 fn test_roundtrip_preserves_names() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(MINIMAL_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(MINIMAL_GEDCOM, tree_id);
 
     let exported = export_gedcom(
         &imported.records(),
@@ -1964,7 +1959,7 @@ fn test_roundtrip_preserves_names() {
     .unwrap();
 
     let tree_id2 = Uuid::now_v7();
-    let reimported = import_gedcom(&exported.gedcom, tree_id2).unwrap();
+    let reimported = import_gedcom(&exported.gedcom, tree_id2);
 
     assert_eq!(reimported.person_names.len(), 1);
     let name = &reimported.person_names[0];
@@ -1992,7 +1987,7 @@ fn test_roundtrip_preserves_surname_particle() {
 ";
 
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(WITH_SPFX, tree_id).unwrap();
+    let imported = import_gedcom(WITH_SPFX, tree_id);
 
     assert_eq!(imported.person_names.len(), 1);
     let name = &imported.person_names[0];
@@ -2030,7 +2025,7 @@ fn test_roundtrip_preserves_surname_particle() {
         exported.gedcom
     );
 
-    let reimported = import_gedcom(&exported.gedcom, Uuid::now_v7()).unwrap();
+    let reimported = import_gedcom(&exported.gedcom, Uuid::now_v7());
     let back = &reimported.person_names[0];
     assert_eq!(back.surname.as_deref(), Some("Cruz"));
     assert_eq!(back.surname_prefix.as_deref(), Some("de la"));
@@ -2053,7 +2048,7 @@ fn test_particle_split_does_not_synthesize_a_self_alias() {
 0 TRLR
 ";
 
-    let imported = import_gedcom(NO_SURN_TAG, Uuid::now_v7()).unwrap();
+    let imported = import_gedcom(NO_SURN_TAG, Uuid::now_v7());
     assert_eq!(
         imported.person_names.len(),
         1,
@@ -2085,7 +2080,7 @@ fn test_import_derives_particle_when_file_has_no_spfx() {
 0 TRLR
 ";
 
-    let imported = import_gedcom(NO_SPFX, Uuid::now_v7()).unwrap();
+    let imported = import_gedcom(NO_SPFX, Uuid::now_v7());
 
     let berg = imported
         .person_names
@@ -2207,7 +2202,7 @@ const GENEANET_GEDCOM: &str = "\
 #[test]
 fn test_import_geneanet_names_parsed_from_value() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     // All 6 persons imported
     assert_eq!(result.persons.len(), 6, "persons: {:?}", result.warnings);
@@ -2240,7 +2235,7 @@ fn test_import_geneanet_names_parsed_from_value() {
 #[test]
 fn test_import_geneanet_birth_events() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     // Each of the 6 persons has a BIRT event
     let birth_events: Vec<_> = result
@@ -2271,7 +2266,7 @@ fn test_import_geneanet_individual_attributes() {
     // as attributes rather than events (their value is what they say) —
     // make sure we still pick them up as `Event`s.
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     let henri_id = result
         .person_names
@@ -2311,7 +2306,7 @@ fn test_import_geneanet_individual_attributes() {
 #[test]
 fn test_roundtrip_occupation_exports_as_occu_tag() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     let exported = export_gedcom(
         &imported.records(),
@@ -2344,7 +2339,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
 
     // Re-importing should preserve the same counts.
     let tree_id2 = Uuid::now_v7();
-    let reimported = import_gedcom(&exported.gedcom, tree_id2).unwrap();
+    let reimported = import_gedcom(&exported.gedcom, tree_id2);
     let occu_count = |events: &[oxidgene_core::types::Event]| {
         events
             .iter()
@@ -2373,7 +2368,7 @@ const MULTI_OCCUPATION_GEDCOM: &str = "\
 #[test]
 fn test_import_splits_and_normalizes_multi_occupation_occu() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(MULTI_OCCUPATION_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(MULTI_OCCUPATION_GEDCOM, tree_id);
 
     let mut occupations: Vec<&str> = result
         .events
@@ -2394,7 +2389,7 @@ fn test_import_splits_and_normalizes_multi_occupation_occu() {
 fn test_import_single_occupation_is_case_normalized_and_not_split() {
     let tree_id = Uuid::now_v7();
     let gedcom = MINIMAL_GEDCOM.replace("0 TRLR", "1 OCCU farmer\n0 TRLR");
-    let result = import_gedcom(&gedcom, tree_id).unwrap();
+    let result = import_gedcom(&gedcom, tree_id);
 
     let occupations: Vec<&str> = result
         .events
@@ -2426,7 +2421,7 @@ const TWO_OCCUPATIONS_GEDCOM: &str = "\
 #[test]
 fn test_export_default_keeps_one_occu_tag_per_profession() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id);
     assert_eq!(
         imported
             .events
@@ -2472,7 +2467,7 @@ fn export_for(imported: &oxidgene_gedcom::ImportResult, id: &str) -> oxidgene_ge
 #[test]
 fn test_export_for_geneanet_merges_occupations_and_reports_the_loss() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id);
 
     let exported = export_for(&imported, "geneanet");
 
@@ -2501,7 +2496,7 @@ fn test_export_for_geneanet_merges_occupations_and_reports_the_loss() {
 #[test]
 fn test_export_for_a_standard_destination_reports_no_loss() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(TWO_OCCUPATIONS_GEDCOM, tree_id);
 
     for (id, version) in [
         ("generic-551", "2 VERS 5.5.1"),
@@ -2570,7 +2565,7 @@ const SURNAME_ALIAS_GEDCOM: &str = "\
 #[test]
 fn test_import_keeps_name_surname_as_primary_over_surn() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id);
 
     let primary = result
         .person_names
@@ -2583,7 +2578,7 @@ fn test_import_keeps_name_surname_as_primary_over_surn() {
 #[test]
 fn test_import_splits_multi_alias_surn_into_also_known_as_names() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id);
 
     let mut aliases: Vec<&str> = result
         .person_names
@@ -2603,7 +2598,7 @@ fn test_import_splits_multi_alias_surn_into_also_known_as_names() {
 #[test]
 fn test_export_default_keeps_one_name_tag_per_person_name() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id);
     assert_eq!(imported.person_names.len(), 3);
 
     let exported = export_gedcom(
@@ -2634,7 +2629,7 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
 #[test]
 fn test_export_for_geneanet_packs_alias_surnames_into_the_primary_name() {
     let tree_id = Uuid::now_v7();
-    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id).unwrap();
+    let imported = import_gedcom(SURNAME_ALIAS_GEDCOM, tree_id);
 
     let exported = export_for(&imported, "geneanet");
 
@@ -2661,7 +2656,7 @@ fn test_export_for_geneanet_packs_alias_surnames_into_the_primary_name() {
 #[test]
 fn test_import_geneanet_family_spouses() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     // F60: Henri (HUSB) + Marie (WIFE), child: Claire
     // F65: Thomas (HUSB) + Claire (WIFE), children: Emma, Lucas
@@ -2709,7 +2704,7 @@ fn test_import_geneanet_family_spouses() {
 #[test]
 fn test_import_geneanet_mother_linked() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEANET_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEANET_GEDCOM, tree_id);
 
     // Find Claire's person_id
     let claire_id = result
@@ -2754,7 +2749,7 @@ fn test_import_geneanet_mother_linked() {
 #[test]
 fn test_import_result_serialization() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(MINIMAL_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(MINIMAL_GEDCOM, tree_id);
 
     // Serialize to JSON and back
     let json = serde_json::to_string(&result).unwrap();
@@ -2815,7 +2810,7 @@ const GENEWEB_CONVERTED_GEDCOM: &str = "\
 #[test]
 fn test_import_drops_geneweb_bookkeeping_from_events() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(GENEWEB_CONVERTED_GEDCOM, tree_id).unwrap();
+    let result = import_gedcom(GENEWEB_CONVERTED_GEDCOM, tree_id);
 
     let note_of = |event_id| {
         result
@@ -2877,7 +2872,7 @@ const RESTRICTION_GEDCOM: &str = "\
 /// back private; a record following the tree carries no `RESN`.
 #[test]
 fn privacy_survives_a_round_trip_as_resn() {
-    let imported = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7());
     let exported = reexport(&imported);
     let record = |start: &str| {
         let at = exported.find(start).expect("the record");
@@ -2897,7 +2892,7 @@ fn privacy_survives_a_round_trip_as_resn() {
         "{exported}"
     );
     assert_eq!(exported.matches("1 RESN").count(), 5, "{exported}");
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     let privacy = |result: &oxidgene_gedcom::ImportResult| {
         let mut persons: Vec<Privacy> = result.persons.iter().map(|p| p.privacy).collect();
         persons.push(result.families[0].privacy);
@@ -2908,7 +2903,7 @@ fn privacy_survives_a_round_trip_as_resn() {
 
 #[test]
 fn test_import_resn_withholding_a_record_makes_it_private() {
-    let result = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).unwrap();
+    let result = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7());
     let privacy: Vec<Privacy> = result.persons.iter().map(|p| p.privacy).collect();
     assert_eq!(
         privacy,
@@ -2946,7 +2941,7 @@ fn test_import_asso_after_nested_witnesses_comes_after_them() {
 1 NAME Godmother /BRANCH_C/
 0 TRLR
 ";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+    let result = import_gedcom(gedcom, Uuid::now_v7());
     let mut witnesses: Vec<(i32, Option<&str>)> = result
         .event_witnesses
         .iter()
@@ -2976,7 +2971,7 @@ fn test_import_an_aka_name_adding_only_a_nickname_is_a_byname() {
 2 NICK Jo
 0 TRLR
 ";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+    let result = import_gedcom(gedcom, Uuid::now_v7());
     let names: Vec<(NameType, Option<&str>, Option<&str>)> = result
         .person_names
         .iter()
@@ -3245,7 +3240,7 @@ fn extension_event_dates(gedcom: &str) -> Vec<String> {
 /// description that names what they are or something else.
 #[test]
 fn every_event_type_survives_a_round_trip() {
-    let mut tree = import_gedcom(COUPLE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut tree = import_gedcom(COUPLE_GEDCOM, Uuid::now_v7());
     let husband = (Some(tree.persons[0].id), None);
     let wife = (Some(tree.persons[1].id), None);
     let couple = (None, Some(tree.families[0].id));
@@ -3304,14 +3299,8 @@ fn every_event_type_survives_a_round_trip() {
     assert_ne!(as_gedcom_7, gedcom, "the header names the version");
     let archive = oxidgene_gedcom::export::export_gedzip(&gedcom, &[]).expect("writes a GEDZIP");
     for (format, back) in [
-        (
-            "GEDCOM 5.5.1",
-            import_gedcom(&gedcom, Uuid::now_v7()).expect("imports"),
-        ),
-        (
-            "GEDCOM 7.0",
-            import_gedcom(&as_gedcom_7, Uuid::now_v7()).expect("imports"),
-        ),
+        ("GEDCOM 5.5.1", import_gedcom(&gedcom, Uuid::now_v7())),
+        ("GEDCOM 7.0", import_gedcom(&as_gedcom_7, Uuid::now_v7())),
         (
             "GEDZIP",
             oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
@@ -3360,7 +3349,7 @@ fn standard_religious_event_tags_import_as_their_types() {
 2 DATE 1703
 0 TRLR
 ";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(gedcom, Uuid::now_v7());
     let types: Vec<EventType> = result.events.iter().map(|e| e.event_type).collect();
     assert_eq!(
         types,
@@ -3390,7 +3379,7 @@ fn a_generic_events_descriptor_is_part_of_its_description() {
 1 DEAT Y
 0 TRLR
 ";
-    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(gedcom, Uuid::now_v7());
     let events: Vec<(EventType, Option<&str>)> = result
         .events
         .iter()
@@ -3461,7 +3450,7 @@ const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
 /// no events.
 #[test]
 fn an_event_tag_no_version_defines_keeps_its_substructures() {
-    let result = import_gedcom(UNDEFINED_EVENT_TAGS_GEDCOM, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(UNDEFINED_EVENT_TAGS_GEDCOM, Uuid::now_v7());
     assert_eq!(result.events.len(), 2, "{:?}", result.events);
 
     let service = event_of(&result, EventType::MilitaryService);
@@ -3547,8 +3536,8 @@ fn lds_ordinances_import_as_their_types_without_a_description() {
         (EventType::SealingChild, "4 JAN 1900", "Sampletown 4"),
         (EventType::SealingSpouse, "5 JAN 1900", "Sampletown 5"),
     ];
-    let imported = import_gedcom(LDS_ORDINANCES_GEDCOM, Uuid::now_v7()).expect("imports");
-    let reimported = import_gedcom(&reexport(&imported), Uuid::now_v7()).expect("re-imports");
+    let imported = import_gedcom(LDS_ORDINANCES_GEDCOM, Uuid::now_v7());
+    let reimported = import_gedcom(&reexport(&imported), Uuid::now_v7());
     for (pass, result) in [("import", &imported), ("round trip", &reimported)] {
         assert_eq!(result.events.len(), expected.len(), "{pass}");
         for (event_type, date, place) in expected {
@@ -3605,7 +3594,7 @@ fn lds_ordinances_are_written_as_their_gedcom_structures() {
 2 DATE 2 JAN 1960
 0 TRLR
 ";
-    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7());
     assert_eq!(event_of(&imported, EventType::LdsBaptism).description, None);
     assert_eq!(
         event_of(&imported, EventType::SealingSpouse).description,
@@ -3644,7 +3633,7 @@ fn an_lds_ordinance_with_a_description_stays_a_generic_event() {
 2 TYPE BAPL
 0 TRLR
 ";
-    let mut imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut imported = import_gedcom(GEDCOM, Uuid::now_v7());
     assert_eq!(
         event_of(&imported, EventType::LdsBaptism)
             .date_value
@@ -3666,7 +3655,7 @@ fn an_lds_ordinance_with_a_description_stays_a_generic_event() {
     );
     assert!(exported.contains("2 TYPE BAPL\n"), "{exported}");
     assert!(!exported.contains("1 BAPL\n"), "{exported}");
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     let baptism = event_of(&back, EventType::LdsBaptism);
     assert_eq!(baptism.description.as_deref(), Some("Sample proxy font"));
     assert_eq!(baptism.date_value.as_deref(), Some("4 JAN 1951"));
@@ -3687,7 +3676,7 @@ fn an_initiatory_ordinance_is_read_and_written_in_gedcom_7() {
 2 DATE 3 JAN 1950
 0 TRLR
 ";
-    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7());
     let initiatory = event_of(&imported, EventType::LdsInitiatory);
     assert_eq!(initiatory.date_value.as_deref(), Some("3 JAN 1950"));
     assert_eq!(initiatory.description, None);
@@ -3705,7 +3694,7 @@ fn an_initiatory_ordinance_is_read_and_written_in_gedcom_7() {
     // GEDCOM 5.5.1 has no `INIL`; whatever form the writer gives it reads
     // back as the same type.
     let ged = reexport(&imported);
-    let back = import_gedcom(&ged, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&ged, Uuid::now_v7());
     assert_eq!(
         event_of(&back, EventType::LdsInitiatory)
             .date_value
@@ -3770,7 +3759,7 @@ const DOCUMENTED_GEDCOM: &str = "\
 
 /// `DOCUMENTED_GEDCOM`, imported and exported again with `choices`.
 fn export_documented(choices: ExportChoices) -> String {
-    let imported = import_gedcom(DOCUMENTED_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(DOCUMENTED_GEDCOM, Uuid::now_v7());
     assert_eq!(imported.notes.len(), 5, "{:?}", imported.notes);
     assert_eq!(imported.citations.len(), 2);
     assert_eq!(imported.repositories.len(), 1);
@@ -3837,7 +3826,7 @@ fn an_export_without_notes_and_sources_holds_none_and_still_imports() {
     assert!(!exported.contains("Sample Archives"), "{exported}");
     assert_every_pointer_resolves(&exported);
 
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     assert_eq!(back.persons.len(), 2);
     assert_eq!(back.families.len(), 1);
@@ -3862,7 +3851,7 @@ fn an_export_without_media_holds_none_and_still_imports() {
     assert!(!exported.contains("sample.jpg"), "{exported}");
     assert_every_pointer_resolves(&exported);
 
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     assert!(back.media.is_empty());
     assert!(back.media_links.is_empty());
@@ -3891,8 +3880,7 @@ fn the_complete_export_keeps_every_pointer_resolvable() {
 #[test]
 fn ascii_declared_over_eight_bit_bytes_is_read_as_windows_1252() {
     let bytes = one_person_in("ASCII", b"Ren\xe9e");
-    let result =
-        oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7()).expect("imports");
+    let result = oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7());
     assert_eq!(result.person_names[0].given_names.as_deref(), Some("Renée"));
 }
 
@@ -3924,7 +3912,7 @@ const GEDCOM_7: &str = "\
 
 #[test]
 fn a_gedcom_7_file_keeps_its_roles_phrases_and_calendar_keywords() {
-    let result = import_gedcom(GEDCOM_7, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(GEDCOM_7, Uuid::now_v7());
     let baptism = event_of(&result, EventType::Baptism);
     assert_eq!(
         baptism.date_value.as_deref(),
@@ -3969,7 +3957,7 @@ const MISPLACED_EVENTS_GEDCOM: &str = "\
 
 #[test]
 fn misplaced_events_and_an_unlisted_lds_status_are_read() {
-    let result = import_gedcom(MISPLACED_EVENTS_GEDCOM, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(MISPLACED_EVENTS_GEDCOM, Uuid::now_v7());
     let marriage = event_of(&result, EventType::Marriage);
     assert_eq!(marriage.date_value.as_deref(), Some("1 MAY 1900"));
     assert!(marriage.person_id.is_some() && marriage.family_id.is_none());
@@ -3996,7 +3984,7 @@ fn misplaced_events_and_an_unlisted_lds_status_are_read() {
         exported.contains("1 EVEN Farm lease\n2 DATE 1923\n2 TYPE PROP\n"),
         "{exported}"
     );
-    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let back = import_gedcom(&exported, Uuid::now_v7());
     for event_type in [EventType::Marriage, EventType::Property] {
         let (before, after) = (event_of(&result, event_type), event_of(&back, event_type));
         assert_eq!(
@@ -4170,7 +4158,7 @@ fn a_gedzip_holds_conformant_gedcom_7_that_restores_what_a_gedcom_does() {
         ("MISPLACED_EVENTS", MISPLACED_EVENTS_GEDCOM),
         ("VERSION_SENSITIVE", VERSION_SENSITIVE_GEDCOM),
     ] {
-        let mut tree = import_gedcom(fixture, Uuid::now_v7()).expect("imports");
+        let mut tree = import_gedcom(fixture, Uuid::now_v7());
         for held in [false, true] {
             gedzip_restores_what_a_gedcom_does(name, &mut tree, held);
         }
@@ -4201,7 +4189,7 @@ fn gedzip_restores_what_a_gedcom_does(
             gdz.gedcom
         );
 
-        let from_ged = import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("imports the .ged");
+        let from_ged = import_gedcom(&ged.gedcom, Uuid::now_v7());
         let from_gdz = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
             .expect("imports the GEDZIP");
         assert_eq!(
@@ -4232,7 +4220,7 @@ fn gedzip_restores_what_a_gedcom_does(
 /// GEDCOM 7.0: its header declares each with the URI of its documentation.
 #[test]
 fn a_gedzip_declares_oxidgenes_extensions() {
-    let mut tree = import_gedcom(MULTIMEDIA_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut tree = import_gedcom(MULTIMEDIA_GEDCOM, Uuid::now_v7());
     let (ged, gdz, _) = both_exports(&mut tree, true);
     for tag in [
         "_OXIDGENE_MEDIA",
@@ -4277,7 +4265,7 @@ const THREE_MEDIA_GEDCOM: &str = "\
 
 /// `THREE_MEDIA_GEDCOM` imported with the scan held, and its archive path.
 fn tree_holding_the_scan() -> (oxidgene_gedcom::ImportResult, Uuid, String) {
-    let mut tree = import_gedcom(THREE_MEDIA_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut tree = import_gedcom(THREE_MEDIA_GEDCOM, Uuid::now_v7());
     let scan = tree
         .media
         .iter_mut()
@@ -4369,8 +4357,7 @@ fn a_gedzip_keeps_the_media_it_cannot_carry_as_extensions() {
     let from_ged = import_gedcom(
         &export_as(&tree, ExportTarget::Gedcom).gedcom,
         Uuid::now_v7(),
-    )
-    .expect("imports the .ged");
+    );
     assert_eq!(page_paths(&back.result).len(), 3);
     assert!(page_paths(&back.result).contains(&"C:\\Photos\\portrait 1.jpg".to_string()));
     assert_eq!(back.result.media_links.len(), 3);
@@ -4406,7 +4393,7 @@ fn assert_restored_as_the_ged_reads_them(
 /// reports nothing.
 #[test]
 fn a_gedzip_reads_no_destination() {
-    let mut tree = import_gedcom(MULTI_OCCUPATION_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut tree = import_gedcom(MULTI_OCCUPATION_GEDCOM, Uuid::now_v7());
     let (_, lossless, _) = both_exports(&mut tree, true);
     let merged = export_gedcom(
         &tree.records(),
@@ -4498,7 +4485,7 @@ fn record_xref(record: &str) -> &str {
 #[test]
 fn a_child_named_only_by_their_famc_is_linked_with_its_pedi() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(ONE_SIDED_CHILD_GEDCOM, tree_id).expect("imports");
+    let result = import_gedcom(ONE_SIDED_CHILD_GEDCOM, tree_id);
 
     let cy = result.person_by_xref["@I3@"];
     let family = result.families[0].id;
@@ -4539,7 +4526,7 @@ fn a_child_named_only_by_their_famc_is_linked_with_its_pedi() {
 #[test]
 fn a_spouse_named_only_by_their_fams_is_linked() {
     let tree_id = Uuid::now_v7();
-    let result = import_gedcom(ONE_SIDED_SPOUSE_GEDCOM, tree_id).expect("imports");
+    let result = import_gedcom(ONE_SIDED_SPOUSE_GEDCOM, tree_id);
 
     let dan = result.person_by_xref["@I1@"];
     let family = result.families[0].id;
@@ -4564,7 +4551,7 @@ fn a_spouse_named_only_by_their_fams_is_linked() {
 /// individual names is one `FamilyChild`, and no link raises a warning.
 #[test]
 fn a_two_sided_family_link_is_one_row_without_a_warning() {
-    let result = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+    let result = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7());
 
     assert_eq!(result.family_children.len(), 1);
     assert_eq!(result.family_spouses.len(), 2);
@@ -4624,7 +4611,7 @@ fn lines_of(gedcom: &str) -> Vec<&str> {
 
 #[test]
 fn kept_structures_are_written_back_on_export() {
-    let imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7());
     let kinds: Vec<_> = imported.kept.iter().map(|row| row.entity_kind).collect();
     assert!(kinds.contains(&oxidgene_core::types::KeptEntityKind::Person));
     assert!(kinds.contains(&oxidgene_core::types::KeptEntityKind::Record));
@@ -4665,17 +4652,17 @@ fn kept_structures_are_written_back_on_export() {
 #[test]
 fn kept_structures_survive_a_second_round_trip() {
     let first = export_as(
-        &import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports"),
+        &import_gedcom(KEPT_GEDCOM, Uuid::now_v7()),
         ExportTarget::Gedcom,
     );
-    let imported_again = import_gedcom(&first.gedcom, Uuid::now_v7()).expect("imports");
+    let imported_again = import_gedcom(&first.gedcom, Uuid::now_v7());
     let second = export_as(&imported_again, ExportTarget::Gedcom);
     assert_eq!(first.gedcom, second.gedcom);
 }
 
 #[test]
 fn a_kept_structure_whose_entity_is_left_out_is_warned_about() {
-    let mut imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7()).expect("imports");
+    let mut imported = import_gedcom(KEPT_GEDCOM, Uuid::now_v7());
     imported
         .events
         .retain(|event| event.event_type != oxidgene_core::EventType::Birth);
@@ -4694,7 +4681,7 @@ fn a_kept_structure_whose_entity_is_left_out_is_warned_about() {
 #[test]
 fn kept_notes_are_left_out_with_the_notes() {
     let gedcom = KEPT_GEDCOM.replace("1 REFN 42\n", "1 REFN 42\n2 NOTE On the reference\n");
-    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&gedcom, Uuid::now_v7());
     let with_notes = export_as(&imported, ExportTarget::Gedcom);
     // 5.5.1 has no note under a `REFN`, so the writer keeps it as an extension.
     assert!(
@@ -4737,7 +4724,7 @@ fn kept_7_0_structures_are_written_by_a_gedzip() {
 1 NO MARR
 0 TRLR
 ";
-    let imported = import_gedcom(GEDCOM_70, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(GEDCOM_70, Uuid::now_v7());
     assert!(!imported.kept.is_empty());
     let archive = export_as(
         &imported,
@@ -4758,7 +4745,7 @@ fn kept_7_0_structures_are_written_by_a_gedzip() {
         );
     }
     let as_551 = export_as(&imported, ExportTarget::Gedcom);
-    let back = import_gedcom(&as_551.gedcom, Uuid::now_v7()).expect("parses back");
+    let back = import_gedcom(&as_551.gedcom, Uuid::now_v7());
     assert_eq!(back.persons.len(), 1);
     assert!(
         lines_of(&as_551.gedcom)
@@ -4780,7 +4767,7 @@ fn a_record_without_xref_is_kept_whole_and_written_without_one() {
 1 _SUB value
 0 TRLR
 ";
-    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7());
     let export = export_as(&imported, ExportTarget::Gedcom);
     let lines = lines_of(&export.gedcom);
     let at = lines
@@ -4809,7 +4796,7 @@ fn a_shared_note_nobody_points_at_is_kept_as_a_record() {
 0 @N1@ NOTE Shared text
 0 TRLR
 ";
-    let imported = import_gedcom(GEDCOM, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(GEDCOM, Uuid::now_v7());
     let export = export_as(&imported, ExportTarget::Gedcom);
     let lines = lines_of(&export.gedcom);
     assert!(
@@ -4948,7 +4935,7 @@ fn portraits(result: &oxidgene_gedcom::ImportResult) -> Vec<String> {
 /// is portrayed by the crop; Alpha by the whole of the other scan, which
 /// their crops follow.
 fn tree_with_every_crop() -> oxidgene_gedcom::ImportResult {
-    let mut tree = import_gedcom(CROP_TREE, Uuid::now_v7()).expect("imports");
+    let mut tree = import_gedcom(CROP_TREE, Uuid::now_v7());
     let alpha = person_named(&tree, "Alpha");
     let beta = person_named(&tree, "Beta");
     let birth = event_of(&tree, EventType::Birth).id;
@@ -5089,8 +5076,8 @@ fn identifications_read_back_identically_from_each_format() {
             );
         }
 
-        let from_551 = import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("5.5.1 imports");
-        let from_70 = import_gedcom(&v70, Uuid::now_v7()).expect("7.0 imports");
+        let from_551 = import_gedcom(&ged.gedcom, Uuid::now_v7());
+        let from_70 = import_gedcom(&v70, Uuid::now_v7());
         let from_gdz = oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
             .expect("GEDZIP imports")
             .result;
@@ -5114,8 +5101,8 @@ fn a_crop_portrait_reads_back_as_the_portrait_in_each_format() {
     let (ged, _, archive) = both_exports(&mut tree, true);
     let v70 = export_70(&tree);
     let results = [
-        import_gedcom(&ged.gedcom, Uuid::now_v7()).expect("5.5.1 imports"),
-        import_gedcom(&v70, Uuid::now_v7()).expect("7.0 imports"),
+        import_gedcom(&ged.gedcom, Uuid::now_v7()),
+        import_gedcom(&v70, Uuid::now_v7()),
         oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
             .expect("GEDZIP imports")
             .result,
@@ -5166,7 +5153,7 @@ fn a_crop_written_by_other_software_is_an_identification_and_the_first_picture_i
 2 FORM image/jpeg
 0 TRLR
 ";
-    let imported = import_gedcom(CROP_FIRST, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(CROP_FIRST, Uuid::now_v7());
     assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
     assert!(imported.media_links.is_empty(), "a crop is not a link");
     let vignette = &imported.vignettes[0];
@@ -5189,7 +5176,7 @@ fn a_crop_written_by_other_software_is_an_identification_and_the_first_picture_i
             "0 TRLR\n",
             "0 @M2@ OBJE\n1 FILE other.jpg\n2 FORM image/jpeg\n0 TRLR\n",
         );
-    let imported = import_gedcom(&whole_first, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(&whole_first, Uuid::now_v7());
     assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
     assert_eq!(
         imported.persons[0].portrait_media_id,
@@ -5221,7 +5208,7 @@ fn a_crop_naming_no_width_on_an_unsized_picture_is_kept_as_written() {
 2 FORM image/jpeg
 0 TRLR
 ";
-    let imported = import_gedcom(NO_WIDTH, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(NO_WIDTH, Uuid::now_v7());
     assert!(imported.vignettes.is_empty(), "no rectangle can be named");
     assert_eq!(imported.media_links.len(), 1, "the whole picture is linked");
     assert!(
@@ -5267,7 +5254,7 @@ fn a_crop_beneath_a_person_and_the_same_crop_beneath_their_event_are_one_identif
 2 FORM image/jpeg
 0 TRLR
 ";
-    let imported = import_gedcom(SAME_CROP, Uuid::now_v7()).expect("imports");
+    let imported = import_gedcom(SAME_CROP, Uuid::now_v7());
     assert_eq!(imported.vignettes.len(), 1, "{:?}", imported.warnings);
     let vignette = &imported.vignettes[0];
     let birth = event_of(&imported, EventType::Birth).id;
@@ -5287,9 +5274,9 @@ fn identifications_export_idempotently() {
             .map_or(String::new(), |i| text[i..].to_owned())
     };
     let first = reexport(&tree);
-    let again = reexport(&import_gedcom(&first, Uuid::now_v7()).expect("imports"));
+    let again = reexport(&import_gedcom(&first, Uuid::now_v7()));
     assert_eq!(without_header(&first), without_header(&again));
     let first_70 = export_70(&tree);
-    let again_70 = export_70(&import_gedcom(&first_70, Uuid::now_v7()).expect("imports"));
+    let again_70 = export_70(&import_gedcom(&first_70, Uuid::now_v7()));
     assert_eq!(without_header(&first_70), without_header(&again_70));
 }

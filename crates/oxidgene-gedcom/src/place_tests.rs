@@ -185,7 +185,7 @@ fn a_document_and_an_event_naming_one_place_import_one_place_from_a_ged() {
         export.warnings
     );
 
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     let named = places_named(&back, TOWN);
     assert_eq!(named.len(), 1, "one name, one place: {named:?}");
     let imported_document = back
@@ -265,7 +265,7 @@ fn a_standalone_place_and_an_event_naming_one_place_import_one_place_from_a_ged(
         "the tagged place no event names is a record of its own"
     );
 
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     let named = places_named(&back, TOWN);
     assert_eq!(named.len(), 1, "one name, one place: {named:?}");
     assert_eq!(
@@ -303,7 +303,7 @@ fn a_document_and_an_event_naming_one_place_up_to_blanks_import_one_place_from_a
     )
     .expect("exports");
 
-    let back = import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(&export.gedcom, Uuid::now_v7());
     let named = places_named(&back, TOWN);
     assert_eq!(named.len(), 1, "one name, one place: {named:?}");
     assert_eq!(named[0].latitude, Some(48.5));
@@ -339,7 +339,7 @@ fn the_first_coordinates_read_for_a_place_named_by_two_events_are_kept() {
 4 LATI N10.0\n\
 4 LONG E20.0\n\
 0 TRLR\n";
-    let back = import_gedcom(FILE, Uuid::now_v7()).expect("imports");
+    let back = import_gedcom(FILE, Uuid::now_v7());
 
     let named = places_named(&back, TOWN);
     assert_eq!(named.len(), 1, "one name, one place: {named:?}");

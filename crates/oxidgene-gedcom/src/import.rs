@@ -53,12 +53,9 @@ const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
 ///
 /// All entities are assigned to the given `tree_id`. Reading never fails:
 /// lines out of the grammar, unknown tags and misplaced structures are read
-/// as far as they go, and what the import does not map is left out.
-///
-/// # Errors
-///
-/// Returns `Err` if the model cannot be converted.
-pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, String> {
+/// as far as they go, and what the import does not map is left out, with a
+/// warning when it is worth one.
+pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> ImportResult {
     import_dataset(Dataset::parse(gedcom_str), tree_id)
 }
 
@@ -70,19 +67,15 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
 /// pattern, valid UTF-8 — and by `CHAR` after that, Windows-1252 standing in
 /// for a declaration the bytes contradict (8-bit bytes under `CHAR ASCII`),
 /// so decoding never fails and no accent is lost.
-///
-/// # Errors
-///
-/// Returns `Err` if the model cannot be converted.
-pub fn import_gedcom_bytes(bytes: &[u8], tree_id: Uuid) -> Result<ImportResult, String> {
+pub fn import_gedcom_bytes(bytes: &[u8], tree_id: Uuid) -> ImportResult {
     import_dataset(Dataset::from_bytes(bytes), tree_id)
 }
 
 /// The full import of a dataset read from a `.ged` or a `.gdz`: the media
 /// an OxidGene GEDZIP keeps as extensions restored, the standard model, the
 /// OxidGene extensions beneath its `OBJE` records, and the portraits.
-fn import_dataset(data: Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
-    import_dataset_keeping(data, tree_id).map(|(result, _)| result)
+fn import_dataset(data: Dataset, tree_id: Uuid) -> ImportResult {
+    import_dataset_keeping(data, tree_id).0
 }
 
 /// [`import_dataset`], with the pages of the media the file kept as
@@ -90,16 +83,16 @@ fn import_dataset(data: Dataset, tree_id: Uuid) -> Result<ImportResult, String> 
 fn import_dataset_keeping(
     mut data: Dataset,
     tree_id: Uuid,
-) -> Result<(ImportResult, std::collections::HashSet<Uuid>), String> {
+) -> (ImportResult, std::collections::HashSet<Uuid>) {
     let kept = restore_kept_media(&mut data);
-    let mut result = import_gedcom_data(&mut data, tree_id)?;
+    let mut result = import_gedcom_data(&mut data, tree_id);
     import_oxidgene_media_extensions(&data, &mut result);
     crate::keeping::compute(&data, &mut result);
     let kept = kept
         .iter()
         .filter_map(|xref| result.media_by_xref.get(xref).copied())
         .collect();
-    Ok((result, kept))
+    (result, kept)
 }
 
 /// Restore the media an OxidGene GEDZIP keeps as extensions into the
@@ -399,6 +392,25 @@ pub struct GedzipImport {
     pub files: Vec<(Uuid, Vec<u8>)>,
 }
 
+/// Why a GEDZIP archive could not be read: the file's fault, never the
+/// server's, so the API answers it as invalid genealogy data.
+#[derive(Debug, thiserror::Error)]
+pub enum GedzipReadError {
+    /// The archive is no ZIP, holds no `gedcom.ged`, or an entry is larger
+    /// than the limit.
+    #[error("GEDZIP read error: {0}")]
+    Archive(#[source] oxidged::gedzip::GedzipError),
+    /// Its `gedcom.ged` could not be read out of it.
+    #[error("GEDZIP read error: {0}")]
+    Gedcom(#[source] oxidged::GedcomError),
+}
+
+impl From<GedzipReadError> for oxidgene_core::OxidGeneError {
+    fn from(error: GedzipReadError) -> Self {
+        Self::Gedcom(error.to_string())
+    }
+}
+
 /// A parsed GEDZIP whose referenced media are still inside the archive.
 ///
 /// Keeping entry names rather than bytes lets a server retain a seekable
@@ -422,20 +434,20 @@ pub struct GedzipImportPlan {
 ///
 /// # Errors
 ///
-/// Returns `Err` if `source` is not a readable ZIP, if it holds no
+/// [`GedzipReadError`] if `source` is not a readable ZIP, if it holds no
 /// `gedcom.ged`, or if that entry is larger than the limit.
 pub fn prepare_gedzip<R: Read + Seek>(
     source: R,
     tree_id: Uuid,
-) -> Result<(GedzipReader<R>, GedzipImportPlan), String> {
+) -> Result<(GedzipReader<R>, GedzipImportPlan), GedzipReadError> {
     let mut reader = GedzipReader::new(source)
-        .map_err(|error| format!("GEDZIP read error: {error}"))?
+        .map_err(GedzipReadError::Archive)?
         .max_entry_size(GEDZIP_GEDCOM_LIMIT);
     let data = reader
         .read_dataset(&GedcomBuilder::new())
-        .map_err(|error| format!("GEDZIP read error: {error}"))?;
+        .map_err(GedzipReadError::Gedcom)?;
 
-    let (mut result, kept) = import_dataset_keeping(data, tree_id)?;
+    let (mut result, kept) = import_dataset_keeping(data, tree_id);
     let reader = reader.max_entry_size(GEDZIP_MEDIA_LIMIT);
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
@@ -489,10 +501,10 @@ pub fn prepare_gedzip<R: Read + Seek>(
 ///
 /// # Errors
 ///
-/// Returns `Err` if `archive` is not a readable ZIP, if it holds no
+/// [`GedzipReadError`] if `archive` is not a readable ZIP, if it holds no
 /// `gedcom.ged`, or if that entry is larger than the limit. A media file that
 /// is missing or unreadable is a warning, not an error.
-pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, String> {
+pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, GedzipReadError> {
     let (mut reader, plan) = prepare_gedzip(std::io::Cursor::new(archive), tree_id)?;
     let GedzipImportPlan {
         mut result,
@@ -573,11 +585,8 @@ fn node_text(node: View<'_, Node>) -> Option<Cow<'_, str>> {
 /// All entities are assigned to the given `tree_id`. A record whose
 /// identifier an earlier record of its type holds is left out with a
 /// warning (see [`drop_duplicate_records`]), so `data` is taken mutably.
-///
-/// # Errors
-///
-/// Returns `Err` if the model cannot be converted.
-pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
+/// The conversion never fails: what it cannot map is a warning.
+pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> ImportResult {
     let mut warnings = Vec::new();
     drop_duplicate_records(data, &mut warnings);
     let data = &*data;
@@ -654,7 +663,7 @@ pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> Result<ImportRes
     result.note_by_xref = ctx.note_map;
     result.media_by_xref = page_map;
 
-    Ok(result)
+    result
 }
 
 /// Leave out every record whose identifier an earlier record of its type
@@ -2035,8 +2044,8 @@ fn crop_identification(
     ctx: &ImportContext,
     result: &ImportResult,
 ) -> Result<(Uuid, Rectangle), String> {
-    let page = crop_page(media_id, ctx, result)
-        .ok_or_else(|| "does not cut a single page".to_owned())?;
+    let page =
+        crop_page(media_id, ctx, result).ok_or_else(|| "does not cut a single page".to_owned())?;
     let coordinate = |value: u32| {
         i32::try_from(value).map_err(|_| format!("has the value {value}, which is too large"))
     };
@@ -2747,7 +2756,11 @@ fn map_coordinates(plac: View<'_, Node>, warnings: &mut Vec<String>) -> Option<(
         let node = map.children().into_iter().find(|c| c.tag() == tag)?;
         node_text(node)
     };
-    map_pair(coordinate("LATI")?.as_ref(), coordinate("LONG")?.as_ref(), warnings)
+    map_pair(
+        coordinate("LATI")?.as_ref(),
+        coordinate("LONG")?.as_ref(),
+        warnings,
+    )
 }
 
 /// A `MAP`'s latitude and longitude, read as [`parse_gedcom_coord`] does. A
@@ -4411,7 +4424,9 @@ mod tests {
         assert_eq!(parse_gedcom_coord("N45.5", 90.0), Some(45.5));
         assert_eq!(parse_gedcom_coord(" W1.25 ", 180.0), Some(-1.25));
         assert_eq!(parse_gedcom_coord("-12", 90.0), Some(-12.0));
-        for bad in ["NaN", "NNaN", "Einf", "inf", "N999", "1e999", "S90.5", "", "N"] {
+        for bad in [
+            "NaN", "NNaN", "Einf", "inf", "N999", "1e999", "S90.5", "", "N",
+        ] {
             assert_eq!(parse_gedcom_coord(bad, 90.0), None, "{bad}");
         }
         assert_eq!(parse_gedcom_coord("E180", 180.0), Some(180.0));
@@ -4819,7 +4834,7 @@ mod gedzip_tests {
         let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
                       0 @I1@ INDI\n1 NAME Sample /Person/\n\
                       1 OBJE\n2 FILE C:\\Scans\\portrait.jpg\n3 FORM jpeg\n0 TRLR\n";
-        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+        let result = import_gedcom(gedcom, Uuid::now_v7());
         let page = page_of(&result);
         assert_eq!(page.file_name, "portrait.jpg");
         assert_eq!(page.file_path, "C:\\Scans\\portrait.jpg");
@@ -4940,7 +4955,13 @@ mod gedzip_tests {
     #[test]
     fn something_that_is_not_an_archive_at_all_fails_rather_than_importing_nothing() {
         let err = import_gedzip(b"0 HEAD\n0 TRLR\n", Uuid::now_v7()).unwrap_err();
-        assert!(err.contains("GEDZIP"), "got {err}");
+        assert!(matches!(err, GedzipReadError::Archive(_)), "got {err}");
+        assert!(err.to_string().contains("GEDZIP"), "got {err}");
+        // The file's fault: answered as invalid genealogy data, not a 500.
+        assert!(matches!(
+            oxidgene_core::OxidGeneError::from(err),
+            oxidgene_core::OxidGeneError::Gedcom(_)
+        ));
     }
 
     /// A file written before the page number was dropped carries one field too
@@ -4960,7 +4981,7 @@ mod gedzip_tests {
              1 _OXIDGENE_VIGNETTE @I1@ 0 120 45 64 82\n\
              0 TRLR\n";
 
-        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+        let result = import_gedcom(gedcom, Uuid::now_v7());
 
         assert!(result.vignettes.is_empty(), "the line is not understood");
         assert!(
@@ -4981,7 +5002,7 @@ mod gedzip_tests {
              1 BIRT\n2 OBJE @M1@\n3 _CROP\n4 TOP 6\n4 LEFT 5\n\
              4 HEIGHT 80\n4 WIDTH 70\n3 _OXIDGENE_PERSON @I1@\n\
              0 @M1@ OBJE\n1 FILE photo.jpg\n2 FORM image/jpeg\n0 TRLR\n";
-        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+        let result = import_gedcom(gedcom, Uuid::now_v7());
         assert_eq!(result.vignettes.len(), 1, "{:?}", result.warnings);
         let vignette = &result.vignettes[0];
         assert_eq!(vignette.person_id, Some(result.persons[0].id));

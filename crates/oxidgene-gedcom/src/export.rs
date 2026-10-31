@@ -234,11 +234,11 @@ pub struct SubmitterSettings<'a> {
 ///
 /// # Errors
 ///
-/// Returns `Err` if the GEDCOM writer fails.
+/// [`ExportError::Write`] if the GEDCOM writer fails.
 pub fn export_gedcom(
     records: &ExportRecords<'_>,
     options: &ExportOptions<'_>,
-) -> Result<ExportResult, String> {
+) -> Result<ExportResult, ExportError> {
     let ExportOptions {
         choices,
         target,
@@ -798,7 +798,7 @@ fn write_gedcom(
     target: ExportTarget<'_>,
     destination: &'static ExportProfile,
     kept: &HashSet<String>,
-) -> Result<(String, Option<DestinationReport>), String> {
+) -> Result<(String, Option<DestinationReport>), ExportError> {
     let write_span = tracing::info_span!(
         "export.write",
         export.destination = destination.id(),
@@ -827,7 +827,7 @@ fn write_gedcom(
                 Ok((String::from_utf8_lossy(&bytes).into_owned(), None))
             }
         })
-        .map_err(|e: oxidged::WriteError| format!("GEDCOM write error: {e}"))?;
+        .map_err(ExportError::Write)?;
     write_span.record("export.output_bytes", written.0.len());
     if let Some(report) = &written.1 {
         write_span.record("export.lossy_folds", report.losses.len());
@@ -2163,8 +2163,8 @@ fn extension_for(mime_type: &str) -> Option<&'static str> {
 ///
 /// # Errors
 ///
-/// Returns `Err` if the ZIP archive cannot be written.
-pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+/// [`ExportError::Gedzip`] if the ZIP archive cannot be written.
+pub fn export_gedzip(gedcom: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, ExportError> {
     let mut writer = GedzipFileWriter::new(std::io::Cursor::new(Vec::new()), gedcom)?;
     for (path, bytes) in files {
         writer.add_media_file(path, bytes)?;
@@ -2184,20 +2184,17 @@ impl GedzipFileWriter {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the file cannot be created or written.
-    pub fn create(path: &std::path::Path, gedcom: &str) -> Result<Self, String> {
-        let file = std::fs::File::create(path).map_err(|e| format!("GEDZIP error: {e}"))?;
-        Self::new(file, gedcom)
+    /// [`ExportError::Io`] if the file cannot be created,
+    /// [`ExportError::Gedzip`] if it cannot be written.
+    pub fn create(path: &std::path::Path, gedcom: &str) -> Result<Self, ExportError> {
+        Self::new(std::fs::File::create(path)?, gedcom)
     }
 }
 
 impl<W: std::io::Write + std::io::Seek> GedzipFileWriter<W> {
-    fn new(destination: W, gedcom: &str) -> Result<Self, String> {
-        let mut writer =
-            GedzipWriter::new(destination).map_err(|e| format!("GEDZIP error: {e}"))?;
-        writer
-            .write_gedcom_bytes(gedcom.as_bytes())
-            .map_err(|e| format!("GEDZIP error: {e}"))?;
+    fn new(destination: W, gedcom: &str) -> Result<Self, ExportError> {
+        let mut writer = GedzipWriter::new(destination)?;
+        writer.write_gedcom_bytes(gedcom.as_bytes())?;
         Ok(Self { writer })
     }
 
@@ -2205,22 +2202,43 @@ impl<W: std::io::Write + std::io::Seek> GedzipFileWriter<W> {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the entry cannot be written.
-    pub fn add_media_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
-        self.writer
-            .add_media_file(path, bytes)
-            .map_err(|e| format!("GEDZIP error: {e}"))
+    /// [`ExportError::Gedzip`] if the entry cannot be written.
+    pub fn add_media_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), ExportError> {
+        Ok(self.writer.add_media_file(path, bytes)?)
     }
 
     /// Finalize the ZIP central directory and hand back the destination.
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the archive cannot be finalized.
-    pub fn finish(self) -> Result<W, String> {
-        self.writer
-            .finish()
-            .map_err(|e| format!("GEDZIP error: {e}"))
+    /// [`ExportError::Gedzip`] if the archive cannot be finalized.
+    pub fn finish(self) -> Result<W, ExportError> {
+        Ok(self.writer.finish()?)
+    }
+}
+
+/// Why an export could not be written. The records come from the database,
+/// so none of these is the client's fault.
+#[derive(Debug, thiserror::Error)]
+pub enum ExportError {
+    /// The GEDCOM writer refused the dataset.
+    #[error("GEDCOM write error: {0}")]
+    Write(#[source] oxidged::WriteError),
+    /// The GEDZIP archive could not be written.
+    #[error("GEDZIP error: {0}")]
+    Gedzip(#[from] oxidged::gedzip::GedzipError),
+    /// The archive file could not be created.
+    #[error("GEDZIP file error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+impl From<ExportError> for oxidgene_core::OxidGeneError {
+    fn from(error: ExportError) -> Self {
+        match error {
+            ExportError::Io(error)
+            | ExportError::Gedzip(oxidged::gedzip::GedzipError::Io(error)) => Self::Io(error),
+            other => Self::Internal(other.to_string()),
+        }
     }
 }
 
@@ -3041,8 +3059,7 @@ mod tests {
         )
         .expect("exports");
 
-        let imported = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7())
-            .expect("imports exported GEDCOM");
+        let imported = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         assert_eq!(imported.citations.len(), 1);
         assert!(imported.citations[0].family_id.is_some());
         assert_eq!(imported.citations[0].page.as_deref(), Some("folio 12"));
@@ -3171,7 +3188,7 @@ mod tests {
             export.gedcom
         );
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         assert_eq!(
             back.media
                 .iter()
@@ -3433,7 +3450,7 @@ mod tests {
         .expect("exports");
         assert!(export.gedcom.contains("1 OBJE @M1@"), "{}", export.gedcom);
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         assert_eq!(
             back.media.len(),
             2,
@@ -3595,7 +3612,7 @@ mod tests {
         .expect("exports");
         assert!(export.gedcom.contains("2 OBJE @M1@"), "{}", export.gedcom);
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         assert_eq!(back.events.len(), 1);
         assert_eq!(back.media_links.len(), 1);
         assert_eq!(back.media_links[0].event_id, Some(back.events[0].id));
@@ -3674,7 +3691,7 @@ mod tests {
             export.gedcom
         );
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         assert_eq!(back.events.len(), 2, "one event per profession");
         assert_eq!(
             back.media_links.len(),
@@ -3756,7 +3773,7 @@ mod tests {
         )
         .expect("exports");
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         for (file_name, expected) in [
             ("page-1.jpg", "First page transcript"),
             ("page-2.jpg", "Second page transcript"),
@@ -3829,7 +3846,7 @@ mod tests {
         )
         .expect("exports");
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         let first = back
             .media_links
             .iter()
@@ -3919,7 +3936,7 @@ mod tests {
             export.gedcom
         );
 
-        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7()).expect("imports");
+        let back = crate::import::import_gedcom(&export.gedcom, Uuid::now_v7());
         // And on the way back the container is restored: one document holding
         // three pages, and one link — to the document, which is what she was
         // attached to before the export dissolved it.

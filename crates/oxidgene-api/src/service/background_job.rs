@@ -860,7 +860,9 @@ impl BackgroundJobWorker {
                 let source = tokio::fs::read(source).await?;
                 let tree_id = job.tree_id;
                 parse_off_thread("gedcom", move || {
-                    oxidgene_gedcom::import::import_gedcom_bytes(&source, tree_id)
+                    Ok(oxidgene_gedcom::import::import_gedcom_bytes(
+                        &source, tree_id,
+                    ))
                 })
                 .await
             }
@@ -1193,16 +1195,13 @@ impl BackgroundJobWorker {
         // inside it rather than in a trace of its own.
         let package_span = tracing::info_span!("export.package", export.format = "gedzip");
         let archive_task = crate::service::blocking::spawn_in(package_span.clone(), move || {
-            let mut writer =
-                GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
+            let mut writer = GedzipFileWriter::create(&archive_path, &gedcom)?;
             for (entry_path, local_path) in staged_media {
                 cancel.check()?;
                 let bytes = std::fs::read(local_path)?;
-                writer
-                    .add_media_file(&entry_path, &bytes)
-                    .map_err(OxidGeneError::Gedcom)?;
+                writer.add_media_file(&entry_path, &bytes)?;
             }
-            writer.finish().map(drop).map_err(OxidGeneError::Gedcom)
+            Ok::<_, OxidGeneError>(writer.finish().map(drop)?)
         });
         self.with_heartbeat(job_id, "packaging", async {
             archive_task
