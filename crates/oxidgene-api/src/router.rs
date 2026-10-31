@@ -669,6 +669,7 @@ pub fn build_router(state: AppState) -> Router {
         .layer(axum::middleware::map_response(
             crate::access::security_headers,
         ))
+        .layer(axum::middleware::from_fn(crate::memory::release_when_idle))
 }
 
 #[cfg(test)]
