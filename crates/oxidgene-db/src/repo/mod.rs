@@ -45,7 +45,7 @@ mod vignette;
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, JOB_CHANNEL,
-    NewBackgroundJob,
+    NewBackgroundJob, QUEUE_CHANNEL,
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{

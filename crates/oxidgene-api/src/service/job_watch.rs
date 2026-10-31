@@ -175,20 +175,24 @@ pub async fn listen(db: sea_orm::DatabaseConnection) {
     }
 }
 
-/// Wake the waiters of each job announced on `pool`'s database, until the
-/// connection fails.
+/// Wake the waiters of each job announced on `pool`'s database, and every
+/// waiter each time it starts listening, until listening fails.
 #[cfg(feature = "postgres")]
 async fn relay(
     pool: &sea_orm::sqlx::PgPool,
 ) -> Result<std::convert::Infallible, sea_orm::sqlx::Error> {
-    let mut listener = sea_orm::sqlx::postgres::PgListener::connect_with(pool).await?;
-    listener.listen(oxidgene_db::repo::JOB_CHANNEL).await?;
-    // Whatever changed while nobody listened.
-    announce_all();
     loop {
-        let notification = listener.recv().await?;
-        if let Ok(job_id) = notification.payload().parse() {
-            announce(job_id);
+        let mut listener = sea_orm::sqlx::postgres::PgListener::connect_with(pool).await?;
+        listener.listen(oxidgene_db::repo::JOB_CHANNEL).await?;
+        // Whatever changed while nobody listened.
+        announce_all();
+        // `None` is a lost connection, which `recv` would reconnect behind
+        // our back, dropping what was sent meanwhile: listen again instead,
+        // and wake everybody.
+        while let Some(notification) = listener.try_recv().await? {
+            if let Ok(job_id) = notification.payload().parse() {
+                announce(job_id);
+            }
         }
     }
 }

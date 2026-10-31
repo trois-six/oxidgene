@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -79,7 +79,7 @@ the repository root.
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
 | `just bench` | Run the opt-in benchmarks of the profile service and the person search, in release mode. |
-| `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow a job on it across processes: a cancellation through the database, progress through notifications. |
+| `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, and a job queued by another process waking an idle worker. |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |

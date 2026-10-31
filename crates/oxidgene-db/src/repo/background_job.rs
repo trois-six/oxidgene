@@ -74,6 +74,11 @@ pub type BackgroundJob = background_job::Model;
 /// process ([`BackgroundJobRepo::announce`]).
 pub const JOB_CHANNEL: &str = "oxidgene_job";
 
+/// The PostgreSQL notification channel a queued job is announced on, with no
+/// payload: what wakes the idle workers of every process, which then claim
+/// it ([`BackgroundJobRepo::create`]).
+pub const QUEUE_CHANNEL: &str = "oxidgene_job_queue";
+
 /// The only active-import fields needed by the tree list.
 #[derive(Debug, Clone, Copy, FromQueryResult)]
 pub struct ActiveImport {
@@ -103,7 +108,27 @@ impl BackgroundJobRepo {
         .map_err(db_err)
     }
 
+    /// Queue a job, and announce it on [`QUEUE_CHANNEL`] under PostgreSQL:
+    /// within a transaction, the notification leaves when the row is
+    /// committed, and the workers it wakes find it.
     pub async fn create(
+        db: &impl ConnectionTrait,
+        input: NewBackgroundJob,
+    ) -> Result<BackgroundJob, OxidGeneError> {
+        let job = Self::insert(db, input).await?;
+        if db.get_database_backend() == sea_orm::DatabaseBackend::Postgres {
+            db.execute_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT pg_notify($1, '')",
+                [QUEUE_CHANNEL.into()],
+            ))
+            .await
+            .map_err(db_err)?;
+        }
+        Ok(job)
+    }
+
+    async fn insert(
         db: &impl ConnectionTrait,
         input: NewBackgroundJob,
     ) -> Result<BackgroundJob, OxidGeneError> {
@@ -222,6 +247,24 @@ impl BackgroundJobRepo {
             .exec(db)
             .await
             .map(|result| result.rows_affected)
+            .map_err(db_err)
+    }
+
+    /// When the earliest lease of the running jobs expires, making its job
+    /// claimable again; `None` when no job runs.
+    pub async fn next_lease_expiry(
+        db: &impl ConnectionTrait,
+    ) -> Result<Option<DateTimeUtc>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::LeaseUntil)
+            .filter(Column::Status.eq(BackgroundJobStatus::Running.as_str()))
+            .filter(Column::LeaseUntil.is_not_null())
+            .order_by_asc(Column::LeaseUntil)
+            .into_tuple::<Option<DateTimeUtc>>()
+            .one(db)
+            .await
+            .map(Option::flatten)
             .map_err(db_err)
     }
 

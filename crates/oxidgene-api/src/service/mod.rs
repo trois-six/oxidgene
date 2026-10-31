@@ -18,6 +18,7 @@ pub mod geneanet;
 pub mod history;
 pub mod image_bytes;
 pub(crate) mod intake;
+pub mod job_queue;
 pub mod job_watch;
 pub mod kinship;
 pub mod media;

@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
 
+use super::job_queue;
 use super::job_watch::{self, JobWait, Versioned};
 use super::tag_bulk::{self, TagTargetSpec};
 use super::{gedcom, geneanet, history};
@@ -29,7 +30,19 @@ use crate::profile::ProfileService;
 use crate::workdir::WorkDir;
 
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
-pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How often a running job reports its progress: what a status read shows
+/// moves at least this often, and under PostgreSQL the report renews the
+/// job's lease and reads its cancellation.
+const PROGRESS_PERIOD: Duration = Duration::from_secs(1);
+
+/// How long the worker pauses after a failed iteration or a panic before it
+/// looks for work again.
+const RETRY_PAUSE: Duration = Duration::from_secs(1);
+
+/// How long past a lease's expiry an idle worker wakes to take its job over:
+/// the job is claimable only once the lease is strictly in the past.
+const LEASE_GRACE: Duration = Duration::from_secs(1);
 
 /// How long a completed export's artifact can be downloaded, from the
 /// export's completion and however often it is downloaded meanwhile: long
@@ -309,6 +322,9 @@ fn cancel_here(tree_id: Uuid, job_id: Uuid, kind: BackgroundJobKind, mark: Optio
                             queued,
                         },
                     );
+                    // The worker writes it once it is between two jobs:
+                    // now, if it is idle.
+                    job_queue::wake();
                     (false, true)
                 }
                 None => (false, false),
@@ -410,7 +426,6 @@ pub struct BackgroundJobWorker {
     media: Arc<dyn MediaStore>,
     worker_id: String,
     lease_duration: Duration,
-    poll_interval: Duration,
     work_dir: WorkDir,
 }
 
@@ -420,7 +435,6 @@ impl std::fmt::Debug for BackgroundJobWorker {
             .debug_struct("BackgroundJobWorker")
             .field("worker_id", &self.worker_id)
             .field("lease_duration", &self.lease_duration)
-            .field("poll_interval", &self.poll_interval)
             .finish_non_exhaustive()
     }
 }
@@ -444,7 +458,6 @@ impl BackgroundJobWorker {
             media,
             worker_id: worker_id.into(),
             lease_duration,
-            poll_interval: DEFAULT_POLL_INTERVAL,
             work_dir: WorkDir::temporary(),
         }
     }
@@ -643,11 +656,14 @@ impl BackgroundJobWorker {
     /// Run until the process is shut down.
     ///
     /// The loop runs on a task of its own, restarted after a pause if it
-    /// panics: one job's failure must not end every job after it. Dropping
-    /// this future stops the loop.
+    /// panics: one job's failure must not end every job after it. Idle, it
+    /// sleeps until there is work (see [`job_queue`]); under PostgreSQL a
+    /// task of its own listens for the jobs other processes queue. Dropping
+    /// this future stops both.
     pub async fn run(self) {
-        let pause = self.poll_interval;
-        supervise(move || self.clone().run_loop(), pause).await;
+        #[cfg(feature = "postgres")]
+        let _listener = AbortOnDrop(tokio::spawn(job_queue::listen(self.db.clone())));
+        supervise(move || self.clone().run_loop(), RETRY_PAUSE).await;
     }
 
     async fn run_loop(self) {
@@ -659,17 +675,39 @@ impl BackgroundJobWorker {
             }
             match self.run_once().await {
                 Ok(true) => {}
-                Ok(false) => tokio::time::sleep(self.poll_interval).await,
+                Ok(false) => self.idle(next_maintenance).await,
                 Err(error) => {
                     tracing::error!(
                         error.category = "worker_iteration_failed",
                         error.kind = error_kind(&error),
                         "background job worker iteration failed"
                     );
-                    tokio::time::sleep(self.poll_interval).await;
+                    tokio::time::sleep(RETRY_PAUSE).await;
                 }
             }
         }
+    }
+
+    /// Sleep until there may be work: a job queued, a cancellation to write,
+    /// the earliest lease of the running jobs expired, the maintenance due
+    /// at `next_maintenance`, or at most [`job_queue::IDLE_RECHECK`].
+    async fn idle(&self, next_maintenance: tokio::time::Instant) {
+        let now = tokio::time::Instant::now();
+        let mut deadline = (now + job_queue::IDLE_RECHECK).min(next_maintenance);
+        match BackgroundJobRepo::next_lease_expiry(&self.db).await {
+            Ok(Some(expiry)) => {
+                let left = (expiry - chrono::Utc::now()).to_std().unwrap_or_default();
+                deadline = deadline.min(now + left + LEASE_GRACE);
+            }
+            Ok(None) => {}
+            // The recheck still comes; the next iteration logs a database
+            // that stays unreachable.
+            Err(error) => tracing::warn!(
+                error.kind = error_kind(&error),
+                "could not read when the running jobs' leases expire"
+            ),
+        }
+        job_queue::sleep_until(deadline).await;
     }
 
     /// Bound what ended jobs leave behind, as of `now`: delete the
@@ -1258,7 +1296,7 @@ impl BackgroundJobWorker {
     }
 
     fn progress_period(&self) -> Duration {
-        progress_period(self.poll_interval, self.lease_duration)
+        progress_period(PROGRESS_PERIOD, self.lease_duration)
     }
 }
 
@@ -1303,13 +1341,6 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    struct AbortOnDrop(tokio::task::JoinHandle<()>);
-    impl Drop for AbortOnDrop {
-        fn drop(&mut self) {
-            self.0.abort();
-        }
-    }
-
     loop {
         let mut task = AbortOnDrop(tokio::spawn(make()));
         match (&mut task.0).await {
@@ -1322,6 +1353,15 @@ where
             }
             _ => return,
         }
+    }
+}
+
+/// A task that ends when its handle is dropped.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -1355,8 +1395,8 @@ async fn rolled_back_on_error<T>(
     }
 }
 
-fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duration {
-    poll_interval.min(lease_duration / 3)
+fn progress_period(period: Duration, lease_duration: Duration) -> Duration {
+    period.min(lease_duration / 3)
 }
 
 /// Log a failed maintenance pass under `code`; it is retried by the next.
@@ -1637,7 +1677,7 @@ mod tests {
     #[test]
     fn sqlite_progress_is_published_independently_of_its_long_lease() {
         assert_eq!(
-            progress_period(DEFAULT_POLL_INTERVAL, Duration::from_secs(24 * 60 * 60)),
+            progress_period(PROGRESS_PERIOD, Duration::from_secs(24 * 60 * 60)),
             Duration::from_secs(1)
         );
     }
@@ -1780,6 +1820,16 @@ mod tests {
             Some(true),
             "the worker reads the request with its progress"
         );
+
+        // An idle worker sleeps until another process queues a job: the
+        // notification its insert sends wakes it, long before its recheck.
+        let worker = idle_worker(&db, &media).await;
+        // Its listener connected, and the signals of this process (the job
+        // queued above, the listener's first look) spent.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let queued = queued_elsewhere(&db, &*media).await;
+        assert_eq!(ends(&db, queued).await, "completed");
+        drop(worker);
 
         listener.abort();
         oxidgene_db::repo::rollback_migrations(&db)
@@ -2153,6 +2203,139 @@ mod tests {
             Some(true)
         );
     }
+
+    // ── An idle worker sleeps until there is work ────────────────────────
+    //
+    // Each waits far less than `job_queue::IDLE_RECHECK`: a worker that
+    // missed its signal would sleep through the test.
+
+    /// How long a test gives the worker: a fraction of its recheck.
+    const PROMPTLY: Duration = Duration::from_secs(15);
+
+    /// Wait until job `job_id` has left `status`, at most [`PROMPTLY`]; the
+    /// status it has then.
+    async fn leaves(db: &DatabaseConnection, job_id: Uuid, status: &str) -> String {
+        assert!(job_queue::IDLE_RECHECK > PROMPTLY * 2);
+        tokio::time::timeout(PROMPTLY, async {
+            loop {
+                let now = job(db, job_id).await.status;
+                if now != status {
+                    return now;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("job {job_id} is still {status}"))
+    }
+
+    /// Wait until job `job_id` has ended, at most [`PROMPTLY`] from when it
+    /// left the queue; how it ended.
+    async fn ends(db: &DatabaseConnection, job_id: Uuid) -> String {
+        match leaves(db, job_id, "queued").await.as_str() {
+            "running" => leaves(db, job_id, "running").await,
+            ended => ended.to_string(),
+        }
+    }
+
+    /// A worker running over `db` and `media` until dropped, already asleep
+    /// on an empty queue.
+    async fn idle_worker(db: &DatabaseConnection, media: &Arc<dyn MediaStore>) -> AbortOnDrop {
+        let worker = AbortOnDrop(tokio::spawn(worker_over(db, media).run()));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        worker
+    }
+
+    /// An import job of a tree of its own queued in `db` the way another
+    /// process queues one — its row inserted, nobody in this process woken —
+    /// its source in `media`; the job's id.
+    async fn queued_elsewhere(db: &DatabaseConnection, media: &dyn MediaStore) -> Uuid {
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(db, tree_id, "Elsewhere".into(), None)
+            .await
+            .expect("creates tree");
+        let job_id = Uuid::now_v7();
+        let source = tempfile::NamedTempFile::new().expect("creates source");
+        std::fs::write(source.path(), families_gedcom(1)).expect("writes source");
+        let source_key = job_blob_key(job_id, "source", "ged").expect("job key");
+        media
+            .put_file(&source_key, source.path())
+            .await
+            .expect("stores source");
+        BackgroundJobRepo::create(
+            db,
+            NewBackgroundJob {
+                id: job_id,
+                tree_id,
+                kind: BackgroundJobKind::Import,
+                format: "gedcom".into(),
+                source_key: Some(source_key),
+                payload_json: None,
+                original_filename: None,
+                include_notes_and_sources: true,
+                include_media: true,
+            },
+        )
+        .await
+        .expect("queues job");
+        job_id
+    }
+
+    fn fs_store(root: &tempfile::TempDir) -> Arc<dyn MediaStore> {
+        Arc::new(crate::media::store::FsStore::new(root.path()))
+    }
+
+    #[tokio::test]
+    async fn an_idle_worker_runs_a_job_queued_in_this_process_at_once() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media = fs_store(&root);
+        let _worker = idle_worker(&db, &media).await;
+
+        let (_, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        assert_eq!(ends(&db, job_id).await, "completed");
+    }
+
+    #[tokio::test]
+    async fn an_idle_worker_writes_a_cancellation_noted_in_this_process_at_once() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media = fs_store(&root);
+        let _worker = idle_worker(&db, &media).await;
+        // A row the sleeping worker was not woken for.
+        let job_id = queued_elsewhere(&db, &*media).await;
+        let tree_id = job(&db, job_id).await.tree_id;
+
+        // Under SQLite the request only notes the cancellation; the worker,
+        // woken by the note, writes it.
+        let status = cancel_import_job(&db, &db, &*media, tree_id, job_id)
+            .await
+            .expect("cancels");
+        assert_eq!(status.phase, "cancelled");
+        assert_eq!(leaves(&db, job_id, "queued").await, "cancelled");
+    }
+
+    #[tokio::test]
+    async fn an_idle_worker_takes_over_a_job_whose_lease_expires() {
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media = fs_store(&root);
+        let job_id = queued_elsewhere(&db, &*media).await;
+        // Another worker claimed it, then stopped renewing its lease.
+        BackgroundJobRepo::claim_next(&db, "stopped", chrono::Duration::seconds(2))
+            .await
+            .expect("claims")
+            .expect("the queued job");
+        let _worker = idle_worker(&db, &media).await;
+        assert_eq!(
+            job(&db, job_id).await.lease_owner.as_deref(),
+            Some("stopped")
+        );
+
+        // It wakes when the lease expires, without anybody queuing anything.
+        assert_eq!(leaves(&db, job_id, "running").await, "completed");
+        assert_eq!(job(&db, job_id).await.attempt, 2, "taken over once");
+    }
 }
 
 fn safe_origin_file(filename: Option<&str>) -> String {
@@ -2219,12 +2402,23 @@ struct GeneanetFetchedInput {
     key: String,
 }
 
+/// Queue `job`: its row, announced to the workers of other processes in the
+/// same transaction (see [`BackgroundJobRepo::create`]), then, committed, to
+/// the worker of this one.
+async fn enqueue(db: &DatabaseConnection, job: NewBackgroundJob) -> Result<(), OxidGeneError> {
+    let transaction = db.begin().await.map_err(db_err)?;
+    BackgroundJobRepo::create(&transaction, job).await?;
+    transaction.commit().await.map_err(db_err)?;
+    job_queue::wake();
+    Ok(())
+}
+
 /// Put an uploaded genealogy file into job storage and queue its import job.
 ///
 /// The staged source is deleted again when the job row cannot be written, so
 /// a failed start leaves nothing behind.
 pub async fn stage_import(
-    db: &impl sea_orm::ConnectionTrait,
+    db: &DatabaseConnection,
     media: &dyn MediaStore,
     job_id: Uuid,
     tree_id: Uuid,
@@ -2234,7 +2428,7 @@ pub async fn stage_import(
 ) -> Result<(), OxidGeneError> {
     let source_key = job_blob_key(job_id, "source", format)?;
     media.put_file(&source_key, path).await?;
-    let created = BackgroundJobRepo::create(
+    let created = enqueue(
         db,
         NewBackgroundJob {
             id: job_id,
@@ -2328,7 +2522,7 @@ pub async fn stage_geneanet_import(
             media_fidelity,
         })
         .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        BackgroundJobRepo::create(
+        enqueue(
             db,
             NewBackgroundJob {
                 id: job_id,
@@ -2454,7 +2648,7 @@ pub async fn start_export_job(
         include_notes_and_sources,
         include_media,
     } = choices;
-    BackgroundJobRepo::create(
+    enqueue(
         db,
         NewBackgroundJob {
             id: job_id,

@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
 ---
 
 
@@ -170,6 +170,8 @@ and flow — are listed in the [specification index](index.md).
 - A long-lived Rust worker claims jobs with expiring leases. PostgreSQL and S3
     permit independent scalable worker pods; SQLite and filesystem storage use
     the same worker code embedded in the single desktop or local backend.
+    An idle worker does not poll: it sleeps until a job is queued
+    ([§6.5](#65-waking-the-worker)).
 - Import sources and export artifacts use job-scoped object keys. A
     worker's local files live in its working directory
     ([§8.3](#83-local-files)) and are scratch space only: removed when their
@@ -372,6 +374,43 @@ state once, and reads it again only when the channel signals a change.
 At most 256 reads wait at once in a process; past them a read answers at
 once, and the client pauses before it asks again. A home page waits on the
 active jobs only and reads the tree list again once one ends.
+
+### 6.5 Waking the worker
+
+An idle worker reads nothing while there is nothing to do: it sleeps until
+there may be work (`oxidgene_api::service::job_queue`), then claims as
+before, and keeps claiming until the queue is empty.
+
+- *Same process.* Queuing a job — an uploaded file's import, a Geneanet
+  import, an export — inserts its row in a transaction and, once that has
+  committed, wakes the worker of the process through a `tokio::sync::Notify`.
+  A cancellation the worker has to write under SQLite
+  ([§6.3](#63-job-cancellation)) wakes it the same way. A worker busy at that
+  moment finds the signal when it next goes idle and looks once more before
+  it sleeps, so no signal falls between its last look and its sleep. The
+  desktop and a SQLite server need nothing else.
+- *Other processes (PostgreSQL).* The insert sends
+  `pg_notify('oxidgene_job_queue', '')` in its transaction, so the
+  notification leaves when the row is visible. Each worker listens on that
+  channel with one connection of its own (`PgListener`) and looks for work at
+  each notification, and whenever it starts listening, at start and after a
+  lost connection, since what it missed is unknown. A cancellation needs no
+  signal there: the request writes the database itself, and a running job
+  reads it with its next progress report.
+- *Expired leases.* A job whose worker stopped is claimable again once its
+  lease has run out. An idle worker reads when the earliest lease of the
+  running jobs expires and wakes a second after it, so a stopped worker's job
+  is taken over without anybody polling for it.
+- *Maintenance and the safety net.* An idle worker also wakes for its
+  maintenance pass (§6), and in any case a minute after it went to sleep.
+  Nothing is expected to need that minute; it bounds how long a job waits on
+  a path that misses its signal all the same — a connection pooler in
+  transaction mode does not carry `LISTEN` — at two statements a minute
+  while idle (the claim and the earliest lease) instead of one a second.
+
+A running job reports its progress every second, whatever the idle worker's
+pace: the report renews its lease and reads its cancellation under
+PostgreSQL, and moves what its status reads show.
 
 ---
 

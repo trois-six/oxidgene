@@ -196,9 +196,9 @@ bench:
 
 # Migrate an empty, disposable PostgreSQL database up and down, run the
 # repository and API functional tests on it, each test in a schema of its
-# own, then follow a job across processes on it (cancellation and
-# notifications); the OXIDGENE_TEST_DATABASE_URL variable names it (see
-# docs/development.md).
+# own, then follow jobs across processes on it (cancellation, progress
+# notifications, and a job queued elsewhere waking an idle worker); the
+# OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
 test-postgres:
     cargo nextest run -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
     OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql --test integration
