@@ -187,9 +187,12 @@ pub async fn create_page(
 
 /// Store uploaded bytes in `tree_id`, as a new page or into an existing one.
 ///
-/// The bytes are stored before the transaction: they are content-addressed,
-/// so a failed write leaves at worst an unreferenced object, never a row
-/// pointing at nothing. Returns the page, and whether it was created.
+/// The target is checked before anything is stored, so an upload naming a
+/// record of another tree stores nothing. The bytes are then stored before
+/// the transaction, which checks the target again against a concurrent
+/// deletion: they are content-addressed, so a row never points at nothing.
+/// When the transaction fails, the objects this upload wrote that no row
+/// names are deleted again. Returns the page, and whether it was created.
 pub async fn upload(
     db: &DatabaseConnection,
     profiles: &ProfileService,
@@ -197,10 +200,69 @@ pub async fn upload(
     tree_id: Uuid,
     upload: NewUpload,
 ) -> Result<(Media, bool), OxidGeneError> {
+    let target = match upload.target {
+        UploadTarget::Attach { media_id } => media_id,
+        UploadTarget::NewPage { document_id } => document_id,
+    };
+    require_tree_resource(db, tree_id, TreeResource::Media, target).await?;
     let ingested = media::ingest(store, tree_id, &upload.file_name, upload.bytes).await?;
+    // Already stored, the bytes belong to whatever stored them first.
+    let written: Vec<String> = if ingested.deduplicated {
+        Vec::new()
+    } else {
+        [
+            Some(ingested.storage_key.clone()),
+            ingested.thumbnail_key.clone(),
+            ingested.card_key.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    };
     let uploaded = ingested.into_upload(upload.title, upload.description);
+    let outcome = write_upload(db, profiles, tree_id, upload.target, uploaded).await;
+    if outcome.is_err() && !written.is_empty() {
+        discard_unnamed(db, store, tree_id, &written).await;
+    }
+    outcome
+}
+
+/// Delete the objects of `keys`, stored by an upload whose rows were not
+/// written, that no media row of `tree_id` names. Best effort: the upload
+/// fails with its own error whatever happens here.
+async fn discard_unnamed(
+    db: &DatabaseConnection,
+    store: &dyn MediaStore,
+    tree_id: Uuid,
+    keys: &[String],
+) {
+    let Ok(named) = MediaRepo::referenced_keys(db, tree_id, keys).await else {
+        return cleanup_failed("could not check which objects of a failed upload are named");
+    };
+    for key in keys.iter().filter(|key| !named.contains(*key)) {
+        if store.delete(key).await.is_err() {
+            cleanup_failed("could not delete an object of a failed upload");
+        }
+    }
+}
+
+/// Log that the cleanup of a failed upload stopped short: `message` is a
+/// fixed line, never what the objects hold.
+fn cleanup_failed(message: &'static str) {
+    tracing::warn!(error = "upload_cleanup", "{message}");
+}
+
+/// The rows of an upload whose bytes are stored as `uploaded`, into
+/// `target`, in one transaction with their audit entry.
+async fn write_upload(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    target: UploadTarget,
+    uploaded: oxidgene_db::repo::UploadedMedia,
+) -> Result<(Media, bool), OxidGeneError> {
     let txn = begin_tx(db).await?;
-    let (page, change) = match upload.target {
+    let (page, change) = match target {
         UploadTarget::Attach { media_id } => {
             require_tree_resource(&txn, tree_id, TreeResource::Media, media_id).await?;
             let page = MediaRepo::attach_file(&txn, media_id, uploaded).await?;
@@ -228,7 +290,7 @@ pub async fn upload(
     refresh_showing(&txn, profiles, tree_id, document_id).await?;
     change.media(document_id).record_unversioned(&txn).await?;
     commit_tx(txn).await?;
-    Ok((page, matches!(upload.target, UploadTarget::NewPage { .. })))
+    Ok((page, matches!(target, UploadTarget::NewPage { .. })))
 }
 
 /// Create an empty multi-page document in `tree_id`.

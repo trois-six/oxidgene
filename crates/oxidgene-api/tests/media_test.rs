@@ -673,6 +673,120 @@ async fn uploading_a_photo_creates_a_record_that_knows_its_own_shape() {
     assert!(media["thumbnail_key"].is_string());
 }
 
+/// The files stored under `root` for tree `tree_id`.
+fn stored_files(root: &std::path::Path, tree_id: Uuid) -> usize {
+    fn count(directory: &std::path::Path) -> usize {
+        std::fs::read_dir(directory).map_or(0, |entries| {
+            entries
+                .flatten()
+                .map(|entry| {
+                    let path = entry.path();
+                    if path.is_dir() { count(&path) } else { 1 }
+                })
+                .sum()
+        })
+    }
+    count(&root.join(tree_id.to_string()))
+}
+
+/// An upload into a record of another tree is not found, and stores no
+/// byte — on both surfaces.
+#[tokio::test]
+async fn an_upload_into_a_document_of_another_tree_stores_nothing() {
+    let h = setup().await;
+    let (_, other) = send(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({ "name": "Elsewhere" })),
+    )
+    .await;
+    let other_tree = Uuid::parse_str(other["id"].as_str().unwrap()).unwrap();
+    let foreign = new_document(&h.app, other_tree, None).await;
+
+    let (status, body) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some("photo.png"), &png(32, 32)),
+            ("document_id", None, foreign.as_bytes()),
+        ],
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let response = upload_over_graphql(&h.app, h.tree_id, &foreign, &png(32, 32)).await;
+    assert_eq!(common::gql_error_code(&response), "NOT_FOUND", "{response}");
+    assert_eq!(stored_files(&h.root.0, h.tree_id), 0);
+}
+
+/// Upload `bytes` as a new page of `document_id` through GraphQL; the whole
+/// response.
+async fn upload_over_graphql(
+    app: &axum::Router,
+    tree_id: Uuid,
+    document_id: &str,
+    bytes: &[u8],
+) -> Value {
+    use base64::Engine as _;
+    common::gql(
+        app,
+        "mutation($t: ID!, $d: String!, $c: String!) { uploadMediaFile(treeId: $t, input: { documentId: $d, fileName: \"photo.png\", contentBase64: $c }) { id } }",
+        json!({
+            "t": tree_id,
+            "d": document_id,
+            "c": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }),
+    )
+    .await
+}
+
+/// An upload whose rows cannot be written deletes the objects it stored —
+/// on both surfaces.
+#[tokio::test]
+async fn an_upload_whose_rows_fail_leaves_no_stored_object() {
+    // The trigger that makes the write fail is SQLite's.
+    let db = common::setup_sqlite_db().await;
+    let root = TempRoot::new();
+    let app = build_router(AppState::new(db.clone(), &root.0));
+    let (_, tree) = send(
+        &app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({ "name": "Refusing" })),
+    )
+    .await;
+    let tree_id = Uuid::parse_str(tree["id"].as_str().unwrap()).unwrap();
+    let document = new_document(&app, tree_id, None).await;
+    use sea_orm::ConnectionTrait as _;
+    db.execute_unprepared(
+        "CREATE TRIGGER refuse_page BEFORE INSERT ON media \
+         WHEN NEW.parent_media_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'refused'); END",
+    )
+    .await
+    .unwrap();
+
+    let (status, body) = upload(
+        &app,
+        tree_id,
+        &[
+            ("file", Some("photo.png"), &png(48, 48)),
+            ("document_id", None, document.as_bytes()),
+        ],
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(stored_files(&root.0, tree_id), 0);
+    let response = upload_over_graphql(&app, tree_id, &document, &png(48, 48)).await;
+    assert_eq!(
+        common::gql_error_code(&response),
+        "DATABASE_ERROR",
+        "{response}"
+    );
+    assert_eq!(stored_files(&root.0, tree_id), 0);
+}
+
 #[tokio::test]
 async fn the_uploaded_bytes_actually_land_under_the_media_root() {
     let h = setup().await;
