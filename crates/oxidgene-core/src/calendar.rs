@@ -326,44 +326,50 @@ pub fn from_jdn(calendar: Calendar, jdn: i64) -> Option<(i32, u8, u8)> {
             };
             Some((historical(y)?, u8::try_from(m).ok()?, u8::try_from(d).ok()?))
         }
-        Calendar::FrenchRepublican => {
-            let epoch = republican_new_year_jdn(1)?;
-            if jdn < epoch {
-                return None;
-            }
-            // The estimate is short by construction (366 > a real year), so the
-            // search only ever walks forwards, a handful of steps.
-            let mut year = i32::try_from((jdn - epoch) / 366).ok()? + 1;
-            while republican_new_year_jdn(year + 1).is_some_and(|start| start <= jdn) {
-                year += 1;
-            }
-            let doy = jdn - republican_new_year_jdn(year)?;
-            Some((
-                year,
-                u8::try_from(doy / 30).ok()? + 1,
-                u8::try_from(doy % 30).ok()? + 1,
-            ))
-        }
-        Calendar::Hebrew => {
-            if jdn < hebrew_new_year_jdn(1) {
-                return None;
-            }
-            let mut year = ((jdn - HEBREW_EPOCH_JDN) / 366) + 1;
-            while hebrew_new_year_jdn(year + 1) <= jdn {
-                year += 1;
-            }
-            let mut rest = jdn - hebrew_new_year_jdn(year);
-            let year = i32::try_from(year).ok()?;
-            for month in 1..=months_in_year(calendar) {
-                let len = i64::from(days_in_month(calendar, year, month));
-                if rest < len {
-                    return Some((year, month, u8::try_from(rest).ok()? + 1));
-                }
-                rest -= len;
-            }
-            None
-        }
+        Calendar::FrenchRepublican => republican_from_jdn(jdn),
+        Calendar::Hebrew => hebrew_from_jdn(jdn),
     }
+}
+
+/// [`from_jdn`] in the French Republican calendar.
+fn republican_from_jdn(jdn: i64) -> Option<(i32, u8, u8)> {
+    let epoch = republican_new_year_jdn(1)?;
+    if jdn < epoch {
+        return None;
+    }
+    // The estimate is short by construction (366 > a real year), so the
+    // search only ever walks forwards, a handful of steps.
+    let mut year = i32::try_from((jdn - epoch) / 366).ok()? + 1;
+    while republican_new_year_jdn(year + 1).is_some_and(|start| start <= jdn) {
+        year += 1;
+    }
+    let doy = jdn - republican_new_year_jdn(year)?;
+    Some((
+        year,
+        u8::try_from(doy / 30).ok()? + 1,
+        u8::try_from(doy % 30).ok()? + 1,
+    ))
+}
+
+/// [`from_jdn`] in the Hebrew calendar.
+fn hebrew_from_jdn(jdn: i64) -> Option<(i32, u8, u8)> {
+    if jdn < hebrew_new_year_jdn(1) {
+        return None;
+    }
+    let mut year = ((jdn - HEBREW_EPOCH_JDN) / 366) + 1;
+    while hebrew_new_year_jdn(year + 1) <= jdn {
+        year += 1;
+    }
+    let mut rest = jdn - hebrew_new_year_jdn(year);
+    let year = i32::try_from(year).ok()?;
+    for month in 1..=months_in_year(Calendar::Hebrew) {
+        let len = i64::from(days_in_month(Calendar::Hebrew, year, month));
+        if rest < len {
+            return Some((year, month, u8::try_from(rest).ok()? + 1));
+        }
+        rest -= len;
+    }
+    None
 }
 
 /// Re-expresses a date in another calendar, keeping the precision it was

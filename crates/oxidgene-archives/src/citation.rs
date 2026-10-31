@@ -300,7 +300,7 @@ impl Act {
     pub fn category(&self, year: Option<u16>) -> Option<DocumentCategory> {
         match self {
             Self::Register(kinds) => register_category(kinds, year),
-            Self::Table(code) => match code.strip_prefix('T').and_then(Self::from_code) {
+            Self::Table(code) => match code.strip_prefix("T").and_then(Self::from_code) {
                 Some(Self::Register(kinds)) => register_category(&kinds, year),
                 _ => Some(DocumentCategory::CivilRecord),
             },
