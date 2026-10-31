@@ -305,9 +305,8 @@ impl Session {
             return;
         }
         let urls = std::mem::take(&mut self.queued_fetch);
-        let json = serde_json::to_string(&urls).unwrap_or_else(|_| "[]".into());
         self.status(&self.strings.matching);
-        self.eval(&script::ipc_fetch(&json));
+        self.eval(&script::ipc_fetch(&urls));
     }
 
     fn finish_fetch(&mut self) {
@@ -535,8 +534,7 @@ fn handle(session: &mut Option<Session>, message: Message) -> Option<Session> {
                 done: 0,
                 total: ids.len(),
             });
-            let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
-            open.eval(&script::ipc_sizes(&json));
+            open.eval(&script::ipc_sizes(&ids));
             None
         }
         Message::Sizing { done, total } => {

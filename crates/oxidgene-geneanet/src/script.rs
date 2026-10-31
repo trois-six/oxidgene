@@ -196,26 +196,10 @@ pub fn status_overlay(heading: &str, message: &str, hint: &str) -> String {
     )
 }
 
-/// Minimal JSON string escaping, so a translated string can be embedded in a
-/// script without a quote in it ending the statement.
+/// A string as a JSON (and JavaScript) literal, so a translated string can be
+/// embedded in a script without a quote in it ending the statement.
 fn json_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 || c == '\u{2028}' || c == '\u{2029}' => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    serde_json::Value::from(value).to_string()
 }
 
 /// Runs on every page the login WebView loads, and says whether the session is
@@ -296,7 +280,9 @@ pub fn ipc_collection() -> String {
 /// `www.geneanet.org`, and a cross-origin `fetch` would be refused. The window
 /// is therefore navigated to the host it is about to read from before this is
 /// evaluated — the session cookie is set on `.geneanet.org`, so it covers both.
-pub fn ipc_fetch(urls_json: &str) -> String {
+pub fn ipc_fetch(urls: &[String]) -> String {
+    // Serialised here, so the script always receives a JSON array of strings.
+    let urls_json = serde_json::to_string(urls).unwrap_or_else(|_| "[]".into());
     format!(
         r"
 (async () => {{
@@ -345,7 +331,8 @@ pub fn ipc_fetch(urls_json: &str) -> String {
 /// Runs in the login window for the same reason the collection does: these are
 /// requests to geneanet.org, and they come from the browser that holds the
 /// session.
-pub fn ipc_sizes(deposit_ids_json: &str) -> String {
+pub fn ipc_sizes(deposit_ids: &[i64]) -> String {
+    let deposit_ids_json = serde_json::to_string(deposit_ids).unwrap_or_else(|_| "[]".into());
     format!(
         r"
 (async () => {{
@@ -441,7 +428,7 @@ mod tests {
         // A run can cover several hundred files. Collecting them into one IPC
         // message would build an enormous string in the page before anything
         // crossed the boundary.
-        let script = ipc_fetch(r#"["/a.jpg","/b.jpg"]"#);
+        let script = ipc_fetch(&["/a.jpg".to_owned(), "/b.jpg".to_owned()]);
 
         assert!(script.contains("kind: 'fetched'"));
         assert!(script.contains("kind: 'fetch_done'"));
@@ -452,14 +439,14 @@ mod tests {
     fn the_fetch_script_chunks_its_base64() {
         // `String.fromCharCode.apply` over a multi-megabyte array overflows
         // the call stack — a scan is exactly that size.
-        assert!(ipc_fetch("[]").contains("i += 0x8000"));
+        assert!(ipc_fetch(&[]).contains("i += 0x8000"));
     }
 
     #[test]
     fn a_failed_fetch_is_reported_per_file_not_thrown() {
         // One unreachable medium must not abandon the several hundred after
         // it; the import reports it as skipped and carries on.
-        let script = ipc_fetch("[]");
+        let script = ipc_fetch(&[]);
         assert!(script.contains("error: 'HTTP ' + r.status"));
         assert!(script.contains("catch (e)"));
     }
@@ -468,7 +455,8 @@ mod tests {
     fn the_sizing_pass_asks_for_no_body() {
         // The whole point: several hundred requests that transfer nothing. A
         // GET here would pull the entire account down to learn its lengths.
-        let script = ipc_sizes("[1,2,3]");
+        let script = ipc_sizes(&[1, 2, 3]);
+        assert!(script.contains("const ids = [1,2,3];"));
         assert!(script.contains("method: 'HEAD'"));
         assert!(script.contains("content-length"));
         // The trailing slash is not decoration — without it Geneanet answers
@@ -482,8 +470,8 @@ mod tests {
         // them should mutate anything, so no write verbs.
         for script in [
             ipc_collection(),
-            ipc_sizes("[]"),
-            ipc_fetch("[]"),
+            ipc_sizes(&[]),
+            ipc_fetch(&[]),
             PROBE.to_string(),
         ] {
             for verb in [
@@ -505,8 +493,8 @@ mod tests {
         // Without this every call 403s, which would look like an auth problem.
         for script in [
             ipc_collection(),
-            ipc_sizes("[]"),
-            ipc_fetch("[]"),
+            ipc_sizes(&[]),
+            ipc_fetch(&[]),
             PROBE.to_string(),
         ] {
             assert!(script.contains("X-Requested-With"));
