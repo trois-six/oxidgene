@@ -874,6 +874,7 @@ impl BackgroundJobWorker {
                 let tree_id = job.tree_id;
                 parse_off_thread("geneweb", move || {
                     oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, tree_id)
+                        .map_err(OxidGeneError::Gedcom)
                 })
                 .await
             }
@@ -883,7 +884,7 @@ impl BackgroundJobWorker {
             "test-panic" => {
                 parse_off_thread(
                     "test-panic",
-                    || -> Result<oxidgene_gedcom::ImportResult, String> {
+                    || -> Result<oxidgene_gedcom::ImportResult, OxidGeneError> {
                         panic!("a reader crashed")
                     },
                 )
@@ -1306,27 +1307,35 @@ impl BackgroundJobWorker {
 /// task boundary: a reader that panics on a crafted file fails this job as
 /// unreadable input instead of taking the worker loop down with it. (A
 /// release build aborts on panic; [`MAX_ATTEMPTS`] covers that case.)
-pub(crate) async fn parse_off_thread<F>(
+pub(crate) async fn parse_off_thread<T, F>(
     format: &'static str,
     parse: F,
-) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError>
+) -> Result<T, OxidGeneError>
 where
-    F: FnOnce() -> Result<oxidgene_gedcom::ImportResult, String> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, OxidGeneError> + Send + 'static,
 {
     let span = tracing::info_span!("import.parse", import.format = format);
-    match crate::service::blocking::spawn_in(span, parse).await {
-        Ok(parsed) => parsed.map_err(OxidGeneError::Gedcom),
-        Err(error) if error.is_panic() => {
-            tracing::error!(
-                error.category = "import_reader_panicked",
-                import.format = format,
-                "the file reader crashed; the import fails as unreadable input"
-            );
-            Err(OxidGeneError::Gedcom("the file could not be read".into()))
-        }
-        Err(_) => Err(OxidGeneError::Internal(
-            "import parsing was cancelled".into(),
-        )),
+    crate::service::blocking::spawn_in(span, parse)
+        .await
+        .map_err(|error| reader_failure(format, &error))?
+}
+
+/// The error of a `format` file reader whose blocking task did not finish:
+/// a panic, logged and reported as unreadable input, or a cancellation.
+pub(crate) fn reader_failure(
+    format: &'static str,
+    error: &tokio::task::JoinError,
+) -> OxidGeneError {
+    if error.is_panic() {
+        tracing::error!(
+            error.category = "import_reader_panicked",
+            import.format = format,
+            "the file reader crashed; the import fails as unreadable input"
+        );
+        OxidGeneError::Gedcom("the file could not be read".into())
+    } else {
+        OxidGeneError::Internal("import parsing was cancelled".into())
     }
 }
 

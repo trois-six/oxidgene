@@ -7,6 +7,7 @@
 
 mod export_scope;
 
+use crate::service::background_job::parse_off_thread;
 use crate::service::tag_bulk::{self, TagTargetSpec};
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
@@ -299,24 +300,10 @@ pub(crate) async fn prepare_gedzip_file(
     progress.enter(FileImportPhase::Parsing);
 
     let file = std::fs::File::open(archive_path).map_err(OxidGeneError::Io)?;
-    // On the blocking pool, and behind a task boundary a reader's panic
-    // cannot cross (see `background_job::parse_off_thread`).
-    let span = tracing::info_span!("import.parse", import.format = "gedzip");
-    let (mut reader, plan) = match crate::service::blocking::spawn_in(span, move || {
-        oxidgene_gedcom::import::prepare_gedzip(file, tree_id)
+    let (mut reader, plan) = parse_off_thread("gedzip", move || {
+        oxidgene_gedcom::import::prepare_gedzip(file, tree_id).map_err(OxidGeneError::from)
     })
-    .await
-    {
-        Ok(prepared) => prepared?,
-        Err(error) if error.is_panic() => {
-            return Err(OxidGeneError::Gedcom("the file could not be read".into()));
-        }
-        Err(_) => {
-            return Err(OxidGeneError::Internal(
-                "import parsing was cancelled".into(),
-            ));
-        }
-    };
+    .await?;
     let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
     let names: std::collections::HashMap<Uuid, String> = result
         .media
