@@ -334,7 +334,7 @@ impl DictionaryRepo {
                 (source, count)
             })
             .collect();
-        out.sort_by_cached_key(|(a, _)| a.title.to_lowercase());
+        out.sort_by_cached_key(|(a, _)| (a.title.to_lowercase(), a.id));
         Ok(out)
     }
 
@@ -512,7 +512,7 @@ impl DictionaryRepo {
                 (place, count)
             })
             .collect();
-        out.sort_by_cached_key(|(a, _)| a.name.to_lowercase());
+        out.sort_by_cached_key(|(a, _)| (a.name.to_lowercase(), a.id));
         Ok(out)
     }
 
@@ -652,22 +652,17 @@ impl DictionaryRepo {
     }
 
     /// Distinct persons holding a given occupation label in a tree.
+    ///
+    /// Labels are matched trimmed, as [`Self::occupations`] lists them: a
+    /// description stored with surrounding spaces belongs to its entry.
     pub async fn occupation_usage_person_ids(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         value: &str,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        let events = event::Entity::find()
-            .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::DeletedAt.is_null())
-            .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Occupation)))
-            .filter(event::Column::Description.eq(value))
-            .all(db)
-            .await
-            .map_err(db_err)?;
-
+        let events = Self::occupation_events_labelled(db, tree_id, &[value.trim()]).await?;
         Ok(sorted_unique(
-            events.into_iter().filter_map(|e| e.person_id),
+            events.into_iter().map(|(_, person_id, _)| person_id),
         ))
     }
 
@@ -1058,7 +1053,12 @@ impl DictionaryRepo {
                 }
             })
             .collect();
-        out.sort_by_cached_key(|p| p.given_names.as_deref().unwrap_or("").to_lowercase());
+        out.sort_by_cached_key(|p| {
+            (
+                p.given_names.as_deref().unwrap_or("").to_lowercase(),
+                p.person_id,
+            )
+        });
         Ok(out)
     }
 }
@@ -1223,7 +1223,7 @@ async fn sources_with_usage_of(
             (source, count)
         })
         .collect();
-    out.sort_by_cached_key(|(a, _)| a.title.to_lowercase());
+    out.sort_by_cached_key(|(a, _)| (a.title.to_lowercase(), a.id));
     Ok(out)
 }
 
@@ -1344,7 +1344,9 @@ fn sorted_entries_with(
             primary_count: None,
         })
         .collect();
-    out.sort_by_cached_key(|a| a.value.to_lowercase());
+    // Values differing only in case are entries of their own: the exact
+    // spelling orders them, not the map's iteration.
+    out.sort_by_cached_key(|a| (a.value.to_lowercase(), a.value.clone()));
     out
 }
 
@@ -1374,5 +1376,27 @@ fn into_place(m: place::Model) -> Place {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Values differing only in case are listed in one order, whatever the
+    /// order the map hands them over in.
+    #[test]
+    fn case_only_ties_are_ordered_by_spelling() {
+        for _ in 0..8 {
+            let per_value: HashMap<String, HashSet<Uuid>> = ["van", "Van", "VAN", "Ash"]
+                .into_iter()
+                .map(|value| (value.to_owned(), HashSet::from([Uuid::now_v7()])))
+                .collect();
+            let values: Vec<String> = sorted_entries(per_value)
+                .into_iter()
+                .map(|entry| entry.value)
+                .collect();
+            assert_eq!(values, ["Ash", "VAN", "Van", "van"]);
+        }
     }
 }

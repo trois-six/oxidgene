@@ -1062,6 +1062,35 @@ async fn event_crud_and_filters() {
 
 // ───────────────────────── Place tests ─────────────────────────
 
+/// `%` and `_` typed in a list search match themselves, not any text.
+#[tokio::test]
+async fn place_search_matches_like_wildcards_literally() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    for name in ["Northfield", "North_field", "Hill 50%"] {
+        PlaceRepo::create(&db, Uuid::now_v7(), tree_id, name.into(), None, None)
+            .await
+            .unwrap();
+    }
+    let params = PaginationParams::default();
+    let names = |search: &'static str| {
+        let db = &db;
+        let params = &params;
+        async move {
+            PlaceRepo::list(db, tree_id, Some(search), params)
+                .await
+                .unwrap()
+                .edges
+                .into_iter()
+                .map(|edge| edge.node.name)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(names("%").await, ["Hill 50%"]);
+    assert_eq!(names("h_f").await, ["North_field"]);
+    assert_eq!(names("50%").await, ["Hill 50%"]);
+}
+
 #[tokio::test]
 async fn place_crud_and_search() {
     let db = setup_db().await;
@@ -2827,6 +2856,27 @@ async fn family_name_entry(
         .find(|e| e.value == value)
 }
 
+/// A surname typed with spaces around it is listed trimmed, and its usage
+/// list and descent find its carrier under that listed value.
+#[tokio::test]
+async fn dictionary_padded_family_name_resolves_to_its_carrier() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let carrier = create_person(&db, tree_id).await;
+    create_split_name(&db, carrier, None, " Example ").await;
+
+    let entry = family_name_entry(&db, tree_id, "Example").await.unwrap();
+    assert_eq!(entry.count, 1);
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "Example")
+        .await
+        .unwrap();
+    assert_eq!(ids, [carrier]);
+    let descent = DictionaryRepo::load_family_name_descent(&db, tree_id, "Example")
+        .await
+        .unwrap();
+    assert_eq!(descent.names.len(), 1);
+}
+
 #[tokio::test]
 async fn dictionary_rename_family_name_renames_primary_names_only() {
     let db = setup_db().await;
@@ -3029,6 +3079,40 @@ async fn dictionary_set_family_name_particle_refuses_a_particle_that_is_not_ther
     let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
     assert_eq!(entries[0].value, "Dupont");
     assert_eq!(entries[0].sort_key, "dupont");
+}
+
+/// An occupation typed with spaces around it is listed trimmed, and its
+/// usage list finds its holder under that listed value.
+#[tokio::test]
+async fn dictionary_padded_occupation_resolves_to_its_holder() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let holder = create_person(&db, tree_id).await;
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Occupation,
+        None,
+        None,
+        None,
+        Some(holder),
+        None,
+        Some("Farmer ".into()),
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+
+    let entries = DictionaryRepo::occupations(&db, tree_id).await.unwrap();
+    assert_eq!(entries[0].value, "Farmer");
+    let usage = DictionaryRepo::occupation_usage_person_ids(&db, tree_id, "Farmer")
+        .await
+        .unwrap();
+    assert_eq!(usage, [holder]);
 }
 
 #[tokio::test]

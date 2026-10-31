@@ -144,7 +144,7 @@ impl PersonNameRepo {
             person_id: Set(person_id),
             name_type: Set(sea_enums::NameType::from(name_type)),
             given_names: Set(pieces.given_names),
-            surname: Set(pieces.surname),
+            surname: Set(trimmed_surname(pieces.surname)),
             surname_prefix: Set(pieces.surname_prefix),
             prefix: Set(pieces.prefix),
             suffix: Set(pieces.suffix),
@@ -184,7 +184,7 @@ impl PersonNameRepo {
             active.given_names = Set(given_names);
         }
         if let Some(surname) = pieces.surname {
-            active.surname = Set(surname);
+            active.surname = Set(trimmed_surname(surname));
         }
         if let Some(surname_prefix) = pieces.surname_prefix {
             active.surname_prefix = Set(surname_prefix);
@@ -239,4 +239,13 @@ pub(crate) fn into_domain(m: person_name::Model) -> PersonName {
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
+}
+
+/// A surname root as stored: without the spaces around it, which the
+/// dictionary's lists drop and its index lookups could not see past. A blank
+/// root is no surname.
+fn trimmed_surname(surname: Option<String>) -> Option<String> {
+    surname
+        .map(|root| root.trim().to_owned())
+        .filter(|root| !root.is_empty())
 }
