@@ -226,7 +226,7 @@ fn rank(
         .map(|(folded, value, count)| {
             held.insert(folded);
             ValueSuggestion {
-                reference: reference.is_some_and(|kind| has_sheet(kind, lang, &value)),
+                reference: reference.is_some_and(|kind| has_sheet(kind, &value)),
                 value,
                 count,
             }

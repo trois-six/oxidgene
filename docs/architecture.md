@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-30T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 
@@ -393,7 +393,11 @@ active jobs only and reads the tree list again once one ends.
 ### 7.1 Embedded data
 
 Data built into the backend is Brotli-compressed, at quality 11 with a
-16 MiB window, and decompressed once in memory when first needed:
+16 MiB window, and decompressed in memory when needed — what stays there
+being kept small: the reference sheets keep an index of their terms, and a
+lookup decompresses the file of the sheets it returns for its own use
+([API Contract](api.md), Reference); the place dictionary is indexed on
+its first search only ([Place dictionary §2.1](place-dictionary.md)):
 
 - the reference sheets (`assets/reference/*.json`) and the
     OpenAPI document, compressed by `oxidgene-api`'s build script so the JSON

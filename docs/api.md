@@ -1501,8 +1501,12 @@ aliases given to either sex somewhere), the same in every language's file:
 the anomalies read it ([Tools §3.2](ui-tools.md)), the lookups do not return
 it. Source content lives in
 `assets/reference/*.json`, one file per language and data type,
-is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is decompressed and indexed once in memory —
-warmed at server and desktop startup so no request pays for it.
+is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is indexed once in memory —
+warmed at server and desktop startup so no request pays for it. The index
+keeps the terms, the keys they name in each language and each sheet's sex,
+some 10 MB where the whole tables held 75; a lookup reads the sheets it returns
+from the embedded file of `lang` (and of English for those `lang` lacks),
+decompressed for that request only, a batch reading each file once.
 
 | Method | Path | Description |
 |---|---|---|

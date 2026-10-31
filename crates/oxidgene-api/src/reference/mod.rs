@@ -4,7 +4,8 @@
 //!
 //! Source JSON lives in `data/` (one file per language per data type),
 //! Brotli-compressed at build time (see `build.rs`) and decompressed once,
-//! on first lookup, into an in-memory table (see `loader.rs`). The place
+//! at startup into an in-memory index, the sheets themselves read from the
+//! embedded files on each lookup (see `loader.rs`). The place
 //! dictionary is committed already compressed (see `places.rs`).
 
 mod basemap;
@@ -72,17 +73,19 @@ pub struct OccupationMatch {
     pub entry: OccupationEntry,
 }
 
+/// Resolves several given-name terms at once, keeping request order,
+/// dropping duplicates, and omitting terms with no fiche.
 pub fn lookup_given_names(lang: ReferenceLang, terms: &[String]) -> Vec<GivenNameMatch> {
     let mut seen = HashSet::new();
-    terms
+    let unique = terms
         .iter()
         .filter(|term| seen.insert((*term).clone()))
-        .filter_map(|term| {
-            lookup_given_name(lang, term).map(|entry| GivenNameMatch {
-                term: term.clone(),
-                entry,
-            })
-        })
+        .cloned()
+        .collect::<Vec<_>>();
+    loader::lookup_given_names(lang, &unique)
+        .into_iter()
+        .zip(unique)
+        .filter_map(|(entry, term)| entry.map(|entry| GivenNameMatch { term, entry }))
         .collect()
 }
 
