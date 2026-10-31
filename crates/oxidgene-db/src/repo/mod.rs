@@ -129,16 +129,36 @@ pub fn db_err(error: sea_orm::DbErr) -> oxidgene_core::error::OxidGeneError {
 /// sides are lowered by the database, as in [`lower_trim_eq`]: a bare `LIKE`
 /// ignores case on SQLite but not on PostgreSQL, so the same search would
 /// find different records on the desktop and on the web.
+/// `%` and `_` in `value` match themselves, see [`escape_like`].
 pub(crate) fn lower_contains<C: sea_orm::ColumnTrait>(
     column: C,
     value: &str,
 ) -> sea_orm::sea_query::SimpleExpr {
     use sea_orm::sea_query::{BinOper, Expr, ExprTrait, Func};
+    let pattern = ExprTrait::binary(
+        Func::lower(Expr::val(format!("%{}%", escape_like(value)))),
+        BinOper::Escape,
+        Expr::Constant('\\'.into()),
+    );
     ExprTrait::binary(
         Expr::expr(Func::lower(Expr::col(column))),
         BinOper::Like,
-        Func::lower(Expr::val(format!("%{value}%"))),
+        pattern,
     )
+}
+
+/// Escape `LIKE`'s wildcards so user text matches literally, under
+/// `ESCAPE '\'`: a search for `50%` finds "50%", not every text holding
+/// "50".
+pub(crate) fn escape_like(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// `column`, trimmed, equals `value`, trimmed, ignoring case: the way an
@@ -155,4 +175,34 @@ pub(crate) fn lower_trim_eq<C: sea_orm::ColumnTrait>(
         Expr::expr(trimmed(Expr::col(column))),
         trimmed(Expr::val(value.to_string())),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::sea_query::{PostgresQueryBuilder, Query, SqliteQueryBuilder};
+
+    #[test]
+    fn like_wildcards_in_user_text_match_literally() {
+        assert_eq!(escape_like("100%_a\\b"), "100\\%\\_a\\\\b");
+    }
+
+    /// The list filters escape `%` and `_` and say so with `ESCAPE`, under
+    /// the string syntax of each backend.
+    #[test]
+    fn a_list_search_escapes_its_wildcards() {
+        let query = Query::select()
+            .column(crate::entities::place::Column::Id)
+            .from(crate::entities::place::Entity)
+            .and_where(lower_contains(crate::entities::place::Column::Name, "50%_"))
+            .to_owned();
+        let (sqlite, values) = query.build(SqliteQueryBuilder);
+        assert!(sqlite.ends_with("LIKE LOWER(?) ESCAPE '\\'"), "{sqlite}");
+        assert_eq!(values.0, [sea_orm::Value::from("%50\\%\\_%")]);
+        let (postgres, _) = query.build(PostgresQueryBuilder);
+        assert!(
+            postgres.ends_with("LIKE LOWER($1) ESCAPE E'\\\\'"),
+            "{postgres}"
+        );
+    }
 }

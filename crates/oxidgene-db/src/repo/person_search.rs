@@ -23,7 +23,7 @@
 //! primary key on `person_id` and an index on `tree_id`, and needs none.
 
 use crate::repo::batch::MAX_BOUND_IDS;
-use crate::repo::db_err;
+use crate::repo::{db_err, escape_like};
 use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
@@ -1025,7 +1025,7 @@ fn push_event_filters(
             "person_search_fts.person_id IN (SELECT {person_id} FROM event e \
              WHERE e.tree_id = {tree} AND e.deleted_at IS NULL \
              AND e.event_type = 'occupation' \
-             AND LOWER(COALESCE(e.description, '')) LIKE {param})"
+             AND LOWER(COALESCE(e.description, '')) LIKE {param} ESCAPE '\\')"
         ));
     }
 }
@@ -1048,7 +1048,7 @@ fn event_branch(
     ];
     if let Some(place) = place {
         let param = push_value(values, backend, lowercase_contains(place));
-        event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
+        event_conditions.push(format!("LOWER(p.name) LIKE {param} ESCAPE '\\'"));
     }
     if let Some(event_type) = filters.event_type {
         let param = push_value(values, backend, event_type.to_string().into());
@@ -1081,9 +1081,10 @@ fn count_of(row: &sea_orm::QueryResult) -> Result<u64, OxidGeneError> {
     Ok(u64::try_from(total).unwrap_or(0))
 }
 
-/// A `LIKE` pattern for the trimmed value, lowercased, anywhere in the text.
+/// A `LIKE … ESCAPE '\'` pattern for the trimmed value, lowercased,
+/// anywhere in the text: `%` and `_` in it match themselves.
 fn lowercase_contains(value: &str) -> Value {
-    format!("%{}%", value.trim().to_lowercase()).into()
+    format!("%{}%", escape_like(&value.trim().to_lowercase())).into()
 }
 
 /// The filters on relatives, and on attached media.
@@ -1309,16 +1310,16 @@ mod tests {
              AND CAST(birth_year AS INTEGER) <= $8 AND CAST(death_year AS INTEGER) <= $9 \
              AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) \
              FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $10 \
-             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $11 AND e.event_type = $12 \
+             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $11 ESCAPE '\\' AND e.event_type = $12 \
              AND CAST(e.date_sort AS TEXT) >= $13 AND CAST(e.date_sort AS TEXT) <= $14 \
              UNION SELECT CAST(fs.person_id AS TEXT) FROM event e \
              JOIN family_spouse fs ON fs.family_id = e.family_id \
              LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $15 \
-             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $16 AND e.event_type = $17 \
+             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $16 ESCAPE '\\' AND e.event_type = $17 \
              AND CAST(e.date_sort AS TEXT) >= $18 AND CAST(e.date_sort AS TEXT) <= $19) \
              AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) FROM event e \
              WHERE e.tree_id = $20 AND e.deleted_at IS NULL AND e.event_type = 'occupation' \
-             AND LOWER(COALESCE(e.description, '')) LIKE $21) \
+             AND LOWER(COALESCE(e.description, '')) LIKE $21 ESCAPE '\\') \
              AND COALESCE(spouse_surnames, '') LIKE $22 \
              AND COALESCE(father_surname, '') LIKE $23 \
              AND COALESCE(father_given_names, '') LIKE $24 \

@@ -36,8 +36,8 @@ use crate::entities::media::{self, Column, Entity};
 use crate::entities::{event, family_spouse, media_link, record_tag, tag, vignette};
 use crate::repo::MediaRepo;
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, encode_cursor};
+use crate::repo::{db_err, escape_like};
 
 /// What a library listing is narrowed to. Every field is optional, and the
 /// set fields combine with AND; the default lists every document.
@@ -652,19 +652,6 @@ async fn named_persons(
         .collect()
 }
 
-/// Escape `LIKE`'s wildcards so user text matches literally, under
-/// `ESCAPE '\'`.
-fn escape_like(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            out.push('\\');
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// The ids of the media carrying the tag `tag_id`.
 fn tagged(tag_id: Uuid) -> sea_orm::sea_query::SelectStatement {
     Query::select()
@@ -678,11 +665,6 @@ fn tagged(tag_id: Uuid) -> sea_orm::sea_query::SelectStatement {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn like_wildcards_in_user_text_match_literally() {
-        assert_eq!(escape_like("100%_a\\b"), "100\\%\\_a\\\\b");
-    }
 
     #[test]
     fn every_kind_but_other_has_an_arm_and_other_is_the_fallback() {
