@@ -37,7 +37,7 @@ pub struct Deposit {
     pub date: Option<String>,
     /// Place attributed to the medium by Geneanet. The website has emitted a
     /// plain name as well as a named object, so both wire shapes are accepted.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub location: Option<Location>,
     #[serde(default)]
     pub views: Vec<View>,
@@ -99,7 +99,7 @@ pub struct Reference {
     /// Geneanet's media manager shows these as labelled rectangles, and they
     /// are the only record of *which* face in a group photo is whom. On a real
     /// account 245 of 550 links carry one.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub face: Option<Face>,
 }
 
@@ -189,7 +189,7 @@ pub struct ReferenceEntry {
     pub reference_extra_geneweb: Option<GenewebReference>,
     #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub event: Option<GeneanetEvent>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_lossy_option")]
     pub face: Option<Face>,
 }
 

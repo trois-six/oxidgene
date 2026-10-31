@@ -118,6 +118,23 @@ mod tests {
         assert!(parse_gw(gedcom, "tree.ged").is_err());
     }
 
+    /// One malformed face box or place among the links is dropped alone:
+    /// the rest of the collection still reads.
+    #[test]
+    fn a_malformed_face_or_location_does_not_spoil_the_collection() {
+        let collection = r#"{
+            "deposits": [{"id": 1, "location": 42,
+                          "views": [{"id": 10, "page": 1, "files": {"normal": "/n.jpg"}}]}],
+            "references": [{
+                "deposit": {"id": 1, "views": [{"id": 10, "page": 1}]},
+                "firstname": "Ann", "lastname": "BRANCH_A",
+                "face": {"position": null}
+            }],
+            "view_references": {"1:10": [{"firstname": "Bob", "face": {"position": "x"}}]}
+        }"#;
+        assert!(manifest_from_collection(collection).is_ok());
+    }
+
     #[test]
     fn a_minimal_gw_parses_and_reports_no_skipped_blocks() {
         let gw = b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
