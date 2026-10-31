@@ -44,7 +44,8 @@ async fn get(
 /// itself for a place's own node.
 fn place_of(title: &str) -> String {
     let title = label_name(title);
-    let lowered = title.to_lowercase();
+    // ASCII lowering keeps the title's byte offsets (see `register::parish`).
+    let lowered = title.to_ascii_lowercase();
     let after = [" de ", " d'", " d\u{2019}", " du "]
         .iter()
         .filter_map(|separator| lowered.rfind(separator).map(|at| at + separator.len()))

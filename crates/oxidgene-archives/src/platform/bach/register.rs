@@ -290,7 +290,10 @@ fn parish(leaf: &Leaf) -> Option<String> {
     std::iter::once(leaf.node)
         .chain(leaf.ancestors.iter().copied())
         .find_map(|node| {
-            let lowered = node.title.to_lowercase();
+            // ASCII lowering keeps every byte offset of the title: Unicode
+            // lowering changes the length of some letters (`İ`, the Kelvin
+            // sign), and the offset found would slice the title elsewhere.
+            let lowered = node.title.to_ascii_lowercase();
             let at = lowered
                 .find("paroisses ")
                 .map(|at| at + "paroisses ".len())
@@ -356,4 +359,37 @@ pub(super) fn candidates(leaves: &[Leaf], citation: &CitationParts) -> Vec<Candi
             },
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(title: &str) -> Node {
+        Node {
+            id: "de-1".to_owned(),
+            depth: 1,
+            title: title.to_owned(),
+            date: None,
+            call_number: None,
+            leaf: true,
+        }
+    }
+
+    /// A letter whose lowercase is longer or shorter ahead of the marker
+    /// leaves the parish name where it is.
+    #[test]
+    fn a_title_with_letters_changing_length_when_lowered_keeps_its_parish() {
+        for title in [
+            "\u{130}LE Paroisse de Exampleville",
+            "\u{212A}ERN Paroisse de Exampleville",
+        ] {
+            let node = node(title);
+            let leaf = Leaf {
+                node: &node,
+                ancestors: Vec::new(),
+            };
+            assert_eq!(parish(&leaf).as_deref(), Some("Exampleville"), "{title}");
+        }
+    }
 }
