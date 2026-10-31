@@ -8,7 +8,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
-use tracing::Instrument as _;
 use uuid::Uuid;
 
 use super::dto::{ExportGedcomQuery, ExportGedcomResponse};
@@ -62,34 +61,14 @@ pub async fn export_gedcom_handler(
     }
 
     let data = gedcom::load_and_export(&state.db, tree_id, choices, scope.as_ref(), true).await?;
-    // The whole reason to choose this format over `.ged`. A medium whose
-    // bytes have gone missing from the store is skipped rather than fatal:
-    // the rest of the archive is still a correct export, and refusing to
-    // produce one over a single absent file would be worse than producing
-    // one whose `FILE` names it.
-    let media_span = tracing::info_span!(
-        "export.media",
-        export.format = "gedzip",
-        export.media.count = data.media_files.len(),
-    );
-    let mut files = Vec::with_capacity(data.media_files.len());
-    async {
-        for (key, path) in &data.media_files {
-            match state.media.get(key).await {
-                Ok(bytes) => files.push((path.clone(), bytes)),
-                Err(_) => tracing::warn!(
-                    error = "media_store_read",
-                    "media absent from the store; not packed"
-                ),
-            }
-        }
-    }
-    .instrument(media_span)
-    .await;
-
-    let bytes = tracing::info_span!("export.package", export.format = "gedzip")
-        .in_scope(|| oxidgene_gedcom::export::export_gedzip(&data.gedcom, &files))
-        .map_err(OxidGeneError::from)?;
+    // Staged on disk, never whole in memory: an archive of scans is
+    // gigabytes. The file goes when the response has been streamed.
+    let staged = state
+        .work_dir
+        .staged_file("export-")
+        .map_err(OxidGeneError::Io)?
+        .into_temp_path();
+    gedcom::write_gedzip_file(&*state.media, &staged, data.gedcom, data.media_files).await?;
     history::record_export(
         &state.db,
         tree_id,
@@ -99,15 +78,28 @@ pub async fn export_gedcom_handler(
     )
     .await?;
 
+    let file = tokio::fs::File::open(&staged)
+        .await
+        .map_err(OxidGeneError::Io)?;
+    let length = file.metadata().await.map_err(OxidGeneError::Io)?.len();
+    let stream =
+        futures_util::stream::try_unfold((file, staged), |(mut file, staged)| async move {
+            use tokio::io::AsyncReadExt as _;
+            let mut buffer = vec![0; 64 * 1024];
+            let read = file.read(&mut buffer).await?;
+            buffer.truncate(read);
+            Ok::<_, std::io::Error>((read != 0).then_some((buffer, (file, staged))))
+        });
     Ok((
         [
-            (header::CONTENT_TYPE, "application/zip"),
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_LENGTH, length.to_string()),
             (
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"export.gdz\"",
+                "attachment; filename=\"export.gdz\"".to_string(),
             ),
         ],
-        bytes,
+        axum::body::Body::from_stream(stream),
     )
         .into_response())
 }

@@ -1130,6 +1130,64 @@ pub async fn load_and_export(
     })
 }
 
+/// Write the GEDZIP of an export, `gedcom` with `media_files` as
+/// [`ExportData`] lists them, to the file at `path`.
+///
+/// One medium is held at a time: each is read from `store`, then added on
+/// the blocking pool, where the writer goes and comes back with it. A medium
+/// whose bytes have gone missing from the store is skipped rather than
+/// fatal: the rest of the archive is still a correct export, and refusing to
+/// produce one over a single absent file would be worse than producing one
+/// whose `FILE` names it.
+pub async fn write_gedzip_file(
+    store: &dyn crate::media::MediaStore,
+    path: &Path,
+    gedcom: String,
+    media_files: Vec<(String, String)>,
+) -> Result<(), OxidGeneError> {
+    use oxidgene_gedcom::export::GedzipFileWriter;
+    let package_span = tracing::info_span!("export.package", export.format = "gedzip");
+    let archive_path = path.to_path_buf();
+    let writer = super::blocking::run(package_span.clone(), move || {
+        GedzipFileWriter::create(&archive_path, &gedcom)
+    })
+    .await?
+    .map_err(OxidGeneError::from)?;
+    let media_span = tracing::info_span!(
+        "export.media",
+        export.format = "gedzip",
+        export.media.count = media_files.len(),
+    );
+    let entry_span = package_span.clone();
+    let writer = async move {
+        let mut writer = writer;
+        for (key, entry_path) in media_files {
+            let bytes = match store.get(&key).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    tracing::warn!(
+                        error = "media_store_read",
+                        error.kind = crate::error_contract::error_kind(&error),
+                        "media absent from the store; not packed"
+                    );
+                    continue;
+                }
+            };
+            writer = super::blocking::run(entry_span.clone(), move || {
+                writer.add_media_file(&entry_path, &bytes).map(|()| writer)
+            })
+            .await?
+            .map_err(OxidGeneError::from)?;
+        }
+        Ok::<_, OxidGeneError>(writer)
+    }
+    .instrument(media_span)
+    .await?;
+    super::blocking::run(package_span, move || writer.finish().map(drop))
+        .await?
+        .map_err(OxidGeneError::from)
+}
+
 /// Every record of a tree an export writes.
 #[derive(Default)]
 struct TreeRecords {
