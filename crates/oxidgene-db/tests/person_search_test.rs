@@ -560,3 +560,56 @@ async fn person_lookups_performance_100k() {
     println!("missing tree: {missing_tree:?}, count: {count:?}, delete: {delete:?}");
     assert!(missing_tree.as_millis() < 10 && delete.as_millis() < 10);
 }
+
+/// Re-indexing more persons than SQLite binds in one statement (32 766)
+/// replaces their rows: the old rows are deleted a bounded chunk at a time.
+#[tokio::test]
+async fn upsert_replaces_more_rows_than_one_statement_binds() {
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+    let entries: Vec<PersonSearchEntry> = (0..33_000)
+        .map(|n| entry(tree_id, "Example", &format!("Person {n}"), None, None))
+        .collect();
+    PersonSearchRepo::upsert(&db, &entries).await.unwrap();
+    PersonSearchRepo::upsert(&db, &entries).await.unwrap();
+    assert_eq!(
+        PersonSearchRepo::count_tree(&db, tree_id).await.unwrap(),
+        33_000
+    );
+}
+
+/// A page past the last match still reports how many matches there are, so
+/// a stale pager does not read as an empty search.
+#[tokio::test]
+async fn a_page_past_the_end_keeps_the_total() {
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+    let entries = vec![
+        entry(tree_id, "Example", "Ann", None, None),
+        entry(tree_id, "Example", "Bob", None, None),
+        entry(tree_id, "Sample", "Cid", None, None),
+    ];
+    PersonSearchRepo::upsert(&db, &entries).await.unwrap();
+
+    let page = PersonSearchRepo::search(&db, tree_id, "example", 10, 10)
+        .await
+        .unwrap();
+    assert!(page.entries.is_empty());
+    assert_eq!(page.total_count, 2);
+}
+
+/// An offset past `i64::MAX` saturates rather than wrapping negative, which
+/// PostgreSQL would refuse.
+#[tokio::test]
+async fn a_huge_offset_returns_an_empty_page() {
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+    PersonSearchRepo::upsert(&db, &[entry(tree_id, "Example", "Ann", None, None)])
+        .await
+        .unwrap();
+    let page = PersonSearchRepo::search(&db, tree_id, "", 10, u64::MAX)
+        .await
+        .unwrap();
+    assert!(page.entries.is_empty());
+    assert_eq!(page.total_count, 1);
+}

@@ -22,6 +22,7 @@
 //! a person's or a tree's rows goes through it. PostgreSQL's table has a
 //! primary key on `person_id` and an index on `tree_id`, and needs none.
 
+use crate::repo::batch::MAX_BOUND_IDS;
 use crate::repo::db_err;
 use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
@@ -378,9 +379,17 @@ impl PersonSearchRepo {
         let mut total_count: u64 = 0;
         let mut entries = Vec::with_capacity(rows.len());
         for row in rows {
-            let total: i64 = row.try_get("", "total_count").map_err(db_err)?;
-            total_count = total.max(0) as u64;
+            total_count = count_of(&row)?;
             entries.push(Self::row_to_entry(&row)?);
+        }
+        // The window count rides the rows: a page past the last match (a
+        // pager left stale by deletions, a deep link) brings none, so the
+        // matches are counted on their own rather than reported as none.
+        if entries.is_empty() && offset > 0 {
+            let stmt = Self::filtered_count_statement(backend, tree_id, &words, filters);
+            if let Some(row) = db.query_one_raw(stmt).await.map_err(db_err)? {
+                total_count = count_of(&row)?;
+            }
         }
 
         Ok(PersonSearchPage {
@@ -458,7 +467,7 @@ impl PersonSearchRepo {
                 push_value(&mut values, backend, match_expr.into())
             ));
         }
-        let limit_param = push_value(&mut values, backend, (limit as i64).into());
+        let limit_param = push_value(&mut values, backend, bound(limit).into());
         let sql = format!(
             "SELECT {COLUMNS} FROM person_search_fts WHERE {} \
              ORDER BY date_sort IS NULL, date_sort, display_name LIMIT {limit_param}",
@@ -523,7 +532,7 @@ impl PersonSearchRepo {
             .collect();
         let mut values = Vec::new();
         let conditions = filtered_conditions(&mut values, backend, tree_id, &words, filters);
-        let limit_param = push_value(&mut values, backend, (limit as i64).into());
+        let limit_param = push_value(&mut values, backend, bound(limit).into());
         let sql = format!(
             "SELECT person_id FROM person_search_fts WHERE {conditions} LIMIT {limit_param}"
         );
@@ -533,8 +542,10 @@ impl PersonSearchRepo {
             .iter()
             .map(|row| {
                 let text = row.try_get::<String>("", "person_id").map_err(db_err)?;
-                Uuid::parse_str(&text).map_err(|_| {
-                    OxidGeneError::Validation("a search row holds a malformed person id".to_owned())
+                Uuid::parse_str(&text).map_err(|error| {
+                    OxidGeneError::Internal(format!(
+                        "a search row holds a malformed person id: {error}"
+                    ))
                 })
             })
             .collect()
@@ -552,8 +563,8 @@ impl PersonSearchRepo {
         let mut values = Vec::new();
         let conditions = filtered_conditions(&mut values, backend, tree_id, words, filters);
         let order = sort_order(&mut values, backend, words, filters, sort);
-        let limit_param = push_value(&mut values, backend, (limit as i64).into());
-        let offset_param = push_value(&mut values, backend, (offset as i64).into());
+        let limit_param = push_value(&mut values, backend, bound(limit).into());
+        let offset_param = push_value(&mut values, backend, bound(offset).into());
         let sql = format!(
             "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
              WHERE {conditions} ORDER BY {order} LIMIT {limit_param} OFFSET {offset_param}",
@@ -561,15 +572,39 @@ impl PersonSearchRepo {
         Statement::from_sql_and_values(backend, sql, values)
     }
 
+    /// The number of rows [`Self::filtered_statement`] pages through.
+    fn filtered_count_statement(
+        backend: DbBackend,
+        tree_id: Uuid,
+        words: &[String],
+        filters: &PersonSearchFilters,
+    ) -> Statement {
+        let mut values = Vec::new();
+        let conditions = filtered_conditions(&mut values, backend, tree_id, words, filters);
+        let sql =
+            format!("SELECT COUNT(*) AS total_count FROM person_search_fts WHERE {conditions}");
+        Statement::from_sql_and_values(backend, sql, values)
+    }
+
     // ── Internals ───────────────────────────────────────────────────────
 
+    /// Delete the rows of `person_ids`, a set with no upper bound: a rename
+    /// reaches every carrier and their relatives. One statement per
+    /// [`MAX_BOUND_IDS`] of them, under any backend's bound-variable limit.
     async fn delete_persons(
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
     ) -> Result<(), OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(());
+        for chunk in person_ids.chunks(MAX_BOUND_IDS) {
+            Self::delete_chunk(db, chunk).await?;
         }
+        Ok(())
+    }
+
+    async fn delete_chunk(
+        db: &impl ConnectionTrait,
+        person_ids: &[Uuid],
+    ) -> Result<(), OxidGeneError> {
         let backend = db.get_database_backend();
         let placeholders: Vec<String> = (0..person_ids.len())
             .map(|i| match backend {
@@ -1032,6 +1067,18 @@ fn event_branch(
         uuid_as_text(backend, person_column),
         event_conditions.join(" AND ")
     )
+}
+
+/// A page size or offset as bound in SQL: a count past `i64::MAX` saturates
+/// rather than wrapping negative, which PostgreSQL would refuse.
+fn bound(n: u64) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+/// The `total_count` column of a counting row.
+fn count_of(row: &sea_orm::QueryResult) -> Result<u64, OxidGeneError> {
+    let total: i64 = row.try_get("", "total_count").map_err(db_err)?;
+    Ok(u64::try_from(total).unwrap_or(0))
 }
 
 /// A `LIKE` pattern for the trimmed value, lowercased, anywhere in the text.
