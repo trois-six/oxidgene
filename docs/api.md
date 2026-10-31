@@ -418,6 +418,10 @@ leniently (`1y6m`, `34 Y`, a bare `34`), and returned in canonical form
 convention: omitted keeps, `null` clears — on both surfaces. A source's
 `agency` (`SOUR.DATA.AGNC`) likewise.
 
+An event belongs to a person (`person_id`) or to a family (`family_id`),
+never to both: a create naming both is a `validation_error` on both
+surfaces. The owner never changes afterwards.
+
 An individual event's `related_family_id` names a family of the tree that the
 event does not belong to (the adoptive family, the family a child is sealed
 to). A family event, or an event with no individual owner, that carries one is

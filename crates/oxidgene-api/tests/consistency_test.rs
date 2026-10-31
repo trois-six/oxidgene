@@ -861,6 +861,44 @@ async fn new_place(app: &axum::Router, tree_id: &str, name: &str) -> String {
         .to_owned()
 }
 
+/// An event belongs to a person or to a family: one naming both is refused,
+/// and nothing is written — on both surfaces.
+#[tokio::test]
+async fn an_event_owned_by_both_a_person_and_a_family_is_refused_alike() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Owners").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let family_id = new_family(&app, &tree_id).await;
+    let events = format!("/api/v1/trees/{tree_id}/events");
+
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &events,
+        Some(json!({
+            "event_type": "marriage", "person_id": person_id, "family_id": family_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error", "{body}");
+
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $p: String!, $f: String!) { createEvent(treeId: $t, input: { eventType: MARRIAGE, personId: $p, familyId: $f }) { id } }",
+        json!({ "t": tree_id, "p": person_id, "f": family_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+
+    let listed = common::ok(&app, Method::GET, &events, None).await;
+    assert_eq!(
+        listed["edges"].as_array().map(Vec::len),
+        Some(0),
+        "{listed}"
+    );
+}
+
 /// An event's age is stored in canonical GEDCOM form, an age that is not
 /// one is refused, a family event takes none, and an update leaves age and
 /// agency alone when omitted and clears them on null — on both surfaces.

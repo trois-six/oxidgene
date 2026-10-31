@@ -169,6 +169,11 @@ impl Spec {
             }
             object.insert(name.clone(), self.value(name, field, records, path, depth));
         }
+        // An event belongs to a person or to a family, never to both: a body
+        // naming both is refused before the operation runs.
+        if path.ends_with("/events") && object.contains_key("person_id") {
+            object.remove("family_id");
+        }
         Value::Object(object)
     }
 

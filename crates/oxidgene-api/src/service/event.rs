@@ -278,10 +278,16 @@ pub async fn delete_event(
 }
 
 /// The details and spouse ages `new` gives, checked and in canonical form,
-/// taken out of it.
+/// taken out of it. An event belongs to a person or to a family, never to
+/// both: every reader takes one owner for granted.
 fn new_details(new: &mut NewEvent) -> Result<(EventDetails, Vec<SpouseAge>), OxidGeneError> {
+    if new.person_id.is_some() && new.family_id.is_some() {
+        return Err(OxidGeneError::Validation(
+            "an event belongs to a person or to a family, not both".to_string(),
+        ));
+    }
     let family_event = new.family_id.is_some();
-    let individual = new.person_id.is_some() && new.family_id.is_none();
+    let individual = new.person_id.is_some();
     check_related_family(new.related_family_id, individual)?;
     let details = EventDetails {
         cause: new.cause.take(),
