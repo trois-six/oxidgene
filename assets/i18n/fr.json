@@ -8925,6 +8925,11 @@
     "settings.thresholds_range": "Entre {min} et {max}.",
     "settings.thresholds_reset": "Rétablir les valeurs par défaut",
     "settings.thresholds_saved": "Seuils enregistrés.",
-    "settings.thresholds_twins": "Les jumeaux doivent naître à moins de jours d'intervalle que les enfants trop rapprochés."
+    "settings.thresholds_twins": "Les jumeaux doivent naître à moins de jours d'intervalle que les enfants trop rapprochés.",
+    "account.auth_error.access_denied": "La connexion a été refusée, par vous ou par le fournisseur d'identité.",
+    "account.auth_error.login_failed": "La connexion n'a pas pu aboutir. Réessayez.",
+    "account.auth_error.signup_closed": "Cette instance n'admet que les utilisateurs qu'elle a invités, et votre compte n'a pas d'invitation.",
+    "account.auth_error.account_deactivated": "Votre compte a été désactivé par un administrateur.",
+    "account.auth_error.auth_unavailable": "Le fournisseur d'identité est injoignable. Réessayez dans un instant."
   }
 }

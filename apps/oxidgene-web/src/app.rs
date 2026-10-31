@@ -1,8 +1,12 @@
 //! The browser application: its configuration, observability and root
 //! component.
 
+use std::sync::Arc;
+
 use dioxus::prelude::*;
+use oxidgene_ui::account::{AccountHost, Accounts};
 use oxidgene_ui::api::ApiClient;
+use wasm_bindgen::JsCast as _;
 
 const API_URL: &str = match option_env!("OXIDGENE_API_URL") {
     Some(url) => url,
@@ -54,9 +58,45 @@ fn runtime_otlp_endpoint() -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
+/// The page's `location`.
+fn location() -> Option<wasm_bindgen::JsValue> {
+    js_sys::Reflect::get(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str("location"),
+    )
+    .ok()
+}
+
+/// The browser page the account UI signs in and out from
+/// (docs/authentication.md §10): only the web build has accounts.
+struct BrowserAccounts;
+
+impl AccountHost for BrowserAccounts {
+    fn navigate(&self, url: &str) {
+        let Some(location) = location() else { return };
+        let assign = js_sys::Reflect::get(&location, &wasm_bindgen::JsValue::from_str("assign"))
+            .ok()
+            .and_then(|function| function.dyn_into::<js_sys::Function>().ok());
+        if let Some(assign) = assign {
+            let _ = assign.call1(&location, &wasm_bindgen::JsValue::from_str(url));
+        }
+    }
+
+    fn query(&self) -> String {
+        location()
+            .and_then(|location| {
+                js_sys::Reflect::get(&location, &wasm_bindgen::JsValue::from_str("search")).ok()
+            })
+            .and_then(|search| search.as_string())
+            .unwrap_or_default()
+    }
+}
+
 #[component]
 fn WebApp() -> Element {
     use_context_provider(|| ApiClient::new(&api_base_url()));
+    // Accounts are the web build's: the desktop provides no such capability.
+    use_context_provider(|| Accounts::new(Arc::new(BrowserAccounts)));
     // No `CustomThemeSource` is provided: the browser build has no folder to
     // read themes from, so only the built-in ones are offered.
     rsx! { oxidgene_ui::App {} }

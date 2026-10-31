@@ -5,6 +5,7 @@
 //! from [`oxidgene_core`] directly, since those types already derive
 //! `Serialize` / `Deserialize`.
 
+pub mod account;
 mod history;
 
 use base64::Engine as _;
@@ -2924,6 +2925,37 @@ pub struct ApiClient {
     /// The `Authorization` value the desktop's embedded backend requires.
     /// Sent to that backend only — never to a remote address a download names.
     auth: Option<reqwest::header::HeaderValue>,
+    /// The web build's browser session, shared by every clone: empty until
+    /// the account UI links one (`crate::account`), and always on the
+    /// desktop and in the web build's `none` mode.
+    session: std::sync::Arc<SessionLink>,
+}
+
+/// What a signed-in browser session adds to the client
+/// (docs/authentication.md §4.4, §10): the CSRF token every state-changing
+/// request carries, and where a `401` — the session ended — is reported.
+#[derive(Debug, Default)]
+struct SessionLink {
+    csrf: std::sync::Mutex<Option<reqwest::header::HeaderValue>>,
+    unauthorized: std::sync::Mutex<Option<futures_channel::mpsc::UnboundedSender<()>>>,
+}
+
+/// The header carrying the session's CSRF token.
+const CSRF_HEADER: &str = "x-oxidgene-csrf";
+
+impl SessionLink {
+    fn csrf(&self) -> Option<reqwest::header::HeaderValue> {
+        self.csrf.lock().ok()?.clone()
+    }
+
+    /// Tells the account UI that the backend answered `401`, when it listens.
+    fn report_unauthorized(&self) {
+        if let Ok(listener) = self.unauthorized.lock()
+            && let Some(sender) = listener.as_ref()
+        {
+            let _ = sender.unbounded_send(());
+        }
+    }
 }
 
 /// Errors returned by the API client.
@@ -3216,6 +3248,44 @@ impl ApiClient {
             pictures: PictureCache::default(),
             image_host: None,
             auth: None,
+            session: std::sync::Arc::default(),
+        }
+    }
+
+    /// Send `token` as `X-OxidGene-CSRF` with every state-changing request to
+    /// the backend from now on, or stop with `None`: the session the browser
+    /// holds (docs/authentication.md §4.4).
+    ///
+    /// # Panics
+    ///
+    /// If `token` cannot appear in an HTTP header.
+    pub fn set_csrf_token(&self, token: Option<&str>) {
+        let value = token.map(|token| {
+            let mut value = reqwest::header::HeaderValue::from_str(token)
+                .expect("the CSRF token is a valid header value");
+            value.set_sensitive(true);
+            value
+        });
+        if let Ok(mut csrf) = self.session.csrf.lock() {
+            *csrf = value;
+        }
+    }
+
+    /// A stream receiving one message per `401` the backend answers from now
+    /// on, replacing any earlier listener: how the account UI learns that a
+    /// session ended (docs/authentication.md §10).
+    pub fn watch_unauthorized(&self) -> futures_channel::mpsc::UnboundedReceiver<()> {
+        let (sender, receiver) = futures_channel::mpsc::unbounded();
+        if let Ok(mut listener) = self.session.unauthorized.lock() {
+            *listener = Some(sender);
+        }
+        receiver
+    }
+
+    /// Reports a `401` from the backend to the account UI.
+    fn observe(&self, backend: bool, response: &reqwest::Response) {
+        if backend && response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.session.report_unauthorized();
         }
     }
 
@@ -3255,6 +3325,12 @@ impl ApiClient {
             request
                 .headers_mut()
                 .insert(reqwest::header::AUTHORIZATION, auth.clone());
+        }
+        if backend
+            && !request.method().is_safe()
+            && let Some(csrf) = self.session.csrf()
+        {
+            request.headers_mut().insert(CSRF_HEADER, csrf);
         }
         Ok((request, backend))
     }
@@ -3326,6 +3402,7 @@ impl ApiClient {
         let response = self.client.execute(request).instrument(span.clone()).await;
         match &response {
             Ok(response) => {
+                self.observe(backend, response);
                 let status = response.status();
                 span.record("http.response.status_code", status.as_u16());
                 if status.is_server_error() {
@@ -3345,8 +3422,10 @@ impl ApiClient {
         _method: &'static str,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, reqwest::Error> {
-        let (request, _) = self.prepare(request)?;
-        self.client.execute(request).await
+        let (request, backend) = self.prepare(request)?;
+        let response = self.client.execute(request).await?;
+        self.observe(backend, &response);
+        Ok(response)
     }
 
     /// Invalidate all cached responses for a given tree.

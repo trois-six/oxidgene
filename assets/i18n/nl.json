@@ -8925,6 +8925,11 @@
     "settings.thresholds_range": "Tussen {min} en {max}.",
     "settings.thresholds_reset": "Standaardwaarden herstellen",
     "settings.thresholds_saved": "Drempels opgeslagen.",
-    "settings.thresholds_twins": "Tweelingen moeten dichter na elkaar geboren zijn dan kinderen te kort na elkaar."
+    "settings.thresholds_twins": "Tweelingen moeten dichter na elkaar geboren zijn dan kinderen te kort na elkaar.",
+    "account.auth_error.access_denied": "De aanmelding is geweigerd, door u of door de identiteitsprovider.",
+    "account.auth_error.login_failed": "De aanmelding kon niet worden voltooid. Probeer het opnieuw.",
+    "account.auth_error.signup_closed": "Deze instantie laat alleen uitgenodigde gebruikers toe, en uw account heeft geen uitnodiging.",
+    "account.auth_error.account_deactivated": "Uw account is door een beheerder gedeactiveerd.",
+    "account.auth_error.auth_unavailable": "De identiteitsprovider is niet bereikbaar. Probeer het zo meteen opnieuw."
   }
 }

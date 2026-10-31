@@ -8925,6 +8925,11 @@
     "settings.thresholds_range": "Zwischen {min} und {max}.",
     "settings.thresholds_reset": "Standardwerte wiederherstellen",
     "settings.thresholds_saved": "Schwellenwerte gespeichert.",
-    "settings.thresholds_twins": "Zwillinge müssen in kürzerem Abstand geboren sein als zu nahe Geschwister."
+    "settings.thresholds_twins": "Zwillinge müssen in kürzerem Abstand geboren sein als zu nahe Geschwister.",
+    "account.auth_error.access_denied": "Die Anmeldung wurde abgelehnt, von Ihnen oder vom Identitätsanbieter.",
+    "account.auth_error.login_failed": "Die Anmeldung konnte nicht abgeschlossen werden. Versuchen Sie es erneut.",
+    "account.auth_error.signup_closed": "Diese Instanz lässt nur eingeladene Benutzer zu, und für Ihr Konto liegt keine Einladung vor.",
+    "account.auth_error.account_deactivated": "Ihr Konto wurde von einem Administrator deaktiviert.",
+    "account.auth_error.auth_unavailable": "Der Identitätsanbieter ist nicht erreichbar. Versuchen Sie es gleich noch einmal."
   }
 }

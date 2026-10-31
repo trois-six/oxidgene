@@ -8,6 +8,7 @@
 //! - [`theme`] — the colour palette, built in or supplied by the user
 //! - [`App`] — top-level application component
 
+pub mod account;
 pub mod api;
 pub mod archive_viewer;
 pub mod assistant;

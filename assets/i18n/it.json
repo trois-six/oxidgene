@@ -8925,6 +8925,11 @@
     "settings.thresholds_range": "Tra {min} e {max}.",
     "settings.thresholds_reset": "Ripristina i valori predefiniti",
     "settings.thresholds_saved": "Soglie salvate.",
-    "settings.thresholds_twins": "I gemelli devono nascere a meno giorni di distanza dei fratelli troppo vicini."
+    "settings.thresholds_twins": "I gemelli devono nascere a meno giorni di distanza dei fratelli troppo vicini.",
+    "account.auth_error.access_denied": "L'accesso è stato rifiutato, da te o dal provider di identità.",
+    "account.auth_error.login_failed": "Non è stato possibile completare l'accesso. Riprova.",
+    "account.auth_error.signup_closed": "Questa istanza ammette solo gli utenti invitati, e il tuo account non ha un invito.",
+    "account.auth_error.account_deactivated": "Il tuo account è stato disattivato da un amministratore.",
+    "account.auth_error.auth_unavailable": "Il provider di identità non è raggiungibile. Riprova tra un momento."
   }
 }

@@ -70,6 +70,8 @@ pub fn use_init_textarea_resize_clamp() {
 #[component]
 pub fn AppShell() -> Element {
     let _lang_signal = i18n::use_init_language();
+    // After the language, which an account may choose (web build only).
+    crate::account::use_init_account();
     let _sort_particles = crate::prefs::use_init_sort_particles();
     let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
     let _pedigree_theme = crate::prefs::use_init_pedigree_theme();

@@ -8925,6 +8925,11 @@
     "settings.thresholds_range": "Entre {min} y {max}.",
     "settings.thresholds_reset": "Restablecer los valores por defecto",
     "settings.thresholds_saved": "Umbrales guardados.",
-    "settings.thresholds_twins": "Los gemelos deben nacer con menos días de diferencia que los hermanos demasiado seguidos."
+    "settings.thresholds_twins": "Los gemelos deben nacer con menos días de diferencia que los hermanos demasiado seguidos.",
+    "account.auth_error.access_denied": "El inicio de sesión fue rechazado, por usted o por el proveedor de identidad.",
+    "account.auth_error.login_failed": "No se pudo completar el inicio de sesión. Vuelva a intentarlo.",
+    "account.auth_error.signup_closed": "Esta instancia solo admite a los usuarios que ha invitado, y su cuenta no tiene invitación.",
+    "account.auth_error.account_deactivated": "Un administrador ha desactivado su cuenta.",
+    "account.auth_error.auth_unavailable": "No se pudo contactar con el proveedor de identidad. Vuelva a intentarlo en un momento."
   }
 }

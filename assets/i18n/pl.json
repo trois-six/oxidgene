@@ -9112,6 +9112,11 @@
     "settings.thresholds_range": "Od {min} do {max}.",
     "settings.thresholds_reset": "Przywróć wartości domyślne",
     "settings.thresholds_saved": "Progi zapisane.",
-    "settings.thresholds_twins": "Bliźnięta muszą się urodzić w mniejszym odstępie dni niż rodzeństwo zbyt blisko."
+    "settings.thresholds_twins": "Bliźnięta muszą się urodzić w mniejszym odstępie dni niż rodzeństwo zbyt blisko.",
+    "account.auth_error.access_denied": "Logowanie zostało odrzucone przez Ciebie lub przez dostawcę tożsamości.",
+    "account.auth_error.login_failed": "Nie udało się dokończyć logowania. Spróbuj ponownie.",
+    "account.auth_error.signup_closed": "Ta instancja przyjmuje tylko zaproszonych użytkowników, a Twoje konto nie ma zaproszenia.",
+    "account.auth_error.account_deactivated": "Twoje konto zostało dezaktywowane przez administratora.",
+    "account.auth_error.auth_unavailable": "Dostawca tożsamości jest nieosiągalny. Spróbuj ponownie za chwilę."
   }
 }
