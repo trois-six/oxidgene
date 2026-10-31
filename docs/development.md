@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -20,8 +20,8 @@ generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
 - [just](https://github.com/casey/just) task runner.
 - [mise](https://mise.jdx.dev/) tool version manager.
 - PostgreSQL 16+ or Docker Compose for the web backend. The Compose stack also
-   provides RustFS for S3-compatible media storage and Redis for future user
-   sessions.
+   provides RustFS for S3-compatible media storage, Redis for user sessions,
+   and Rauthy with Mailpit as identity provider.
 - The `wasm32-unknown-unknown` Rust target for the browser application.
 - [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/) 0.7.10.
 - `cargo-nextest` for the workspace test recipes.
@@ -152,6 +152,9 @@ Algorithmic complexity is tested at three levels.
 | `just server` | Run the Axum development server on `http://127.0.0.1:8080`. |
 | `just dev-db-up` | Start the PostgreSQL development container and wait until it is ready. |
 | `just dev-db-down` | Stop the PostgreSQL development container without deleting its data. |
+| `just dev-idp-up` | Start the development identity provider — Rauthy with its mail relay — alone, and complete its web client, for `OXIDGENE_AUTH_MODE=oidc just dev-web` ([Authentication §8.5](authentication.md#85-development-stack)). |
+| `just dev-idp-down` | Stop and remove it: the next start bootstraps it afresh. |
+| `just chart-test` | Lint the Helm chart with each values file of `charts/oxidgene/ci/` and run its rendering tests (`scripts/chart-tests.py`, Helm and uv). |
 
 ### 2.3 Browser Application
 
@@ -345,6 +348,8 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E; Release: End-to-end tests of the images (§6) | No |
+| End-to-end sign-in | The Playwright project of `e2e/playwright.auth.config.ts` against the development Compose stack and its Rauthy, which the recipe starts ([Authentication §12](authentication.md#12-tests)); every test skips itself while the server has no OpenID Connect sign-in | `just e2e-auth` | None | No |
+| Helm chart | `helm lint` with each values file of `charts/oxidgene/ci/` and the rendering tests of `scripts/chart-tests.py`: every `auth.idp.mode`, the values each requires and refuses, the Ingress paths, the Rauthy workload, and the setup it bootstraps against the development one | `just chart-test` | Validate Helm chart (Renovate); Release: Publish Helm chart | No |
 | Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
@@ -676,21 +681,21 @@ For the complete containerized web stack, run:
 docker compose -f docker/docker-compose.yml up -d --wait --remove-orphans
 ```
 
-Compose builds and exposes the browser frontend on `http://127.0.0.1:8081` and
+Compose builds and exposes the browser frontend on `http://localhost:8081` and
 explicitly selects the S3 media backend. The server and frontend containers
 have no persistent volumes: PostgreSQL and RustFS own durable state, while
-import upload spooling uses disposable container storage. Redis is running and
-persistent in the development stack but remains unused until authentication
-and session management are implemented.
+import upload spooling uses disposable container storage. Redis holds the
+server's sessions.
 
-With EPIC G the stack gains a Keycloak with a development realm whose users
-are fictitious and named after their role, a Mailpit relay that keeps every
-mail OxidGene sends, and a web container that proxies the API and `/auth`
-paths so the application is opened on one origin, `http://localhost:8081`;
-`just dev-web` keeps authentication off unless asked
-([Authentication §8.5](authentication.md#85-development-stack)). The
-end-to-end journeys that sign in against that Keycloak are an opt-in suite
-([Authentication §12](authentication.md#12-tests)).
+The stack signs in against Rauthy, bootstrapped with OxidGene's clients and
+with fictitious users named after their role (`owner@example.invalid`,
+password `owner`…), and a Mailpit relay keeps every mail on
+`http://127.0.0.1:8025`. The web container proxies the API and `/auth`
+paths, so the application is opened on one origin,
+`http://localhost:8081`; `just dev-web` keeps authentication off unless
+asked ([Authentication §8.5](authentication.md#85-development-stack)). The
+end-to-end journeys that sign in against that Rauthy are an opt-in suite,
+`just e2e-auth` ([Authentication §12](authentication.md#12-tests)).
 
 RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 `http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the

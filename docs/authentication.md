@@ -1,9 +1,9 @@
 ---
 type: "Security Specification"
 title: "Authentication and Sessions"
-description: "Planned authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Keycloak Operator modes with the realm it ships, the development identity provider, security baselines, threat model, and tests."
-tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, keycloak, deployment]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
+tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -14,9 +14,12 @@ generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
 > [API Contract](api.md) · [Data Model](data-model.md) ·
 > [Cross-cutting Rules](cross-cutting.md) · [Roadmap](roadmap.md)
 
-**Status: planned, nothing is implemented.** This document fixes the contract
-EPIC G follows; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
-tracks its phases. Until it ships, the backend is never exposed to an
+**Status: in progress.** The deployment of §8 — the development stack, the
+Helm chart's modes and the Rauthy they bundle — and the end-to-end sign-in
+suite of §12 are in place; the server and the frontend are being built. This
+document fixes the contract EPIC G follows;
+[Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks its
+phases. Until it ships, the backend is never exposed to an
 untrusted network ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 
 ---
@@ -27,8 +30,9 @@ untrusted network ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-expos
   verification or reset mail, keeps no second factor and locks no account.
   Local accounts, multi-factor authentication, password reset, lockout, SAML
   federation and social sign-in (Google, Microsoft, Apple, GitHub…) are the
-  identity provider's job, brokered by it into OpenID Connect — Keycloak's
-  identity brokering, or the equivalent of another provider.
+  identity provider's job, brokered by it into OpenID Connect — Rauthy's
+  upstream providers, Keycloak's identity brokering, or the equivalent of
+  another provider.
 - **One protocol.** OxidGene speaks OpenID Connect and OAuth 2.x only, against
   any standards-compliant provider: discovery, JWKS, `iss` and `aud` checks.
   It never implements a provider-specific login.
@@ -93,8 +97,8 @@ settings; every secret also has a `_FILE` variant naming a mounted file.
 |---|---|---|
 | `OXIDGENE_AUTH_MODE` | `oidc` | `oidc` or `none` (§2) |
 | `OXIDGENE_PUBLIC_URL` | Required in `oidc` | The application's external origin, such as `https://genealogy.example.invalid`: the redirect URI's base, the cookie's host, the origin same-origin checks compare with, and the default resource identifier |
-| `OXIDGENE_OIDC_ISSUER` | Required in `oidc` | The issuer, compared exactly with discovery's `issuer` and every token's `iss` |
-| `OXIDGENE_OIDC_BACKCHANNEL_URL` | Unset | Base URL for the server-to-server requests (discovery, JWKS, token, introspection, registration), when the issuer's public host is not reachable from the backend; the issuer check is unchanged (§3.4) |
+| `OXIDGENE_OIDC_ISSUER` | Required in `oidc` | The issuer, compared exactly with discovery's `issuer` and every token's `iss`, a trailing slash included (Rauthy's ends with one); discovery is read at the issuer without its trailing slash, followed by `/.well-known/openid-configuration` |
+| `OXIDGENE_OIDC_BACKCHANNEL_URL` | Unset | Scheme, host and port for the server-to-server requests (discovery, JWKS, token, introspection, registration), when the issuer's public host is not reachable from the backend, such as `http://rauthy:8080`; the issuer check is unchanged (§3.4) |
 | `OXIDGENE_OIDC_CLIENT_ID` | `oxidgene-web` | The web client's identifier |
 | `OXIDGENE_OIDC_CLIENT_AUTH` | `client_secret_basic` | `client_secret_basic` or `private_key_jwt` (RFC 7523) |
 | `OXIDGENE_OIDC_CLIENT_SECRET` | — | The web client's secret, for `client_secret_basic` |
@@ -131,7 +135,8 @@ provider's current documentation.
 
 | Provider | Groups or roles claim | Back-channel logout | Client credentials | Client registration (RFC 7591) | Notes |
 |---|---|---|---|---|---|
-| Keycloak | `groups` mapper, `realm_access.roles` | Yes | Yes (service accounts) | Yes, and an admin REST API | Shipped by the chart (§8.2) |
+| Rauthy | `groups`, `roles` | Yes | Yes | Yes, when enabled (`dynamic_clients`) | Deployed by the chart (§8.2) and the development stack (§8.5). No SAML. Its issuer ends with `/`; access tokens carry `email`, `email_verified`, `groups` and `roles`, the ID token the names too; an extra audience is a per-client setting (`default_aud`); a refresh token becomes valid only in its access token's last minute |
+| Keycloak | `groups` mapper, `realm_access.roles` | Yes | Yes (service accounts) | Yes, and an admin REST API | Also brokers SAML: an institution whose sign-in is SAML connects through it, or another provider that has SAML, in `external` mode |
 | Zitadel | Project roles claim | Yes | Yes (machine users) | No | Roles are an object keyed by role name: point `OXIDGENE_OIDC_ROLES_CLAIM` at it |
 | Authentik | `groups` through a scope mapping | Recent releases | Yes | No | |
 | Kanidm | `groups` | No | Check the release | No | PKCE is mandatory, which OxidGene always sends |
@@ -147,11 +152,17 @@ in OxidGene until its access token can no longer be refreshed (§4.6).
 The backend must reach the provider's token endpoint and JWKS while the
 browser reaches its authorization endpoint, often under another name (an
 in-cluster Service, a Compose service name). With `OXIDGENE_OIDC_BACKCHANNEL_URL`
-set, OxidGene fetches discovery from that base and uses the endpoints it
-returns for its own requests; discovery's `issuer`, and every token's `iss`,
-must still equal `OXIDGENE_OIDC_ISSUER`. Keycloak's dynamic back-channel
-hostname answers exactly this way: public issuer and authorization endpoint,
-token endpoint and JWKS under the host the request used. Discovery and JWKS
+set, OxidGene fetches discovery from the issuer's discovery address with its
+scheme, host and port replaced by the back channel's and its path kept —
+`http://rauthy:8080` turns the issuer `http://localhost:8180/auth/v1/` into
+`http://rauthy:8080/auth/v1/.well-known/openid-configuration` — and, for its
+own requests, uses the endpoints it returns with the same replacement where
+they are on the issuer's origin: a provider such as Rauthy answers with its
+public addresses whatever host it was asked on, while one such as Keycloak
+with a dynamic back-channel hostname already answers with the host the
+request used. The authorization and end-session endpoints, which the
+browser follows, stay as discovery gives them. Discovery's `issuer`, and
+every token's `iss`, must still equal `OXIDGENE_OIDC_ISSUER`. Discovery and JWKS
 are refreshed as §5.2 says; a provider that cannot be reached at startup does
 not stop the server, which answers `503 auth_unavailable` to what needs it
 until it can.
@@ -270,9 +281,11 @@ Redis holds no genealogy and is not a cache of tree data
 
 - A session ends after `OXIDGENE_SESSION_IDLE_TIMEOUT` without a request, or
   `OXIDGENE_SESSION_ABSOLUTE_LIFETIME` after sign-in.
-- The access token is short-lived (five minutes in the shipped realm). When a
-  request finds it expired or within a minute of expiring, the server
-  refreshes it before validating, once per session at a time: a lock in the
+- The access token is short-lived (five minutes for the clients the chart
+  and the development stack bootstrap). When a request finds it expired or
+  within a minute of expiring — not earlier: a Rauthy refresh token becomes
+  valid only then — the server refreshes it before validating, once per
+  session at a time: a lock in the
   store (`SET NX`, ten seconds) makes concurrent requests wait for that one
   refresh, because a refresh token rotated twice is a reuse that the
   provider answers by revoking the whole family. The new refresh token
@@ -468,8 +481,9 @@ The provider never holds per-tree roles.
 One identity, one user. OxidGene never links two identities, and never by
 email: a provider that lets a user type an unverified address would otherwise
 hand them someone else's trees. Linking a person's social, enterprise and
-local sign-ins is the provider's job — Keycloak's first-broker-login flow
-links them to one Keycloak user, so the `sub` OxidGene sees stays the same.
+local sign-ins is the provider's job — Rauthy's upstream providers or
+Keycloak's first-broker-login flow link them to one user there, so the `sub`
+OxidGene sees stays the same.
 Moving to another provider rebinds each user explicitly: an administrator sets
 the new issuer and subject of an existing user
 (`PUT /api/v1/admin/users/{user_id}/identity`), whose memberships and history
@@ -608,142 +622,209 @@ The export options that already exist keep working there as they do today
 
 ### 8.1 Helm chart
 
-The chart gains an `auth` block, following its existing pattern for
-CloudNativePG, Redis and RustFS: modes `disabled`/`existing`/operator, the
-chart creating custom resources and never installing an operator or its CRDs.
+The chart has an `auth` block, following its existing pattern for
+CloudNativePG, Redis and RustFS: modes `disabled`/`existing`/managed, the
+chart never installing an operator or its CRDs.
 
 | Value | Default | Description |
 |---|---|---|
-| `auth.idp.mode` | `external` | `external`: any provider (§3.3); `keycloak-operator`: a Keycloak the chart creates (§8.2); `none`: no authentication (§2) |
-| `auth.publicUrl` | Required unless `none` | `OXIDGENE_PUBLIC_URL`; normally `https://` plus `ingress.host` |
-| `auth.oidc.issuer` | Required with `external` | The issuer; derived from the Keycloak hostname and realm with `keycloak-operator` |
-| `auth.oidc.backchannelUrl` | `""` | §3.4; set to the Keycloak Service with `keycloak-operator` |
+| `auth.idp.mode` | `external` | `external`: any provider (§3.3); `rauthy`: a Rauthy the chart deploys (§8.2); `none`: no authentication (§2) |
+| `auth.publicUrl` | Required unless `none` | `OXIDGENE_PUBLIC_URL`, an origin without a path; with the chart's Ingress, its scheme followed by `ingress.host` |
+| `auth.oidc.issuer` | Required with `external` | The issuer; `https://<auth.idp.rauthy.hostname>/auth/v1/` with `rauthy` |
+| `auth.oidc.backchannelUrl` | `""` | §3.4; the Rauthy Service with `rauthy` |
 | `auth.oidc.clientId` | `oxidgene-web` | |
 | `auth.oidc.clientSecret.secret`, `.key` | `oxidgene-oidc`, `client-secret` | Existing Secret holding the web client's secret |
-| `auth.oidc.rolesClaim`, `adminValues`, `creatorValues`, `allowedValues`, `trustEmail`, `trustedClients`, `accountUrl` | Unset | §3.2 |
+| `auth.oidc.rolesClaim`, `adminValues`, `creatorValues`, `allowedValues`, `trustEmail`, `trustedClients`, `accountUrl` | Unset | §3.2; lists for the values. With `rauthy`, an empty `rolesClaim` takes Rauthy's `groups` with the groups of §8.3, and an empty `accountUrl` Rauthy's account page |
 | `auth.signup`, `auth.treeCreation`, `auth.bootstrapAdminEmail` | `invitation`, `everyone`, `""` | §6.2, §6.3 |
 | `auth.session.keysSecret.secret`, `.key` | `oxidgene-session`, `keys` | Existing Secret holding `OXIDGENE_SESSION_KEYS` |
-| `auth.session.idleTimeout`, `absoluteLifetime` | `2h`, `7d` | §4.6 |
-| `auth.idp.keycloak.*` | §8.2 | The Keycloak Operator mode |
+| `auth.session.idleTimeout`, `absoluteLifetime` | `2h`, `7d` | §4.6; a number and one unit among `s`, `m`, `h` and `d` |
+| `auth.idp.rauthy.*` | §8.2 | The Rauthy mode |
 
 - `external` renders nothing for the provider; rendering fails until
   `auth.oidc.issuer` is set, naming the three modes, so a deployment chooses
   its provider explicitly (open decision 3).
+- The backend receives the variables of §3.2, its secrets from the Secrets
+  above through `secretKeyRef`; `none` sets `OXIDGENE_AUTH_MODE=none` and
+  nothing else of this section.
 - The session store is `redis` whenever `redis.mode` is not `disabled`;
   with `redis.mode=disabled` and authentication on, rendering fails for
   `backend.replicaCount` above 1 or backend autoscaling.
 - The Ingress gains the backend paths `/auth`, `/mcp` and
   `/.well-known/oauth-protected-resource`, so the frontend and the API share
   one origin. With a mode other than `none`, `ingress.exposeApiWithoutAuth` is
-  no longer required; with `none` it still is, and `NOTES.txt` prints that
-  every tree is readable and writable by whoever reaches the backend.
+  no longer required, and `auth.publicUrl` must name the Ingress's host; with
+  `none` it still is, and `NOTES.txt` prints that every tree is readable and
+  writable by whoever reaches the backend.
 - The frontend's Content-Security-Policy is unchanged: the browser talks to
   its own origin only, and the provider's pages are navigated to, not
   fetched.
 
-### 8.2 Keycloak Operator mode
+### 8.2 Rauthy mode
 
-With `auth.idp.mode=keycloak-operator` the chart creates a `Keycloak` and a
-`KeycloakRealmImport` (`k8s.keycloak.org/v2alpha1`), and assumes the cluster
-administrator installed the Keycloak Operator and its CRDs: with
-`auth.idp.keycloak.requireCrd` (default `true`) rendering fails without the
-CRD, as for the other operators.
+With `auth.idp.mode=rauthy` the chart deploys
+[Rauthy](https://github.com/sebadob/rauthy), an OpenID Connect provider
+written in Rust, itself: a StatefulSet and its Services, no operator and no
+custom resource of its own. Rauthy holds the passwords, passkeys and second
+factors, its users' account page, the sign-in through upstream providers
+(any OpenID Connect or OAuth provider, configured in its admin UI) and its
+own mail; OxidGene still speaks only OpenID Connect to it (§1).
+
+Rauthy has **no SAML**. An institution whose sign-in is SAML connects through
+`external` mode to a provider that has it, such as Keycloak or Zitadel, or
+brokers its SAML into OpenID Connect elsewhere.
 
 | Value | Default | Description |
 |---|---|---|
-| `auth.idp.keycloak.name` | `<release>-keycloak` | The `Keycloak` resource |
-| `auth.idp.keycloak.instances` | `2` | Keycloak pods; they cluster through the operator's embedded cache |
-| `auth.idp.keycloak.image` | Operator's default | Pin to the operator's supported version |
-| `auth.idp.keycloak.hostname` | Required | Its own host, such as `auth.genealogy.example.invalid`: the issuer becomes `https://<hostname>/realms/<realm>` |
-| `auth.idp.keycloak.ingress.enabled`, `className`, `annotations`, `tlsSecret` | `true`, `""`, `{}`, `""` | The operator's Ingress for that host; TLS terminates there |
-| `auth.idp.keycloak.tlsSecret` | `""` | A certificate for end-to-end TLS to the pods; empty serves HTTP inside the cluster behind the Ingress, with the forwarded headers trusted (`proxy.headers: xforwarded`) |
-| `auth.idp.keycloak.database.mode` | `cloudnativepg` | `cloudnativepg`: a CloudNativePG `Cluster` of its own; `existing`: an external PostgreSQL (`host`, `port`, `database`, and the Secrets of its user and password) |
-| `auth.idp.keycloak.database.cloudnativepg.instances`, `storage.size`, `storage.storageClass` | `2`, `5Gi`, `""` | |
-| `auth.idp.keycloak.resources` | requests `500m`/`1Gi`, limit `2Gi` | Indicative; size from Keycloak's own sizing guide |
-| `auth.idp.keycloak.realm.name` | `oxidgene` | |
-| `auth.idp.keycloak.realm.import` | `true` | Create the `KeycloakRealmImport` of §8.3 |
-| `auth.idp.keycloak.realm.smtp.*` | Unset | Keycloak's own mail (verification, password reset) — separate from OxidGene's ([Messaging §3](messaging.md#3-email)) |
-| `auth.idp.keycloak.realm.adminClient` | `false` | Ship the `oxidgene-admin` client for API-client provisioning ([Authorization §7.3](authorization.md#73-provisioning)) |
+| `auth.idp.rauthy.name` | `<release>-rauthy` | The StatefulSet, its Service and `<name>-headless` |
+| `auth.idp.rauthy.image` | `ghcr.io/sebadob/rauthy`, pinned | Read Rauthy's changelog before moving it: its configuration changes between releases |
+| `auth.idp.rauthy.replicas` | `1` | 1, or an odd number — 3 for high availability — for its Raft cluster to keep a majority; rendering refuses an even one |
+| `auth.idp.rauthy.hostname` | Required | Its own host, such as `auth.genealogy.example.invalid`: the issuer becomes `https://<hostname>/auth/v1/` |
+| `auth.idp.rauthy.ingress.enabled`, `className`, `annotations`, `tlsSecret` | `true`, `""`, `{}`, `""` | An Ingress for that host; TLS terminates there |
+| `auth.idp.rauthy.trustedProxies` | The private ranges | Proxies whose forwarded headers Rauthy trusts: the Ingress controller's pods |
+| `auth.idp.rauthy.secret` | `oxidgene-rauthy` | Existing Secret: `enc-keys` (`id/base64-32-bytes`, one per line), `enc-key-active`, `raft-secret` and `api-secret` (Hiqlite's, 16 characters at least), `api-key` (64 alphanumeric characters at least, the job's). The web client's secret must be 64 alphanumeric characters too, as Rauthy requires |
+| `auth.idp.rauthy.admin.email`, `passwordKey` | `""`, `""` | Rauthy's administrator; without a password key in the Secret, Rauthy prints a first password once in its log |
+| `auth.idp.rauthy.database.mode` | `hiqlite` | `hiqlite`: Rauthy's embedded SQLite, replicated by Raft, on a volume per pod; `cloudnativepg`: a CloudNativePG `Cluster` of its own, `<name>-db` (open decision 4) |
+| `auth.idp.rauthy.database.hiqlite.storage.size`, `storageClass` | `1Gi`, `""` | |
+| `auth.idp.rauthy.database.cloudnativepg.*` | `2` instances, `5Gi`, database and owner `rauthy` | Also `requireCrd`, `clusterName`, `imageName` and `resources`, as for OxidGene's own `Cluster` |
+| `auth.idp.rauthy.smtp.host`, `port`, `tlsMode`, `from`, `user`, `passwordSecret` | `""` (none), `587`, `starttls`, `""`, `""`, `rauthy-smtp`/`password` | Rauthy's own mail (address verification, password reset, new-login notices) — separate from OxidGene's ([Messaging §3](messaging.md#3-email)) |
+| `auth.idp.rauthy.initImage` | `curlimages/curl`, pinned | The init container and the job below |
+| `auth.idp.rauthy.resources` | requests `100m`/`128Mi`, limit `512Mi` | Indicative |
 
-- **Hostname and back channel.** Keycloak runs with `hostname` set to its
-  public URL and a dynamic back-channel hostname, and OxidGene's
-  `backchannelUrl` is the Keycloak Service, so the backend never hairpins
-  through the Ingress (§3.4).
-- **Database.** A separate CloudNativePG `Cluster` keeps Keycloak's lifecycle,
-  backups and blast radius apart from the genealogy (open decision 4).
-- **Cost.** Keycloak is a JVM service: with the defaults, two pods at about
-  1–2 GiB of memory each plus a two-instance PostgreSQL, more than the rest of
-  OxidGene together. A small deployment that already runs a provider uses
-  `external`.
-- **Initial administrator.** The operator generates the `<name>-initial-admin`
-  Secret; the administrator replaces it with a permanent account, then creates
-  users or connects identity providers in the admin console.
+- **Workload.** A StatefulSet whose pods start together
+  (`podManagementPolicy: Parallel`), each taking its Raft id from its
+  ordinal, peers listed in the configuration through the headless Service
+  (ports 8100 and 8200, published before readiness); readiness on Hiqlite's
+  `/ready`, liveness on `/auth/v1/health`; a disruption budget of one pod
+  above one replica. Its configuration is a ConfigMap mounted at
+  `/app/config.toml`; its secrets reach it through the environment, which
+  overrides the file. Rauthy runs read-only as UID 10001.
+- **Hostname and back channel.** Rauthy serves plain HTTP behind the Ingress
+  (`proxy_mode` with `trustedProxies`), its public URL the hostname, so its
+  discovery answers with public addresses whatever host it is asked on.
+  OxidGene's `backchannelUrl` is the Rauthy Service,
+  `http://<name>.<namespace>.svc.<clusterDomain>:8080`, and the backend
+  rewrites those addresses to it (§3.4), never hairpinning through the
+  Ingress.
+- **Storage.** Hiqlite by default (open decision 4): no second PostgreSQL to
+  run, back up and upgrade, three pods for high availability, each pod's
+  volume kept by Kubernetes when the release is uninstalled. With
+  `cloudnativepg`, Hiqlite only caches and the pods keep no volume.
+- **Cost.** One Rust process per pod, a fraction of a JVM provider: the
+  defaults request 100m CPU and 128 MiB per pod.
+- **Administrator.** Rauthy's admin UI, at `https://<hostname>/auth/v1/admin`,
+  requires its administrator to register a passkey first (Rauthy's
+  `admin_force_mfa`, on). There the administrator creates users, adds
+  instance administrators to `oxidgene-admins`, and connects upstream
+  providers.
 
-### 8.3 The shipped realm
+### 8.3 The bootstrapped setup
 
-`KeycloakRealmImport` carries the realm below, templated from a file of the
-chart; secrets come from Secrets through the import's placeholders, never
-from values.
+Rauthy reads a bootstrap directory at its first start, on an empty
+database. An init container of the StatefulSet writes it into a memory
+volume of the pod from `charts/oxidgene/files/rauthy/`, filling in the web
+client's secret from `auth.oidc.clientSecret` and the API key from
+`auth.idp.rauthy.secret`; no secret is in a ConfigMap or in values.
 
 | Part | Content |
 |---|---|
-| Realm | `sslRequired: external`; `registrationAllowed: false` (an administrator or a broker creates users); verified emails required; brute-force detection on with temporary lockout; password policy `length(12) and notUsername and notEmail`; access tokens of five minutes; refresh tokens rotated with no reuse (`revokeRefreshToken: true`, `refreshTokenMaxReuse: 0`); SSO idle and maximum lifetimes at least OxidGene's session lifetimes; internationalization on with English, French, German, Spanish, Italian, Dutch, Polish and Portuguese, English default |
-| Client `oxidgene-web` | Confidential; standard flow only (no implicit, no direct grants, no service account); PKCE `S256` required; redirect URI `{publicUrl}/auth/callback`; post-logout redirect `{publicUrl}/`; back-channel logout URL `{publicUrl}/auth/backchannel-logout` with session id required; no web origins (no CORS); full scope off; default client scopes `profile`, `email`, `groups`, `oxidgene-api` and the API scopes |
-| Client `oxidgene-mcp` | Public; standard flow with PKCE `S256`; consent required; loopback redirects, the operator adding a hosted assistant's redirect URI ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)) |
-| Client `oxidgene-worker` | Confidential; service account only; permitted to exchange tokens for the `oxidgene-api` audience (§5.5) |
-| Client `oxidgene-admin` | Only with `realm.adminClient`: confidential, service account holding `manage-clients` and `view-clients` of `realm-management`. That role reaches every client of the realm, so the realm is dedicated to OxidGene |
-| Client scope `oxidgene-api` | Audience mapper adding `{publicUrl}` to `aud` |
-| Client scope `oxidgene-mcp` | Audience mapper adding `{publicUrl}/mcp` |
-| Client scopes `tree:read`, `tree:write`, `media:read`, `media:write`, `import`, `export`, `history:read`, `tree:admin`, `instance:admin` | Optional scopes for API clients ([Authorization §7.2](authorization.md#72-scopes)), included in the token's `scope` |
-| Client scope `groups` | Group-membership mapper, claim `groups`, names without path |
+| Client `oxidgene-web` | Confidential, its secret the Secret's; authorization code and refresh token only; PKCE `S256` required; redirect URI `{publicUrl}/auth/callback`; post-logout redirect `{publicUrl}/`; back-channel logout URI `{publicUrl}/auth/backchannel-logout`; no allowed origins (no CORS); access tokens of five minutes signed with `EdDSA`; scopes and default scopes `openid`, `profile`, `email`, `groups` and the API scopes; extra audience `{publicUrl}` (`default_aud`) |
+| Client `oxidgene-mcp` | Public; authorization code with PKCE `S256`; loopback redirects, the operator adding a hosted assistant's redirect URI ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)); the API scopes but `instance:admin` |
+| Client `oxidgene-worker` | Confidential, its secret generated by Rauthy; client credentials and token exchange (§5.5) |
 | Groups | `oxidgene-admins`, `oxidgene-creators`; the chart sets `rolesClaim: groups`, `adminValues: [oxidgene-admins]`, `creatorValues: [oxidgene-creators]` |
-| Users | None |
+| Scopes | `tree:read`, `tree:write`, `media:read`, `media:write`, `import`, `export`, `history:read`, `tree:admin`, `instance:admin` ([Authorization §7.2](authorization.md#72-scopes)), in the token's `scope` |
+| API key `oxidgene-chart` | Reads and updates clients, nothing else: the job's |
+| Users | None but Rauthy's administrator |
 
-Multi-factor authentication (TOTP, WebAuthn) and social or SAML brokers are
-left to the administrator: required actions and identity providers are set in
-the console, and the default first-broker-login flow asks the user to confirm
-before linking a brokered identity to an existing account (§6.4).
+Rauthy's bootstrap files cannot set a client's extra audience. After each
+install and upgrade, a Helm hook job (`<name>-configure`) applies
+`oxidgene-web`'s whole definition through Rauthy's admin API
+(`PUT /auth/v1/clients/oxidgene-web`, authenticated by the API key), retrying
+until Rauthy answers: the chart owns that client, and a change made to it in
+the admin UI lasts until the next upgrade.
 
-### 8.4 Limits of the realm import
+The tokens Rauthy issues for `oxidgene-web` carry, measured on the
+development stack:
 
-- A `KeycloakRealmImport` imports a realm only when it does not exist yet.
-  Changing the chart's values afterwards — a new `publicUrl`, a redirect URI,
-  a scope — changes nothing in the running realm.
-- Later changes go through the admin console, or through configuration
-  tooling that reconciles a realm (keycloak-config-cli, an infrastructure
-  tool's Keycloak provider), which also suits an `external` Keycloak.
-- Rotating the web client's secret means changing it in Keycloak and in the
-  `auth.oidc.clientSecret` Secret, then restarting the backend.
-- Uninstalling the release deletes Keycloak and, with `cloudnativepg`, its
-  database: back it up, or keep the `Cluster` out of the release's
-  lifecycle, as for OxidGene's own database.
+| Token | Claims |
+|---|---|
+| Access (`typ` header `at+jwt`) | `iss`, `sub` (the user's id), `aud` (`oxidgene-web` and `{publicUrl}`), `azp`, `scope`, `email`, `email_verified`, `groups`, `roles`, `iat`, `nbf`, `exp`, `jti`; no `client_id` (`azp` names the client) and no `sid` |
+| ID (`JWT`) | The same identity, `aud` `oxidgene-web`, plus `sid`, `nonce`, `auth_time`, `amr`, `at_hash`, `preferred_username` (the email), `name`, `given_name`, `family_name`, `locale` |
+
+A user without a group or role may get `[""]`: an empty value matches no
+configured value.
+
+### 8.4 Limits of the bootstrap
+
+- Rauthy applies its bootstrap directory only to an empty database. Changing
+  the chart's values afterwards changes nothing in Rauthy but
+  `oxidgene-web`, which the job applies again: groups, scopes and the other
+  clients change through the admin UI or the admin API.
+- Rotating the web client's secret means generating a new one in Rauthy's
+  admin UI (Rauthy 0.37 generates a secret; it does not take a chosen one),
+  writing it into the `auth.oidc.clientSecret` Secret, then restarting the
+  backend.
+- Uninstalling the release keeps the Hiqlite volumes, as Kubernetes keeps a
+  StatefulSet's claims, and deletes a `cloudnativepg` database: back it up,
+  or keep the `Cluster` out of the release's lifecycle, as for OxidGene's own
+  database.
 
 ### 8.5 Development stack
 
-The development Compose stack gains a `keycloak` service:
+The development Compose stack (`docker/docker-compose.yml`) runs the
+provider, its mail relay and the session store beside the application:
 
-- `start-dev --import-realm`, its embedded development database, the
-  bootstrap administrator `admin`/`admin`, published on
-  `127.0.0.1:8180`, with `KC_HOSTNAME=http://localhost:8180` and the
-  dynamic back-channel hostname; the server sets
-  `OXIDGENE_OIDC_ISSUER=http://localhost:8180/realms/oxidgene-dev` and
-  `OXIDGENE_OIDC_BACKCHANNEL_URL=http://keycloak:8080`.
-- `docker/keycloak/oxidgene-dev-realm.json`, the realm of §8.3 with
-  development secrets, redirect URIs on `http://localhost:8081`, and
-  fictitious users only, each named after a role and with its role as
-  password: `admin@example.invalid` (group `oxidgene-admins`),
-  `owner@example.invalid`, `editor@example.invalid`, `guest@example.invalid`,
+- A `rauthy` service, `ghcr.io/sebadob/rauthy` pinned to a release, with
+  `docker/rauthy/config.toml`: plain HTTP published on `127.0.0.1:8180`,
+  public URL `localhost:8180`, its embedded Hiqlite database in the
+  container — a recreated container starts empty and bootstraps afresh —
+  and Rauthy's administrator `idp-admin@example.invalid` /
+  `idp-admin-development`, without the passkey requirement. The server sets
+  `OXIDGENE_OIDC_ISSUER=http://localhost:8180/auth/v1/` and
+  `OXIDGENE_OIDC_BACKCHANNEL_URL=http://rauthy:8080`.
+- `docker/rauthy/bootstrap/`, the setup of §8.3 for the public URL
+  `http://localhost:8081` with development secrets, and fictitious users
+  only, each named after a role and with its role as password:
+  `admin@example.invalid` (group `oxidgene-admins`), `owner@example.invalid`,
+  `editor@example.invalid`, `guest@example.invalid`,
   `visitor@example.invalid` and `outsider@example.invalid`, all with verified
-  addresses; and a confidential client `oxidgene-dev-robot` with the client
-  credentials grant and `tree:read`, for API-client tests.
+  addresses; a confidential client `oxidgene-dev-robot` with the client
+  credentials grant (its secret sent in the form) and `tree:read`, for
+  API-client tests; and the API key `oxidgene-dev`, which also reads users
+  and ends their sessions for the end-to-end suite. It differs from the
+  chart's only there, and by calling the back-channel logout at
+  `http://server:8080/auth/backchannel-logout`, the server's Compose name,
+  which the server accepts through `OXIDGENE_ALLOWED_HOSTS=server`.
+  `just chart-test` fails when the two setups drift apart.
+- A one-shot `rauthy-init` service applies `docker/rauthy/oxidgene-web.json`
+  through the admin API once Rauthy answers, as the chart's job does; the
+  server waits for it. Rauthy's image has no shell or HTTP client for a
+  health check.
+- `docker/rauthy/oxidgene-dev-auth.env`, the server's settings for it:
+  `oidc` mode, the public URL, issuer, client and its secret, the `groups`
+  roles claim, `OXIDGENE_AUTH_SIGNUP=open` (nobody can be invited yet),
+  `admin@example.invalid` as bootstrap administrator, the account page and
+  a development session key. Compose adds the back channel and
+  `OXIDGENE_SESSION_STORE=redis` on the stack's `redis`.
+- A `mailpit` service keeps every mail — Rauthy's own today, without which
+  Rauthy stops at start — for inspection on `http://127.0.0.1:8025` (SMTP on
+  `127.0.0.1:1025`) and delivers none
+  ([Messaging §3.5](messaging.md#35-without-smtp)).
 - The `web` container proxies `/api`, `/graphql`, `/auth`, `/mcp` and
-  `/.well-known/oauth-protected-resource` to the server, and the stack is
-  opened at `http://localhost:8081`, so the browser sees one origin and keeps
-  its `Secure` cookies.
+  `/.well-known/oauth-protected-resource` to the server
+  (`docker/nginx-dev-proxy.conf`, mounted into the image's
+  `/etc/nginx/locations.d/`, which the published image leaves empty), with
+  the browser's `Host` and the forwarded headers; its bundle calls the API on
+  its own origin. The stack is opened at `http://localhost:8081`, so the
+  browser sees one origin and keeps its `Secure` cookies.
 - `just dev-web` keeps `OXIDGENE_AUTH_MODE=none`; with
-  `OXIDGENE_AUTH_MODE=oidc` it uses the Dioxus development server's proxy
-  for the same paths and the Compose Keycloak, started alone by
-  `just dev-idp-up` and stopped by `just dev-idp-down`.
+  `OXIDGENE_AUTH_MODE=oidc` it reads the settings file above, builds the
+  bundle for its own origin, and serves it on `http://localhost:8081`
+  through the Dioxus development server, whose proxy (`[[web.proxy]]` of
+  `apps/oxidgene-web/Dioxus.toml`) forwards the same paths to the backend
+  on port 8080, against the Compose Rauthy, started alone — with Mailpit and
+  `rauthy-init` — by `just dev-idp-up` and removed by `just dev-idp-down`.
+  Sessions stay in memory, and the provider's back-channel logout cannot
+  reach a backend outside Compose.
 
 ---
 
@@ -863,6 +944,8 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
 | Token encryption at rest | `aws-lc-rs` AES-256-GCM, already built | None |
 | Session store | The `redis` crate with its Tokio and `rustls` features | A handful of crates, server only |
 | OpenID Connect client crates (`openidconnect`, `oauth2`) | **Not used**: discovery, the code flow and refresh are a few hundred lines over `reqwest`, and the crates bring their own HTTP and crypto stacks | — |
+| The bundled identity provider | Rauthy's image (`ghcr.io/sebadob/rauthy`, pinned), run by the chart's `rauthy` mode and the development stack, never linked | No crate; one container of about 95 MB |
+| Completing Rauthy's web client | `curlimages/curl` (pinned), the chart's init container and job and the development stack's `rauthy-init` | No crate; one container of about 11 MB |
 
 Each addition is measured with `cargo tree`, the dependency budget and the
 binary-size budget when it lands ([Development §2.8](development.md#28-guards)).
@@ -887,12 +970,23 @@ The WASM frontend gains no dependency: it calls `/auth/session` and navigates.
   `401`, `403` or `404` for the same viewer, generated from the parity
   table ([Authorization §12](authorization.md#12-tests)). Logs of every
   scenario hold no token, email or subject.
-- **End-to-end.** A Playwright project against the Compose stack with its
-  Keycloak, signing in with the fictitious users of §8.5: sign-in, session
-  end, sign-out, and one journey per role. It needs external services, so it
-  is opt-in (`just e2e-auth`) and never part of `just check`.
-- **Chart.** Rendering tests for every `auth.idp.mode`, the required values,
-  the Redis and replica rule, and the Ingress paths.
+- **End-to-end.** A Playwright project (`e2e/playwright.auth.config.ts`,
+  `e2e/auth/`) against the Compose stack with its Rauthy, signing in with
+  the fictitious users of §8.5 on Rauthy's own page: sign-in and the cookie
+  no script can read, `return_to` kept within the application, a replayed
+  callback, the CSRF refusals and RP-initiated sign-out, a session the
+  provider ends (back-channel logout), sign-out everywhere, the bearer
+  tokens refused, and the instance role each user's groups give; the
+  journeys of the tree roles join it with them. It needs external services,
+  so it is opt-in (`just e2e-auth`, which starts the stack) and never part
+  of `just check`; every test skips itself while the server answers
+  `/auth/session` without `mode: "oidc"`.
+- **Chart.** `just chart-test` (`scripts/chart-tests.py`): `helm lint` with
+  each values file of `charts/oxidgene/ci/`, and rendering tests for every
+  `auth.idp.mode`, the required values, the Redis and replica rule, the
+  Ingress paths, the Rauthy workload on Hiqlite and on CloudNativePG, the
+  job completing the web client, and the setup the chart bootstraps against
+  the development one.
 
 ---
 
@@ -910,10 +1004,13 @@ The WASM frontend gains no dependency: it calls `/auth/session` and navigates.
 3. **The chart's default mode.** Recommended: `external`, failing to render
    until a provider is named. Alternative: `none`, today's behaviour,
    relying on the Ingress guard alone.
-4. **Keycloak's database.** Recommended: its own CloudNativePG `Cluster`.
-   Alternative: a second database in OxidGene's cluster, through
-   CloudNativePG's `Database` resource, which saves one PostgreSQL but ties
-   both upgrades and restores together.
+4. **Rauthy's storage.** Recommended, and the chart's default: Hiqlite,
+   Rauthy's embedded SQLite replicated by Raft across its pods, each on a
+   volume of its own — Rauthy's own default, with no second PostgreSQL to
+   run, back up and upgrade beside OxidGene's, and highly available with
+   three pods. Alternative: its own CloudNativePG `Cluster`
+   (`database.mode=cloudnativepg`), for an operator who wants PostgreSQL's
+   backups and point-in-time recovery for the identities too.
 5. **The web client's authentication.** Recommended: `client_secret_basic`
    by default, `private_key_jwt` available. Alternative: `private_key_jwt`
    only, which removes a shared secret from the provider's database at the

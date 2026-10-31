@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Planned communication between the users of a web deployment: in-app notifications and their preferences, email sent through the operator's SMTP relay from a worker-processed outbox, and end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Messaging and Notifications
@@ -86,7 +86,7 @@ its kind, through a signed token valid without signing in.
 
 | Sender | Mail |
 |---|---|
-| The identity provider | Its own: address verification, password reset, its sign-in notices. Configured in the provider ([Authentication §8.2](authentication.md#82-keycloak-operator-mode), `realm.smtp`) |
+| The identity provider | Its own: address verification, password reset, its sign-in notices. Configured in the provider ([Authentication §8.2](authentication.md#82-rauthy-mode), `auth.idp.rauthy.smtp`) |
 | OxidGene | Invitations by email ([Authorization §6.2](authorization.md#62-invitations-by-email)) and notifications per the recipient's preferences (§2.3), single or as a digest |
 | The desktop | Nothing |
 

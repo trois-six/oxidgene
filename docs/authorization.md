@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Planned authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -438,8 +438,8 @@ these the deployment supports (`OXIDGENE_API_CLIENT_PROVISIONING`):
 
 | Mode | How | Providers |
 |---|---|---|
-| `keycloak-admin` | Keycloak's admin REST API, through the `oxidgene-admin` service account ([Authentication §8.3](authentication.md#83-the-shipped-realm)): a confidential client `oxidgene-api-<id>`, service account on, every other flow off, its scopes as optional client scopes, the `oxidgene-api` audience | Keycloak |
-| `dcr` | RFC 7591 registration with an initial access token (`OXIDGENE_OIDC_REGISTRATION_TOKEN`), `grant_types: [client_credentials]`; RFC 7592 to delete it, its registration access token stored encrypted | Keycloak, Auth0, Okta and others |
+| `keycloak-admin` | An `external` Keycloak's admin REST API, through a confidential client `oxidgene-admin` its administrator creates, whose service account holds `manage-clients` and `view-clients` of `realm-management` — a role that reaches every client of the realm, which is therefore dedicated to OxidGene: a confidential client `oxidgene-api-<id>`, service account on, every other flow off, its scopes as optional client scopes, the `oxidgene-api` audience | Keycloak |
+| `dcr` | RFC 7591 registration with an initial access token (`OXIDGENE_OIDC_REGISTRATION_TOKEN`), `grant_types: [client_credentials]`; RFC 7592 to delete it, its registration access token stored encrypted | Rauthy (its dynamic client registration, `dynamic_clients.enable` and its registration token), Keycloak, Auth0, Okta and others |
 | `manual` | The creator registers a client in their provider, with the scopes and audience OxidGene shows, and enters its client id; the secret never passes through OxidGene | Every provider with client credentials |
 
 The secret, when OxidGene provisioned it, is returned once with the client id
@@ -454,8 +454,8 @@ and the token endpoint, and never stored by OxidGene.
   the old one.
 - **Revocation** of a credential or a client is immediate: every request maps
   the token's client id to its row, and a revoked or expired row is
-  `401 unauthenticated` at once. Tokens are short-lived (five minutes in the
-  shipped realm); deprovisioning at the provider follows, retried by the
+  `401 unauthenticated` at once. Tokens are short-lived (five minutes for the
+  clients the chart bootstraps); deprovisioning at the provider follows, retried by the
   worker until it succeeds.
 - **Expiry.** A client may have an expiry, a year at most by default.
 - Opaque tokens are introspected ([Authentication §5.3](authentication.md#53-opaque-tokens)).
@@ -504,8 +504,9 @@ part requires:
 - **Tokens.** The assistant obtains a user token through its own registration
   (`oxidgene-mcp`, Authorization Code with PKCE and the provider's consent
   screen), asking for the resource with RFC 8707's `resource` parameter where
-  the provider honours it, otherwise through the realm's `oxidgene-mcp`
-  audience scope; the provider's client registration or client metadata
+  the provider honours it, otherwise through an audience the provider adds
+  to the client's tokens (Rauthy's `default_aud`, Keycloak's audience
+  mapper); the provider's client registration or client metadata
   documents serve assistants that register themselves. `/mcp` accepts only a
   token whose `aud` contains `{public_url}/mcp` and whose client is trusted
   ([Authentication §5.1](authentication.md#51-accepted-credentials)); OxidGene

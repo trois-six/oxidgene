@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-30T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # OxidGene Quickstart
@@ -164,9 +164,9 @@ the bundled development configuration only prints summaries to its logs.
 ## 3. Run the web stack with Docker Compose
 
 The Compose stack is intended for local development and integration testing.
-It starts PostgreSQL, RustFS, a one-shot bucket initializer, Redis, and the
-OxidGene API and browser frontend. Redis is provisioned for future authenticated
-sessions but is not used before authentication is implemented.
+It starts PostgreSQL, RustFS, a one-shot bucket initializer, Redis for the
+sessions, the Rauthy identity provider with a Mailpit relay, and the OxidGene
+API and browser frontend.
 
 ### Software requirements
 
@@ -178,8 +178,8 @@ sessions but is not used before authentication is implemented.
 - 4 CPU cores and 8 GiB RAM recommended for builds and all services.
 - At least 20 GiB free Docker storage, plus capacity for PostgreSQL data and
   imported media in the RustFS volume.
-- Host ports `5432`, `6379`, `8080`, `9000`, and `9001` available on loopback.
-  The development browser server additionally uses `8081`.
+- Host ports `1025`, `4317`, `4318`, `5432`, `6379`, `8025`, `8080`, `8081`,
+  `8180`, `9000`, `9001` and `13133` available on loopback.
 
 ### Start and stop
 
@@ -190,7 +190,17 @@ docker compose -f docker/docker-compose.yml up -d --build --wait --remove-orphan
 docker compose -f docker/docker-compose.yml ps
 ```
 
-Open `http://127.0.0.1:8081` for the application. The API is available at
+Open `http://localhost:8081` for the application — `localhost`, the origin
+the sign-in is configured for, where the browser keeps its session cookie
+over plain HTTP — and sign in with a fictitious user named after its role,
+its role as password: `owner@example.invalid` / `owner`, or
+`admin@example.invalid` / `admin` for an instance administrator
+([Authentication §8.5](authentication.md#85-development-stack)). The web
+container serves the API and the sign-in routes on that origin. Rauthy
+answers on `http://localhost:8180` (its admin UI at
+`http://localhost:8180/auth/v1/admin`, as `idp-admin@example.invalid` /
+`idp-admin-development`), Mailpit shows every mail on
+`http://127.0.0.1:8025`. The API is also published at
 `http://127.0.0.1:8080`, RustFS S3 at
 `http://127.0.0.1:9000`, and the RustFS console at
 `http://127.0.0.1:9001`. The `rustfs-init` service creates the
@@ -202,7 +212,8 @@ docker compose -f docker/docker-compose.yml down
 ```
 
 Add `--volumes` only when the PostgreSQL, RustFS, and Redis development data
-should be permanently deleted.
+should be permanently deleted. Rauthy keeps its data in its container: a
+recreated container starts from its bootstrap again.
 
 The Compose credentials are intentionally local-only. Every published port is
 bound to `127.0.0.1`; do not expose this stack to an untrusted network.
@@ -216,7 +227,10 @@ observability backend.
 ### Server configuration
 
 `oxidgene-server` reads an optional `oxidgene.toml` in its working directory
-and the environment, which overrides it; `oxidgene-worker` reads the same
+and the environment, which overrides it; the sign-in settings
+(`OXIDGENE_AUTH_MODE`, `OXIDGENE_PUBLIC_URL`, `OXIDGENE_OIDC_*`,
+`OXIDGENE_SESSION_*`) are listed in
+[Authentication §3.2](authentication.md#32-configuration); `oxidgene-worker` reads the same
 configuration and uses its database, logging and media settings. Compose and
 the Helm chart set these for you; a server run by hand reads:
 
@@ -250,9 +264,15 @@ chart supports:
 - `database.mode=existing`: connect to an existing PostgreSQL database.
 - `database.mode=cloudnativepg`: create a CloudNativePG cluster, optionally
   installing the official operator as a chart dependency.
-- `redis.mode=disabled`: do not configure the future session store.
-- `redis.mode=existing`: connect the backend configuration to an existing
-  Redis service.
+- `auth.idp.mode=external`, the default: sign in against an OpenID Connect
+  provider of your own, named by `auth.oidc.issuer`; rendering fails until
+  it is set.
+- `auth.idp.mode=rauthy`: deploy the Rauthy identity provider with the
+  release, on its embedded Hiqlite database or a CloudNativePG cluster of its
+  own.
+- `auth.idp.mode=none`: no authentication, for a single trusted user.
+- `redis.mode=disabled`: keep sessions in the backend process, one replica.
+- `redis.mode=existing`: keep sessions in an existing Redis service.
 - `redis.mode=operator`: create a persistent Redis instance, optionally
   installing OpsTree Redis Operator as a chart dependency.
 - `s3.mode=disabled`: use the backend pod's local filesystem.
@@ -263,9 +283,8 @@ chart supports:
   process's logs, traces, and metrics to an OpenTelemetry Collector over
   OTLP/gRPC; an empty value disables export for that process.
 
-Redis remains unused by application code until authentication is implemented;
-enabling it now provisions the infrastructure and injects the reserved
-`OXIDGENE_REDIS_URL` backend variable.
+With authentication on, the sessions live in Redis whenever it is
+configured; without it, the chart refuses more than one backend replica.
 
 ### Software requirements
 
@@ -406,10 +425,12 @@ them. On a cluster where an administrator already operates CloudNativePG, keep
 a separate release is recommended for production because its lifecycle is
 independent from the application.
 
-### Redis for future sessions
+### Redis for sessions
 
-Redis is disabled by default because authentication and user sessions are not
-implemented yet. For an existing service, create a Secret containing its URL:
+Redis holds the sessions, sign-in transactions and rate-limit counters the
+backend replicas share. It is disabled by default, which keeps them in a
+single backend process. For an existing service, create a Secret containing
+its URL:
 
 ```bash
 kubectl -n oxidgene create secret generic oxidgene-redis \
@@ -453,9 +474,8 @@ redis-operator:
 ```
 
 The chart creates an OpsTree `Redis` resource backed by Redis 8.2.1, enables
-AOF persistence, and injects `OXIDGENE_REDIS_URL` into the backend. That
-variable is reserved for EPIC G and has no effect before session management is
-implemented. The bundled chart is Redis Operator 0.26.1 with operator 0.26.0.
+AOF persistence, and injects `OXIDGENE_REDIS_URL` into the backend, which
+then keeps its sessions there. The bundled chart is Redis Operator 0.26.1 with operator 0.26.0.
 
 The operator and its four CRDs are cluster-wide. Only one release should own
 them. When the operator is already installed by the cluster administrator,
@@ -501,10 +521,15 @@ s3:
     region: us-east-1
     credentialsSecret: oxidgene-s3
 
+auth:
+  idp:
+    mode: external
+  publicUrl: https://genealogy.example.invalid
+  oidc:
+    issuer: https://idp.example.invalid/realms/genealogy
+
 ingress:
   enabled: true
-  # Only once the host is restricted to trusted users (see below).
-  exposeApiWithoutAuth: true
   className: nginx
   host: genealogy.example.invalid
   tls:
@@ -584,6 +609,83 @@ s3:
       size: 100Gi
 ```
 
+### Authentication
+
+Users sign in through an OpenID Connect provider; OxidGene keeps no password
+([Authentication](authentication.md)). Every authenticated mode needs two
+Secrets, the web client's secret and the session keys:
+
+```bash
+kubectl -n oxidgene create secret generic oxidgene-oidc \
+  --from-literal=client-secret='WEB_CLIENT_SECRET'
+kubectl -n oxidgene create secret generic oxidgene-session \
+  --from-literal=keys="$(openssl rand -base64 32)"
+```
+
+With a provider of your own (`external`, the default), register a
+confidential client `oxidgene-web` there — redirect URI
+`https://genealogy.example.invalid/auth/callback`, PKCE `S256`, access tokens
+whose `aud` contains `https://genealogy.example.invalid` — and name its
+issuer:
+
+```yaml
+auth:
+  idp:
+    mode: external
+  publicUrl: https://genealogy.example.invalid
+  oidc:
+    issuer: https://idp.example.invalid/realms/genealogy
+    rolesClaim: groups
+    adminValues: [genealogy-admins]
+```
+
+With `rauthy`, the release deploys [Rauthy](https://github.com/sebadob/rauthy)
+on its own host and bootstraps it with OxidGene's clients, groups and scopes
+([Authentication §8.2](authentication.md#82-rauthy-mode)). Rauthy has no
+SAML: an institution whose sign-in is SAML uses `external` with a provider
+that has it. Its web client secret must be 64 alphanumeric characters, and
+Rauthy needs a Secret of its own:
+
+```bash
+kubectl -n oxidgene create secret generic oxidgene-oidc \
+  --from-literal=client-secret="$(openssl rand -hex 32)"
+kubectl -n oxidgene create secret generic oxidgene-rauthy \
+  --from-literal=enc-keys="key01/$(openssl rand -base64 32)" \
+  --from-literal=enc-key-active=key01 \
+  --from-literal=raft-secret="$(openssl rand -hex 24)" \
+  --from-literal=api-secret="$(openssl rand -hex 24)" \
+  --from-literal=api-key="$(openssl rand -hex 32)" \
+  --from-literal=admin-password="$(openssl rand -hex 16)"
+```
+
+```yaml
+auth:
+  idp:
+    mode: rauthy
+    rauthy:
+      replicas: 3
+      hostname: auth.genealogy.example.invalid
+      ingress:
+        className: nginx
+        tlsSecret: rauthy-tls
+      admin:
+        email: idp-admin@example.invalid
+        passwordKey: admin-password
+      database:
+        hiqlite:
+          storage:
+            storageClass: fast-rwo
+  publicUrl: https://genealogy.example.invalid
+```
+
+Rauthy's administrator signs in at
+`https://auth.genealogy.example.invalid/auth/v1/admin`, registers a passkey,
+then creates the users — or connects upstream providers — and adds the
+instance administrators to the group `oxidgene-admins`. Rauthy keeps its
+data on a volume per pod (Hiqlite, replicated across three pods), or in a
+CloudNativePG cluster of its own with
+`auth.idp.rauthy.database.mode=cloudnativepg`.
+
 ### Install and verify OxidGene
 
 Install only after the external services are reachable and the selected
@@ -634,14 +736,17 @@ kubectl -n oxidgene rollout status \
   statefulset/oxidgene-redis --timeout=10m
 ```
 
-The ingress sends `/api`, `/graphql`, and `/healthz` to the backend and all
-other paths to the frontend. The backend has no authentication yet: whoever
+The ingress sends `/api`, `/graphql`, `/auth`, `/mcp`,
+`/.well-known/oauth-protected-resource` and `/healthz` to the backend and all
+other paths to the frontend, so the application and its API share one
+origin. With `auth.idp.mode=none` the backend has no authentication: whoever
 reaches the Ingress host can read, change and delete every tree. An enabled
-Ingress therefore fails to render until `ingress.exposeApiWithoutAuth=true`
-records that the host is restricted some other way — an authenticating proxy
-configured through `ingress.annotations` (for example `oauth2-proxy` behind
-the controller's external-authentication annotations), or a host only a
-private network reaches. The release notes repeat the warning.
+Ingress therefore fails to render in that mode until
+`ingress.exposeApiWithoutAuth=true` records that the host is restricted some
+other way — an authenticating proxy configured through `ingress.annotations`
+(for example `oauth2-proxy` behind the controller's external-authentication
+annotations), or a host only a private network reaches. The release notes
+repeat the warning.
 
 ### Helm values reference
 
@@ -757,7 +862,7 @@ All other `cloudnative-pg.*` values pass through to the official operator chart.
 
 | Value | Default | Description |
 |---|---|---|
-| `redis.mode` | `disabled` | Redis mode: `disabled`, `existing`, or `operator`. |
+| `redis.mode` | `disabled` | Redis mode: `disabled` (sessions in the single backend process), `existing`, or `operator`. |
 | `redis.existing.secret` | `oxidgene-redis` | Existing Secret containing the complete Redis URL. |
 | `redis.existing.urlKey` | `url` | Key holding the URL in the existing Redis Secret. |
 | `redis.operator.requireCrd` | `true` | Require the OpsTree `Redis` CRD when the bundled operator is disabled. |
@@ -824,12 +929,37 @@ All other `redis-operator.*` values pass through to the upstream operator chart.
 | `s3.rustfs.pool.affinity` | `{}` | RustFS Pod affinity and anti-affinity. |
 | `s3.rustfs.pool.topologySpreadConstraints` | `[]` | RustFS topology spread rules. |
 
+#### Authentication
+
+| Value | Default | Description |
+|---|---|---|
+| `auth.idp.mode` | `external` | `external` (a provider of your own), `rauthy` (deployed with the release) or `none`. |
+| `auth.publicUrl` | `""` | The application's origin, `https://` plus `ingress.host`; required unless `none`. |
+| `auth.oidc.issuer` | `""` | The provider's issuer; required with `external`, derived with `rauthy`. |
+| `auth.oidc.backchannelUrl` | `""` | Base URL the backend reaches the provider at, when its public host is not reachable from the pods; the Rauthy Service with `rauthy`. |
+| `auth.oidc.clientId` | `oxidgene-web` | The web client. |
+| `auth.oidc.clientSecret.secret`, `.key` | `oxidgene-oidc`, `client-secret` | Secret holding the web client's secret. |
+| `auth.oidc.rolesClaim`, `adminValues`, `creatorValues`, `allowedValues` | Unset | The claim listing a user's groups or roles, and the values making an instance administrator, a tree creator, or a user allowed to sign in. |
+| `auth.oidc.trustEmail`, `trustedClients`, `accountUrl` | `false`, `[]`, `""` | See [Authentication §3.2](authentication.md#32-configuration). |
+| `auth.signup`, `auth.treeCreation`, `auth.bootstrapAdminEmail` | `invitation`, `everyone`, `""` | Who gets an account, who creates trees, the first administrator's address. |
+| `auth.session.keysSecret.secret`, `.key` | `oxidgene-session`, `keys` | Secret holding the session keys. |
+| `auth.session.idleTimeout`, `absoluteLifetime` | `2h`, `7d` | Session lifetimes. |
+| `auth.idp.rauthy.replicas` | `1` | Rauthy pods: 1, or an odd number. |
+| `auth.idp.rauthy.hostname` | `""` | Rauthy's own host; required with `rauthy`. |
+| `auth.idp.rauthy.ingress.*` | Enabled | Rauthy's Ingress: `className`, `annotations`, `tlsSecret`. |
+| `auth.idp.rauthy.secret` | `oxidgene-rauthy` | Secret with `enc-keys`, `enc-key-active`, `raft-secret`, `api-secret`, `api-key`. |
+| `auth.idp.rauthy.admin.email`, `passwordKey` | `""` | Rauthy's administrator and the key of its password in that Secret. |
+| `auth.idp.rauthy.database.mode` | `hiqlite` | `hiqlite` (a volume per pod) or `cloudnativepg`. |
+| `auth.idp.rauthy.smtp.*` | No mail | Rauthy's own mail relay: `host`, `port`, `tlsMode`, `from`, `user`, `passwordSecret`. |
+
+The full list is in [Authentication §8](authentication.md#8-deployment).
+
 #### Ingress, autoscaling, and availability
 
 | Value | Default | Description |
 |---|---|---|
 | `ingress.enabled` | `false` | Create the application Ingress. |
-| `ingress.exposeApiWithoutAuth` | `false` | Acknowledge that the Ingress publishes an API without authentication and that its host is restricted some other way; an enabled Ingress fails to render without it. |
+| `ingress.exposeApiWithoutAuth` | `false` | With `auth.idp.mode=none`, acknowledge that the Ingress publishes an API without authentication and that its host is restricted some other way; an enabled Ingress fails to render without it. Other modes ignore it. |
 | `ingress.className` | `""` | Ingress class name. |
 | `ingress.annotations` | `{}` | Controller and certificate annotations. |
 | `ingress.host` | `oxidgene.example.invalid` | Public application hostname. |

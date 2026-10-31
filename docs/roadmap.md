@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -298,12 +298,15 @@ string in every language, and the user guide. In order:
      ([Authentication §6.7](authentication.md#67-profile-and-avatar)); its
      notification, API-client, messaging-security and blocked-users sections
      arrive with phases 4, 6 and 7.
-   - [ ] The Compose stack's Keycloak with its development realm, the web
-     container's proxy, and the chart's `auth.idp.mode` `external` and
-     `none` with its values and Ingress paths
-     ([Authentication §8](authentication.md#8-deployment)).
-   - [ ] The mock provider of the integration tests and the opt-in
-     end-to-end sign-in suite.
+   - [x] The Compose stack's Rauthy with its development setup and Mailpit,
+     the web container's proxy, `just dev-idp-up`, and the chart's
+     `auth.idp.mode` `external` and `none` with its values, Ingress paths
+     and rendering tests ([Authentication §8](authentication.md#8-deployment)).
+   - [ ] The mock provider of the integration tests.
+   - [ ] The opt-in end-to-end sign-in suite (`just e2e-auth`): written
+     against the Compose stack, it skips itself until the server answers
+     `/auth/session` in `oidc` mode; run it green once the server's routes
+     land.
 2. **Roles and enforcement.**
    - [ ] Memberships with the Owner, Editor and Guest roles, tree creation
      rights, ownership transfer, ownerless trees
@@ -364,11 +367,13 @@ string in every language, and the user guide. In order:
    - [ ] Blocking, reporting, moderation, rate limits, retention and erasure;
      the inbox, conversation and Messaging security surfaces; the web
      bundle's measured size budget.
-8. **Keycloak Operator mode.**
-   - [ ] `auth.idp.mode=keycloak-operator`: the `Keycloak`, its database and
-     the `KeycloakRealmImport` of the shipped realm, with chart rendering
-     tests ([Authentication §8.2, §8.3](authentication.md#83-the-shipped-realm)).
-   - [ ] Validate the Keycloak mode in a production-like cluster.
+8. **Rauthy mode.**
+   - [x] `auth.idp.mode=rauthy`: the StatefulSet on Hiqlite or on its own
+     CloudNativePG `Cluster`, the bootstrapped setup and the job completing
+     the web client, with chart rendering tests
+     ([Authentication §8.2, §8.3](authentication.md#83-the-bootstrapped-setup)).
+   - [ ] Validate the Rauthy mode in a production-like cluster, three
+     replicas included.
 
 Releases:
 

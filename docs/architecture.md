@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 
@@ -33,7 +33,7 @@ generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
 | Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G: the web build's sessions, rate-limit counters and long-poll wake-ups once authentication ships ([Authentication §4.5](authentication.md#45-session-store)); not used before |
-| Identity | Any OpenID Connect provider | — | Planned (EPIC G), web build only; Keycloak offered by the Helm chart through its operator ([Authentication §8](authentication.md#8-deployment)) |
+| Identity | Any OpenID Connect provider; [Rauthy](https://github.com/sebadob/rauthy) bundled | 0.37 | EPIC G, web build only: Rauthy in development Compose and deployed by the Helm chart's `rauthy` mode, any other provider in its `external` mode ([Authentication §8](authentication.md#8-deployment)) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -513,10 +513,11 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 - Development Compose provisions the static frontend, Axum, PostgreSQL,
     RustFS, Redis, and an OpenTelemetry Collector and publishes their ports on
     host loopback only. Redis is
-    reserved for EPIC G user sessions and is not a read-projection cache. With
-    EPIC G the stack also runs a Keycloak with a development realm of
-    fictitious users and a Mailpit relay, and the web container proxies the
-    API paths so the browser sees one origin ([Authentication §8.5](authentication.md#85-development-stack)).
+    the store of EPIC G's user sessions and is not a read-projection cache.
+    The stack also runs Rauthy, bootstrapped with OxidGene's clients and
+    fictitious users, and a Mailpit relay, and the web container proxies the
+    API and sign-in paths so the browser sees one origin, `http://localhost:8081`
+    ([Authentication §8.5](authentication.md#85-development-stack)).
     Direct public backend deployment is blocked until EPIC G authentication and
     per-tree authorization are enforced across every transport and media read.
 - The Helm chart keeps the OxidGene frontend and backend PVC-free. For the
@@ -534,9 +535,9 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
     separately because its CRDs and cluster-wide RBAC have an independent
     lifecycle. Only operator-managed infrastructure owns persistent volumes.
     EPIC G adds `auth.idp.mode` — `external` for any OpenID Connect provider,
-    `keycloak-operator` for a `Keycloak` and `KeycloakRealmImport` the chart
-    creates while the cluster administrator installs the Keycloak Operator,
-    `none` for a single trusted user — an SMTP relay for OxidGene's own mail,
+    `rauthy` for a Rauthy StatefulSet the chart deploys itself, on its
+    embedded Hiqlite or a CloudNativePG `Cluster` of its own, `none` for a
+    single trusted user — an SMTP relay for OxidGene's own mail,
     and the Ingress paths `/auth`, `/mcp` and
     `/.well-known/oauth-protected-resource` ([Authentication §8](authentication.md#8-deployment),
     [Messaging and Notifications §3](messaging.md#3-email)).
@@ -582,7 +583,7 @@ flowchart TB
         localMedia[Media filesystem<br/>emptyDir, disabled mode]
 
         ingress -->|/| frontendService --> frontendPods
-        ingress -->|/api, /graphql, /healthz| backendService --> backendPods
+        ingress -->|/api, /graphql, /auth, /mcp, /.well-known, /healthz| backendService --> backendPods
         workerPods --> scratch
         backendPods -->|embedded worker<br/>database.mode disabled| sqlite
         backendPods -->|embedded worker<br/>s3.mode disabled| localMedia
@@ -598,6 +599,9 @@ flowchart TB
         databasePvc[(PostgreSQL PVCs)]
         rustfsPvc[(RustFS PVCs)]
         redisPvc[(Redis PVC)]
+        rauthyPods[Rauthy StatefulSet<br/>auth.idp.mode rauthy]
+        rauthyPvc[(Hiqlite PVCs)]
+        rauthyPods --> rauthyPvc
 
         cnpgCluster --> databasePvc
         rustfsTenant --> rustfsPvc
@@ -619,8 +623,10 @@ flowchart TB
     backendPods -->|import sources and export downloads<br/>s3.mode rustfs| rustfsTenant
     workerPods -->|sources, media and artifacts| externalS3
     workerPods -->|sources, media and artifacts| rustfsTenant
-    backendPods -.->|redis.mode existing<br/>reserved for future sessions| externalRedis
-    backendPods -.->|redis.mode operator<br/>reserved for future sessions| managedRedis
+    backendPods -.->|sessions<br/>redis.mode existing| externalRedis
+    backendPods -.->|sessions<br/>redis.mode operator| managedRedis
+    backendPods -.->|tokens and keys<br/>auth.idp.mode rauthy| rauthyPods
+    user -.->|sign-in| rauthyPods
     cnpgOperator -. reconciles .-> cnpgCluster
     redisOperator -. reconciles .-> managedRedis
     rustfsOperator -. reconciles .-> rustfsTenant
@@ -629,7 +635,7 @@ flowchart TB
     classDef durable fill:#eaf5ed,stroke:#287a3d,color:#173d21;
     classDef operator fill:#eaf1fb,stroke:#3465a4,color:#17365d;
     class sqlite,localMedia,scratch ephemeral;
-    class externalPostgres,cnpgCluster,externalS3,rustfsTenant,externalRedis,managedRedis,databasePvc,rustfsPvc,redisPvc durable;
+    class externalPostgres,cnpgCluster,externalS3,rustfsTenant,externalRedis,managedRedis,databasePvc,rustfsPvc,redisPvc,rauthyPods,rauthyPvc durable;
     class cnpgOperator,redisOperator,rustfsOperator operator;
 ```
 

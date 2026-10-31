@@ -8,8 +8,11 @@ deployments, it can consume an existing PostgreSQL database or create one
 through CloudNativePG, and use an existing S3 bucket or operator-managed RustFS.
 For evaluation, disabling those integrations selects ephemeral SQLite and
 filesystem storage in a single backend pod. Redis can remain disabled, use an
-existing service, or be provisioned through OpsTree Redis Operator. It remains
-reserved for user sessions once authentication is implemented.
+existing service, or be provisioned through OpsTree Redis Operator; it holds
+the sessions the backend replicas share. Users sign in through an OpenID
+Connect provider: one of your own (`auth.idp.mode=external`, the default), or
+a Rauthy the release deploys (`rauthy`); `none` turns authentication off for
+a single trusted user.
 
 ## Prerequisites
 
@@ -97,11 +100,44 @@ before running Helm:
 helm dependency build charts/oxidgene
 ```
 
-## Redis for future sessions
+## Authentication
 
-Redis is disabled by default because authentication and user sessions are not
-implemented yet. To prepare an external Redis service, create a Secret with its
-connection URL and select existing mode:
+The chart's default, `auth.idp.mode=external`, fails to render until
+`auth.oidc.issuer` names a provider, so that a deployment chooses one
+explicitly. Every authenticated mode needs the `oxidgene-oidc` Secret (the
+web client's secret, key `client-secret`) and the `oxidgene-session` Secret
+(key `keys`, `openssl rand -base64 32`), and `auth.publicUrl`, the origin the
+Ingress serves:
+
+```yaml
+auth:
+  idp:
+    mode: external
+  publicUrl: https://genealogy.example.invalid
+  oidc:
+    issuer: https://idp.example.invalid/realms/genealogy
+```
+
+With `auth.idp.mode=rauthy` the release deploys
+[Rauthy](https://github.com/sebadob/rauthy) as a StatefulSet on its own host
+(`auth.idp.rauthy.hostname`), on its embedded Hiqlite database with a volume
+per pod or on a CloudNativePG cluster of its own, bootstrapped with
+OxidGene's clients, groups and scopes; a job completes the web client after
+each install and upgrade. It reads the `oxidgene-rauthy` Secret (`enc-keys`,
+`enc-key-active`, `raft-secret`, `api-secret`, `api-key`). Rauthy has no
+SAML: use `external` with a provider that has it. The Secrets, values and
+limits are in the
+[Kubernetes section of the Quickstart](../../docs/quickstart.md#authentication)
+and in [Authentication §8](../../docs/authentication.md#8-deployment).
+
+With sessions in memory (`redis.mode=disabled`), rendering refuses more than
+one backend replica or backend autoscaling.
+
+## Redis for sessions
+
+Redis holds the sessions, sign-in transactions and rate-limit counters the
+backend replicas share. To use an external Redis service, create a Secret
+with its connection URL and select existing mode:
 
 ```bash
 kubectl -n oxidgene create secret generic oxidgene-redis \
@@ -141,8 +177,8 @@ redis-operator:
 ```
 
 This creates a password-protected, persistent Redis 8.2.1 instance and injects
-`OXIDGENE_REDIS_URL` into the backend. That variable is reserved for EPIC G and
-does not activate sessions before authentication is implemented. If OpsTree
+`OXIDGENE_REDIS_URL` into the backend, which then keeps its sessions
+there. If OpsTree
 Redis Operator 0.26.0 is already managed by the cluster administrator, leave
 `redis-operator.enabled=false`; the chart requires its `Redis` CRD. As with
 CloudNativePG, production clusters should normally manage the cluster-wide
@@ -181,10 +217,15 @@ s3:
     region: us-east-1
     credentialsSecret: oxidgene-s3
 
+auth:
+  idp:
+    mode: external
+  publicUrl: https://genealogy.example.invalid
+  oidc:
+    issuer: https://idp.example.invalid/realms/genealogy
+
 ingress:
   enabled: true
-  # Only once the host is restricted to trusted users (see below).
-  exposeApiWithoutAuth: true
   className: nginx
   host: genealogy.example.invalid
   tls:
@@ -317,7 +358,12 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `s3.existing.*` | Existing endpoint, bucket, region, and credential Secret. |
 | `s3.rustfs.*` | Tenant image, Secrets, bucket, policy, user, and pool. |
 | `ingress.*` | Optional same-origin routing and TLS configuration. |
-| `ingress.exposeApiWithoutAuth` | `false`: rendering refuses an enabled Ingress until this acknowledges that its host is restricted to trusted users. |
+| `auth.idp.mode` | `external` (the default; needs `auth.oidc.issuer`), `rauthy`, or `none`. |
+| `auth.publicUrl` | The application's origin; required unless `none`. |
+| `auth.oidc.*` | Issuer, back channel, web client and its Secret, roles claim and values. |
+| `auth.session.*` | The session keys' Secret and the session lifetimes. |
+| `auth.idp.rauthy.*` | Rauthy's replicas, host, Ingress, Secret, administrator, database and mail. |
+| `ingress.exposeApiWithoutAuth` | With `auth.idp.mode=none`, `false`: rendering refuses an enabled Ingress until this acknowledges that its host is restricted to trusted users. |
 | `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. Its origin is added to the page's Content-Security-Policy `connect-src`. |
 | `frontend.extraConnectSrc` | Further origins the page may connect to (`connect-src`), such as an API on another origin. |
 | `backend.allowedHosts` | Further host names the API answers under besides loopback and the `corsOrigin` host; any other `Host` is refused. |
@@ -326,10 +372,12 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `autoscaling.*` | Optional backend and frontend HPAs. |
 | `podDisruptionBudget.*` | Backend and frontend disruption budgets. |
 
-The ingress sends `/api`, `/graphql`, and `/healthz` to the backend and `/` to
-the frontend. The backend has no authentication yet, so whoever reaches the
-host can read and change every tree. An enabled Ingress therefore fails to
-render until `ingress.exposeApiWithoutAuth=true` records that the host is
+The ingress sends `/api`, `/graphql`, `/auth`, `/mcp`,
+`/.well-known/oauth-protected-resource` and `/healthz` to the backend and `/`
+to the frontend. With `auth.idp.mode=none` the backend has no
+authentication, so whoever reaches the host can read and change every tree.
+An enabled Ingress then fails to render until
+`ingress.exposeApiWithoutAuth=true` records that the host is
 restricted some other way — an authenticating proxy configured through
 `ingress.annotations` (for example an `oauth2-proxy` behind the controller's
 external-authentication annotations), or a host only a private network
