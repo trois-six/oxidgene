@@ -59,6 +59,20 @@ e2e *args:
     cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
     cd e2e && E2E_API_PORT="{{ e2e_api_port }}" E2E_WEB_PORT="{{ e2e_web_port }}" npx playwright test {{ args }}
 
+# The sign-in journeys of e2e/auth/ (docs/authentication.md §12): builds and
+# starts the development Compose stack, Rauthy and its fictitious users
+# included, then drives it through the same-origin web container on
+# http://localhost:8081. Opt-in, like every suite needing outside services:
+# never part of `check`. The stack keeps running afterwards (`docker compose
+# -f docker/docker-compose.yml down` stops it). Every test skips itself while
+# the server answers `/auth/session` without authentication. Arguments go to
+# Playwright.
+# Run the end-to-end sign-in tests against the Compose stack
+e2e-auth *args:
+    docker compose -f docker/docker-compose.yml up -d --build --wait --remove-orphans
+    cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
+    cd e2e && npx playwright test --config playwright.auth.config.ts {{ args }}
+
 # Takes every page of the fictitious Landrevel family (e2e/screenshots/) on
 # the e2e suite's throwaway servers, then encodes the captures into
 # assets/screenshots/ with the README carousel (scripts/screenshots.py). The
