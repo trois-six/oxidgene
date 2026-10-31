@@ -4,7 +4,8 @@
 //!
 //! The file is decompressed and indexed on the first search, not at startup:
 //! it holds about 285,000 rows, and a session that never edits a place never pays
-//! for them. Reading a tree's place labels for the statistics reuses that
+//! for them; the index is released once no lookup has used it for the tree
+//! cache's idle delay, and the next search builds it again. Reading a tree's place labels for the statistics reuses that
 //! index when a search has built it, and otherwise reads the file once for
 //! the rows named like the labels, keeping nothing afterwards
 //! ([`read_labels`]); what the labels say is kept by the tree cache, and
@@ -12,7 +13,9 @@
 //! ([`locate_read`]).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -197,16 +200,17 @@ impl LabelReading {
 /// where building the whole index would take three times as long and keep a
 /// few tens of megabytes.
 pub fn read_labels(labels: &[&str]) -> Vec<LabelReading> {
+    let index = loaded_index();
     let _span = tracing::info_span!(
         "reference.places.read",
         label.count = labels.len(),
-        place.index_loaded = DICTIONARY.get().is_some(),
+        place.index_loaded = index.is_some(),
     )
     .entered();
     if labels.is_empty() {
         return Vec::new();
     }
-    match DICTIONARY.get() {
+    match index {
         Some(dictionary) => dictionary.read_all(labels),
         None => Dictionary::for_labels(&decompressed(), labels).read_all(labels),
     }
@@ -324,14 +328,15 @@ impl PlaceReading {
     /// archive's area from a parish or a hamlet. Empty for a name that is no
     /// place. Without the index, only the rows so named are kept.
     pub fn areas(&self, names: &[String]) -> Vec<Vec<String>> {
+        let index = loaded_index();
         let _span = tracing::info_span!(
             "reference.places.areas",
             name.count = names.len(),
-            place.index_loaded = DICTIONARY.get().is_some(),
+            place.index_loaded = index.is_some(),
         )
         .entered();
         let folded: Vec<String> = names.iter().map(|name| fold_words(name)).collect();
-        match DICTIONARY.get() {
+        match index {
             Some(dictionary) => dictionary.areas_of(&folded),
             None => {
                 let wanted: HashSet<&str> = folded.iter().map(String::as_str).collect();
@@ -355,9 +360,10 @@ impl PlaceReading {
     /// the rows filed under the areas are kept, found by their text before
     /// any name is folded.
     pub fn other_names(&self, name: &str, written: &[String]) -> Vec<String> {
+        let index = loaded_index();
         let _span = tracing::info_span!(
             "reference.places.other_names",
-            place.index_loaded = DICTIONARY.get().is_some(),
+            place.index_loaded = index.is_some(),
         )
         .entered();
         let folded = fold_words(name);
@@ -365,9 +371,13 @@ impl PlaceReading {
         if folded.is_empty() || areas.is_empty() {
             return Vec::new();
         }
-        let dictionary = match DICTIONARY.get() {
+        let partial;
+        let dictionary = match &index {
             Some(dictionary) => dictionary,
-            None => &Dictionary::within_areas(self.text(), written),
+            None => {
+                partial = Dictionary::within_areas(self.text(), written);
+                &partial
+            }
         };
         let lineage = dictionary.lineage(&folded, &areas);
         dictionary.other_names(&folded, &areas, &lineage)
@@ -415,11 +425,117 @@ fn kind_rank(kind: PlaceKind) -> u8 {
     }
 }
 
-/// The whole dictionary, indexed for place searches on first use and kept.
-static DICTIONARY: OnceLock<Dictionary> = OnceLock::new();
+/// The whole dictionary, indexed for place searches on first use and kept
+/// until no lookup has used it for [`index_idle`]: about 27 MiB, which
+/// costs 0.5 to 1 s of CPU to build again.
+static INDEX: Mutex<Option<KeptIndex>> = Mutex::new(None);
+/// Held while the index is built, so that searches arriving together build
+/// it once.
+static BUILDING: Mutex<()> = Mutex::new(());
+/// Whether a task waits to release the index once idle.
+static RELEASING: AtomicBool = AtomicBool::new(false);
+/// How long, in milliseconds, the index outlives its last use.
+static IDLE_MILLIS: AtomicU64 = AtomicU64::new(300_000);
 
-fn dictionary() -> &'static Dictionary {
-    DICTIONARY.get_or_init(|| Dictionary::parse(&decompressed()))
+struct KeptIndex {
+    dictionary: Arc<Dictionary>,
+    last_used: tokio::time::Instant,
+}
+
+/// Release the dictionary's index once no lookup has used it for `idle`:
+/// the tree cache's idle delay, which the binaries configure
+/// (`crate::tree_cache::CacheSettings`).
+pub fn release_index_after(idle: Duration) {
+    IDLE_MILLIS.store(
+        u64::try_from(idle.as_millis()).unwrap_or(u64::MAX),
+        Ordering::Release,
+    );
+}
+
+fn index_idle() -> Duration {
+    Duration::from_millis(IDLE_MILLIS.load(Ordering::Acquire))
+}
+
+fn lock_index() -> MutexGuard<'static, Option<KeptIndex>> {
+    // A panic while the lock was held leaves an index or none, both usable.
+    INDEX.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The index, when it is in memory, now used.
+fn loaded_index() -> Option<Arc<Dictionary>> {
+    let mut index = lock_index();
+    let kept = index.as_mut()?;
+    kept.last_used = tokio::time::Instant::now();
+    Some(Arc::clone(&kept.dictionary))
+}
+
+/// Whether the index is in memory, without using it.
+#[cfg(test)]
+fn index_is_loaded() -> bool {
+    lock_index().is_some()
+}
+
+/// The index, built if it is not in memory.
+fn dictionary() -> Arc<Dictionary> {
+    if let Some(dictionary) = loaded_index() {
+        return dictionary;
+    }
+    let _building = BUILDING.lock().unwrap_or_else(PoisonError::into_inner);
+    // Built by the search this one waited for.
+    if let Some(dictionary) = loaded_index() {
+        return dictionary;
+    }
+    let dictionary = Arc::new(Dictionary::parse(&decompressed()));
+    *lock_index() = Some(KeptIndex {
+        dictionary: Arc::clone(&dictionary),
+        last_used: tokio::time::Instant::now(),
+    });
+    release_when_idle();
+    dictionary
+}
+
+/// Start the task releasing the index once idle, unless one waits already
+/// or there is no runtime to run it (a plain test).
+fn release_when_idle() {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    if RELEASING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    runtime.spawn(async {
+        loop {
+            let due = {
+                let mut index = lock_index();
+                let due = match index.as_ref() {
+                    None => None,
+                    Some(kept) if kept.last_used + index_idle() <= tokio::time::Instant::now() => {
+                        index.take().map(|kept| Err(kept.dictionary))
+                    }
+                    Some(kept) => Some(Ok(kept.last_used + index_idle())),
+                };
+                // Under the lock: an index built after it is watched anew.
+                if !matches!(due, Some(Ok(_))) {
+                    RELEASING.store(false, Ordering::Release);
+                }
+                due
+            };
+            match due {
+                Some(Ok(deadline)) => tokio::time::sleep_until(deadline).await,
+                released => {
+                    if let Some(Err(dictionary)) = released {
+                        tracing::debug!("Released the idle place dictionary index");
+                        // Freed off the async workers, then handed back.
+                        drop(crate::service::blocking::spawn(move || {
+                            drop(dictionary);
+                            crate::memory::release_free_memory();
+                        }));
+                    }
+                    return;
+                }
+            }
+        }
+    });
 }
 
 fn decompressed() -> String {
@@ -1634,6 +1750,26 @@ mod tests {
     fn the_embedded_dictionary_loads() {
         // Every row must parse; a malformed one panics while loading.
         assert!(dictionary().entries.len() > 100_000);
+    }
+
+    /// The index a search builds is released once idle, its memory handed
+    /// back, and the next search builds it again; a lookup keeps it.
+    #[tokio::test]
+    async fn the_index_is_released_once_idle_and_built_again() {
+        let idle = Duration::from_secs(3);
+        release_index_after(idle);
+        let search = || search_places_off_thread(ReferenceLang::En, "Brest".into(), 1);
+        assert_eq!(search().await.unwrap().len(), 1);
+        assert!(index_is_loaded());
+        tokio::time::sleep(idle / 2).await;
+        // Used again within the delay: kept past the first deadline.
+        search().await.unwrap();
+        tokio::time::sleep(idle * 3 / 4).await;
+        assert!(index_is_loaded());
+        tokio::time::sleep(idle).await;
+        assert!(!index_is_loaded());
+        assert_eq!(search().await.unwrap().len(), 1);
+        assert!(index_is_loaded());
     }
 
     /// The generator drops a row reading like another once folded, with the

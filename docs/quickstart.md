@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
 ---
 
 # OxidGene Quickstart
@@ -251,7 +251,7 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_S3_ENDPOINT` | Unset (AWS) | S3-compatible endpoint. A plain `http://` endpoint is meant for development: beyond loopback the server starts with an `s3_plain_http` warning, since media and signed requests then cross the network unencrypted. |
 | `OXIDGENE_S3_ACCESS_KEY_ID`, `OXIDGENE_S3_SECRET_ACCESS_KEY` | Unset | S3 credentials; the secret never reaches a log. |
 | `OXIDGENE_CACHE_MIB` | `256` | Budget, in MiB of estimated memory, of the trees the server keeps in memory between requests, the least recently used dropped first ([Architecture §4.1](architecture.md#41-tree-cache)). `0` keeps nothing. With the Helm chart, set it through `backend.extraEnv`. |
-| `OXIDGENE_CACHE_IDLE_SECS` | `300` | Seconds after which a tree no request uses is dropped from that memory and the memory handed back to the system. The desktop reads it too. |
+| `OXIDGENE_CACHE_IDLE_SECS` | `300` | Seconds after which a tree no request uses is dropped from that memory, and the place dictionary's index no search uses is released, the memory handed back to the system. The desktop reads it too. |
 
 ## 4. Deploy to Kubernetes with Helm
 

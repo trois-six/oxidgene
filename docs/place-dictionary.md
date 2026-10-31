@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -165,8 +165,15 @@ The CSV is about 28 MB and 284,000 rows, 2.9 MB compressed.
 The backend searches the dictionary for place suggestions
 ([API reference content](api.md)). It decompresses and indexes it on the
 first search: every string in one buffer and the few hundred subdivisions,
-regions and countries stored once, a few tens of megabytes in memory, loaded
-in about 0.4 s and searched in under 10 ms by a scan in a release build.
+regions and countries stored once, a few tens of megabytes in memory (about
+27 MiB), loaded in 0.5 to 1 s of CPU and searched in under 10 ms by a scan in
+a release build. Searches arriving together while it is built wait for it
+and build it once. It is kept while it is used: once no lookup has used it
+for the tree cache's idle delay (`OXIDGENE_CACHE_IDLE_SECS`, five minutes by
+default, [Architecture §4.1](architecture.md#41-tree-cache)), it is released
+and its memory handed back to the system, and the next search builds it
+again. A session editing places keeps it; one that has moved on does not
+hold it for good.
 
 The [statistics](ui-statistics.md) locate a tree's places in two steps.
 First each label is read on its own: the place it names, the homonyms it

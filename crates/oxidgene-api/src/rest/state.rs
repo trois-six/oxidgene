@@ -125,10 +125,12 @@ impl AppState {
 
     /// Keep in memory what `settings` allow between requests: one tree at a
     /// time on the desktop, trees within a budget on the web (see
-    /// [`crate::tree_cache`]).
+    /// [`crate::tree_cache`]); the place dictionary's index, which the
+    /// process shares, is released after the same idle delay.
     #[must_use]
     pub fn with_cache(self, settings: CacheSettings) -> Self {
         self.profiles.cache().configure(settings);
+        crate::reference::release_index_after(settings.idle);
         self
     }
 

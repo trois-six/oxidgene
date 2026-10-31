@@ -25,7 +25,7 @@ pub use loader::{
 };
 pub use places::{
     DEFAULT_PLACE_SUGGESTIONS, LabelReading, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceLocation,
-    PlaceReading, PlaceSuggestion, locate_read, read_labels, search_places,
+    PlaceReading, PlaceSuggestion, locate_read, read_labels, release_index_after, search_places,
     search_places_off_thread,
 };
 

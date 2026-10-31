@@ -172,7 +172,7 @@ observability <- db/api (feature), server/worker/desktop
   desktop login window because direct clients are rejected by Cloudflare.
 - Durable read models live in `person_denorm`, `person_search_fts` and
   `sosa_ancestor`; pedigrees are assembled per request from family links and
-  denormalized profiles. The only cache is the in-process tree cache
+  denormalized profiles. The only cache of tree data is the in-process tree cache
   (`oxidgene-api::tree_cache`, `architecture.md` §4.1), which holds per tree
   the place dictionary's reading of each place label the tree uses — a value
   of the label alone, which no write makes wrong — and the tree's decoded
@@ -182,8 +182,10 @@ observability <- db/api (feature), server/worker/desktop
   (share the `Arc`). It keeps one tree at a time
   on the desktop and trees within a byte budget (least recently used dropped
   first) on the web, drops a tree after an idle delay, and hands what it
-  drops back to the system. Cache nothing else, there or elsewhere, without
-  specifying what, its bound and its invalidation first.
+  drops back to the system. The place dictionary's index, built by the first
+  place search, is released after the same idle delay. Cache nothing else,
+  there or elsewhere, without specifying what, its bound and its
+  invalidation first.
 - Until the first release, the schema is the single initial migration
   (`m20250101_000001_initial.rs`): a schema change edits it, with no dated
   migration and no data conversion, and existing databases are recreated and

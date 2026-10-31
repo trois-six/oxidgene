@@ -225,6 +225,10 @@ seconds or minutes, and each return within the delay is answered from
 memory; past it, reading the tree again costs a fraction of a second, less
 than holding its data for good. A task sleeps until the next tree is due and
 ends once nothing is kept, so an idle process does no work for the cache.
+The place dictionary's index, which place searches build and every tree
+shares, is not part of the cache but follows the same delay: released once
+no lookup has used it for that long, built again by the next search
+([Place dictionary §2.1](place-dictionary.md)).
 
 Whatever is dropped — by a change of tree, the budget or idleness — is freed
 on the blocking pool and the allocator's free pages are then handed back to
@@ -549,7 +553,8 @@ Data built into the backend is Brotli-compressed, at quality 11 with a
 being kept small: the reference sheets keep an index of their terms, and a
 lookup decompresses the file of the sheets it returns for its own use
 ([API Contract](api.md), Reference); the place dictionary is indexed on
-its first search only ([Place dictionary §2.1](place-dictionary.md)):
+its first search only, and the index released once idle
+([Place dictionary §2.1](place-dictionary.md)):
 
 - the reference sheets (`assets/reference/*.json`) and the
     OpenAPI document, compressed by `oxidgene-api`'s build script so the JSON
