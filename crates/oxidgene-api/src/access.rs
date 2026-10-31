@@ -90,7 +90,7 @@ fn presents(headers: &HeaderMap, token: &LocalToken) -> bool {
 
 /// Compare without stopping at the first difference, so response timing says
 /// nothing about how much of a guess was right.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 

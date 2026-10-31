@@ -39,6 +39,70 @@ use Twin::{Gql, RestOnly};
 
 const BINARY: &str = "direct media read: an HTTP representation with its cache validators (docs/api.md, Surfaces and parity)";
 
+/// The account operations of the web build, which only a build with the
+/// `auth` feature serves (docs/authentication.md §7): docs/api.md lists
+/// them, and they join the declared operations when the feature is on.
+const ACCOUNT_PARITY: &[(&str, &str, Twin)] = &[
+    ("GET", "/api/v1/me", Gql(&["Query.me"])),
+    ("PUT", "/api/v1/me", Gql(&["Mutation.updateMe"])),
+    ("DELETE", "/api/v1/me", Gql(&["Mutation.deleteMyAccount"])),
+    ("GET", "/api/v1/me/export", Gql(&["Query.myAccountData"])),
+    (
+        "PUT",
+        "/api/v1/me/avatar",
+        Gql(&["Mutation.uploadMyAvatar"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/me/avatar",
+        Gql(&["Mutation.deleteMyAvatar"]),
+    ),
+    ("GET", "/api/v1/me/sessions", Gql(&["Query.mySessions"])),
+    (
+        "DELETE",
+        "/api/v1/me/sessions/{session_id}",
+        Gql(&["Mutation.endMySession"]),
+    ),
+    (
+        "GET",
+        "/api/v1/users/{user_id}",
+        Gql(&["Query.userProfile"]),
+    ),
+    (
+        "GET",
+        "/api/v1/users/{user_id}/avatar",
+        Gql(&["GqlUserProfile.avatarUrl"]),
+    ),
+    ("GET", "/api/v1/admin/users", Gql(&["Query.users"])),
+    ("GET", "/api/v1/admin/users/{user_id}", Gql(&["Query.user"])),
+    (
+        "PUT",
+        "/api/v1/admin/users/{user_id}",
+        Gql(&["Mutation.updateUser"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/admin/users/{user_id}",
+        Gql(&["Mutation.eraseUser"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/admin/users/{user_id}/identity",
+        Gql(&["Mutation.rebindUserIdentity"]),
+    ),
+];
+
+/// Every operation this build serves: [`PARITY`], and the account
+/// operations with the `auth` feature.
+fn parity() -> impl Iterator<Item = &'static (&'static str, &'static str, Twin)> {
+    let accounts: &'static [(&str, &str, Twin)] = if cfg!(feature = "auth") {
+        ACCOUNT_PARITY
+    } else {
+        &[]
+    };
+    PARITY.iter().chain(accounts)
+}
+
 /// Every REST operation, as the router declares it, with its twin.
 const PARITY: &[(&str, &str, Twin)] = &[
     (
@@ -963,8 +1027,7 @@ async fn router_operations() -> BTreeSet<(String, String)> {
 }
 
 fn declared_operations() -> BTreeSet<(String, String)> {
-    PARITY
-        .iter()
+    parity()
         .map(|(method, path, _)| (method.to_string(), path.to_string()))
         .collect()
 }
@@ -973,7 +1036,11 @@ fn declared_operations() -> BTreeSet<(String, String)> {
 async fn every_route_is_in_the_parity_table() {
     let routes = router_operations().await;
     let declared = declared_operations();
-    assert_eq!(declared.len(), PARITY.len(), "a route is declared twice");
+    assert_eq!(
+        declared.len(),
+        parity().count(),
+        "a route is declared twice"
+    );
     let undeclared: Vec<_> = routes.difference(&declared).collect();
     let gone: Vec<_> = declared.difference(&routes).collect();
     assert!(
@@ -984,7 +1051,7 @@ async fn every_route_is_in_the_parity_table() {
         gone.is_empty(),
         "PARITY entries the router lacks: {gone:#?}"
     );
-    for (method, path, twin) in PARITY {
+    for (method, path, twin) in parity() {
         let named = match twin {
             RestOnly(reason) => !reason.is_empty(),
             Gql(operations) => !operations.is_empty(),
@@ -1039,9 +1106,20 @@ async fn api_md_documents_exactly_the_router() {
         .into_iter()
         .map(|(m, p)| (m, shape(&p)))
         .collect();
+    // Without the `auth` feature the account operations are documented but
+    // not served.
+    let unserved: BTreeSet<_> = if cfg!(feature = "auth") {
+        BTreeSet::new()
+    } else {
+        ACCOUNT_PARITY
+            .iter()
+            .map(|(m, p, _)| (m.to_string(), shape(p)))
+            .collect()
+    };
     let documented: BTreeSet<_> = documented_operations()
         .into_iter()
         .map(|(m, p)| (m, shape(&p)))
+        .filter(|operation| !unserved.contains(operation))
         .collect();
     let undocumented: Vec<_> = routes.difference(&documented).collect();
     let stale: Vec<_> = documented.difference(&routes).collect();
@@ -1060,9 +1138,9 @@ mod graphql_side {
     use std::collections::{BTreeMap, BTreeSet};
 
     use async_graphql::{EmptySubscription, Schema};
-    use oxidgene_api::graphql::{mutation::MutationRoot, query::QueryRoot};
+    use oxidgene_api::graphql::{MutationRoot, QueryRoot};
 
-    use super::{Gql, PARITY, RestOnly};
+    use super::{Gql, RestOnly, parity};
 
     /// Root GraphQL fields with no REST route, with why. Empty: the
     /// contract has none.
@@ -1071,9 +1149,13 @@ mod graphql_side {
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/schema.graphql");
 
     fn sdl() -> String {
-        Schema::build(QueryRoot, MutationRoot, EmptySubscription)
-            .finish()
-            .sdl()
+        Schema::build(
+            QueryRoot::default(),
+            MutationRoot::default(),
+            EmptySubscription,
+        )
+        .finish()
+        .sdl()
     }
 
     /// The fields of every object type of `sdl`, the roots as `Query` and
@@ -1155,7 +1237,7 @@ mod graphql_side {
         let types = fields(&sdl());
         let mut problems = Vec::new();
         let mut referenced = BTreeSet::new();
-        for (method, path, twin) in PARITY {
+        for (method, path, twin) in parity() {
             let Gql(operations) = twin else {
                 continue;
             };
@@ -1175,8 +1257,7 @@ mod graphql_side {
                 }
             }
         }
-        let exceptions = PARITY
-            .iter()
+        let exceptions = parity()
             .filter(|(_, _, twin)| matches!(twin, RestOnly(_)))
             .count();
         assert!(

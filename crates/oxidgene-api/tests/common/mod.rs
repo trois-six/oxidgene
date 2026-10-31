@@ -2,6 +2,8 @@
 //! a JSON request against that router.
 
 pub mod capture;
+#[cfg(feature = "auth")]
+pub mod oidc;
 // Shared with the unit tests of `media`, which alone write a locked PDF.
 #[expect(
     dead_code,

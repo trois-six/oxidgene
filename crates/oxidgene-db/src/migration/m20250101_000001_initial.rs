@@ -15,21 +15,9 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        create_persons(manager).await?;
-        create_families(manager).await?;
-        create_events(manager).await?;
-        create_sources(manager).await?;
-        create_media(manager).await?;
-        create_notes_and_vignettes(manager).await?;
-        create_tags(manager).await?;
-        create_gedcom_kept(manager).await?;
-        create_jobs_and_search(manager).await?;
-        create_traversal_indexes(manager).await?;
-        create_projections(manager).await?;
-        create_sosa(manager).await?;
-        create_person_distinct(manager).await?;
-        create_history(manager).await?;
-        Ok(())
+        create_records(manager).await?;
+        create_derived(manager).await?;
+        create_accounts(manager).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -57,6 +45,7 @@ impl MigrationTrait for Migration {
         // `tree` — the history, `person_distinct`, the `person_denorm`
         // projection — before either of them.
         let tables = [
+            AppUser::Table.into_table_ref(),
             RecordVersion::Table.into_table_ref(),
             AuditEntry::Table.into_table_ref(),
             PersonDistinct::Table.into_table_ref(),
@@ -98,6 +87,30 @@ impl MigrationTrait for Migration {
 // ---------------------------------------------------------------------------
 // Iden enums for table/column names
 // ---------------------------------------------------------------------------
+
+#[derive(DeriveIden)]
+enum AppUser {
+    Table,
+    Id,
+    Issuer,
+    Subject,
+    Email,
+    EmailVerified,
+    ProviderName,
+    Username,
+    DisplayName,
+    Locale,
+    AvatarSha256,
+    AvatarUpdatedAt,
+    InstanceRole,
+    CanCreateTrees,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+    LastSignInAt,
+    DeactivatedAt,
+    ErasedAt,
+}
 
 #[derive(DeriveIden)]
 enum Tree {
@@ -473,6 +486,29 @@ enum BackgroundJob {
     UpdatedAt,
     StartedAt,
     FinishedAt,
+}
+
+/// The genealogy itself: trees and every record kind they hold.
+async fn create_records(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    create_persons(manager).await?;
+    create_families(manager).await?;
+    create_events(manager).await?;
+    create_sources(manager).await?;
+    create_media(manager).await?;
+    create_notes_and_vignettes(manager).await?;
+    create_tags(manager).await?;
+    create_gedcom_kept(manager).await
+}
+
+/// What is derived from or kept beside the records: jobs and search,
+/// traversal indexes, projections, SOSA numbers, distinct pairs, history.
+async fn create_derived(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    create_jobs_and_search(manager).await?;
+    create_traversal_indexes(manager).await?;
+    create_projections(manager).await?;
+    create_sosa(manager).await?;
+    create_person_distinct(manager).await?;
+    create_history(manager).await
 }
 
 /// The tree, its persons and their names.
@@ -2530,4 +2566,51 @@ enum RecordVersion {
     Deleted,
     Snapshot,
     Labels,
+}
+
+/// The accounts of the web build (docs/data-model.md §6.1). Only the web
+/// build writes them; the table stays empty on the desktop.
+async fn create_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AppUser::Table)
+                .if_not_exists()
+                .col(uuid(AppUser::Id).primary_key())
+                .col(string_null(AppUser::Issuer))
+                .col(string_null(AppUser::Subject))
+                .col(string_null(AppUser::Email))
+                .col(boolean(AppUser::EmailVerified).default(false))
+                .col(string_null(AppUser::ProviderName))
+                .col(string_null(AppUser::Username))
+                .col(string_null(AppUser::DisplayName))
+                .col(string_len_null(AppUser::Locale, 16))
+                .col(string_len_null(AppUser::AvatarSha256, 64))
+                .col(timestamp_with_time_zone_null(AppUser::AvatarUpdatedAt))
+                .col(string_len(AppUser::InstanceRole, 8).default("user"))
+                .col(boolean(AppUser::CanCreateTrees).default(false))
+                .col(string_len(AppUser::Status, 12).default("active"))
+                .col(timestamp_with_time_zone(AppUser::CreatedAt))
+                .col(timestamp_with_time_zone(AppUser::UpdatedAt))
+                .col(timestamp_with_time_zone(AppUser::LastSignInAt))
+                .col(timestamp_with_time_zone_null(AppUser::DeactivatedAt))
+                .col(timestamp_with_time_zone_null(AppUser::ErasedAt))
+                .to_owned(),
+        )
+        .await?;
+    // The identity is the user's key. Both columns are cleared on erasure,
+    // and NULLs never collide in a unique index on either backend, so any
+    // number of tombstones coexist.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_app_user_identity")
+                .table(AppUser::Table)
+                .col(AppUser::Issuer)
+                .col(AppUser::Subject)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
 }

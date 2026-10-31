@@ -43,6 +43,8 @@ fn compressible() -> impl Predicate {
 
 #[cfg(feature = "graphql")]
 use crate::graphql::{graphql_handler, graphql_playground};
+#[cfg(feature = "auth")]
+use crate::rest::admin_user;
 use crate::rest::citation;
 use crate::rest::dictionary;
 use crate::rest::event;
@@ -53,6 +55,8 @@ use crate::rest::file_import;
 use crate::rest::gedcom;
 use crate::rest::geneanet;
 use crate::rest::history;
+#[cfg(feature = "auth")]
+use crate::rest::me;
 use crate::rest::media;
 use crate::rest::media_link;
 use crate::rest::note;
@@ -68,6 +72,8 @@ use crate::rest::state::AppState;
 use crate::rest::tag;
 use crate::rest::tree;
 use crate::rest::tree_guard;
+#[cfg(feature = "auth")]
+use crate::rest::user;
 use crate::rest::vignette;
 
 /// Build the complete API router.
@@ -603,6 +609,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{lang}/given-names", get(reference::given_name))
         .route("/{lang}/given-names/bundle", post(reference::given_names));
 
+    // What the authentication layer and the `/auth/*` routes read; the
+    // REST routes take `state` itself below.
+    #[cfg(feature = "auth")]
+    let auth_state = state.clone();
+
     #[cfg(feature = "graphql")]
     let schema = crate::graphql::build_schema_with_local_file_access(
         state.connections(),
@@ -622,7 +633,38 @@ pub fn build_router(state: AppState) -> Router {
         DefaultBodyLimit::max(2 * 1024 * 1024)
     };
 
-    let rest_router = Router::new()
+    // The accounts of the web build (docs/authentication.md §6): not tied to
+    // a tree, so kept out of the `/trees` nest.
+    #[cfg(feature = "auth")]
+    let account_routes = Router::new()
+        .route(
+            "/me",
+            get(me::get_me).put(me::update_me).delete(me::delete_me),
+        )
+        .route("/me/export", get(me::export_me))
+        .route(
+            "/me/avatar",
+            put(me::upload_avatar)
+                .delete(me::delete_avatar)
+                .layer(DefaultBodyLimit::max(me::AVATAR_BODY_LIMIT)),
+        )
+        .route("/me/sessions", get(me::list_sessions))
+        .route("/me/sessions/{session_id}", delete(me::end_session))
+        .route("/users/{user_id}", get(user::get_user_profile))
+        .route("/users/{user_id}/avatar", get(user::get_user_avatar))
+        .route("/admin/users", get(admin_user::list_users))
+        .route(
+            "/admin/users/{user_id}",
+            get(admin_user::get_user)
+                .put(admin_user::update_user)
+                .delete(admin_user::erase_user),
+        )
+        .route(
+            "/admin/users/{user_id}/identity",
+            put(admin_user::rebind_identity),
+        );
+
+    let api_routes = Router::new()
         .nest(
             "/api/v1/trees",
             tree_routes
@@ -659,7 +701,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/gedcom/export-destinations",
             get(gedcom::export_destinations),
         )
-        .route("/api/v1/openapi.json", get(openapi::spec))
+        .route("/api/v1/openapi.json", get(openapi::spec));
+    #[cfg(feature = "auth")]
+    let api_routes = api_routes.nest("/api/v1", account_routes);
+    let rest_router = api_routes
         .fallback(crate::rest::error::unknown_route)
         // Inside the compression layer, so it reads the response as written.
         .layer(axum::middleware::map_response(
@@ -674,6 +719,17 @@ pub fn build_router(state: AppState) -> Router {
             .layer(graphql_body_limit)
             .with_state(schema),
     );
+
+    // One authentication layer in front of REST, GraphQL and the media
+    // reads, so the three see the same principal; the `/auth/*` routes of
+    // the Backend-for-Frontend read their cookies themselves.
+    #[cfg(feature = "auth")]
+    let rest_router = rest_router.layer(axum::middleware::from_fn_with_state(
+        auth_state.clone(),
+        crate::auth::layer::authenticate,
+    ));
+    #[cfg(feature = "auth")]
+    let rest_router = rest_router.merge(crate::auth::bff::routes(auth_state));
 
     // Outermost, so GraphQL answers are compressed exactly like REST ones.
     rest_router

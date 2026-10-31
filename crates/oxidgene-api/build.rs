@@ -208,6 +208,11 @@ fn collect_operations(block: &Block) -> Vec<Operation> {
         let Stmt::Local(local) = statement else {
             continue;
         };
+        // A binding compiled only with a feature (`#[cfg(feature = "auth")]`)
+        // describes routes this build serves only with that feature.
+        if !enabled(&local.attrs) {
+            continue;
+        }
         let Pat::Ident(binding) = &local.pat else {
             continue;
         };
@@ -222,6 +227,30 @@ fn collect_operations(block: &Block) -> Vec<Operation> {
     routers
         .remove("rest_router")
         .expect("build_router must bind its REST routes to rest_router")
+}
+
+/// Whether the `#[cfg(feature = "…")]` attributes of a statement hold for
+/// the features this build enables. Other `cfg` predicates are not used on
+/// the router's bindings.
+fn enabled(attrs: &[syn::Attribute]) -> bool {
+    attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("cfg"))
+        .all(|attr| {
+            let mut feature = None;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("feature") {
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    feature = Some(value.value());
+                }
+                Ok(())
+            });
+            feature.is_none_or(|feature| {
+                let variable =
+                    format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
+                std::env::var_os(variable).is_some()
+            })
+        })
 }
 
 fn evaluate_router(expr: &Expr, routers: &HashMap<String, Vec<Operation>>) -> Vec<Operation> {

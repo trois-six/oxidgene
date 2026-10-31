@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 
@@ -90,11 +90,16 @@ desktop session handoffs rather than genealogy import or export artifacts.
 
 ### Authentication and privacy
 
-Authentication and authorization are not implemented in the current MVP.
-Privacy values are stored but not enforced, so clients must not claim that
-private records are hidden. Until that work is complete, the API is local or
-private infrastructure only and must not be published directly to an
-untrusted network.
+The web build authenticates its requests (EPIC G phase 1): with
+`OXIDGENE_AUTH_MODE=oidc` a request carries the session cookie of the
+Backend-for-Frontend or a bearer token of a trusted client, and an
+anonymous request to the API is refused (`401 unauthenticated`); the account
+operations are listed under [Accounts](#accounts). Per-tree authorization is
+not implemented: every signed-in user has full access, and privacy values
+are stored but not enforced, so clients must not claim that private records
+are hidden. Until that work is complete, the API is local or private
+infrastructure only and must not be published directly to an untrusted
+network.
 
 The planned contract, for the web build only, is specified in
 [Authentication](authentication.md), [Authorization](authorization.md),
@@ -201,6 +206,36 @@ Base path: `/api/v1`.
 
 Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete, each
 card's recent persons in one request)
+
+### Accounts
+
+The accounts of the web build ([Authentication §6](authentication.md#6-users)),
+served only by a server built with the `auth` feature — the desktop answers
+`404 not_found`. They need a signed-in user: `401 unauthenticated` without
+one. In `OXIDGENE_AUTH_MODE=none`, a personal install whose local owner has
+no account, they are absent as on the desktop: `404 not_found`. Times are RFC 3339; `avatar` is `{ etag, updated_at }`, or
+`null` for the generated initials avatar the frontend draws itself.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/me` | The signed-in user: `{ id, display_name, provider_name, avatar, email, email_verified, locale, instance_role, can_create_trees }`; `display_name` is the user's own, else the provider's. GraphQL: `me` |
+| `PUT` | `/me` | `{ display_name?, locale? }`: a display name of 1 to 80 characters without control characters, trimmed; a locale among the interface languages (`en`, `fr`, `de`, `es`, `it`, `nl`, `pl`, `pt`); `null` returns to the provider's value. Answers the user as `GET /me`. GraphQL: `updateMe(input)` |
+| `DELETE` | `/me` | Erase the account ([Authentication §6.6](authentication.md#66-erasure-and-account-data)): every session ends, the row becomes a tombstone, the avatar's files go; `204`, the session cookie cleared. GraphQL: `deleteMyAccount` |
+| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at }`, `user` as `GET /admin/users/{user_id}` answers it. GraphQL: `myAccountData` |
+| `PUT` | `/me/avatar` | Multipart: `file`, a JPEG, PNG or WebP image of at most 5 MiB and 40 megapixels, and the crop square `x`, `y`, `size` in pixels of the upright image (all three or none: the centred largest square). Answers the user as `GET /me`. GraphQL: `uploadMyAvatar(input)`, the image base64-encoded within the GraphQL body limit |
+| `DELETE` | `/me/avatar` | Back to the generated avatar; `204`. GraphQL: `deleteMyAvatar` |
+| `GET` | `/me/sessions` | The user's sessions, newest first: `[{ id, created_at, last_used_at, client_id, browser, current }]`, `browser` being `firefox`, `chrome`, `edge`, `safari`, `opera` or `other`. GraphQL: `mySessions` |
+| `DELETE` | `/me/sessions/{session_id}` | End one session; ending the current one clears the session cookie. `204`. GraphQL: `endMySession(sessionId)` |
+| `GET` | `/users/{user_id}` | A user as those who may see them see them: `{ id, display_name, avatar }`, `display_name` `null` for an erased user. Visible to the user and to administrators; to anyone else `404`. GraphQL: `userProfile(userId)`, `null` where REST answers `404` |
+| `GET` | `/users/{user_id}/avatar?size=256` | The uploaded avatar as JPEG, `size` `256` (default) or `64`; `404` with the generated avatar. `ETag`, `If-None-Match` answered `304`, `Cache-Control: private, max-age=86400`, `Vary: Cookie, Authorization`, `Content-Security-Policy: sandbox`. An optional `v` (the avatar's `etag`) is ignored and makes a replaced avatar a new address. A direct read: GraphQL's `UserProfile.avatarUrl(size)` gives the address |
+| `GET` | `/admin/users` | Every user, tombstones included, cursor-paginated: `{ id, display_name, username, email, email_verified, issuer, subject, avatar, instance_role, can_create_trees, status, created_at, last_sign_in_at, deactivated_at, erased_at }`. Administrators only (`403 forbidden` for another user). GraphQL: `users(first, after)` |
+| `GET` | `/admin/users/{user_id}` | One user, as in the list. GraphQL: `user(userId)` |
+| `PUT` | `/admin/users/{user_id}` | `{ instance_role?, can_create_trees?, status? }`: `admin` or `user`; `active` or `deactivated`. A field the roles claim decides (`OXIDGENE_OIDC_ROLES_CLAIM`, `OXIDGENE_AUTH_TREE_CREATION=claim`) is a `validation_error`; an erased user is a `conflict`. Deactivating, or changing the role, ends the user's sessions. GraphQL: `updateUser(userId, input)` |
+| `PUT` | `/admin/users/{user_id}/identity` | `{ issuer, subject }`: bind the user to another identity ([Authentication §6.4](authentication.md#64-account-linking)); an identity another user holds, or an erased user, is a `conflict`. The user's sessions end. GraphQL: `rebindUserIdentity(userId, input)` |
+| `DELETE` | `/admin/users/{user_id}` | Erase the user, as `DELETE /me`; `204`. GraphQL: `eraseUser(userId)` |
+
+Used by: the web frontend's profile page and its Instance section
+([Authentication §10](authentication.md#10-user-interface)).
 
 ### Persons
 
@@ -1667,7 +1702,7 @@ omitting them leaves them alone, and `null` is rejected.
 
 The collection endpoints — trees, persons, families, events, places, sources,
 repositories, citations, notes, media, audit entries and their changes, record
-versions — page by cursor. They accept:
+versions, and the users of the instance — page by cursor. They accept:
 - `first` (i32): number of items to return (default 25, clamped to 1–100).
 - `after` (String): cursor for forward pagination.
 
@@ -1699,7 +1734,7 @@ Every other list is one of these documented exceptions:
 - **Lists under one record** — a person's names and homonyms, a family's
   spouses and children, an event's witnesses, a source's repositories and a
   repository's sources, a medium's pages, vignettes and links, an entity's
-  media — are returned whole.
+  media, a user's sessions — are returned whole.
 - **The descent of a family name** (`/dictionary/family-names/descent`,
   `familyNameDescent`) pages its branches by `offset`, 50 at a time, and
   folds what passes its 400-line budget behind lines that ask for one

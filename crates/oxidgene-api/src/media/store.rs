@@ -90,6 +90,11 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
     /// Write `bytes` at job key `key`, replacing whatever is there.
     async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError>;
 
+    /// Write `bytes` at the user-scoped key `key` (`users/{user_id}/…`, an
+    /// avatar), outside every tree, replacing whatever is there.
+    #[cfg(feature = "auth")]
+    async fn put_user_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError>;
+
     /// The keys stored under `jobs/{job_id}/`.
     async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError>;
 
@@ -211,6 +216,15 @@ fn key_for(tree_id: Uuid, digest: &str, extension: &str) -> String {
 /// far enough to be joined onto the store root, so there is no window in which
 /// `../../etc/shadow` is a `PathBuf` we are holding.
 fn validate_key(key: &str) -> Result<(), OxidGeneError> {
+    #[cfg(feature = "auth")]
+    if let Some(user_key) = key.strip_prefix("users/") {
+        return match user_key_error(user_key) {
+            Some(why) => Err(OxidGeneError::Validation(format!(
+                "invalid media storage key: {why}"
+            ))),
+            None => Ok(()),
+        };
+    }
     let checked = match key.strip_prefix("jobs/") {
         Some(job_key) => job_key_error(job_key),
         None => content_key_error(key),
@@ -221,6 +235,32 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
         ))),
         None => Ok(()),
     }
+}
+
+/// What is wrong with a user-scoped key, `users/` stripped, if anything:
+/// the only one is an avatar, `{user_id}/avatar/{sha256}-{256|64}.jpg`.
+#[cfg(feature = "auth")]
+fn user_key_error(user_key: &str) -> Option<&'static str> {
+    let mut parts = user_key.split('/');
+    let (Some(user_id), Some("avatar"), Some(file), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Some("expected users/{user_id}/avatar/{sha256}-{size}.jpg");
+    };
+    if Uuid::parse_str(user_id).is_err() {
+        return Some("user segment is not a UUID");
+    }
+    let Some((digest, size)) = file
+        .strip_suffix(".jpg")
+        .and_then(|stem| stem.split_once('-'))
+    else {
+        return Some("invalid avatar file name");
+    };
+    let hex = digest.len() == 64
+        && digest
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+    (!hex || !matches!(size, "256" | "64")).then_some("invalid avatar file name")
 }
 
 /// What is wrong with a job blob key, `jobs/` stripped, if anything.
@@ -336,6 +376,14 @@ impl MediaStore for FsStore {
     async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
         if !key.starts_with("jobs/") {
             return Err(OxidGeneError::Validation("not a job key".into()));
+        }
+        write_replacing(&self.path_for(key)?, bytes).await
+    }
+
+    #[cfg(feature = "auth")]
+    async fn put_user_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
+        if !key.starts_with("users/") {
+            return Err(OxidGeneError::Validation("not a user key".into()));
         }
         write_replacing(&self.path_for(key)?, bytes).await
     }
@@ -618,6 +666,18 @@ impl MediaStore for S3Store {
     async fn put_job_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
         if !key.starts_with("jobs/") {
             return Err(OxidGeneError::Validation("not a job key".into()));
+        }
+        self.store
+            .put(&Self::location(key)?, bytes.to_vec().into())
+            .await
+            .map(drop)
+            .map_err(|_| s3_error("write"))
+    }
+
+    #[cfg(feature = "auth")]
+    async fn put_user_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
+        if !key.starts_with("users/") {
+            return Err(OxidGeneError::Validation("not a user key".into()));
         }
         self.store
             .put(&Self::location(key)?, bytes.to_vec().into())

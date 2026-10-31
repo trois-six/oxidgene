@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-01T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -15,11 +15,12 @@ generated: { by: human:maintainer, at: 2026-11-01T09:00:00Z }
 > [Cross-cutting Rules](cross-cutting.md) · [Roadmap](roadmap.md)
 
 **Status: in progress.** The deployment of §8 — the development stack, the
-Helm chart's modes and the Rauthy they bundle — and the end-to-end sign-in
-suite of §12 are in place; the server and the frontend are being built. This
-document fixes the contract EPIC G follows;
+Helm chart's modes and the Rauthy they bundle — the end-to-end sign-in suite
+of §12, and the server's part of phase 1 (identity, sessions, accounts and
+the profile API) are in place; the frontend is being built. This document
+fixes the contract EPIC G follows;
 [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks its
-phases. Until it ships, the backend is never exposed to an
+phases. Until per-tree permissions ship, the backend is never exposed to an
 untrusted network ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 
 ---
@@ -106,9 +107,9 @@ settings; every secret also has a `_FILE` variant naming a mounted file.
 | `OXIDGENE_OIDC_ISSUER` | Required in `oidc` | The issuer, compared exactly with discovery's `issuer` and every token's `iss`, a trailing slash included (Rauthy's ends with one); discovery is read at the issuer without its trailing slash, followed by `/.well-known/openid-configuration` |
 | `OXIDGENE_OIDC_BACKCHANNEL_URL` | Unset | Scheme, host and port for the server-to-server requests (discovery, JWKS, token, introspection, registration), when the issuer's public host is not reachable from the backend, such as `http://rauthy:8080`; the issuer check is unchanged (§3.4) |
 | `OXIDGENE_OIDC_CLIENT_ID` | `oxidgene-web` | The web client's identifier |
-| `OXIDGENE_OIDC_CLIENT_AUTH` | `client_secret_basic` | `client_secret_basic` or `private_key_jwt` (RFC 7523) |
-| `OXIDGENE_OIDC_CLIENT_SECRET` | — | The web client's secret, for `client_secret_basic` |
-| `OXIDGENE_OIDC_PRIVATE_KEY_FILE` | — | The PEM key signing client assertions, for `private_key_jwt` |
+| `OXIDGENE_OIDC_CLIENT_AUTH` | `client_secret_basic` | `client_secret_basic`, `client_secret_post` (the secret in the form body, for a provider that refuses HTTP Basic) or `private_key_jwt` (RFC 7523) |
+| `OXIDGENE_OIDC_CLIENT_SECRET` | — | The web client's secret, for `client_secret_basic` and `client_secret_post` |
+| `OXIDGENE_OIDC_PRIVATE_KEY_FILE` | — | The PEM key signing client assertions, for `private_key_jwt`: an RSA (`RS256`), P-256 (`ES256`) or Ed25519 (`EdDSA`) key |
 | `OXIDGENE_OIDC_SCOPES` | `openid profile email` | Scopes asked at sign-in, plus the API scopes of [Authorization §7.2](authorization.md#72-scopes) the web client needs |
 | `OXIDGENE_OIDC_AUDIENCE` | `OXIDGENE_PUBLIC_URL` | The resource identifier every access token's `aud` must contain (§5.2) |
 | `OXIDGENE_OIDC_ALGORITHMS` | `RS256,PS256,ES256,EdDSA` | The signature allow-list (§5.2) |
@@ -198,7 +199,7 @@ have no GraphQL twin.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/auth/login?return_to=/path` | Starts a sign-in (§4.3) and redirects to the provider. `return_to` must be a path of the application (§4.3); otherwise `/` |
+| `GET` | `/auth/login?return_to=/path&lang=fr` | Starts a sign-in (§4.3) and redirects to the provider. `return_to` must be a path of the application (§4.3); otherwise `/`. `lang`, optional, is the interface language, sent as `ui_locales` when it is one of the eight |
 | `GET` | `/auth/callback` | The redirect URI. Completes the sign-in, rotates the session (§4.4), redirects to `return_to`, or to `/?auth_error=<code>` |
 | `GET` | `/auth/session` | Always `200`, `Cache-Control: no-store`: `{ mode, authenticated, user?, client_id, csrf_token?, expires_at?, idle_expires_at?, account_url? }`. `mode` is `oidc` or `none`; `user` is `{ id, display_name, email, email_verified, locale, instance_role, can_create_trees }` |
 | `POST` | `/auth/logout` | Ends the session (§4.7). Answers `{ logout_url }`, the provider's end-session address, or `null` when it has none |
@@ -260,6 +261,11 @@ failure), `signup_closed` (§6.2), `account_deactivated` (§6.5),
   a cross-site form cannot set — and the origin check are three independent
   defences. A request carrying `Authorization: Bearer` is not
   cookie-authenticated: the cookie is ignored and no CSRF token is needed.
+  The CSRF token is derived from the session id (the SHA-256 of a fixed
+  label and the cookie value), so `/auth/session` recomputes it from the
+  cookie the request carries while the store keeps only its hash; a page
+  that cannot read the cookie cannot compute it. `/auth/logout` and
+  `/auth/logout-everywhere` take the same checks.
 - `localhost` is a secure context for browsers, so the development stack's
   `http://localhost` keeps the `Secure` and `__Host-` cookies (§8.5).
 
@@ -332,6 +338,15 @@ viewer, and a field it may not read answers `UNAUTHENTICATED`
 `/mcp` takes bearer tokens only, never the cookie
 ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)).
 
+Until the permissions of phase 2 decide each operation
+([Authorization §3](authorization.md#3-tree-roles-and-permissions)), there is
+no tree an anonymous viewer may read, so the `oidc` mode answers
+`401 unauthenticated` to every `/api/v1` and `/graphql` request without a
+signed-in user — GraphQL included, at the transport — but
+`/api/v1/openapi.json`; and a signed-in user has the full access the `none`
+mode gives. A session records its last use at most once a minute, so the
+idle limit holds to the minute without a store write per request.
+
 ---
 
 ## 5. Access tokens and the identity of a request
@@ -403,6 +418,12 @@ comes from a token validated for that request:
 | `session_id` | The hash of the session id, for a cookie session |
 | `api_client_id` | The API client the `client_id` names, if any |
 
+Until the `ViewerContext` of phase 2, the authentication layer gives every
+request this identity as `oxidgene_api::auth::Principal` — `Local` in `none`
+mode, `Anonymous`, or `User` with the fields above — in the request's
+extensions and in the GraphQL context; `api_client_id` stays empty until API
+clients ship.
+
 The client id is also recorded in the change history's author
 ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)),
 in the access log, and as the `oxidgene.client_id` span attribute; client ids
@@ -470,7 +491,10 @@ first successful sign-in that passes the signup gate:
 An identity refused by the gate gets no row and lands on `/?auth_error=signup_closed`;
 nothing about it is stored. While no instance administrator exists, the first
 identity whose verified email equals `OXIDGENE_AUTH_BOOTSTRAP_ADMIN_EMAIL`
-becomes one; the variable is ignored afterwards.
+becomes one; the variable is ignored afterwards. Until invitations ship with
+sharing (phase 5), `invitation` admits the bootstrap administrator alone.
+With `claim`, an existing user who no longer carries an allowed value is
+refused at sign-in with `access_denied`.
 
 ### 6.3 Instance roles from claims
 
@@ -525,7 +549,9 @@ lifetime (§4.6) and keeps their row.
   notification preferences, the list of their conversations and their access
   events. Messages are end-to-end encrypted: the server holds no plaintext to
   export, and a conversation's text is exported from one of the user's devices
-  ([Messaging §5](messaging.md#5-end-to-end-encryption)).
+  ([Messaging §5](messaging.md#5-end-to-end-encryption)). Each section joins
+  the export with the phase that stores it; today it holds the user row and
+  profile ([API Contract §2](api.md#accounts)).
 
 ### 6.7 Profile and avatar
 
@@ -575,17 +601,18 @@ and account deletion, which the other sections and specifications define.
 | Method | Path | GraphQL | Description |
 |---|---|---|---|
 | `PUT` | `/me` | `updateMe` | `{ display_name?, locale? }`; `display_name: null` returns to the provider's name |
-| `PUT` | `/me/avatar` | — | Multipart: the image and the crop rectangle. A binary upload, REST only like media uploads ([API Contract](api.md#surfaces-and-parity)) |
+| `PUT` | `/me/avatar` | `uploadMyAvatar` | Multipart: the image (`file`) and the crop square (`x`, `y`, `size`, in pixels of the upright image). GraphQL takes the image base64-encoded, as it does media uploads, within its body limit |
 | `DELETE` | `/me/avatar` | `deleteMyAvatar` | Back to the generated avatar |
 | `GET` | `/users/{user_id}` | `userProfile` | `{ id, display_name, avatar }`, `avatar` being `{ etag, updated_at }` or `null` |
-| `GET` | `/users/{user_id}/avatar?size=` | — | The image; a direct read, REST only like media files. GraphQL's `UserProfile.avatarUrl` gives its URL |
+| `GET` | `/users/{user_id}/avatar?size=` | — | The image; a direct read, REST only like media files. GraphQL's `UserProfile.avatarUrl` gives its URL, with the avatar's `etag` as `v` so that a replaced avatar is a new address |
 | `GET` | `/me/sessions` | `mySessions` | The user's sessions: an opaque handle, creation, last use, client, browser family read from the user agent, and which one is the current |
 | `DELETE` | `/me/sessions/{session_id}` | `endMySession` | Ends one session; the current one signs out |
 
-These paths take the `/api/v1` prefix and, like the operations of
-[Authorization §10](authorization.md#10-api), join the API contract when
-implemented. `GET /me` returns the profile with `email`, `locale`,
-`instance_role` and `can_create_trees`.
+These paths take the `/api/v1` prefix and are part of the API contract
+([API Contract §2](api.md#accounts)). `GET /me` returns the profile with
+`provider_name`, `email`, `locale`, `instance_role` and `can_create_trees`.
+In `none` mode, whose local owner has no account, they and the
+administration operations are absent, as on the desktop: `404 not_found`.
 
 ---
 

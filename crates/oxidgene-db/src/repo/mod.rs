@@ -6,6 +6,7 @@
 //! - Repository implementations for all entities
 
 mod ancestry;
+mod app_user;
 mod background_job;
 pub(crate) mod batch;
 mod citation;
@@ -43,6 +44,7 @@ mod tree;
 mod vignette;
 
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
+pub use app_user::{AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, UserStatus};
 pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, JOB_CHANNEL,
     NewBackgroundJob, QUEUE_CHANNEL,

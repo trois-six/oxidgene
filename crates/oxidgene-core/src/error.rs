@@ -19,6 +19,15 @@ pub enum OxidGeneError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    /// The request carries no valid credential, where one is required: the
+    /// web build's authentication (docs/authentication.md).
+    #[error("Unauthenticated")]
+    Unauthenticated,
+
+    /// The viewer is identified but may not do what the request asks.
+    #[error("Forbidden")]
+    Forbidden,
+
     /// Database error.
     #[error("Database error: {0}")]
     Database(String),

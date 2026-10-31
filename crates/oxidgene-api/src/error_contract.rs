@@ -24,6 +24,16 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request conflicts with the current state",
             unexpected: false,
         },
+        OxidGeneError::Unauthenticated => ErrorContract {
+            code: "unauthenticated",
+            message: "Authentication is required",
+            unexpected: false,
+        },
+        OxidGeneError::Forbidden => ErrorContract {
+            code: "forbidden",
+            message: "The request is not allowed",
+            unexpected: false,
+        },
         OxidGeneError::Database(_) => ErrorContract {
             code: "database_error",
             message: "The request could not be completed",
@@ -77,6 +87,8 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::NotFound { .. } => "not_found",
         OxidGeneError::Validation(_) => "validation",
         OxidGeneError::Conflict(_) => "conflict",
+        OxidGeneError::Unauthenticated => "unauthenticated",
+        OxidGeneError::Forbidden => "forbidden",
         OxidGeneError::Gedcom(_) => "gedcom",
         OxidGeneError::Database(message) => database_kind(message),
         OxidGeneError::Io(error) => io_kind(error.kind()),

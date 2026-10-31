@@ -43,8 +43,8 @@ pub(crate) async fn live_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
 }
 
 /// Run a root resolver's body from the heap: every resolver of
-/// [`QueryRoot`](super::query::QueryRoot) and
-/// [`MutationRoot`](super::mutation::MutationRoot) is
+/// [`TreeQuery`](super::query::TreeQuery) and
+/// [`TreeMutation`](super::mutation::TreeMutation) is
 /// `boxed(async move { … }).await`.
 ///
 /// async-graphql dispatches a root field through one generated `match` over

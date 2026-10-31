@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Planned authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -558,8 +558,11 @@ Administrators read the instance's log, owners their tree's. Rows older than
 
 ## 10. API
 
-These operations are planned: each moves into [API Contract §2](api.md#2-rest-api)
-and the parity table when it is implemented. All take the `/api/v1` prefix.
+Each operation moves into [API Contract §2](api.md#2-rest-api) and the
+parity table when it is implemented; `/me`, `/me/export` and the
+`/admin/users` operations have, with the profile operations of
+[Authentication §6.7](authentication.md#67-profile-and-avatar)
+([API Contract, Accounts](api.md#accounts)). All take the `/api/v1` prefix.
 
 | Method | Path | GraphQL | Permission |
 |---|---|---|---|

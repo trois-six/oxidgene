@@ -12,7 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-oxidgene-api = { workspace = true, features = ["graphql", "postgres", "s3", "telemetry-context"] }
+oxidgene-api = { workspace = true, features = ["auth", "graphql", "postgres", "s3", "telemetry-context"] }
 oxidgene-observability = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal"] }

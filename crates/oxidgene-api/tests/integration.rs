@@ -8,8 +8,12 @@
 //! only once declared below; the `test_targets` guard keeps it so.
 
 mod access_test;
+#[cfg(feature = "auth")]
+mod account_test;
 mod algorithm_scaling_test;
 mod archive_target_test;
+#[cfg(feature = "auth")]
+mod auth_test;
 mod common;
 mod consistency_test;
 mod dictionary_bulk_test;

@@ -7,6 +7,8 @@
 
 pub mod access;
 pub mod app_dirs;
+#[cfg(feature = "auth")]
+pub mod auth;
 mod embedded;
 mod error_contract;
 #[cfg(feature = "graphql")]

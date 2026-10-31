@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 
@@ -107,7 +107,12 @@ In the web build an authentication layer in front of the merged REST and
 GraphQL routers and the media reads resolves each request's identity from a
 validated access token, and every service takes the resulting `ViewerContext`
 ([Authorization §4](authorization.md#4-viewercontext)); the Axum server is the
-browser's OAuth client (Backend-for-Frontend) and keeps the tokens.
+browser's OAuth client (Backend-for-Frontend) and keeps the tokens. The
+feature's code lives in `oxidgene-api::auth` (configuration, provider,
+token validation, session store, the layer and the `/auth/*` routes), the
+account workflows in `service::account` and `service::avatar`, and their
+REST and GraphQL handlers beside the others; until the `ViewerContext`
+ships, the layer hands each request a `Principal`.
 
 API endpoints are documented in [API Contract](api.md).
 

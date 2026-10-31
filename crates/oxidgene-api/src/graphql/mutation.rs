@@ -92,11 +92,12 @@ fn color_input(color: Option<i32>) -> Result<Option<i16>> {
         .transpose()
 }
 
-/// The root mutation type.
-pub struct MutationRoot;
+/// The tree mutations.
+#[derive(Default)]
+pub struct TreeMutation;
 
 #[Object]
-impl MutationRoot {
+impl TreeMutation {
     // ── Tree Mutations ───────────────────────────────────────────────
 
     /// Create a new tree. A blank name is refused.

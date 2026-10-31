@@ -62,6 +62,11 @@ impl MediaStore for RecordingStore<'_> {
         self.inner.put_job_bytes(key, bytes).await
     }
 
+    #[cfg(feature = "auth")]
+    async fn put_user_bytes(&self, key: &str, bytes: &[u8]) -> Result<(), OxidGeneError> {
+        self.inner.put_user_bytes(key, bytes).await
+    }
+
     async fn job_keys(&self, job_id: Uuid) -> Result<Vec<String>, OxidGeneError> {
         self.inner.job_keys(job_id).await
     }

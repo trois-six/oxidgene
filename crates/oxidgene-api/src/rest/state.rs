@@ -48,6 +48,10 @@ pub struct AppState {
     /// The archive resolution every request shares, with its session cache.
     pub archives: Arc<ArchivePortals>,
     pub(crate) local_file_access: LocalFileAccess,
+    /// The web build's authentication: the `none` mode until the server
+    /// configures it.
+    #[cfg(feature = "auth")]
+    pub auth: Arc<crate::auth::Auth>,
 }
 
 impl AppState {
@@ -88,7 +92,17 @@ impl AppState {
             work_dir: WorkDir::temporary(),
             archives: Arc::new(ArchivePortals::native()),
             local_file_access: LocalFileAccess(false),
+            #[cfg(feature = "auth")]
+            auth: Arc::new(crate::auth::Auth::none()),
         }
+    }
+
+    /// Authenticate requests as `auth` says (docs/authentication.md).
+    #[cfg(feature = "auth")]
+    #[must_use]
+    pub fn with_auth(mut self, auth: Arc<crate::auth::Auth>) -> Self {
+        self.auth = auth;
+        self
     }
 
     /// Resolve archive citations with `archives` rather than over the

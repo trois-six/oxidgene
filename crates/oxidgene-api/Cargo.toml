@@ -22,6 +22,10 @@ s3 = ["dep:object_store"]
 telemetry-context = ["dep:oxidgene-observability", "oxidgene-db/telemetry-context"]
 # MCP server over stdio — only the desktop binary opts in.
 mcp = ["dep:rmcp", "dep:schemars", "oxidgene-db/schema", "oxidgene-core/schema"]
+# Authentication, sessions and accounts of the web build — the server and the
+# worker opt in; the desktop never does, and a guard keeps it so
+# (docs/authentication.md §7).
+auth = ["dep:jsonwebtoken", "dep:aws-lc-rs", "dep:redis", "dep:reqwest"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
@@ -71,6 +75,13 @@ tempfile = { workspace = true }
 object_store = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
+# The `auth` feature: token validation, session sealing, the Redis session
+# store, and the provider's discovery, JWKS and token endpoints — whose
+# requests are form-encoded, hence `form`.
+jsonwebtoken = { workspace = true, optional = true }
+aws-lc-rs = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["form"] }
 
 # The allocator settings of `memory`: glibc's `mallopt` and `malloc_trim`.
 # Already in the graph through tokio; no other target needs it.
@@ -88,8 +99,12 @@ brotli = { workspace = true }
 image = { workspace = true }
 # The SDK's own client drives the MCP server in the integration tests.
 rmcp = { workspace = true, features = ["client"] }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["net", "time"] }
 tower = { workspace = true }
+# The mock identity provider of the authentication tests signs its tokens
+# with keys generated in the test.
+jsonwebtoken = { workspace = true }
+aws-lc-rs = { workspace = true }
 uuid = { workspace = true }
 http-body-util = "0.1"
 tracing-subscriber = { workspace = true }

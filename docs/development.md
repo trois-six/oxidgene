@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -81,6 +81,7 @@ the repository root.
 | `just bench` | Run the opt-in benchmarks of the profile service and the person search, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, and a job queued by another process waking an idle worker. |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
+| `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
 | `just archives-live [archive…]` | Check every catalogued archive with an adapter, or those named (`fr-ad44`), against its real portal, archives sharing a portal address paused apart: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
@@ -604,6 +605,7 @@ of both passed (the next-toolchain jobs report without failing).
 |---|---|---|---|---|
 | Layering | 1 | `just test` (`oxidgene-guards`) | Repository guards | `service/` and `profile/` import no surface; REST handlers and GraphQL mutations call no repository write and open no transaction |
 | Migration policy | 1 | `just test` (`oxidgene-guards`) | Repository guards | The initial migration is the only one until a release (`RELEASED` lifts it) |
+| Web-only features | 1 | `just test` (`oxidgene-guards`) | Repository guards | The desktop's resolved dependency graph enables neither `oxidgene-api`'s `auth` nor its `graphql` feature, and links neither `jsonwebtoken` nor `redis` ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)) |
 | Lint discipline | 1 | `just test` (`oxidgene-guards`), `just clippy` | Repository guards, Clippy | Every crate takes the workspace lints; no `#[allow]` (Clippy's `allow_attributes`), no crate-wide allow or cap; every `#[ignore]` names an existing `just` recipe |
 | Specification format | 1 | `just test` (`oxidgene-guards`) | Repository guards | `docs/` is a conformant OKF bundle; every link, `#anchor` and `§N` resolves; on a pull request, an edited specification carries a new `generated.at` |
 | Dead CSS | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every class of the `*_STYLES` sheets is produced by the markup; every `var(--x)` is defined |

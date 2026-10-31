@@ -67,6 +67,7 @@ fn services_do_not_depend_on_the_surfaces() {
 fn surfaces_write_through_services() {
     let mut surfaces = files("crates/oxidgene-api/src/rest", "rs");
     surfaces.push(oxidgene_guards::root().join("crates/oxidgene-api/src/graphql/mutation.rs"));
+    surfaces.push(oxidgene_guards::root().join("crates/oxidgene-api/src/graphql/account.rs"));
     let mut violations = Vec::new();
     for path in surfaces {
         let full = std::fs::read_to_string(&path).unwrap();

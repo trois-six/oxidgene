@@ -39,6 +39,8 @@ macro_rules! connection {
     };
 }
 
+#[cfg(feature = "auth")]
+pub mod account;
 mod error;
 pub mod history;
 pub mod inputs;
@@ -61,10 +63,7 @@ use axum::response::{Html, IntoResponse};
 use oxidgene_db::repo::Connections;
 use std::sync::Arc;
 
-use mutation::MutationRoot;
-
 use crate::workdir::WorkDir;
-use query::QueryRoot;
 
 use self::error::SafeErrors;
 use self::tracing::Tracing;
@@ -72,6 +71,24 @@ use self::tracing::Tracing;
 const MAX_QUERY_DEPTH: usize = 16;
 const MAX_QUERY_COMPLEXITY: usize = 1_000;
 const MAX_RECURSIVE_DEPTH: usize = 32;
+
+/// The root query type: the tree queries and, in the web build, the
+/// account queries.
+#[derive(async_graphql::MergedObject, Default)]
+#[graphql(name = "QueryRoot")]
+pub struct QueryRoot(
+    query::TreeQuery,
+    #[cfg(feature = "auth")] account::AccountQuery,
+);
+
+/// The root mutation type: the tree mutations and, in the web build, the
+/// account mutations.
+#[derive(async_graphql::MergedObject, Default)]
+#[graphql(name = "MutationRoot")]
+pub struct MutationRoot(
+    mutation::TreeMutation,
+    #[cfg(feature = "auth")] account::AccountMutation,
+);
 
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
@@ -110,30 +127,47 @@ pub(crate) fn build_schema_with_local_file_access(
     archives: Arc<ArchivePortals>,
     local_file_access: LocalFileAccess,
 ) -> OxidGeneSchema {
-    Schema::build(QueryRoot, MutationRoot, EmptySubscription)
-        .limit_depth(MAX_QUERY_DEPTH)
-        .limit_complexity(MAX_QUERY_COMPLEXITY)
-        .limit_recursive_depth(MAX_RECURSIVE_DEPTH)
-        .extension(Tracing)
-        .extension(SafeErrors)
-        .data(db.writer)
-        .data(types::Reader(db.reader))
-        .data(profiles)
-        .data(purge)
-        .data(media)
-        .data(work_dir)
-        .data(archives)
-        .data(local_file_access)
-        .finish()
+    Schema::build(
+        QueryRoot::default(),
+        MutationRoot::default(),
+        EmptySubscription,
+    )
+    .limit_depth(MAX_QUERY_DEPTH)
+    .limit_complexity(MAX_QUERY_COMPLEXITY)
+    .limit_recursive_depth(MAX_RECURSIVE_DEPTH)
+    .extension(Tracing)
+    .extension(SafeErrors)
+    .data(db.writer)
+    .data(types::Reader(db.reader))
+    .data(profiles)
+    .data(purge)
+    .data(media)
+    .data(work_dir)
+    .data(archives)
+    .data(local_file_access)
+    .finish()
 }
 
 /// Axum handler for `POST /graphql`: the nested fields of the response
 /// are read in batches ([`loaders`]).
+///
+/// In the web build the request's principal and the server's
+/// authentication, which the authentication layer left in the request's
+/// extensions, become data of the GraphQL request: resolvers act for the
+/// same viewer REST would.
 pub async fn graphql_handler(
     State(schema): State<OxidGeneSchema>,
+    #[cfg(feature = "auth")] principal: crate::auth::Principal,
+    #[cfg(feature = "auth")] auth: Option<axum::Extension<Arc<crate::auth::Auth>>>,
     req: GraphQLRequest,
 ) -> GraphQLResponse {
-    loaders::execute(&schema, req.into_inner()).await.into()
+    let request = req.into_inner();
+    #[cfg(feature = "auth")]
+    let request = match auth {
+        Some(axum::Extension(auth)) => request.data(principal).data(auth),
+        None => request.data(principal),
+    };
+    loaders::execute(&schema, request).await.into()
 }
 
 /// Marks a router whose `GET /graphql` serves GraphiQL: add it as an

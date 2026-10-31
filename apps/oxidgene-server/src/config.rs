@@ -22,8 +22,14 @@
 //! | `OXIDGENE_S3_SECRET_ACCESS_KEY`  | unset                                      | S3 secret key               |
 //!
 //! The server answers only requests whose `Host` is a loopback name, the
-//! host of `OXIDGENE_CORS_ORIGIN`, or one of the comma-separated
-//! `OXIDGENE_ALLOWED_HOSTS` (see `oxidgene_api::access::allowed_hosts`).
+//! host of `OXIDGENE_CORS_ORIGIN` (of `OXIDGENE_PUBLIC_URL` in the `oidc`
+//! mode), or one of the comma-separated `OXIDGENE_ALLOWED_HOSTS` (see
+//! `oxidgene_api::access::allowed_hosts`).
+//!
+//! The authentication settings — `OXIDGENE_AUTH_MODE`, `OXIDGENE_PUBLIC_URL`,
+//! `OXIDGENE_OIDC_*`, `OXIDGENE_AUTH_*`, `OXIDGENE_SESSION_*`,
+//! `OXIDGENE_REDIS_URL` — are read from the same sources by
+//! [`ServerConfig::load_auth`] (docs/authentication.md §3.2).
 //!
 //! `OXIDGENE_MEDIA_ROOT` defaults to the platform's user-data directory —
 //! `~/.local/share/oxidgene/media` on Linux. A containerised deployment
@@ -41,8 +47,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use config::{Config, Environment, File};
+use config::builder::DefaultState;
+use config::{Config, ConfigBuilder, Environment, File};
 use oxidgene_api::access::AllowedHosts;
+use oxidgene_api::auth::AuthSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
 use oxidgene_api::workdir::WorkDir;
 use oxidgene_observability::{InvalidLogFormat, LogFormat};
@@ -235,26 +243,21 @@ impl ServerConfig {
     /// Load configuration from optional `oxidgene.toml` file and environment
     /// variables prefixed with `OXIDGENE_`.
     pub fn load() -> Result<Self, config::ConfigError> {
-        let config = Config::builder()
-            // Optional config file (not required to exist)
-            .add_source(File::with_name("oxidgene").required(false))
-            // Environment variables: OXIDGENE_HOST, OXIDGENE_PORT, etc.
-            .add_source(
-                Environment::with_prefix("OXIDGENE")
-                    .prefix_separator("_")
-                    .separator("__")
-                    .try_parsing(true),
-            )
-            .build()?;
-
-        config.try_deserialize()
+        sources().build()?.try_deserialize()
     }
 
-    /// The host names the API answers under: loopback, the CORS origin's
-    /// host, and [`Self::allowed_hosts`].
-    pub fn allowed_hosts(&self) -> AllowedHosts {
+    /// Load the authentication settings from the same sources.
+    pub fn load_auth() -> Result<AuthSettings, config::ConfigError> {
+        sources().build()?.try_deserialize()
+    }
+
+    /// The host names the API answers under: loopback, the frontend's
+    /// origin's host — the public URL in `oidc`, the CORS origin otherwise —
+    /// and [`Self::allowed_hosts`].
+    pub fn allowed_hosts(&self, public_origin: Option<&str>) -> AllowedHosts {
         AllowedHosts::new(
-            std::iter::once(self.cors_origin.as_str()).chain(self.allowed_hosts.split(',')),
+            std::iter::once(public_origin.unwrap_or(&self.cors_origin))
+                .chain(self.allowed_hosts.split(',')),
         )
     }
 
@@ -293,6 +296,19 @@ impl ServerConfig {
             }
         }
     }
+}
+
+/// The optional `oxidgene.toml` of the working directory, then the
+/// `OXIDGENE_*` environment, which overrides it.
+fn sources() -> ConfigBuilder<DefaultState> {
+    Config::builder()
+        .add_source(File::with_name("oxidgene").required(false))
+        .add_source(
+            Environment::with_prefix("OXIDGENE")
+                .prefix_separator("_")
+                .separator("__")
+                .try_parsing(true),
+        )
 }
 
 #[cfg(test)]
@@ -372,6 +388,25 @@ mod tests {
             redact_url_password("postgres://fixture:p@ss:w@rd@db.example.invalid"),
             "postgres://fixture:<redacted>@db.example.invalid"
         );
+    }
+
+    #[test]
+    fn authentication_defaults_to_oidc_and_reads_the_variables_of_the_specification() {
+        let settings: AuthSettings = Config::builder()
+            .build()
+            .and_then(Config::try_deserialize)
+            .expect("every field has a default");
+        assert_eq!(settings.auth_mode, "oidc");
+        let settings: AuthSettings = Config::builder()
+            .set_override("auth_mode", "none")
+            .and_then(|builder| builder.set_override("oidc_client_secret", 12345))
+            .and_then(|builder| builder.set_override("oidc_trust_email", true))
+            .and_then(|builder| builder.build())
+            .and_then(Config::try_deserialize)
+            .expect("settings");
+        assert_eq!(settings.auth_mode, "none");
+        assert_eq!(settings.oidc_client_secret.as_deref(), Some("12345"));
+        assert!(settings.oidc_trust_email);
     }
 
     #[test]

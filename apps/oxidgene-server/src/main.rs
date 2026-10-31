@@ -4,20 +4,26 @@
 //! - REST API under `/api/v1/trees`
 //! - GraphQL at `/graphql` (POST) and GraphiQL playground (GET)
 //! - Health check at `/healthz`
-//! - CORS middleware, and refusal of writes from any other browser origin
+//! - Authentication (`OXIDGENE_AUTH_MODE`): OpenID Connect with the
+//!   Backend-for-Frontend's `/auth/*` routes, or `none`
+//! - CORS middleware in `none` mode, and refusal of writes from any other
+//!   browser origin
 //! - Structured tracing
 //! - Graceful shutdown on SIGINT/SIGTERM
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::http::HeaderValue;
+use oxidgene_api::auth::Auth;
 use oxidgene_api::startup::{ReferenceWarmup, open_database, or_exit, spawn_background_worker};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_observability::init;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use oxidgene_server::config::{MediaBackend, ServerConfig};
+use oxidgene_server::http::Exposure;
 use oxidgene_server::shutdown::shutdown_signal;
 
 #[tokio::main]
@@ -56,6 +62,9 @@ async fn main() {
         "Starting OxidGene server"
     );
 
+    // ── Authentication ───────────────────────────────────────────────
+    let auth = start_auth().await;
+
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
     let db = open_database(&cfg.database_url).await;
@@ -72,7 +81,9 @@ async fn main() {
     // Before any job or upload: what a crashed run left.
     let sweep = work_dir.clone();
     tokio::task::spawn_blocking(move || sweep.sweep(std::time::SystemTime::now()));
-    let state = AppState::with_media_store(db, media).with_work_dir(work_dir);
+    let state = AppState::with_media_store(db, media)
+        .with_work_dir(work_dir)
+        .with_auth(Arc::clone(&auth));
     if embedded_worker {
         // SQLite has no separate worker: this process was the only one
         // running the jobs a previous run left marked as running.
@@ -87,17 +98,7 @@ async fn main() {
     }
     reference_warmup.finish().await;
 
-    // CORS remains single-origin until authentication and authorization ship.
-    if cfg.cors_origin == "*" {
-        error!(error = "cors_origin", "Wildcard CORS origin is not allowed");
-        std::process::exit(1);
-    }
-    let cors_origin = or_exit(
-        cfg.cors_origin.parse::<HeaderValue>(),
-        "cors_origin",
-        "Invalid CORS origin",
-    );
-    let app = oxidgene_server::http::app(api_router, cors_origin, cfg.allowed_hosts());
+    let app = oxidgene_server::http::app(api_router, exposure(&cfg, &auth));
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);
@@ -118,4 +119,82 @@ async fn main() {
 
     info!("Server shut down gracefully");
     telemetry.shutdown();
+}
+
+/// The authentication `OXIDGENE_AUTH_MODE` and its settings describe. An
+/// invalid setting ends the process with its category and variable, never
+/// its value.
+async fn start_auth() -> Arc<Auth> {
+    let settings = or_exit(
+        ServerConfig::load_auth(),
+        "auth_config_invalid",
+        "Failed to load the authentication settings",
+    );
+    let config = settings
+        .resolve()
+        .unwrap_or_else(|failure| invalid_auth(failure));
+    let auth = Arc::new(or_exit(
+        Auth::start(config).await,
+        "session_store_unavailable",
+        "Failed to connect to the session store",
+    ));
+    announce(&auth);
+    auth
+}
+
+/// End the process over an invalid authentication setting, named by its
+/// category and variable, never its value.
+fn invalid_auth(failure: oxidgene_api::auth::AuthConfigError) -> ! {
+    error!(
+        error = failure.category,
+        variable = failure.variable,
+        "Invalid authentication configuration"
+    );
+    std::process::exit(1)
+}
+
+/// Say how requests are authenticated, at each start; the `none` mode with
+/// its `auth_disabled` warning.
+fn announce(auth: &Arc<Auth>) {
+    if auth.mode_name() == "none" {
+        warn_disabled();
+    } else {
+        info!(auth = "oidc", "Authentication through OpenID Connect");
+        auth.warm_up();
+    }
+}
+
+fn warn_disabled() {
+    warn!(
+        auth = "auth_disabled",
+        "Authentication is disabled: every request acts as the owner of every tree"
+    );
+}
+
+/// Where browsers reach the API from: the public URL alone in `oidc`, which
+/// serves the frontend and the API under one origin with no CORS; the one
+/// trusted CORS origin in `none`.
+fn exposure(cfg: &ServerConfig, auth: &Auth) -> Exposure {
+    if let Some(origin) = auth.public_origin() {
+        return Exposure {
+            cors: None,
+            origin: or_exit(
+                origin.parse::<HeaderValue>(),
+                "auth_config_invalid",
+                "Invalid public URL",
+            ),
+            hosts: cfg.allowed_hosts(Some(origin)),
+            hsts: auth.uses_https(),
+        };
+    }
+    if cfg.cors_origin == "*" {
+        error!(error = "cors_origin", "Wildcard CORS origin is not allowed");
+        std::process::exit(1);
+    }
+    let cors_origin = or_exit(
+        cfg.cors_origin.parse::<HeaderValue>(),
+        "cors_origin",
+        "Invalid CORS origin",
+    );
+    Exposure::cors(cors_origin, cfg.allowed_hosts(None))
 }

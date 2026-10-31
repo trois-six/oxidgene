@@ -558,6 +558,18 @@ input GeneanetSessionEncodeInput {
 }
 
 """
+The account data export: REST `GET /me/export`.
+"""
+type GqlAccountData {
+	exportedAt: DateTime!
+	user: GqlUser!
+	displayNameSet: String
+	providerName: String
+	locale: String
+	updatedAt: DateTime!
+}
+
+"""
 The thresholds a tree's anomaly rules apply, each in whole years,
 days or kilometres, or a year for `centenarianBeforeYear`.
 """
@@ -1877,6 +1889,24 @@ type GqlKinshipSegment {
 	first.
 	"""
 	unionFamilyId: ID
+}
+
+"""
+The signed-in user's own account: REST `GET /me`.
+"""
+type GqlMe {
+	id: ID!
+	displayName: String
+	providerName: String
+	avatar: GqlUserAvatar
+	email: String
+	emailVerified: Boolean!
+	locale: String
+	"""
+	`admin` or `user`.
+	"""
+	instanceRole: String!
+	canCreateTrees: Boolean!
 }
 
 """
@@ -3549,6 +3579,76 @@ type GqlUnionSnapshot {
 }
 
 """
+A user as an administrator manages them: REST `GET /admin/users`.
+"""
+type GqlUser {
+	id: ID!
+	displayName: String
+	username: String
+	email: String
+	emailVerified: Boolean!
+	issuer: String
+	subject: String
+	avatar: GqlUserAvatar
+	instanceRole: String!
+	canCreateTrees: Boolean!
+	"""
+	`active`, `deactivated` or `erased`.
+	"""
+	status: String!
+	createdAt: DateTime!
+	lastSignInAt: DateTime!
+	deactivatedAt: DateTime
+	erasedAt: DateTime
+}
+
+"""
+An uploaded avatar's version.
+"""
+type GqlUserAvatar {
+	etag: String!
+	updatedAt: DateTime!
+}
+
+type GqlUserConnection {
+	edges: [GqlUserEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlUserEdge {
+	cursor: String!
+	node: GqlUser!
+}
+
+"""
+Another user as their viewers see them: REST `GET /users/{user_id}`.
+"""
+type GqlUserProfile {
+	id: ID!
+	displayName: String
+	avatar: GqlUserAvatar
+	"""
+	The address of the uploaded avatar's image at `size` (256 or 64),
+	to fetch with the client's credentials; `null` with the generated
+	avatar. Its `v` changes with the avatar.
+	"""
+	avatarUrl(size: Int! = 256): String
+}
+
+"""
+One of the signed-in user's sessions: REST `GET /me/sessions`.
+"""
+type GqlUserSession {
+	id: ID!
+	createdAt: DateTime!
+	lastUsedAt: DateTime!
+	clientId: String!
+	browser: String!
+	current: Boolean!
+}
+
+"""
 A value an entry-form field suggests.
 """
 type GqlValueSuggestion {
@@ -3756,6 +3856,10 @@ input MergeRepositoryInput {
 	website: String
 }
 
+"""
+The root mutation type: the tree mutations and, in the web build, the
+account mutations.
+"""
 type MutationRoot {
 	"""
 	Create a new tree. A blank name is refused.
@@ -4144,6 +4248,41 @@ type MutationRoot {
 	Drop every projection of a tree. For debugging or after bulk operations.
 	"""
 	dropTreeProfiles(treeId: ID!): Boolean!
+	"""
+	Change the signed-in user's display name or language.
+	"""
+	updateMe(input: UpdateMeInput!): GqlMe!
+	"""
+	Replace the signed-in user's avatar. Mirrors `PUT /me/avatar`, the
+	image base64-encoded as for `uploadMediaFile`, within the GraphQL
+	body limit.
+	"""
+	uploadMyAvatar(input: UploadAvatarInput!): GqlMe!
+	"""
+	Return the signed-in user to the generated avatar.
+	"""
+	deleteMyAvatar: Boolean!
+	"""
+	End one of the signed-in user's sessions; ending the request's own
+	signs the browser out.
+	"""
+	endMySession(sessionId: ID!): Boolean!
+	"""
+	Erase the signed-in user's account.
+	"""
+	deleteMyAccount: Boolean!
+	"""
+	Change a user's instance role, tree creation or status.
+	"""
+	updateUser(userId: ID!, input: UpdateUserInput!): GqlUser!
+	"""
+	Bind a user to another identity at the provider.
+	"""
+	rebindUserIdentity(userId: ID!, input: RebindUserIdentityInput!): GqlUser!
+	"""
+	Erase a user.
+	"""
+	eraseUser(userId: ID!): Boolean!
 }
 
 """
@@ -4239,6 +4378,10 @@ type PyramidBand {
 	women: Int!
 }
 
+"""
+The root query type: the tree queries and, in the web build, the
+account queries.
+"""
 type QueryRoot {
 	"""
 	Load the family neighborhood and evidence rendered by one person page.
@@ -4728,6 +4871,38 @@ type QueryRoot {
 	pass it so the returned `*DepthLoaded` values match what you hold.
 	"""
 	expandPedigree(treeId: ID!, rootPersonId: ID!, direction: GqlPedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int! = 0): GqlPedigreeDelta!
+	"""
+	The signed-in user's own account.
+	"""
+	me: GqlMe!
+	"""
+	Everything OxidGene holds about the signed-in user.
+	"""
+	myAccountData: GqlAccountData!
+	"""
+	The signed-in user's sessions, newest first.
+	"""
+	mySessions: [GqlUserSession!]!
+	"""
+	A user, for whoever may see them; `null` for anyone else.
+	"""
+	userProfile(userId: ID!): GqlUserProfile
+	"""
+	Every user of the instance, for an administrator.
+	"""
+	users(first: Int, after: String): GqlUserConnection!
+	"""
+	One user, for an administrator; `null` when there is none.
+	"""
+	user(userId: ID!): GqlUser
+}
+
+"""
+REST `PUT /admin/users/{user_id}/identity`.
+"""
+input RebindUserIdentityInput {
+	issuer: String!
+	subject: String!
 }
 
 """
@@ -5184,6 +5359,15 @@ input UpdateFamilyInput {
 }
 
 """
+REST `PUT /me`: an absent field is kept, `null` returns to the
+provider's value.
+"""
+input UpdateMeInput {
+	displayName: String
+	locale: String
+}
+
+"""
 Input for updating media metadata.
 
 A media carries the same descriptive fields a fact does. There is no source
@@ -5341,6 +5525,21 @@ input UpdateTreeInput {
 }
 
 """
+REST `PUT /admin/users/{user_id}`.
+"""
+input UpdateUserInput {
+	"""
+	`admin` or `user`.
+	"""
+	instanceRole: String
+	canCreateTrees: Boolean
+	"""
+	`active` or `deactivated`.
+	"""
+	status: String
+}
+
+"""
 Input for moving or re-attributing a vignette.
 
 The four rectangle fields travel together: send all of them or none.
@@ -5352,6 +5551,17 @@ input UpdateVignetteInput {
 	height: Int
 	personId: String
 	eventId: String
+}
+
+"""
+REST `PUT /me/avatar`: the image and the crop square, in pixels of the
+upright image; without the square, the centred largest one.
+"""
+input UploadAvatarInput {
+	contentBase64: String!
+	x: Int
+	y: Int
+	size: Int
 }
 
 """

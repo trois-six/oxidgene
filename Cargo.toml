@@ -221,6 +221,26 @@ schemars = { version = "1", default-features = false, features = ["derive", "std
 # Native file dialogs
 rfd = "0.17"
 
+# Authentication of the web build (`oxidgene-api`'s `auth` feature, which the
+# server and the worker alone enable; docs/authentication.md §11). No OpenID
+# Connect client crate: discovery, the code flow and refresh are plain
+# `reqwest` calls, and those crates bring HTTP and crypto stacks of their own.
+#
+# JWS verification and client assertions on the `aws-lc-rs` backend rustls,
+# reqwest and object_store already build; `use_pem` reads the PEM key of
+# `private_key_jwt`.
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+# AES-256-GCM sealing of the tokens a session holds, randomness and the
+# digests of identifiers: the crypto library already linked through rustls.
+aws-lc-rs = "1"
+# The shared session store of several backend replicas. Defaults are off
+# (ACL, streams, geo, scripting, big integers): plain keys, sets and TTLs over
+# Tokio with rustls for `rediss://`, and a connection manager that reconnects.
+redis = { version = "1.8", default-features = false, features = [
+    "tokio-rustls-comp",
+    "connection-manager",
+] }
+
 [profile.dev]
 debug = "line-tables-only"  # smaller debug info → faster incremental builds
 

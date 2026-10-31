@@ -126,6 +126,8 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::NotFound { .. } => StatusCode::NOT_FOUND,
         OxidGeneError::Validation(_) | OxidGeneError::Gedcom(_) => StatusCode::BAD_REQUEST,
         OxidGeneError::Conflict(_) => StatusCode::CONFLICT,
+        OxidGeneError::Unauthenticated => StatusCode::UNAUTHORIZED,
+        OxidGeneError::Forbidden => StatusCode::FORBIDDEN,
         OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

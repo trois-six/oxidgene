@@ -124,11 +124,12 @@ async fn lineage(
         .collect())
 }
 
-/// The root query type.
-pub struct QueryRoot;
+/// The tree queries.
+#[derive(Default)]
+pub struct TreeQuery;
 
 #[Object]
-impl QueryRoot {
+impl TreeQuery {
     /// Load the family neighborhood and evidence rendered by one person page.
     async fn person_detail_bundle(
         &self,

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-31T14:40:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T23:30:00Z }
 ---
 
 
@@ -1354,11 +1354,12 @@ restored: the version before it is the state to go back to.
 
 ---
 
-## 6. Accounts and Access (planned)
+## 6. Accounts and Access
 
 The tables of EPIC G, specified in [Authentication](authentication.md),
 [Authorization](authorization.md), [Privacy](privacy.md) and
-[Messaging and Notifications](messaging.md); none exists yet. Until the first
+[Messaging and Notifications](messaging.md). `app_user` (§6.1) exists; the
+others are planned and arrive with their phase. Until the first
 release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the

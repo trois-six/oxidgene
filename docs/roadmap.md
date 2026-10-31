@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-01T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -279,35 +279,36 @@ its REST and GraphQL operations together, with their tests, every user-visible
 string in every language, and the user guide. In order:
 
 1. **Identity and sessions.**
-   - [ ] The `auth` feature of `oxidgene-api`, enabled by the server and the
+   - [x] The `auth` feature of `oxidgene-api`, enabled by the server and the
      worker only, with a guard keeping it out of the desktop
      ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
-   - [ ] `OXIDGENE_AUTH_MODE` (`oidc`, `none`), the OIDC configuration,
+   - [x] `OXIDGENE_AUTH_MODE` (`oidc`, `none`), the OIDC configuration,
      discovery and JWKS with back-channel URL, token validation
      ([Authentication §3, §5](authentication.md#5-access-tokens-and-the-identity-of-a-request)).
-   - [ ] The Backend-for-Frontend: `/auth/*`, the session store in memory and
+   - [x] The Backend-for-Frontend: `/auth/*`, the session store in memory and
      in Redis, CSRF, refresh with rotation, RP-initiated and back-channel
      logout ([Authentication §4](authentication.md#4-browser-sessions-backend-for-frontend)).
-   - [ ] Users: provisioning and the signup gate, instance roles from claims,
+   - [x] Users: provisioning and the signup gate, instance roles from claims,
      deactivation, erasure, account data, the administrator's user list.
    - [ ] The sign-in, account menu and session-end dialog of the web
      frontend, and its `none` mode identical to the desktop's interface
      ([Authentication §2](authentication.md#2-deployment-modes)).
-   - [ ] The profile page: display name, the uploaded avatar with its crop,
-     re-encoding and serving, the generated initials avatar, language,
-     sessions, account data and deletion
-     ([Authentication §6.7](authentication.md#67-profile-and-avatar)); its
+   - [x] The profile API on REST and GraphQL: display name, the uploaded
+     avatar with its crop, re-encoding and serving, language, sessions,
+     account data and deletion
+     ([Authentication §6.7](authentication.md#67-profile-and-avatar)).
+   - [ ] The profile page over it, with the generated initials avatar; its
      notification, API-client, messaging-security and blocked-users sections
      arrive with phases 4, 6 and 7.
    - [x] The Compose stack's Rauthy with its development setup and Mailpit,
      the web container's proxy, `just dev-idp-up`, and the chart's
      `auth.idp.mode` `external` and `none` with its values, Ingress paths
      and rendering tests ([Authentication §8](authentication.md#8-deployment)).
-   - [ ] The mock provider of the integration tests.
+   - [x] The mock provider of the integration tests.
    - [ ] The opt-in end-to-end sign-in suite (`just e2e-auth`): written
      against the Compose stack, it skips itself until the server answers
-     `/auth/session` in `oidc` mode; run it green once the server's routes
-     land.
+     `/auth/session` in `oidc` mode; run it green against the server's
+     routes.
 2. **Roles and enforcement.**
    - [ ] Memberships with the Owner, Editor and Guest roles, tree creation
      rights, ownership transfer, ownerless trees

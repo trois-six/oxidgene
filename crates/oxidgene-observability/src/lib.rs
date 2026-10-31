@@ -509,6 +509,9 @@ pub fn make_http_span<B>(request: &Request<B>) -> Span {
         http.route = route,
         http.response.status_code = field::Empty,
         otel.status_code = field::Empty,
+        // The OAuth client a request came through, which the web build's
+        // authentication records: configuration, never personal data.
+        oxidgene.client_id = field::Empty,
     );
     let parent = global::get_text_map_propagator(|propagator| {
         propagator.extract(&HeaderExtractor(request.headers()))

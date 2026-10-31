@@ -2,6 +2,8 @@
 //!
 //! This module provides Axum handlers for all REST endpoints under `/api/v1`.
 
+#[cfg(feature = "auth")]
+pub mod admin_user;
 pub mod citation;
 pub mod dictionary;
 pub mod dto;
@@ -14,6 +16,8 @@ pub mod file_import;
 pub mod gedcom;
 pub mod geneanet;
 pub mod history;
+#[cfg(feature = "auth")]
+pub mod me;
 pub mod media;
 pub mod media_link;
 pub mod note;
@@ -32,4 +36,6 @@ pub mod tag;
 pub mod tools;
 pub mod tree;
 pub mod tree_guard;
+#[cfg(feature = "auth")]
+pub mod user;
 pub mod vignette;

@@ -17,3 +17,4 @@ mod specs;
 mod test_targets;
 mod ui_tracing;
 mod vendored_pdfjs;
+mod web_only;

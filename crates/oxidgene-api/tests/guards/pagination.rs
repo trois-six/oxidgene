@@ -23,6 +23,13 @@ use super::surface::Spec;
 use crate::common::populated::populated_tree;
 use crate::common::{app_on, ok, send, setup_db};
 
+/// Collections the guard's application does not serve: it runs in the
+/// `none` mode, which has no accounts (`404`, as on the desktop). Their
+/// paging is checked by `account_test` against the mock provider.
+const ABSENT_WITHOUT_ACCOUNTS: &[&str] = &["/api/v1/admin/users"];
+#[cfg(feature = "graphql")]
+const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &["users"];
+
 /// GET routes answering a whole list, by path, with docs/api.md's reason.
 const WHOLE_LISTS: &[(&str, &str)] = &[
     (
@@ -171,6 +178,9 @@ async fn every_collection_pages_and_every_whole_list_is_declared() {
             .flatten()
             .any(|p| p["in"] == "query" && p["name"] == "first");
         let join = if uri.contains('?') { '&' } else { '?' };
+        if takes_first && ABSENT_WITHOUT_ACCOUNTS.contains(&path.as_str()) {
+            continue;
+        }
         if takes_first {
             connections += 1;
             if let Some(problem) = check_connection(&app, path, &format!("{uri}{join}")).await {
@@ -268,7 +278,9 @@ async fn every_graphql_connection_clamps_first() {
     let mut checked = 0;
     for field in schema.root_fields("queryType") {
         let name = field["name"].as_str().unwrap();
-        if !named(&field["type"]).ends_with("Connection") {
+        if !named(&field["type"]).ends_with("Connection")
+            || ABSENT_WITHOUT_ACCOUNTS_GRAPHQL.contains(&name)
+        {
             continue;
         }
         let mut args = Vec::new();

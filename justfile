@@ -186,7 +186,7 @@ deps:
 # Read the query plan of every statement the API runs over a populated tree
 # and fail on a full scan of a large table (docs/development.md, guards).
 sql-plans:
-    cargo nextest run -p oxidgene-api --features graphql --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+    cargo nextest run -p oxidgene-api --features graphql,auth --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
 # The live end-to-end checks of the archive portals (docs/archives.md §9.1):
 # every catalogued archive with an adapter and live checks, or those named
@@ -215,13 +215,20 @@ bench:
 # OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
 test-postgres:
     cargo nextest run -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
-    OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql --test integration
+    OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql,oxidgene-api/auth --test integration
     cargo nextest run -p oxidgene-api --features postgres --lib --run-ignored only -E 'test(/on_postgres_/)'
 
 # Round-trip media through the RustFS service of docker/docker-compose.yml,
 # which must be running (`docker compose -f docker/docker-compose.yml up -d`).
 test-s3:
     cargo nextest run -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
+
+# Keep, index, expire and end sessions in the Redis server named by
+# OXIDGENE_TEST_REDIS_URL, such as the Compose stack's
+# (`docker compose -f docker/docker-compose.yml up -d redis`, then
+# `OXIDGENE_TEST_REDIS_URL=redis://127.0.0.1:6379`).
+test-redis:
+    cargo nextest run -p oxidgene-api --features auth --lib --run-ignored only -E 'test(/on_redis_/)'
 
 # Refuse a bulk target past 10,000 persons end to end on both surfaces. It
 # creates 10,001 persons, so it runs only on request.
@@ -267,7 +274,7 @@ pdfjs version integrity:
 # Rewrite docs/schema.graphql, the committed SDL of the GraphQL schema, after
 # an intended schema change (a guard fails while the two differ).
 graphql-schema:
-    OXIDGENE_BLESS=1 cargo nextest run -p oxidgene-api --features graphql --test integration -E 'test(the_schema_matches_its_snapshot)'
+    OXIDGENE_BLESS=1 cargo nextest run -p oxidgene-api --features graphql,auth --test integration -E 'test(the_schema_matches_its_snapshot)'
 
 # Regenerate the OpenAPI specification from the REST router
 openapi:
