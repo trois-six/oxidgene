@@ -2218,6 +2218,14 @@ type GqlPedigree {
 	rootPersonId: ID!
 	nodes: [GqlPedigreeNode!]!
 	edges: [GqlPedigreeEdge!]!
+	"""
+	The families of the window's persons, as spouses and as children.
+	"""
+	families: [GqlPedigreeFamily!]!
+	"""
+	The events of the window's unions: marriage, divorce and the rest.
+	"""
+	familyEvents: [GqlPedigreeFamilyEvents!]!
 	ancestorDepthLoaded: Int!
 	descendantDepthLoaded: Int!
 }
@@ -2256,6 +2264,73 @@ One pedigree from a batched request, paired with the root it was asked for.
 type GqlPedigreeEntry {
 	rootPersonId: ID!
 	pedigree: GqlPedigree!
+}
+
+"""
+A family of the pedigree, with whom it holds: childless couples, which
+produce no edge, and children who have no node of their own.
+"""
+type GqlPedigreeFamily {
+	familyId: ID!
+	"""
+	The husband first, the wife after.
+	"""
+	spouseIds: [ID!]!
+	"""
+	The children, in birth order.
+	"""
+	childrenIds: [ID!]!
+	"""
+	The children who have no node of their own.
+	"""
+	members: [GqlPedigreeFamilyMember!]!
+}
+
+"""
+The events of one family of the pedigree.
+"""
+type GqlPedigreeFamilyEvents {
+	familyId: ID!
+	events: [GqlProfileEvent!]!
+}
+
+"""
+A child of a pedigree family who has no node of their own: what a chart
+draws for them, and no more.
+"""
+type GqlPedigreeFamilyMember {
+	personId: ID!
+	sex: GqlSex!
+	givenNames: String
+	surname: String
+	"""
+	The birth, else the baptism.
+	"""
+	birth: GqlPedigreeMemberEvent
+	"""
+	The death, else the burial.
+	"""
+	death: GqlPedigreeMemberEvent
+}
+
+"""
+A family member's birth or death, as the events panel lists it.
+"""
+type GqlPedigreeMemberEvent {
+	eventType: GqlEventType!
+	dateValue: String
+	"""
+	The normalized Gregorian date, `YYYY-MM-DD`.
+	"""
+	dateSort: String
+	dateQualifier: GqlDateQualifier!
+	dateValue2: String
+	calendar: GqlCalendar!
+	"""
+	The line under the event: its description, else its place's name.
+	"""
+	place: String
+	tags: [GqlTagRef!]!
 }
 
 """

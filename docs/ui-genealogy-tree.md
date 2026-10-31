@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:50:00Z }
 ---
 
 
@@ -598,7 +598,11 @@ The **events below keep their own full-text dates** (« entre 11 nov. 1691 et
 `PedigreeNode` carries `birth` / `death` as `ProfileEvent`s rather than an
 extracted year: a year string cannot hold the day, the month, the far end of a
 range, or the calendar, and dropping them is what once made a birth on 2 Nov
-1788 show as a bare "1788".
+1788 show as a bare "1788". A sibling or child who has no card of their own
+comes as a pedigree family member, which carries exactly what their rows
+show — the kind, the whole date, the line under it and the tags of their
+birth and death — and their name and sex, which also draw the cards of the
+focus person's siblings ([API](api.md)).
 
 The selected person's **tags** are shown as badges under the name, and each
 tagged event shows its tags as badges on its own row, in the shared format of

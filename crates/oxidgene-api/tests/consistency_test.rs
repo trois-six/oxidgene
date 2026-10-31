@@ -2778,6 +2778,101 @@ async fn pedigree_depths_are_bounded_alike_on_both_surfaces() {
     }
 }
 
+/// A child of the window's families who has no node — here the root's
+/// sister — carries only what a chart draws of them, the same on both
+/// surfaces: no display name and no event ids, and their birth reduced to
+/// its kind, its date and the line under it.
+#[tokio::test]
+async fn a_member_outside_the_window_carries_what_the_chart_draws_on_both_surfaces() {
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = common::new_tree(&app, "Members").await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+        0 @I1@ INDI\n1 NAME Root /Ashdown/\n1 SEX M\n1 FAMC @F1@\n\
+        0 @I2@ INDI\n1 NAME Sister /Ashdown/\n1 SEX F\n1 BAPM\n2 DATE ABT 1702\n2 PLAC Fictland\n1 FAMC @F1@\n\
+        0 @I3@ INDI\n1 NAME Parent /Ashdown/\n1 SEX M\n1 FAMS @F1@\n\
+        0 @F1@ FAM\n1 HUSB @I3@\n1 CHIL @I1@\n1 CHIL @I2@\n0 TRLR\n";
+    common::import_gedcom(&app, &db, &tree_id, gedcom).await;
+    let person = |given: &str, profiles: &[serde_json::Value]| {
+        profiles
+            .iter()
+            .find(|p| p["primary_name"]["given_names"] == given)
+            .map(|p| p["person_id"].as_str().unwrap().to_owned())
+            .unwrap()
+    };
+    let profiles = common::all_profiles(&app, &tree_id).await;
+    let (root, sister) = (person("Root", &profiles), person("Sister", &profiles));
+
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/pedigree/{root}?ancestor_depth=1&descendant_depth=0"),
+        None,
+    )
+    .await;
+    let members: Vec<&serde_json::Value> = rest["families"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|family| family["members"].as_array().into_iter().flatten())
+        .collect();
+    assert_eq!(members.len(), 1, "{rest}");
+    let member = members[0];
+    assert_eq!(
+        *member,
+        json!({
+            "person_id": sister,
+            "sex": "female",
+            "given_names": "Sister",
+            "surname": "Ashdown",
+            "birth": {
+                "event_type": "baptism",
+                "date_value": member["birth"]["date_value"],
+                "date_sort": member["birth"]["date_sort"],
+                "date_qualifier": "about",
+                "place": "Fictland",
+            },
+        })
+    );
+    assert!(member["birth"]["date_sort"].is_string(), "{member}");
+
+    let gql = common::gql_ok(
+        &app,
+        "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: 1, descendantDepth: 0) {
+            families { members { personId sex givenNames surname
+                birth { eventType dateValue dateSort dateQualifier calendar place tags { id } }
+                death { eventType } } }
+        } }",
+        json!({ "t": tree_id, "r": root }),
+    )
+    .await;
+    let members: Vec<&serde_json::Value> = gql["pedigree"]["families"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|family| family["members"].as_array().unwrap())
+        .collect();
+    assert_eq!(
+        members,
+        [&json!({
+            "personId": sister,
+            "sex": "FEMALE",
+            "givenNames": "Sister",
+            "surname": "Ashdown",
+            "birth": {
+                "eventType": "BAPTISM",
+                "dateValue": member["birth"]["date_value"],
+                "dateSort": member["birth"]["date_sort"],
+                "dateQualifier": "ABOUT",
+                "calendar": "GREGORIAN",
+                "place": "Fictland",
+                "tags": [],
+            },
+            "death": null,
+        })]
+    );
+}
+
 // ── GraphQL nested lists ────────────────────────────────────────────────
 
 #[tokio::test]

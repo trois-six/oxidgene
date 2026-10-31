@@ -4162,6 +4162,95 @@ pub struct GqlPedigreeEdge {
     pub edge_type: GqlChildType,
 }
 
+/// A family of the pedigree, with whom it holds: childless couples, which
+/// produce no edge, and children who have no node of their own.
+#[derive(SimpleObject, Debug, Clone)]
+pub struct GqlPedigreeFamily {
+    pub family_id: ID,
+    /// The husband first, the wife after.
+    pub spouse_ids: Vec<ID>,
+    /// The children, in birth order.
+    pub children_ids: Vec<ID>,
+    /// The children who have no node of their own.
+    pub members: Vec<GqlPedigreeFamilyMember>,
+}
+
+/// A child of a pedigree family who has no node of their own: what a chart
+/// draws for them, and no more.
+#[derive(SimpleObject, Debug, Clone)]
+pub struct GqlPedigreeFamilyMember {
+    pub person_id: ID,
+    pub sex: GqlSex,
+    pub given_names: Option<String>,
+    pub surname: Option<String>,
+    /// The birth, else the baptism.
+    pub birth: Option<GqlPedigreeMemberEvent>,
+    /// The death, else the burial.
+    pub death: Option<GqlPedigreeMemberEvent>,
+}
+
+/// A family member's birth or death, as the events panel lists it.
+#[derive(SimpleObject, Debug, Clone)]
+pub struct GqlPedigreeMemberEvent {
+    pub event_type: GqlEventType,
+    pub date_value: Option<String>,
+    /// The normalized Gregorian date, `YYYY-MM-DD`.
+    pub date_sort: Option<String>,
+    pub date_qualifier: GqlDateQualifier,
+    pub date_value2: Option<String>,
+    pub calendar: GqlCalendar,
+    /// The line under the event: its description, else its place's name.
+    pub place: Option<String>,
+    pub tags: Vec<GqlTagRef>,
+}
+
+/// The events of one family of the pedigree.
+#[derive(SimpleObject, Debug, Clone)]
+pub struct GqlPedigreeFamilyEvents {
+    pub family_id: ID,
+    pub events: Vec<GqlProfileEvent>,
+}
+
+impl From<oxidgene_core::projection::PedigreeFamily> for GqlPedigreeFamily {
+    fn from(f: oxidgene_core::projection::PedigreeFamily) -> Self {
+        let ids = |ids: Vec<uuid::Uuid>| ids.into_iter().map(|id| ID(id.to_string())).collect();
+        Self {
+            family_id: ID(f.family_id.to_string()),
+            spouse_ids: ids(f.spouse_ids),
+            children_ids: ids(f.children_ids),
+            members: f.members.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<oxidgene_core::projection::PedigreeFamilyMember> for GqlPedigreeFamilyMember {
+    fn from(m: oxidgene_core::projection::PedigreeFamilyMember) -> Self {
+        Self {
+            person_id: ID(m.person_id.to_string()),
+            sex: m.sex.into(),
+            given_names: m.given_names,
+            surname: m.surname,
+            birth: m.birth.map(Into::into),
+            death: m.death.map(Into::into),
+        }
+    }
+}
+
+impl From<oxidgene_core::projection::PedigreeMemberEvent> for GqlPedigreeMemberEvent {
+    fn from(e: oxidgene_core::projection::PedigreeMemberEvent) -> Self {
+        Self {
+            event_type: e.event_type.into(),
+            date_value: e.date_value,
+            date_sort: e.date_sort.map(|d| d.to_string()),
+            date_qualifier: e.date_qualifier.into(),
+            date_value2: e.date_value2,
+            calendar: e.calendar.into(),
+            place: e.place,
+            tags: e.tags.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// Full windowed pedigree for a root person.
 #[derive(SimpleObject, Debug, Clone)]
 pub struct GqlPedigree {
@@ -4169,6 +4258,10 @@ pub struct GqlPedigree {
     pub root_person_id: ID,
     pub nodes: Vec<GqlPedigreeNode>,
     pub edges: Vec<GqlPedigreeEdge>,
+    /// The families of the window's persons, as spouses and as children.
+    pub families: Vec<GqlPedigreeFamily>,
+    /// The events of the window's unions: marriage, divorce and the rest.
+    pub family_events: Vec<GqlPedigreeFamilyEvents>,
     pub ancestor_depth_loaded: i32,
     pub descendant_depth_loaded: i32,
 }
@@ -4237,6 +4330,15 @@ impl From<oxidgene_core::projection::Pedigree> for GqlPedigree {
             root_person_id: ID(p.root_person_id.to_string()),
             nodes: p.persons.into_values().map(Into::into).collect(),
             edges: p.edges.into_iter().map(Into::into).collect(),
+            families: p.families.into_values().map(Into::into).collect(),
+            family_events: p
+                .family_events
+                .into_iter()
+                .map(|(family_id, events)| GqlPedigreeFamilyEvents {
+                    family_id: ID(family_id.to_string()),
+                    events: events.into_iter().map(Into::into).collect(),
+                })
+                .collect(),
             ancestor_depth_loaded: p.ancestor_depth_loaded as i32,
             descendant_depth_loaded: p.descendant_depth_loaded as i32,
         }

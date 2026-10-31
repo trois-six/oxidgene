@@ -38,7 +38,7 @@ use highlight::{
     mark_stroke, use_carriers, use_chart_highlight,
 };
 
-use oxidgene_core::projection::{Pedigree, ProfileEvent};
+use oxidgene_core::projection::{Pedigree, PedigreeMemberEvent, ProfileEvent};
 use oxidgene_core::types::{
     Event as DomainEvent, FamilyChild, FamilySpouse, Person, PersonName, Place, QualifiedYear,
     TagRef,
@@ -404,6 +404,46 @@ fn profile_event_to_domain(
     }
 }
 
+/// A family member's birth or death as the events panel lists it, in the
+/// domain shape the panel speaks.
+///
+/// A member's event carries no id, which the panel only uses to list each
+/// event once: one is derived from the member's own, distinct for their birth
+/// (`slot` 1) and their death (`slot` 2).
+fn member_event_to_domain(
+    event: &PedigreeMemberEvent,
+    slot: u128,
+    tree_id: Uuid,
+    person_id: Uuid,
+    now: chrono::DateTime<chrono::Utc>,
+) -> DomainEvent {
+    DomainEvent {
+        classification: None,
+        related_family_id: None,
+        id: Uuid::from_u128(person_id.as_u128() ^ slot),
+        tree_id,
+        event_type: event.event_type,
+        date_value: event.date_value.clone(),
+        date_sort: event.date_sort,
+        date_qualifier: event.date_qualifier,
+        date_value2: event.date_value2.clone(),
+        calendar: event.calendar,
+        cause: None,
+        age: None,
+        agency: None,
+        spouse_ages: Vec::new(),
+        place_id: None,
+        person_id: Some(person_id),
+        family_id: None,
+        // The line the panel writes under the event, as for a node's.
+        description: event.place.clone(),
+        tags: event.tags.clone(),
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    }
+}
+
 /// What a pedigree projection says about one person: enough to draw a card
 /// and list their birth and death.
 struct PersonSummary<'a> {
@@ -411,8 +451,8 @@ struct PersonSummary<'a> {
     sex: Sex,
     given_names: &'a Option<String>,
     surname: &'a Option<String>,
-    birth: Option<&'a ProfileEvent>,
-    death: Option<&'a ProfileEvent>,
+    /// Their birth and death, already in the domain shape.
+    events: Vec<DomainEvent>,
     tags: Vec<TagRef>,
 }
 
@@ -472,13 +512,8 @@ impl SummarisedPeople {
         };
         self.names.insert(person_id, vec![name]);
 
-        let events: Vec<DomainEvent> = [summary.birth, summary.death]
-            .into_iter()
-            .flatten()
-            .map(|pe| profile_event_to_domain(pe, tree_id, Some(person_id), None, now))
-            .collect();
-        if !events.is_empty() {
-            self.events_by_person.insert(person_id, events);
+        if !summary.events.is_empty() {
+            self.events_by_person.insert(person_id, summary.events);
         }
     }
 }
@@ -597,6 +632,13 @@ impl PedigreeData {
         // ── Persons, names, and the birth/death events the projection
         // carries whole ──
         for node in pedigree.persons.values() {
+            let events = [&node.birth, &node.death]
+                .into_iter()
+                .flatten()
+                .map(|pe| {
+                    profile_event_to_domain(pe, tree_id, Some(node.person_id), None, people.now)
+                })
+                .collect();
             people.add(PersonSummary {
                 person_id: node.person_id,
                 sex: node.sex,
@@ -604,8 +646,7 @@ impl PedigreeData {
                 // Projection surnames already carry their particle, so there
                 // is nothing to re-attach here.
                 surname: &node.surname,
-                birth: node.birth.as_ref(),
-                death: node.death.as_ref(),
+                events,
                 tags: node.tags.clone(),
             });
         }
@@ -637,14 +678,19 @@ impl PedigreeData {
             if people.persons.contains_key(&member.person_id) {
                 continue;
             }
-            // Same conversion as the pedigree nodes above.
+            let events = [(&member.birth, 1), (&member.death, 2)]
+                .into_iter()
+                .filter_map(|(event, slot)| Some((event.as_ref()?, slot)))
+                .map(|(event, slot)| {
+                    member_event_to_domain(event, slot, tree_id, member.person_id, people.now)
+                })
+                .collect();
             people.add(PersonSummary {
                 person_id: member.person_id,
                 sex: member.sex,
                 given_names: &member.given_names,
                 surname: &member.surname,
-                birth: member.birth.as_ref(),
-                death: member.death.as_ref(),
+                events,
                 tags: Vec::new(),
             });
         }
@@ -7722,4 +7768,98 @@ desc link[3] M170,178.5 L190,178.5
 desc link[4] M185,178.5 L185,222.5 185,222.5 185,240
 canvas main=(50.0000,50.0000) desc=(185.0000,336.0000) total=(947.5000,812.0000) content=(473.7500,406.0000,847.5000,712.0000) root=(420.0000,434.0000)
 "#;
+}
+
+#[cfg(test)]
+mod member_tests {
+    use super::*;
+    use oxidgene_core::projection::{PedigreeFamily, PedigreeFamilyMember, PedigreeNode};
+
+    fn member_event(event_type: EventType, year: i32) -> PedigreeMemberEvent {
+        PedigreeMemberEvent {
+            event_type,
+            date_value: Some(format!("ABT {year}")),
+            date_sort: chrono::NaiveDate::from_ymd_opt(year, 1, 1),
+            date_qualifier: oxidgene_core::DateQualifier::About,
+            date_value2: None,
+            calendar: oxidgene_core::Calendar::Gregorian,
+            place: Some("Fictland".into()),
+            tags: Vec::new(),
+        }
+    }
+
+    /// A member outside the window becomes a person of the chart with their
+    /// birth and death, each with an id of its own, and the place line the
+    /// events panel writes under them.
+    #[test]
+    fn a_member_becomes_a_person_with_its_birth_and_death() {
+        let (tree_id, family_id) = (Uuid::now_v7(), Uuid::now_v7());
+        let (root, sister) = (Uuid::now_v7(), Uuid::now_v7());
+        let node = PedigreeNode {
+            person_id: root,
+            sex: Sex::Male,
+            display_name: "Root Ashdown".into(),
+            given_names: Some("Root".into()),
+            surname: Some("Ashdown".into()),
+            birth: None,
+            death: None,
+            occupation: None,
+            primary_media_path: None,
+            generation: 0,
+            sosa_number: Some(1),
+            portrait: None,
+            sosa_ancestor: false,
+            tags: Vec::new(),
+        };
+        let pedigree = Pedigree {
+            tree_id,
+            root_person_id: root,
+            persons: HashMap::from([(root, node)]),
+            edges: Vec::new(),
+            family_events: HashMap::new(),
+            families: HashMap::from([(
+                family_id,
+                PedigreeFamily {
+                    family_id,
+                    spouse_ids: Vec::new(),
+                    children_ids: vec![root, sister],
+                    members: vec![PedigreeFamilyMember {
+                        person_id: sister,
+                        sex: Sex::Female,
+                        given_names: Some("Sister".into()),
+                        surname: Some("Ashdown".into()),
+                        birth: Some(member_event(EventType::Baptism, 1702)),
+                        death: Some(member_event(EventType::Burial, 1760)),
+                    }],
+                },
+            )]),
+            ancestor_depth_loaded: 1,
+            descendant_depth_loaded: 0,
+            built_at: chrono::Utc::now(),
+        };
+
+        let data = PedigreeData::from_pedigree(&pedigree);
+
+        assert_eq!(data.persons[&sister].sex, Sex::Female);
+        assert_eq!(
+            data.names[&sister][0].given_names.as_deref(),
+            Some("Sister")
+        );
+        let events = &data.events_by_person[&sister];
+        assert_eq!(
+            events.iter().map(|e| e.event_type).collect::<Vec<_>>(),
+            [EventType::Baptism, EventType::Burial]
+        );
+        assert_ne!(events[0].id, events[1].id);
+        assert!(events.iter().all(|e| e.person_id == Some(sister)));
+        assert_eq!(events[0].description.as_deref(), Some("Fictland"));
+        assert_eq!(
+            events[0].date_qualifier,
+            oxidgene_core::DateQualifier::About
+        );
+        assert_eq!(
+            data.qualified_birth_year(sister).map(|year| year.year),
+            Some(1702)
+        );
+    }
 }

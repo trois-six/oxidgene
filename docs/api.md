@@ -1435,7 +1435,22 @@ read once for the whole window (once for all the windows of a batch); neither
 is part of the stored projection, and the mark comes from the stored SOSA
 ancestry ([Data Model §4.8](data-model.md)).
 
-**A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s rather than a year and a place name, so nothing a client may draw is lost before it sees it: the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id. `ProfileEvent` carries `date_qualifier`, `date_value2` and `calendar` beside the date, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
+**A pedigree node carries whole events, not extracted years.** `PedigreeNode` exposes `birth` / `death` as `ProfileEvent`s rather than a year and a place name, so nothing a client may draw is lost before it sees it: the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id. `ProfileEvent` carries `date_qualifier`, `date_value2` and `calendar` beside the date, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
+
+**A family member outside the window carries what a chart draws of them.**
+Each of the pedigree's `families` (`spouse_ids`, `children_ids`) lists in
+`members` its children who have no node — an ancestor's brothers and sisters,
+the root's own, the children of an ancestor's other union. A chart draws
+them on the cards of the root's siblings and in the events panel, so a
+`PedigreeFamilyMember` is `person_id`, `sex`, `given_names`, `surname` and
+its `birth` / `death` (falling back as a node's) as a `PedigreeMemberEvent`:
+`event_type`, the whole date (`date_value`, `date_sort`, `date_qualifier`,
+`date_value2`, `calendar`), `place` — the line written under the event, its
+description else its place's name — and `tags`. It has no display name, no
+ids of events or places and no ages: a ten-generation pedigree holds
+thousands of members. The pedigree leaves out a field holding nothing, as a
+profile does. GraphQL's `pedigree` carries the same `families` (with
+`members`) and the union events as `familyEvents { familyId events }`.
 
 `birth` falls back to the **baptism** and `death` to the **burial**, and the fallback triggers on a missing *date*, not a missing event — a parish tree is full of empty birth stubs created to hang a source on, and one of those would otherwise mask a perfectly good "vers 1620" on the baptism. Each event keeps its own precision; there is deliberately no single "approximate" flag spanning both ends of a life. See [Tree View](ui-genealogy-tree.md) for how a client draws these.
 

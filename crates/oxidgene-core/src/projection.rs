@@ -328,19 +328,21 @@ pub struct ProfileMediaRef {
 /// the persons and edges visible at the requested depth levels.
 ///
 /// Built on demand by walking the family links and joining the reached persons
-/// against the `person_denorm` projections — it is never stored.
+/// against the `person_denorm` projections — it is never stored. Like a
+/// profile, it leaves out a field holding nothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pedigree {
     pub tree_id: Uuid,
     pub root_person_id: Uuid,
     pub persons: HashMap<Uuid, PedigreeNode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edges: Vec<PedigreeEdge>,
     /// Family events keyed by family_id (marriage, divorce, annulment, etc.)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub family_events: HashMap<Uuid, Vec<ProfileEvent>>,
     /// Family units with spouse and child membership (covers childless couples
     /// that produce no PedigreeEdge entries).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub families: HashMap<Uuid, PedigreeFamily>,
     pub ancestor_depth_loaded: u32,
     pub descendant_depth_loaded: u32,
@@ -353,22 +355,25 @@ pub struct PedigreeNode {
     pub person_id: Uuid,
     pub sex: Sex,
     pub display_name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub given_names: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surname: Option<String>,
     /// The complete birth event, retaining date precision, calendar and place.
     ///
     /// Falls back to baptism when there is no birth, the way GeneWeb's
     /// `get_birth_death_date` does — see [`PersonProfile::birth_or_baptism`].
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub birth: Option<ProfileEvent>,
     /// The whole death event, falling back to burial. See [`Self::birth`].
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub death: Option<ProfileEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub occupation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_media_path: Option<String>,
     pub generation: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sosa_number: Option<u64>,
     /// Where the card's portrait is drawn from, when the person has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -376,10 +381,10 @@ pub struct PedigreeNode {
     /// Whether the person is the tree's SOSA root or one of its ancestors,
     /// whatever the window: the chart marks them without loading the whole
     /// ancestry.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub sosa_ancestor: bool,
     /// The tags put on the person, in the vocabulary's order.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<TagRef>,
 }
 
@@ -397,29 +402,96 @@ pub struct PedigreeEdge {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PedigreeFamily {
     pub family_id: Uuid,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub spouse_ids: Vec<Uuid>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children_ids: Vec<Uuid>,
-    /// Minimal info for family members (children, spouses) who may be outside
-    /// the pedigree window — enough to build synthetic events in the UI.
-    #[serde(default)]
+    /// The children of the family who have no node of their own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub members: Vec<PedigreeFamilyMember>,
 }
 
-/// Minimal person info for a family member in the pedigree.
+/// A child of one of the window's families who has no node of their own:
+/// an ancestor's brother or sister, a child of an ancestor's other union, the
+/// root's own sibling, a child below the deepest generation loaded.
+///
+/// It carries what a chart draws for such a person and nothing more: their
+/// name, sex and lifespan, on the card of one of the root's siblings and as
+/// the context of their rows in the events panel, and the rows themselves —
+/// their birth and death. A pedigree of ten generations holds thousands of
+/// them, and their whole events were most of its weight.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PedigreeFamilyMember {
     pub person_id: Uuid,
-    pub display_name: String,
-    #[serde(default)]
-    pub given_names: Option<String>,
-    #[serde(default)]
-    pub surname: Option<String>,
     pub sex: Sex,
-    /// Whole events, for the same reason as [`PedigreeNode::birth`].
-    #[serde(default)]
-    pub birth: Option<ProfileEvent>,
-    #[serde(default)]
-    pub death: Option<ProfileEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub given_names: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surname: Option<String>,
+    /// The birth, else the baptism, as [`PersonProfile::birth_or_baptism`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub birth: Option<PedigreeMemberEvent>,
+    /// The death, else the burial, as [`PersonProfile::death_or_burial`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub death: Option<PedigreeMemberEvent>,
+}
+
+impl PedigreeFamilyMember {
+    /// The member `person` makes.
+    pub fn of(person: &PersonProfile) -> Self {
+        let name = person.primary_name.as_ref();
+        Self {
+            person_id: person.person_id,
+            sex: person.sex,
+            given_names: name.and_then(|n| n.given_names.clone()),
+            surname: name.and_then(|n| n.surname.clone()),
+            birth: person.birth_or_baptism().map(PedigreeMemberEvent::of),
+            death: person.death_or_burial().map(PedigreeMemberEvent::of),
+        }
+    }
+}
+
+/// A member's birth or death as the events panel lists it: its kind, its
+/// whole date — precision, far end and calendar, as a node's — the line
+/// under it, and its tags. No ids: the panel only shows the row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PedigreeMemberEvent {
+    pub event_type: crate::enums::EventType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_sort: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub date_qualifier: DateQualifier,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_value2: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub calendar: Calendar,
+    /// The line the panel writes under the event: its description, else its
+    /// place's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<TagRef>,
+}
+
+impl PedigreeMemberEvent {
+    /// What the panel shows of `event`.
+    pub fn of(event: &ProfileEvent) -> Self {
+        Self {
+            event_type: event.event_type,
+            date_value: event.date_value.clone(),
+            date_sort: event.date_sort,
+            date_qualifier: event.date_qualifier,
+            date_value2: event.date_value2.clone(),
+            calendar: event.calendar,
+            place: event
+                .description
+                .clone()
+                .or_else(|| event.place_name.clone()),
+            tags: event.tags.clone(),
+        }
+    }
 }
 
 /// The result of an incremental pedigree expansion.
@@ -590,5 +662,38 @@ mod tests {
         events.truncate(2);
         assert_eq!(profile(events).occupation(), Some("Weaver"));
         assert_eq!(profile(Vec::new()).occupation(), None);
+    }
+
+    #[test]
+    fn a_member_event_keeps_the_date_and_the_line_under_it() {
+        let mut baptism = event(EventType::Baptism, None);
+        baptism.date_value = Some("ABT 1702".into());
+        baptism.date_qualifier = DateQualifier::About;
+        baptism.place_name = Some("Fictland".into());
+        baptism.place_id = Some(Uuid::now_v7());
+        baptism.age = Some("2d".into());
+        let member = PedigreeMemberEvent::of(&baptism);
+        assert_eq!(member.event_type, EventType::Baptism);
+        assert_eq!(member.date_qualifier, DateQualifier::About);
+        assert_eq!(member.place.as_deref(), Some("Fictland"));
+        let json = serde_json::to_value(&member).unwrap();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["date_qualifier", "date_value", "event_type", "place"]
+        );
+
+        // A description is the line the panel writes, before the place.
+        baptism.description = Some("At the chapel".into());
+        assert_eq!(
+            PedigreeMemberEvent::of(&baptism).place.as_deref(),
+            Some("At the chapel")
+        );
     }
 }

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-31T13:20:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:50:00Z }
 ---
 
 
@@ -968,6 +968,13 @@ The API:
 Nodes carry whole projected birth and death events rather than extracted year
 and place strings. A missing birth date may fall back to baptism; a missing
 death date may fall back to burial. Each event retains its own precision.
+
+A family's children who are not nodes — siblings of the window's persons,
+read from one parent's projection — are its `members`, reduced to what a
+chart draws of them: name, sex, and birth and death as a
+`PedigreeMemberEvent` (kind, whole date, the line written under it, tags),
+without the event, place and name identifiers or ages of a node's events
+([API](api.md)).
 
 Each family lists its spouses husband first, wife after, whichever person
 the window was drawn around, so a pedigree reads the same on every request.

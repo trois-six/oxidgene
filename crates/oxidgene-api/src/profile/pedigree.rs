@@ -378,9 +378,11 @@ pub(super) fn members_outside(
     member_ids
 }
 
-/// Add the members fetched from outside the window to their families, for
-/// the event panel, and their own families' spouses and children — by id
-/// only, never fetched — for the hidden-relations indicator of their card.
+/// Add the members fetched from outside the window to their families — what
+/// a chart draws of them, for the root's sibling cards and the events panel
+/// ([`PedigreeFamilyMember`]) — and their own families' spouses and children,
+/// by id only, never fetched, for the hidden-relations indicator of their
+/// card.
 pub(super) fn add_members_outside(
     families: &mut HashMap<Uuid, PedigreeFamily>,
     outside: &HashMap<Uuid, &PersonProfile>,
@@ -390,24 +392,11 @@ pub(super) fn add_members_outside(
             .children_ids
             .iter()
             .filter_map(|cid| outside.get(cid))
-            .map(|person| family_member(person))
+            .map(|person| PedigreeFamilyMember::of(person))
             .collect();
         family.members.extend(members);
     }
     for person in outside.values() {
         record_membership(families, person, true);
-    }
-}
-
-fn family_member(person: &PersonProfile) -> PedigreeFamilyMember {
-    let name = person.primary_name.as_ref();
-    PedigreeFamilyMember {
-        person_id: person.person_id,
-        display_name: name.map(|n| n.display_name.clone()).unwrap_or_default(),
-        given_names: name.and_then(|n| n.given_names.clone()),
-        surname: name.and_then(|n| n.surname.clone()),
-        sex: person.sex,
-        birth: person.birth_or_baptism().cloned(),
-        death: person.death_or_burial().cloned(),
     }
 }
