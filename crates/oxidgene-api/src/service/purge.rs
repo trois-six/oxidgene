@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument as _, error, info, warn};
 use uuid::Uuid;
 
+use crate::error_contract::error_kind;
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
 
@@ -161,28 +162,56 @@ async fn purge_tree(
     media: &dyn MediaStore,
     tree_id: Uuid,
 ) {
-    if let Err((code, message)) = purge_steps(db, profiles, media, tree_id).await {
-        error!(error = code, "{message}");
+    if let Err(failure) = purge_steps(db, profiles, media, tree_id).await {
+        error!(
+            error = failure.code,
+            error.kind = failure.kind,
+            "{}",
+            failure.message
+        );
+    }
+}
+
+/// A purge step that failed: the step's error code and log line, and the
+/// bounded category of its cause — never the cause's message, which may
+/// carry SQL values and paths.
+#[derive(Debug, PartialEq, Eq)]
+struct StepFailure {
+    code: &'static str,
+    kind: &'static str,
+    message: &'static str,
+}
+
+/// The [`StepFailure`] of the step `code`, logged as `message`, for the
+/// error that stopped it.
+fn step_failure(
+    code: &'static str,
+    message: &'static str,
+) -> impl FnOnce(OxidGeneError) -> StepFailure {
+    move |error| StepFailure {
+        code,
+        kind: error_kind(&error),
+        message,
     }
 }
 
 /// Runs the steps of [`purge_tree`] in order and logs how long they took,
-/// stopping at the first that fails with its error code and log message.
+/// stopping at the first that fails.
 async fn purge_steps(
     db: &DatabaseConnection,
     profiles: &ProfileService,
     media: &dyn MediaStore,
     tree_id: Uuid,
-) -> Result<(), (&'static str, &'static str)> {
+) -> Result<(), StepFailure> {
     let started = Instant::now();
 
     // Projections first: the search table has no FK to cascade through.
-    drop_projections(db, profiles, tree_id).await.map_err(|_| {
-        (
+    drop_projections(db, profiles, tree_id)
+        .await
+        .map_err(step_failure(
             "projection_invalidation",
             "could not drop projections; retrying at next start",
-        )
-    })?;
+        ))?;
 
     // Files before rows. Media keys are scoped per tree, so this is one
     // directory removal and nothing outside the tree can reference what it
@@ -190,25 +219,24 @@ async fn purge_steps(
     // tree row survives, so the next sweep finds it again and finishes the
     // job. The reverse order would drop the row and strand the bytes with
     // nothing left pointing at them.
-    media.delete_tree(tree_id).await.map_err(|_| {
-        (
-            "media_deletion",
-            "could not remove media files; retrying at next start",
-        )
-    })?;
+    media.delete_tree(tree_id).await.map_err(step_failure(
+        "media_deletion",
+        "could not remove media files; retrying at next start",
+    ))?;
     // Job objects live under `jobs/`, outside the tree's prefix: an export
     // artifact is a full copy of the tree. The job rows cascade with the
     // tree, so this is the last moment anything points at them.
-    delete_job_objects(db, media, tree_id).await.map_err(|_| {
-        (
+    delete_job_objects(db, media, tree_id)
+        .await
+        .map_err(step_failure(
             "job_object_deletion",
             "could not remove the tree's job files; retrying at next start",
-        )
-    })?;
+        ))?;
 
-    delete_tree_rows(db, tree_id)
-        .await
-        .map_err(|_| ("tree_purge", "purge failed; retrying at next start"))?;
+    delete_tree_rows(db, tree_id).await.map_err(step_failure(
+        "tree_purge",
+        "purge failed; retrying at next start",
+    ))?;
     erase_purged_content(db).await;
     info!(
         elapsed_ms = started.elapsed().as_millis(),
@@ -268,4 +296,27 @@ async fn merge_search_index(db: &DatabaseConnection) -> Result<(), OxidGeneError
     let erasing = ErasingTransaction::begin(db).await?;
     let outcome = PersonSearchRepo::merge_index(erasing.connection()).await;
     erasing.finish(outcome).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_step_keeps_the_kind_of_its_cause() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+        let failure = step_failure("media_deletion", "could not remove media files")(
+            OxidGeneError::Io(denied),
+        );
+
+        assert_eq!(
+            failure,
+            StepFailure {
+                code: "media_deletion",
+                kind: "io_permission_denied",
+                message: "could not remove media files",
+            }
+        );
+    }
 }
