@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T18:00:53Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -401,8 +401,9 @@ all of them: Gregorian, Julian, Hebrew and French Republican.
   overlaps most, a month as the month, the same rule as when the calendar of
   an entered date is changed in the date input.
 - A calendar that cannot express the date — the Republican calendar before
-  its first year (22 September 1792), a range one of whose ends it cannot
-  express — says "not expressible in this calendar" instead of a date.
+  its first year (22 September 1792), a year more than a million years from
+  the common era, a range one of whose ends it cannot express — says "not
+  expressible in this calendar" instead of a date.
 - Under the tiles, a single complete date that is neither approximate nor a
   range gives its day of the week.
 - Everything is computed in the browser from the calendar arithmetic of

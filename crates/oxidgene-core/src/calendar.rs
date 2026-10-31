@@ -32,6 +32,17 @@ pub const DAYS_PER_YEAR: f64 = 365.2425;
 /// [`DAYS_PER_YEAR`].
 pub const DAYS_PER_MONTH: f64 = DAYS_PER_YEAR / 12.0;
 
+/// The largest year, before or after the common era, the arithmetic here
+/// takes: far beyond any year a genealogy records, and small enough that no
+/// intermediate value overflows. A year typed past it converts to nothing
+/// rather than freezing the editor or wrapping round.
+const MAX_ABS_YEAR: i32 = 1_000_000;
+
+/// The largest Julian Day Number, either side of zero, [`from_jdn`] takes:
+/// every date it names lies within [`MAX_ABS_YEAR`] years of the epoch of
+/// every calendar here.
+const JDN_LIMIT: i64 = 365 * MAX_ABS_YEAR as i64;
+
 /// Euclidean division, rounding towards minus infinity.
 ///
 /// Rust's `/` truncates towards zero, which breaks every one of the formulas
@@ -56,13 +67,9 @@ const fn astronomical(year: i32) -> i64 {
     }
 }
 
-/// Inverse of [`astronomical`].
-const fn historical(year: i64) -> i32 {
-    if year <= 0 {
-        (year - 1) as i32
-    } else {
-        year as i32
-    }
+/// Inverse of [`astronomical`], `None` past what an `i32` holds.
+fn historical(year: i64) -> Option<i32> {
+    i32::try_from(if year <= 0 { year - 1 } else { year }).ok()
 }
 
 fn gregorian_to_jdn(year: i64, month: i64, day: i64) -> i64 {
@@ -145,20 +152,21 @@ const fn republican_leap(year: i32) -> bool {
     }
 }
 
+/// The JDN of 1 Vendémiaire of `year`, `None` outside `1..=MAX_ABS_YEAR`.
 fn republican_new_year_jdn(year: i32) -> Option<i64> {
-    if year < 1 {
+    const LAST: i64 = REPUBLICAN_NEW_YEAR.len() as i64;
+    if !(1..=MAX_ABS_YEAR).contains(&year) {
         return None;
     }
-    if let Some(&(y, m, d)) = REPUBLICAN_NEW_YEAR.get(year as usize - 1) {
-        return Some(gregorian_to_jdn(y as i64, m as i64, d as i64));
+    let anchor = |(y, m, d): (i32, u32, u32)| gregorian_to_jdn(y.into(), m.into(), d.into());
+    if let Some(&new_year) = REPUBLICAN_NEW_YEAR.get(usize::try_from(year - 1).ok()?) {
+        return Some(anchor(new_year));
     }
-    let last = REPUBLICAN_NEW_YEAR.len() as i32;
-    let (y, m, d) = REPUBLICAN_NEW_YEAR[last as usize - 1];
-    let mut jdn = gregorian_to_jdn(y as i64, m as i64, d as i64);
-    for yy in last..year {
-        jdn += if republican_leap(yy) { 366 } else { 365 };
-    }
-    Some(jdn)
+    // Past an XIV, 365 days a year and one more for each sextile year
+    // (`y % 4 == 3`, see `republican_leap`) from XIV up to `year`.
+    let year = i64::from(year);
+    let sextiles = fdiv(year, 4) - fdiv(LAST, 4);
+    Some(anchor(REPUBLICAN_NEW_YEAR[REPUBLICAN_NEW_YEAR.len() - 1]) + 365 * (year - LAST) + sextiles)
 }
 
 // ── Hebrew ────────────────────────────────────────────────────────────────
@@ -277,7 +285,11 @@ fn hebrew_month_length(year: i64, month: u8) -> u8 {
 /// The Julian Day Number of a complete date, or `None` if that date does not
 /// exist in this calendar.
 pub fn to_jdn(calendar: Calendar, year: i32, month: u8, day: u8) -> Option<i64> {
-    if year == 0 || day < 1 || day > days_in_month(calendar, year, month) {
+    if year == 0
+        || year.unsigned_abs() > MAX_ABS_YEAR.unsigned_abs()
+        || day < 1
+        || day > days_in_month(calendar, year, month)
+    {
         return None;
     }
     let (m, d) = (month as i64, day as i64);
@@ -289,7 +301,7 @@ pub fn to_jdn(calendar: Calendar, year: i32, month: u8, day: u8) -> Option<i64> 
             if year < 1 {
                 return None;
             }
-            let mut jdn = hebrew_new_year_jdn(year as i64);
+            let mut jdn = hebrew_new_year_jdn(i64::from(year));
             for prior in 1..month {
                 jdn += i64::from(days_in_month(calendar, year, prior));
             }
@@ -299,15 +311,18 @@ pub fn to_jdn(calendar: Calendar, year: i32, month: u8, day: u8) -> Option<i64> 
 }
 
 /// The date a Julian Day Number falls on in this calendar, or `None` when it
-/// falls before the calendar begins.
+/// falls before the calendar begins or about a million years away.
 pub fn from_jdn(calendar: Calendar, jdn: i64) -> Option<(i32, u8, u8)> {
+    if !(-JDN_LIMIT..=JDN_LIMIT).contains(&jdn) {
+        return None;
+    }
     match calendar {
         Calendar::Gregorian | Calendar::Julian => {
             let (y, m, d) = match calendar {
                 Calendar::Julian => jdn_to_julian(jdn),
                 _ => jdn_to_gregorian(jdn),
             };
-            Some((historical(y), m as u8, d as u8))
+            Some((historical(y)?, u8::try_from(m).ok()?, u8::try_from(d).ok()?))
         }
         Calendar::FrenchRepublican => {
             let epoch = republican_new_year_jdn(1)?;
@@ -316,12 +331,16 @@ pub fn from_jdn(calendar: Calendar, jdn: i64) -> Option<(i32, u8, u8)> {
             }
             // The estimate is short by construction (366 > a real year), so the
             // search only ever walks forwards, a handful of steps.
-            let mut year = ((jdn - epoch) / 366) as i32 + 1;
+            let mut year = i32::try_from((jdn - epoch) / 366).ok()? + 1;
             while republican_new_year_jdn(year + 1).is_some_and(|start| start <= jdn) {
                 year += 1;
             }
             let doy = jdn - republican_new_year_jdn(year)?;
-            Some((year, (doy / 30) as u8 + 1, (doy % 30) as u8 + 1))
+            Some((
+                year,
+                u8::try_from(doy / 30).ok()? + 1,
+                u8::try_from(doy % 30).ok()? + 1,
+            ))
         }
         Calendar::Hebrew => {
             if jdn < hebrew_new_year_jdn(1) {
@@ -332,11 +351,11 @@ pub fn from_jdn(calendar: Calendar, jdn: i64) -> Option<(i32, u8, u8)> {
                 year += 1;
             }
             let mut rest = jdn - hebrew_new_year_jdn(year);
-            let year = year as i32;
+            let year = i32::try_from(year).ok()?;
             for month in 1..=months_in_year(calendar) {
                 let len = i64::from(days_in_month(calendar, year, month));
                 if rest < len {
-                    return Some((year, month, rest as u8 + 1));
+                    return Some((year, month, u8::try_from(rest).ok()? + 1));
                 }
                 rest -= len;
             }
@@ -389,7 +408,7 @@ pub fn convert(
 
 /// The year that follows, skipping the year 0 that no calendar here has.
 const fn year_after(year: i32) -> i32 {
-    if year == -1 { 1 } else { year + 1 }
+    if year == -1 { 1 } else { year.saturating_add(1) }
 }
 
 #[cfg(test)]
@@ -637,5 +656,65 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The day count past an XIV, summed year by year as it once was.
+    fn republican_new_year_by_steps(year: i32) -> i64 {
+        let (y, m, d) = REPUBLICAN_NEW_YEAR[REPUBLICAN_NEW_YEAR.len() - 1];
+        let mut jdn = gregorian_to_jdn(y.into(), m.into(), d.into());
+        for yy in 14..year {
+            jdn += if republican_leap(yy) { 366 } else { 365 };
+        }
+        jdn
+    }
+
+    #[test]
+    fn the_republican_new_year_past_an_xiv_is_counted_in_one_step() {
+        for year in 15..=2000 {
+            assert_eq!(
+                republican_new_year_jdn(year),
+                Some(republican_new_year_by_steps(year)),
+                "an {year}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_year_beyond_any_genealogy_converts_to_nothing_at_once() {
+        // The editor converts what is typed before validating it: an absurd
+        // year must neither hang (the Republican year was found by walking
+        // one year at a time) nor overflow.
+        for (from, to) in [
+            (Calendar::FrenchRepublican, Calendar::Gregorian),
+            (Calendar::Gregorian, Calendar::FrenchRepublican),
+            (Calendar::Gregorian, Calendar::Hebrew),
+            (Calendar::Hebrew, Calendar::Julian),
+            (Calendar::Julian, Calendar::Gregorian),
+        ] {
+            for year in [i32::MAX, i32::MIN, 2_000_000_000, -2_000_000_000] {
+                assert_eq!(convert(from, to, year, None, None), None, "{from} {year}");
+                assert_eq!(convert(from, to, year, Some(1), Some(1)), None);
+            }
+        }
+        for calendar in [
+            Calendar::Gregorian,
+            Calendar::Julian,
+            Calendar::Hebrew,
+            Calendar::FrenchRepublican,
+        ] {
+            assert_eq!(from_jdn(calendar, i64::MAX), None);
+            assert_eq!(from_jdn(calendar, i64::MIN), None);
+        }
+        // A far but bounded year still converts.
+        assert!(
+            convert(
+                Calendar::Gregorian,
+                Calendar::FrenchRepublican,
+                900_000,
+                None,
+                None
+            )
+            .is_some()
+        );
     }
 }
