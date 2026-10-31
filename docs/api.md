@@ -406,7 +406,7 @@ on the place rows of `GET /trees/{tree_id}/dictionary/places` and the GraphQL
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/sources?title=` | List sources (cursor-paginated). `title` keeps the sources titled exactly so, trimmed and ignoring case — what an entry form looks a typed source up by. GraphQL: `sources(title)` |
+| `GET` | `/trees/{tree_id}/sources?title=&ids=` | List sources (cursor-paginated). `title` keeps the sources titled exactly so, trimmed and ignoring case — what an entry form looks a typed source up by; `ids` the sources of a comma-separated list of ids (what a record link finds its source's title by, an id the tree does not hold finding none), a malformed id being a `validation_error`. GraphQL: `sources(title, ids)` |
 | `POST` | `/trees/{tree_id}/sources` | Create a source; a blank `title` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |

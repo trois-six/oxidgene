@@ -378,18 +378,18 @@ fn drill_step(title: &str, prefix: &str, groups: &[SourceGroupEntry]) -> Option<
 /// (`dictionary_source_groups`) and takes the group holding the title, until
 /// the level is the final list. `None` when the tree holds no such source, or
 /// when the final list does not hold it (a source deleted since). The source is
-/// looked up in the tree's list rather than by its id, so an unknown id causes
-/// no failed request. See ui-dictionary.md §8 and §17.
+/// looked up through the sources list filtered by its id, so an unknown id
+/// finds none rather than failing a request, and nothing else of the tree's
+/// sources is read. See ui-dictionary.md §8 and §17.
 async fn locate_source(
     api: &ApiClient,
     tid: Uuid,
     id: Uuid,
 ) -> Result<Option<Vec<DrillStep>>, ApiError> {
-    let listed = api.dictionary_sources(tid).await?;
-    let Some(entry) = listed.iter().find(|entry| entry.source.id == id) else {
+    let Some(source) = api.find_source_by_id(tid, id).await? else {
         return Ok(None);
     };
-    let title = entry.source.title.clone();
+    let title = source.title;
     let mut path: Vec<DrillStep> = Vec::new();
     let mut query = String::new();
     for _ in 0..MAX_DRILL_LEVELS {

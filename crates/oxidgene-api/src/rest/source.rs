@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_archives::ArchiveTarget;
 use oxidgene_core::types::{Connection, Source};
-use oxidgene_db::repo::{PaginationParams, SourceRepo};
+use oxidgene_db::repo::{PaginationParams, SourceFilter, SourceRepo};
 use uuid::Uuid;
 
 use super::dto::{ArchiveTargetBody, DeleteSourceQuery, SourceListQuery};
@@ -25,8 +25,17 @@ pub async fn list_sources(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
+    let ids = query
+        .ids
+        .as_deref()
+        .map(super::dto::comma_separated_ids)
+        .transpose()?;
+    let filter = SourceFilter {
+        title: query.title.as_deref(),
+        ids: ids.as_deref(),
+    };
     Ok(Json(
-        SourceRepo::list_titled(&state.reader, tree_id, query.title.as_deref(), &params).await?,
+        SourceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?,
     ))
 }
 

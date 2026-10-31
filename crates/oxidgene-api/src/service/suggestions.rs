@@ -143,10 +143,9 @@ async fn tree_values(
         SuggestionField::GivenNames => entries(DictionaryRepo::given_names(db, tree_id).await?),
         SuggestionField::Occupations => entries(DictionaryRepo::occupations(db, tree_id).await?),
         SuggestionField::Sources => once_each(
-            DictionaryRepo::sources_with_usage(db, tree_id)
+            DictionaryRepo::source_titles_with_usage(db, tree_id)
                 .await?
-                .into_iter()
-                .map(|(source, count)| (source.title, count)),
+                .into_iter(),
         ),
         SuggestionField::Places => once_each(
             DictionaryRepo::places_with_usage(db, tree_id)

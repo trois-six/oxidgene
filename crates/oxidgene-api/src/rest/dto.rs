@@ -215,6 +215,8 @@ pub struct SourceListQuery {
     pub after: Option<String>,
     /// Sources titled exactly so, trimmed, ignoring case.
     pub title: Option<String>,
+    /// These sources, comma-separated ids (at most a page's worth).
+    pub ids: Option<String>,
 }
 
 /// Comma-separated ids, as a list query takes them.

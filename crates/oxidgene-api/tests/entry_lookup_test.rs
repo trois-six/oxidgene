@@ -70,6 +70,69 @@ async fn a_source_is_found_by_its_title_trimmed_and_ignoring_case() {
     assert_eq!(none["total_count"], 0, "only whole titles match");
 }
 
+/// A link to a source reads its title by id without reading the tree's
+/// sources, and an id the tree does not hold finds none instead of failing.
+#[tokio::test]
+async fn a_source_is_found_by_id_and_an_unknown_id_finds_none() {
+    let app = setup_app().await;
+    let tree = new_tree(&app, "Lookups").await;
+    let wanted = create(
+        &app,
+        &tree,
+        "sources",
+        json!({ "title": "Parish Register A" }),
+    )
+    .await;
+    create(
+        &app,
+        &tree,
+        "sources",
+        json!({ "title": "Parish Register B" }),
+    )
+    .await;
+    let other_tree = new_tree(&app, "Elsewhere").await;
+    let foreign = create(
+        &app,
+        &other_tree,
+        "sources",
+        json!({ "title": "Parish Register C" }),
+    )
+    .await;
+
+    let by_id = ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/sources?ids={wanted},{foreign}"),
+        None,
+    )
+    .await;
+    assert_eq!(by_id["total_count"], 1, "{by_id}");
+    assert_eq!(by_id["edges"][0]["node"]["title"], "Parish Register A");
+
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/sources?ids=not-an-id"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let data = gql_ok(
+        &app,
+        r#"query($t: ID!, $ids: [ID!]) {
+            byId: sources(treeId: $t, ids: $ids) { totalCount edges { node { title } } }
+        }"#,
+        json!({ "t": tree, "ids": [wanted, foreign] }),
+    )
+    .await;
+    assert_eq!(data["byId"]["totalCount"], 1);
+    assert_eq!(
+        data["byId"]["edges"][0]["node"]["title"],
+        "Parish Register A"
+    );
+}
+
 #[tokio::test]
 async fn a_place_is_found_by_its_name_or_by_id() {
     let app = setup_app().await;

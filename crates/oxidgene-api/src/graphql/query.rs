@@ -648,6 +648,7 @@ impl QueryRoot {
         #[graphql(desc = "Sources titled exactly so, trimmed, ignoring case.")] title: Option<
             String,
         >,
+        #[graphql(desc = "These sources.")] ids: Option<Vec<ID>>,
     ) -> Result<GqlSourceConnection> {
         boxed(async move {
             let db = reader_from_ctx(ctx);
@@ -656,7 +657,12 @@ impl QueryRoot {
                 first: first.unwrap_or(25),
                 after,
             };
-            let conn = SourceRepo::list_titled(db, tid, title.as_deref(), &params).await?;
+            let ids = ids.as_deref().map(uuids).transpose()?;
+            let filter = oxidgene_db::repo::SourceFilter {
+                title: title.as_deref(),
+                ids: ids.as_deref(),
+            };
+            let conn = SourceRepo::list_filtered(db, tid, &filter, &params).await?;
             Ok(conn.into())
         })
         .await

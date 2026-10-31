@@ -4187,7 +4187,11 @@ type QueryRoot {
 		"""
 		Sources titled exactly so, trimmed, ignoring case.
 		"""
-		title: String
+		title: String,
+		"""
+		These sources.
+		"""
+		ids: [ID!]
 	): GqlSourceConnection!
 	"""
 	Get a single source by ID.

@@ -88,7 +88,7 @@ pub use repository::{
 };
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
 pub use sosa::{ParentLink, SosaAncestor, SosaRepo};
-pub use source::SourceRepo;
+pub use source::{SourceFilter, SourceRepo};
 pub use tag::{TagRepo, TagUsage, checked_color, checked_label};
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};

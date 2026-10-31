@@ -17,6 +17,18 @@ use crate::repo::record_tag::RecordTagRepo;
 /// Repository for source CRUD operations.
 pub struct SourceRepo;
 
+/// What [`SourceRepo::list_filtered`] narrows a tree's sources to.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SourceFilter<'a> {
+    /// Sources titled exactly so — trimmed, ignoring case: how an editor
+    /// finds the source a typed title names without reading every source of
+    /// the tree.
+    pub title: Option<&'a str>,
+    /// These sources: how a link to a source finds its title without reading
+    /// every source of the tree, an unknown id simply finding none.
+    pub ids: Option<&'a [Uuid]>,
+}
+
 impl SourceRepo {
     /// List sources in a tree with pagination (excludes soft-deleted).
     pub async fn list(
@@ -24,23 +36,24 @@ impl SourceRepo {
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Source>, OxidGeneError> {
-        Self::list_titled(db, tree_id, None, params).await
+        Self::list_filtered(db, tree_id, &SourceFilter::default(), params).await
     }
 
-    /// [`Self::list`], narrowed to the sources titled `title` — trimmed,
-    /// ignoring case — when one is given: how an editor finds the source a
-    /// typed title names without reading every source of the tree.
-    pub async fn list_titled(
+    /// [`Self::list`], narrowed by `filter`.
+    pub async fn list_filtered(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        title: Option<&str>,
+        filter: &SourceFilter<'_>,
         params: &PaginationParams,
     ) -> Result<Connection<Source>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
-        if let Some(title) = title {
+        if let Some(title) = filter.title {
             query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
+        }
+        if let Some(ids) = filter.ids {
+            query = query.filter(Column::Id.is_in(ids.iter().copied()));
         }
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let sources = page.edges.iter().map(|edge| edge.node.clone()).collect();

@@ -396,3 +396,81 @@ async fn no_graphql_query_issues_statements_per_record() {
     }
     assert!(grows.is_empty(), "{}", grows.join("\n"));
 }
+
+/// A tree whose `count` sources are titled `prefix` and a three-digit number.
+async fn tree_of_sources(app: &Router, prefix: &str, count: usize) -> String {
+    let tree = common::new_tree(app, "Drill-down").await;
+    for index in 0..count {
+        let body = json!({ "title": format!("{prefix}{index:03}") });
+        ok(
+            app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/sources"),
+            Some(body),
+        )
+        .await;
+    }
+    tree
+}
+
+/// `text` percent-encoded for a query string.
+fn query_value(text: &str) -> String {
+    text.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                char::from(byte).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+/// The Sources tab's drill-down reads the titles once, however many forced
+/// single-choice levels it skips: titles sharing a long beginning cost what
+/// titles sharing a short one do. Each skipped level read every source of the
+/// tree again before, some fifty statements on a real archive's call numbers.
+#[tokio::test]
+async fn the_sources_drill_down_costs_the_same_whatever_levels_it_skips() {
+    const LONG: &str = "Fictitious county archive, parish of Northfield, register ";
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    // Above the drill threshold, so the root level is resolved, not listed.
+    let short = tree_of_sources(&app, "Reg ", 260).await;
+    let long = tree_of_sources(&app, LONG, 260).await;
+
+    let mut counts = Vec::new();
+    for (tree, title) in [(&short, "Reg "), (&long, LONG)] {
+        // The root level skips the shared beginning and branches on the
+        // hundreds; the next level is a final list of a hundred sources.
+        let mut statements = Vec::new();
+        for prefix in [String::new(), format!("{}0", title.to_uppercase())] {
+            counter.store(0, Ordering::Relaxed);
+            let level = ok(
+                &app,
+                Method::GET,
+                &format!(
+                    "/api/v1/trees/{tree}/dictionary/sources/groups?prefix={}",
+                    query_value(&prefix)
+                ),
+                None,
+            )
+            .await;
+            statements.push(counter.load(Ordering::Relaxed));
+            if prefix.is_empty() {
+                assert_eq!(level["groups"].as_array().map(Vec::len), Some(3), "{level}");
+            } else {
+                let listed = level["sources"].as_array().map(Vec::len);
+                assert_eq!(listed, Some(100), "{level}");
+            }
+        }
+        counts.push(statements);
+    }
+    assert_eq!(
+        counts[0], counts[1],
+        "statements of the root level and of a final list, short titles then long ones"
+    );
+}

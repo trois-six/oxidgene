@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk editors: family names (rename, merge, particle), occupations (rename, merge), places and repositories (edit, merge field by field)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-30T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 
@@ -640,8 +640,8 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
 ### Backend Logic
 
 - **Grouping**: `DictionaryRepo::source_group_counts(prefix)` groups all sources whose (uppercased) title starts with `prefix` by exactly one more character, returning only groups that actually occur — no prefix-format assumptions (no French-archive-specific parsing), it works for any title text.
-- **Compression**: `DictionaryRepo::resolve_source_drill_down(prefix, threshold)` loops `source_group_counts`, extending `prefix` by the single available character while there is exactly one group and the total is still above `threshold` (`SOURCE_DRILL_THRESHOLD = 250`). It stops at whichever comes first — a genuine branch (`groups.len() != 1`, the groups returned as they are, including a group labelled with the resolved prefix itself beside siblings), `total <= threshold`, or a sole group labelled with the resolved prefix itself (every source of the level has that exact title; the level is then final even above the threshold) — and returns `(resolved_prefix, total, groups)` with `groups` cleared in the last two cases. Every extension adds at least one character, so the loop always ends.
-- **Computed per request**: both queries read the `source` table on every request, grouping the titles in Rust; no prefix index or other data is stored for the drill-down.
+- **Compression**: `DictionaryRepo::resolve_source_drill_down(prefix, threshold)` reads the tree's source titles once and groups them as `source_group_counts` does, level after level, extending `prefix` by the single available character while there is exactly one group and the total is still above `threshold` (`SOURCE_DRILL_THRESHOLD = 250`). It stops at whichever comes first — a genuine branch (`groups.len() != 1`, the groups returned as they are, including a group labelled with the resolved prefix itself beside siblings), `total <= threshold`, or a sole group labelled with the resolved prefix itself (every source of the level has that exact title; the level is then final even above the threshold) — and returns `(resolved_prefix, total, groups)` with `groups` cleared in the last two cases. Every extension adds at least one character, so the loop always ends.
+- **Computed per request**: both read the titles of the `source` table (ids and titles only) on every request, grouping them in Rust; no prefix index or other data is stored for the drill-down. A final list then reads the rows, citation counts and tags of its own sources only, picked by their titles.
 
 ---
 
@@ -669,7 +669,8 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
 - A row's usage is loaded only when the row is expanded.
 - A source's record link (§14, §20) starts from an empty history and replays the
   clicks that reach the source: the page reads the title of the source from the
-  tree's own source list (`GET .../dictionary/sources`), asks the drill-down
+  sources list narrowed to its id (`GET .../sources?ids={source_id}`), never
+  the tree's whole list — 12,000 sources weigh 5 MB, asks the drill-down
   question for each level, takes the group whose label holds that title (the same
   uppercased comparison the backend groups by) and stops at the final list that
   holds the source. A title equal to the level's prefix is held by the
@@ -677,9 +678,10 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
   list is then asked with `exact=true`). The replayed steps become `source_history`, so the
   breadcrumb and the Back control read as if the reader had clicked down to
   the row; the row is then unfolded, scrolled into view and focused. A source
-  that the tree's list does not hold (deleted, or never a source of the tree),
-  or that the final list does not hold, leaves the tab on its root. No request
-  is made for the source's own id, so none can fail with not found.
+  the tree does not hold (deleted, or never a source of the tree) is found by
+  none, and one the final list does not hold leaves the tab on its root as well.
+  No request is made for the source's own record (`GET .../sources/{id}`), so
+  none can fail with not found.
 - A place's record link (§14, §20) opens the Places tab on the place's letter
   (none when its first character is not an ASCII letter, the tab then showing
   every place), at the page that holds the place in the tab's order, with the

@@ -286,6 +286,25 @@ impl DictionaryRepo {
         Ok(sorted_entries(per_value))
     }
 
+    /// The title of every live source of a tree with its citation count, in
+    /// no particular order: what the source field's suggestions count,
+    /// without the rest of the rows or their tags.
+    pub async fn source_titles_with_usage(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(String, i64)>, OxidGeneError> {
+        let titles = source_titles(db, tree_id).await?;
+        let counts = if titles.is_empty() {
+            HashMap::new()
+        } else {
+            citation_counts(db, tree_id).await?
+        };
+        Ok(titles
+            .into_iter()
+            .map(|(id, title)| (title, counts.get(&id).copied().unwrap_or(0)))
+            .collect())
+    }
+
     /// All sources in a tree paired with their citation count.
     pub async fn sources_with_usage(
         db: &impl ConnectionTrait,
@@ -298,22 +317,11 @@ impl DictionaryRepo {
             .await
             .map_err(db_err)?;
 
-        let mut counts: HashMap<Uuid, i64> = HashMap::new();
-        if !sources.is_empty() {
-            let cited: Vec<Uuid> = citation::Entity::find()
-                .select_only()
-                .column(citation::Column::SourceId)
-                .join(JoinType::InnerJoin, citation::Relation::Source.def())
-                .filter(source::Column::TreeId.eq(tree_id))
-                .filter(source::Column::DeletedAt.is_null())
-                .into_tuple()
-                .all(db)
-                .await
-                .map_err(db_err)?;
-            for source_id in cited {
-                *counts.entry(source_id).or_insert(0) += 1;
-            }
-        }
+        let counts = if sources.is_empty() {
+            HashMap::new()
+        } else {
+            citation_counts(db, tree_id).await?
+        };
 
         let ids: Vec<Uuid> = sources.iter().map(|m| m.id).collect();
         let mut tags = RecordTagRepo::tags_of(db, RecordKind::Source, &ids).await?;
@@ -341,15 +349,17 @@ impl DictionaryRepo {
         tree_id: Uuid,
         prefix: &str,
     ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
-        let all = Self::sources_with_usage(db, tree_id).await?;
         if prefix.is_empty() {
-            return Ok(all);
+            return Self::sources_with_usage(db, tree_id).await;
         }
         let prefix_upper = prefix.to_uppercase();
-        Ok(all
+        let ids: Vec<Uuid> = source_titles(db, tree_id)
+            .await?
             .into_iter()
-            .filter(|(s, _)| s.title.to_uppercase().starts_with(&prefix_upper))
-            .collect())
+            .filter(|(_, title)| title.to_uppercase().starts_with(&prefix_upper))
+            .map(|(id, _)| id)
+            .collect();
+        sources_with_usage_of(db, &ids).await
     }
 
     /// All sources in a tree whose title is exactly `title` (case-insensitive,
@@ -363,11 +373,13 @@ impl DictionaryRepo {
         title: &str,
     ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
         let title_upper = title.to_uppercase();
-        let all = Self::sources_with_usage(db, tree_id).await?;
-        Ok(all
+        let ids: Vec<Uuid> = source_titles(db, tree_id)
+            .await?
             .into_iter()
-            .filter(|(s, _)| s.title.to_uppercase() == title_upper)
-            .collect())
+            .filter(|(_, title)| title.to_uppercase() == title_upper)
+            .map(|(id, _)| id)
+            .collect();
+        sources_with_usage_of(db, &ids).await
     }
 
     /// Groups a tree's sources whose title starts with `prefix` by the next
@@ -387,35 +399,8 @@ impl DictionaryRepo {
         tree_id: Uuid,
         prefix: &str,
     ) -> Result<Vec<(String, i64)>, OxidGeneError> {
-        let sources = source::Entity::find()
-            .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
-            .all(db)
-            .await
-            .map_err(db_err)?;
-
-        let prefix_upper = prefix.to_uppercase();
-        let prefix_len = prefix_upper.chars().count();
-
-        let mut counts: HashMap<String, i64> = HashMap::new();
-        for s in sources {
-            let title_upper = s.title.to_uppercase();
-            if !title_upper.starts_with(&prefix_upper) {
-                continue;
-            }
-            let group: String = if title_upper.chars().count() > prefix_len {
-                title_upper.chars().take(prefix_len + 1).collect()
-            } else {
-                // Title is no longer than the prefix itself (rare) — keep
-                // it grouped under the prefix rather than dropping it.
-                title_upper.clone()
-            };
-            *counts.entry(group).or_insert(0) += 1;
-        }
-
-        let mut out: Vec<(String, i64)> = counts.into_iter().collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(out)
+        let titles = upper_titles(db, tree_id).await?;
+        Ok(group_counts(&titles, &prefix.to_uppercase()))
     }
 
     /// Resolves the Sources tab's smart drill-down starting from `prefix`:
@@ -443,9 +428,13 @@ impl DictionaryRepo {
         prefix: &str,
         threshold: i64,
     ) -> Result<(String, i64, Vec<(String, i64)>), OxidGeneError> {
+        // The titles are read once: a level can skip dozens of forced
+        // characters, each of which read every source again before.
+        let mut titles = upper_titles(db, tree_id).await?;
         let mut current = prefix.to_uppercase();
         loop {
-            let groups = Self::source_group_counts(db, tree_id, &current).await?;
+            titles.retain(|title| title.starts_with(&current));
+            let groups = group_counts(&titles, &current);
             let total: i64 = groups.iter().map(|(_, c)| *c).sum();
             if total <= threshold {
                 return Ok((current, total, Vec::new()));
@@ -1120,6 +1109,124 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 
 /// A name row's full surname, particle included — the dictionary entry it
 /// belongs to — and its root. `None` for a row without a surname.
+/// The id and title of every live source of a tree, without the rest of
+/// their rows: what the Sources tab's levels and final lists are told by.
+async fn source_titles(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<Vec<(Uuid, String)>, OxidGeneError> {
+    source::Entity::find()
+        .select_only()
+        .column(source::Column::Id)
+        .column(source::Column::Title)
+        .filter(source::Column::TreeId.eq(tree_id))
+        .filter(source::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await
+        .map_err(db_err)
+}
+
+/// The citations of each cited live source of a tree, counted by the
+/// database: one row per cited source comes back, not one per citation.
+async fn citation_counts(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<HashMap<Uuid, i64>, OxidGeneError> {
+    let counts: Vec<(Uuid, i64)> = citation::Entity::find()
+        .select_only()
+        .column(citation::Column::SourceId)
+        .column_as(citation::Column::Id.count(), "uses")
+        .join(JoinType::InnerJoin, citation::Relation::Source.def())
+        .filter(source::Column::TreeId.eq(tree_id))
+        .filter(source::Column::DeletedAt.is_null())
+        .group_by(citation::Column::SourceId)
+        .into_tuple()
+        .all(db)
+        .await
+        .map_err(db_err)?;
+    Ok(counts.into_iter().collect())
+}
+
+/// Every live source title of a tree, uppercased as the drill-down groups
+/// them.
+async fn upper_titles(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<Vec<String>, OxidGeneError> {
+    Ok(source_titles(db, tree_id)
+        .await?
+        .into_iter()
+        .map(|(_, title)| title.to_uppercase())
+        .collect())
+}
+
+/// The uppercased `titles` starting with `prefix_upper`, grouped by the next
+/// character after it, as `(group_label, count)` sorted by label; a title no
+/// longer than the prefix (rare) is grouped under itself rather than dropped.
+fn group_counts(titles: &[String], prefix_upper: &str) -> Vec<(String, i64)> {
+    let prefix_len = prefix_upper.chars().count();
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for title in titles
+        .iter()
+        .filter(|title| title.starts_with(prefix_upper))
+    {
+        let group: String = if title.chars().count() > prefix_len {
+            title.chars().take(prefix_len + 1).collect()
+        } else {
+            title.clone()
+        };
+        *counts.entry(group).or_insert(0) += 1;
+    }
+    let mut out: Vec<(String, i64)> = counts.into_iter().collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// The sources of `ids`, each paired with its citation count and carrying
+/// its tags, sorted by title as [`DictionaryRepo::sources_with_usage`] sorts
+/// them: a final list of the Sources tab reads its own sources only.
+async fn sources_with_usage_of(
+    db: &impl ConnectionTrait,
+    ids: &[Uuid],
+) -> Result<Vec<(Source, i64)>, OxidGeneError> {
+    let models = in_chunks(ids, |chunk| async move {
+        source::Entity::find()
+            .filter(source::Column::Id.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    let counts: HashMap<Uuid, i64> = in_chunks(ids, |chunk| async move {
+        citation::Entity::find()
+            .select_only()
+            .column(citation::Column::SourceId)
+            .column_as(citation::Column::Id.count(), "uses")
+            .filter(citation::Column::SourceId.is_in(chunk))
+            .group_by(citation::Column::SourceId)
+            .into_tuple::<(Uuid, i64)>()
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?
+    .into_iter()
+    .collect();
+    let mut tags = RecordTagRepo::tags_of(db, RecordKind::Source, ids).await?;
+    let mut out: Vec<(Source, i64)> = models
+        .into_iter()
+        .map(|m| {
+            let count = counts.get(&m.id).copied().unwrap_or(0);
+            let mut source = into_source(m);
+            source.tags = tags.remove(&source.id).unwrap_or_default();
+            (source, count)
+        })
+        .collect();
+    out.sort_by_cached_key(|(a, _)| a.title.to_lowercase());
+    Ok(out)
+}
+
 fn full_surname(prefix: Option<&str>, surname: Option<&str>) -> Option<(String, String)> {
     let root = trimmed(surname)?;
     Some((join_surname_particle(prefix, &root), root))

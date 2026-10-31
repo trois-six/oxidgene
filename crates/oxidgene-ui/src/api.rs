@@ -4244,6 +4244,23 @@ impl ApiClient {
         Ok(page.edges.into_iter().next().map(|edge| edge.node))
     }
 
+    /// The tree's source `id`, if it holds one: what a record link opens the
+    /// source's row by. A source the tree does not hold (deleted, or never
+    /// one of its records) is `None` rather than a failed request.
+    pub async fn find_source_by_id(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+    ) -> Result<Option<Source>, ApiError> {
+        let page: PaginatedResponse<Source> = self
+            .get_with_query(
+                &format!("/api/v1/trees/{tree_id}/sources"),
+                &[("ids", id.to_string()), ("first", "1".to_string())],
+            )
+            .await?;
+        Ok(page.edges.into_iter().next().map(|edge| edge.node))
+    }
+
     pub async fn get_source(&self, tree_id: Uuid, id: Uuid) -> Result<Source, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
             .await
@@ -4553,18 +4570,6 @@ impl ApiClient {
             &[("prefix", title), ("exact", "true")],
         )
         .await
-    }
-
-    /// Every source of the tree, each paired with its citation count. Used to
-    /// find a source's title when a record link opens its row; a source that
-    /// is not in the list (deleted, or never a record of the tree) is then
-    /// known without asking for its id.
-    pub async fn dictionary_sources(
-        &self,
-        tree_id: Uuid,
-    ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/dictionary/sources"))
-            .await
     }
 
     /// All places in the tree, each paired with its usage count.
