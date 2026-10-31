@@ -286,9 +286,16 @@ fn main() {
     // see `oxidgene_api::memory`.
     oxidgene_api::memory::tune();
 
+    // A release build is a GUI program with no console of its own: attach to
+    // the console of the process that started it, if any, so what it prints
+    // reaches that terminal.
     #[cfg(all(windows, not(debug_assertions)))]
+    // SAFETY: `AttachConsole` takes a process id by value and touches no
+    // memory Rust owns; a failure (no parent console) is only reported
+    // through its return value, which is deliberately ignored.
     unsafe {
-        windows_sys::Win32::System::Console::AttachConsole(u32::MAX);
+        use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+        AttachConsole(ATTACH_PARENT_PROCESS);
     }
 
     // WebKitGTK's WebsiteDataManager derives some default paths (e.g. HSTS
