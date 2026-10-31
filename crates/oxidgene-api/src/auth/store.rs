@@ -617,7 +617,7 @@ mod tests {
 
     /// The same behaviour on the Redis `OXIDGENE_TEST_REDIS_URL` names.
     #[tokio::test]
-    #[ignore = "needs a Redis server: just test-redis"]
+    #[ignore = "needs a Redis server: run by `just test-redis`"]
     async fn on_redis_the_store_keeps_sessions_and_their_indexes() {
         let url = std::env::var("OXIDGENE_TEST_REDIS_URL").expect("OXIDGENE_TEST_REDIS_URL");
         let store = RedisStore::connect(&url).await.expect("Redis");

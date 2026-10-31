@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Planned communication between the users of a web deployment: in-app notifications and their preferences, email sent through the operator's SMTP relay from a worker-processed outbox, and end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 ---
 
 # Messaging and Notifications
@@ -377,7 +377,7 @@ Past a limit, `429 rate_limited`
 ## 10. Data model
 
 Planned tables, added to the single initial migration until the first
-release ([Data Model §6](data-model.md#6-accounts-and-access-planned)). Every
+release ([Data Model §6](data-model.md#6-accounts-and-access)). Every
 key is a UUID v7.
 
 | Table | Columns |
