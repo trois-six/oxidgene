@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 
@@ -1200,7 +1200,10 @@ What is recorded:
 
 Projection maintenance (rebuilding or dropping `person_denorm`) derives data and
 changes none, so it is not recorded. Authentication is not part of the current
-MVP, so an entry records no author.
+MVP, so an entry records no author, nor the surface a write came through: a
+write by an assistant through the MCP write tools is recorded exactly as the
+same write made in the application or over REST or GraphQL
+([Assistant Access §7.5](mcp.md)).
 
 A bulk tag change writes one entry for the whole change, in its transaction:
 `entity` `record_tag`, `entity_id` the tag, `action` `create` when it adds the

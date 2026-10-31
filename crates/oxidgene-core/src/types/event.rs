@@ -69,6 +69,7 @@ pub struct Event {
 
 /// The age a family event's record gives for one of the family's spouses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SpouseAge {
     pub person_id: Uuid,
     /// Canonical GEDCOM age (`34y`, `< 1y 6m`, `CHILD`).

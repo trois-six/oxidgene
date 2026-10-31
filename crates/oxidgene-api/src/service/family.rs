@@ -22,12 +22,14 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 /// The fields a family update changes; `None` keeps a field. An update
 /// touches `updated_at` whatever it carries.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct FamilyPatch {
     pub privacy: Option<Privacy>,
 }
 
 /// A spouse to add to a family.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewSpouse {
     pub person_id: Uuid,
     pub role: SpouseRole,
@@ -37,6 +39,7 @@ pub struct NewSpouse {
 
 /// A child to add to a family.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewChild {
     pub person_id: Uuid,
     pub child_type: ChildType,

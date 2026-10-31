@@ -48,7 +48,7 @@ features = [
     { title = "Nothing is ever lost", text = "Every change is kept: compare the versions of a person and restore an earlier one.", link = "@/guide/history.md" },
     { title = "Places that need no typing", text = "A built-in dictionary of the places of twelve countries, with their former names, available offline.", link = "@/guide/editing.md" },
     { title = "In your language and colours", text = "Eight languages, light and dark themes, and themes of your own.", link = "@/guide/settings.md" },
-    { title = "Ask an AI assistant", text = "Let Claude or another assistant read your tree, read-only, from the desktop application.", link = "@/guide/assistant.md" },
+    { title = "Ask an AI assistant", text = "Let Claude or another assistant read your tree from the desktop application, and change it only if you allow it.", link = "@/guide/assistant.md" },
 ]
 
 values_title = "Your genealogy, in complete freedom"

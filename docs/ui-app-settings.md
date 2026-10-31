@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 
@@ -511,8 +511,8 @@ operating system picks at each launch.
 
 Shows how to let an
 MCP client, such as Claude Desktop or Claude Code, read the application's
-trees. The server and its contract are specified in
-[Assistant Access](mcp.md).
+trees, and how to let it change them as well. The server and its contract are
+specified in [Assistant Access](mcp.md).
 
 ```
 +-----------------------------------------------------+
@@ -528,6 +528,9 @@ trees. The server and its contract are specified in
 |                                                     |
 |  Client configuration (JSON)                        |
 |  [ { "mcpServers": { … } }               ] [Copy]   |
+|                                                     |
+|  Read-only. To let the assistant add, change and    |
+|  delete records too, add --allow-writes after mcp…  |
 +-----------------------------------------------------+
 ```
 
@@ -535,16 +538,24 @@ trees. The server and its contract are specified in
 - The command contains the absolute path of the running executable. The JSON
   block is the same command in `mcpServers` form. Both are read-only fields
   with a copy button.
-- Access is read-only, and each request names the tree it reads. Privacy
-  values are not applied, as [Assistant Access §7](mcp.md) explains.
+- The command and the JSON are read-only, and each request names the tree it
+  reads. Privacy values are not applied, as [Assistant Access §7](mcp.md)
+  explains.
+- A hint under the JSON says that the access is read-only, that adding
+  `--allow-writes` after `mcp` lets the assistant add, change and delete
+  records, and that its changes go into each tree's history. Writes are a
+  second consent the user gives by editing the client configuration
+  ([Assistant Access §7.1](mcp.md)); the page offers no ready-made writing
+  command to copy.
 - The desktop binary injects the executable path through a UI capability,
   following the Geneanet collector pattern
   ([Architecture §9.2](architecture.md)). The browser build finds none and
   shows a note that the assistant is available in the desktop application.
 - Nothing is saved: copying the command changes no setting. Configuring the
   client is the consent; removing the entry from the client revokes it.
-- Every label, the warning, the note, and the copy feedback go through i18n,
-  in every interface language. The command and the JSON are not translated.
+- Every label, the warning, the hint, the note, and the copy feedback go
+  through i18n, in every interface language. The command, the JSON and the
+  flag are not translated.
 
 ## 11. Responsive
 

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -351,13 +351,18 @@ tool but `list_trees`.
 
 Later phases, in order:
 
-- [ ] Mutating tools with `destructiveHint`, the same transactions, and
-  projection refresh; deletions last.
+- [x] Write tools over the person, name, event, witness, family, place,
+  source, citation, note and tag services, with `destructiveHint` on
+  removals and deletions, the same transactions, projection refresh and
+  history entries, offered only behind `oxidgene-desktop mcp --allow-writes`
+  (off by default) and announced by a hint in App Settings
+  ([Assistant Access §5.2, §7.1](mcp.md)).
+- [x] A read-only tool over the kinship operation, so an assistant can say how
+  two persons are related, with `get_family` and `list_event_witnesses`
+  giving the link IDs the removals take.
 - [ ] Streamable HTTP on `/mcp` with MCP authorization mapped to per-tree
   access, after EPIC G.
 - [ ] Bounded thumbnail image content.
-- [ ] A read-only tool over the kinship operation, so an assistant can say how
-  two persons are related.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 
 ## 10. Planned: AI features (bring your own LLM)

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-30T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -203,7 +203,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 
 - A REST API with its generated OpenAPI 3.1 document, on the desktop and the web ([API Contract §2](api.md#2-rest-api)).
 - A GraphQL API, with GraphiQL, strictly symmetric with REST, in the web deployment only ([API Contract §3](api.md#3-graphql-api)).
-- A read-only Model Context Protocol server in the desktop binary, for Claude and other assistants ([Assistant Access](mcp.md)).
+- A Model Context Protocol server in the desktop binary, for Claude and other assistants: read-only by default, and able to add, change and delete persons, names, events, families, places, sources, citations, notes and tags when its launch command allows writes ([Assistant Access](mcp.md)).
 - **Planned:** AI features on media with the user's own LLM provider ([AI Features](ai.md)) and DNA kits ([DNA Kits](dna.md)), specified only.
 
 ## 19. Operations

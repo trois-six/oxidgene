@@ -26,6 +26,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 /// An event to create: what happened, when, where, and to whom — a person or
 /// a family.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewEvent {
     pub event_type: EventType,
     pub date_value: Option<String>,
@@ -64,6 +65,7 @@ pub struct NewEvent {
 /// The fields an event update changes: `None` keeps a field, and `Some(None)`
 /// clears an optional one. The owner of an event never changes.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct EventPatch {
     pub event_type: Option<EventType>,
     #[serde(default, deserialize_with = "double_option")]
@@ -95,6 +97,7 @@ pub struct EventPatch {
 
 /// A witness to add to an event.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewWitness {
     pub person_id: Uuid,
     pub relation: Option<String>,

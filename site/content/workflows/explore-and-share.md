@@ -88,4 +88,4 @@ On the desktop application, an AI assistant such as Claude Desktop or Claude Cod
 1. Open the application settings and choose **API**.
 2. Under **AI assistant (MCP)**, read the warning, then copy the command or the client configuration into your assistant.
 
-Access is read-only: the assistant cannot change your trees. But it can read every tree in the application, living persons, notes and sources included, and it sends what it reads to the provider of the model it uses. Only connect an assistant you trust with that data. See [AI assistant](@/guide/assistant.md) for the full setup.
+Access is read-only unless you add `--allow-writes` to the command: only then can the assistant change your trees, and every change it makes goes into the tree's history. Either way it can read every tree in the application, living persons, notes and sources included, and it sends what it reads to the provider of the model it uses. Only connect an assistant you trust with that data. See [AI assistant](@/guide/assistant.md) for the full setup.

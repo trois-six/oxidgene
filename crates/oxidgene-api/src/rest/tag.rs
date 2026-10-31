@@ -60,6 +60,7 @@ impl From<TagUsage> for TagView {
 
 /// Body of `POST /trees/:tree_id/tags`.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct CreateTagRequest {
     pub label: String,
     pub color: Option<i16>,

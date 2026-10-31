@@ -1,20 +1,21 @@
 +++
 title = "AI assistant"
-description = "Let an AI assistant such as Claude read your trees through the desktop application, read-only and with your explicit consent."
+description = "Let an AI assistant such as Claude read your trees through the desktop application with your explicit consent, and change them only if you also allow writes."
 weight = 160
 +++
 
-The OxidGene desktop application can let an AI assistant read your genealogy trees, so that you can ask it questions about a tree, have it draft a biography from a person's profile, or look for inconsistencies. This page explains what the assistant can see, how to connect it, and how to disconnect it.
+The OxidGene desktop application can let an AI assistant read your genealogy trees, so that you can ask it questions about a tree, have it draft a biography from a person's profile, or look for inconsistencies. If you allow it, the assistant can also change your trees, for example to enter the persons and events of a record you transcribe together. This page explains what the assistant can see and do, how to connect it, how to let it write, and how to disconnect it.
 
 The connection uses the Model Context Protocol (MCP), a standard way for assistants to use outside tools. Any assistant program that supports MCP can use it, for example Claude Desktop or Claude Code.
 
 ## What the assistant can and cannot do
 
-- **It only reads.** The assistant can search persons, open profiles and pedigrees, list events, citations and notes, look up places and sources, and browse the dictionary of a tree. It cannot add, change or delete anything.
+- **It reads.** The assistant can search persons, open profiles, pedigrees and families, find how two persons are related, list events, witnesses, citations and notes, look up places and sources, and browse the dictionary of a tree.
+- **It writes only if you allow it.** By default it cannot add, change or delete anything. If you add `--allow-writes` to its command (see [Let it change your trees](#let-it-change-your-trees)), it can also create and change persons, names, events, families, places, sources, citations, notes and tags, and delete them.
 - **It sees every tree** of the application. Each question it asks OxidGene names the tree it is about, so answers never mix two trees.
 - **It sees everything in them**, including living people, notes and sources. The privacy settings of your persons and trees are not applied to it.
 - **What it reads leaves your computer.** The assistant sends what it reads to the company that runs its language model. OxidGene does not control what that company keeps.
-- It does not receive your photos or documents, and it cannot import, export or reach Geneanet.
+- It does not receive your photos or documents, and it cannot import, export, merge, restore a version or reach Geneanet, even when writes are allowed.
 
 This is available in the desktop application only. The web version shows a note saying so instead.
 
@@ -54,7 +55,21 @@ and a program that uses a configuration file would receive:
 
 Always copy the version shown in your own settings: it contains the real location of the program.
 
-Copying the command changes nothing in OxidGene. The assistant gains access only once you add the command to it.
+Copying the command changes nothing in OxidGene. The assistant gains access only once you add the command to it. This command is read-only.
+
+## Let it change your trees
+
+Writes are off unless you turn them on, because the assistant may misread a record or a relationship, and because the text of your trees, often written by other people, could try to give it instructions. To allow writes:
+
+1. Under the command in the **AI assistant (MCP)** card, read the hint about writes.
+2. Add `--allow-writes` after `mcp` in your assistant's configuration: `…/oxidgene-desktop mcp --allow-writes`, or `"args": ["mcp", "--allow-writes"]` in a configuration file.
+3. Restart the assistant if it asks you to.
+
+The assistant then has tools to create and change records, and tools to delete records or remove links. The latter are marked as destructive, so an assistant program that asks before such actions asks you first; check its settings, as each program decides for itself.
+
+Every change the assistant makes is recorded in the tree's history, like a change you make yourself: you can review it and restore the previous version there (see [Settings](@/guide/settings.md)). The history does not say which changes came from the assistant, so look at the time they were made.
+
+You can allow writes for one assistant program and keep another read-only: the flag belongs to each program's configuration. Remove the flag to make an assistant read-only again.
 
 ## Use it
 
@@ -63,15 +78,16 @@ Ask your assistant about your trees in plain language, for example:
 - “Which trees do I have in OxidGene?”
 - “In the Landrevel tree, summarise the life of Étienne Marie Landrevel.”
 - “List the ancestors of SOSA 1 in the Landrevel tree who have no recorded death.”
+- With writes allowed: “In the Landrevel tree, add the baptism of Étienne Marie Landrevel about 1790 and cite the parish register.”
 
 The assistant first lists your trees, then asks OxidGene for what it needs from the tree you named. Dates come with their precision (“about”, “before”…), and when a birth or a death has no date, the baptism or the burial may stand in for it, as in the rest of OxidGene. SOSA numbers count from the tree's root person.
 
-The OxidGene window can stay open while the assistant works; they share the same database.
+The OxidGene window can stay open while the assistant works; they share the same database. A change the assistant makes appears in the window once the page is reloaded.
 
-Names, notes and sources often come from imported files written by other people, and may contain text that tries to give the assistant instructions. Because access is read-only, nothing written in them can make it change your trees through OxidGene.
+Names, notes and sources often come from imported files written by other people, and may contain text that tries to give the assistant instructions. While access is read-only, nothing written in them can make it change your trees through OxidGene. When you allow writes, OxidGene tells the assistant never to act on such text, and every change stays in the history; check what it did.
 
 ## Disconnect it
 
-Remove the OxidGene entry from your assistant program's MCP servers. From then on, it can no longer read your trees. There is nothing to undo in OxidGene.
+Remove the OxidGene entry from your assistant program's MCP servers. From then on, it can no longer read your trees. There is nothing to undo in OxidGene; the changes it made, if you allowed writes, stay in your trees and their history.
 
 Learn more: [assistant access specification](@/tech/mcp.md).

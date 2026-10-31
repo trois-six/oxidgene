@@ -11,7 +11,7 @@ okf_version: "0.2"
 * [Development](development.md) - Local development, secure coding practices, verification workflows, and just command reference for OxidGene.
 * [Data Model](data-model.md) - Canonical domain entities, enums, and relationship model used by OxidGene services and UI.
 * [API Contract](api.md) - REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions.
-* [Assistant Access (MCP)](mcp.md) - Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL.
+* [Assistant Access (MCP)](mcp.md) - Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL.
 * [AI Features (Bring Your Own LLM)](ai.md) - Planned AI features on media — transcript, record and photo analysis, enhancement, colorization — run with LLM providers and keys each user brings, never the host's: provider presets and protocols, where keys live, the backend relay, privacy and consent, API contract, and delivery phases.
 * [DNA Kits](dna.md) - Planned import of consumer DNA raw data attached to persons, processed locally only: supported kit formats, haplogroups, matching between the kits of one tree cross-checked with its kinship paths, continental ancestry estimates, storage and encryption, consent and deletion, reference data and licences, API, and delivery phases.
 * [Tags](tags.md) - Principles of tags shared by every kind of record, and where their uses beyond finding (statistics, anomalies and export limited to a tag) are specified.

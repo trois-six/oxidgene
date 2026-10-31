@@ -26,12 +26,14 @@ pub const MAX_ANCESTRY_DEPTH: i32 = MAX_GENERATIONS;
 
 /// A person to create.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewPerson {
     pub sex: Sex,
 }
 
 /// The fields a person update changes; `None` keeps a field.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct PersonPatch {
     pub sex: Option<Sex>,
     pub privacy: Option<Privacy>,

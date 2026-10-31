@@ -5,16 +5,20 @@
 //! the desktop window, which may be open on the same database at the same
 //! time, owns all of those. Requeuing jobs here would restart an import that
 //! window is still running. See `docs/mcp.md` §4.
+//!
+//! The session is read-only unless the command line carries
+//! `--allow-writes` (`docs/mcp.md` §7.1).
 
 use std::path::Path;
 
+use oxidgene_api::mcp::Access;
 use oxidgene_db::repo::{connect, run_migrations};
 
 /// Serve MCP until the client closes standard input. Returns the exit status.
 ///
 /// Failures are reported on standard error with a generic message: no path,
 /// no ID, nothing from the tree.
-pub fn run(db_path: &Path) -> i32 {
+pub fn run(db_path: &Path, access: Access) -> i32 {
     // An assistant must never be the thing that creates an empty database:
     // that is the application's first launch, not a side effect of a client
     // configured on a machine where it has never run.
@@ -42,7 +46,7 @@ pub fn run(db_path: &Path) -> i32 {
             eprintln!("oxidgene-desktop mcp: failed to prepare the database");
             return 1;
         }
-        match oxidgene_api::mcp::serve_stdio(db).await {
+        match oxidgene_api::mcp::serve_stdio(db, access).await {
             Ok(()) => 0,
             Err(_) => {
                 eprintln!("oxidgene-desktop mcp: the session ended with an error");

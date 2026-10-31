@@ -6763,6 +6763,7 @@
     "app_settings.assistant_desktop_only": "Połączenie z asystentem AI jest dostępne w aplikacji desktopowej.",
     "app_settings.assistant_title": "Asystent AI (MCP)",
     "app_settings.assistant_warning": "Asystent skonfigurowany tym poleceniem może odczytać każde drzewo w tej aplikacji, łącznie z osobami żyjącymi, notatkami i źródłami, i przesyła to, co odczyta, do dostawcy modelu, z którego korzysta.",
+    "app_settings.assistant_writes_hint": "Tylko do odczytu. Aby asystent mógł też dodawać, zmieniać i usuwać rekordy, dodaj --allow-writes po mcp w jego konfiguracji. Jego zmiany są zapisywane w historii każdego drzewa.",
     "app_settings.connect_hint": "Każdy klient HTTP, na przykład curl lub skrypt, może wywołać API.",
     "app_settings.connect_title": "Połącz klienta",
     "app_settings.date_calendar": "Kalendarz wyświetlania",

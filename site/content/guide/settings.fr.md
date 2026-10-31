@@ -150,6 +150,6 @@ Cette section sert à relier d’autres programmes à OxidGene ; vous n’en ave
 - Dans l’application de bureau, la section affiche aussi un **Jeton d’accès**. Quiconque le détient peut lire et modifier tous les arbres tant que l’application est ouverte : ne le confiez qu’à des outils de confiance. L’adresse et le jeton changent à chaque démarrage de l’application.
 - Dans la version web, l’adresse GraphQL et un exemple sont également indiqués.
 
-La carte **Assistant IA (MCP)**, dans l’application de bureau, donne la commande qui permet à un assistant IA de lire vos arbres. Voir [Assistant IA](@/guide/assistant.fr.md).
+La carte **Assistant IA (MCP)**, dans l’application de bureau, donne la commande qui permet à un assistant IA de lire vos arbres, et indique comment l’autoriser aussi à les modifier. Voir [Assistant IA](@/guide/assistant.fr.md).
 
 En savoir plus : [spécification des paramètres de l’arbre](@/tech/ui-settings.md), [spécification des paramètres de l’application](@/tech/ui-app-settings.md) (en anglais).

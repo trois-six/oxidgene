@@ -144,7 +144,7 @@ fn suppress_duplicate_configure_events(
     });
 }
 
-/// The whole command line: a subcommand and two flags, read by hand.
+/// The whole command line: a subcommand and a few flags, read by hand.
 ///
 /// A derive-based parser links its entire help-rendering and error-reporting
 /// machinery into a binary that opens a window; for a single boolean it was
@@ -155,6 +155,9 @@ struct Cli {
     /// `mcp` as the first argument: serve MCP over stdio instead of opening
     /// the window.
     mcp: bool,
+    /// `--allow-writes` after `mcp`: offer the assistant the write tools as
+    /// well. Off unless asked for (`docs/mcp.md` §7.1).
+    allow_writes: bool,
     /// Enable developer-oriented logs for OxidGene crates.
     #[cfg(feature = "telemetry")]
     debug: bool,
@@ -186,22 +189,21 @@ impl Cli {
         let mut log_level = None;
         #[cfg(feature = "telemetry")]
         let mut log_format = None;
+        let mut allow_writes = false;
         let mut args = std::env::args_os().skip(1).peekable();
         let mcp = args.next_if(|arg| arg == "mcp").is_some();
-        // A build without telemetry accepts no flags at all, so every arm below
-        // ends the process and the loop provably runs at most once — which is
-        // what both lints report. The loop is still what the telemetry build
-        // needs, where `--log-level` consumes the argument after it.
+        // A loop rather than a `for`: `--log-level` consumes the argument
+        // after it.
         #[cfg_attr(
             not(feature = "telemetry"),
             expect(
-                clippy::never_loop,
                 clippy::while_let_on_iterator,
-                reason = "no flag is accepted without telemetry, so every arm exits"
+                reason = "no flag consumes a value without telemetry"
             )
         )]
         while let Some(arg) = args.next() {
             match arg.to_str() {
+                Some("--allow-writes") if mcp => allow_writes = true,
                 #[cfg(feature = "telemetry")]
                 Some("--debug") => debug = true,
                 #[cfg(feature = "telemetry")]
@@ -222,12 +224,13 @@ impl Cli {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop [mcp] [--debug] [--log-level FILTER] [--log-format FORMAT]\n\
+                         Usage: oxidgene-desktop [mcp [--allow-writes]] [--debug] [--log-level FILTER] [--log-format FORMAT]\n\
                          \n\
                          Commands:\n    \
-                             mcp          Serve the trees to an MCP client over stdio\n\
+                             mcp          Serve the trees to an MCP client over stdio, read-only\n\
                          \n\
                          Options:\n    \
+                             --allow-writes  With mcp: let the client change the trees too\n    \
                              --debug      Enable debug logs for OxidGene crates\n    \
                              --log-level FILTER  Override OXIDGENE_LOG_LEVEL\n    \
                              --log-format FORMAT  text or json; overrides OXIDGENE_LOG_FORMAT\n    \
@@ -238,12 +241,13 @@ impl Cli {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop [mcp]\n\
+                         Usage: oxidgene-desktop [mcp [--allow-writes]]\n\
                          \n\
                          Commands:\n    \
-                             mcp          Serve the trees to an MCP client over stdio\n\
+                             mcp          Serve the trees to an MCP client over stdio, read-only\n\
                          \n\
                          Options:\n    \
+                             --allow-writes  With mcp: let the client change the trees too\n    \
                              -h, --help   Show this message\n    \
                              -V, --version  Show the version\n"
                     );
@@ -265,6 +269,7 @@ impl Cli {
         }
         Self {
             mcp,
+            allow_writes,
             #[cfg(feature = "telemetry")]
             debug,
             #[cfg(feature = "telemetry")]
@@ -309,7 +314,12 @@ fn main() {
     let app_dirs = app_dirs_or_exit();
 
     if cli.mcp {
-        let status = mcp::run(&app_dirs.database());
+        let access = if cli.allow_writes {
+            oxidgene_api::mcp::Access::ReadWrite
+        } else {
+            oxidgene_api::mcp::Access::ReadOnly
+        };
+        let status = mcp::run(&app_dirs.database(), access);
         #[cfg(feature = "telemetry")]
         shutdown_telemetry(&telemetry);
         std::process::exit(status);

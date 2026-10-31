@@ -32,6 +32,7 @@ impl std::fmt::Display for Sex {
 /// because the UI lets the user pick between them, and collapsing them onto
 /// [`Self::AlsoKnownAs`] on save made the choice unrecoverable on reload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NameType {
     Birth,
@@ -70,6 +71,7 @@ impl std::fmt::Display for NameType {
 
 /// Role of a spouse in a family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SpouseRole {
     Husband,
@@ -89,6 +91,7 @@ impl std::fmt::Display for SpouseRole {
 
 /// Type of relationship between a child and a family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChildType {
     Biological,
@@ -112,6 +115,7 @@ impl std::fmt::Display for ChildType {
 
 /// Per-person privacy override (§7 of the person edit modal spec).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Privacy {
     /// Follows the tree-level privacy settings.
@@ -137,6 +141,7 @@ impl std::fmt::Display for Privacy {
 /// person edit modal spec). `Or` and `Between` use two date values; the
 /// rest use a single one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DateQualifier {
     #[default]
@@ -208,6 +213,7 @@ impl DateQualifier {
 
 /// Calendar system used to record a date (§8 of the person edit modal spec).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Calendar {
     #[default]
@@ -911,6 +917,7 @@ impl std::fmt::Display for EventType {
 
 /// Confidence level for a citation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Confidence {
     VeryLow,

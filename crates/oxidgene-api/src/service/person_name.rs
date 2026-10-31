@@ -22,6 +22,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 /// A name to give a person.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewPersonName {
     pub name_type: NameType,
     pub given_names: Option<String>,
@@ -45,6 +46,7 @@ pub struct NewPersonName {
 /// The fields a name update changes: `None` keeps a field, and `Some(None)`
 /// clears an optional one.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct PersonNamePatch {
     pub name_type: Option<NameType>,
     #[serde(default, deserialize_with = "double_option")]

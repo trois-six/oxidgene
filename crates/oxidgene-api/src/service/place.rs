@@ -20,6 +20,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 /// A place to create.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewPlace {
     pub name: String,
     pub latitude: Option<f64>,
@@ -29,6 +30,7 @@ pub struct NewPlace {
 /// The fields a place update changes: `None` keeps a field, and `Some(None)`
 /// clears a coordinate.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct PlacePatch {
     pub name: Option<String>,
     #[serde(default, deserialize_with = "double_option")]

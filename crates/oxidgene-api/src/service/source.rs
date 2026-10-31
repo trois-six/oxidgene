@@ -17,6 +17,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 /// A source to create.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewSource {
     pub title: String,
     pub author: Option<String>,
@@ -30,6 +31,7 @@ pub struct NewSource {
 /// The fields a source update changes: `None` keeps a field, and `Some(None)`
 /// clears an optional one.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct SourcePatch {
     pub title: Option<String>,
     #[serde(default, deserialize_with = "double_option")]

@@ -6744,6 +6744,7 @@
     "app_settings.assistant_desktop_only": "The AI assistant connection is available in the desktop application.",
     "app_settings.assistant_title": "AI assistant (MCP)",
     "app_settings.assistant_warning": "An assistant configured with this command can read every tree in this application, living people, notes and sources included, and sends what it reads to the model provider it uses.",
+    "app_settings.assistant_writes_hint": "Read-only. To let the assistant add, change and delete records too, add --allow-writes after mcp in its configuration. Its changes are recorded in each tree's history.",
     "app_settings.connect_hint": "Any HTTP client, such as curl or a script, can call the API.",
     "app_settings.connect_title": "Connect a client",
     "app_settings.date_calendar": "Display calendar",

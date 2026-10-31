@@ -48,7 +48,7 @@ features = [
     { title = "Rien ne se perd", text = "Chaque modification est conservée : comparez les versions d’une personne et restaurez-en une plus ancienne.", link = "@/guide/history.md" },
     { title = "Des lieux sans rien taper", text = "Un dictionnaire intégré des lieux de douze pays, avec leurs anciens noms, disponible hors ligne.", link = "@/guide/editing.md" },
     { title = "Dans votre langue et vos couleurs", text = "Huit langues, des thèmes clair et sombre, et vos propres thèmes.", link = "@/guide/settings.md" },
-    { title = "Interrogez un assistant IA", text = "Laissez Claude ou un autre assistant lire votre arbre, en lecture seule, depuis l’application de bureau.", link = "@/guide/assistant.md" },
+    { title = "Interrogez un assistant IA", text = "Laissez Claude ou un autre assistant lire votre arbre depuis l’application de bureau, et ne le modifier que si vous l’y autorisez.", link = "@/guide/assistant.md" },
 ]
 
 values_title = "Votre généalogie en toute liberté"

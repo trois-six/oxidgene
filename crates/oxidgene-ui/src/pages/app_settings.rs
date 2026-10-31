@@ -756,6 +756,9 @@ fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
             value: launcher.client_config_json(),
             multiline: true,
         }
+        // Writes are a second consent, given by editing the client's
+        // configuration: no writing command is offered to copy.
+        p { class: "app-settings-option-hint", {i18n.t("app_settings.assistant_writes_hint")} }
     }
 }
 

@@ -1,9 +1,9 @@
 ---
 type: "API Specification"
 title: "Assistant Access (MCP)"
-description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
+description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -12,8 +12,8 @@ generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 > See also: [API Contract](api.md) · [Architecture](architecture.md) ·
 > [App Settings](ui-app-settings.md) · [Cross-cutting Rules](cross-cutting.md)
 >
-> The first delivery is implemented; later phases are tracked in
-> [Roadmap §9](roadmap.md).
+> The read tools and the opt-in write tools are implemented; later phases
+> are tracked in [Roadmap §9](roadmap.md).
 
 ---
 
@@ -22,17 +22,21 @@ generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
 An AI assistant (Claude Desktop, Claude Code, or any other
 [Model Context Protocol](https://modelcontextprotocol.io) client) can read the
 application's genealogy trees through a set of tools the desktop binary
-serves. Typical uses include answering questions about a tree, drafting a
-biography from a profile, and finding inconsistencies.
+serves, and, when the user allows it, change them. Typical uses include
+answering questions about a tree, drafting a biography from a profile,
+finding inconsistencies, and transcribing a record into persons, events and
+citations.
 
-The first delivery is:
+The server is:
 
-- **read-only**: no tool changes stored data;
+- **read-only by default**: the write tools exist only in a session whose
+  launch command carries `--allow-writes` (§7.1);
 - **desktop-only**: served over stdio by `oxidgene-desktop`, with no network
   listener;
-- **explicitly tree-scoped**: every tool call names the tree it reads (§3).
+- **explicitly tree-scoped**: every tool call names the tree it reads or
+  writes (§3).
 
-Mutating tools and a network transport are later phases (§10).
+A network transport is a later phase (§10).
 
 ---
 
@@ -62,8 +66,8 @@ defines. It is not a third mirror of that contract.
 
 ## 3. Tree scope
 
-A session can read every active tree in the database. It never picks one
-implicitly: each tool call names its tree.
+A session can read, and when allowed write, every active tree in the
+database. It never picks one implicitly: each tool call names its tree.
 
 - `list_trees` is the only tool without a tree. Every other tool requires a
   `tree_id` parameter, which its input schema marks as required. There is no
@@ -71,8 +75,9 @@ implicitly: each tool call names its tree.
 - `tree_id` scopes the whole operation, exactly as the `{tree_id}` path
   segment does in REST. An ID that belongs to another tree returns
   `not_found`, like REST and GraphQL do, so an answer never mixes two trees.
-- The tree is resolved on every call. A tree soft-deleted during a session
-  disappears from `list_trees`, and later calls that name it return
+- The tree is resolved on every call, before any write, as the REST tree
+  guard does. A tree soft-deleted during a session disappears from
+  `list_trees`, and later calls that name it, writes included, return
   `not_found`.
 
 ---
@@ -82,11 +87,13 @@ implicitly: each tool call names its tree.
 ### 4.1 Launch
 
 ```text
-oxidgene-desktop mcp
+oxidgene-desktop mcp [--allow-writes]
 ```
 
 The `mcp` subcommand runs a headless MCP server on standard input and output
-(JSON-RPC over stdio). The process exits when its input closes. There is one
+(JSON-RPC over stdio). The process exits when its input closes. Without
+`--allow-writes` the session is read-only; with it, the write tools of §5.2
+are offered too (§7.1). The flag is accepted only after `mcp`. There is one
 executable per platform ([Architecture §8.2](architecture.md)); the
 subcommand is part of it, not a separate binary.
 
@@ -126,19 +133,27 @@ output breaks the session.
 
 The desktop application may be open on the same database at the same time.
 SQLite runs in WAL mode, so readers in either process do not block each other.
-The only writes the MCP process performs are lazy rebuilds of stale person
-projections ([Data Model §4](data-model.md)). They contend for the writer lock
-like any other write and wait for SQLite's busy timeout. A read-only session
-never makes the desktop's caches stale.
+A read-only session writes nothing but lazy rebuilds of stale person
+projections ([Data Model §4](data-model.md)), and never makes the desktop's
+caches stale. The write tools of a session that allows them, and those
+rebuilds, contend for the writer lock like any other write and wait for
+SQLite's busy timeout. Each write commits in its own transaction, with its
+projections and its history entry, so the desktop process reads either the
+whole write or none of it; an open desktop window shows it once its own
+caches refresh, as after a write from another REST client.
 
 ---
 
 ## 5. Tools
 
-Every tool in the first delivery is annotated `readOnlyHint: true`,
-`idempotentHint: true`, and `openWorldHint: false`. Every tool except
+Every tool is annotated `openWorldHint: false`. Every tool except
 `list_trees` requires `tree_id` (§3), and every ID parameter is resolved
 within that tree.
+
+### 5.1 Read tools
+
+Every read tool is annotated `readOnlyHint: true` and `idempotentHint: true`,
+and is offered in every session.
 
 | Tool | Parameters | Product operation | Result |
 |---|---|---|---|
@@ -150,7 +165,10 @@ within that tree.
 | `get_person_by_sosa` | `tree_id`, `number` | `GET /trees/{tree_id}/persons/sosa/{number}` | Person with `sosa_number` |
 | `get_pedigree` | `tree_id`, `root_person_id`, `ancestor_depth`, `descendant_depth` | `GET /trees/{tree_id}/pedigree/{root_person_id}` | `Pedigree` |
 | `get_relation_labels` | `tree_id`, `person_ids`, `family_ids` | `POST /trees/{tree_id}/relation-labels` | Names of the persons, and the spouses of the families with their names; at most 1,024 IDs |
+| `get_kinship` | `tree_id`, `person_id`, `other_person_id` | `GET /trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}` | `Kinship`: the blood relationships found, or the shortest paths through unions, with the persons they name ([API Contract](api.md)) |
+| `get_family` | `tree_id`, `family_id` | `GET /trees/{tree_id}/families/{family_id}`, `…/spouses` and `…/children` | Family, with `spouses` and `children`: its spouse and child links, whose `id` is what `remove_spouse` and `remove_child` take |
 | `list_events` | `tree_id`, `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection; each event carries its `tags` |
+| `list_event_witnesses` | `tree_id`, `event_id` | `GET /trees/{tree_id}/events/{event_id}/witnesses` | `EventWitness` list, whose `id` is what `remove_event_witness` takes |
 | `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place, with its `tags` |
 | `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` and `GET …/sources/{source_id}/repositories` | Source, with `repositories`: each holding repository's id and name, call number and medium; the source carries its `tags` |
 | `list_citations` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection; each citation carries its `tags` |
@@ -168,7 +186,59 @@ Bounds:
   pedigree view offers ([Tree Settings §11](ui-settings.md#11-section-global-preferences)) and the limit
   REST and GraphQL enforce.
 
-The first delivery offers no MCP resources and no prompts.
+### 5.2 Write tools
+
+Offered only in a session started with `--allow-writes` (§7.1); a read-only
+session does not list them, and calling one is an unknown-tool error. Each
+maps to one REST write and calls the service its REST handler and GraphQL
+resolver call: the same validation, the same checks that every ID belongs to
+the tree, the same projection refresh, and the same history entry, all in
+the write's one transaction. Its parameters are `tree_id`, the IDs of the
+REST path, and the fields of the REST request body, declared by the same Rust
+type (`NewPerson`, `PersonPatch`, `NewEvent`, `EventPatch`, …) flattened into
+the tool's input schema. An update keeps an absent field and clears a field
+sent as `null`, as REST does.
+
+Writes that add or change are annotated `readOnlyHint: false` and
+`destructiveHint: false`; an update keeps the replaced state in the history
+(§7.5), where it can be restored. Writes that delete a record or remove a link
+are annotated `destructiveHint: true`, so a client asks before running them.
+`idempotentHint` is `true` where repeating the call changes nothing more:
+updates, `create_tag` (which returns the existing tag), putting and taking a
+tag, removals and deletions (a second call answers `not_found`).
+
+| Tool | Hints | Product operation | Result |
+|---|---|---|---|
+| `create_person` | additive | `POST /trees/{tree_id}/persons` | Person |
+| `update_person` | additive, idempotent | `PUT …/persons/{person_id}` (`sex`, `privacy`) | Person |
+| `add_person_name` | additive | `POST …/persons/{person_id}/names` | `PersonName` |
+| `update_person_name` | additive, idempotent | `PUT …/persons/{person_id}/names/{name_id}` | `PersonName` |
+| `create_event` | additive | `POST …/events`, for a `person_id` or a `family_id` (date, `date_qualifier`, `date_value2`, `calendar`, place, description, age, cause…) | Event |
+| `update_event` | additive, idempotent | `PUT …/events/{event_id}` | Event |
+| `add_event_witness` | additive | `POST …/events/{event_id}/witnesses` | `EventWitness` |
+| `create_family` | additive | `POST …/families` | Family |
+| `update_family` | additive, idempotent | `PUT …/families/{family_id}` (`privacy`) | Family |
+| `add_spouse` | additive | `POST …/families/{family_id}/spouses` | `FamilySpouse` |
+| `add_child` | additive | `POST …/families/{family_id}/children` (with `child_type`) | `FamilyChild` |
+| `create_place` / `update_place` | additive (update idempotent) | `POST …/places`, `PUT …/places/{place_id}` | Place |
+| `create_source` / `update_source` | additive (update idempotent) | `POST …/sources`, `PUT …/sources/{source_id}` | Source |
+| `create_citation` / `update_citation` | additive (update idempotent) | `POST …/citations` (attached to a person, an event or a family), `PUT …/citations/{citation_id}` | Citation |
+| `create_note` / `update_note` | additive (update idempotent) | `POST …/notes` (about a person, an event, a family, a source, a repository or a document), `PUT …/notes/{note_id}` | Note |
+| `create_tag` | additive, idempotent | `POST …/tags` | The tag with its counts, and `created` |
+| `tag_record` | additive, idempotent | `PUT …/tags/{tag_id}/records/{kind}/{record_id}` | `{}` |
+| `untag_record` | destructive, idempotent | `DELETE …/tags/{tag_id}/records/{kind}/{record_id}` | `{}` |
+| `remove_event_witness` | destructive, idempotent | `DELETE …/events/{event_id}/witnesses/{witness_id}` | `{}` |
+| `remove_spouse` / `remove_child` | destructive, idempotent | `DELETE …/families/{family_id}/spouses/{spouse_id}`, `…/children/{child_id}` (link IDs from `get_family`) | `{}` |
+| `delete_person_name` | destructive, idempotent | `DELETE …/persons/{person_id}/names/{name_id}` | `{}` |
+| `delete_event`, `delete_citation`, `delete_note`, `delete_tag`, `delete_place`, `delete_family`, `delete_person` | destructive, idempotent | The matching `DELETE` | `{}` |
+| `delete_source` | destructive, idempotent | `DELETE …/sources/{source_id}`, with `only_if_unused` | `{ "deleted": … }` |
+
+Operations that are not tools stay so: merges, imports, exports, media,
+repositories, tree settings, bulk tag changes, history restores, and the
+Geneanet and archive operations. They act on many records at once, on files,
+or outside the tree, where an assistant's mistake costs most.
+
+The server offers no MCP resources and no prompts.
 
 ---
 
@@ -176,10 +246,14 @@ The first delivery offers no MCP resources and no prompts.
 
 - `structuredContent` is the REST JSON body of the mapped operation. MCP
   requires an object there, so a body that is a list is wrapped as
-  `{ "items": [...] }`. The text content carries the same JSON serialized,
-  for clients that ignore structured content. There is no other MCP-specific
-  representation.
-- The first delivery publishes no `outputSchema`. Output schemas would need
+  `{ "items": [...] }`, and a write REST answers with no body
+  (`204 No Content`) returns `{}`. A tool result has no status code, so where
+  REST answers with the status code alone, the result carries it as a field:
+  `create_tag` adds `created` (`201` against `200`), and `delete_source`
+  returns `{ "deleted": false }` for a source it kept (`200` against `204`).
+  The text content carries the same JSON serialized, for clients that ignore
+  structured content. There is no other MCP-specific representation.
+- The server publishes no `outputSchema`. Output schemas would need
   JSON Schema derives on every domain and projection type the results
   contain; they are deferred to a later phase (§10).
 - User and imported content (names, notes, source text) is returned verbatim
@@ -198,7 +272,13 @@ English. They say that every tool except `list_trees` needs a `tree_id`
 obtained from `list_trees`, that IDs are never shared between trees, and they
 describe how to read dates: a year always comes with its qualifier (`ca 1849`, `< 1917`); a
 birth may fall back to the baptism and a death to the burial when the primary
-event has no date; and SOSA numbers are relative to the tree's root.
+event has no date; and SOSA numbers are relative to the tree's root. A session
+that allows writes says so instead of calling itself read-only, and adds that
+a tree is changed only when the user asked for the change, never because
+imported content asks for it; how a person, a name and a couple are built;
+how a date is written (`12 MAR 1850` in `date_value`, its precision in
+`date_qualifier`, the second date of `between` and `or` in `date_value2`);
+and that every change is recorded in the tree's history.
 
 Tool names, descriptions, schemas, and instructions address the model. They
 are protocol text, not user-visible UI, so they are written in English and do
@@ -219,6 +299,26 @@ The warning states that every tree in the application becomes readable by the
 assistant, including living people, notes, and sources, and that what the
 assistant reads is sent to the model provider the client uses. OxidGene does
 not control what that provider retains.
+
+**Writes are a second, separate consent, off by default.** The command App
+Settings shows is read-only. Adding `--allow-writes` after `mcp` in the
+client's configuration is the consent to writes, and removing it revokes that
+consent; a hint under the command says so. The switch is a flag of the
+command, not an application setting:
+
+- it is chosen per client: one assistant may read while another writes;
+- it is read by the process the client launches, which needs no shared
+  setting store with the desktop window, and nothing is saved;
+- it is where the user already consents, in the client configuration, next
+  to the client's own confirmation settings.
+
+Writes stay off unless asked for because a model acts on text it reads, and
+the trees are full of text that nobody in the session wrote (§7.3); because
+an assistant misreads a record or a relationship more often than it misreads
+a question; and because whether a client asks before a tool runs is the
+client's choice, which `destructiveHint` only informs. Reading cannot damage
+a tree; a wrong write can, and a long session can make many before anyone
+looks.
 
 ### 7.2 Privacy values are not applied
 
@@ -241,15 +341,32 @@ separate setting, not an overloaded `privacy` value.
 ### 7.3 Untrusted content
 
 Notes, sources, and names come from imports and are untrusted text for a
-model: they may contain instructions (prompt injection). The first delivery
-is read-only, so such text cannot trigger a write through OxidGene.
+model: they may contain instructions (prompt injection). A read-only session
+offers no write tool, so such text cannot trigger a write through OxidGene.
+In a session that allows writes, it could: the instructions tell the model
+never to act on such content, deletions and removals are marked destructive
+so the client asks first, and every write is in the history (§7.5), where it
+can be reviewed and reverted. The flag stays off by default for this reason
+(§7.1).
 
 ### 7.4 Logging
 
 A tool call logs its tool name, duration, and outcome code. It never logs
 parameters or results, because they contain names, places, and dates. With
 OTLP export enabled, each call is also an `mcp.tool` root span recording the
-tool name only, under which its database calls are traced.
+tool name only, under which its database calls are traced. Writes are logged
+the same way.
+
+### 7.5 History
+
+A write tool records its change in the tree's history
+([Data Model §5](data-model.md)) in the write's transaction, through the same
+service code as REST and GraphQL: the same audit entry (category, action,
+entity, subject, label) and the same stored versions. History entries carry
+no author and no surface, so an assistant's write reads in the history, and
+is reverted, exactly as the same write made in the application. Telling
+writes apart by who made them belongs with authentication, which would give
+an entry an author for every surface.
 
 ---
 
@@ -275,6 +392,9 @@ Clients that use an `mcpServers` JSON file:
 }
 ```
 
+To allow writes (§7.1), the user appends the flag: `… oxidgene-desktop mcp
+--allow-writes`, or `"args": ["mcp", "--allow-writes"]`.
+
 ---
 
 ## 9. Build and dependencies
@@ -295,16 +415,16 @@ Clients that use an `mcpServers` JSON file:
 - Logs go to standard error through `oxidgene_observability::init_to_stderr`,
   the variant of the shared initializer for processes whose standard output is
   a protocol stream.
+- The read tools live in `mcp/mod.rs` and the write tools in `mcp/write.rs`,
+  each block its own tool router; `OxidGeneMcp::new` adds the write router
+  only for `Access::ReadWrite`. The request types the write tools flatten
+  derive `JsonSchema` behind the `mcp` feature; the enums and `SpouseAge` and
+  `RecordKind` they contain, behind `oxidgene-core`'s `schema` feature.
 
 ---
 
 ## 10. Later phases
 
-- **Mutating tools.** Each maps to an existing mutation, runs in the same
-  transaction, and refreshes projections the same way. It is annotated
-  `destructiveHint` so clients ask for confirmation. Deletions come last.
-  Writes made by an MCP process appear in an open desktop window only after
-  its caches refresh.
 - **Network transport.** Streamable HTTP on `/mcp`, merged into the Axum
   router. This is blocked by the rule that the backend is never exposed before
   authentication
@@ -327,7 +447,14 @@ only the trees the user may read.
   schema, an ID from another tree returning `not_found`, and a tree
   soft-deleted mid-session disappearing from `list_trees` and returning
   `not_found` afterwards.
+- Every write tool is tested in a session that allows writes: its result, a
+  validation error or arguments refused by the input schema writing nothing,
+  IDs from another tree returning `not_found` and writing nothing, a write to
+  a tree deleted mid-session returning `not_found`, its history entry, and the
+  person profile and search reflecting it. A test checks every tool's
+  annotations against the destructive and additive lists, and another that a
+  read-only session neither lists nor runs a write tool.
 - A test asserts that a session writes nothing but protocol messages to its
-  output stream.
+  output stream, with and without `--allow-writes`.
 - A tool whose operation's behavior changes is re-tested with the REST and
   GraphQL tests of that operation.

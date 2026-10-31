@@ -150,6 +150,6 @@ This section is for connecting other programs to OxidGene; you do not need it fo
 - In the desktop application, it also shows an **Access token**. Anyone holding this token can read and change every tree while the application is running, so give it only to tools you trust. The address and the token change each time the application starts.
 - In the web version, the GraphQL address and an example are shown as well.
 
-The **AI assistant (MCP)** card, in the desktop application, gives the command that lets an AI assistant read your trees. See [AI assistant](@/guide/assistant.md).
+The **AI assistant (MCP)** card, in the desktop application, gives the command that lets an AI assistant read your trees, and says how to let it change them too. See [AI assistant](@/guide/assistant.md).
 
 Learn more: [tree settings specification](@/tech/ui-settings.md), [application settings specification](@/tech/ui-app-settings.md).

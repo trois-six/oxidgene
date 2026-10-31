@@ -25,6 +25,7 @@ pub struct TagRef {
 
 /// The kinds of record a tag can be put on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RecordKind {
     Person,

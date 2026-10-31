@@ -18,6 +18,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 /// A note to create: its text and what it is about.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewNote {
     pub text: String,
     pub person_id: Option<Uuid>,
@@ -34,6 +35,7 @@ pub struct NewNote {
 
 /// What a note update changes: `None` keeps the text.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NotePatch {
     pub text: Option<String>,
 }

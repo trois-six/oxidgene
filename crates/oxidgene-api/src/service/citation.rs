@@ -20,6 +20,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 /// A citation to create: the source it cites, what it is attached to, and
 /// what it says.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NewCitation {
     pub source_id: Uuid,
     pub person_id: Option<Uuid>,
@@ -35,6 +36,7 @@ pub struct NewCitation {
 /// The fields a citation update changes: `None` keeps a field, and
 /// `Some(None)` clears an optional one.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct CitationPatch {
     /// Repoints the citation at another source.
     pub source_id: Option<Uuid>,

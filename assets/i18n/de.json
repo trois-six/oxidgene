@@ -6744,6 +6744,7 @@
     "app_settings.assistant_desktop_only": "Die Verbindung zum KI-Assistenten ist in der Desktop-Anwendung verfügbar.",
     "app_settings.assistant_title": "KI-Assistent (MCP)",
     "app_settings.assistant_warning": "Ein mit diesem Befehl eingerichteter Assistent kann jeden Stammbaum dieser Anwendung lesen, lebende Personen, Notizen und Quellen eingeschlossen, und sendet das Gelesene an den Anbieter des verwendeten Modells.",
+    "app_settings.assistant_writes_hint": "Nur Lesezugriff. Damit der Assistent auch Einträge hinzufügen, ändern und löschen kann, fügen Sie in seiner Konfiguration --allow-writes nach mcp hinzu. Seine Änderungen werden im Verlauf jedes Stammbaums festgehalten.",
     "app_settings.connect_hint": "Jeder HTTP-Client, etwa curl oder ein Skript, kann die API aufrufen.",
     "app_settings.connect_title": "Client verbinden",
     "app_settings.date_calendar": "Anzeigekalender",

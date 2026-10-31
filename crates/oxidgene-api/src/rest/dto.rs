@@ -231,9 +231,10 @@ pub fn comma_separated_ids(ids: &str) -> Result<Vec<uuid::Uuid>, oxidgene_core::
 
 /// Query parameters for deleting a source.
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct DeleteSourceQuery {
     /// Keep the source if any citation, note, media link or repository link still points at
-    /// it. Answered by the status code: `204` deleted, `200` kept.
+    /// it. The answer says which happened: on REST, `204` deleted and `200` kept.
     #[serde(default)]
     pub only_if_unused: bool,
 }

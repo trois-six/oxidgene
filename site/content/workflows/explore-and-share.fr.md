@@ -88,4 +88,4 @@ Dans l'application de bureau, un assistant IA comme Claude Desktop ou Claude Cod
 1. Ouvrez les paramètres de l'application et choisissez **API**.
 2. Sous **Assistant IA (MCP)**, lisez l'avertissement, puis copiez la commande ou la configuration client dans votre assistant.
 
-L'accès est en lecture seule : l'assistant ne peut pas modifier vos arbres. Mais il peut lire tous les arbres de l'application, personnes vivantes, notes et sources comprises, et il envoie ce qu'il lit au fournisseur du modèle qu'il utilise. Ne connectez qu'un assistant à qui vous confiez ces données. La page [Assistant IA](@/guide/assistant.fr.md) détaille la mise en place.
+L'accès est en lecture seule, sauf si vous ajoutez `--allow-writes` à la commande : l'assistant peut alors modifier vos arbres, et chacune de ses modifications entre dans l'historique de l'arbre. Dans tous les cas, il peut lire tous les arbres de l'application, personnes vivantes, notes et sources comprises, et il envoie ce qu'il lit au fournisseur du modèle qu'il utilise. Ne connectez qu'un assistant à qui vous confiez ces données. La page [Assistant IA](@/guide/assistant.fr.md) détaille la mise en place.

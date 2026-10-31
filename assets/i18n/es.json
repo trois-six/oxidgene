@@ -6744,6 +6744,7 @@
     "app_settings.assistant_desktop_only": "La conexión con el asistente de IA está disponible en la aplicación de escritorio.",
     "app_settings.assistant_title": "Asistente de IA (MCP)",
     "app_settings.assistant_warning": "Un asistente configurado con este comando puede leer todos los árboles de esta aplicación, incluidas las personas vivas, las notas y las fuentes, y envía lo que lee al proveedor del modelo que utiliza.",
+    "app_settings.assistant_writes_hint": "Solo lectura. Para que el asistente también pueda añadir, modificar y eliminar registros, añada --allow-writes después de mcp en su configuración. Sus cambios quedan registrados en el historial de cada árbol.",
     "app_settings.connect_hint": "Cualquier cliente HTTP, como curl o un script, puede llamar a la API.",
     "app_settings.connect_title": "Conectar un cliente",
     "app_settings.date_calendar": "Calendario de visualización",
