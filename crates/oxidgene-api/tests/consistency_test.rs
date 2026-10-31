@@ -861,6 +861,32 @@ async fn new_place(app: &axum::Router, tree_id: &str, name: &str) -> String {
         .to_owned()
 }
 
+/// A search offset past what SQL can skip is refused, never wrapped into a
+/// negative OFFSET — on both surfaces.
+#[tokio::test]
+async fn a_search_offset_past_the_signed_range_is_refused_alike() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Offsets").await;
+
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=&offset=18446744073709551615"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error", "{body}");
+
+    let response = gql(
+        &app,
+        "query($t: ID!) { searchPersons(treeId: $t, query: \"\", offset: 9223372036854775808) { totalCount } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+}
+
 /// An event belongs to a person or to a family: one naming both is refused,
 /// and nothing is written — on both surfaces.
 #[tokio::test]

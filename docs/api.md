@@ -1533,7 +1533,8 @@ All supplied filters are combined with AND. Name and free-text matching is
 case- and accent-insensitive, including the `Relations` filters. An empty or
 missing `q` is valid: structured filters can be used alone, and no filters at
 all select browse mode. The response's `total_count` is computed before `limit`
-and `offset` are applied.
+and `offset` are applied. An `offset` past 2^63 − 1, more than SQL can skip,
+is a `validation_error` on every surface.
 
 `q` is matched as a **prefix**, per word, on both backends: every word must
 match the start of a word of one of the indexed fields (`sophie` finds

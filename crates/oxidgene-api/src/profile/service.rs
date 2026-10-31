@@ -512,6 +512,11 @@ impl ProfileService {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResult, OxidGeneError> {
+        // SQL takes a signed offset: one past it would wrap to a negative
+        // OFFSET, refused by PostgreSQL and read as none by SQLite.
+        if i64::try_from(offset).is_err() {
+            return Err(OxidGeneError::Validation("offset is too large".to_string()));
+        }
         let conn = &self.reader;
         self.ensure_materialized(tree_id).await?;
         let page = PersonSearchRepo::search_filtered(
