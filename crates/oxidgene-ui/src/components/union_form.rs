@@ -30,9 +30,7 @@ use crate::utils::{
     child_type_label_key, event_type_label_key, opt_str, parse_privacy, resolve_name,
 };
 use oxidgene_core::types::SpouseAge;
-use oxidgene_core::types::{
-    Connection, Event as StoredEvent, Family, FamilyChild, FamilySpouse, PersonName,
-};
+use oxidgene_core::types::{Event as StoredEvent, Family, FamilyChild, FamilySpouse, PersonName};
 use oxidgene_core::{ChildType, EventType};
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -129,10 +127,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
         move || {
             let api = api.clone();
             let _tick = refresh();
-            async move {
-                api.list_events(tid, Some(100), None, None, None, Some(fid))
-                    .await
-            }
+            async move { api.list_events(tid, None, Some(fid)).await }
         }
     });
     // The names of the places the union's events sit on — the only places
@@ -143,7 +138,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             let api = api.clone();
             let ids = match &*events_resource.read() {
                 Some(Ok(events)) => oxidgene_core::collections::sorted_unique(
-                    events.edges.iter().filter_map(|edge| edge.node.place_id),
+                    events.iter().filter_map(|event| event.place_id),
                 ),
                 _ => Vec::new(),
             };
@@ -170,11 +165,10 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // ── Derived data ──
 
     let union_events: Vec<StoredEvent> = match &*events_resource.read() {
-        Some(Ok(conn)) => conn
-            .edges
+        Some(Ok(events)) => events
             .iter()
-            .filter(|e| is_union_event(e.node.event_type))
-            .map(|e| e.node.clone())
+            .filter(|e| is_union_event(e.event_type))
+            .cloned()
             .collect(),
         _ => vec![],
     };
@@ -695,9 +689,7 @@ struct MarriageDraft {
 }
 
 /// The marriage shorthand, seeded once from the couple's events.
-fn use_marriage_draft(
-    events: Resource<Result<Connection<StoredEvent>, ApiError>>,
-) -> MarriageDraft {
+fn use_marriage_draft(events: Resource<Result<Vec<StoredEvent>, ApiError>>) -> MarriageDraft {
     let mut draft = MarriageDraft {
         parts: use_signal(DateParts::default),
         place_id: use_signal(String::new),
@@ -707,14 +699,9 @@ fn use_marriage_draft(
     };
     let mut loaded = use_signal(|| false);
     if !loaded()
-        && let Some(Ok(conn)) = &*events.read()
+        && let Some(Ok(events)) = &*events.read()
     {
-        if let Some(ev) = conn
-            .edges
-            .iter()
-            .map(|edge| &edge.node)
-            .find(|ev| is_marriage_like(ev.event_type))
-        {
+        if let Some(ev) = events.iter().find(|ev| is_marriage_like(ev.event_type)) {
             draft.event_id.set(Some(ev.id));
             draft.parts.set(DateParts::from_fields(
                 ev.calendar,

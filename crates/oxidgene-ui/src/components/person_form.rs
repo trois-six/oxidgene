@@ -417,8 +417,7 @@ fn PersonFormBody(
                     body: String::new(),
                 });
             }
-            api.list_events(tid, Some(100), None, None, Some(pid), None)
-                .await
+            api.list_events(tid, Some(pid), None).await
         }
     });
 
@@ -429,7 +428,7 @@ fn PersonFormBody(
         let api = api_places.clone();
         let ids = match &*events_resource.read() {
             Some(Ok(events)) => oxidgene_core::collections::sorted_unique(
-                events.edges.iter().filter_map(|edge| edge.node.place_id),
+                events.iter().filter_map(|event| event.place_id),
             ),
             _ => Vec::new(),
         };
@@ -463,14 +462,11 @@ fn PersonFormBody(
                 return (NotesSource::default(), NotesSource::default());
             }
             let (mut birth_eid, mut death_eid) = (None, None);
-            if let Ok(conn) = api
-                .list_events(tid, Some(100), None, None, Some(pid), None)
-                .await
-            {
-                for edge in &conn.edges {
-                    match edge.node.event_type {
-                        EventType::Birth => birth_eid = Some(edge.node.id),
-                        EventType::Death => death_eid = Some(edge.node.id),
+            if let Ok(events) = api.list_events(tid, Some(pid), None).await {
+                for event in &events {
+                    match event.event_type {
+                        EventType::Birth => birth_eid = Some(event.id),
+                        EventType::Death => death_eid = Some(event.id),
                         _ => {}
                     }
                 }
@@ -540,10 +536,9 @@ fn PersonFormBody(
 
     // ── Populate birth/death (once) ──
     if !birth_death_loaded()
-        && let Some(Ok(conn)) = &*events_resource.read()
+        && let Some(Ok(events)) = &*events_resource.read()
     {
-        for edge in &conn.edges {
-            let ev = &edge.node;
+        for ev in events {
             match ev.event_type {
                 EventType::Birth => {
                     birth_event_id.set(Some(ev.id));
@@ -640,16 +635,15 @@ fn PersonFormBody(
     };
 
     let other_events: Vec<CoreEvent> = match &*events_resource.read() {
-        Some(Ok(conn)) => conn
-            .edges
+        Some(Ok(events)) => events
             .iter()
             .filter(|e| {
                 !matches!(
-                    e.node.event_type,
+                    e.event_type,
                     EventType::Birth | EventType::Death | EventType::Occupation
                 )
             })
-            .map(|e| e.node.clone())
+            .cloned()
             .collect(),
         _ => vec![],
     };
@@ -657,11 +651,9 @@ fn PersonFormBody(
     // Every event of this person, as (id, label) pairs — what the media
     // gallery offers when asking which event a file or a crop documents.
     let event_choices: Vec<(Uuid, String)> = match &*events_resource.read() {
-        Some(Ok(conn)) => conn
-            .edges
+        Some(Ok(events)) => events
             .iter()
-            .map(|e| {
-                let ev = &e.node;
+            .map(|ev| {
                 let kind = i18n.t(event_type_label_key(ev.event_type));
                 let date = format_event_date(&i18n, ev);
                 let label = if date.is_empty() {
@@ -676,11 +668,10 @@ fn PersonFormBody(
     };
 
     let professions: Vec<CoreEvent> = match &*events_resource.read() {
-        Some(Ok(conn)) => conn
-            .edges
+        Some(Ok(events)) => events
             .iter()
-            .filter(|e| e.node.event_type == EventType::Occupation)
-            .map(|e| e.node.clone())
+            .filter(|e| e.event_type == EventType::Occupation)
+            .cloned()
             .collect(),
         _ => vec![],
     };

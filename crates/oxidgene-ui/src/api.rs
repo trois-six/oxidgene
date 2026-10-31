@@ -4113,38 +4113,17 @@ impl ApiClient {
 
     // ── Events ──────────────────────────────────────────────────────
 
+    /// Every event of a person or of a family, all pages read: the edit
+    /// forms look for the Birth, Death or marriage among them, and one past
+    /// the first page left unseen would be created again on save.
     pub async fn list_events(
         &self,
         tree_id: Uuid,
-        first: Option<u64>,
-        after: Option<&str>,
-        event_type: Option<EventType>,
         person_id: Option<Uuid>,
         family_id: Option<Uuid>,
-    ) -> Result<PaginatedResponse<Event>, ApiError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
-        if let Some(et) = event_type {
-            params.push((
-                "event_type",
-                serde_json::to_string(&et)
-                    .unwrap()
-                    .trim_matches('"')
-                    .to_string(),
-            ));
-        }
-        if let Some(pid) = person_id {
-            params.push(("person_id", pid.to_string()));
-        }
-        if let Some(fid) = family_id {
-            params.push(("family_id", fid.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/events"), &params)
+    ) -> Result<Vec<Event>, ApiError> {
+        let filters = owner_filters([("person_id", person_id), ("family_id", family_id)]);
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/events"), 100, filters)
             .await
     }
 
@@ -6739,6 +6718,71 @@ mod tests {
             .unwrap();
 
         assert_eq!(nodes, [1, 2, 3, 4, 5]);
+    }
+
+    /// A person's events past the first page reach the edit form: a Birth
+    /// left unseen there was created a second time on save.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_persons_events_are_read_past_the_first_page() {
+        let api = ApiClient::new("http://127.0.0.1:9");
+        let (tree, person) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let event = |event_type: EventType| {
+            let now = chrono::Utc::now();
+            Event {
+                classification: None,
+                id: Uuid::now_v7(),
+                tree_id: tree,
+                event_type,
+                date_value: None,
+                date_sort: None,
+                date_qualifier: DateQualifier::Exact,
+                date_value2: None,
+                calendar: Calendar::Gregorian,
+                cause: None,
+                age: None,
+                agency: None,
+                spouse_ages: Vec::new(),
+                place_id: None,
+                person_id: Some(person),
+                family_id: None,
+                related_family_id: None,
+                description: None,
+                tags: Vec::new(),
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+            }
+        };
+        let page = |events: &[&Event], end_cursor: Option<&str>| {
+            serde_json::to_vec(&serde_json::json!({
+                "edges": events.iter().map(|event| {
+                    serde_json::json!({ "cursor": event.id.to_string(), "node": event })
+                }).collect::<Vec<_>>(),
+                "page_info": { "has_next_page": end_cursor.is_some(), "end_cursor": end_cursor },
+                "total_count": events.len(),
+            }))
+            .unwrap()
+        };
+        let path = format!("/api/v1/trees/{tree}/events");
+        let key = |after: Option<&str>| {
+            let mut params = vec![
+                ("person_id", person.to_string()),
+                ("first", "100".to_string()),
+            ];
+            if let Some(after) = after {
+                params.push(("after", after.to_string()));
+            }
+            format!("{path}?{}", serde_json::to_string(&params).unwrap())
+        };
+        let (residence, birth) = (event(EventType::Residence), event(EventType::Birth));
+        api.cache.set(key(None), page(&[&residence], Some("c1")));
+        api.cache.set(key(Some("c1")), page(&[&birth], None));
+
+        let events = api.list_events(tree, Some(person), None).await.unwrap();
+
+        let ids: Vec<Uuid> = events.iter().map(|event| event.id).collect();
+        assert_eq!(ids, [residence.id, birth.id]);
     }
 
     #[test]
