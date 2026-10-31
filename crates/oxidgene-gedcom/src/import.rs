@@ -2695,7 +2695,7 @@ fn import_standalone_places(data: &Dataset, lookups: &mut Lookups<'_>, result: &
             continue;
         };
         let tags = read_tags(plac.children(), &mut result.tags, &mut result.warnings);
-        let coordinates = map_coordinates(plac);
+        let coordinates = map_coordinates(plac, &mut result.warnings);
         if let Some(place) = result.places.iter_mut().find(|place| place.id == id) {
             add_tags(&mut place.tags, tags);
             if let Some((latitude, longitude)) = coordinates {
@@ -2705,14 +2705,32 @@ fn import_standalone_places(data: &Dataset, lookups: &mut Lookups<'_>, result: &
     }
 }
 
-/// The coordinates of a `PLAC`'s `MAP`, when it has both.
-fn map_coordinates(plac: View<'_, Node>) -> Option<(f64, f64)> {
+/// The coordinates of a `PLAC`'s `MAP`, when it has both and both are
+/// valid (see [`map_pair`]).
+fn map_coordinates(plac: View<'_, Node>, warnings: &mut Vec<String>) -> Option<(f64, f64)> {
     let map = plac.children().into_iter().find(|c| c.tag() == "MAP")?;
     let coordinate = |tag: &str| {
         let node = map.children().into_iter().find(|c| c.tag() == tag)?;
-        parse_gedcom_coord(&node_text(node)?).ok()
+        node_text(node)
     };
-    Some((coordinate("LATI")?, coordinate("LONG")?))
+    map_pair(coordinate("LATI")?.as_ref(), coordinate("LONG")?.as_ref(), warnings)
+}
+
+/// A `MAP`'s latitude and longitude, read as [`parse_gedcom_coord`] does. A
+/// value that is no number, or none on Earth (`NaN`, `inf`, `N999`), costs
+/// the place its coordinates, with a warning that names no value.
+fn map_pair(latitude: &str, longitude: &str, warnings: &mut Vec<String>) -> Option<(f64, f64)> {
+    if latitude.trim().is_empty() || longitude.trim().is_empty() {
+        return None;
+    }
+    let pair = parse_gedcom_coord(latitude, 90.0).zip(parse_gedcom_coord(longitude, 180.0));
+    if pair.is_none() {
+        warnings.push(
+            "A place's MAP holds a latitude or a longitude out of range; its coordinates were left out"
+                .to_owned(),
+        );
+    }
+    pair
 }
 
 /// Read the tags beneath each shared note record (`NOTE` in 5.5.1, `SNOTE` in
@@ -3055,7 +3073,12 @@ fn apply_document_metadata(
     let place_id = meta.place.as_ref().and_then(|place| {
         let id = places.id_of(&place.name, &mut result.places)?;
         if let Some(existing) = result.places.iter_mut().find(|item| item.id == id) {
-            give_coordinates(existing, place.latitude, place.longitude);
+            // JSON holds no NaN, but any number: the same bounds as a MAP's.
+            give_coordinates(
+                existing,
+                place.latitude.filter(|v| v.abs() <= 90.0),
+                place.longitude.filter(|v| v.abs() <= 180.0),
+            );
         }
         Some(id)
     });
@@ -4170,9 +4193,7 @@ fn import_place(
     let tags = read_tags(plac.extra(), &mut result.tags, &mut result.warnings);
     let coordinates = plac.map().and_then(|map| {
         let (lat_str, lon_str) = (map.latitude()?, map.longitude()?);
-        let latitude = parse_gedcom_coord(&lat_str.to_str()).ok()?;
-        let longitude = parse_gedcom_coord(&lon_str.to_str()).ok()?;
-        Some((latitude, longitude))
+        map_pair(&lat_str.to_str(), &lon_str.to_str(), &mut result.warnings)
     });
     if let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid) {
         if !tags.is_empty() {
@@ -4332,21 +4353,46 @@ fn resolve_or_create_media(
     Some(document_id)
 }
 
-/// Parse a GEDCOM coordinate string (e.g. `"N01.4242"` or `"W1.4242"`).
-fn parse_gedcom_coord(s: &str) -> Result<f64, std::num::ParseFloatError> {
+/// Parse a GEDCOM coordinate string (e.g. `"N01.4242"` or `"W1.4242"`):
+/// `None` unless it is a finite number of at most `limit` degrees (90 for a
+/// latitude, 180 for a longitude). `f64::from_str` alone takes `NaN`, `inf`
+/// and `1e999`.
+fn parse_gedcom_coord(s: &str, limit: f64) -> Option<f64> {
     let s = s.trim();
-    if let Some(rest) = s.strip_prefix('N').or_else(|| s.strip_prefix('E')) {
-        rest.parse::<f64>()
-    } else if let Some(rest) = s.strip_prefix('S').or_else(|| s.strip_prefix('W')) {
-        rest.parse::<f64>().map(|v| -v)
+    let value = if let Some(rest) = s.strip_prefix(['N', 'E']) {
+        rest.parse::<f64>().ok()?
+    } else if let Some(rest) = s.strip_prefix(['S', 'W']) {
+        -rest.parse::<f64>().ok()?
     } else {
-        s.parse::<f64>()
-    }
+        s.parse::<f64>().ok()?
+    };
+    (value.is_finite() && value.abs() <= limit).then_some(value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_coordinate_must_be_a_finite_number_on_earth() {
+        assert_eq!(parse_gedcom_coord("N45.5", 90.0), Some(45.5));
+        assert_eq!(parse_gedcom_coord(" W1.25 ", 180.0), Some(-1.25));
+        assert_eq!(parse_gedcom_coord("-12", 90.0), Some(-12.0));
+        for bad in ["NaN", "NNaN", "Einf", "inf", "N999", "1e999", "S90.5", "", "N"] {
+            assert_eq!(parse_gedcom_coord(bad, 90.0), None, "{bad}");
+        }
+        assert_eq!(parse_gedcom_coord("E180", 180.0), Some(180.0));
+        assert_eq!(parse_gedcom_coord("E180.1", 180.0), None);
+
+        let mut warnings = Vec::new();
+        assert_eq!(map_pair("N45", "E2", &mut warnings), Some((45.0, 2.0)));
+        assert!(warnings.is_empty());
+        assert_eq!(map_pair("NaN", "E2", &mut warnings), None);
+        assert_eq!(warnings.len(), 1);
+        // A blank value says nothing: no coordinates, and no warning.
+        assert_eq!(map_pair(" ", "E2", &mut warnings), None);
+        assert_eq!(warnings.len(), 1);
+    }
 
     #[test]
     fn test_parse_name_value_full() {
