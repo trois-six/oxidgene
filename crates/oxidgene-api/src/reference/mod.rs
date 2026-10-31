@@ -24,8 +24,9 @@ pub use loader::{
     suggest_terms,
 };
 pub use places::{
-    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceLocation, PlaceReading,
-    PlaceSuggestion, locate_places, search_places, search_places_off_thread,
+    DEFAULT_PLACE_SUGGESTIONS, LabelReading, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceLocation,
+    PlaceReading, PlaceSuggestion, locate_read, read_labels, search_places,
+    search_places_off_thread,
 };
 
 pub const MAX_REFERENCE_TERMS: usize = 128;

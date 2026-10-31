@@ -25,6 +25,7 @@ pub mod rest;
 pub mod router;
 pub mod service;
 pub mod startup;
+pub mod tree_cache;
 pub mod workdir;
 
 #[cfg(feature = "graphql")]

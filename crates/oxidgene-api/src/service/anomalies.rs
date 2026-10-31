@@ -10,6 +10,7 @@
 mod places;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use chrono::{Datelike, Duration, NaiveDate};
 use oxidgene_core::calendar::DAYS_PER_YEAR;
@@ -22,7 +23,10 @@ use uuid::Uuid;
 
 use crate::reference::{PlaceLocation, ReferenceLang};
 use crate::service::event_date;
-use crate::service::statistics::{PersonRef, PlaceUsage, carries, locate_used, person_ref};
+use crate::service::statistics::{
+    PersonRef, PlaceReadings, PlaceUsage, carries, locate_used, person_ref,
+};
+use crate::tree_cache::TreeCache;
 
 // ── Thresholds (`docs/ui-tools.md` §3.3) ──────────────────────────────────
 
@@ -336,7 +340,7 @@ pub async fn load(
     } else {
         FamilyChildRepo::list_by_persons(db, &wanted.children).await?
     };
-    let coordinates = coordinates(db, &wanted.places).await?;
+    let coordinates = coordinates(db, profiles.cache(), tree_id, &wanted.places).await?;
     let records = Records {
         thresholds: tree.anomaly_thresholds,
         witnesses,
@@ -356,62 +360,59 @@ pub async fn load(
     .await
 }
 
-/// Where the places `ids` lie: their own coordinates, else their label's in
-/// the place dictionary, read once for them all; a place found in neither is
-/// left out.
+/// Where the places `ids` of tree `tree_id` lie: their own coordinates, else
+/// their label's in the place dictionary, each weighing the same (the
+/// dictionary readings coming from the tree cache); a place found in
+/// neither is left out.
 async fn coordinates(
     db: &sea_orm::DatabaseConnection,
+    cache: &Arc<TreeCache>,
+    tree_id: Uuid,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, (f64, f64)>, OxidGeneError> {
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
     let places = oxidgene_db::repo::PlaceRepo::get_many_untagged(db, ids).await?;
-    let span = tracing::info_span!("anomalies.locate_compared", place.count = places.len());
-    crate::service::blocking::run(span, move || {
-        let mut found: HashMap<Uuid, (f64, f64)> = HashMap::new();
-        let mut unplaced: Vec<&Place> = Vec::new();
-        for place in &places {
-            match place.latitude.zip(place.longitude) {
-                Some(spot) => {
-                    found.insert(place.id, spot);
-                }
-                None => unplaced.push(place),
+    let (placed, unplaced): (Vec<Place>, Vec<Place>) = places
+        .into_iter()
+        .partition(|place| place.latitude.is_some() && place.longitude.is_some());
+    let mut found: HashMap<Uuid, (f64, f64)> = placed
+        .iter()
+        .filter_map(|place| Some((place.id, place.latitude.zip(place.longitude)?)))
+        .collect();
+    if !unplaced.is_empty() {
+        let labels: Vec<&str> = unplaced.iter().map(|p| p.name.as_str()).collect();
+        let readings = PlaceReadings::of(cache, tree_id, &labels, None).await?;
+        let weighed: Vec<(&str, i64)> = labels.iter().map(|label| (*label, 1)).collect();
+        let located = readings.locate(ReferenceLang::En, &weighed);
+        for (place, location) in unplaced.iter().zip(located) {
+            if let Some(spot) = location.spot {
+                found.insert(place.id, spot);
             }
         }
-        if !unplaced.is_empty() {
-            let labels: Vec<(&str, i64)> = unplaced.iter().map(|p| (p.name.as_str(), 1)).collect();
-            let located = crate::reference::locate_places(ReferenceLang::En, &labels);
-            for (place, location) in unplaced.iter().zip(located) {
-                if let Some(spot) = location.spot {
-                    found.insert(place.id, spot);
-                }
-            }
-        }
-        found
-    })
-    .await
+    }
+    Ok(found)
 }
 
 /// Loads a tree's used places and returns those that cannot be located, most
 /// used first: the places the statistics count as not located, by the same
-/// rule (`crate::service::statistics::locate_used`).
+/// rule (`crate::service::statistics::locate_used`), the dictionary
+/// readings coming from the tree cache of `profiles`.
 #[tracing::instrument(name = "anomalies.unlocated_places", skip_all)]
 pub async fn load_unlocated_places(
     db: &sea_orm::DatabaseConnection,
+    profiles: &crate::profile::ProfileService,
     tree_id: Uuid,
 ) -> Result<Vec<PlaceUsage>, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
-    let span = tracing::info_span!("anomalies.locate", place.count = places.len());
-    crate::service::blocking::run(span, move || {
-        // The language only names countries and regions, which this list
-        // does not show.
-        unlocated_places(&places, |labels| {
-            crate::reference::locate_places(ReferenceLang::En, labels)
-        })
-    })
-    .await
+    let readings = PlaceReadings::of_used(profiles.cache(), tree_id, &places).await?;
+    // The language only names countries and regions, which this list does
+    // not show.
+    Ok(unlocated_places(&places, |labels| {
+        readings.locate(ReferenceLang::En, labels)
+    }))
 }
 
 /// The used places `locate` cannot place and that carry no coordinates of

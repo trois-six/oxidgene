@@ -5,12 +5,15 @@
 //! `person_search_fts` in step, and assembles pedigrees on demand by joining
 //! the family links against those projections.
 //!
-//! There is no cache. Every read is a database read, and every mutation
-//! rewrites the bounded set of projections it invalidates, so a projection is
-//! never stale, survives a restart, and behaves identically on desktop
-//! (SQLite) and web (PostgreSQL).
+//! Every mutation rewrites the bounded set of projections it invalidates, so
+//! a projection is never stale, survives a restart, and behaves identically
+//! on desktop (SQLite) and web (PostgreSQL). The service also holds the
+//! process's [`TreeCache`], which keeps per tree what tree-wide reads would
+//! otherwise compute again on each request, and nothing the database does
+//! not hold.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
@@ -33,6 +36,7 @@ use super::builder::{
     self, TreeData, build_all_persons, build_db_search_entry, search_entry_from_db,
 };
 use super::{invalidation, pedigree, sosa};
+use crate::tree_cache::TreeCache;
 
 /// Above this many affected persons, rebuild from a single whole-tree fetch
 /// instead of running targeted per-person queries.
@@ -67,14 +71,26 @@ pub struct ProfileService {
     writer: DatabaseConnection,
     /// Where projections and search rows are read.
     reader: DatabaseConnection,
+    /// What the reads of a tree keep in memory between requests.
+    cache: Arc<TreeCache>,
 }
 
 impl ProfileService {
     /// Create a new profile service over `connections`: a single connection
-    /// serves as both.
+    /// serves as both. Its cache has the default settings until
+    /// [`TreeCache::configure`] changes them.
     pub fn new(connections: impl Into<Connections>) -> Self {
         let Connections { writer, reader } = connections.into();
-        Self { writer, reader }
+        Self {
+            writer,
+            reader,
+            cache: Arc::default(),
+        }
+    }
+
+    /// What the reads of a tree keep in memory between requests.
+    pub fn cache(&self) -> &Arc<TreeCache> {
+        &self.cache
     }
 
     // ── Full tree rebuild ────────────────────────────────────────────────

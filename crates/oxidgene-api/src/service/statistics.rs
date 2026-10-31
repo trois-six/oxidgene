@@ -14,6 +14,7 @@ pub mod growth;
 mod records;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use chrono::{Datelike, NaiveDate};
 use oxidgene_core::calendar::{DAYS_PER_MONTH, DAYS_PER_YEAR};
@@ -23,7 +24,8 @@ use oxidgene_core::{DateQualifier, EventType, Sex, SpouseRole};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::reference::{PlaceLocation, ReferenceLang};
+use crate::reference::{LabelReading, PlaceLocation, ReferenceLang};
+use crate::tree_cache::TreeCache;
 
 pub use records::StatRecord;
 
@@ -681,7 +683,7 @@ fn first_given_name(profile: &PersonProfile) -> Option<String> {
 
 /// The places a tree's events and media use, located: by their own
 /// coordinates, else by their label in the place dictionary (`locate`, see
-/// [`crate::reference::locate_places`]). Returns the used places, their
+/// [`PlaceReadings::locate`]). Returns the used places, their
 /// dictionary locations in the same order, and their usages with the
 /// coordinates found, most used first. A usage without coordinates is a
 /// place that could not be located: the statistics count them and the
@@ -712,6 +714,61 @@ pub(crate) fn locate_used(
         .collect();
     usages.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
     (used, locations, usages)
+}
+
+/// The place dictionary's readings of the labels of a tree's used places,
+/// by label: what [`locate_used`] weighs on each request.
+pub(crate) struct PlaceReadings(HashMap<String, Arc<LabelReading>>);
+
+impl PlaceReadings {
+    /// The readings of the labels of the used places among `places` — all
+    /// the places of tree `tree_id`, with their usages —, from the tree
+    /// cache, which reads those it lacks and drops those of labels no place
+    /// of the tree bears any more.
+    pub(crate) async fn of_used(
+        cache: &Arc<TreeCache>,
+        tree_id: Uuid,
+        places: &[(Place, i64)],
+    ) -> Result<Self, oxidgene_core::OxidGeneError> {
+        let used: Vec<&str> = places
+            .iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|(place, _)| place.name.as_str())
+            .collect();
+        let all: HashSet<&str> = places
+            .iter()
+            .map(|(place, _)| place.name.as_str())
+            .collect();
+        Self::of(cache, tree_id, &used, Some(&all)).await
+    }
+
+    /// The readings of `labels` of tree `tree_id`, from the tree cache;
+    /// with `tree_labels`, those of any other label are dropped from it.
+    pub(crate) async fn of(
+        cache: &Arc<TreeCache>,
+        tree_id: Uuid,
+        labels: &[&str],
+        tree_labels: Option<&HashSet<&str>>,
+    ) -> Result<Self, oxidgene_core::OxidGeneError> {
+        let readings = cache.place_readings(tree_id, labels, tree_labels).await?;
+        Ok(Self(
+            labels
+                .iter()
+                .map(|label| (*label).to_string())
+                .zip(readings)
+                .collect(),
+        ))
+    }
+
+    /// Locates `labels`, with their usages, naming areas in `lang` (see
+    /// [`crate::reference::locate_read`]). Every label must have been read.
+    pub(crate) fn locate(&self, lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLocation> {
+        let weighed: Vec<(&LabelReading, i64)> = labels
+            .iter()
+            .map(|(label, count)| (&*self.0[*label], *count))
+            .collect();
+        crate::reference::locate_read(lang, &weighed)
+    }
 }
 
 /// The language a statistics request names places in: English when it
@@ -746,6 +803,7 @@ pub async fn load(
         Some(tag) => limit_to_tag(persons, places, tag),
         None => (persons, Vec::new(), places),
     };
+    let readings = PlaceReadings::of_used(profiles.cache(), tree_id, &places).await?;
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!(
         "statistics.compute",
@@ -760,7 +818,7 @@ pub async fn load(
             i64::try_from(sources).unwrap_or(i64::MAX),
             today,
             approximate,
-            |labels| crate::reference::locate_places(lang, labels),
+            |labels| readings.locate(lang, labels),
         )
     })
     .await

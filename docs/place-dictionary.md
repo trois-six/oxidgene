@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: human:maintainer, at: 2026-10-08T07:22:40Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -168,14 +168,21 @@ first search: every string in one buffer and the few hundred subdivisions,
 regions and countries stored once, a few tens of megabytes in memory, loaded
 in about 0.4 s and searched in under 10 ms by a scan in a release build.
 
-The [statistics](ui-statistics.md) locate a tree's places with that index
-when a search has built it. Otherwise they do not build it: they read the
-decompressed file once for the rows named like a part of one of the tree's
-place labels, or bearing one of those parts as a code (a few thousand), so a
-hamlet can be located by its municipality; they locate the places among them
-exactly as the whole index would,
-and drop them, in about a fifth of a second in a release build, so a
-session that only opens the statistics keeps no dictionary in memory.
+The [statistics](ui-statistics.md) locate a tree's places in two steps.
+First each label is read on its own: the place it names, the homonyms it
+may name, or none. That reading uses the index when a search has built it.
+Otherwise it does not build it: it reads the decompressed file once for the
+rows named like a part of one of the labels, or bearing one of those parts
+as a code (a few thousand), so a hamlet can be located by its municipality;
+it reads the labels among them exactly as the whole index would, and drops
+them, in about a fifth of a second in a release build, so a session that
+only opens the statistics keeps no dictionary in memory. A reading depends
+on the label alone and holds the areas as the file writes them, so the
+tree cache keeps it for as long as the tree uses the label
+([Architecture §4.1](architecture.md#41-tree-cache)), and only the labels it
+lacks are read again. Then, on each request, the homonyms are weighed
+against the tree's other places and the areas named in the interface
+language, which takes a few milliseconds.
 
 Recognizing an archive citation ([Archive Portals §5.1](archives.md))
 asks the dictionary two things the same way, reusing the index when a

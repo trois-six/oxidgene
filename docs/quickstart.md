@@ -250,6 +250,8 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_S3_BUCKET`, `OXIDGENE_S3_REGION` | `oxidgene-media`, `us-east-1` | S3 bucket and signing region. |
 | `OXIDGENE_S3_ENDPOINT` | Unset (AWS) | S3-compatible endpoint. A plain `http://` endpoint is meant for development: beyond loopback the server starts with an `s3_plain_http` warning, since media and signed requests then cross the network unencrypted. |
 | `OXIDGENE_S3_ACCESS_KEY_ID`, `OXIDGENE_S3_SECRET_ACCESS_KEY` | Unset | S3 credentials; the secret never reaches a log. |
+| `OXIDGENE_CACHE_MIB` | `256` | Budget, in MiB of estimated memory, of the trees the server keeps in memory between requests, the least recently used dropped first ([Architecture §4.1](architecture.md#41-tree-cache)). `0` keeps nothing. With the Helm chart, set it through `backend.extraEnv`. |
+| `OXIDGENE_CACHE_IDLE_SECS` | `300` | Seconds after which a tree no request uses is dropped from that memory and the memory handed back to the system. The desktop reads it too. |
 
 ## 4. Deploy to Kubernetes with Helm
 

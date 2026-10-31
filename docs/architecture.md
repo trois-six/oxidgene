@@ -30,7 +30,7 @@ generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.6, ported to `oxidged` | Read only, incl. `gwplus`; converts to the same `oxidged` model, so one domain mapping serves both formats |
 | PDF reading | [hayro-syntax](https://github.com/LaurenzV/hayro) | 0.8 | Parser only, pure Rust (Apache-2.0 OR MIT): a PDF's page count and the scan its first page paints, with its CCITT, JBIG2 and JPEG 2000 decoders. Not the `hayro` renderer; see **Media ingest** (§4) |
 | PDF viewing | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`) | 6.4, legacy build | Vendored files, not a Cargo dependency (Apache-2.0; its JPEG 2000 and JBIG2 wasm decoders BSD); see **PDF viewer** (§4) |
-| Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`; no cache tier. See [Data Model §4](data-model.md) |
+| Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`. See [Data Model §4](data-model.md); what a process keeps in memory between requests is the bounded tree cache ([§4.1](#41-tree-cache)) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G: the web build's sessions, rate-limit counters and long-poll wake-ups once authentication ships ([Authentication §4.5](authentication.md#45-session-store)); not used before |
 | Identity | Any OpenID Connect provider; [Rauthy](https://github.com/sebadob/rauthy) bundled | 0.37 | EPIC G, web build only: Rauthy in development Compose and deployed by the Helm chart's `rauthy` mode, any other provider in its `external` mode ([Authentication §8](authentication.md#8-deployment)) |
@@ -146,6 +146,64 @@ runs the job, on REST and GraphQL alike, and the tree guard skips its lookup
 for that one request, so the poll waits for nothing even on a single
 connection. A cancellation request is answered the same way
 ([§6.3](#63-job-cancellation)).
+
+### 4.1 Tree cache
+
+The durable read models are database tables. What an API process keeps in
+memory between two requests is one cache, the tree cache
+(`oxidgene_api::tree_cache`, held by the projection service): work a
+tree-wide read would otherwise redo on every request, and nothing the
+database does not hold, so dropping any of it at any time changes no
+answer, only the time of the next one.
+
+**What it holds, per tree.** The place dictionary's reading of each place
+label the tree uses — the place it names, the homonyms it may name, or
+none, with their countries, regions and subdivisions as the dictionary
+writes them ([Place Dictionary §2.1](place-dictionary.md)). The statistics,
+the anomalies and the places not located otherwise read them on every
+request: 120 to 355 ms on a tree of 10,000 persons and 1,400 places, in a
+release build. A reading costs about 300 bytes, 0.4 MiB for such a tree.
+
+**Why it is never stale.** A reading depends on the label and the embedded
+dictionary alone, so no write can make one wrong, in this process or
+another. What depends on the tree is read from the database on each request
+and applied then: which places are used and how often, and a place's own
+coordinates, which win over its label's. The weighing of homonyms against
+the tree's other places is applied then too, because it depends on which
+places a request weighs and how: the statistics weigh each place by its
+usages, the anomalies each place once. A place created or renamed is read
+when a request first needs its label; the next request reading all the
+tree's places (the statistics, the places not located) drops the readings
+of labels no place of the tree bears any more — a place renamed, merged or
+deleted.
+
+**Bounds.** Two scopes, chosen by the binary:
+
+- *One tree* (desktop): one person works on one tree at a time, so the
+  first request about another tree drops everything kept for the previous
+  one.
+- *Shared* (server): trees are kept within a budget of estimated bytes,
+  `OXIDGENE_CACHE_MIB` (256 MiB by default, a quarter of the backend's
+  memory limit in the Helm chart); a tree that does not fit makes room by
+  dropping the least recently used others, and a tree that alone exceeds
+  the budget is not kept. A budget of `0` keeps nothing.
+
+Every tree no request has used for an idle delay is dropped:
+`OXIDGENE_CACHE_IDLE_SECS`, five minutes by default, on the server and the
+desktop alike. Moving between a tree's statistics, tools and pedigrees takes
+seconds or minutes, and each return within the delay is answered from
+memory; past it, reading the tree again costs a fraction of a second, less
+than holding its data for good. A task sleeps until the next tree is due and
+ends once nothing is kept, so an idle process does no work for the cache.
+
+Whatever is dropped — by a change of tree, the budget or idleness — is freed
+on the blocking pool and the allocator's free pages are then handed back to
+the system (`malloc_trim`, [§6](#6-asynchronous-processing)); what a
+request still in flight holds is freed when it ends, and the release after a
+burst of requests (`oxidgene_api::memory::release_when_idle`) hands it back.
+
+**Concurrency.** Requests arriving together for the same tree's missing
+readings wait on one another and read them once.
 
 ---
 

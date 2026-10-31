@@ -20,6 +20,13 @@
 //! | `OXIDGENE_S3_ENDPOINT`           | unset                                      | S3-compatible endpoint      |
 //! | `OXIDGENE_S3_ACCESS_KEY_ID`      | unset                                      | S3 access key               |
 //! | `OXIDGENE_S3_SECRET_ACCESS_KEY`  | unset                                      | S3 secret key               |
+//! | `OXIDGENE_CACHE_MIB`             | `256`                                      | Tree cache budget, MiB      |
+//! | `OXIDGENE_CACHE_IDLE_SECS`       | `300`                                      | Tree cache idle delay, s    |
+//!
+//! The tree cache (see `oxidgene_api::tree_cache`) keeps the trees in use
+//! within `OXIDGENE_CACHE_MIB` mebibytes of estimated memory, the least
+//! recently used dropped first, and drops a tree no request has used for
+//! `OXIDGENE_CACHE_IDLE_SECS` seconds. A budget of `0` keeps nothing.
 //!
 //! The server answers only requests whose `Host` is a loopback name, the
 //! host of `OXIDGENE_CORS_ORIGIN` (of `OXIDGENE_PUBLIC_URL` in the `oidc`
@@ -46,12 +53,14 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use config::builder::DefaultState;
 use config::{Config, ConfigBuilder, Environment, File};
 use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::auth::AuthSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
+use oxidgene_api::tree_cache::CacheSettings;
 use oxidgene_api::workdir::WorkDir;
 use oxidgene_observability::{InvalidLogFormat, LogFormat};
 use serde::Deserialize;
@@ -147,6 +156,14 @@ pub struct ServerConfig {
     /// Secret key used by the S3 backend.
     #[serde(default)]
     pub s3_secret_access_key: Option<String>,
+
+    /// The tree cache's budget, in mebibytes of estimated memory.
+    #[serde(default = "default_cache_mib")]
+    pub cache_mib: usize,
+
+    /// How many seconds the tree cache keeps a tree no request uses.
+    #[serde(default = "default_cache_idle_secs")]
+    pub cache_idle_secs: u64,
 }
 
 impl std::fmt::Debug for ServerConfig {
@@ -171,6 +188,8 @@ impl std::fmt::Debug for ServerConfig {
                 "s3_secret_access_key",
                 &self.s3_secret_access_key.as_ref().map(|_| REDACTED),
             )
+            .field("cache_mib", &self.cache_mib)
+            .field("cache_idle_secs", &self.cache_idle_secs)
             .finish()
     }
 }
@@ -205,6 +224,14 @@ fn redact_url_password(url: &str) -> String {
 
 fn default_host() -> String {
     "127.0.0.1".to_string()
+}
+
+fn default_cache_mib() -> usize {
+    oxidgene_api::tree_cache::DEFAULT_BUDGET / (1024 * 1024)
+}
+
+fn default_cache_idle_secs() -> u64 {
+    oxidgene_api::tree_cache::DEFAULT_IDLE.as_secs()
 }
 
 fn default_port() -> u16 {
@@ -264,6 +291,15 @@ impl ServerConfig {
     /// The console log format `OXIDGENE_LOG_FORMAT` selects.
     pub fn log_format(&self) -> Result<LogFormat, InvalidLogFormat> {
         self.log_format.parse()
+    }
+
+    /// The tree cache `OXIDGENE_CACHE_MIB` and `OXIDGENE_CACHE_IDLE_SECS`
+    /// describe: trees within the budget, each dropped once idle.
+    pub fn cache(&self) -> CacheSettings {
+        CacheSettings::shared(
+            self.cache_mib.saturating_mul(1024 * 1024),
+            Duration::from_secs(self.cache_idle_secs),
+        )
     }
 
     /// The working directory `OXIDGENE_WORK_DIR` names, or the default.
@@ -346,6 +382,25 @@ mod tests {
             .and_then(Config::try_deserialize)
             .expect("every field has a default");
         assert_eq!(unset.work_dir(), WorkDir::user_default());
+    }
+
+    #[test]
+    fn the_tree_cache_defaults_to_its_budget_and_idle_delay() {
+        let unset: ServerConfig = Config::builder()
+            .build()
+            .and_then(Config::try_deserialize)
+            .expect("every field has a default");
+        assert_eq!(unset.cache(), CacheSettings::default());
+        let configured: ServerConfig = Config::builder()
+            .set_override("cache_mib", 64)
+            .and_then(|builder| builder.set_override("cache_idle_secs", 30))
+            .and_then(|builder| builder.build())
+            .and_then(Config::try_deserialize)
+            .expect("a configured cache");
+        assert_eq!(
+            configured.cache(),
+            CacheSettings::shared(64 * 1024 * 1024, Duration::from_secs(30))
+        );
     }
 
     #[test]

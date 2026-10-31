@@ -4,13 +4,15 @@
 //!
 //! The file is decompressed and indexed on the first search, not at startup:
 //! it holds about 285,000 rows, and a session that never edits a place never pays
-//! for them. Locating a tree's places for the statistics reuses that index
-//! when a search has built it, and otherwise reads the file once for the
-//! rows named like the tree's places, keeping nothing afterwards
-//! ([`locate_places`]).
+//! for them. Reading a tree's place labels for the statistics reuses that
+//! index when a search has built it, and otherwise reads the file once for
+//! the rows named like the labels, keeping nothing afterwards
+//! ([`read_labels`]); what the labels say is kept by the tree cache, and
+//! weighed against the tree's other places on each request
+//! ([`locate_read`]).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use serde::Serialize;
 
@@ -121,26 +123,176 @@ pub struct PlaceLocation {
     pub subdivision: Option<String>,
 }
 
-/// Locates the places of a tree, with how often the tree uses each, in the
-/// place dictionary (see `Dictionary::locate_all`).
+/// A dictionary row a label may stand for, kept apart from the dictionary:
+/// its spot, and its country, region and subdivision as the file writes
+/// them, so that it can be named in any interface language later.
+#[derive(Debug, Clone, PartialEq)]
+struct Candidate {
+    /// NaN when unknown.
+    latitude: f32,
+    longitude: f32,
+    country: Arc<str>,
+    region: Arc<str>,
+    subdivision: Arc<str>,
+    /// [`kind_rank`] of the row's kind.
+    rank: u8,
+}
+
+impl Candidate {
+    fn spot(&self) -> (f64, f64) {
+        (f64::from(self.latitude), f64::from(self.longitude))
+    }
+}
+
+/// What one place label says on its own once read against the place
+/// dictionary (see `Dictionary::resolve`): a place, homonyms that only the
+/// rest of the tree can tell apart, or nothing.
+///
+/// It depends on the label and the embedded dictionary alone — not on the
+/// tree, its other places, their usage counts nor the interface language —
+/// so it stays true for as long as the label is written that way, which is
+/// what lets the tree cache keep it (`crate::tree_cache`). [`locate_read`]
+/// then weighs the homonyms of a set of labels against each other on each
+/// request, which is cheap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LabelReading(Reading);
+
+#[derive(Debug, Clone, PartialEq)]
+enum Reading {
+    At(Candidate),
+    Among(Box<[Candidate]>),
+    Nowhere,
+}
+
+impl LabelReading {
+    /// The reading of a label the dictionary does not know.
+    #[cfg(test)]
+    pub(crate) fn nowhere() -> Self {
+        Self(Reading::Nowhere)
+    }
+
+    /// About how many bytes the reading of `label` holds in memory, the
+    /// label's own copy included: what the tree cache counts against its
+    /// budget. The area names are shared by the candidates of one read.
+    pub fn estimated_bytes(&self, label: &str) -> usize {
+        // The map slot, the `Arc` and its counts.
+        let fixed = 96 + std::mem::size_of::<Self>() + label.len();
+        match &self.0 {
+            Reading::Among(candidates) => {
+                fixed + candidates.len() * std::mem::size_of::<Candidate>()
+            }
+            Reading::At(_) | Reading::Nowhere => fixed,
+        }
+    }
+}
+
+/// Reads place labels — each written as a tree records it: its name, then
+/// optionally its code, subdivision, region and country, comma-separated —
+/// against the place dictionary: one [`LabelReading`] per label, in order.
 ///
 /// The index place searches build is reused when it is in memory. Otherwise
-/// the dictionary is decompressed and read once for the rows named like
-/// the tree's places (a few thousand of 285,000), and dropped with them:
-/// about a fifth of a second in a release build, and nothing held in
-/// memory afterwards, where building the whole index would take three
-/// times as long and keep a few tens of megabytes for the session.
-pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLocation> {
+/// the dictionary is decompressed and read once for the rows named like the
+/// labels (a few thousand of 285,000), and dropped with them: about a fifth
+/// of a second in a release build, and nothing held in memory afterwards,
+/// where building the whole index would take three times as long and keep a
+/// few tens of megabytes.
+pub fn read_labels(labels: &[&str]) -> Vec<LabelReading> {
     let _span = tracing::info_span!(
-        "reference.places.locate",
+        "reference.places.read",
         label.count = labels.len(),
         place.index_loaded = DICTIONARY.get().is_some(),
     )
     .entered();
-    match DICTIONARY.get() {
-        Some(dictionary) => dictionary.locate_all(labels, lang),
-        None => Dictionary::for_labels(&decompressed(), labels).locate_all(labels, lang),
+    if labels.is_empty() {
+        return Vec::new();
     }
+    match DICTIONARY.get() {
+        Some(dictionary) => dictionary.read_all(labels),
+        None => Dictionary::for_labels(&decompressed(), labels).read_all(labels),
+    }
+}
+
+/// Locates the places of a tree from the [`LabelReading`]s of their labels,
+/// each with how often the tree uses it, naming their country, region and
+/// subdivision in `lang`.
+///
+/// A label read as one place is located there. Any other bare name is read
+/// in the country the tree uses most among those where it exists — the
+/// countries of the labels located on their own, weighed by their usages —,
+/// as a commune rather than a former name: "Brest" in a French tree is the
+/// one in Finistère, not the German village. A homonym read that way always
+/// has its country; its region and subdivision when all its candidates
+/// there share them, and its spot when they all stand within a fifth of a
+/// degree.
+pub fn locate_read(lang: ReferenceLang, labels: &[(&LabelReading, i64)]) -> Vec<PlaceLocation> {
+    let lang = lang.slot();
+    let named = |part: &str| (!part.is_empty()).then(|| translated(part, lang).to_string());
+    // The part every candidate shares, if they all do.
+    let shared = |candidates: &[&Candidate], of: fn(&Candidate) -> &Arc<str>| {
+        let first = of(candidates.first()?);
+        candidates
+            .iter()
+            .all(|c| of(c) == first)
+            .then(|| named(first))?
+    };
+    let mut weights: HashMap<&str, i64> = HashMap::new();
+    for (reading, count) in labels {
+        if let Reading::At(candidate) = &reading.0 {
+            *weights.entry(&candidate.country).or_default() += count;
+        }
+    }
+    let mut countries: Vec<(&str, i64)> = weights.into_iter().collect();
+    countries.sort_by_key(|&(country, weight)| (std::cmp::Reverse(weight), country));
+    labels
+        .iter()
+        .map(|(reading, _)| match &reading.0 {
+            Reading::At(candidate) => PlaceLocation {
+                spot: Some(candidate.spot()),
+                country: named(&candidate.country),
+                region: named(&candidate.region),
+                subdivision: named(&candidate.subdivision),
+            },
+            Reading::Nowhere => PlaceLocation::default(),
+            Reading::Among(candidates) => {
+                let Some(&(country, _)) = countries
+                    .iter()
+                    .find(|(country, _)| candidates.iter().any(|c| &*c.country == *country))
+                else {
+                    return PlaceLocation::default();
+                };
+                let local = candidates.iter().filter(|c| &*c.country == country);
+                let rank = local.clone().map(|c| c.rank).min();
+                let local: Vec<&Candidate> = local.filter(|c| Some(c.rank) == rank).collect();
+                PlaceLocation {
+                    spot: clustered_candidates(&local),
+                    country: named(country),
+                    region: shared(&local, |c| &c.region),
+                    subdivision: shared(&local, |c| &c.subdivision),
+                }
+            }
+        })
+        .collect()
+}
+
+/// The spot of candidates all within a fifth of a degree of the first.
+fn clustered_candidates(candidates: &[&Candidate]) -> Option<(f64, f64)> {
+    let first = candidates.first()?.spot();
+    candidates
+        .iter()
+        .all(|c| {
+            let (latitude, longitude) = c.spot();
+            (latitude - first.0).abs() < 0.2 && (longitude - first.1).abs() < 0.2
+        })
+        .then_some(first)
+}
+
+/// An area written in French in the file — a country, a British nation —
+/// in the interface language of `slot`; any other keeps its local name.
+fn translated(french: &str, slot: usize) -> &str {
+    NAMES
+        .iter()
+        .find(|names| names[0] == french)
+        .map_or(french, |names| names[slot])
 }
 
 /// One reading of the place dictionary by recognizing an archive citation
@@ -503,12 +655,12 @@ impl Dictionary {
 
     /// The dictionary of the rows a label of `labels` may be located by: named
     /// like one of its parts, or bearing one of its parts as a code — every
-    /// candidate [`Self::locate_all`] may weigh for them, homonyms included,
-    /// so it locates them as the whole dictionary would.
-    fn for_labels(csv: &str, labels: &[(&str, i64)]) -> Self {
+    /// candidate [`Self::resolve`] may weigh for them, homonyms included, so
+    /// it reads them as the whole dictionary would.
+    fn for_labels(csv: &str, labels: &[&str]) -> Self {
         let mut names: HashSet<String> = HashSet::new();
         let mut codes: HashSet<String> = HashSet::new();
-        for (label, _) in labels {
+        for label in labels {
             for part in label.split(',').map(str::trim).filter(|p| !p.is_empty()) {
                 names.insert(fold_words(part));
                 names.insert(without_numbers(part));
@@ -790,76 +942,41 @@ impl Dictionary {
             .map(|i| &self.entries[*i as usize])
     }
 
-    /// Coordinates for the places of a tree, each written as the tree
-    /// records it: its name, then optionally its code, subdivision, region
-    /// and country, comma-separated, with how often the tree uses it.
+    /// What each of `labels` says on its own ([`Self::resolve`]), kept apart
+    /// from the dictionary: each area name is copied once for them all.
     ///
     /// The name must match a dictionary place exactly (case and accents
     /// aside). Among homonyms, the one whose code, subdivision, region or
     /// country the label also names wins, and a bare name whose homonyms all
-    /// stand in the same spot is located there. Any other bare name is read
-    /// in the country the tree uses most among those where it exists, as a
-    /// commune rather than a former name: "Brest" in a French tree is the
-    /// one in Finistère, not the German village.
-    ///
-    /// A homonym read that way always has its country; its region and
-    /// subdivision when all its candidates there share them.
-    fn locate_all(&self, labels: &[(&str, i64)], lang: ReferenceLang) -> Vec<PlaceLocation> {
-        let lang = lang.slot();
-        let part = |index: u16| {
-            let text = &self.parts[usize::from(index)].text[lang];
-            (!text.is_empty()).then(|| text.to_string())
+    /// stand in the same spot is located there; any other bare name keeps
+    /// its homonyms, for [`locate_read`] to choose among.
+    fn read_all(&self, labels: &[&str]) -> Vec<LabelReading> {
+        let mut names: HashMap<u16, Arc<str>> = HashMap::new();
+        let mut name = |index: u16| {
+            Arc::clone(
+                names
+                    .entry(index)
+                    .or_insert_with(|| Arc::from(&*self.parts[usize::from(index)].text[0])),
+            )
         };
-        // The part every entry shares, if they all do.
-        let shared = |entries: &[&Entry], of: fn(&Entry) -> u16| {
-            let first = of(entries.first()?);
-            entries
-                .iter()
-                .all(|e| of(e) == first)
-                .then(|| part(first))?
+        let mut candidate = |entry: &Entry| Candidate {
+            latitude: entry.latitude,
+            longitude: entry.longitude,
+            country: name(entry.country),
+            region: name(entry.region),
+            subdivision: name(entry.subdivision),
+            rank: kind_rank(entry.kind),
         };
-        let resolved: Vec<Located> = labels
+        labels
             .iter()
-            .map(|(label, _)| self.resolve(label))
-            .collect();
-        let mut weights: HashMap<u16, i64> = HashMap::new();
-        for (found, (_, count)) in resolved.iter().zip(labels) {
-            if let Located::At(entry) = found {
-                *weights.entry(entry.country).or_default() += count;
-            }
-        }
-        let mut countries: Vec<(u16, i64)> = weights.into_iter().collect();
-        countries.sort_by_key(|&(country, weight)| (std::cmp::Reverse(weight), country));
-        resolved
-            .into_iter()
-            .map(|found| match found {
-                Located::At(entry) => PlaceLocation {
-                    spot: Some(spot(entry)),
-                    country: part(entry.country),
-                    region: part(entry.region),
-                    subdivision: part(entry.subdivision),
-                },
-                Located::Nowhere => PlaceLocation::default(),
-                Located::Among(candidates) => {
-                    let Some((country, _)) = countries
-                        .iter()
-                        .find(|(country, _)| candidates.iter().any(|e| e.country == *country))
-                    else {
-                        return PlaceLocation::default();
-                    };
-                    let local = candidates.iter().filter(|e| e.country == *country);
-                    let rank = local.clone().map(|e| kind_rank(e.kind)).min();
-                    let local: Vec<&Entry> = local
-                        .filter(|e| Some(kind_rank(e.kind)) == rank)
-                        .copied()
-                        .collect();
-                    PlaceLocation {
-                        spot: clustered(&local),
-                        country: part(*country),
-                        region: shared(&local, |e| e.region),
-                        subdivision: shared(&local, |e| e.subdivision),
+            .map(|label| {
+                LabelReading(match self.resolve(label) {
+                    Located::At(entry) => Reading::At(candidate(entry)),
+                    Located::Among(entries) => {
+                        Reading::Among(entries.into_iter().map(&mut candidate).collect())
                     }
-                }
+                    Located::Nowhere => Reading::Nowhere,
+                })
             })
             .collect()
     }
@@ -1154,6 +1271,60 @@ mod tests {
         );
     }
 
+    /// `labels`, with their usage counts, read against `dictionary` and
+    /// located in `lang`.
+    fn locate(
+        dictionary: &Dictionary,
+        labels: &[(&str, i64)],
+        lang: ReferenceLang,
+    ) -> Vec<PlaceLocation> {
+        let names: Vec<&str> = labels.iter().map(|(label, _)| *label).collect();
+        let readings = dictionary.read_all(&names);
+        let weighed: Vec<(&LabelReading, i64)> = readings
+            .iter()
+            .zip(labels)
+            .map(|(reading, (_, count))| (reading, *count))
+            .collect();
+        locate_read(lang, &weighed)
+    }
+
+    /// A reading depends on its label alone: kept, it serves every
+    /// interface language and every weighting of the tree's places — the
+    /// statistics weigh them by their usages, the anomalies each once.
+    #[test]
+    fn one_reading_serves_every_language_and_weighting() {
+        let dictionary = Dictionary::parse(
+            r#""Ville-A","99001","Département A","Région A","France","commune","","","","48.0","-4.0","1"
+"Ville-A","01001","Kreis A","Land A","Allemagne","commune","","","","53.0","9.0","1"
+"Ville-B","99002","Département A","Région A","France","commune","","","","47.0","-1.0","1"
+"Ville-C","01002","Kreis A","Land A","Allemagne","commune","","","","52.0","10.0","1"
+"Ville-D","01003","Kreis A","Land A","Allemagne","commune","","","","52.5","10.5","1"
+"#,
+        );
+        let readings = dictionary.read_all(&["Ville-A", "Ville-B", "Ville-C", "Ville-D"]);
+        let weighed = |counts: [i64; 4]| -> Vec<(&LabelReading, i64)> {
+            readings.iter().zip(counts).collect()
+        };
+        let country = |lang, counts| locate_read(lang, &weighed(counts))[0].country.clone();
+        // France used most by its usages, Germany by its places.
+        assert_eq!(
+            country(ReferenceLang::En, [1, 5, 1, 1]).as_deref(),
+            Some("France")
+        );
+        assert_eq!(
+            country(ReferenceLang::En, [1, 1, 1, 1]).as_deref(),
+            Some("Germany")
+        );
+        assert_eq!(
+            country(ReferenceLang::Fr, [1, 1, 1, 1]).as_deref(),
+            Some("Allemagne")
+        );
+        assert_eq!(
+            country(ReferenceLang::De, [1, 5, 1, 1]).as_deref(),
+            Some("Frankreich")
+        );
+    }
+
     #[test]
     fn a_suggestion_carries_its_label_and_its_parts() {
         let dictionary = Dictionary::parse(ROWS);
@@ -1223,7 +1394,8 @@ mod tests {
     #[test]
     fn a_label_is_located_by_its_name_and_what_follows_it() {
         let dictionary = Dictionary::parse(ROWS);
-        let found = dictionary.locate_all(
+        let found = locate(
+            &dictionary,
             &[
                 ("Bourg-A, 99001, Département A", 1),
                 ("hamlet a, England", 1),
@@ -1254,7 +1426,8 @@ mod tests {
     fn an_unknown_place_is_located_by_the_municipality_after_it() {
         let dictionary = Dictionary::parse(ROWS);
         let bourg = Some((48.1_f32.into(), (-1.5_f32).into()));
-        let found = dictionary.locate_all(
+        let found = locate(
+            &dictionary,
             &[
                 // A hamlet, then its municipality's name and code.
                 ("Hameau-X, Bourg-A, 99001, Département A, France", 1),
@@ -1278,7 +1451,8 @@ mod tests {
     fn an_address_is_located_by_its_municipality_its_numbers_aside() {
         let dictionary = Dictionary::parse(ROWS);
         let bourg = Some((48.1_f32.into(), (-1.5_f32).into()));
-        let found = dictionary.locate_all(
+        let found = locate(
+            &dictionary,
             &[
                 // A street address, then postcode and municipality in one part.
                 ("22 Rue A, 99100 Bourg-A, France", 1),
@@ -1309,7 +1483,7 @@ mod tests {
         let french = (48.0_f32.into(), (-4.0_f32).into());
         let german = (53.0_f32.into(), 9.0_f32.into());
         let located =
-            |labels: &[(&str, i64)]| dictionary.locate_all(labels, ReferenceLang::En)[0].spot;
+            |labels: &[(&str, i64)]| locate(&dictionary, labels, ReferenceLang::En)[0].spot;
         assert_eq!(
             located(&[("Ville-A", 1), ("Ville-B", 3), ("Ville-C", 2)]),
             Some(french)
@@ -1321,7 +1495,11 @@ mod tests {
         // Nothing else in the tree tells the homonyms apart.
         assert_eq!(located(&[("Ville-A", 1)]), None);
         // Read in France, the living commune names its subdivision.
-        let found = dictionary.locate_all(&[("Ville-A", 1), ("Ville-B", 3)], ReferenceLang::En);
+        let found = locate(
+            &dictionary,
+            &[("Ville-A", 1), ("Ville-B", 3)],
+            ReferenceLang::En,
+        );
         assert_eq!(found[0].country.as_deref(), Some("France"));
         assert_eq!(found[0].subdivision.as_deref(), Some("Département A"));
     }
@@ -1420,16 +1598,16 @@ mod tests {
             ("Nowhere A", 1),
         ];
         let whole = Dictionary::parse(&csv);
-        let kept = Dictionary::for_labels(&csv, &labels);
+        let kept = Dictionary::for_labels(&csv, &labels.map(|(label, _)| label));
         // Only the rows named like the labels, every homonym included.
         assert_eq!(kept.entries.len(), 6);
         assert_eq!(
-            kept.locate_all(&labels, ReferenceLang::Fr),
-            whole.locate_all(&labels, ReferenceLang::Fr)
+            locate(&kept, &labels, ReferenceLang::Fr),
+            locate(&whole, &labels, ReferenceLang::Fr)
         );
         // A bare homonym is still read in the country the tree uses most.
         assert_eq!(
-            kept.locate_all(&labels, ReferenceLang::Fr)[1]
+            locate(&kept, &labels, ReferenceLang::Fr)[1]
                 .country
                 .as_deref(),
             Some("France")

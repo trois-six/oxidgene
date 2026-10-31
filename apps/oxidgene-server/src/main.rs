@@ -83,6 +83,7 @@ async fn main() {
     tokio::task::spawn_blocking(move || sweep.sweep(std::time::SystemTime::now()));
     let state = AppState::with_media_store(db, media)
         .with_work_dir(work_dir)
+        .with_cache(cfg.cache())
         .with_auth(Arc::clone(&auth));
     if embedded_worker {
         // SQLite has no separate worker: this process was the only one

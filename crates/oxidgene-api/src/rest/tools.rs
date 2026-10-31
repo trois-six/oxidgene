@@ -52,7 +52,7 @@ pub async fn unlocated_places(
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PlaceUsage>>, ApiError> {
     Ok(Json(
-        anomalies::load_unlocated_places(&state.reader, tree_id).await?,
+        anomalies::load_unlocated_places(&state.reader, &state.profiles, tree_id).await?,
     ))
 }
 

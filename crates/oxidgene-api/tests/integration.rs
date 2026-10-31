@@ -46,3 +46,4 @@ mod tag_record_scaling_test;
 mod tag_scope_test;
 mod tag_test;
 mod trace_continuity_test;
+mod tree_cache_test;

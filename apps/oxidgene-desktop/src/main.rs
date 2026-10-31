@@ -74,6 +74,7 @@ use oxidgene_api::app_dirs::AppDirs;
 use oxidgene_api::startup::{
     ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
 };
+use oxidgene_api::tree_cache::{CacheSettings, DEFAULT_IDLE};
 use oxidgene_api::workdir::WorkDir;
 use oxidgene_api::{AppState, build_router, request_context};
 #[cfg(feature = "telemetry")]
@@ -355,8 +356,11 @@ fn main() {
             // files in the expected place. The worker's maintenance passes,
             // the first at start, sweep what a crashed run left in the
             // working directory.
+            // One person works on one tree at a time: what is kept in memory
+            // for a tree goes as soon as another is opened.
             let state = AppState::new(db, media_root)
                 .with_work_dir(server_work_dir)
+                .with_cache(CacheSettings::one_tree(cache_idle()))
                 .with_local_file_access();
             // This process is the only worker of its SQLite database.
             spawn_background_worker(&state, true, "desktop").await;
@@ -512,6 +516,15 @@ fn api_client_when_ready(port: &std::sync::mpsc::Receiver<u16>, token: &LocalTok
     ApiClient::new(&api_url)
         .with_auth_token(token.as_str())
         .with_image_host(media_assets::host())
+}
+
+/// How long the tree cache keeps a tree no request uses: the seconds
+/// `OXIDGENE_CACHE_IDLE_SECS` names, as on the server, or its default.
+fn cache_idle() -> std::time::Duration {
+    std::env::var("OXIDGENE_CACHE_IDLE_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map_or(DEFAULT_IDLE, std::time::Duration::from_secs)
 }
 
 /// Start logging and tracing with the filter the command line or the

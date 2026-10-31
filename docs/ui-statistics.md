@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: human:maintainer, at: 2026-10-21T06:42:30Z }
+generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -189,7 +189,9 @@ Three rows of tiles, each a figure with what it counts:
   Valognes, "Fort Lee, New Jersey 07024, USA" at Fort Lee. A part made of
   numbers alone stays a code. The lookup
   happens at each visit and changes nothing in the tree; it keeps no
-  dictionary in memory ([Place dictionary §2.1](place-dictionary.md)).
+  dictionary in memory, only each label's reading, which depends on the
+  label alone, for the next visits ([Place dictionary §2.1](place-dictionary.md),
+  [Architecture §4.1](architecture.md#41-tree-cache)).
 
 ### 4.2 Top ten
 

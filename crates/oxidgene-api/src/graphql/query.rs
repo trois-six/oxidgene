@@ -1080,6 +1080,7 @@ impl TreeQuery {
         boxed(async move {
             Ok(crate::service::anomalies::load_unlocated_places(
                 reader_from_ctx(ctx),
+                profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
             )
             .await?)

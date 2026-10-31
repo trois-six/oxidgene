@@ -10,6 +10,7 @@ use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::archive::ArchivePortals;
 use crate::service::purge::{self, PurgeQueue};
+use crate::tree_cache::CacheSettings;
 use crate::workdir::WorkDir;
 
 #[derive(Clone, Copy, Debug)]
@@ -57,9 +58,10 @@ pub struct AppState {
 impl AppState {
     /// Create a new `AppState` storing media under `media_root`.
     ///
-    /// There is no cache backend to select any more: projections live in the
-    /// `person_denorm` table of the same database, so desktop (SQLite) and
-    /// web (PostgreSQL) run the identical code path.
+    /// Projections live in the `person_denorm` table of the same database,
+    /// so desktop (SQLite) and web (PostgreSQL) run the identical code path;
+    /// the in-memory tree cache has the web's default settings until
+    /// [`Self::with_cache`] changes them.
     ///
     /// Spawns the purge worker, which also sweeps trees left soft-deleted by a
     /// previous run — so this must be called from within a Tokio runtime.
@@ -118,6 +120,15 @@ impl AppState {
     #[must_use]
     pub fn with_work_dir(mut self, work_dir: WorkDir) -> Self {
         self.work_dir = work_dir;
+        self
+    }
+
+    /// Keep in memory what `settings` allow between requests: one tree at a
+    /// time on the desktop, trees within a budget on the web (see
+    /// [`crate::tree_cache`]).
+    #[must_use]
+    pub fn with_cache(self, settings: CacheSettings) -> Self {
+        self.profiles.cache().configure(settings);
         self
     }
 
