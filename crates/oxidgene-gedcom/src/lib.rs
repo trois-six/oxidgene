@@ -55,6 +55,11 @@ pub struct ImportResult {
     /// [`Repository::tags`] and [`Note::tags`] (docs/api.md, OxidGene
     /// extensions).
     pub tags: Vec<TagRef>,
+    /// The position in [`ImportResult::tags`] of each folded label, so that
+    /// reading a tag line finds its tag at once rather than folding the
+    /// whole vocabulary again. Only the import reads it.
+    #[serde(skip)]
+    pub(crate) tag_by_folded: std::collections::HashMap<String, usize>,
     /// The tree the records were read for.
     pub tree_id: uuid::Uuid,
     /// The submitter the header points at (`HEAD.SUBM`), for the tree's

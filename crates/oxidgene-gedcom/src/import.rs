@@ -780,6 +780,8 @@ struct ImportContext<'d> {
     /// The text of each shared note record, by xref: a file can point at one
     /// from every person, so they are looked up rather than searched.
     shared_notes: HashMap<&'d str, Cow<'d, str>>,
+    /// The media imported so far, for the crops that name one.
+    media_positions: std::cell::RefCell<MediaPositions>,
 }
 
 impl<'d> ImportContext<'d> {
@@ -802,6 +804,7 @@ impl<'d> ImportContext<'d> {
                 .into_iter()
                 .filter_map(|note| Some((st.xref(note.xref()?), note.text().to_str())))
                 .collect(),
+            media_positions: std::cell::RefCell::default(),
         }
     }
 
@@ -863,7 +866,7 @@ impl<'d> ImportContext<'d> {
             let mut row = owner.note(self.tree_id, self.now, text);
             row.shared_group = shared_group;
             if shared_group.is_none() {
-                row.tags = read_tags(note.extra(), &mut result.tags, &mut result.warnings);
+                row.tags = read_tags(note.extra(), result);
             }
             result.notes.push(row);
         }
@@ -1007,7 +1010,7 @@ fn import_repositories(
                 Some(first.lines().next().unwrap_or_default().to_string())
             })
             .unwrap_or_else(|| xref.trim_matches('@').to_string());
-        let tags = read_tags(repo.extra(), &mut result.tags, &mut result.warnings);
+        let tags = read_tags(repo.extra(), result);
         result.repositories.push(Repository {
             tags,
             id,
@@ -1174,7 +1177,7 @@ fn import_sources(
             continue;
         };
         let id = ctx.source_map[xref];
-        let tags = read_tags(src.extra(), &mut result.tags, &mut result.warnings);
+        let tags = read_tags(src.extra(), result);
         result.sources.push(Source {
             id,
             tree_id: ctx.tree_id,
@@ -1941,7 +1944,7 @@ fn import_media_links(
                 ));
                 None
             }
-            Some(crop) => match crop_identification(crop, media_id, result) {
+            Some(crop) => match crop_identification(crop, media_id, ctx, result) {
                 Ok(identification) => Some(identification),
                 Err(reason) => {
                     result.warnings.push(format!(
@@ -2029,10 +2032,11 @@ struct Rectangle {
 fn crop_identification(
     crop: View<'_, Crop>,
     media_id: Uuid,
+    ctx: &ImportContext,
     result: &ImportResult,
 ) -> Result<(Uuid, Rectangle), String> {
-    let page =
-        crop_page(media_id, result).ok_or_else(|| "does not cut a single page".to_owned())?;
+    let page = crop_page(media_id, ctx, result)
+        .ok_or_else(|| "does not cut a single page".to_owned())?;
     let coordinate = |value: u32| {
         i32::try_from(value).map_err(|_| format!("has the value {value}, which is too large"))
     };
@@ -2064,17 +2068,50 @@ fn crop_identification(
 /// The page a crop on `media_id` cuts: the media itself when it is a page,
 /// or the one page of a document. A document of several pages has no single
 /// page to cut.
-fn crop_page(media_id: Uuid, result: &ImportResult) -> Option<&Media> {
-    let media = result.media.iter().find(|media| media.id == media_id)?;
+fn crop_page<'r>(
+    media_id: Uuid,
+    ctx: &ImportContext,
+    result: &'r ImportResult,
+) -> Option<&'r Media> {
+    let mut positions = ctx.media_positions.borrow_mut();
+    positions.catch_up(&result.media);
+    let media = result.media.get(*positions.by_id.get(&media_id)?)?;
     if !media.is_document() {
         return Some(media);
     }
-    let mut pages = result
-        .media
-        .iter()
-        .filter(|page| page.parent_media_id == Some(media_id));
-    let page = pages.next()?;
-    pages.next().is_none().then_some(page)
+    match positions.pages.get(&media_id)?.as_slice() {
+        [page] => result.media.get(*page),
+        _ => None,
+    }
+}
+
+/// Where each medium of `result.media` stands, and the pages of each
+/// document, so that a crop finds its page without scanning every medium.
+///
+/// The records add media as they link them and change none until the
+/// documents are regrouped, after every link is read: the index only has to
+/// take in the media added since it last looked.
+#[derive(Default)]
+struct MediaPositions {
+    /// How many media, from the first, the index holds.
+    indexed: usize,
+    by_id: HashMap<Uuid, usize>,
+    pages: HashMap<Uuid, Vec<usize>>,
+}
+
+impl MediaPositions {
+    fn catch_up(&mut self, media: &[Media]) {
+        if self.indexed > media.len() {
+            *self = Self::default();
+        }
+        for (at, item) in media.iter().enumerate().skip(self.indexed) {
+            self.by_id.insert(item.id, at);
+            if let Some(document) = item.parent_media_id {
+                self.pages.entry(document).or_default().push(at);
+            }
+        }
+        self.indexed = media.len();
+    }
 }
 
 /// The person an event's crop identifies, from its `_OXIDGENE_PERSON`
@@ -2558,23 +2595,23 @@ fn import_oxidgene_media_extensions(data: &Dataset, result: &mut ImportResult) {
 /// tag vocabulary, each read once: labels that fold alike are one tag, the
 /// first spelling and colour read stay (docs/api.md, OxidGene extensions). A line that is not
 /// read is left out with a warning.
-fn read_tags(
-    extra: Items<'_, Node>,
-    vocabulary: &mut Vec<TagRef>,
-    warnings: &mut Vec<String>,
-) -> Vec<TagRef> {
+fn read_tags(extra: Items<'_, Node>, result: &mut ImportResult) -> Vec<TagRef> {
     let mut lines = Vec::new();
     for node in tagged(extra, crate::export::TAG_TAG) {
         let Some(value) = node_text(node) else {
-            warnings.push("Empty _OXIDGENE_TAG line — skipped".to_string());
+            result
+                .warnings
+                .push("Empty _OXIDGENE_TAG line — skipped".to_string());
             continue;
         };
         match serde_json::from_str::<TagExtension>(&value) {
             Ok(line) => lines.push(line),
-            Err(err) => warnings.push(format!("Invalid _OXIDGENE_TAG line: {err} — skipped")),
+            Err(err) => result
+                .warnings
+                .push(format!("Invalid _OXIDGENE_TAG line: {err} — skipped")),
         }
     }
-    tags_of_lines(lines, vocabulary, warnings)
+    tags_of_lines(lines, result)
 }
 
 /// The tags of `lines`, each read into the vocabulary once, in the order of
@@ -2583,19 +2620,18 @@ fn read_tags(
 /// line of another version is skipped with a warning.
 fn tags_of_lines(
     lines: impl IntoIterator<Item = TagExtension>,
-    vocabulary: &mut Vec<TagRef>,
-    warnings: &mut Vec<String>,
+    result: &mut ImportResult,
 ) -> Vec<TagRef> {
     let mut found: Vec<TagRef> = Vec::new();
     for line in lines {
         if line.v != 1 {
-            warnings.push(format!(
+            result.warnings.push(format!(
                 "Unsupported _OXIDGENE_TAG version {} — skipped",
                 line.v
             ));
             continue;
         }
-        if let Some(tag) = tag_of_line(line, vocabulary, warnings)
+        if let Some(tag) = tag_of_line(line, result)
             && !found.iter().any(|known| known.id == tag.id)
         {
             found.push(tag);
@@ -2604,32 +2640,29 @@ fn tags_of_lines(
     sorted_tags(found)
 }
 
-/// The tag one `_OXIDGENE_TAG` value names, read into the vocabulary: the tag
-/// of a label that folds alike, else a new one. `None` with a warning when the
-/// label is unusable.
-fn tag_of_line(
-    line: TagExtension,
-    vocabulary: &mut Vec<TagRef>,
-    warnings: &mut Vec<String>,
-) -> Option<TagRef> {
+/// The tag one `_OXIDGENE_TAG` value names, read into the vocabulary
+/// (`result.tags`): the tag of a label that folds alike, else a new one.
+/// `None` with a warning when the label is unusable.
+fn tag_of_line(line: TagExtension, result: &mut ImportResult) -> Option<TagRef> {
     let label = line.label.trim();
     if label.is_empty() || label.chars().count() > TAG_LABEL_MAX {
-        warnings.push(format!(
+        result.warnings.push(format!(
             "_OXIDGENE_TAG label {label:?} is empty or longer than {TAG_LABEL_MAX} characters — skipped"
         ));
         return None;
     }
     let folded = fold_words(label);
-    if let Some(tag) = vocabulary
-        .iter()
-        .find(|tag| fold_words(&tag.label) == folded)
+    if let Some(tag) = result
+        .tag_by_folded
+        .get(&folded)
+        .and_then(|&at| result.tags.get(at))
     {
         return Some(tag.clone());
     }
     let color = if (0..TAG_COLOR_SLOTS).contains(&line.color) {
         line.color
     } else {
-        warnings.push(format!(
+        result.warnings.push(format!(
             "_OXIDGENE_TAG colour {} is out of range — the first colour is used",
             line.color
         ));
@@ -2640,7 +2673,8 @@ fn tag_of_line(
         label: label.to_string(),
         color,
     };
-    vocabulary.push(tag.clone());
+    result.tag_by_folded.insert(folded, result.tags.len());
+    result.tags.push(tag.clone());
     Some(tag)
 }
 
@@ -2649,7 +2683,7 @@ fn tag_of_line(
 /// node reads none.
 fn event_tags(extra: Option<Items<'_, Node>>, result: &mut ImportResult) -> Vec<TagRef> {
     match extra {
-        Some(extra) => read_tags(extra, &mut result.tags, &mut result.warnings),
+        Some(extra) => read_tags(extra, result),
         None => Vec::new(),
     }
 }
@@ -2694,7 +2728,7 @@ fn import_standalone_places(data: &Dataset, lookups: &mut Lookups<'_>, result: &
         let Some(id) = lookups.place.id_of(&name, &mut result.places) else {
             continue;
         };
-        let tags = read_tags(plac.children(), &mut result.tags, &mut result.warnings);
+        let tags = read_tags(plac.children(), result);
         let coordinates = map_coordinates(plac, &mut result.warnings);
         if let Some(place) = result.places.iter_mut().find(|place| place.id == id) {
             add_tags(&mut place.tags, tags);
@@ -2738,13 +2772,12 @@ fn map_pair(latitude: &str, longitude: &str, warnings: &mut Vec<String>) -> Opti
 /// the record once, carrying the union of its notes' tags (docs/api.md, `_OXIDGENE_TAG`).
 fn import_shared_note_tags(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
     let st = data.store();
-    let mut vocabulary = std::mem::take(&mut result.tags);
     let mut group_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
     for note in data.notes() {
         let Some(&group) = note.xref().and_then(|xref| ctx.note_map.get(st.xref(xref))) else {
             continue;
         };
-        let tags = read_tags(note.extra(), &mut vocabulary, &mut result.warnings);
+        let tags = read_tags(note.extra(), result);
         if !tags.is_empty() {
             group_tags.insert(group, tags);
         }
@@ -2754,20 +2787,18 @@ fn import_shared_note_tags(data: &Dataset, ctx: &ImportContext, result: &mut Imp
             note.tags = tags.clone();
         }
     }
-    result.tags = vocabulary;
 }
 
 /// Read the tags of each person and couple beneath its `INDI` or `FAM`
 /// record, and build the file's tag vocabulary.
 fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &mut ImportResult) {
     let st = data.store();
-    let mut vocabulary = std::mem::take(&mut result.tags);
     let mut person_tags: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
     for indi in data.individuals() {
         let Some(&id) = indi.xref().and_then(|xref| ctx.indi_map.get(st.xref(xref))) else {
             continue;
         };
-        let tags = read_tags(indi.extra(), &mut vocabulary, &mut result.warnings);
+        let tags = read_tags(indi.extra(), result);
         if !tags.is_empty() {
             person_tags.insert(id, tags);
         }
@@ -2777,7 +2808,7 @@ fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &m
         let Some(&id) = fam.xref().and_then(|xref| ctx.fam_map.get(st.xref(xref))) else {
             continue;
         };
-        let tags = read_tags(fam.extra(), &mut vocabulary, &mut result.warnings);
+        let tags = read_tags(fam.extra(), result);
         if !tags.is_empty() {
             family_tags.insert(id, tags);
         }
@@ -2792,7 +2823,6 @@ fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &m
             family.tags = tags;
         }
     }
-    result.tags = vocabulary;
 }
 
 /// Read the tags beneath each document's first `OBJE` (docs/api.md, OxidGene extensions).
@@ -2800,7 +2830,6 @@ fn import_person_and_family_tags(data: &Dataset, ctx: &ImportContext, result: &m
 /// document it now belongs to.
 fn import_document_tags(data: &Dataset, result: &mut ImportResult) {
     let st = data.store();
-    let mut vocabulary = std::mem::take(&mut result.tags);
     let mut page_tags: Vec<(Uuid, Vec<TagRef>)> = Vec::new();
     for mm in data.multimedia() {
         let Some(&page_id) = mm
@@ -2809,7 +2838,7 @@ fn import_document_tags(data: &Dataset, result: &mut ImportResult) {
         else {
             continue;
         };
-        let tags = read_tags(mm.extra(), &mut vocabulary, &mut result.warnings);
+        let tags = read_tags(mm.extra(), result);
         if !tags.is_empty() {
             page_tags.push((page_id, tags));
         }
@@ -2836,7 +2865,6 @@ fn import_document_tags(data: &Dataset, result: &mut ImportResult) {
             item.tags = sorted_tags(tags);
         }
     }
-    result.tags = vocabulary;
 }
 
 /// The values of the `tag` extension beneath each top-level `OBJE`, with the
@@ -2886,7 +2914,7 @@ fn import_media_metadata_extensions(data: &Dataset, result: &mut ImportResult) {
 
         for note in metadata.notes {
             let created_at = note.created_at.unwrap_or_else(Utc::now);
-            let tags = tags_of_lines(note.tags, &mut result.tags, &mut result.warnings);
+            let tags = tags_of_lines(note.tags, result);
             result.notes.push(Note {
                 tags,
                 id: Uuid::now_v7(),
@@ -2966,6 +2994,17 @@ fn regroup_document_pages(
 ) -> HashMap<Uuid, Uuid> {
     let mut dropped: HashMap<Uuid, Uuid> = HashMap::new();
     let mut places = PlaceNames::new(result.tree_id, Utc::now(), &result.places);
+    // The pass re-parents pages and fills documents in, but adds or removes
+    // no media: their positions hold throughout.
+    let at: HashMap<Uuid, usize> = result
+        .media
+        .iter()
+        .enumerate()
+        .map(|(at, item)| (item.id, at))
+        .collect();
+    let document_of = |result: &ImportResult, page_id: Uuid| {
+        result.media.get(*at.get(&page_id)?)?.parent_media_id
+    };
     for (token, mut pages) in by_token {
         pages.sort_by_key(|(_, container)| container.index);
         // The document to keep is the one written for the first page, because
@@ -2986,7 +3025,7 @@ fn regroup_document_pages(
             {
                 dropped.insert(previous, keeper);
             }
-            if let Some(page) = result.media.iter_mut().find(|item| item.id == *page_id) {
+            if let Some(page) = at.get(page_id).and_then(|&at| result.media.get_mut(at)) {
                 page.parent_media_id = Some(keeper);
                 page.page_index = index as i32;
             }
@@ -2994,7 +3033,8 @@ fn regroup_document_pages(
 
         let page_count = pages.len() as i32;
         let meta = pages.into_iter().find_map(|(_, container)| container.meta);
-        apply_document_metadata(result, &mut places, keeper, page_count, meta);
+        let document = at.get(&keeper).copied();
+        apply_document_metadata(result, &mut places, document, page_count, meta);
     }
     dropped
 }
@@ -3046,25 +3086,17 @@ fn redirect_to_kept_documents(result: &mut ImportResult, dropped: &HashMap<Uuid,
     });
 }
 
-/// The document a page belongs to, as the result currently records it.
-fn document_of(result: &ImportResult, page_id: Uuid) -> Option<Uuid> {
-    result
-        .media
-        .iter()
-        .find(|item| item.id == page_id)
-        .and_then(|page| page.parent_media_id)
-}
-
-/// Write what a document says about itself onto its row.
+/// Write what a document says about itself onto its row, the one at
+/// position `document` in `result.media`.
 fn apply_document_metadata(
     result: &mut ImportResult,
     places: &mut PlaceNames,
-    document_id: Uuid,
+    document: Option<usize>,
     page_count: i32,
     meta: Option<crate::DocumentMetadataExtension>,
 ) {
     let Some(meta) = meta else {
-        if let Some(document) = result.media.iter_mut().find(|item| item.id == document_id) {
+        if let Some(document) = document.and_then(|at| result.media.get_mut(at)) {
             document.page_count = page_count;
         }
         return;
@@ -3083,9 +3115,10 @@ fn apply_document_metadata(
         Some(id)
     });
 
-    let Some(document) = result.media.iter_mut().find(|item| item.id == document_id) else {
+    let Some(document) = document.and_then(|at| result.media.get_mut(at)) else {
         return;
     };
+    let document_id = document.id;
     document.file_name = meta.file_name;
     document.created_at = meta.created_at.unwrap_or(document.created_at);
     document.updated_at = meta.updated_at.unwrap_or(document.updated_at);
@@ -3105,7 +3138,7 @@ fn apply_document_metadata(
 
     for note in meta.notes {
         let created_at = note.created_at.unwrap_or_else(Utc::now);
-        let tags = tags_of_lines(note.tags, &mut result.tags, &mut result.warnings);
+        let tags = tags_of_lines(note.tags, result);
         result.notes.push(Note {
             tags,
             id: Uuid::now_v7(),
@@ -4190,7 +4223,7 @@ fn import_place(
     let pid = places.id_of(&opt(Some(plac.name()))?, &mut result.places)?;
     // Every PLAC of a place repeats its tags, and the place takes their union
     // (docs/api.md, `_OXIDGENE_TAG` and `_OXIDGENE_PLACE`).
-    let tags = read_tags(plac.extra(), &mut result.tags, &mut result.warnings);
+    let tags = read_tags(plac.extra(), result);
     let coordinates = plac.map().and_then(|map| {
         let (lat_str, lon_str) = (map.latitude()?, map.longitude()?);
         map_pair(&lat_str.to_str(), &lon_str.to_str(), &mut result.warnings)
@@ -4269,7 +4302,7 @@ fn import_citation(
         .flat_map(|v| v.texts())
         .chain(cite.texts())
         .find_map(|source_text| opt(Some(source_text.text())));
-    let tags = read_tags(cite.extra(), &mut result.tags, &mut result.warnings);
+    let tags = read_tags(cite.extra(), result);
 
     result.citations.push(Citation {
         id: Uuid::now_v7(),
