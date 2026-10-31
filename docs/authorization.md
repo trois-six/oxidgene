@@ -480,9 +480,11 @@ beside it.
 | Fits "OxidGene holds no credential" | Yes | No |
 
 Client credentials keep OxidGene out of the credential business, as for
-users. Personal access tokens — prefixed, shown once, stored as a keyed hash,
-expiring, revocable — are the alternative for deployments whose provider
-cannot issue client credentials (open decision 9).
+users. **OxidGene issues no personal access tokens**: a program always
+authenticates as an API client with its client id and client secret, and
+uses the short-lived access token the provider's token endpoint returns for
+them. A deployment whose provider cannot issue client credentials offers no
+API clients.
 
 ---
 
@@ -703,9 +705,6 @@ language and absent from the desktop.
 8. **Out-of-scope relatives.** Recommended: *Not shared* stubs at the
    boundary. Alternative: absent, which hides even that a shared person has
    parents outside the share.
-9. **Machine-to-machine credentials.** Recommended: OAuth client credentials
-   at the provider (§7). Alternative or complement: OxidGene personal access
-   tokens, for providers without client credentials.
-10. **Scope evaluation.** Recommended: materialized rows rebuilt when stale.
+9. **Scope evaluation.** Recommended: materialized rows rebuilt when stale.
     Alternative: a recursive query per request, simpler to keep current and
     slower on every read of a large share.
