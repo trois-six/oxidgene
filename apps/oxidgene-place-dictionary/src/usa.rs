@@ -119,8 +119,9 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let towns = gazetteer(fetcher, year, "cousubs").await?;
     let mut town_names: HashSet<(String, String)> = HashSet::new();
     for row in rows(&towns)? {
-        if NEW_ENGLAND.contains(&&row.geoid[..2]) && row.name.ends_with(" town") {
-            town_names.insert(filing.town(&row, &mut places));
+        let state = row.geoid.get(..2).unwrap_or_default();
+        if NEW_ENGLAND.contains(&state) && row.name.ends_with(" town") {
+            town_names.insert(filing.town(&row, &mut places)?);
         }
     }
     let gazetteer_places = gazetteer(fetcher, year, "place").await?;
@@ -158,27 +159,34 @@ struct Filing<'a> {
 }
 
 impl Filing<'_> {
-    /// Files a New England town; its name and county.
-    fn town(&self, row: &Row, places: &mut Vec<Place>) -> (String, String) {
-        let county = &row.geoid[..5];
+    /// Files a New England town; its name and county. A `GEOID` too short
+    /// for a county, or of an unknown state, is a download that changed.
+    fn town(&self, row: &Row, places: &mut Vec<Place>) -> Result<(String, String)> {
+        let county = row.geoid.get(..5).with_context(|| {
+            format!("the county subdivision GEOID {:?} is too short", row.geoid)
+        })?;
+        let state_name = self
+            .states
+            .get(county.get(..2).unwrap_or_default())
+            .copied()
+            .with_context(|| {
+                format!(
+                    "the county subdivision GEOID {:?} names no state",
+                    row.geoid
+                )
+            })?;
         let name = plain_name(&row.name);
         let mut base = unfiled(Country::UnitedStates, &name, &row.geoid, Kind::Commune);
         base.coordinates = row.coordinates;
         let county_name = self.county_names.get(county).copied().unwrap_or_default();
-        file(
-            places,
-            &base,
-            county_name,
-            self.states[&row.geoid[..2]],
-            true,
-        );
-        (name, county.to_string())
+        file(places, &base, county_name, state_name, true);
+        Ok((name, county.to_string()))
     }
 
     /// Files an incorporated or census-designated place under each of its
     /// counties, unless it is the centre of a New England town.
     fn place(&self, row: &Row, town_names: &HashSet<(String, String)>, places: &mut Vec<Place>) {
-        let Some(state_name) = self.states.get(&row.geoid[..2]) else {
+        let Some(state_name) = row.geoid.get(..2).and_then(|state| self.states.get(state)) else {
             return;
         };
         let name = plain_name(&row.name);
@@ -290,6 +298,47 @@ fn plain_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A town row whose GEOID cannot name a county, or names an unknown
+    /// state, fails the run with a reason instead of panicking.
+    #[test]
+    fn a_malformed_town_geoid_is_an_error() {
+        let filing = Filing {
+            states: HashMap::from([("25", "Example State")]),
+            county_names: HashMap::new(),
+            place_counties: HashMap::new(),
+        };
+        let row = |geoid: &str| Row {
+            geoid: geoid.to_owned(),
+            name: "Exampleton town".to_owned(),
+            coordinates: None,
+        };
+        let mut places = Vec::new();
+        assert!(filing.town(&row("25"), &mut places).is_err());
+        assert!(filing.town(&row("99001"), &mut places).is_err());
+        assert!(filing.town(&row("2500\u{e9}"), &mut places).is_err());
+        assert!(places.is_empty());
+        let (name, county) = filing.town(&row("2500101234"), &mut places).unwrap();
+        assert_eq!((name.as_str(), county.as_str()), ("Exampleton", "25001"));
+    }
+
+    /// A place row with a GEOID too short for a state is left out.
+    #[test]
+    fn a_short_place_geoid_is_left_out() {
+        let filing = Filing {
+            states: HashMap::from([("25", "Example State")]),
+            county_names: HashMap::new(),
+            place_counties: HashMap::new(),
+        };
+        let row = Row {
+            geoid: "2".to_owned(),
+            name: "Exampleton city".to_owned(),
+            coordinates: None,
+        };
+        let mut places = Vec::new();
+        filing.place(&row, &HashSet::new(), &mut places);
+        assert!(places.is_empty());
+    }
 
     #[test]
     fn legal_descriptions_are_not_part_of_the_name() {

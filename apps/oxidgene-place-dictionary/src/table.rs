@@ -12,11 +12,12 @@ pub struct Table {
 impl Table {
     pub fn parse(text: &str, delimiter: char) -> Result<Self> {
         let mut records = parse_records(text.trim_start_matches('\u{feff}'), delimiter)?;
+        // A blank line is no record, wherever a source leaves one; a file of
+        // blank lines alone has no header either.
+        records.retain(|r| !(r.len() == 1 && r[0].trim().is_empty()));
         if records.is_empty() {
             bail!("the file has no header row");
         }
-        // A blank line is no record, wherever a source leaves one.
-        records.retain(|r| !(r.len() == 1 && r[0].trim().is_empty()));
         let header = records.remove(0);
         if let Some(line) = records.iter().position(|r| r.len() != header.len()) {
             bail!(
@@ -140,6 +141,14 @@ fn windows_1252(byte: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A blank download is refused, not a panic of the whole run.
+    #[test]
+    fn a_file_of_blank_lines_has_no_header() {
+        for text in ["", "\n", "\r\n\n", "\u{feff}\n"] {
+            assert!(Table::parse(text, ',').is_err(), "{text:?}");
+        }
+    }
 
     #[test]
     fn reads_quoted_fields_with_delimiters_and_escaped_quotes() {
