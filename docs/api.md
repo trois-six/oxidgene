@@ -92,9 +92,23 @@ desktop session handoffs rather than genealogy import or export artifacts.
 
 Authentication and authorization are not implemented in the current MVP.
 Privacy values are stored but not enforced, so clients must not claim that
-private records are hidden. Future authorization uses the same domain checks
-for REST and GraphQL. Until that work is complete, the API is local or private
-infrastructure only and must not be published directly to an untrusted network.
+private records are hidden. Until that work is complete, the API is local or
+private infrastructure only and must not be published directly to an
+untrusted network.
+
+The planned contract, for the web build only, is specified in
+[Authentication](authentication.md), [Authorization](authorization.md),
+[Privacy](privacy.md) and [Messaging and Notifications](messaging.md): a
+session cookie for the web frontend or a bearer access token for other
+clients, validated on every request; one `ViewerContext` per request passed
+to every operation, so REST and GraphQL apply the same permissions, scopes,
+exclusions and redaction; `401 unauthenticated`, `403 forbidden` and
+`404 not_found` chosen alike on both surfaces
+([Authorization §4.3](authorization.md#43-errors-401-403-and-404)); and
+`429 rate_limited`. Their operations are listed in those specifications and
+join §2 and the parity table as each is implemented. The `/auth/*` routes
+and `/.well-known/oauth-protected-resource` are transports outside `/api/v1`
+with no GraphQL twin. The desktop's embedded server keeps its launch token.
 Server defaults, container publication, CORS, and UI media rendering follow
 [Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication).
 The standalone server's CORS policy lets the browser keep a preflight answer
@@ -1010,7 +1024,9 @@ GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 
 ### Audit log and versions
 
-Every write to a tree leaves an audit entry, and every write that changes a
+Every write to a tree leaves an audit entry (with its author and client once
+EPIC G ships, [Authorization §9.1](authorization.md#91-authors-in-the-change-history)),
+and every write that changes a
 person, a place, a source or the tree's settings also stores the state it
 replaced as a numbered version; the live record is the current version, never
 stored. See [Data Model §5](data-model.md#5-change-history) for what is

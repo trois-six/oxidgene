@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -333,9 +333,12 @@ withhold presumed living people:
 - Withholding living people would break the features an assistant is used
   for: relatives, siblings, and date consistency.
 
-When authorization ships, filtering by viewer access happens once, in the
-read path that REST, GraphQL, exports, and MCP share. There is no MCP-specific
-filter. A future "never send to an assistant" choice, if one is wanted, is a
+This stays true of the stdio server, which keeps acting for the desktop's
+single user. The web build's HTTP transport (§10) acts for the signed-in user
+whose token it receives: filtering by viewer access — scope, exclusions,
+redaction — happens once, in the read path that REST, GraphQL, exports, and
+MCP share ([Privacy §7](privacy.md#7-enforcement-points)). There is no
+MCP-specific filter. A future "never send to an assistant" choice, if one is wanted, is a
 separate setting, not an overloaded `privacy` value.
 
 ### 7.3 Untrusted content
@@ -425,13 +428,16 @@ To allow writes (§7.1), the user appends the flag: `… oxidgene-desktop mcp
 
 ## 10. Later phases
 
-- **Network transport.** Streamable HTTP on `/mcp`, merged into the Axum
-  router. This is blocked by the rule that the backend is never exposed before
-  authentication
+- **Network transport.** Streamable HTTP on `/mcp`, merged into the web
+  build's Axum router; the desktop keeps stdio only. This is blocked by the
+  rule that the backend is never exposed before authentication
   ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
-  It requires MCP authorization mapped to the user's per-tree access, `Origin`
-  validation, and the same required `tree_id` as §3. `list_trees` then returns
-only the trees the user may read.
+  Its authorization — protected resource metadata, audience-bound bearer
+  tokens of a registered assistant client, scopes `tree:read` and
+  `tree:write`, the user's per-tree access, `Origin` validation and the same
+  required `tree_id` as §3 — is specified in
+  [Authorization §8](authorization.md#8-assistant-access-over-http-mcp).
+  `list_trees` then returns only the trees the user may read.
 - **Media.** Thumbnails as image content, bounded in size and count.
 - **Output schemas.** An `outputSchema` per tool, once the result types carry
   JSON Schema derives.

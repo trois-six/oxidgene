@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-30T23:30:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -191,11 +191,12 @@ error (a `500`), and names the server log line that records it.
 |---|---|---|
 | 400 | `validation_error` | Invalid field, format, or business input. |
 | 400 | `gedcom_error` | Invalid or unsupported genealogy input. |
-| 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); later, any missing authentication. |
-| 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); later, a viewer lacking access. |
+| 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); with EPIC G, a missing, invalid or expired credential ([Authorization §4.3](authorization.md#43-errors-401-403-and-404)). |
+| 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); with EPIC G, a viewer who sees the tree but lacks the permission, or a failed CSRF check. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
 | 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree. |
 | 413 | `payload_too_large` | Request body exceeds the route's limit. |
+| 429 | `rate_limited` | Planned with EPIC G: a client exceeded a rate limit; `Retry-After` says when to retry ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force)). |
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |
 | 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1); a `504 timeout` is an archive portal's. |
@@ -220,7 +221,8 @@ GraphQL uses the standard `errors` array. Each error carries the equivalent
 uppercase code (`VALIDATION_ERROR`, `GEDCOM_ERROR`, `NOT_FOUND`, `CONFLICT`,
 `DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`, and the archive codes
 `NOT_AN_ARCHIVE_CITATION`, `NO_ADAPTER`, `UNEXPECTED_RESPONSE`, `TIMEOUT`,
-`UNREACHABLE`) and optional request ID in `extensions`. Mutation payloads do not invent a second error model.
+`UNREACHABLE`, and with EPIC G `UNAUTHENTICATED`, `FORBIDDEN` and
+`RATE_LIMITED`) and optional request ID in `extensions`. Mutation payloads do not invent a second error model.
 
 ```json
 {
@@ -686,7 +688,11 @@ must never be exposed directly to an untrusted network:
   see [API §Image sources](api.md).
 
 Public backend deployment is blocked until the authentication flow and all
-authorization checks are complete. Privacy flags do not relax this rule.
+authorization checks are complete. Privacy flags do not relax this rule. The
+web build's authentication, authorization and privacy enforcement that lift
+it are specified in [Authentication](authentication.md),
+[Authorization](authorization.md) and [Privacy](privacy.md); once they ship,
+only the `oidc` mode may face an untrusted network.
 
 ## 8. Verification
 

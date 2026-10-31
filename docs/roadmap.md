@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -31,7 +31,7 @@ generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
 | D | Shared UX, themes, languages, runtime settings, printing | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [App Settings](ui-app-settings.md), [Settings](ui-settings.md) |
 | E | Read projections, search, dictionary | Complete | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
-| G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
+| G | Security, privacy enforcement, sharing, messaging, deployment (web only) | Planned (§8) | [Authentication](authentication.md), [Authorization](authorization.md), [Privacy](privacy.md), [Messaging](messaging.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Durable import and export jobs delivered; the rest post-MVP (§12) | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
 | J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#9-section-history), [Homepage](ui-home.md) |
@@ -269,18 +269,109 @@ family-names tab beside its alphabetical list ([Dictionary
 
 ## 8. Planned: security, release, and deployment
 
-- [ ] Implement authentication and session management.
-- [ ] Implement per-tree guest, read-only, and editor authorization.
-- [ ] Enforce person, family, and media privacy according to viewer access,
-  as one piece of work with the tree's visibility and contemporary-person
-  settings ([Settings §8](ui-settings.md#8-section-privacy)): the age
-  threshold, the display mode, navigation to hidden persons and their
-  photos, and the export's *Include contemporary persons* option. A
-  contemporary person is a privacy rule, so it is built and enforced with
-  the rest of privacy, not before it.
-- [ ] Record the author of every audit entry ([Data Model §5](data-model.md#5-change-history))
-  and add access audit logging with anonymized operational output.
-- [ ] Mirror security behavior and errors across REST and GraphQL.
+EPIC G is specified in [Authentication](authentication.md),
+[Authorization](authorization.md), [Privacy](privacy.md) and
+[Messaging and Notifications](messaging.md). All of it is built for the web
+deployment only — server, worker and web frontend — behind the `auth`
+feature and UI capabilities the desktop does not enable; the desktop keeps
+its single local user and its loopback guards, unchanged. Each phase ships
+its REST and GraphQL operations together, with their tests, every user-visible
+string in every language, and the user guide. In order:
+
+1. **Identity and sessions.**
+   - [ ] The `auth` feature of `oxidgene-api`, enabled by the server and the
+     worker only, with a guard keeping it out of the desktop
+     ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
+   - [ ] `OXIDGENE_AUTH_MODE` (`oidc`, `none`), the OIDC configuration,
+     discovery and JWKS with back-channel URL, token validation
+     ([Authentication §3, §5](authentication.md#5-access-tokens-and-the-identity-of-a-request)).
+   - [ ] The Backend-for-Frontend: `/auth/*`, the session store in memory and
+     in Redis, CSRF, refresh with rotation, RP-initiated and back-channel
+     logout ([Authentication §4](authentication.md#4-browser-sessions-backend-for-frontend)).
+   - [ ] Users: provisioning and the signup gate, instance roles from claims,
+     deactivation, erasure, account data, the administrator's user list.
+   - [ ] The sign-in, account menu, session-end dialog and `none` banner of
+     the web frontend.
+   - [ ] The profile page: display name, the uploaded avatar with its crop,
+     re-encoding and serving, the generated initials avatar, language,
+     sessions, account data and deletion
+     ([Authentication §6.7](authentication.md#67-profile-and-avatar)); its
+     notification, API-client, messaging-security and blocked-users sections
+     arrive with phases 4, 6 and 7.
+   - [ ] The Compose stack's Keycloak with its development realm, the web
+     container's proxy, and the chart's `auth.idp.mode` `external` and
+     `none` with its values and Ingress paths
+     ([Authentication §8](authentication.md#8-deployment)).
+   - [ ] The mock provider of the integration tests and the opt-in
+     end-to-end sign-in suite.
+2. **Roles and enforcement.**
+   - [ ] Memberships with the Owner, Editor and Guest roles, tree creation
+     rights, ownership transfer, ownerless trees
+     ([Authorization §3, §5](authorization.md#5-memberships-and-ownership)).
+   - [ ] The `ViewerContext` resolved per request from the validated token,
+     with its client id, taken by every service, projection read, GraphQL
+     resolver and MCP tool ([Authorization §4](authorization.md#4-viewercontext)).
+   - [ ] The permission of every operation in the parity table, the
+     401/403/404 contract, and the role × operation matrix test on both
+     surfaces.
+   - [ ] The author and client of every audit entry, the job's recorded
+     actor re-checked by the worker, and the access log with its retention
+     ([Authorization §9](authorization.md#9-audit),
+     [Authentication §5.5](authentication.md#55-background-jobs)).
+3. **Privacy and exclusions.**
+   - [ ] Public as the default record privacy, with the precedence of
+     [Privacy §3.1](privacy.md#31-precedence).
+   - [ ] `person_visibility` and the contemporary rule with its inference
+     from descendants and other relatives
+     ([Privacy §4](privacy.md#4-contemporary-persons)); the export's *Leave
+     out contemporary and private persons* option, on both builds.
+   - [ ] Redaction for Visitors in every enforcement point and display mode,
+     confidential notes, media privacy, cache headers
+     ([Privacy §5, §7](privacy.md#7-enforcement-points)).
+   - [ ] Exclusions of persons and subtrees, materialized and kept current,
+     from the person menu and the privacy settings
+     ([Privacy §6](privacy.md#6-exclusions-from-sharing)).
+   - [ ] The tree's privacy settings in [Settings §8](ui-settings.md#8-section-privacy)
+     and the leak suite with its canary persons.
+4. **Notifications and email.**
+   - [ ] In-app notifications, preferences and the long poll
+     ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)).
+   - [ ] The SMTP relay, the outbox processed by the worker, translated
+     templates, digests and unsubscribe; Mailpit in the Compose stack; the
+     chart's `mail.smtp` values ([Messaging and Notifications §3](messaging.md#3-email)).
+5. **Sharing.**
+   - [ ] Sharing with users of the instance, email invitations, share links,
+     tree visibility with its visitor scope
+     ([Authorization §6](authorization.md#6-sharing)).
+   - [ ] Access scopes, materialized and kept current, with their preview
+     and the *Not shared* boundary
+     ([Authorization §6.5](authorization.md#65-access-scopes)).
+   - [ ] The homepage's roles and invitations, and the owner's Members and
+     Sharing sections.
+6. **API clients and assistant access over HTTP.**
+   - [ ] Tree and user API clients over client credentials, with
+     provisioning, rotation, revocation, rate limits and usage
+     ([Authorization §7](authorization.md#7-api-clients)).
+   - [ ] MCP over Streamable HTTP with protected resource metadata
+     ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)).
+   - [ ] Token exchange for the first worker task that calls a service on
+     a user's behalf.
+7. **Messaging.**
+   - [ ] Device enrolment, the key directory, key backup and recovery,
+     verification ([Messaging and Notifications §5](messaging.md#5-end-to-end-encryption)).
+   - [ ] One-to-one and group conversations over MLS, message requests, read
+     state, record links resolved under the reader's access.
+   - [ ] Blocking, reporting, moderation, rate limits, retention and erasure;
+     the inbox, conversation and Messaging security surfaces; the web
+     bundle's measured size budget.
+8. **Keycloak Operator mode.**
+   - [ ] `auth.idp.mode=keycloak-operator`: the `Keycloak`, its database and
+     the `KeycloakRealmImport` of the shipped realm, with chart rendering
+     tests ([Authentication §8.2, §8.3](authentication.md#83-the-shipped-realm)).
+   - [ ] Validate the Keycloak mode in a production-like cluster.
+
+Releases:
+
 - [x] Build and publish versioned desktop binaries for Linux, Windows, and
   macOS from repository tags, with SHA-256 checksums.
 - [x] Publish the macOS desktop as a universal `OxidGene.app`, Apple silicon
@@ -361,7 +452,7 @@ Later phases, in order:
   two persons are related, with `get_family` and `list_event_witnesses`
   giving the link IDs the removals take.
 - [ ] Streamable HTTP on `/mcp` with MCP authorization mapped to per-tree
-  access, after EPIC G.
+  access, in the web build: EPIC G phase 6 (§8).
 - [ ] Bounded thumbnail image content.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 

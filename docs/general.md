@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: human:maintainer, at: 2026-10-15T18:51:12Z }
+generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
 ---
 
 
@@ -72,18 +72,24 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 
 ### 2.2 Planned User Roles (per tree)
 
-These roles describe the authorization target for EPIC G. They are not
-implemented in the current MVP, which has no authentication or viewer-aware
-access control.
+These roles describe the authorization target for EPIC G, in the web
+deployment only. They are not implemented in the current MVP, which has no
+authentication or viewer-aware access control; the desktop keeps a single
+local user with full access.
 
-- **Guest**: limited access, contemporary individuals hidden. → see [Settings](ui-settings.md) (privacy section)
-- **Full Read-only**: full tree access.
-- **Editor**: read + create/modify/delete.
+- **Owner**: the account the tree belongs to; manages its sharing, exclusions and settings.
+- **Editor**: adds, modifies and deletes data.
+- **Guest**: sees the whole tree, contemporaries included, and changes nothing.
+- **Visitor**: browses a tree made visible to the site or the web, or opened through a share link, contemporaries hidden.
+
+→ see [Authorization](authorization.md) (roles and permissions) and [Privacy](privacy.md)
 
 ### 2.3 Access Control
 
-- Target behavior: trees can be private, shared, or public, with access rights
-    defined per tree.
+- Target behavior: trees can be private, visible to the site's signed-in
+    users, or public on the web, shared with users or by link, whole or as a
+    subtree, with persons and subtrees the owner excludes from every share.
+    → see [Authorization](authorization.md)
 - Current behavior: privacy values record the user's intent but do not restrict
     any API query, search, export, media download, or UI view.
 - Authentication, authorization, and privacy enforcement are deferred to EPIC
@@ -207,11 +213,16 @@ hide it from reads, searches, exports, media downloads, or the UI.
 
 The following behavior is planned for EPIC G:
 
-- Mask contemporary individuals (born less than an age threshold ago, 80 years by default, with no known death) for guest users. → see [Settings](ui-settings.md) (privacy section)
-- Optional last/first name masking.
-- Authentication and per-tree authorization.
-- Privacy enforcement across REST, GraphQL, exports, media, and UI views.
-- Full audit logging.
+- Mask contemporary individuals (no recorded death, and not provably born at least an age threshold ago, 100 years by default) from visitors. → see [Privacy](privacy.md)
+- A display mode for hidden persons: a *Private* placeholder, initials, or absent.
+- Exclusions of persons and subtrees from every share.
+- Authentication against any OpenID Connect provider, OxidGene storing no password. → see [Authentication](authentication.md)
+- Per-tree authorization and sharing. → see [Authorization](authorization.md)
+- Privacy enforcement across REST, GraphQL, MCP, exports, media, and UI views.
+- The author of every change, and an access log.
+- End-to-end encrypted messaging between users. → see [Messaging and Notifications](messaging.md)
+
+All of it applies to the web deployment; the desktop has one local user.
 
 See [Roadmap](roadmap.md) for delivery status.
 
@@ -273,4 +284,5 @@ The project must respect the norms and standards:
 - XDG base directories for cache, config...
 - REST and GraphQL
 - OpenAPI
-- OAuth 2.0 / OpenID Connect (eventually SAML if we decide to use it)
+- OAuth 2.x / OpenID Connect; SAML and social sign-in only through the identity provider's brokering ([Authentication](authentication.md))
+- Messaging Layer Security (RFC 9420) for messages

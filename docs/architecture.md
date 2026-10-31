@@ -32,7 +32,8 @@ generated: { by: human:maintainer, at: 2026-10-31T20:00:00Z }
 | PDF viewing | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`) | 6.4, legacy build | Vendored files, not a Cargo dependency (Apache-2.0; its JPEG 2000 and JBIG2 wasm decoders BSD); see **PDF viewer** (§4) |
 | Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`; no cache tier. See [Data Model §4](data-model.md) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
-| Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G; not used before authentication exists |
+| Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G: the web build's sessions, rate-limit counters and long-poll wake-ups once authentication ships ([Authentication §4.5](authentication.md#45-session-store)); not used before |
+| Identity | Any OpenID Connect provider | — | Planned (EPIC G), web build only; Keycloak offered by the Helm chart through its operator ([Authentication §8](authentication.md#8-deployment)) |
 | Build orchestration | just | latest | Unified justfile for all tasks |
 
 ---
@@ -55,7 +56,7 @@ For full entity definitions, see [Data Model](data-model.md).
 | Pagination | Cursor-based (Relay-style) | Handles concurrent modifications, natural fit for GraphQL connections |
 | Deletion | Soft delete (`deleted_at`) | Undo capability, audit trail, filtered out by default |
 | Desktop architecture | Single binary | Embeds Axum on localhost + SQLite + Dioxus WebView |
-| Authentication | Deferred to EPIC G | No auth in MVP; backend access remains local/private and is never directly public |
+| Authentication | Deferred to EPIC G | No auth in MVP; backend access remains local/private and is never directly public. Planned for the web build only: OpenID Connect with a Backend-for-Frontend, authorization owned by OxidGene ([Authentication](authentication.md), [Authorization](authorization.md)) |
 
 ---
 
@@ -88,6 +89,25 @@ For full entity definitions, see [Data Model](data-model.md).
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).
 - Application crates provide the web server, its background-job worker, the
     browser frontend, and the desktop application. There is no CLI.
+
+**Authentication and authorization (planned, web build only).** EPIC G adds
+sign-in against an OpenID Connect provider, users, tree roles, sharing,
+exclusions, privacy for viewers, notifications, mail, end-to-end encrypted
+messaging and API clients ([Authentication](authentication.md),
+[Authorization](authorization.md), [Privacy](privacy.md),
+[Messaging and Notifications](messaging.md)). It is compiled and active only
+in the web build, the way GraphQL is: an optional `auth` feature of
+`oxidgene-api` that `oxidgene-server` and `oxidgene-worker` enable, and UI
+capabilities that only `oxidgene-web` injects into `oxidgene-ui` (with a
+`messaging` feature for the MLS client). The desktop enables neither and
+keeps its single local user with full access and its launch-token, host and
+header guards, unchanged
+([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
+In the web build an authentication layer in front of the merged REST and
+GraphQL routers and the media reads resolves each request's identity from a
+validated access token, and every service takes the resulting `ViewerContext`
+([Authorization §4](authorization.md#4-viewercontext)); the Axum server is the
+browser's OAuth client (Backend-for-Frontend) and keeps the tokens.
 
 API endpoints are documented in [API Contract](api.md).
 
@@ -493,7 +513,10 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 - Development Compose provisions the static frontend, Axum, PostgreSQL,
     RustFS, Redis, and an OpenTelemetry Collector and publishes their ports on
     host loopback only. Redis is
-    reserved for EPIC G user sessions and is not a read-projection cache.
+    reserved for EPIC G user sessions and is not a read-projection cache. With
+    EPIC G the stack also runs a Keycloak with a development realm of
+    fictitious users and a Mailpit relay, and the web container proxies the
+    API paths so the browser sees one origin ([Authentication §8.5](authentication.md#85-development-stack)).
     Direct public backend deployment is blocked until EPIC G authentication and
     per-tree authorization are enforced across every transport and media read.
 - The Helm chart keeps the OxidGene frontend and backend PVC-free. For the
@@ -510,6 +533,13 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
     their data when its pod is recreated. The RustFS operator is installed
     separately because its CRDs and cluster-wide RBAC have an independent
     lifecycle. Only operator-managed infrastructure owns persistent volumes.
+    EPIC G adds `auth.idp.mode` — `external` for any OpenID Connect provider,
+    `keycloak-operator` for a `Keycloak` and `KeycloakRealmImport` the chart
+    creates while the cluster administrator installs the Keycloak Operator,
+    `none` for a single trusted user — an SMTP relay for OxidGene's own mail,
+    and the Ingress paths `/auth`, `/mcp` and
+    `/.well-known/oauth-protected-resource` ([Authentication §8](authentication.md#8-deployment),
+    [Messaging and Notifications §3](messaging.md#3-email)).
 - Native runtimes export OTLP logs, traces, and metrics when
     `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. The Helm chart connects the
     backend and worker to a cluster-managed collector; it does not prescribe or

@@ -683,6 +683,15 @@ import upload spooling uses disposable container storage. Redis is running and
 persistent in the development stack but remains unused until authentication
 and session management are implemented.
 
+With EPIC G the stack gains a Keycloak with a development realm whose users
+are fictitious and named after their role, a Mailpit relay that keeps every
+mail OxidGene sends, and a web container that proxies the API and `/auth`
+paths so the application is opened on one origin, `http://localhost:8081`;
+`just dev-web` keeps authentication off unless asked
+([Authentication §8.5](authentication.md#85-development-stack)). The
+end-to-end journeys that sign in against that Keycloak are an opt-in suite
+([Authentication §12](authentication.md#12-tests)).
+
 RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 `http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the
 `oxidgene-media` bucket idempotently. Run the ignored storage round-trip test

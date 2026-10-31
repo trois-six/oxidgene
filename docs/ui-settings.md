@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T00:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T01:00:00Z }
 ---
 
 
@@ -89,6 +89,11 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Tree & Roots | `tree-roots` |
 | Privacy | `privacy` |
 | Anomaly thresholds | `anomalies` |
+
+The web build will add, for the tree's owner, **Members**, **Sharing**,
+**API clients** and **Access log**, specified in
+[Authorization §11](authorization.md#11-user-interface); the desktop shows
+none of them.
 
 ### Group 2 — Tools
 | Item | Section ID |
@@ -181,7 +186,8 @@ selected person receives the blue badge in the pedigree view, is offered as a
 shortcut of the [kinship](ui-kinship.md) search, and names the GEDCOM
 submitter when none is set (§10). Changing or clearing it invalidates the tree
 metadata so the badge updates immediately, and is a *Settings* entry of the
-history.
+history. In the web build with accounts, each member will mark their own
+person instead ([Authorization §5](authorization.md#5-memberships-and-ownership)).
 
 ---
 
@@ -195,7 +201,9 @@ A card controls the tree-wide default described in [§8](#8-section-privacy).
 
 Privacy is stored but not enforced until authentication and authorization are
 available. The UI must state this limitation and must not imply that records
-are currently hidden from a viewer.
+are currently hidden from a viewer. How the web build will enforce it is
+specified in [Privacy](privacy.md); the controls below marked *planned* follow
+that specification and are not built yet.
 
 ### Default privacy
 
@@ -214,37 +222,46 @@ privacy control does: *recorded now, nothing is hidden yet*.
 Stored as `tree.default_privacy`; see [Data Model](data-model.md) (Privacy) for
 why it is not a `Privacy` value itself.
 
-### Tree visibility (planned)
-
-| Toggle | Effect |
-|---|---|
-| Private tree | The tree is hidden from all other members |
-| Show SOSA 1 ancestors to visitors | Non-authenticated visitors can only see the direct lineage of the root person |
+With EPIC G, Public becomes the default for a new tree and leads: a record
+nobody classified is public, while the contemporary rule hides living persons
+from visitors and an explicit Private or an exclusion hides more
+([Privacy §3.1](privacy.md#31-precedence)).
 
 ### Contemporary persons (planned)
 
-Like the tree's visibility, this waits for authentication and authorization
-([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)): with
-nobody to hide a record from, a rule hiding contemporaries could only lie about
-what a viewer sees. Nothing below is built or stored yet, and the section shows
-none of it.
+Cards for the tree's privacy settings of [Privacy §9](privacy.md#9-tree-settings),
+saved immediately like the default privacy:
 
-**Age threshold slider** — range 50-120 years, default 80. Persons born less than N years ago without a known death date are treated as contemporary.
-
-**Display mode (radio group, 3 options):**
-
-| Option | Description |
+| Control | Setting |
 |---|---|
-| Fully hidden | Name, dates and photo all hidden. Card shows "Private person" only. |
-| Semi-hidden | First name and last initial shown, dates and photo hidden. |
-| Visible | No restrictions. Recommended only for private trees. |
+| **Hide contemporary persons** switch, on by default; turning it off asks for confirmation | `contemporary_rule` |
+| **Age threshold**, a number from 50 to 150 years, 100 by default: a person with no recorded death who cannot be shown born at least that long ago is contemporary ([Privacy §4](privacy.md#4-contemporary-persons)) | `contemporary_years` |
+| **Display of hidden persons**: *Private placeholder* (default), *Initials*, *Hidden* ([Privacy §5](privacy.md#5-what-a-redacted-viewer-sees)) | `hidden_display` |
 
-**Additional toggles:**
+On the desktop these settings apply to the export option of §10 only, the one
+privacy rule both builds share; the web build also applies them to visitors.
+The web build adds, for the owner:
 
-| Toggle | Description |
+| Control | Setting |
 |---|---|
-| Allow navigation to hidden persons | Visitors can follow connections without seeing personal details |
-| Show photos of contemporary persons | Photos can be shown or hidden independently of the display mode |
+| **Allow navigation through hidden persons** | `hidden_navigation` |
+| **Show photos of contemporary persons** | `contemporary_photos` |
+| **Guests may export** | `guests_may_export` |
+
+### Exclusions (planned, web only)
+
+The owner's list of exclusions from sharing — persons, ancestries and
+descendancies, each with its root, depth and the number of persons covered —
+with **Remove**, as [Privacy §6](privacy.md#6-exclusions-from-sharing)
+specifies. Exclusions are also created from the person menu.
+
+### Visibility, members and sharing (planned, web only)
+
+Visibility (*Private*, *Visible to the site's users*, *Public on the web*)
+with its visitor scope, members, invitations, share links, the tree's API
+clients and its access log are the owner's sections of
+[Authorization §11](authorization.md#11-user-interface). They are absent
+from the desktop.
 
 ---
 
@@ -391,7 +408,7 @@ the chosen format.
 |---|---|
 | Include notes and sources | On by default. When disabled, the export leaves out every note (of a person, a family, an event, a source, a repository or a medium), every source with its citations, and every repository, which only sources reach. Nothing written points at a record left out, so the file still imports cleanly. A medium's own description stays: it describes the medium, it is not a note |
 | Include media (GEDZIP only) | On by default: the archive carries the photos and documents. When disabled, the archive holds `gedcom.ged` alone, and that GEDCOM has no `OBJE` record, no link to one and no identification (vignette) — not even a `FILE` reference to a file left behind, which an import would keep as a medium without its bytes. A plain GEDCOM never carries file bytes and always writes its media's references, so the option is not shown for it |
-| Include contemporary persons (planned) | Leaves out the persons the contemporary-person rules hide. It waits for those rules ([§8](#contemporary-persons-planned)) and is not shown |
+| Leave out contemporary and private persons (planned) | Off by default. When enabled, the persons hidden by the default privacy, their own privacy and the contemporary-person rules of §8 are written as the display of hidden persons says ([Privacy §8](privacy.md#8-exports)); both builds offer it. The web build adds *Apply visitors' privacy rules* and, for the owner, *Leave out excluded persons*. Not shown until built |
 
 ### Scope
 

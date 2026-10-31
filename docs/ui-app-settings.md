@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
 ---
 
 
@@ -502,7 +502,10 @@ operating system picks at each launch.
   affected. GraphiQL posts every operation from the API's own origin, so it
   runs them only where the frontend and the API share one origin, as behind a
   same-origin gateway; elsewhere the standalone server refuses them
-  (`403 forbidden`).
+  (`403 forbidden`). With EPIC G, the web build's card says that programs use
+  an API client, and links the profile page where the user creates, rotates
+  and revokes their own ([Authorization §7](authorization.md#7-api-clients)); the
+  desktop's card stays as it is.
 - Labels, hints, the warning, and the copy feedback go through i18n in every
   interface language. URLs, the token, header names, and the example commands
   are protocol values and are not translated.
@@ -578,6 +581,5 @@ Additional sections may be added in future EPICs:
 | Section | Description |
 |---|---|
 | AI | Providers and keys each user brings for the AI features on media — see [AI Features](ai.md) §4 |
-| Account | User profile, email, password (EPIC G) |
-| Notifications | Notification preferences (EPIC G) |
-| Data & Privacy | Data export, account deletion (EPIC G) |
+| Account | Web only, not a section here: the user's profile page (`/profile`) holds the display name, avatar, language, notification preferences, sessions, API clients, messaging security, blocked users and account deletion — see [Authentication §10](authentication.md#10-user-interface) |
+| Instance | Web only, administrators: users, trees, access log, reports — see [Authorization §11](authorization.md#11-user-interface) |

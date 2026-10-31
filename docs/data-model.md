@@ -34,7 +34,7 @@ independent of this schema reset (see §4.1).
 | `id` | UUID v7 | PK |
 | `name` | String | Required |
 | `description` | String? | Optional |
-| `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP |
+| `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP, enforced for viewers by [Privacy §3](privacy.md#3-record-privacy) |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
 | `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §10 |
@@ -463,6 +463,11 @@ there are no viewers until authentication lands. What the column buys now is
 that the *intent* is recorded: a user classifying their tree today does not have
 to do it again later, and enforcement becomes a read-path change rather than a
 schema change plus a data-entry campaign. Every picker that sets it says so.
+How the web build will enforce it — with contemporary persons and the owner's
+exclusions — is specified in [Privacy](privacy.md). That specification
+reverses the default: with EPIC G a record nobody classified is public, the
+contemporary rule protecting the living, and `tree.default_privacy` defaults
+to `public` ([Privacy §3.1](privacy.md#31-precedence)).
 
 ### Tag
 
@@ -1223,7 +1228,8 @@ changes none, so it is not recorded. Authentication is not part of the current
 MVP, so an entry records no author, nor the surface a write came through: a
 write by an assistant through the MCP write tools is recorded exactly as the
 same write made in the application or over REST or GraphQL
-([Assistant Access §7.5](mcp.md)).
+([Assistant Access §7.5](mcp.md)); the author columns EPIC G adds are listed in
+§6.10.
 
 A bulk tag change writes one entry for the whole change, in its transaction:
 `entity` `record_tag`, `entity_id` the tag, `action` `create` when it adds the
@@ -1345,3 +1351,129 @@ another. A deleted place an event needs is re-created from the last snapshot
 its history stored, or from the label recorded with the snapshot; a deleted
 source a citation needs is undeleted. A deleted state cannot itself be
 restored: the version before it is the state to go back to.
+
+---
+
+## 6. Accounts and Access (planned)
+
+The tables of EPIC G, specified in [Authentication](authentication.md),
+[Authorization](authorization.md), [Privacy](privacy.md) and
+[Messaging and Notifications](messaging.md); none exists yet. Until the first
+release they are added to the single initial migration, like every schema
+change, and databases are recreated. They are part of the one schema both
+backends share; only the web build writes them, and they stay empty on the
+desktop ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
+Every key is a UUID v7. A tree's purge deletes its rows of §6.2 to §6.9, and
+deprovisions its API clients at the provider.
+
+### 6.1 `app_user`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `issuer`, `subject` | String? | The identity: unique together while set; cleared on erasure |
+| `email` | String? | As the provider gives it, compared case-insensitively |
+| `email_verified` | bool | |
+| `provider_name`, `username` | String? | `name` (else `preferred_username`) and `preferred_username`, refreshed at sign-in |
+| `display_name` | String? | The name the user set on their profile; when null, `provider_name` is shown |
+| `locale` | String? | The language chosen on the profile, else the provider's `locale` |
+| `avatar_sha256` | String? | The uploaded avatar's hash, naming its files `users/{id}/avatar/{sha256}-{256,64}.jpg` in the `MediaStore`; null for the generated avatar ([Authentication §6.7](authentication.md#67-profile-and-avatar)) |
+| `avatar_updated_at` | DateTime? | |
+| `instance_role` | String | `admin` or `user` |
+| `can_create_trees` | bool | |
+| `status` | String | `active`, `deactivated`, `erased` |
+| `created_at`, `updated_at`, `last_sign_in_at`, `deactivated_at?`, `erased_at?` | DateTime | |
+
+Sessions are not stored here: they live in the session store
+([Authentication §4.5](authentication.md#45-session-store)).
+
+### 6.2 `tree_membership`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `user_id` | UUID v7 | FK → `app_user`; unique with `tree_id` |
+| `role` | String | `owner`, `editor`, `guest`; a unique partial index allows one `owner` per tree |
+| `scope_id` | UUID v7? | FK → `access_scope` |
+| `self_person_id` | UUID v7? | The member's "Who am I?" person |
+| `expires_at` | DateTime? | |
+| `created_by` | UUID v7? | The user who shared |
+| `created_at`, `updated_at` | DateTime | |
+
+### 6.3 `tree_invitation`
+
+`id`, `tree_id` (cascade), `email` (lower-cased), `role` (`editor`, `guest`),
+`scope_id?`, `membership_expires_at?`, `expires_at`, `created_by`,
+`created_at`, `last_sent_at?`, `accepted_at?`, `accepted_by?`,
+`declined_at?`, `revoked_at?`. Indexed by `email` for the matching at sign-in.
+
+### 6.4 `share_link`
+
+`id`, `tree_id` (cascade), `token_hash` (SHA-256, unique), `label?`,
+`scope_id?`, `expires_at?`, `created_by`, `created_at`, `revoked_at?`,
+`last_used_at?`, `use_count`.
+
+### 6.5 `access_scope` and `access_scope_person`
+
+`access_scope`: `id`, `tree_id` (cascade), `definition` (JSON: `kind`,
+`person_id`, `depth?`, `include_self`, `include_spouses`, `collateral`),
+`built_generation?`, `created_at`. `access_scope_person`: `scope_id`
+(cascade), `person_id` (cascade), primary key on both, indexed by
+`person_id`. Rebuilt when `built_generation` differs from the tree's
+`sosa_state.generation` (§4.8).
+
+### 6.6 `api_client` and `api_client_credential`
+
+`api_client`: `id`, `kind` (`tree`, `user`), `tree_id?` (cascade), `user_id?`,
+`name`, `role?` (`editor`, `guest`, tree clients), `scopes` (JSON list),
+`tree_ids?` (JSON list, user clients), `scope_id?`, `expires_at?`,
+`created_by`, `created_at`, `last_used_at?`, `revoked_at?`.
+`api_client_credential`: `id`, `api_client_id` (cascade), `client_id` (the
+provider's, unique), `provisioning` (`keycloak_admin`, `dcr`, `manual`),
+`registration` (encrypted RFC 7592 access token and URI, `dcr` only),
+`created_at`, `ends_at?`, `revoked_at?`, `last_used_at?`.
+
+### 6.7 `access_event`
+
+`id`, `occurred_at`, `kind`, `principal_kind` (`user`, `api_client`,
+`link`, `anonymous`, `local`), `user_id?`, `api_client_id?`,
+`share_link_id?`, `client_id?`, `tree_id?` (no foreign key: events outlive
+trees until their retention), `route?` (template or GraphQL root fields),
+`permission?`, `outcome`, `request_id?`. Indexed by `(tree_id, id)`,
+`(user_id, id)` and `occurred_at` for the retention sweep. No address, email,
+name or token.
+
+### 6.8 `person_visibility`
+
+`person_id` (PK, cascade), `tree_id` (indexed), `privacy`, `deceased`,
+`latest_birth_year?`, `earliest_birth_year?`, `updated_at` — the inputs of the contemporary rule
+([Privacy §4.5](privacy.md#45-stored-inputs)), refreshed in the transaction of
+every write that changes them.
+
+### 6.9 `privacy_exclusion` and `excluded_person`
+
+`privacy_exclusion`: `id`, `tree_id` (cascade), `kind` (`person`,
+`ancestors`, `descendants`), `person_id`, `depth?`, `include_root`,
+`include_spouses`, `created_by`, `created_at`. `excluded_person`: `tree_id`,
+`person_id`, primary key on both, the union of the tree's exclusions;
+`exclusion_state`: `tree_id` (PK), `built_generation?`
+([Privacy §6.5](privacy.md#65-kept-in-sync)).
+
+### 6.10 Changes to existing tables
+
+| Table | Added |
+|---|---|
+| `tree` | `default_privacy` defaults to `public` instead of `private` ([Privacy §3.1](privacy.md#31-precedence)); `visibility` (`private`, `site`, `public`; default `private`), `visitor_scope_id?`, `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)) |
+| `note` | `confidential` (default `false`) |
+| `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
+| `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |
+| `person_search_fts` | Nothing: visibility is joined from `person_visibility` ([Privacy §7](privacy.md#7-enforcement-points)) |
+
+### 6.11 Notifications, mail and messaging
+
+`notification`, `notification_preference`, `mail_outbox`,
+`messaging_identity`, `messaging_device`, `key_package`, `key_backup`,
+`conversation`, `conversation_member`, `mls_message`, `mls_delivery`,
+`message_archive`, `user_block` and `message_report`, whose columns are
+listed in [Messaging and Notifications §10](messaging.md#10-data-model).
