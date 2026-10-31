@@ -15,3 +15,24 @@ style = []
 [web.resource.dev]
 script = []
 style = []
+
+# `dx serve` only: the development server forwards the API, sign-in and
+# assistant paths to the backend on port 8080, so that a bundle built with an
+# empty OXIDGENE_API_URL — `OXIDGENE_AUTH_MODE=oidc just dev-web` — calls them
+# on the page's own origin, which the session cookie needs
+# (docs/authentication.md §8.5). A bundle calling the backend by its own URL
+# never reaches them.
+[[web.proxy]]
+backend = "http://127.0.0.1:8080/api/"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8080/graphql"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8080/auth/"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8080/mcp"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:8080/.well-known/oauth-protected-resource"

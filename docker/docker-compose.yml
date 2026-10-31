@@ -4,6 +4,12 @@
 #   docker compose -f docker/docker-compose.yml up -d --build --wait --remove-orphans
 #   docker compose -f docker/docker-compose.yml logs -f server
 #   docker compose -f docker/docker-compose.yml down -v
+#
+# Open the application at http://localhost:8081 — `localhost`, the origin the
+# development identity provider and the server's OXIDGENE_PUBLIC_URL name,
+# where the browser keeps its `Secure` session cookie over plain HTTP. Sign in
+# with a user of docker/rauthy/bootstrap/users.json, such as
+# `owner@example.invalid` / `owner` (docs/authentication.md §8.5).
 
 services:
   # ── OpenTelemetry collector ─────────────────────────────────────────
@@ -79,7 +85,81 @@ services:
         mc alias set rustfs http://rustfs:9000 "$${RUSTFS_ACCESS_KEY}" "$${RUSTFS_SECRET_KEY}"
         mc mb --ignore-existing rustfs/oxidgene-media
 
-  # ── Future authentication session storage ──────────────────────────
+  # ── Identity provider ───────────────────────────────────────────────
+  # Rauthy on its embedded Hiqlite database, which lives in the container:
+  # a recreated container starts empty and bootstraps rauthy/bootstrap/
+  # afresh — the OxidGene clients, groups, API scopes and fictitious users.
+  # The browser reaches it on http://localhost:8180, the issuer's host
+  # (http://localhost:8180/auth/v1/); the server, on the Compose network, as
+  # http://rauthy:8080 (docs/authentication.md §3.4). Rauthy's own
+  # administrator is idp-admin@example.invalid / idp-admin-development, at
+  # http://localhost:8180/auth/v1/admin. The image has no shell or HTTP
+  # client for a health check: rauthy-init below waits for it instead.
+  rauthy:
+    image: ghcr.io/sebadob/rauthy:0.37.2
+    restart: unless-stopped
+    volumes:
+      - ./rauthy/config.toml:/app/config.toml:ro
+      - ./rauthy/bootstrap:/app/bootstrap:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+    depends_on:
+      # Rauthy stops when its SMTP relay does not answer.
+      mailpit:
+        condition: service_healthy
+
+  # Rauthy's bootstrap files cannot set a client's extra audiences: once it
+  # answers, this applies the web client's whole definition through the
+  # admin API, OxidGene's resource identifier in its tokens' `aud` included.
+  rauthy-init:
+    image: curlimages/curl:8.23.0
+    restart: "no"
+    depends_on:
+      rauthy:
+        condition: service_started
+    volumes:
+      - ./rauthy/oxidgene-web.json:/oxidgene-web.json:ro
+    command:
+      - --fail-with-body
+      - --silent
+      - --show-error
+      - --output
+      - /dev/null
+      - --retry
+      - "60"
+      - --retry-all-errors
+      - --retry-delay
+      - "2"
+      - --request
+      - PUT
+      - --header
+      - "Authorization: API-Key oxidgene-dev$$oxidgeneDevelopmentApiKeyForTheComposeStackOnlyNeverUseItElsewhere"
+      - --header
+      - "Content-Type: application/json"
+      - --data
+      - "@/oxidgene-web.json"
+      - http://rauthy:8080/auth/v1/clients/oxidgene-web
+
+  # ── Mail relay ──────────────────────────────────────────────────────
+  # Keeps every mail for inspection at http://127.0.0.1:8025 and delivers
+  # none: Rauthy's own (address verification, password reset, new-login
+  # notices) today, and
+  # OxidGene's once it sends any (docs/messaging.md §3.5).
+  mailpit:
+    image: axllent/mailpit:v1.33.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Session store ───────────────────────────────────────────────────
+  # The server's sessions, sign-in transactions and rate-limit counters
+  # (docs/authentication.md §4.5). It holds no genealogy.
   redis:
     image: redis:8-trixie
     restart: unless-stopped
@@ -105,7 +185,16 @@ services:
       OXIDGENE_PORT: "8080"
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
       OXIDGENE_LOG_LEVEL: "${OXIDGENE_SERVER_LOG_LEVEL:-info}"
-      OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:8081"
+      # The page's origin, which the web container serves the API on.
+      OXIDGENE_CORS_ORIGIN: "http://localhost:8081"
+      # Rauthy's back-channel logout calls the server by its Compose name.
+      OXIDGENE_ALLOWED_HOSTS: "server"
+      # Sign-in against the Rauthy above: the shared settings of
+      # rauthy/oxidgene-dev-auth.env, the back channel on the Compose
+      # network, and the sessions in Redis.
+      OXIDGENE_OIDC_BACKCHANNEL_URL: "http://rauthy:8080"
+      OXIDGENE_SESSION_STORE: "redis"
+      OXIDGENE_REDIS_URL: "redis://redis:6379/0"
       # A development stack: GraphiQL (which loads from a CDN) is on.
       OXIDGENE_GRAPHIQL: "true"
       OXIDGENE_MEDIA_BACKEND: "s3"
@@ -115,12 +204,18 @@ services:
       OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
       OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_SERVER_OTLP_ENDPOINT-http://otel-collector:4317}"
+    env_file:
+      - ./rauthy/oxidgene-dev-auth.env
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       rustfs-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rauthy-init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
@@ -152,15 +247,20 @@ services:
         condition: service_completed_successfully
 
   # ── OxidGene browser frontend ────────────────────────────────────────
+  # The bundle calls the API on its own origin (an empty OXIDGENE_API_URL),
+  # which nginx-dev-proxy.conf forwards to the server with /auth, /mcp and
+  # /.well-known/oauth-protected-resource, as the Helm chart's Ingress does.
   web:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
       args:
-        OXIDGENE_API_URL: "http://127.0.0.1:8080"
+        OXIDGENE_API_URL: ""
         OXIDGENE_LOG_LEVEL: "${OXIDGENE_WEB_LOG_LEVEL:-info}"
         OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_WEB_OTLP_ENDPOINT-http://127.0.0.1:4318}"
     restart: unless-stopped
+    volumes:
+      - ./nginx-dev-proxy.conf:/etc/nginx/locations.d/dev-proxy.conf:ro
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:

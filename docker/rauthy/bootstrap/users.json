@@ -1,0 +1,62 @@
+[
+  {
+    "email": "admin@example.invalid",
+    "given_name": "Admin",
+    "family_name": "Example",
+    "password": { "Plain": "admin" },
+    "roles": [],
+    "groups": ["oxidgene-admins"],
+    "enabled": true,
+    "email_verified": true
+  },
+  {
+    "email": "owner@example.invalid",
+    "given_name": "Owner",
+    "family_name": "Example",
+    "password": { "Plain": "owner" },
+    "roles": [],
+    "groups": [],
+    "enabled": true,
+    "email_verified": true
+  },
+  {
+    "email": "editor@example.invalid",
+    "given_name": "Editor",
+    "family_name": "Example",
+    "password": { "Plain": "editor" },
+    "roles": [],
+    "groups": [],
+    "enabled": true,
+    "email_verified": true
+  },
+  {
+    "email": "guest@example.invalid",
+    "given_name": "Guest",
+    "family_name": "Example",
+    "password": { "Plain": "guest" },
+    "roles": [],
+    "groups": [],
+    "enabled": true,
+    "email_verified": true
+  },
+  {
+    "email": "visitor@example.invalid",
+    "given_name": "Visitor",
+    "family_name": "Example",
+    "password": { "Plain": "visitor" },
+    "roles": [],
+    "groups": [],
+    "enabled": true,
+    "email_verified": true
+  },
+  {
+    "email": "outsider@example.invalid",
+    "given_name": "Outsider",
+    "family_name": "Example",
+    "password": { "Plain": "outsider" },
+    "roles": [],
+    "groups": [],
+    "enabled": true,
+    "email_verified": true
+  }
+]

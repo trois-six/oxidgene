@@ -1,0 +1,11 @@
+[
+  { "name": "tree:read" },
+  { "name": "tree:write" },
+  { "name": "media:read" },
+  { "name": "media:write" },
+  { "name": "import" },
+  { "name": "export" },
+  { "name": "history:read" },
+  { "name": "tree:admin" },
+  { "name": "instance:admin" }
+]

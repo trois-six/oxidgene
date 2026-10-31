@@ -23,8 +23,32 @@ export OXIDGENE_HOST="${OXIDGENE_HOST:-127.0.0.1}"
 export OXIDGENE_PORT="${OXIDGENE_PORT:-8080}"
 # A development server: GraphiQL, which loads from a CDN, is on here only.
 export OXIDGENE_GRAPHIQL="${OXIDGENE_GRAPHIQL:-true}"
-export OXIDGENE_API_URL="${OXIDGENE_API_URL:-http://127.0.0.1:${OXIDGENE_PORT}}"
+backend_url="http://127.0.0.1:${OXIDGENE_PORT}"
 frontend_port="${OXIDGENE_WEB_PORT:-8081}"
+frontend_host=127.0.0.1
+
+# Authentication stays off unless asked (docs/authentication.md §8.5). With
+# OXIDGENE_AUTH_MODE=oidc the server signs in against the Compose Rauthy
+# (`just dev-idp-up`) with the development settings, each one kept
+# when already set, and the page calls the API on its own origin, which the
+# Dioxus development server forwards to the backend (Dioxus.toml's
+# [[web.proxy]], which names port 8080): the browser opens
+# http://localhost:8081, the origin the provider redirects to.
+export OXIDGENE_AUTH_MODE="${OXIDGENE_AUTH_MODE:-none}"
+if [[ "$OXIDGENE_AUTH_MODE" == "oidc" ]]; then
+    while IFS='=' read -r name value; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        [[ -v "$name" ]] || export "$name=$value"
+    done < docker/rauthy/oxidgene-dev-auth.env
+    export OXIDGENE_API_URL=""
+    frontend_host=localhost
+    if ! curl --silent --fail --output /dev/null "${OXIDGENE_OIDC_ISSUER%/}/.well-known/openid-configuration"; then
+        echo "The identity provider at ${OXIDGENE_OIDC_ISSUER} does not answer: run \`just dev-idp-up\` first." >&2
+        exit 1
+    fi
+else
+    export OXIDGENE_API_URL="${OXIDGENE_API_URL:-$backend_url}"
+fi
 startup_timeout="${OXIDGENE_DEV_STARTUP_TIMEOUT:-300}"
 startup_attempts=$((startup_timeout * 2))
 
@@ -67,9 +91,9 @@ else
 fi
 backend_pid=$started_pid
 
-echo "Waiting for the backend at ${OXIDGENE_API_URL}/healthz..."
+echo "Waiting for the backend at ${backend_url}/healthz..."
 for ((attempt = 1; attempt <= startup_attempts; attempt++)); do
-    if curl --silent --fail --output /dev/null "${OXIDGENE_API_URL}/healthz"; then
+    if curl --silent --fail --output /dev/null "${backend_url}/healthz"; then
         break
     fi
     if ! kill -0 "$backend_pid" 2>/dev/null; then
@@ -86,8 +110,8 @@ for ((attempt = 1; attempt <= startup_attempts; attempt++)); do
     sleep 0.5
 done
 
-echo "Backend ready at ${OXIDGENE_API_URL}"
-echo "Frontend available at http://127.0.0.1:${frontend_port}"
+echo "Backend ready at ${backend_url}"
+echo "Frontend available at http://${frontend_host}:${frontend_port}"
 start_process env OXIDGENE_API_URL="$OXIDGENE_API_URL" scripts/dx.sh serve \
     --package oxidgene-web \
     --web \

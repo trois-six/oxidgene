@@ -27,8 +27,9 @@ COPY assets/brand/logo_64.png assets/brand/logo_64.png
 COPY assets/public/ assets/public/
 COPY scripts/dx.sh scripts/dx.sh
 
-# An empty base URL makes browser API calls same-origin for Kubernetes Ingress.
-# Compose overrides it with the API port published on the developer's host.
+# An empty base URL makes browser API calls same-origin: the Kubernetes
+# Ingress, and the development Compose stack's proxy (nginx-dev-proxy.conf),
+# serve the API on the page's own origin.
 ARG OXIDGENE_API_URL=""
 ARG OXIDGENE_LOG_LEVEL="info"
 ARG OTEL_EXPORTER_OTLP_ENDPOINT=""
@@ -77,6 +78,7 @@ RUN groupadd --system --gid "$GID" nginx && \
     apt-get install -y --no-install-recommends nginx libnginx-mod-http-brotli-static && \
     rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled /etc/nginx/sites-available \
         /etc/nginx/conf.d /var/www/html && \
+    mkdir /etc/nginx/locations.d && \
     ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log && \
     chown -R "$UID:0" /var/lib/nginx /etc/nginx && \

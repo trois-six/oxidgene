@@ -275,6 +275,17 @@ dev-db-up:
 dev-db-down:
     docker compose -f docker/docker-compose.yml stop postgres
 
+# The Compose stack's Rauthy alone — with its mail relay and the step
+# completing its web client — on http://localhost:8180, for
+# `OXIDGENE_AUTH_MODE=oidc just dev-web` (docs/authentication.md §8.5)
+# Start the development identity provider
+dev-idp-up:
+    docker compose -f docker/docker-compose.yml run --rm rauthy-init
+
+# Stop and remove the development identity provider: the next start bootstraps it afresh
+dev-idp-down:
+    docker compose -f docker/docker-compose.yml rm --stop --force rauthy-init rauthy mailpit
+
 # Check the browser frontend for its actual WebAssembly target
 web-check:
     cargo check --package oxidgene-web --target wasm32-unknown-unknown

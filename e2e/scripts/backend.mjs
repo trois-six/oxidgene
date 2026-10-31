@@ -26,6 +26,8 @@ const server = spawn("cargo", ["run", "--locked", "--quiet", "--package", "oxidg
         OXIDGENE_MEDIA_ROOT: join(scratch, "media"),
         OXIDGENE_WORK_DIR: join(scratch, "work"),
         OXIDGENE_CORS_ORIGIN: `http://127.0.0.1:${webPort}`,
+        // The suite runs signed out; `just e2e-auth` covers the sign-in.
+        OXIDGENE_AUTH_MODE: "none",
         OXIDGENE_LOG_LEVEL: process.env.OXIDGENE_LOG_LEVEL ?? "warn",
     },
 });

@@ -37,6 +37,9 @@ services:
       OXIDGENE_PORT: "8080"
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"
       OXIDGENE_LOG_LEVEL: "warn"
+      # The suite drives the application without signing in; the sign-in
+      # journeys are the opt-in `just e2e-auth` (docs/authentication.md §12).
+      OXIDGENE_AUTH_MODE: "none"
       # The page's origin: the ingress below.
       OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:${E2E_WEB_PORT:-18081}"
       OXIDGENE_MEDIA_BACKEND: "filesystem"
@@ -54,8 +57,8 @@ services:
     image: ${OXIDGENE_WEB_IMAGE:?set OXIDGENE_WEB_IMAGE to the web image under test}
 
   # The chart's ingress routes (charts/oxidgene/templates/ingress.yaml): the
-  # API paths to the server, everything else to the web bundle, which the
-  # release image calls on its own origin.
+  # API, sign-in and assistant paths to the server, everything else to the
+  # web bundle, which the release image calls on its own origin.
   ingress:
     image: caddy:2.11.7
     configs:
@@ -73,7 +76,7 @@ configs:
   caddyfile:
     content: |
       :8080 {
-          @api path /api/* /graphql /graphql/* /healthz
+          @api path /api/* /graphql /graphql/* /healthz /auth/* /mcp /mcp/* /.well-known/oauth-protected-resource*
           reverse_proxy @api server:8080
           reverse_proxy web:8080
       }

@@ -1,0 +1,53 @@
+# Rauthy of the development Compose stack (docs/authentication.md §8.5).
+#
+# Development values only: every secret below is public, the stack is bound
+# to loopback, and the embedded Hiqlite database lives in the container, so
+# a recreated container starts empty and imports bootstrap/ afresh.
+# Reference: https://sebadob.github.io/rauthy/config/config.html
+
+[server]
+# Plain HTTP: the browser reaches it on http://localhost:8180, the issuer's
+# host, http://localhost:8180/auth/v1.
+scheme = "http"
+port_http = 8080
+pub_url = "localhost:8180"
+# The API reference at /auth/v1/docs/, for an administrator's session.
+swagger_ui_enable = true
+
+[bootstrap]
+# Rauthy's own administrator, for its admin UI at
+# http://localhost:8180/auth/v1/admin — not an OxidGene user.
+admin_email = "idp-admin@example.invalid"
+password_plain = "idp-admin-development"
+
+[mfa]
+# The admin UI would otherwise demand a passkey before anything else.
+admin_force_mfa = false
+
+[cluster]
+node_id = 1
+nodes = ["1 localhost:8100 localhost:8200"]
+secret_raft = "oxidgene-development-raft-secret"
+secret_api = "oxidgene-development-api-secret"
+
+[encryption]
+# base64 of the 32 bytes "oxidgene-development-encrypt-key".
+keys = ["dev01/b3hpZGdlbmUtZGV2ZWxvcG1lbnQtZW5jcnlwdC1rZXk="]
+key_active = "dev01"
+
+[email]
+rauthy_admin_email = "idp-admin@example.invalid"
+# Mailpit keeps every mail and delivers none.
+smtp_url = "mailpit"
+smtp_port = 1025
+smtp_tls_mode = "danger-insecure"
+smtp_from = "OxidGene development identity <identity@example.invalid>"
+
+[http_client]
+# The back-channel logout calls the server over plain HTTP on the Compose
+# network (http://server:8080/auth/backchannel-logout).
+danger_unencrypted = true
+
+[webauthn]
+rp_id = "localhost"
+rp_origin = "http://localhost:8180"

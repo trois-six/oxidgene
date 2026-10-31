@@ -1,0 +1,11 @@
+[
+  {
+    "name": "oxidgene-dev",
+    "secret": { "Plain": "oxidgeneDevelopmentApiKeyForTheComposeStackOnlyNeverUseItElsewhere" },
+    "access": [
+      { "group": "Clients", "access_rights": ["read", "update"] },
+      { "group": "Users", "access_rights": ["read"] },
+      { "group": "Sessions", "access_rights": ["read", "delete"] }
+    ]
+  }
+]
