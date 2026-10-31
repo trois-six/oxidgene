@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T09:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -59,8 +59,14 @@ untrusted network ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-expos
 | Mode | Where | Who is the viewer | Use |
 |---|---|---|---|
 | Desktop | Desktop's embedded server | Its one local user, with full access, as today | The desktop application, unchanged (§7) |
-| `none` | Standalone server, `OXIDGENE_AUTH_MODE=none` | A local owner of every tree (issuer `local`, subject `local`), for every request | A single user on loopback, development, tests. Startup logs a `warn` (`auth_disabled`) at each start, `/auth/session` answers `mode: "none"`, the UI shows a permanent banner, and the Helm chart keeps refusing an Ingress without `ingress.exposeApiWithoutAuth` (§8.1) |
+| `none` | Standalone server, `OXIDGENE_AUTH_MODE=none` | A local owner of every tree (issuer `local`, subject `local`), for every request | A personal web install equivalent to the desktop, and development and tests. Startup logs a `warn` (`auth_disabled`) at each start, `/auth/session` answers `mode: "none"`, and the Helm chart keeps refusing an Ingress without `ingress.exposeApiWithoutAuth` (§8.1) |
 | `oidc` | Standalone server, `OXIDGENE_AUTH_MODE=oidc` | The signed-in user, an API client, a share-link holder or an anonymous visitor ([Authorization §4](authorization.md#4-viewercontext)) | Every shared deployment. The only mode that may face an untrusted network |
+
+`none` is a supported mode, not a development shortcut, and stays so: the
+web build run without authentication does everything the desktop does, and
+looks as it does — no sign-in, account menu, banner or profile. What needs
+identities is absent there, as on the desktop: accounts, roles and shares,
+redaction for other viewers, messaging and API clients.
 
 `oidc` is the default of the standalone server once EPIC G ships: a server
 started without an issuer refuses to start (`auth_config_missing`) unless
@@ -903,8 +909,8 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
 
 - **Navbar.** In `oidc` mode the right zone shows **Sign in** to an anonymous
   visitor, or the user's avatar opening a menu: their name, **Profile**,
-  **Sign out**. `none` mode shows neither, and a permanent banner saying
-  authentication is disabled.
+  **Sign out**. `none` mode shows neither, nor any banner: the interface is the
+  desktop's (§2).
 - **Sign in** navigates to `/auth/login?return_to=` the current path. A
   failed sign-in shows the translated `auth_error` message on the page it
   returns to.

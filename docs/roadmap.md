@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T09:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -290,8 +290,9 @@ string in every language, and the user guide. In order:
      logout ([Authentication §4](authentication.md#4-browser-sessions-backend-for-frontend)).
    - [ ] Users: provisioning and the signup gate, instance roles from claims,
      deactivation, erasure, account data, the administrator's user list.
-   - [ ] The sign-in, account menu, session-end dialog and `none` banner of
-     the web frontend.
+   - [ ] The sign-in, account menu and session-end dialog of the web
+     frontend, and its `none` mode identical to the desktop's interface
+     ([Authentication §2](authentication.md#2-deployment-modes)).
    - [ ] The profile page: display name, the uploaded avatar with its crop,
      re-encoding and serving, the generated initials avatar, language,
      sessions, account data and deletion
