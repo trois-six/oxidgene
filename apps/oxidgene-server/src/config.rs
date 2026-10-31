@@ -309,16 +309,26 @@ impl ServerConfig {
             .map_or_else(WorkDir::user_default, WorkDir::new)
     }
 
-    pub fn media_store(&self) -> Result<Arc<dyn MediaStore>, String> {
+    /// The media store `media_backend` selects.
+    ///
+    /// # Errors
+    ///
+    /// [`MediaConfigError`] when the S3 backend lacks a key or its settings
+    /// are refused.
+    pub fn media_store(&self) -> Result<Arc<dyn MediaStore>, MediaConfigError> {
         match self.media_backend {
             MediaBackend::Filesystem => Ok(Arc::new(FsStore::new(&self.media_root))),
             MediaBackend::S3 => {
-                let access_key_id = self.s3_access_key_id.clone().ok_or_else(|| {
-                    "OXIDGENE_S3_ACCESS_KEY_ID is required for the S3 media backend".to_string()
-                })?;
-                let secret_access_key = self.s3_secret_access_key.clone().ok_or_else(|| {
-                    "OXIDGENE_S3_SECRET_ACCESS_KEY is required for the S3 media backend".to_string()
-                })?;
+                let access_key_id = self
+                    .s3_access_key_id
+                    .clone()
+                    .ok_or(MediaConfigError::MissingS3Key("OXIDGENE_S3_ACCESS_KEY_ID"))?;
+                let secret_access_key =
+                    self.s3_secret_access_key
+                        .clone()
+                        .ok_or(MediaConfigError::MissingS3Key(
+                            "OXIDGENE_S3_SECRET_ACCESS_KEY",
+                        ))?;
                 Ok(Arc::new(
                     S3Store::new(S3StoreConfig {
                         bucket: self.s3_bucket.clone(),
@@ -327,7 +337,7 @@ impl ServerConfig {
                         access_key_id,
                         secret_access_key,
                     })
-                    .map_err(|_| "invalid S3 media storage configuration".to_string())?,
+                    .map_err(|_| MediaConfigError::InvalidS3)?,
                 ))
             }
         }
@@ -347,6 +357,30 @@ fn sources() -> ConfigBuilder<DefaultState> {
         )
 }
 
+/// Why the media store cannot be configured. Its message names a setting,
+/// never a value, so it can be logged: a key or an endpoint is a secret or
+/// close to one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaConfigError {
+    /// The S3 backend needs this environment variable.
+    MissingS3Key(&'static str),
+    /// The S3 client refused the bucket, region or endpoint settings.
+    InvalidS3,
+}
+
+impl std::fmt::Display for MediaConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingS3Key(variable) => {
+                write!(f, "{variable} is required for the S3 media backend")
+            }
+            Self::InvalidS3 => f.write_str("invalid S3 media storage configuration"),
+        }
+    }
+}
+
+impl std::error::Error for MediaConfigError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +389,29 @@ mod tests {
     fn network_defaults_do_not_expose_the_unauthenticated_backend() {
         assert_eq!(default_host(), "127.0.0.1");
         assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
+    }
+
+    /// The reason names the missing variable, so the operator knows which
+    /// one to set, and no value.
+    #[test]
+    fn a_missing_s3_key_is_named() {
+        let config: ServerConfig = Config::builder()
+            .set_override("media_backend", "s3")
+            .and_then(|builder| builder.set_override("s3_access_key_id", "AKEXAMPLE"))
+            .and_then(|builder| builder.build())
+            .and_then(Config::try_deserialize)
+            .expect("an S3 configuration");
+        let Err(error) = config.media_store() else {
+            panic!("a missing secret key must be refused");
+        };
+        assert_eq!(
+            error,
+            MediaConfigError::MissingS3Key("OXIDGENE_S3_SECRET_ACCESS_KEY")
+        );
+        assert_eq!(
+            error.to_string(),
+            "OXIDGENE_S3_SECRET_ACCESS_KEY is required for the S3 media backend"
+        );
     }
 
     #[test]

@@ -11,7 +11,6 @@
 //! - Structured tracing
 //! - Graceful shutdown on SIGINT/SIGTERM
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::http::HeaderValue;
@@ -70,11 +69,15 @@ async fn main() {
     let db = open_database(&cfg.database_url).await;
 
     // ── Build application router ─────────────────────────────────────
-    let media = or_exit(
-        cfg.media_store(),
-        "media_storage_configuration",
-        "Failed to configure media storage",
-    );
+    // The reason names the missing setting, never its value.
+    let media = cfg.media_store().unwrap_or_else(|reason| {
+        error!(
+            error = "media_storage_configuration",
+            %reason,
+            "Failed to configure media storage"
+        );
+        std::process::exit(1)
+    });
     let uses_sqlite = cfg.database_url.starts_with("sqlite:");
     let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
     let work_dir = cfg.work_dir();
@@ -102,9 +105,19 @@ async fn main() {
     let app = oxidgene_server::http::app(api_router, exposure(&cfg, &auth));
 
     // ── Bind and serve ───────────────────────────────────────────────
-    let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);
-    let listener = TcpListener::bind(addr).await.unwrap_or_else(|_| {
-        error!(error = "listener_bind", %addr, "Failed to bind TCP listener");
+    // A host name (`localhost`) resolves as well as an IP literal; a host
+    // that does neither is a startup error like any other, not a panic.
+    let listener = bind(&cfg.host, cfg.port).await.unwrap_or_else(|_| {
+        error!(
+            error = "listener_bind",
+            host = %cfg.host,
+            port = cfg.port,
+            "Failed to bind TCP listener"
+        );
+        std::process::exit(1);
+    });
+    let addr = listener.local_addr().unwrap_or_else(|_| {
+        error!(error = "listener_bind", "Failed to read the bound address");
         std::process::exit(1);
     });
 
@@ -198,4 +211,24 @@ fn exposure(cfg: &ServerConfig, auth: &Auth) -> Exposure {
         "Invalid CORS origin",
     );
     Exposure::cors(cors_origin, cfg.allowed_hosts(None))
+}
+
+/// A listener on `host`, an IP literal or a host name, and `port`.
+async fn bind(host: &str, port: u16) -> std::io::Result<TcpListener> {
+    TcpListener::bind((host, port)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `OXIDGENE_HOST=localhost` binds rather than panicking on a host that
+    /// is no IP literal.
+    #[tokio::test]
+    async fn a_host_name_binds_like_an_address() {
+        for host in ["localhost", "127.0.0.1"] {
+            let listener = bind(host, 0).await.expect("binds");
+            assert!(listener.local_addr().unwrap().ip().is_loopback(), "{host}");
+        }
+    }
 }

@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
-use oxidgene_api::startup::{connect_and_migrate, or_exit};
+use oxidgene_api::startup::connect_and_migrate;
 use oxidgene_observability::init;
 use oxidgene_server::config::ServerConfig;
 use oxidgene_server::shutdown::shutdown_signal;
-use tracing::info;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() {
@@ -36,11 +36,15 @@ async fn main() {
     });
 
     let db = connect_and_migrate(&config.database_url).await;
-    let media = or_exit(
-        config.media_store(),
-        "media_storage_configuration",
-        "Failed to configure media storage",
-    );
+    // The reason names the missing setting, never its value.
+    let media = config.media_store().unwrap_or_else(|reason| {
+        error!(
+            error = "media_storage_configuration",
+            %reason,
+            "Failed to configure media storage"
+        );
+        std::process::exit(1)
+    });
     let profiles = Arc::new(ProfileService::new(db.clone()));
     let worker_id = format!("worker-{}", uuid::Uuid::now_v7());
     info!("Starting OxidGene background worker");
