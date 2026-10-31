@@ -52,6 +52,8 @@ enum Section {
     DateDisplay,
     EntryOptions,
     Api,
+    /// The instance's users: administrators of the web build only.
+    Users,
 }
 
 #[component]
@@ -65,6 +67,7 @@ pub fn AppSettings() -> Element {
 
     let mut active_section = use_signal(|| Section::Appearance);
     use_settings_scroll_reset(active_section);
+    let is_admin = crate::account::use_account().read().is_admin();
 
     rsx! {
         style { {APP_SETTINGS_STYLES} }
@@ -121,6 +124,18 @@ pub fn AppSettings() -> Element {
                             {i18n.t("app_settings.api")}
                         }
                     }
+                    if is_admin {
+                        div { class: "settings-nav-group",
+                            span { class: "settings-nav-group-label",
+                                {i18n.t("instance.title")}
+                            }
+                            button {
+                                class: if *active_section.read() == Section::Users { "settings-nav-item active" } else { "settings-nav-item" },
+                                onclick: move |_| active_section.set(Section::Users),
+                                {i18n.t("instance.users.title")}
+                            }
+                        }
+                    }
                 }
 
                 // ── Content area ────────────────────────────
@@ -147,6 +162,10 @@ pub fn AppSettings() -> Element {
                         Section::Api => rsx! {
                             ApiSection {}
                         },
+                        Section::Users if is_admin => rsx! {
+                            crate::pages::instance_users::InstanceUsersSection {}
+                        },
+                        Section::Users => rsx! {},
                     }
                 }
             }

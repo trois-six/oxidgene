@@ -9,6 +9,7 @@ pub mod dictionary_media;
 pub mod dictionary_repositories;
 pub mod dictionary_tags;
 pub mod home;
+pub mod instance_users;
 pub mod kinship;
 pub mod media_viewer;
 pub mod not_found;
