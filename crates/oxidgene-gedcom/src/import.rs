@@ -21,10 +21,11 @@ use chrono::{DateTime, Utc};
 use oxidged::gedzip::GedzipReader;
 use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Crop, Dataset,
-    Date, EnumList, Event as GedEvent, EventKind, EventSpouse, File, Items, Medium, Multimedia,
-    MultimediaLink, Name as GedName, NamePieceKind, NameType as GedNameType, Node, Note as GedNote,
-    Ordinance, OrdinanceKind, Pedigree, Place as GedPlace, Record, RecordRef, Removal, Restriction,
-    Sex as GedSex, Store, TagId, Text, TextRef, View,
+    Date, EnumList, Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, Handle,
+    Individual, Items, Medium, Multimedia, MultimediaLink, Name as GedName, NamePieceKind,
+    NameType as GedNameType, Node, Note as GedNote, Ordinance, OrdinanceKind, Pedigree,
+    Place as GedPlace, Record, RecordRef, RecordType, Removal, Repository as GedRepository,
+    Restriction, Sex as GedSex, SharedNote, Source as GedSource, Store, TagId, Text, TextRef, View,
 };
 use oxidged::tree::{Payload, Structure};
 use oxidged::{GedcomBuilder, GedcomVersion};
@@ -91,7 +92,7 @@ fn import_dataset_keeping(
     tree_id: Uuid,
 ) -> Result<(ImportResult, std::collections::HashSet<Uuid>), String> {
     let kept = restore_kept_media(&mut data);
-    let mut result = import_gedcom_data(&data, tree_id)?;
+    let mut result = import_gedcom_data(&mut data, tree_id)?;
     import_oxidgene_media_extensions(&data, &mut result);
     crate::keeping::compute(&data, &mut result);
     let kept = kept
@@ -569,16 +570,22 @@ fn node_text(node: View<'_, Node>) -> Option<Cow<'_, str>> {
 /// other readers producing a [`Dataset`] — notably the GeneWeb `.gw` reader in
 /// [`crate::geneweb`] — reuse the exact same mapping.
 ///
-/// All entities are assigned to the given `tree_id`.
+/// All entities are assigned to the given `tree_id`. A record whose
+/// identifier an earlier record of its type holds is left out with a
+/// warning (see [`drop_duplicate_records`]), so `data` is taken mutably.
 ///
 /// # Errors
 ///
 /// Returns `Err` if the model cannot be converted.
-pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
+pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> Result<ImportResult, String> {
+    let mut warnings = Vec::new();
+    drop_duplicate_records(data, &mut warnings);
+    let data = &*data;
     let ctx = ImportContext::allocate(data, tree_id);
     let now = ctx.now;
     let mut result = ImportResult {
         tree_id,
+        warnings,
         ..ImportResult::default()
     };
     import_submitter(data, &mut result);
@@ -648,6 +655,44 @@ pub fn import_gedcom_data(data: &Dataset, tree_id: Uuid) -> Result<ImportResult,
     result.media_by_xref = page_map;
 
     Ok(result)
+}
+
+/// Leave out every record whose identifier an earlier record of its type
+/// holds, with a warning for each.
+///
+/// Some writers repeat an xref. `oxidged` keeps every record and resolves
+/// the pointers to the first one; the import keeps that one too. Converting
+/// the others would give two rows one primary key, which fails the insert,
+/// or merge two people's names and events under one id.
+fn drop_duplicate_records(data: &mut Dataset, warnings: &mut Vec<String>) {
+    drop_duplicates::<Individual>(data, "Individual", warnings);
+    drop_duplicates::<GedFamily>(data, "Family", warnings);
+    drop_duplicates::<GedSource>(data, "Source", warnings);
+    drop_duplicates::<GedRepository>(data, "Repository", warnings);
+    drop_duplicates::<Multimedia>(data, "Multimedia object", warnings);
+    drop_duplicates::<SharedNote>(data, "Shared note", warnings);
+}
+
+/// [`drop_duplicate_records`] for the records of type `T`, `kind` naming
+/// them in the warning.
+fn drop_duplicates<T: RecordType>(data: &mut Dataset, kind: &str, warnings: &mut Vec<String>) {
+    let duplicates: Vec<(Handle<T>, String)> = data
+        .handles::<T>()
+        .filter_map(|handle| {
+            let xref = data.get_any(handle.erase())?.xref()?;
+            (data.handle::<T>(xref) != Some(handle))
+                .then(|| (handle, data.store().xref(xref).to_owned()))
+        })
+        .collect();
+    for (handle, xref) in duplicates {
+        // The pointers to the identifier resolve to the first record, which
+        // stays: none is left dangling.
+        if data.remove(handle, Removal::LeaveDangling).is_ok() {
+            warnings.push(format!(
+                "{kind} {xref}: a second record with this identifier was left out"
+            ));
+        }
+    }
 }
 
 /// The places and the sources named by text, created on first use.

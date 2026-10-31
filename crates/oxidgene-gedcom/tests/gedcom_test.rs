@@ -334,6 +334,64 @@ fn test_import_family() {
 }
 
 #[test]
+fn a_repeated_xref_keeps_the_first_record_of_each_type() {
+    // Some writers repeat an identifier. The import keeps the first record,
+    // the one every pointer resolves to, so two rows never share a key.
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Ann /Example/
+1 BIRT
+2 DATE 1900
+1 FAMS @F1@
+0 @I1@ INDI
+1 NAME Other /Sample/
+1 DEAT
+2 DATE 1950
+0 @I2@ INDI
+1 NAME Bob /Example/
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I2@
+1 WIFE @I1@
+0 @F1@ FAM
+1 HUSB @I2@
+0 @S1@ SOUR
+1 TITL First register
+0 @S1@ SOUR
+1 TITL Second register
+0 TRLR
+";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+
+    assert_eq!(result.persons.len(), 2);
+    assert_eq!(result.families.len(), 1);
+    assert_eq!(result.sources.len(), 1);
+    assert_eq!(result.sources[0].title, "First register");
+    let ids: std::collections::HashSet<Uuid> = result.persons.iter().map(|p| p.id).collect();
+    assert_eq!(ids.len(), 2, "every person has its own id");
+    // Only the first @I1@'s name and birth were read.
+    assert!(
+        result
+            .person_names
+            .iter()
+            .all(|name| name.given_names.as_deref() != Some("Other"))
+    );
+    assert_eq!(result.events.len(), 1);
+    assert_eq!(result.events[0].event_type, EventType::Birth);
+    assert_eq!(result.family_spouses.len(), 2);
+    let duplicates: Vec<&String> = result
+        .warnings
+        .iter()
+        .filter(|w| w.contains("a second record with this identifier was left out"))
+        .collect();
+    assert_eq!(duplicates.len(), 3, "warnings: {:?}", result.warnings);
+}
+
+#[test]
 fn test_import_source_and_citation() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(SOURCE_GEDCOM, tree_id).unwrap();
