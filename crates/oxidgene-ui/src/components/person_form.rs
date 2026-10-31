@@ -37,12 +37,12 @@ use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     NAME_TYPES, event_type_label_key, event_type_value, name_type_label_key, name_type_value,
-    opt_str, parse_event_type, parse_name_type, parse_privacy, parse_sex, resolve_name,
+    opt_str, parse_event_type, parse_name_type, resolve_name,
 };
 use oxidgene_core::types::SpouseAge;
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -249,9 +249,9 @@ fn PersonFormBody(
     let pid = props.person_id.unwrap_or_default();
 
     // ── Sex & Privacy ──
-    let mut sex_val = use_signal(|| "Unknown".to_string());
+    let mut sex_val = use_signal(|| Sex::Unknown);
     let mut sex_loaded = use_signal(|| false);
-    let mut privacy_val = use_signal(|| "Default".to_string());
+    let mut privacy_val = use_signal(|| Privacy::Default);
     let mut privacy_loaded = use_signal(|| false);
 
     // ── Birth identity (mandatory surname + given names) ──
@@ -334,7 +334,7 @@ fn PersonFormBody(
 
     // ── Other event CRUD state ──
     let mut show_event_form = use_signal(|| false);
-    let mut event_form_type = use_signal(|| "Baptism".to_string());
+    let mut event_form_type = use_signal(|| EventType::Baptism);
     let mut event_form_parts = use_signal(DateParts::default);
     let mut event_form_place_id = use_signal(String::new);
     let mut event_form_description = use_signal(String::new);
@@ -505,11 +505,7 @@ fn PersonFormBody(
     // Create mode: pre-fill sex from context (once).
     if is_create && !sex_loaded() {
         if let Some(PersonFormCreateContext::AddParent { is_father, .. }) = &props.create_context {
-            sex_val.set(if *is_father {
-                "Male".to_string()
-            } else {
-                "Female".to_string()
-            });
+            sex_val.set(if *is_father { Sex::Male } else { Sex::Female });
         }
         sex_loaded.set(true);
         privacy_loaded.set(true);
@@ -529,13 +525,13 @@ fn PersonFormBody(
     if !sex_loaded()
         && let Some(Ok(person)) = &*person_resource.read()
     {
-        sex_val.set(format!("{:?}", person.sex));
+        sex_val.set(person.sex);
         sex_loaded.set(true);
     }
     if !privacy_loaded()
         && let Some(Ok(person)) = &*person_resource.read()
     {
-        privacy_val.set(format!("{:?}", person.privacy));
+        privacy_val.set(person.privacy);
         privacy_loaded.set(true);
     }
 
@@ -766,7 +762,7 @@ fn PersonFormBody(
     let on_saved_event = props.on_saved;
     let on_create_event = move |_| {
         let api = api_create_event.clone();
-        let event_type_str = event_form_type();
+        let event_type = event_form_type();
         let parts = event_form_parts();
         let place_str = event_form_place_id();
         let desc = event_form_description().trim().to_string();
@@ -795,7 +791,7 @@ fn PersonFormBody(
                 }
             };
             let body = create_event_body(
-                parse_event_type(&event_type_str),
+                event_type,
                 &parts,
                 place_id,
                 EventOwner::Person(pid),
@@ -815,7 +811,7 @@ fn PersonFormBody(
                     )
                     .await;
                     show_event_form.set(false);
-                    event_form_type.set("Baptism".to_string());
+                    event_form_type.set(EventType::Baptism);
                     event_form_parts.set(DateParts::default());
                     event_form_place_id.set(String::new());
                     event_form_description.set(String::new());
@@ -1003,8 +999,8 @@ fn PersonFormBody(
         move |_| {
             let api = api_save.clone();
             let ctx = create_ctx.clone();
-            let sex_str = sex_val();
-            let privacy_str = privacy_val();
+            let sex = sex_val();
+            let privacy = privacy_val();
             // Birth identity (mandatory surname + given names)
             let bn_given = birth_given().trim().to_string();
             let bn_surname = birth_surname().trim().to_string();
@@ -1058,8 +1054,8 @@ fn PersonFormBody(
 
                     // 1. Update person sex + privacy.
                     let person_body = UpdatePersonBody {
-                        sex: Some(parse_sex(&sex_str)),
-                        privacy: Some(parse_privacy(&privacy_str)),
+                        sex: Some(sex),
+                        privacy: Some(privacy),
                     };
                     if let Err(e) = api.update_person(tid, pid, &person_body).await {
                         save_error.set(Some(e.message(&i18n)));
@@ -1278,9 +1274,9 @@ fn PersonFormBody(
                             label { {i18n.t("person_form.sex")} }
                             {render_choice_group(
                                 &[
-                                    ("Male",    i18n.t("sex.male")),
-                                    ("Female",  i18n.t("sex.female")),
-                                    ("Unknown", i18n.t("sex.unknown")),
+                                    (Sex::Male, i18n.t("sex.male")),
+                                    (Sex::Female, i18n.t("sex.female")),
+                                    (Sex::Unknown, i18n.t("sex.unknown")),
                                 ],
                                 sex_val,
                                 move |_| has_changes.set(true),
@@ -1831,9 +1827,9 @@ fn PersonFormBody(
                     FormSection { title: i18n.t("person_form.privacy"), open: open_privacy,
                         {render_choice_group(
                             &[
-                                ("Default", i18n.t("privacy.default")),
-                                ("Public",  i18n.t("privacy.public")),
-                                ("Private", i18n.t("privacy.private")),
+                                (Privacy::Default, i18n.t("privacy.default")),
+                                (Privacy::Public, i18n.t("privacy.public")),
+                                (Privacy::Private, i18n.t("privacy.private")),
                             ],
                             privacy_val,
                             move |_| has_changes.set(true),
@@ -1862,8 +1858,8 @@ fn PersonFormBody(
                                     div { class: "form-group",
                                         label { {i18n.t("person_form.type")} }
                                         select {
-                                            value: "{event_form_type}",
-                                            oninput: move |e: Event<FormData>| event_form_type.set(e.value()),
+                                            value: event_type_value(event_form_type()),
+                                            oninput: move |e: Event<FormData>| event_form_type.set(parse_event_type(&e.value())),
                                             {event_type_options(&i18n)}
                                         }
                                     }
@@ -1873,7 +1869,7 @@ fn PersonFormBody(
                                 // itself, so it round-trips as such.
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.description")} }
-                                    if event_form_type() == "Occupation" {
+                                    if event_form_type() == EventType::Occupation {
                                         ValueInput {
                                             value: event_form_description,
                                             tree_id: tid,
@@ -2381,12 +2377,13 @@ pub fn MoreDetails(open: Signal<bool>, children: Element) -> Element {
     }
 }
 
-/// A row of mutually exclusive buttons bound to one string signal (sex,
-/// privacy) — a radio group that reads as a segmented control.
-pub fn render_choice_group(
-    options: &[(&'static str, String)],
-    mut selected: Signal<String>,
-    on_change: impl FnMut(String) + Clone + 'static,
+/// A row of mutually exclusive buttons bound to one signal (sex, privacy) —
+/// a radio group that reads as a segmented control. `on_change` receives the
+/// value the click replaced, so a write that fails can put it back.
+pub fn render_choice_group<T: Copy + PartialEq + 'static>(
+    options: &[(T, String)],
+    mut selected: Signal<T>,
+    on_change: impl FnMut(T) + Clone + 'static,
 ) -> Element {
     let options = options.to_vec();
     rsx! {
@@ -2399,8 +2396,8 @@ pub fn render_choice_group(
                             class: if selected() == value { "pf-gender-btn active" } else { "pf-gender-btn" },
                             r#type: "button",
                             onclick: move |_| {
-                                let previous = selected.peek().clone();
-                                selected.set(value.to_string());
+                                let previous = *selected.peek();
+                                selected.set(value);
                                 on_change(previous);
                             },
                             "{label}"
@@ -2653,13 +2650,11 @@ pub(crate) fn update_event_body(
     }
 }
 
-/// A birth or death as the form holds it: the stored event, if any, the
-/// date, place, notes and source typed, and the notes and source stored.
 /// What the create form holds for the person it creates. Each event is
 /// its date, place, notes and source.
 #[derive(Clone)]
 struct NewPerson {
-    sex: String,
+    sex: Sex,
     given: String,
     surname: String,
     particle_override: Option<String>,
@@ -2690,12 +2685,7 @@ async fn create_person(
     new: &NewPerson,
 ) -> Result<Uuid, String> {
     let person = api
-        .create_person(
-            tree_id,
-            &CreatePersonBody {
-                sex: parse_sex(&new.sex),
-            },
-        )
+        .create_person(tree_id, &CreatePersonBody { sex: new.sex })
         .await
         .map_err(|_| i18n.t("person_form.create_failed"))?;
     let person_id = person.id;

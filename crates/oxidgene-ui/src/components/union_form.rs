@@ -27,11 +27,12 @@ use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
-    child_type_label_key, event_type_label_key, opt_str, parse_privacy, resolve_name,
+    child_type_label_key, event_type_label_key, event_type_value, opt_str, parse_event_type,
+    resolve_name,
 };
 use oxidgene_core::types::SpouseAge;
 use oxidgene_core::types::{Event as StoredEvent, Family, FamilyChild, FamilySpouse, PersonName};
-use oxidgene_core::{ChildType, EventType};
+use oxidgene_core::{ChildType, EventType, Privacy};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // A couple has a privacy of its own: a living pair's marriage is a fact
     // about two living people, and withholding both their person records does
     // not withhold the union that names them.
-    let privacy_val = use_signal(|| "Default".to_string());
+    let privacy_val = use_signal(|| Privacy::Default);
     let open_privacy = use_signal(|| true);
 
     // ── State ──
@@ -355,12 +356,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
 }
 
 /// Seeds the privacy choice once from the stored family.
-fn use_seed_privacy(family: Resource<Option<Family>>, mut privacy: Signal<String>) {
+fn use_seed_privacy(family: Resource<Option<Family>>, mut privacy: Signal<Privacy>) {
     let mut loaded = use_signal(|| false);
     if !loaded()
         && let Some(Some(family)) = &*family.read_unchecked()
     {
-        privacy.set(format!("{:?}", family.privacy));
+        privacy.set(family.privacy);
         loaded.set(true);
     }
 }
@@ -419,27 +420,27 @@ fn is_marriage_like(event_type: EventType) -> bool {
 }
 
 /// The union events offered when adding one, core ones first.
-const CORE_UNION_EVENTS: [(&str, &str); 11] = [
-    ("Marriage", "event.type.marriage"),
-    ("Divorce", "event.type.divorce"),
-    ("Annulment", "event.type.annulment"),
-    ("Engagement", "event.type.engagement"),
-    ("MarriageBann", "event.type.marriage_bann"),
-    ("MarriageContract", "event.type.marriage_contract"),
-    ("MarriageLicense", "event.type.marriage_license"),
-    ("MarriageSettlement", "event.type.marriage_settlement"),
-    ("CivilUnion", "event.type.civil_union"),
-    ("Separation", "event.type.separation"),
-    ("DivorceFiled", "event.type.divorce_filed"),
+const CORE_UNION_EVENTS: [EventType; 11] = [
+    EventType::Marriage,
+    EventType::Divorce,
+    EventType::Annulment,
+    EventType::Engagement,
+    EventType::MarriageBann,
+    EventType::MarriageContract,
+    EventType::MarriageLicense,
+    EventType::MarriageSettlement,
+    EventType::CivilUnion,
+    EventType::Separation,
+    EventType::DivorceFiled,
 ];
-const OPTIONAL_UNION_EVENTS: [(&str, &str); 7] = [
-    ("Residence", "event.type.residence"),
-    ("Census", "event.type.census"),
-    ("Emigration", "event.type.emigration"),
-    ("Immigration", "event.type.immigration"),
-    ("Will", "event.type.will"),
-    ("Probate", "event.type.probate"),
-    ("Other", "event.type.other"),
+const OPTIONAL_UNION_EVENTS: [EventType; 7] = [
+    EventType::Residence,
+    EventType::Census,
+    EventType::Emigration,
+    EventType::Immigration,
+    EventType::Will,
+    EventType::Probate,
+    EventType::Other,
 ];
 
 /// Whether an event is one this form lists as the union's.
@@ -658,21 +659,20 @@ fn spouse_section(
 }
 
 /// The couple's privacy choice, saved as soon as it changes.
-fn privacy_choice(scope: &FormScope, privacy: Signal<String>) -> Element {
+fn privacy_choice(scope: &FormScope, mut privacy: Signal<Privacy>) -> Element {
     let i18n = scope.i18n;
     let (api, tid, fid) = (scope.api.clone(), scope.tid, scope.fid);
     let mut save_error = scope.writes.save_error;
     render_choice_group(
         &[
-            ("Default", i18n.t("privacy.default")),
-            ("Public", i18n.t("privacy.public")),
-            ("Private", i18n.t("privacy.private")),
+            (Privacy::Default, i18n.t("privacy.default")),
+            (Privacy::Public, i18n.t("privacy.public")),
+            (Privacy::Private, i18n.t("privacy.private")),
         ],
         privacy,
-        move |previous: String| {
+        move |previous: Privacy| {
             let api = api.clone();
-            let chosen = parse_privacy(&privacy());
-            let mut privacy = privacy;
+            let chosen = privacy();
             spawn(async move {
                 // A refused change puts the choice back to what the server
                 // still holds, and says why.
@@ -818,7 +818,7 @@ async fn save_marriage(
 /// The fields of a union event being added.
 #[derive(Clone, Copy)]
 struct NewUnionEvent {
-    kind: Signal<String>,
+    kind: Signal<EventType>,
     parts: Signal<DateParts>,
     place: Signal<String>,
     desc: Signal<String>,
@@ -828,7 +828,7 @@ struct NewUnionEvent {
 
 fn use_new_union_event() -> NewUnionEvent {
     NewUnionEvent {
-        kind: use_signal(|| "Marriage".to_string()),
+        kind: use_signal(|| EventType::Marriage),
         parts: use_signal(DateParts::default),
         place: use_signal(String::new),
         desc: use_signal(String::new),
@@ -856,7 +856,7 @@ impl NewUnionEvent {
         let scope = scope.clone();
         move |_| {
             let scope = scope.clone();
-            let kind = crate::utils::parse_event_type(&(self.kind)());
+            let kind = (self.kind)();
             let parts = (self.parts)();
             let place = (self.place)();
             let desc = (self.desc)().trim().to_string();
@@ -1073,16 +1073,16 @@ impl UnionEventsSection<'_> {
                     div { class: "form-group",
                         label { {i18n.t("person_form.type")} }
                         select {
-                            value: "{kind}",
-                            oninput: move |e: Event<FormData>| kind.set(e.value()),
+                            value: event_type_value(kind()),
+                            oninput: move |e: Event<FormData>| kind.set(parse_event_type(&e.value())),
                             optgroup { label: "{i18n.t(\"union_form.core_events\")}",
-                                for (value, key) in CORE_UNION_EVENTS {
-                                    option { value, {i18n.t(key)} }
+                                for et in CORE_UNION_EVENTS {
+                                    option { value: event_type_value(et), {i18n.t(event_type_label_key(et))} }
                                 }
                             }
                             optgroup { label: "{i18n.t(\"union_form.optional_events\")}",
-                                for (value, key) in OPTIONAL_UNION_EVENTS {
-                                    option { value, {i18n.t(key)} }
+                                for et in OPTIONAL_UNION_EVENTS {
+                                    option { value: event_type_value(et), {i18n.t(event_type_label_key(et))} }
                                 }
                             }
                         }
@@ -1227,6 +1227,16 @@ impl ChildrenSection<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every type the union's picker offers reads back as itself, and is
+    /// one the form then lists among the union's events.
+    #[test]
+    fn every_offered_union_event_round_trips_through_the_picker() {
+        for et in CORE_UNION_EVENTS.into_iter().chain(OPTIONAL_UNION_EVENTS) {
+            assert_eq!(parse_event_type(event_type_value(et)), et);
+            assert!(is_union_event(et) || et == EventType::Other, "{et:?}");
+        }
+    }
 
     fn child(link: u128, person: u128) -> FamilyChild {
         serde_json::from_value(serde_json::json!({

@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::i18n::I18n;
 
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy};
 
 /// A signal following `value`, a prop: written when the props bring a new
 /// one, so resources reading it re-run. The router reuses a page's instance
@@ -28,15 +28,6 @@ pub async fn sleep_ms(milliseconds: u32) {
 }
 
 // ── Enum parsers ────────────────────────────────────────────────────────
-
-/// Parse a string value from a `<select>` into a [`Sex`] enum.
-pub fn parse_sex(s: &str) -> Sex {
-    match s {
-        "Male" => Sex::Male,
-        "Female" => Sex::Female,
-        _ => Sex::Unknown,
-    }
-}
 
 /// Declares the [`NameType`]s once, in the order the pickers list them: the
 /// value its option carries and its label key. Parsing, labelling and the
