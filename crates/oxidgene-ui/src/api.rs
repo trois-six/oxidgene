@@ -6150,6 +6150,71 @@ impl Injector for HeaderInjector<'_> {
     }
 }
 
+/// A one-request HTTP server on a free local port, for the tests that
+/// need the client to really send something.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod test_server {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    pub async fn listen() -> (TcpListener, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        (listener, address)
+    }
+
+    /// Accepts one connection and reads its request line and headers.
+    pub async fn accept(listener: &TcpListener) -> (TcpStream, String) {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut head = String::new();
+        let mut reader = tokio::io::BufReader::new(&mut socket);
+        while !head.ends_with("\r\n\r\n") {
+            assert!(reader.read_line(&mut head).await.unwrap() > 0);
+        }
+        (socket, head)
+    }
+
+    /// Answers one request with `response`, returning the request's
+    /// line and headers.
+    pub async fn serve_once(listener: &TcpListener, response: &[u8]) -> String {
+        let (mut socket, head) = accept(listener).await;
+        socket.write_all(response).await.unwrap();
+        head
+    }
+
+    /// Answers one request per `(status, json)` pair, in order, each on its
+    /// own connection once its body is read, and returns the request lines.
+    pub async fn serve_json(listener: &TcpListener, responses: &[(u16, &str)]) -> Vec<String> {
+        let mut lines = Vec::new();
+        for (status, body) in responses {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut reader = tokio::io::BufReader::new(&mut socket);
+            let mut head = String::new();
+            while !head.ends_with("\r\n\r\n") {
+                assert!(reader.read_line(&mut head).await.unwrap() > 0);
+            }
+            let length = head
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(str::to_string)
+                })
+                .and_then(|length| length.trim().parse::<usize>().ok())
+                .unwrap_or_default();
+            let mut request_body = vec![0; length];
+            reader.read_exact(&mut request_body).await.unwrap();
+            lines.push(head.lines().next().unwrap_or_default().to_string());
+            let response = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        }
+        lines
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6362,39 +6427,6 @@ mod tests {
             MediaSource::Stored,
             "our own copy wins: the URL is then only where it came from"
         );
-    }
-
-    /// A one-request HTTP server on a free local port, for the tests that
-    /// need the client to really send something.
-    #[cfg(not(target_arch = "wasm32"))]
-    mod test_server {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-        use tokio::net::{TcpListener, TcpStream};
-
-        pub async fn listen() -> (TcpListener, String) {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = format!("http://{}", listener.local_addr().unwrap());
-            (listener, address)
-        }
-
-        /// Accepts one connection and reads its request line and headers.
-        pub async fn accept(listener: &TcpListener) -> (TcpStream, String) {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut head = String::new();
-            let mut reader = tokio::io::BufReader::new(&mut socket);
-            while !head.ends_with("\r\n\r\n") {
-                assert!(reader.read_line(&mut head).await.unwrap() > 0);
-            }
-            (socket, head)
-        }
-
-        /// Answers one request with `response`, returning the request's
-        /// line and headers.
-        pub async fn serve_once(listener: &TcpListener, response: &[u8]) -> String {
-            let (mut socket, head) = accept(listener).await;
-            socket.write_all(response).await.unwrap();
-            head
-        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

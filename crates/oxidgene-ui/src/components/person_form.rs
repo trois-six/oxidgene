@@ -105,7 +105,12 @@ impl ParentLink {
                     child_type: ChildType::Biological,
                     sort_order: 0,
                 };
-                let _ = api.add_child(tid, family.id, &child_body).await;
+                if api.add_child(tid, family.id, &child_body).await.is_err() {
+                    // The family would stay empty, and the new parent the
+                    // spouse of no child's parents: drop it, best effort.
+                    let _ = api.delete_family(tid, family.id).await;
+                    return Err(i18n.t("person_form.create_failed"));
+                }
                 family.id
             }
         };
@@ -3928,6 +3933,44 @@ fn render_information_form(
 #[cfg(test)]
 mod information_form_tests {
     use super::*;
+
+    /// A failed child link while founding the parents' family is reported,
+    /// and the empty family it leaves is deleted, instead of the parent
+    /// being made the spouse of a family with no child.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_parent_whose_child_link_fails_is_not_linked() {
+        let (listener, address) = crate::api::test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
+        let (tree, family) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let family_json = format!(
+            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deleted_at":null}}"#
+        );
+        let link = ParentLink {
+            child_id: Uuid::from_u128(3),
+            family_id: None,
+            is_father: true,
+        };
+        let responses = [
+            (200, family_json.as_str()),
+            (500, r#"{"error":"internal"}"#),
+            (204, ""),
+        ];
+        let (result, requests) = tokio::join!(
+            link.link(&api, tree, Uuid::from_u128(4), &i18n),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert_eq!(result, Err(i18n.t("person_form.create_failed")));
+        assert_eq!(
+            requests,
+            [
+                format!("POST /api/v1/trees/{tree}/families HTTP/1.1"),
+                format!("POST /api/v1/trees/{tree}/families/{family}/children HTTP/1.1"),
+                format!("DELETE /api/v1/trees/{tree}/families/{family} HTTP/1.1"),
+            ]
+        );
+    }
 
     /// Saving an event from its editor writes the cause it shows — set,
     /// changed or cleared — while the shortcuts that do not show one leave
