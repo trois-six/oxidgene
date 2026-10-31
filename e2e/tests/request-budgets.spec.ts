@@ -64,6 +64,8 @@ const PAGES = {
     statistics: { url: (t) => `/trees/${t.treeId}/statistics`, content: ".stats-tile, .stats-card, .stats-section" },
     tools: { url: (t) => `/trees/${t.treeId}/tools`, content: ".tools-rule, .tools-category, .stats-table" },
     settings: { url: (t) => `/trees/${t.treeId}/settings`, content: ".settings-section" },
+    media: { url: (t) => `/trees/${t.treeId}/media/${t.registerId}`, content: ".media-viewer .media-relations" },
+    photo: { url: (t) => `/trees/${t.treeId}/media/${t.groupId}`, content: ".media-viewer .media-identification" },
     appSettings: { url: () => "/settings", content: ".settings-section" },
 } satisfies Record<string, Target>;
 
@@ -77,7 +79,7 @@ const scenarios: Scenario[] = [
     ...["tree", "wheel", "fan", "descendant-wheel", "descendant-fan", "lineage", "descendant-lineage", "hourglass", "bowtie"].map(
         (view): Scenario => ({ name: `pedigree:${view}`, kind: "cold", target: pedigree(view) }),
     ),
-    ...(["search", "person", "history", "couple", "kinship", "dictionary", "statistics", "tools", "settings", "appSettings"] as const).map(
+    ...(["search", "person", "history", "couple", "kinship", "dictionary", "statistics", "tools", "settings", "appSettings", "media", "photo"] as const).map(
         (page): Scenario => ({ name: page, kind: "cold", target: PAGES[page] }),
     ),
     ...(
@@ -101,6 +103,7 @@ const scenarios: Scenario[] = [
     ...tabs("dictionary", '[role="tab"]', ["Sources", "Places", "Occupations", "Family Names"], ".dict-row"),
     ...tabs("statistics", '[role="tab"]', ["Population", "Families", "Places", "Growth", "Overview"], ".stats-content *"),
     ...tabs("tools", '[role="tab"]', ["Places not located", "Ancestry completeness", "Potential duplicates", "Anomalies"], ".tools-content *"),
+    ...tabs("media", ".media-pager .pager-num", ["2"], ".media-viewer .media-relations"),
 ];
 
 function tabs(page: keyof typeof PAGES, tab: string, labels: string[], content: string): Scenario[] {

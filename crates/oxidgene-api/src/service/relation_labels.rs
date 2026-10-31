@@ -30,6 +30,18 @@ pub async fn load_relation_labels(
         )));
     }
 
+    load_labels(db, tree_id, person_ids, family_ids).await
+}
+
+/// [`load_relation_labels`] without its bound on the ids, for a read model
+/// whose ids come from the database rather than from a request: the reads go
+/// by bounded slices of ids all the same.
+pub(crate) async fn load_labels(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    person_ids: &[Uuid],
+    family_ids: &[Uuid],
+) -> Result<RelationLabels, OxidGeneError> {
     let spouses = FamilySpouseRepo::list_by_families_in_tree(db, tree_id, family_ids).await?;
     let mut all_person_ids = person_ids.iter().copied().collect::<HashSet<_>>();
     all_person_ids.extend(spouses.iter().map(|spouse| spouse.person_id));

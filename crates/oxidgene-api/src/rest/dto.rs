@@ -287,6 +287,14 @@ pub struct MediaDeletionStatusQuery {
     pub allowed_link_id: uuid::Uuid,
 }
 
+/// Query parameters of the media viewer's bundle.
+#[derive(Debug, Deserialize)]
+pub struct MediaViewerQuery {
+    /// The zero-based position of the page to describe; the page the media
+    /// id names, or the first, when absent.
+    pub page: Option<usize>,
+}
+
 /// Query parameters of a repository delete.
 #[derive(Debug, Deserialize)]
 pub struct DeleteRepositoryQuery {

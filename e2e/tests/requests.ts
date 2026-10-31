@@ -45,6 +45,10 @@ export interface PicturedTree extends SeededTree {
     familyId: string;
     /// A grandparent of the anchor, for the kinship page.
     kinId: string;
+    /// The group photograph, one page with three persons identified on it.
+    groupId: string;
+    /// The three-page register, attached to the anchor and its birth.
+    registerId: string;
 }
 
 async function ok(response: Awaited<ReturnType<APIRequestContext["get"]>>): Promise<any> {
@@ -107,7 +111,7 @@ export async function picturedTree(request: APIRequestContext, name: string): Pr
     await post("/notes", { text: "A fictitious note", person_id: tree.anchorId });
     const source = await post("/sources", { title: "Fictitious parish register" });
     await post("/citations", { source_id: source.id, person_id: tree.anchorId, page: "f. 12" });
-    return { ...tree, familyId, kinId };
+    return { ...tree, familyId, kinId, groupId: group, registerId: register };
 }
 
 /// One API request as the browser saw it, times in milliseconds from the

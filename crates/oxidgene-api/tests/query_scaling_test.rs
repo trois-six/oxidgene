@@ -245,6 +245,67 @@ async fn no_request_issues_statements_per_record() {
     assert!(grows.is_empty(), "{}", grows.join("\n"));
 }
 
+/// The media viewer's bundle of the scanned page every person of the tree is
+/// attached to and identified on, through REST and GraphQL: its links,
+/// regions, names, portraits and pictures are read per relation, never per
+/// person, so 160 of each cost what 40 do.
+#[tokio::test]
+async fn the_media_viewer_bundle_costs_the_same_whatever_its_relations() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let trees = trees(&app, &db).await;
+
+    let mut counts = Vec::new();
+    for (tree, _) in &trees {
+        let listed = ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree}/media"),
+            None,
+        )
+        .await;
+        let document = listed["edges"][0]["node"]["id"].as_str().unwrap();
+        counter.store(0, Ordering::Relaxed);
+        let bundle = ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree}/media/{document}/viewer-bundle"),
+            None,
+        )
+        .await;
+        let rest = counter.load(Ordering::Relaxed);
+        assert_eq!(
+            bundle["vignettes"].as_array().map(Vec::len),
+            bundle["persons"].as_array().map(Vec::len),
+            "every person attached and identified"
+        );
+        #[cfg(feature = "graphql")]
+        let graphql = {
+            counter.store(0, Ordering::Relaxed);
+            let response = common::gql(
+                &app,
+                "query($t: ID!, $m: ID!) { mediaViewerBundle(treeId: $t, mediaId: $m) { __typename } }",
+                json!({ "t": tree, "m": document }),
+            )
+            .await;
+            assert!(response.get("errors").is_none(), "{response}");
+            counter.load(Ordering::Relaxed)
+        };
+        #[cfg(not(feature = "graphql"))]
+        let graphql = 0;
+        assert!(rest > 0, "no statement counted");
+        counts.push((rest, graphql));
+    }
+    assert!(
+        counts[1].0 <= counts[0].0 && counts[1].1 <= counts[0].1,
+        "statements (REST, GraphQL) for 40 relations then 160: {counts:?}"
+    );
+}
+
 /// The ids of the first `n` persons, families and portrait crops of `tree`.
 async fn ids(app: &Router, tree: &str, n: usize) -> (Vec<String>, Vec<String>, Vec<String>) {
     let profiles = all_profiles(app, tree).await;

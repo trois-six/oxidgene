@@ -2031,6 +2031,70 @@ type GqlMediaTagFacet {
 }
 
 """
+Everything the media viewer draws for one page of a document. Mirrors
+REST's `GET /media/{mediaId}/viewer-bundle`.
+"""
+type GqlMediaViewerBundle {
+	"""
+	The document opened: a page's document, when the id named a page.
+	"""
+	media: GqlMedia!
+	"""
+	The document's pages, in order.
+	"""
+	pages: [GqlMedia!]!
+	"""
+	The zero-based position in `pages` of the page described.
+	"""
+	page: Int!
+	"""
+	The note about the whole document.
+	"""
+	note: GqlNote
+	"""
+	The transcript of the page.
+	"""
+	pageNote: GqlNote
+	"""
+	Where the document is filed.
+	"""
+	place: GqlPlace
+	"""
+	The links of the document and of the page; `mediaId` says which.
+	"""
+	links: [GqlMediaLink!]!
+	"""
+	The regions identified on the page.
+	"""
+	vignettes: [GqlVignette!]!
+	"""
+	The names of the persons the links and regions name, and the spouses
+	of the couples the links name.
+	"""
+	labels: GqlRelationLabels!
+	"""
+	The persons the links attach, with their portraits and sexes.
+	"""
+	persons: [GqlMediaViewerPerson!]!
+	"""
+	Where the page's thumbnail and the regions' pictures are drawn from.
+	"""
+	gallery: GqlGalleryBundle!
+}
+
+"""
+A person attached to a document or to its page.
+"""
+type GqlMediaViewerPerson {
+	personId: ID!
+	sex: GqlSex!
+	"""
+	Where their portrait is drawn from, when they have one.
+	"""
+	portrait: GqlPortraitRef
+}
+
+"""
 A media together with the link that attached it — one gallery tile.
 """
 type GqlMediaWithLink {
@@ -4062,6 +4126,13 @@ type QueryRoot {
 	media. Mirrors `GET /trees/{treeId}/families/{familyId}/detail-bundle`.
 	"""
 	coupleDetailBundle(treeId: ID!, familyId: ID!): GqlCoupleDetailBundle!
+	"""
+	Load everything the media viewer draws of a document — or of one of
+	its pages, which opens its document there — at its page `page` (from
+	0; the page the id names, or the first, when absent). Mirrors
+	`GET /trees/{treeId}/media/{mediaId}/viewer-bundle`.
+	"""
+	mediaViewerBundle(treeId: ID!, mediaId: ID!, page: Int): GqlMediaViewerBundle!
 	"""
 	List all trees with cursor-based pagination.
 	"""

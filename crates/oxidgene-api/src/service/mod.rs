@@ -23,6 +23,7 @@ pub mod kinship;
 pub mod media;
 pub mod media_library;
 pub mod media_link;
+pub mod media_viewer;
 pub mod note;
 pub mod occupations;
 pub(crate) mod patch;

@@ -528,6 +528,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "GET",
+        "/api/v1/trees/{tree_id}/media/{media_id}/viewer-bundle",
+        Gql(&["Query.mediaViewerBundle"]),
+    ),
+    (
+        "GET",
         "/api/v1/trees/{tree_id}/media/{media_id}/vignettes",
         Gql(&["Query.mediaVignettes"]),
     ),

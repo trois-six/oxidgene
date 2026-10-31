@@ -3647,6 +3647,70 @@ impl From<crate::service::couple_detail::CoupleDetailBundle> for GqlCoupleDetail
     }
 }
 
+/// Everything the media viewer draws for one page of a document. Mirrors
+/// REST's `GET /media/{mediaId}/viewer-bundle`.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaViewerBundle {
+    /// The document opened: a page's document, when the id named a page.
+    pub media: GqlMedia,
+    /// The document's pages, in order.
+    pub pages: Vec<GqlMedia>,
+    /// The zero-based position in `pages` of the page described.
+    pub page: u64,
+    /// The note about the whole document.
+    pub note: Option<GqlNote>,
+    /// The transcript of the page.
+    pub page_note: Option<GqlNote>,
+    /// Where the document is filed.
+    pub place: Option<GqlPlace>,
+    /// The links of the document and of the page; `mediaId` says which.
+    pub links: Vec<GqlMediaLink>,
+    /// The regions identified on the page.
+    pub vignettes: Vec<GqlVignette>,
+    /// The names of the persons the links and regions name, and the spouses
+    /// of the couples the links name.
+    pub labels: GqlRelationLabels,
+    /// The persons the links attach, with their portraits and sexes.
+    pub persons: Vec<GqlMediaViewerPerson>,
+    /// Where the page's thumbnail and the regions' pictures are drawn from.
+    pub gallery: GqlGalleryBundle,
+}
+
+/// A person attached to a document or to its page.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaViewerPerson {
+    pub person_id: ID,
+    pub sex: GqlSex,
+    /// Where their portrait is drawn from, when they have one.
+    pub portrait: Option<GqlPortraitRef>,
+}
+
+impl From<crate::service::media_viewer::MediaViewerBundle> for GqlMediaViewerBundle {
+    fn from(bundle: crate::service::media_viewer::MediaViewerBundle) -> Self {
+        Self {
+            media: bundle.media.into(),
+            pages: bundle.pages.into_iter().map(Into::into).collect(),
+            page: u64::try_from(bundle.page).unwrap_or(u64::MAX),
+            note: bundle.note.map(Into::into),
+            page_note: bundle.page_note.map(Into::into),
+            place: bundle.place.map(Into::into),
+            links: bundle.links.into_iter().map(Into::into).collect(),
+            vignettes: bundle.vignettes.into_iter().map(Into::into).collect(),
+            labels: bundle.labels.into(),
+            persons: bundle
+                .persons
+                .into_iter()
+                .map(|person| GqlMediaViewerPerson {
+                    person_id: ID(person.person_id.to_string()),
+                    sex: person.sex.into(),
+                    portrait: person.portrait.map(Into::into),
+                })
+                .collect(),
+            gallery: bundle.gallery.into(),
+        }
+    }
+}
+
 impl From<crate::service::person_detail::ProfileMediaTile> for GqlProfileMediaTile {
     fn from(item: crate::service::person_detail::ProfileMediaTile) -> Self {
         Self {

@@ -1269,6 +1269,15 @@ pub struct GallerySources {
 }
 
 impl GallerySources {
+    /// The vignettes' sources alone, for a screen that draws none of the
+    /// media's pictures.
+    pub fn vignettes_only(&self) -> Self {
+        Self {
+            media: Vec::new(),
+            vignettes: self.vignettes.clone(),
+        }
+    }
+
     /// Every address, in the order [`Self::resolve`] takes them back.
     fn sources(&self) -> impl Iterator<Item = ImageSource> + '_ {
         let media = self.media.iter().flat_map(|item| {
@@ -2577,6 +2586,47 @@ pub struct CoupleDetailBundle {
     pub notes: Vec<oxidgene_core::types::Note>,
     pub media: Vec<MediaWithLink>,
     pub gallery: GallerySources,
+}
+
+/// Everything the media viewer draws for one page of a document, in one
+/// request; its pictures are addresses, resolved with the attached persons'
+/// portraits in one request more ([`ApiClient::resolve_pictures`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MediaViewerBundle {
+    /// The document opened: a page's document, when the media id named a page.
+    pub media: Media,
+    /// The document's pages, in order.
+    pub pages: Vec<Media>,
+    /// The position in `pages` of the page described: its note, its links and
+    /// its regions.
+    pub page: usize,
+    /// The note about the whole document.
+    pub note: Option<Note>,
+    /// The page's transcript.
+    pub page_note: Option<Note>,
+    /// Where the document is filed.
+    pub place: Option<Place>,
+    /// The links of the document and of the page; `media_id` says which.
+    pub links: Vec<oxidgene_core::types::MediaLink>,
+    /// The regions identified on the page.
+    pub vignettes: Vec<Vignette>,
+    /// The names of the persons the links and regions name, and the spouses of
+    /// the couples the links name.
+    pub labels: RelationLabels,
+    /// The persons the links attach, with their portraits and sexes.
+    pub persons: Vec<MediaViewerPerson>,
+    /// Where the page's thumbnail and the regions' pictures are drawn from.
+    pub gallery: GallerySources,
+}
+
+/// A person attached to a document or to its page, with what stands in for a
+/// page the viewer cannot draw.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MediaViewerPerson {
+    pub person_id: Uuid,
+    pub sex: Sex,
+    #[serde(default)]
+    pub portrait: Option<oxidgene_core::types::PortraitRef>,
 }
 
 /// A screen's pictures, resolved in one request: its galleries as one — a
@@ -4192,11 +4242,6 @@ impl ApiClient {
         Ok(places)
     }
 
-    pub async fn get_place(&self, tree_id: Uuid, id: Uuid) -> Result<Place, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/places/{id}"))
-            .await
-    }
-
     pub async fn create_place(
         &self,
         tree_id: Uuid,
@@ -5037,35 +5082,6 @@ impl ApiClient {
         .await
     }
 
-    /// One media's metadata.
-    pub async fn get_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<Media, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
-            .await
-    }
-
-    /// Load a generated thumbnail without exposing its API URL.
-    pub async fn media_thumbnail_data_url(
-        &self,
-        tree_id: Uuid,
-        media_id: Uuid,
-    ) -> Result<String, ApiError> {
-        self.media_asset_url(
-            tree_id,
-            crate::image_host::MediaAsset::Thumbnail { media_id },
-        )
-        .await
-    }
-
-    /// Load a vignette image without exposing its API URL.
-    pub async fn vignette_image_data_url(
-        &self,
-        tree_id: Uuid,
-        vignette_id: Uuid,
-    ) -> Result<String, ApiError> {
-        self.media_asset_url(tree_id, crate::image_host::MediaAsset::Crop { vignette_id })
-            .await
-    }
-
     /// Upload a file and record it.
     ///
     /// `attach_to` fills in an existing record that named a file without
@@ -5402,6 +5418,26 @@ impl ApiClient {
     }
 
     // ── MediaLinks ──────────────────────────────────────────────────
+
+    /// Everything the media viewer draws of media `media_id` — a document,
+    /// or one of its pages, which opens its document there — at its page
+    /// `page`, or the page the id names, in one request.
+    pub async fn media_viewer_bundle(
+        &self,
+        tree_id: Uuid,
+        media_id: Uuid,
+        page: Option<usize>,
+    ) -> Result<MediaViewerBundle, ApiError> {
+        let query: Vec<(&str, String)> = page
+            .map(|page| ("page", page.to_string()))
+            .into_iter()
+            .collect();
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/media/{media_id}/viewer-bundle"),
+            &query,
+        )
+        .await
+    }
 
     /// Load gallery thumbnails, mosaics, crops and event links in bounded batches.
     pub async fn gallery_bundle(

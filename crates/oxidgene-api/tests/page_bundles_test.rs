@@ -1,7 +1,8 @@
 //! What the pages read in one answer, on REST and GraphQL alike: portraits
 //! and SOSA marks riding with pedigrees and search rows, the default
-//! pedigree, the couple bundle, the home page's batched recent persons, the
-//! dictionary's inline source list and the base map's cache validator.
+//! pedigree, the couple bundle, the media viewer's bundle, the home page's
+//! batched recent persons, the dictionary's inline source list and the base
+//! map's cache validator.
 //!
 //! The tree is the fictitious family-blocks fixture: block 0's root,
 //! "Anchor", is the SOSA root, with parents, grandparents, two siblings and
@@ -10,6 +11,7 @@
 use crate::common;
 
 use axum::http::{Method, StatusCode, header};
+use common::populated::{png, upload_page};
 use common::{all_profiles, family_blocks_tree, gql_ok, ok, send, setup_db};
 use serde_json::{Value, json};
 
@@ -430,6 +432,148 @@ async fn a_couple_bundle_holds_the_family_its_spouses_notes_and_media() {
     )
     .await;
     assert_eq!(common::gql_error_code(&response), "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn a_media_viewer_bundle_holds_the_document_its_page_and_their_relations() {
+    let f = fixture().await;
+    let t = |path: &str| format!("/api/v1/trees/{}{path}", f.tree);
+    let anchor_profile = f
+        .profiles
+        .iter()
+        .find(|p| p["person_id"] == f.anchor.as_str())
+        .unwrap();
+    let family = anchor_profile["families_as_spouse"][0]["family_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let others: Vec<String> = f
+        .profiles
+        .iter()
+        .map(|p| p["person_id"].as_str().unwrap().to_string())
+        .filter(|id| *id != f.anchor)
+        .take(2)
+        .collect();
+    let (named, identified) = (&others[0], &others[1]);
+    let document = ok(
+        &f.app,
+        Method::POST,
+        &t("/media/document"),
+        Some(json!({ "title": "Register" })),
+    )
+    .await;
+    let document = document["id"].as_str().unwrap().to_string();
+    let first = upload_page(&f.app, &f.tree, &document, &png(64, 48)).await;
+    let second = upload_page(&f.app, &f.tree, &document, &png(64, 48)).await;
+    let second = second["id"].as_str().unwrap().to_string();
+    for (media, text) in [(&document, "Water-damaged"), (&second, "Folio two")] {
+        let note = json!({ "media_id": media, "text": text });
+        ok(&f.app, Method::POST, &t("/notes"), Some(note)).await;
+    }
+    for (media, owner, id) in [
+        (&document, "person_id", &f.anchor),
+        (&document, "family_id", &family),
+        (&second, "person_id", named),
+    ] {
+        let link = json!({ "media_id": media, owner: id });
+        ok(&f.app, Method::POST, &t("/media-links"), Some(link)).await;
+    }
+    let crop = json!({ "x": 2, "y": 2, "width": 20, "height": 20, "person_id": identified });
+    let vignettes = t(&format!("/media/{second}/vignettes"));
+    let vignette = ok(&f.app, Method::POST, &vignettes, Some(crop)).await;
+    let viewer_of = |media: &str, query: &str| t(&format!("/media/{media}/viewer-bundle{query}"));
+
+    // Opened on the document: its first page, which holds nothing of its own.
+    let bundle = ok(&f.app, Method::GET, &viewer_of(&document, ""), None).await;
+    assert_eq!(bundle["media"]["id"], document.as_str());
+    assert_eq!(bundle["page"], 0);
+    let pages: Vec<&Value> = bundle["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| &page["id"])
+        .collect();
+    assert_eq!(pages, [&first["id"], &json!(second)]);
+    assert_eq!(bundle["note"]["text"], "Water-damaged");
+    assert!(bundle["page_note"].is_null());
+    assert_eq!(bundle["links"].as_array().unwrap().len(), 2);
+    assert!(bundle["vignettes"].as_array().unwrap().is_empty());
+
+    // Opened on its second page, the document opens there: the page's
+    // transcript, links, region and the names they all mention come along.
+    let bundle = ok(&f.app, Method::GET, &viewer_of(&second, ""), None).await;
+    assert_eq!(bundle["media"]["id"], document.as_str());
+    assert_eq!(bundle["page"], 1);
+    assert_eq!(bundle["page_note"]["text"], "Folio two");
+    assert_eq!(bundle["links"].as_array().unwrap().len(), 3);
+    assert_eq!(bundle["vignettes"][0]["id"], vignette["id"]);
+    let named_ids: std::collections::HashSet<&str> = bundle["labels"]["names"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|name| name["person_id"].as_str().unwrap())
+        .collect();
+    for id in [&f.anchor, named, identified] {
+        assert!(named_ids.contains(id.as_str()), "{id} is named");
+    }
+    assert_eq!(bundle["labels"]["spouses"].as_array().unwrap().len(), 2);
+    let persons = bundle["persons"].as_array().unwrap();
+    assert_eq!(persons.len(), 2, "the attached persons, not the identified");
+    assert!(persons.iter().all(|person| person["sex"].is_string()));
+    assert_eq!(bundle["gallery"]["media"][0]["media_id"], second.as_str());
+    assert_eq!(
+        bundle["gallery"]["vignettes"][0]["vignette_id"],
+        vignette["id"]
+    );
+
+    // A page asked for past the last is the last.
+    let clamped = ok(&f.app, Method::GET, &viewer_of(&document, "?page=9"), None).await;
+    assert_eq!(clamped["page"], 1);
+    assert_eq!(clamped["page_note"]["text"], "Folio two");
+
+    let data = gql_ok(
+        &f.app,
+        r#"query($t: ID!, $m: ID!) { mediaViewerBundle(treeId: $t, mediaId: $m, page: 1) {
+            media { id } pages { id } page note { text } pageNote { text } place { id }
+            links { mediaId } vignettes { id } labels { names { personId } spouses { personId } }
+            persons { personId sex portrait { crop { x } } }
+            gallery { media { mediaId } vignettes { vignetteId } } } }"#,
+        json!({ "t": f.tree, "m": document }),
+    )
+    .await;
+    let viewer = &data["mediaViewerBundle"];
+    assert_eq!(viewer["media"]["id"], document.as_str());
+    assert_eq!(viewer["page"], 1);
+    assert_eq!(viewer["note"]["text"], "Water-damaged");
+    assert_eq!(viewer["pageNote"]["text"], "Folio two");
+    assert_eq!(viewer["links"].as_array().unwrap().len(), 3);
+    assert_eq!(viewer["vignettes"][0]["id"], vignette["id"]);
+    assert_eq!(viewer["persons"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        viewer["gallery"]["vignettes"][0]["vignetteId"],
+        vignette["id"]
+    );
+
+    // A media of another tree, or none, is not found on either surface.
+    let other = common::new_tree(&f.app, "Other").await;
+    let missing = uuid::Uuid::now_v7().to_string();
+    for (tree, media) in [(&other, &document), (&f.tree, &missing)] {
+        let (status, _) = send(
+            &f.app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree}/media/{media}/viewer-bundle"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let response = common::gql(
+            &f.app,
+            r#"query($t: ID!, $m: ID!) { mediaViewerBundle(treeId: $t, mediaId: $m) { page } }"#,
+            json!({ "t": tree, "m": media }),
+        )
+        .await;
+        assert_eq!(common::gql_error_code(&response), "NOT_FOUND");
+    }
 }
 
 #[tokio::test]

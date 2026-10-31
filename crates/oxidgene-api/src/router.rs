@@ -313,6 +313,10 @@ pub fn build_router(state: AppState) -> Router {
             delete(media::delete_page),
         )
         .route(
+            "/{tree_id}/media/{media_id}/viewer-bundle",
+            get(media::get_media_viewer_bundle),
+        )
+        .route(
             "/{tree_id}/media/{media_id}/file",
             get(media::download_media),
         )

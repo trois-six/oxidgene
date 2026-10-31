@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T18:00:00Z }
 ---
 
 
@@ -525,6 +525,7 @@ meaning.
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Permanently delete the page, its relationships and unshared stored bytes. Remaining pages close the gap; removing the last page leaves an empty document |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
+| `GET` | `/trees/{tree_id}/media/{media_id}/viewer-bundle` | Everything the media viewer draws for one page of a document, in one answer. `media` is the document; an id naming a page opens its document, on that page. `page` (query, from 0) chooses the page described, which defaults to the page the id names, else the first, and is clamped to the last; the answer's `page` says which it is. With `pages` (the document's pages, in order) come, for the document and that page: `note` (the document's oldest note) and `page_note` (the page's, its transcript), `place`, `links` (the links of both, `media_id` telling which), `vignettes` (the regions on the page), `labels` (the names of every person the links and regions name and the spouses of every couple the links name, as `relation-labels` answers), `persons` (each person the links attach, `{person_id, sex, portrait?}`, the portrait an **image source** with its optional `crop` as portraits carry it) and `gallery` (the page's thumbnail source and the regions' sources, as the gallery bundle answers). It costs a fixed number of statements whatever the number of pages, links and regions. A media of another tree is `not_found`. GraphQL: `mediaViewerBundle(treeId, mediaId, page)` |
 | `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes, served **inline** for previews. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
 | `GET` | `/trees/{tree_id}/media/{media_id}/download` | Stream one stored original of any supported media type with `Content-Disposition: attachment`, its MIME type, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`. Always transfers the file rather than returning a conditional `304`. `404` for absent, deleted, foreign-tree or byte-less records; remote URLs are never fetched or redirected to |
 | `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px): a PNG when a pixel of the source is transparent, a JPEG otherwise — an alpha channel opaque everywhere, as photographs saved as PNG often carry, counts as none. For a PDF it is the scan its first page paints (see **Upload rules**). `404` when none was made — a PDF whose first page paints no image we decode, or a file whose decoding failed — so a gallery can fall back to an icon on the status alone |
@@ -620,9 +621,11 @@ links, never server-side fetch targets.
 The gallery bundle accepts at most 1,024 media and vignette ids combined. It
 resolves each database collection in one query and reads blobs with bounded
 concurrency. Clients split larger galleries into as many bundles as necessary.
-The per-media thumbnail, page-list, and vignette-image endpoints remain for a
-viewer or editor that opens one selected asset; the initial grid does not call
-them once per tile.
+The media viewer reads what it draws from one viewer bundle per page shown,
+then its pictures in one image-data request. The per-media thumbnail,
+page-list, and vignette-image endpoints remain for an editor that opens one
+selected asset, such as a document's page manager; neither the initial grid
+nor the viewer calls them once per tile, relation or region.
 
 **Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 128 MiB — comfortably above what the services we exchange with take (Geneanet caps a media file at 50 MB and accepts only JPEG, PNG, GIF and PDF), because a 1200 dpi register spread or a few-hundred-page dossier clears 64 MiB unremarkably. Larger still is EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 

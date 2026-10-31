@@ -171,6 +171,30 @@ impl QueryRoot {
         .await
     }
 
+    /// Load everything the media viewer draws of a document — or of one of
+    /// its pages, which opens its document there — at its page `page` (from
+    /// 0; the page the id names, or the first, when absent). Mirrors
+    /// `GET /trees/{treeId}/media/{mediaId}/viewer-bundle`.
+    async fn media_viewer_bundle(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        media_id: ID,
+        page: Option<u64>,
+    ) -> Result<super::types::GqlMediaViewerBundle> {
+        boxed(async move {
+            Ok(crate::service::media_viewer::load_media_viewer_bundle(
+                reader_from_ctx(ctx),
+                live_tree(ctx, &tree_id).await?,
+                uuid(&media_id)?,
+                page.map(|page| usize::try_from(page).unwrap_or(usize::MAX)),
+            )
+            .await?
+            .into())
+        })
+        .await
+    }
+
     // ── Trees ────────────────────────────────────────────────────────
 
     /// List all trees with cursor-based pagination.

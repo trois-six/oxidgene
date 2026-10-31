@@ -119,6 +119,18 @@
     "duplicates": 0,
     "bytes": 0
   },
+  "media": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 361281
+  },
+  "photo": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 201911
+  },
   "home<-pedigree": {
     "requests": 3,
     "depth": 3,
@@ -280,5 +292,11 @@
     "depth": 0,
     "duplicates": 0,
     "bytes": 0
+  },
+  "media:2": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 358698
   }
 }

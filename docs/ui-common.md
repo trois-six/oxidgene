@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-10-30T21:30:00Z }
+generated: { by: human:maintainer, at: 2026-10-31T18:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -557,10 +557,21 @@ server serves one (`thumbnail_url`) and its own image URL otherwise —
 vignette crops, and
 linked event ids through one bounded gallery bundle. It
 must not mount one image, page-list, or reverse-link resource per tile. Larger
-sets are split into as many batches of 1,024 identifiers as necessary. Viewer
-and editor panels may use an individual endpoint after the user opens one
-asset; a document's page list in its editor resolves every page's thumbnail
-in one request too.
+sets are split into as many batches of 1,024 identifiers as necessary. The
+viewer, wherever it opens — a gallery, the library grid, a crop's tile or its
+own address — reads everything it draws for the page shown from one viewer
+bundle ([API Contract](api.md#media)): the document and its pages, the
+document's note and the page's transcript, its place, the attachments of both
+with the names, spouses, portraits and sexes they need, the regions on the
+page and their pictures' sources. Its pictures — the page's thumbnail beside
+each attachment, the regions' crops, and the portraits standing in for a page
+that cannot be drawn — then come in one request, and the page's file in one
+more. Turning the page asks for that page's bundle, which the client keeps
+like any read until the tree is written to; while it loads, the document's
+facts stay and the page's own appear with it, never the previous page's. An
+editor panel may use an individual endpoint after the user opens one asset;
+a document's page list in its editor resolves every page's thumbnail in one
+request too.
 
 On the web, where pictures are fetched and inlined as `data:` URLs, a screen
 asks for all of its pictures at once, each distinct address once. The client

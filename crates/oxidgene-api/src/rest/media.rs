@@ -23,7 +23,7 @@ use crate::service::media_library::{self, MediaListItem};
 
 use super::dto::{
     CreateDocumentRequest, DeleteMediaQuery, GalleryBundleRequest, MediaDeletionStatusQuery,
-    MediaListQuery, ReorderPagesRequest,
+    MediaListQuery, MediaViewerQuery, ReorderPagesRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -156,6 +156,29 @@ pub async fn list_pages(
 ) -> Result<Json<Vec<Media>>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
     Ok(Json(MediaRepo::list_pages(&state.reader, media_id).await?))
+}
+
+/// GET /api/v1/trees/:tree_id/media/:media_id/viewer-bundle
+///
+/// Everything the media viewer draws in one answer: the document (a page's
+/// document, when the id names a page), its pages, and for the page at
+/// `page` its note and the document's, the place, the links of both, the
+/// regions on the page, the names they mention, the attached persons'
+/// portraits and sexes, and where the page's and the regions' pictures are.
+pub async fn get_media_viewer_bundle(
+    State(state): State<AppState>,
+    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<MediaViewerQuery>,
+) -> Result<Json<crate::service::media_viewer::MediaViewerBundle>, ApiError> {
+    Ok(Json(
+        crate::service::media_viewer::load_media_viewer_bundle(
+            &state.reader,
+            tree_id,
+            media_id,
+            query.page,
+        )
+        .await?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id/pages

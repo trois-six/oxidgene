@@ -75,24 +75,6 @@ pub struct MediaEventLinkOption {
 }
 
 #[component]
-fn PrivateThumbnail(tree_id: Uuid, media_id: Uuid, alt: String, class: Option<String>) -> Element {
-    let api = use_context::<ApiClient>();
-    let image = use_ui_resource("media_thumbnail", move || {
-        let api = api.clone();
-        async move { api.media_thumbnail_data_url(tree_id, media_id).await }
-    });
-    let source = image
-        .read_unchecked()
-        .as_ref()
-        .and_then(|result| result.as_ref().ok())
-        .cloned();
-
-    rsx! {
-        BundledThumbnail { source, alt, class }
-    }
-}
-
-#[component]
 fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) -> Element {
     rsx! {
         if let Some(source) = source {
@@ -103,16 +85,12 @@ fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) 
 
 /// The small square beside an attached person or couple.
 ///
-/// A page we hold has a thumbnail we rasterised. A page we only have a URL for
-/// has none and never will, so the browser draws it from that URL — the same
-/// answer the tile, the mosaic and the viewer give.
+/// A page we hold has a thumbnail we rasterised, which the viewer's bundle
+/// draws. A page we only have a URL for has none and never will, so the
+/// browser draws it from that URL — the same answer the tile, the mosaic and
+/// the viewer give. `thumbnail` is whichever of the two the page has.
 #[component]
-fn AttachmentThumbnail(
-    tree_id: Uuid,
-    media_id: Uuid,
-    remote: Option<String>,
-    picture: AttachmentPicture,
-) -> Element {
+fn AttachmentThumbnail(thumbnail: Option<String>, picture: AttachmentPicture) -> Element {
     const CLASS: &str = "media-vignette-thumbnail";
     match picture {
         AttachmentPicture::Portrait(image) => rsx! {
@@ -126,19 +104,10 @@ fn AttachmentThumbnail(
             }
         },
         AttachmentPicture::Medium => rsx! {
-            if let Some(remote) = remote {
-                BundledThumbnail {
-                    source: Some(remote),
-                    alt: String::new(),
-                    class: CLASS.to_string(),
-                }
-            } else {
-                PrivateThumbnail {
-                    tree_id,
-                    media_id,
-                    alt: String::new(),
-                    class: CLASS.to_string(),
-                }
+            BundledThumbnail {
+                source: thumbnail,
+                alt: String::new(),
+                class: CLASS.to_string(),
             }
         },
     }
@@ -176,59 +145,9 @@ fn DocumentMosaic(sources: Vec<String>) -> Element {
     }
 }
 
-/// One crop, drawn from wherever its pixels are.
-///
-/// A crop of a file we hold is cut server-side and fetched as an image. A crop
-/// of a file we do not hold is cut here instead, from the picture's own
-/// address — asking the server for it would only ever be a `404`, since it
-/// never fetches somebody else's file to cut it.
-#[component]
-fn PrivateVignetteImage(
-    tree_id: Uuid,
-    vignette: Vignette,
-    /// The page the crop is on, when the caller already has it. Without it the
-    /// crop is assumed to be one we hold, which is what the endpoint answers.
-    #[props(default)]
-    page: Option<oxidgene_core::types::Media>,
-    alt: String,
-    class: Option<String>,
-) -> Element {
-    let api = use_context::<ApiClient>();
-    let remote = page.as_ref().and_then(|page| {
-        let crop = oxidgene_core::types::ImageCrop::for_remote(
-            page,
-            vignette.x,
-            vignette.y,
-            vignette.width,
-            vignette.height,
-        );
-        crop.map(|crop| CroppedSource {
-            source: page.file_path.trim().to_string(),
-            crop: Some(crop),
-        })
-    });
-    let vignette_id = vignette.id;
-    let cut_here = remote.is_some();
-    let image = use_ui_resource("vignette_image", move || {
-        let api = api.clone();
-        async move {
-            if cut_here {
-                return None;
-            }
-            api.vignette_image_data_url(tree_id, vignette_id).await.ok()
-        }
-    });
-    let fetched = image
-        .read_unchecked()
-        .as_ref()
-        .and_then(|result| result.clone())
-        .map(CroppedSource::whole);
-
-    rsx! {
-        BundledVignetteImage { image: remote.or(fetched), alt, class }
-    }
-}
-
+/// One crop, drawn from wherever its pixels are: cut server-side when we hold
+/// its file, else cut here from the picture's own address (see
+/// [`CroppedSource`]), as a gallery bundle says.
 #[component]
 fn BundledVignetteImage(
     image: Option<CroppedSource>,
@@ -401,22 +320,22 @@ async fn load_tiles(
     Ok(items)
 }
 
-/// What the viewer opens on for `tile`: a page opens its document, at that
-/// page.
-async fn viewer_selection(
-    api: &ApiClient,
-    tree_id: Uuid,
-    mut tile: MediaWithLink,
-) -> Result<MediaViewerSelection, ApiError> {
-    let (viewer_media_id, initial_page) = viewer_target(
-        tile.media.id,
-        tile.media.parent_media_id,
-        tile.media.page_index,
-    );
-    if viewer_media_id != tile.media.id {
-        tile.media = api.get_media(tree_id, viewer_media_id).await?;
+/// What opens the viewer: a media — a document, or one of its pages, which
+/// opens its document on that page — and the link it was reached through,
+/// which the viewer's delete names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MediaOpening {
+    media_id: Uuid,
+    link_id: Uuid,
+}
+
+impl MediaOpening {
+    fn of(tile: &MediaWithLink) -> Self {
+        Self {
+            media_id: tile.media.id,
+            link_id: tile.link_id,
+        }
     }
-    Ok(MediaViewerSelection { tile, initial_page })
 }
 
 /// Thumbnail grid + upload cell + inline edit panel.
@@ -491,21 +410,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let mut editing = use_signal(|| None::<Uuid>);
     let mut creating = use_signal(|| false);
     let mut cropping = use_signal(|| None::<MediaWithLink>);
-    let mut viewing = use_signal(|| None::<MediaViewerSelection>);
-    let mut error = use_signal(|| None::<String>);
-
-    let open_viewer = use_callback({
-        let api = api.clone();
-        move |tile: MediaWithLink| {
-            let api = api.clone();
-            spawn(async move {
-                match viewer_selection(&api, tree_id, tile).await {
-                    Ok(selection) => viewing.set(Some(selection)),
-                    Err(err) => error.set(Some(err.to_string())),
-                }
-            });
-        }
-    });
+    let mut viewing = use_signal(|| None::<MediaOpening>);
 
     // Props are not reactive: a `use_resource` closure captures them once, so
     // navigating straight from one person to another re-renders the gallery
@@ -623,7 +528,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                         editing.set(if editing() == Some(id) { None } else { Some(id) });
                     },
                     on_crop: move |tile: MediaWithLink| cropping.set(Some(tile)),
-                    on_view: move |tile: MediaWithLink| open_viewer.call(tile),
+                    on_view: move |tile: MediaWithLink| viewing.set(Some(MediaOpening::of(&tile))),
                     on_changed: move |_| changed.call(()),
                 }
             }
@@ -635,7 +540,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     image: gallery_vignettes.get(&vignette.id).copied().cloned(),
                     person_id: portrait_owner,
                     is_portrait: portrait_vignette_id == Some(vignette.id),
-                    on_view: move |tile| open_viewer.call(tile),
+                    on_view: move |opening| viewing.set(Some(opening)),
                     on_changed: move |()| changed.call(()),
                 }
             }
@@ -659,10 +564,6 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
 
         if nothing_to_read {
             div { class: "media-empty", {use_i18n().t("media.none")} }
-        }
-
-        if let Some(err) = error() {
-            div { class: "error-msg", "{err}" }
         }
 
         GalleryDialogs {
@@ -691,7 +592,7 @@ fn GalleryDialogs(
     creating: Signal<bool>,
     open_tile: Option<MediaWithLink>,
     editing: Signal<Option<Uuid>>,
-    viewing: Signal<Option<MediaViewerSelection>>,
+    viewing: Signal<Option<MediaOpening>>,
     cropping: Signal<Option<MediaWithLink>>,
     changed: Callback<()>,
 ) -> Element {
@@ -716,11 +617,10 @@ fn GalleryDialogs(
             }
         }
 
-        if let Some(selection) = viewing() {
+        if let Some(opening) = viewing() {
             MediaViewer {
                 tree_id,
-                tile: selection.tile,
-                initial_page: selection.initial_page,
+                opening,
                 events: events.clone(),
                 read_only,
                 on_changed: move |()| changed.call(()),
@@ -767,7 +667,7 @@ pub fn MediaLibraryGrid(
     on_changed: EventHandler<()>,
 ) -> Element {
     let api = use_context::<ApiClient>();
-    let mut viewing = use_signal(|| None::<MediaWithLink>);
+    let mut viewing = use_signal(|| None::<MediaOpening>);
 
     // Props are not reactive; mirrored so the bundle follows the page shown.
     let ids: Vec<Uuid> = tiles.iter().map(|tile| tile.media.id).collect();
@@ -819,7 +719,7 @@ pub fn MediaLibraryGrid(
                             is_open: false,
                             on_edit: move |_| {},
                             on_crop: move |_| {},
-                            on_view: move |tile| viewing.set(Some(tile)),
+                            on_view: move |tile: MediaWithLink| viewing.set(Some(MediaOpening::of(&tile))),
                             on_changed: move |()| on_changed.call(()),
                             footnotes: item.footnotes,
                         }
@@ -828,11 +728,10 @@ pub fn MediaLibraryGrid(
             }
         }
 
-        if let Some(tile) = viewing() {
+        if let Some(opening) = viewing() {
             MediaViewer {
                 tree_id,
-                tile,
-                initial_page: 0,
+                opening,
                 events: Vec::new(),
                 read_only: true,
                 on_changed: move |()| on_changed.call(()),
@@ -843,38 +742,19 @@ pub fn MediaLibraryGrid(
 }
 
 /// One document opened from a route of its own (the Dictionary's Tags tab
-/// links to it): the Media tab's read-only viewer, opened on the document.
+/// links to it): the Media tab's read-only viewer, opened on the document, or
+/// on its page when the id names one.
 #[component]
 pub fn MediaRouteViewer(tree_id: Uuid, media_id: Uuid, on_close: EventHandler<()>) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let selection = use_ui_resource("media_route_viewer", move || {
-        let api = api.clone();
-        async move {
-            let media = api.get_media(tree_id, media_id).await?;
-            let tile = MediaWithLink {
-                link_id: media.id,
-                sort_order: 0,
-                media,
-            };
-            viewer_selection(&api, tree_id, tile).await
+    rsx! {
+        MediaViewer {
+            tree_id,
+            opening: MediaOpening { media_id, link_id: media_id },
+            events: Vec::new(),
+            read_only: true,
+            on_changed: move |()| {},
+            on_close,
         }
-    });
-    let loaded = selection.read();
-    match &*loaded {
-        Some(Ok(selection)) => rsx! {
-            MediaViewer {
-                tree_id,
-                tile: selection.tile.clone(),
-                initial_page: selection.initial_page,
-                events: Vec::new(),
-                read_only: true,
-                on_changed: move |()| {},
-                on_close,
-            }
-        },
-        Some(Err(_)) => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
-        None => rsx! { div { class: "loading", {i18n.t("dictionary.loading")} } },
     }
 }
 
@@ -1659,7 +1539,7 @@ fn VignetteTile(
     image: Option<CroppedSource>,
     person_id: Option<Uuid>,
     is_portrait: bool,
-    on_view: EventHandler<MediaWithLink>,
+    on_view: EventHandler<MediaOpening>,
     on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
@@ -1752,20 +1632,11 @@ fn VignetteTile(
                 // Opening it opens the scan it is a region of: the point of a
                 // crop is the document behind it, and a viewer showing the
                 // crop alone would hide what it is evidence from.
-                onclick: {
-                    let api = api.clone();
-                    move |_| {
-                        let api = api.clone();
-                        spawn(async move {
-                            if let Ok(media) = api.get_media(tree_id, vignette.media_id).await {
-                                on_view.call(MediaWithLink {
-                                    link_id: vignette_id,
-                                    sort_order: 0,
-                                    media,
-                                });
-                            }
-                        });
-                    }
+                onclick: move |_| {
+                    on_view.call(MediaOpening {
+                        media_id: vignette.media_id,
+                        link_id: vignette_id,
+                    });
                 },
                 BundledVignetteImage {
                     image: image.clone(),
@@ -2721,60 +2592,17 @@ fn MediaFacts(
     /// transcript, and the technical facts of the file being read.
     page: Option<oxidgene_core::types::Media>,
     page_number: Option<usize>,
-    displayed_media_id: Uuid,
-    document_media_id: Option<Uuid>,
-    attachment_revision: u32,
-    vignettes: Vec<Vignette>,
-    person_names: Vec<PersonName>,
+    /// What the viewer's bundle says about the page on screen.
+    facts: ViewerFacts,
     events: Vec<(Uuid, String)>,
-    on_vignettes_changed: EventHandler<()>,
     on_vignette_hover: EventHandler<Option<Uuid>>,
+    /// Something the column shows was changed from it.
     on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let media_id = media.id;
     let file_media = page.clone().unwrap_or_else(|| media.clone());
-    let page_note_media_id = page.as_ref().map(|page| page.id);
-    let notes = use_ui_resource("viewer_notes", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            async move {
-                api.list_notes(tree_id, None, None, None, None, Some(media_id))
-                    .await
-                    .ok()
-            }
-        }
-    });
-    let page_notes = use_ui_resource("viewer_page_notes", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            async move {
-                match page_note_media_id {
-                    Some(page_id) => api
-                        .list_notes(tree_id, None, None, None, None, Some(page_id))
-                        .await
-                        .ok(),
-                    None => None,
-                }
-            }
-        }
-    });
-    let place = use_ui_resource("viewer_place", {
-        let api = api.clone();
-        let place_id = media.place_id;
-        move || {
-            let api = api.clone();
-            async move {
-                match place_id {
-                    Some(place_id) => api.get_place(tree_id, place_id).await.ok(),
-                    None => None,
-                }
-            }
-        }
-    });
+    let displayed_media_id = file_media.id;
+    let document_media_id = page.as_ref().map(|_| media.id);
     let date = format_date(
         &i18n,
         media.calendar,
@@ -2782,21 +2610,6 @@ fn MediaFacts(
         media.date_value.as_deref(),
         media.date_value2.as_deref(),
     );
-    let place = place
-        .read_unchecked()
-        .as_ref()
-        .and_then(|place| place.as_ref())
-        .map(|place| place.name.clone());
-    let note = notes
-        .read_unchecked()
-        .as_ref()
-        .and_then(|n| n.as_ref())
-        .and_then(|list| list.first().map(|n| n.text.clone()));
-    let page_note = page_notes
-        .read_unchecked()
-        .as_ref()
-        .and_then(|notes| notes.as_ref())
-        .and_then(|list| list.first().map(|note| note.text.clone()));
     // Every field is listed, set or not. Omitting the empty ones was tidier
     // and told the reader nothing: a scan with no date looked identical to a
     // viewer that could not record one, so the feature read as missing rather
@@ -2813,7 +2626,7 @@ fn MediaFacts(
                 value: Some(media.created_at.format("%Y-%m-%d %H:%M UTC").to_string()),
             }
             MediaFact { label: i18n.t("media.date"), value: (!date.is_empty()).then_some(date) }
-            MediaFact { label: i18n.t("media.place"), value: place }
+            MediaFact { label: i18n.t("media.place"), value: facts.place.clone() }
             MediaFact {
                 label: i18n.t("media.document_category"),
                 value: media
@@ -2837,39 +2650,37 @@ fn MediaFacts(
                 value: media.description.clone(),
                 prose: true,
             }
-            MediaFact { label: i18n.t("media.note"), value: note, prose: true }
-            if page_note_media_id.is_some() {
+            MediaFact { label: i18n.t("media.note"), value: facts.note.clone(), prose: true }
+            if page.is_some() {
                 MediaFact {
                     label: i18n.t_args(
                         "media.page_transcript",
                         &[("page", &page_number.unwrap_or(1).to_string())],
                     ),
-                    value: page_note,
+                    value: facts.page_note.clone(),
                     prose: true,
                 }
             }
 
             MediaRelations {
-                key: "{displayed_media_id}-{attachment_revision}",
+                key: "{displayed_media_id}",
                 tree_id,
-                displayed_media_id,
                 document_media_id,
                 page_number,
                 // Every crop listed is on this page, so it is what says
                 // whether they can be cut for us or have to be cut here.
                 source_media: file_media.clone(),
-                vignettes,
-                person_names,
-                on_attachments_changed: on_changed,
-                on_identifications_changed: on_vignettes_changed,
+                facts: facts.clone(),
+                on_changed,
                 on_identification_hover: on_vignette_hover,
             }
 
             if !events.is_empty() {
                 MediaEventLinks {
                     tree_id,
-                    media_id,
+                    media_id: media.id,
                     events,
+                    attached: facts.linked_events.clone(),
                     on_changed,
                 }
             }
@@ -2897,20 +2708,135 @@ fn MediaFacts(
     }
 }
 
-#[derive(Clone)]
+/// What the facts column shows of the page on screen, read from the viewer's
+/// bundle.
+///
+/// A bundle describes one page. Turned to another, the viewer shows the
+/// document's facts at once and the page's own once its bundle arrives:
+/// everything here that belongs to a page is kept only when it is the page
+/// on screen's, so the previous page's never shows under the next one.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ViewerFacts {
+    /// The note about the whole document.
+    note: Option<String>,
+    /// The transcript of the page on screen.
+    page_note: Option<String>,
+    /// The name of the place the document is filed under.
+    place: Option<String>,
+    /// The persons and couples attached to the document, then to the page
+    /// on screen, then those identified on it.
+    relations: Vec<MediaRelation>,
+    /// The names of everybody the relations and the regions name.
+    names: Vec<PersonName>,
+    /// The regions identified on the page on screen.
+    vignettes: Vec<Vignette>,
+    /// Their pictures, by vignette.
+    crops: HashMap<Uuid, CroppedSource>,
+    /// The page's own picture, drawn beside each attachment: its thumbnail,
+    /// or the address of a remote page.
+    thumbnail: Option<String>,
+    stand_ins: AttachmentStandIns,
+    /// The events the document is linked to.
+    linked_events: Vec<Uuid>,
+}
+
+impl ViewerFacts {
+    /// The facts of `displayed`, the page on screen (or the document, while
+    /// it has none), from the viewer's `bundle` and its `pictures`.
+    fn of(
+        bundle: &crate::api::MediaViewerBundle,
+        pictures: &crate::api::ResolvedPictures,
+        displayed: &oxidgene_core::types::Media,
+        i18n: &I18n,
+    ) -> Self {
+        let document_id = bundle.media.id;
+        let shown = displayed.id;
+        let scope = |link: &oxidgene_core::types::MediaLink| {
+            if link.media_id == shown {
+                Some(MediaAttachmentScope::Page)
+            } else if link.media_id == document_id {
+                Some(MediaAttachmentScope::Document)
+            } else {
+                None
+            }
+        };
+        let mut links: Vec<_> = bundle
+            .links
+            .iter()
+            .filter_map(|link| Some((scope(link)?, link.clone())))
+            .collect();
+        // The document's first: they hold for every page.
+        links.sort_by_key(|(scope, _)| *scope == MediaAttachmentScope::Page);
+        let vignettes: Vec<Vignette> = bundle
+            .vignettes
+            .iter()
+            .filter(|vignette| vignette.media_id == shown)
+            .cloned()
+            .collect();
+        let mut relations = attachments(&links, &bundle.labels, &vignettes, i18n);
+        relations.extend(identifications(&vignettes, &bundle.labels.names));
+        let gallery = &pictures.gallery;
+        let crops = gallery
+            .vignettes
+            .iter()
+            .filter(|item| {
+                vignettes
+                    .iter()
+                    .any(|vignette| vignette.id == item.vignette_id)
+            })
+            .map(|item| (item.vignette_id, item.image.clone()))
+            .collect();
+        let thumbnail = remote_picture_address(displayed).or_else(|| {
+            gallery
+                .media
+                .iter()
+                .find(|item| item.media_id == shown)
+                .and_then(|item| item.source.clone())
+        });
+        let stand_ins = AttachmentStandIns {
+            portraits: pictures.portraits.clone(),
+            sexes: bundle
+                .persons
+                .iter()
+                .map(|person| (person.person_id, person.sex))
+                .collect(),
+        };
+        Self {
+            note: bundle.note.as_ref().map(|note| note.text.clone()),
+            page_note: bundle
+                .page_note
+                .as_ref()
+                .filter(|note| note.media_id == Some(shown) && shown != document_id)
+                .map(|note| note.text.clone()),
+            place: bundle.place.as_ref().map(|place| place.name.clone()),
+            relations,
+            names: bundle.labels.names.clone(),
+            vignettes,
+            crops,
+            thumbnail,
+            stand_ins,
+            linked_events: bundle
+                .links
+                .iter()
+                .filter(|link| link.media_id == document_id)
+                .filter_map(|link| link.event_id)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum MediaRelation {
     PersonAttachment {
         link_id: Uuid,
         person_id: Uuid,
         name: String,
         scope: MediaAttachmentScope,
-        thumbnail_media_id: Uuid,
     },
     CoupleAttachment {
         link_id: Uuid,
         label: String,
         scope: MediaAttachmentScope,
-        thumbnail_media_id: Uuid,
     },
     Identification {
         vignette: Vignette,
@@ -2956,39 +2882,21 @@ fn relation_page_range(page: usize, total: usize) -> std::ops::Range<usize> {
 #[component]
 fn MediaRelations(
     tree_id: Uuid,
-    displayed_media_id: Uuid,
     document_media_id: Option<Uuid>,
     page_number: Option<usize>,
     /// The page every listed crop is a region of.
     source_media: oxidgene_core::types::Media,
-    vignettes: Vec<Vignette>,
-    person_names: Vec<PersonName>,
-    on_attachments_changed: EventHandler<()>,
-    on_identifications_changed: EventHandler<()>,
+    facts: ViewerFacts,
+    /// An attachment or an identification was removed.
+    on_changed: EventHandler<()>,
     on_identification_hover: EventHandler<Option<Uuid>>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let mut revision = use_signal(|| 0_u32);
     let mut relation_page = use_signal(|| 0_usize);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let data = use_ui_resource("media_content", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let _ = revision();
-            async move { relation_links(&api, tree_id, document_media_id, displayed_media_id).await }
-        }
-    });
-    let mut relations = match data.read_unchecked().as_ref() {
-        Some(Some((links, labels))) => {
-            attachments(links, labels, &vignettes, displayed_media_id, &i18n)
-        }
-        _ => Vec::new(),
-    };
-    relations.extend(identifications(&vignettes, &person_names));
-
+    let relations = facts.relations.clone();
     let relation_count = relations.len();
     let range = relation_page_range(relation_page(), relation_count);
     let current_relation_page = range.start / 5;
@@ -2999,26 +2907,10 @@ fn MediaRelations(
         .take(range.len())
         .collect::<Vec<_>>();
 
-    let remote_thumbnail = remote_picture_address(&source_media);
+    // Only a medium that cannot be drawn has its persons' portraits, or for
+    // those without one their sexes' silhouettes, stand in for it.
     let can_draw = drawn_as_picture(&source_media);
-    // Only a medium that cannot be drawn needs its persons' portraits and, for
-    // those without one, their sexes: the silhouette they are drawn with.
-    let stand_ins = use_ui_resource("media_attachment_stand_ins", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let people = match data.read().as_ref() {
-                Some(Some((links, _))) if !can_draw => attachment_people(links),
-                _ => Vec::new(),
-            };
-            async move { attachment_stand_ins(&api, tree_id, &people).await }
-        }
-    });
-    let stand_ins = stand_ins
-        .read_unchecked()
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let stand_ins = &facts.stand_ins;
 
     let delete_attachment = use_callback({
         let api = api.clone();
@@ -3028,10 +2920,7 @@ fn MediaRelations(
                 busy.set(true);
                 error.set(None);
                 match api.delete_media_link(tree_id, link_id).await {
-                    Ok(()) => {
-                        revision += 1;
-                        on_attachments_changed.call(());
-                    }
+                    Ok(()) => on_changed.call(()),
                     Err(err) => error.set(Some(err.to_string())),
                 }
                 busy.set(false);
@@ -3047,7 +2936,7 @@ fn MediaRelations(
                 busy.set(true);
                 error.set(None);
                 match api.delete_vignette(tree_id, vignette_id).await {
-                    Ok(_) => on_identifications_changed.call(()),
+                    Ok(_) => on_changed.call(()),
                     Err(err) => error.set(Some(err.to_string())),
                 }
                 busy.set(false);
@@ -3082,14 +2971,11 @@ fn MediaRelations(
                                 person_id,
                                 name,
                                 scope,
-                                thumbnail_media_id,
                             } => rsx! {
                                 AttachmentRow {
                                     key: "person-{link_id}",
-                                    tree_id,
-                                    thumbnail_media_id,
-                                    remote_thumbnail: remote_thumbnail.clone(),
-                                    picture: person_picture(can_draw, &stand_ins, person_id),
+                                    thumbnail: facts.thumbnail.clone(),
+                                    picture: person_picture(can_draw, stand_ins, person_id),
                                     scope: scope_label(scope),
                                     busy: busy(),
                                     on_delete: move |_| delete_attachment.call(link_id),
@@ -3108,13 +2994,10 @@ fn MediaRelations(
                                 link_id,
                                 label,
                                 scope,
-                                thumbnail_media_id,
                             } => rsx! {
                                 AttachmentRow {
                                     key: "family-{link_id}",
-                                    tree_id,
-                                    thumbnail_media_id,
-                                    remote_thumbnail: remote_thumbnail.clone(),
+                                    thumbnail: facts.thumbnail.clone(),
                                     // A couple has no portrait, so it is the unknown silhouette.
                                     picture: attachment_picture(can_draw, None, Sex::Unknown),
                                     scope: scope_label(scope),
@@ -3126,10 +3009,9 @@ fn MediaRelations(
                             MediaRelation::Identification { vignette, name } => rsx! {
                                 IdentificationRow {
                                     key: "vignette-{vignette.id}",
-                                    tree_id,
+                                    image: facts.crops.get(&vignette.id).cloned(),
                                     vignette,
                                     name,
-                                    page: source_media.clone(),
                                     scope: scope_label(MediaAttachmentScope::Page),
                                     busy: busy(),
                                     on_hover: on_identification_hover,
@@ -3153,53 +3035,6 @@ fn MediaRelations(
     }
 }
 
-/// The links of the page shown and of its document, if any, with the names
-/// of the persons and couples they name.
-async fn relation_links(
-    api: &ApiClient,
-    tree_id: Uuid,
-    document_media_id: Option<Uuid>,
-    displayed_media_id: Uuid,
-) -> Option<(
-    Vec<(MediaAttachmentScope, oxidgene_core::types::MediaLink)>,
-    crate::api::RelationLabels,
-)> {
-    let mut links = Vec::new();
-    if let Some(document_media_id) = document_media_id {
-        let of_document = api
-            .list_media_links_of(tree_id, document_media_id)
-            .await
-            .ok()?;
-        links.extend(
-            of_document
-                .into_iter()
-                .map(|link| (MediaAttachmentScope::Document, link)),
-        );
-    }
-    let of_page = api
-        .list_media_links_of(tree_id, displayed_media_id)
-        .await
-        .ok()?;
-    links.extend(
-        of_page
-            .into_iter()
-            .map(|link| (MediaAttachmentScope::Page, link)),
-    );
-    let person_ids: Vec<Uuid> = links
-        .iter()
-        .filter_map(|(_, link)| link.person_id)
-        .collect();
-    let family_ids: Vec<Uuid> = links
-        .iter()
-        .filter_map(|(_, link)| link.family_id)
-        .collect();
-    let labels = api
-        .relation_labels(tree_id, &person_ids, &family_ids)
-        .await
-        .ok()?;
-    Some((links, labels))
-}
-
 /// The persons and couples attached to the page or its document, once per
 /// scope each; a person identified on the page is listed by the
 /// identification instead.
@@ -3207,7 +3042,6 @@ fn attachments(
     links: &[(MediaAttachmentScope, oxidgene_core::types::MediaLink)],
     labels: &crate::api::RelationLabels,
     vignettes: &[Vignette],
-    displayed_media_id: Uuid,
     i18n: &I18n,
 ) -> Vec<MediaRelation> {
     let mut relations = Vec::new();
@@ -3226,7 +3060,6 @@ fn attachments(
                 person_id,
                 name,
                 scope: *scope,
-                thumbnail_media_id: displayed_media_id,
             });
         }
     }
@@ -3249,7 +3082,6 @@ fn attachments(
             link_id: link.id,
             label: i18n.t_args("media.attached_couple", &[("people", &people)]),
             scope: *scope,
-            thumbnail_media_id: displayed_media_id,
         });
     }
     relations
@@ -3296,53 +3128,10 @@ fn attachment_picture(
 }
 
 /// The portraits and sexes that stand in for a person's medium on their row.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct AttachmentStandIns {
     portraits: HashMap<Uuid, CroppedSource>,
     sexes: HashMap<Uuid, Sex>,
-}
-
-/// The persons an attachment names, each once.
-fn attachment_people(
-    links: &[(MediaAttachmentScope, oxidgene_core::types::MediaLink)],
-) -> Vec<Uuid> {
-    let mut people: Vec<Uuid> = links
-        .iter()
-        .filter_map(|(_, link)| link.person_id)
-        .collect();
-    people.sort_unstable();
-    people.dedup();
-    people
-}
-
-/// The portraits of `person_ids` in one batch, then the sex of each person
-/// without one, which the silhouette needs. Empty when nobody is listed.
-async fn attachment_stand_ins(
-    api: &ApiClient,
-    tree_id: Uuid,
-    person_ids: &[Uuid],
-) -> AttachmentStandIns {
-    if person_ids.is_empty() {
-        return AttachmentStandIns::default();
-    }
-    let portraits = api.portrait_map_for_ids(tree_id, person_ids).await;
-    let without_portrait: Vec<Uuid> = person_ids
-        .iter()
-        .copied()
-        .filter(|person_id| !portraits.contains_key(person_id))
-        .collect();
-    let sexes =
-        futures_util::future::join_all(without_portrait.into_iter().map(|person_id| async move {
-            let sex = api
-                .get_person_profile(tree_id, person_id)
-                .await
-                .map_or(Sex::Unknown, |profile| profile.sex);
-            (person_id, sex)
-        }))
-        .await
-        .into_iter()
-        .collect();
-    AttachmentStandIns { portraits, sexes }
 }
 
 /// The picture of a person's attachment row, from what was loaded for them.
@@ -3366,9 +3155,8 @@ fn person_picture(
 /// `children` naming it, where it is attached, and its delete button.
 #[component]
 fn AttachmentRow(
-    tree_id: Uuid,
-    thumbnail_media_id: Uuid,
-    remote_thumbnail: Option<String>,
+    /// The medium's own picture, when it is drawn.
+    thumbnail: Option<String>,
     picture: AttachmentPicture,
     scope: Option<String>,
     busy: bool,
@@ -3378,12 +3166,7 @@ fn AttachmentRow(
     let i18n = use_i18n();
     rsx! {
         div { class: "media-vignette-item",
-            AttachmentThumbnail {
-                tree_id,
-                media_id: thumbnail_media_id,
-                remote: remote_thumbnail,
-                picture,
-            }
+            AttachmentThumbnail { thumbnail, picture }
             {children}
             if let Some(scope) = scope {
                 span { class: "media-relation-scope", "{scope}" }
@@ -3405,10 +3188,10 @@ fn AttachmentRow(
 /// hovered; an unnamed box cannot be deleted from here.
 #[component]
 fn IdentificationRow(
-    tree_id: Uuid,
     vignette: Vignette,
+    /// The region's picture.
+    image: Option<CroppedSource>,
     name: Option<String>,
-    page: oxidgene_core::types::Media,
     scope: Option<String>,
     busy: bool,
     on_hover: EventHandler<Option<Uuid>>,
@@ -3425,10 +3208,8 @@ fn IdentificationRow(
             onfocusout: move |_| on_hover.call(None),
             div { class: "media-vignette-item",
                 div { class: "media-identification-target",
-                    PrivateVignetteImage {
-                        tree_id,
-                        vignette: vignette.clone(),
-                        page: Some(page),
+                    BundledVignetteImage {
+                        image,
                         alt: String::new(),
                         class: "media-vignette-thumbnail",
                     }
@@ -3462,28 +3243,13 @@ fn MediaEventLinks(
     tree_id: Uuid,
     media_id: Uuid,
     events: Vec<(Uuid, String)>,
+    /// The events the media is linked to.
+    attached: Vec<Uuid>,
     on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let mut revision = use_signal(|| 0_u32);
     let mut error = use_signal(|| None::<String>);
-    let links = use_ui_resource("media_attributions", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let _ = revision();
-            async move { api.list_media_links_of(tree_id, media_id).await.ok() }
-        }
-    });
-    let attached: Vec<Uuid> = links
-        .read_unchecked()
-        .as_ref()
-        .and_then(|links| links.clone())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|link| link.event_id)
-        .collect();
     let toggle = use_callback({
         let api = api.clone();
         move |(event_id, attach): (Uuid, bool)| {
@@ -3491,10 +3257,7 @@ fn MediaEventLinks(
             spawn(async move {
                 let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 match result {
-                    Ok(()) => {
-                        revision += 1;
-                        on_changed.call(());
-                    }
+                    Ok(()) => on_changed.call(()),
                     Err(err) => error.set(Some(err.to_string())),
                 }
             });
@@ -3558,7 +3321,7 @@ enum MediaAttachmentMode {
     CoupleFamily,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum MediaAttachmentScope {
     Document,
     Page,
@@ -3677,24 +3440,77 @@ fn primary_person_name(names: &[PersonName], person_id: Uuid) -> Option<String> 
         .filter(|name| !name.is_empty())
 }
 
-#[derive(Clone, PartialEq)]
-struct MediaViewerSelection {
-    tile: MediaWithLink,
-    initial_page: usize,
+/// The pictures of the viewer's `bundle`: the regions' crops, the page's
+/// thumbnail when an attachment row draws it, and the attached persons'
+/// portraits when the page cannot be drawn and they stand in for it. One
+/// request, none where pictures are served from the shell's own origin.
+async fn viewer_pictures(
+    api: &ApiClient,
+    tree_id: Uuid,
+    bundle: &crate::api::MediaViewerBundle,
+) -> crate::api::ResolvedPictures {
+    let described = bundle.pages.get(bundle.page).unwrap_or(&bundle.media);
+    let portraits: Vec<_> = if drawn_as_picture(described) {
+        Vec::new()
+    } else {
+        bundle
+            .persons
+            .iter()
+            .filter_map(|person| Some((person.person_id, person.portrait.clone()?)))
+            .collect()
+    };
+    let gallery = if draws_page_thumbnail(bundle, described) {
+        bundle.gallery.clone()
+    } else {
+        bundle.gallery.vignettes_only()
+    };
+    api.resolve_pictures(tree_id, &[&gallery], &portraits).await
 }
 
-fn viewer_target(media_id: Uuid, parent_media_id: Option<Uuid>, page_index: i32) -> (Uuid, usize) {
-    match parent_media_id {
-        Some(document_id) => (document_id, page_index.max(0) as usize),
-        None => (media_id, 0),
+/// Whether an attachment row of the viewer draws the thumbnail we hold of
+/// `described`, the page its `bundle` describes: a page drawn as a picture
+/// from a thumbnail of ours, attached to a couple or to a person not
+/// identified on it, whose row the identification would replace.
+fn draws_page_thumbnail(
+    bundle: &crate::api::MediaViewerBundle,
+    described: &oxidgene_core::types::Media,
+) -> bool {
+    drawn_as_picture(described)
+        && remote_picture_address(described).is_none()
+        && bundle.links.iter().any(|link| {
+            link.family_id.is_some()
+                || link
+                    .person_id
+                    .is_some_and(|person| !has_person_identification(&bundle.vignettes, person))
+        })
+}
+
+/// The viewer's frame while it has nothing else to show: its loading, or why
+/// it could not load.
+fn viewer_placeholder(i18n: &I18n, message: Element, on_close: EventHandler<()>) -> Element {
+    rsx! {
+        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
+            div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
+                div { class: "cropper-head",
+                    span { class: "cropper-title" }
+                    button {
+                        class: "cropper-close",
+                        r#type: "button",
+                        aria_label: i18n.t("common.close"),
+                        onclick: move |_| on_close.call(()),
+                        "\u{00D7}"
+                    }
+                }
+                {message}
+            }
+        }
     }
 }
 
 #[component]
 fn MediaViewer(
     tree_id: Uuid,
-    tile: MediaWithLink,
-    initial_page: usize,
+    opening: MediaOpening,
     events: Vec<(Uuid, String)>,
     read_only: bool,
     on_changed: EventHandler<()>,
@@ -3716,101 +3532,58 @@ fn MediaViewer(
     let mut attachment_busy = use_signal(|| false);
     let mut attachment_error = use_signal(|| None::<String>);
     let mut attachment_notice = use_signal(|| None::<String>);
-    let attachment_revision = use_signal(|| 0_u32);
     let mut family_choices = use_signal(Vec::<MediaFamilyChoice>::new);
-    let mut media_revision = use_signal(|| 0_u32);
+    // Bumped after every change made from the viewer: the bundle reloads.
+    let mut revision = use_signal(|| 0_u32);
+    // The page turned to, from 0; until the reader turns one, the page the
+    // opened media names, which the bundle says.
+    let page = use_signal(|| None::<usize>);
+    // The page the browser refused to draw, if it refused one. Held by id so
+    // turning the page tries afresh rather than inheriting a failure.
+    let mut failed_preview = use_signal(|| None::<Uuid>);
+    // The page pdf.js could not open, held by id like `failed_preview`.
+    let mut failed_pdf = use_signal(|| None::<Uuid>);
+    let pdf_position = use_signal(|| (1_u32, 0_u32));
+    let pdf_goto = use_signal(|| None::<u32>);
+    let mut asset_media_id = use_signal(|| None::<Uuid>);
 
-    // `viewing` owns the tile that opened the overlay, so it does not change
-    // when the gallery refreshes underneath it. Reload the media itself after
-    // an edit to keep the read-only facts (especially tags) current.
-    let current_media = use_ui_resource("current_media", {
+    // `opening` names what opened the overlay, so it does not change when the
+    // gallery refreshes underneath it; the bundle, reloaded after an edit,
+    // keeps the facts (tags especially) current. The page draws as soon as it
+    // arrives: its pictures and the page's file follow side by side.
+    let viewer = use_ui_resource("media_viewer", {
         let api = api.clone();
-        let media_id = tile.media.id;
         move || {
             let api = api.clone();
-            let _ = media_revision();
-            async move { api.get_media(tree_id, media_id).await.ok() }
+            let requested = page();
+            let _ = revision();
+            async move {
+                api.media_viewer_bundle(tree_id, opening.media_id, requested)
+                    .await
+                    .map(Rc::new)
+                    .map_err(|error| error.to_string())
+            }
         }
     });
-    let current_media = match &*current_media.read_unchecked() {
-        Some(Some(media)) => media.clone(),
-        _ => tile.media.clone(),
-    };
-    let mut current_tile = tile.clone();
-    current_tile.media = current_media.clone();
-
-    let caption = current_tile.caption().to_string();
-    let is_document = current_tile.media.is_document();
-    let page = use_signal(|| initial_page);
-    let mut page_revision = use_signal(|| 0_u32);
-
-    // A document has no bytes of its own: what is shown is its current page,
-    // which is a media in its own right. Everything below therefore reads the
-    // page when there is one and the media itself when there is not.
-    let pages = use_ui_resource("content_pages", {
+    let pictures = use_ui_resource("media_viewer_pictures", {
         let api = api.clone();
-        let document_id = current_tile.media.id;
         move || {
             let api = api.clone();
-            let _ = page_revision();
+            let bundle = viewer
+                .read()
+                .as_ref()
+                .and_then(|loaded| loaded.clone().ok());
             async move {
-                if is_document {
-                    api.list_media_pages(tree_id, document_id).await.ok()
-                } else {
-                    None
+                match bundle {
+                    Some(bundle) => viewer_pictures(&api, tree_id, &bundle).await,
+                    None => crate::api::ResolvedPictures::default(),
                 }
             }
         }
     });
-    let page_list: Vec<oxidgene_core::types::Media> = match &*pages.read_unchecked() {
-        Some(Some(list)) => list.clone(),
-        _ => Vec::new(),
-    };
-    let total_pages = page_list.len();
-    // Clamp rather than trust the signal: deleting a page while the viewer is
-    // open would otherwise leave it pointing past the end.
-    let current = page().min(total_pages.saturating_sub(1));
-    let shown = page_list.get(current);
-
-    let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
-    let attachment_target_media_id =
-        attachment_media_id(attachment_scope(), current_tile.media.id, content_media_id);
-    let (content_width, content_height) = shown
-        .map(|media| (media.width, media.height))
-        .unwrap_or((current_media.width, current_media.height));
-    let content_media = shown.cloned().unwrap_or_else(|| current_media.clone());
-    // Where the bytes on screen actually are. A document is always "unheld" —
-    // it holds nothing — so asking the tile would answer about the shell and
-    // say "file absent" over a photograph the reader is looking at.
-    let content_source = crate::api::media_source(&content_media);
-    // The page the browser refused to draw, if it refused one. Held by id so
-    // turning the page tries afresh rather than inheriting a failure.
-    let mut failed_preview = use_signal(|| None::<Uuid>);
-    let preview_failed = failed_preview() == Some(content_media_id);
-    let kind = displayed_kind(&current_tile, shown, content_source, preview_failed);
-    // The page pdf.js could not open, held by id like `failed_preview`.
-    let mut failed_pdf = use_signal(|| None::<Uuid>);
-    let pdf_failed = failed_pdf() == Some(content_media_id);
-    let shows_pdf = opens_in_pdf_viewer(kind, content_source, pdf_failed);
-    // A PDF's own pages, `(page, pages)` from 1, which the pager and the
-    // count beside the title show and turn as they do a document's — unless
-    // the PDF is one page of a document of several, whose pages they keep.
-    let pdf_position = use_signal(|| (1_u32, 0_u32));
-    let pdf_goto = use_signal(|| None::<u32>);
-    let pdf_paged = pdf_drives_pager(shows_pdf, total_pages);
-    let (pager_current, pager_total) =
-        pager_position(pdf_paged.then(&*pdf_position), current, total_pages);
-    // A document's visible image changes with its page. Keep that id reactive
-    // so the regions in both the facts column and the image follow it.
-    let mut vignette_media_id = use_signal(|| content_media_id);
-    let mut vignette_revision = use_signal(|| 0_u32);
-    follow(&mut vignette_media_id, content_media_id);
     // Only a media we hold has an asset to fetch. A remote one is rendered
     // straight from its URL, and asking the server for bytes it never stored
     // is a request that can only 404.
-    let requested_asset_id = asset_to_fetch(content_source, kind, content_media.id);
-    let mut asset_media_id = use_signal(|| requested_asset_id);
-    follow(&mut asset_media_id, requested_asset_id);
     let media_asset = use_ui_resource("media_asset", {
         let api = api.clone();
         move || {
@@ -3824,45 +3597,92 @@ fn MediaViewer(
             }
         }
     });
-    let url = displayed_address(
-        &content_media,
-        media_asset.read_unchecked().as_ref().and_then(Clone::clone),
-    );
-    let content_vignettes = use_ui_resource("content_vignettes", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let media_id = vignette_media_id();
-            let _ = vignette_revision();
-            async move {
-                let vignettes = api.list_media_vignettes(tree_id, media_id).await.ok()?;
-                let person_ids = vignettes
-                    .iter()
-                    .filter_map(|vignette| vignette.person_id)
-                    .collect::<Vec<_>>();
-                let names = api
-                    .relation_labels(tree_id, &person_ids, &[])
-                    .await
-                    .ok()?
-                    .names;
-                Some((vignettes, names))
-            }
-        }
-    });
-    let (content_vignettes, person_names): (Vec<Vignette>, Vec<PersonName>) = content_vignettes
-        .read_unchecked()
-        .as_ref()
-        .and_then(|content| content.clone())
-        .unwrap_or_default();
-
-    let _aside_mode = aside_mode(editing(), managing_pages());
-
     let close_attachment = use_callback(move |()| {
         attachment_mode.set(None);
         attachment_busy.set(false);
         attachment_error.set(None);
         family_choices.set(Vec::new());
     });
+    // A change made here: the viewer reloads, and its host refreshes.
+    let changed = use_callback(move |()| {
+        revision += 1;
+        on_changed.call(());
+    });
+
+    let loaded = viewer.read_unchecked().as_ref().cloned();
+    let bundle = match loaded {
+        Some(Ok(bundle)) => bundle,
+        Some(Err(message)) => {
+            return viewer_placeholder(
+                &i18n,
+                rsx! { div { class: "error-msg", "{message}" } },
+                on_close,
+            );
+        }
+        None => {
+            return viewer_placeholder(
+                &i18n,
+                rsx! { div { class: "loading", {i18n.t("common.loading")} } },
+                on_close,
+            );
+        }
+    };
+    let current_media = bundle.media.clone();
+    let current_tile = MediaWithLink {
+        link_id: opening.link_id,
+        sort_order: 0,
+        media: current_media.clone(),
+    };
+    let caption = current_tile.caption().to_string();
+    let is_document = current_tile.media.is_document();
+
+    // A document has no bytes of its own: what is shown is its current page,
+    // which is a media in its own right. Everything below therefore reads the
+    // page when there is one and the media itself when there is not.
+    let page_list = &bundle.pages;
+    let total_pages = page_list.len();
+    // Clamp rather than trust the signal: deleting a page while the viewer is
+    // open would otherwise leave it pointing past the end.
+    let current = page()
+        .unwrap_or(bundle.page)
+        .min(total_pages.saturating_sub(1));
+    let shown = page_list.get(current);
+
+    let content_media = shown.cloned().unwrap_or_else(|| current_media.clone());
+    let content_media_id = content_media.id;
+    let attachment_target_media_id =
+        attachment_media_id(attachment_scope(), current_tile.media.id, content_media_id);
+    let (content_width, content_height) = (content_media.width, content_media.height);
+    // Where the bytes on screen actually are. A document is always "unheld" —
+    // it holds nothing — so asking the tile would answer about the shell and
+    // say "file absent" over a photograph the reader is looking at.
+    let content_source = crate::api::media_source(&content_media);
+    let preview_failed = failed_preview() == Some(content_media_id);
+    let kind = displayed_kind(&current_tile, shown, content_source, preview_failed);
+    let pdf_failed = failed_pdf() == Some(content_media_id);
+    let shows_pdf = opens_in_pdf_viewer(kind, content_source, pdf_failed);
+    // A PDF's own pages, `(page, pages)` from 1, which the pager and the
+    // count beside the title show and turn as they do a document's — unless
+    // the PDF is one page of a document of several, whose pages they keep.
+    let pdf_paged = pdf_drives_pager(shows_pdf, total_pages);
+    let (pager_current, pager_total) =
+        pager_position(pdf_paged.then(&*pdf_position), current, total_pages);
+    follow(
+        &mut asset_media_id,
+        asset_to_fetch(content_source, kind, content_media_id),
+    );
+    let url = displayed_address(
+        &content_media,
+        media_asset.read_unchecked().as_ref().and_then(Clone::clone),
+    );
+    let facts = ViewerFacts::of(
+        &bundle,
+        &pictures.read_unchecked().clone().unwrap_or_default(),
+        &content_media,
+        &i18n,
+    );
+
+    let _aside_mode = aside_mode(editing(), managing_pages());
 
     // The relation menu — attach the page or the document to a person or a
     // couple, and identify somebody on a picture — over an image and a PDF
@@ -3913,10 +3733,7 @@ fn MediaViewer(
                         tree_id,
                         media: current_media.clone(),
                         at: tags_menu_at,
-                        on_changed: move |()| {
-                            media_revision += 1;
-                            on_changed.call(());
-                        },
+                        on_changed: changed,
                     }
                     MediaAttachmentPicker {
                         tree_id,
@@ -3926,9 +3743,8 @@ fn MediaViewer(
                         error: attachment_error,
                         notice: attachment_notice,
                         family_choices,
-                        revision: attachment_revision,
                         on_close: close_attachment,
-                        on_changed,
+                        on_changed: changed,
                     }
                     if let Some(message) = attachment_notice() {
                         div { class: "media-attachment-notice", "{message}" }
@@ -3964,14 +3780,10 @@ fn MediaViewer(
                             page: shown.cloned(),
                             page_number: shown.map(|_| current + 1),
                             embedded: true,
-                            on_changed: move |()| {
-                                media_revision += 1;
-                                // The panel may have repointed the page at
-                                // another URL, and the page list is what the
-                                // image on screen is read from.
-                                page_revision += 1;
-                                on_changed.call(());
-                            },
+                            // The panel may have repointed the page at
+                            // another URL, and the page list is what the
+                            // image on screen is read from.
+                            on_changed: changed,
                             on_close: move |()| editing.set(false),
                         }
                     } else if managing_pages() {
@@ -3982,11 +3794,7 @@ fn MediaViewer(
                                 DocumentPages {
                                     tree_id,
                                     document_id: current_media.id,
-                                    on_changed: move |()| {
-                                        page_revision += 1;
-                                        media_revision += 1;
-                                        on_changed.call(());
-                                    },
+                                    on_changed: changed,
                                 }
                             }
                             div { class: "media-panel-actions",
@@ -4005,15 +3813,10 @@ fn MediaViewer(
                             media: current_media.clone(),
                             page: shown.cloned(),
                             page_number: shown.map(|_| current + 1),
-                            displayed_media_id: content_media_id,
-                            document_media_id: shown.map(|_| current_media.id),
-                            attachment_revision: attachment_revision(),
-                            vignettes: content_vignettes.clone(),
-                            person_names: person_names.clone(),
+                            facts: facts.clone(),
                             events: events.clone(),
-                            on_vignettes_changed: move |_| vignette_revision += 1,
                             on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
-                            on_changed,
+                            on_changed: changed,
                         }
                         // Not gated on `read_only`. That flag governs the
                         // *gallery* — uploading, cropping, detaching — which
@@ -4040,8 +3843,8 @@ fn MediaViewer(
                             }
                             MediaDeleteButton {
                                 tree_id,
-                                media_id: tile.media.id,
-                                link_id: tile.link_id,
+                                media_id: current_media.id,
+                                link_id: opening.link_id,
                                 on_deleted: move |()| {
                                     on_changed.call(());
                                     on_close.call(());
@@ -4075,8 +3878,8 @@ fn MediaViewer(
                     controls: relation_button,
                     overlays: rsx! {
                         VignetteOverlays {
-                            vignettes: content_vignettes.clone(),
-                            person_names: person_names.clone(),
+                            vignettes: facts.vignettes.clone(),
+                            person_names: facts.names.clone(),
                             highlighted: highlighted_vignette(),
                             size: (content_width, content_height),
                         }
@@ -4104,7 +3907,7 @@ fn MediaViewer(
                     div { class: "cropper-actions",
                         ViewerDownloads {
                             tree_id,
-                            document_id: tile.media.id,
+                            document_id: current_media.id,
                             page: content_media.clone(),
                             current,
                             total_pages,
@@ -4123,13 +3926,12 @@ fn MediaViewer(
                 IdentificationCropperHost {
                     tree_id,
                     media: content_media,
+                    // Identifying somebody on a picture we do not hold
+                    // records its pixel size, and every crop drawn on it is
+                    // placed against that size: the reload brings both.
                     on_complete: move |_| {
                         identifying.set(false);
-                        vignette_revision += 1;
-                        // Identifying somebody on a picture we do not hold
-                        // records its pixel size, and every crop drawn on it
-                        // is placed against that size.
-                        page_revision += 1;
+                        changed.call(());
                     },
                 }
             }
@@ -4167,13 +3969,13 @@ fn pdf_drives_pager(shows_pdf: bool, total_pages: usize) -> bool {
 fn turn_page(
     pdf_paged: bool,
     index: usize,
-    mut page: Signal<usize>,
+    mut page: Signal<Option<usize>>,
     mut goto: Signal<Option<u32>>,
 ) {
     if pdf_paged {
         goto.set(Some(u32::try_from(index + 1).unwrap_or(u32::MAX)));
     } else {
-        page.set(index);
+        page.set(Some(index));
     }
 }
 
@@ -4595,14 +4397,13 @@ fn MediaAttachmentPicker(
     error: Signal<Option<String>>,
     notice: Signal<Option<String>>,
     family_choices: Signal<Vec<MediaFamilyChoice>>,
-    revision: Signal<u32>,
     on_close: Callback<()>,
     on_changed: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let (mut attachment_mode, mut attachment_busy, mut attachment_error) = (mode, busy, error);
-    let (mut attachment_notice, mut attachment_revision) = (notice, revision);
+    let mut attachment_notice = notice;
     let attachment_target_media_id = target_media_id;
     let close_attachment = on_close;
 
@@ -4629,7 +4430,6 @@ fn MediaAttachmentPicker(
                     Ok(created) => {
                         attachment_notice.set(Some(if created { success } else { duplicate }));
                         attachment_mode.set(None);
-                        attachment_revision += 1;
                         on_changed.call(());
                     }
                     Err(error) => attachment_error.set(Some(error.to_string())),
@@ -4701,7 +4501,6 @@ fn MediaAttachmentPicker(
                     Ok(created) => {
                         attachment_notice.set(Some(if created { success } else { duplicate }));
                         attachment_mode.set(None);
-                        attachment_revision += 1;
                         on_changed.call(());
                     }
                     Err(error) => attachment_error.set(Some(error.to_string())),
@@ -5200,6 +4999,112 @@ mod tests {
         }
     }
 
+    /// A media row with id `id`: a page of `document` when given, held and
+    /// thumbnailed, else a document.
+    fn media_json(id: u128, document: Option<u128>) -> serde_json::Value {
+        serde_json::json!({
+            "id": Uuid::from_u128(id),
+            "tree_id": Uuid::from_u128(1),
+            "parent_media_id": document.map(Uuid::from_u128),
+            "file_name": "sample",
+            "file_path": "sample",
+            "mime_type": "image/png",
+            "storage_key": document.map(|_| "sample-key"),
+            "thumbnail_key": document.map(|_| "sample-thumbnail"),
+            "page_count": 1,
+            "file_size": 42,
+            "created_at": "2000-01-01T00:00:00Z",
+            "updated_at": "2000-01-01T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn a_page_turned_to_keeps_the_documents_facts_and_none_of_the_previous_pages() {
+        let (document, first, second) = (10, 11, 12);
+        let couple = |id: u128, media: u128| {
+            serde_json::json!({
+                "id": Uuid::from_u128(id),
+                "media_id": Uuid::from_u128(media),
+                "person_id": null,
+                "event_id": null,
+                "source_id": null,
+                "family_id": Uuid::from_u128(id + 100),
+                "sort_order": 0
+            })
+        };
+        let note = |media: u128, text: &str| {
+            serde_json::json!({
+                "id": Uuid::from_u128(media + 200),
+                "tree_id": Uuid::from_u128(1),
+                "text": text,
+                "person_id": null,
+                "event_id": null,
+                "family_id": null,
+                "source_id": null,
+                "media_id": Uuid::from_u128(media),
+                "created_at": "2000-01-01T00:00:00Z",
+                "updated_at": "2000-01-01T00:00:00Z",
+                "deleted_at": null
+            })
+        };
+        // The bundle describes the first page.
+        let bundle: crate::api::MediaViewerBundle = serde_json::from_value(serde_json::json!({
+            "media": media_json(document, None),
+            "pages": [media_json(first, Some(document)), media_json(second, Some(document))],
+            "page": 0,
+            "note": note(document, "About the register"),
+            "page_note": note(first, "Folio one"),
+            "place": null,
+            "links": [couple(20, document), couple(21, first)],
+            "vignettes": [{
+                "id": Uuid::from_u128(30),
+                "media_id": Uuid::from_u128(first),
+                "x": 1, "y": 1, "width": 5, "height": 5,
+                "person_id": null,
+                "event_id": null,
+                "created_at": "2000-01-01T00:00:00Z",
+                "updated_at": "2000-01-01T00:00:00Z"
+            }],
+            "labels": { "names": [], "spouses": [] },
+            "persons": [],
+            "gallery": { "media": [], "vignettes": [] }
+        }))
+        .unwrap();
+        let pictures = crate::api::ResolvedPictures::default();
+        let i18n = I18n::new(crate::i18n::Language::english());
+        let page = |id: u128| {
+            serde_json::from_value::<oxidgene_core::types::Media>(media_json(id, Some(document)))
+                .unwrap()
+        };
+        let scopes = |facts: &ViewerFacts| {
+            facts
+                .relations
+                .iter()
+                .filter_map(|relation| match relation {
+                    MediaRelation::CoupleAttachment { scope, .. } => Some(*scope),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let described = ViewerFacts::of(&bundle, &pictures, &page(first), &i18n);
+        assert_eq!(described.note.as_deref(), Some("About the register"));
+        assert_eq!(described.page_note.as_deref(), Some("Folio one"));
+        assert_eq!(described.vignettes.len(), 1);
+        assert_eq!(
+            scopes(&described),
+            [MediaAttachmentScope::Document, MediaAttachmentScope::Page]
+        );
+
+        // Turned to the second page before its bundle arrives: the document's
+        // note and attachment stay, the first page's own facts go.
+        let turned = ViewerFacts::of(&bundle, &pictures, &page(second), &i18n);
+        assert_eq!(turned.note.as_deref(), Some("About the register"));
+        assert_eq!(turned.page_note, None);
+        assert!(turned.vignettes.is_empty());
+        assert_eq!(scopes(&turned), [MediaAttachmentScope::Document]);
+    }
+
     #[test]
     fn the_viewer_fetches_no_pdf_to_draw_it_on_the_stage() {
         let id = Uuid::from_u128(9);
@@ -5357,18 +5262,6 @@ mod tests {
             attachment_media_id(MediaAttachmentScope::Page, document_id, page_id),
             page_id
         );
-    }
-
-    #[test]
-    fn a_page_attachment_opens_its_document_on_that_page() {
-        let document_id = Uuid::from_u128(1);
-        let page_id = Uuid::from_u128(2);
-
-        assert_eq!(
-            viewer_target(page_id, Some(document_id), 4),
-            (document_id, 4)
-        );
-        assert_eq!(viewer_target(page_id, None, 4), (page_id, 0));
     }
 
     #[test]

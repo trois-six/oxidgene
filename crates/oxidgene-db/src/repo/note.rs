@@ -199,6 +199,16 @@ impl NoteRepo {
         hydrate(db, notes).await
     }
 
+    /// List the live notes attached to any of the given media in a tree.
+    pub async fn list_by_medias(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        media_ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        let notes = Self::list_live_by_untagged(db, tree_id, Column::MediaId, media_ids).await?;
+        hydrate(db, notes).await
+    }
+
     /// The live notes of a tree whose `column` is one of `ids`, without tags.
     async fn list_live_by_untagged(
         db: &impl ConnectionTrait,
