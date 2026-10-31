@@ -107,6 +107,36 @@ impl AccountState {
     }
 }
 
+/// What a page shows in place of its content when the account is missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    /// The page itself.
+    Open,
+    /// An invitation to sign in: the page reads what only a signed-in user
+    /// may (docs/authentication.md §4.8).
+    SignIn,
+}
+
+/// What `route` shows to the user `state` describes. Only tree content and
+/// the profile need an account; the application settings are the device's.
+///
+/// A page opens while `/auth/session` is still being asked: nothing waits
+/// for the answer, so the `none` mode loads as fast as the desktop. A
+/// visitor's first requests are refused, and the page gives way to the
+/// invitation once the answer comes.
+pub fn gate(state: &AccountState, route: &Route) -> Gate {
+    let needs_account = match route {
+        Route::AppSettings {} | Route::NotFound { .. } => false,
+        Route::Home {} | Route::Profile {} => true,
+        other => other.tree_id().is_some(),
+    };
+    if needs_account && *state == AccountState::Anonymous {
+        Gate::SignIn
+    } else {
+        Gate::Open
+    }
+}
+
 /// A dialog the account UI opens over the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountPrompt {
@@ -293,6 +323,43 @@ mod tests {
             }),
             account_url: None,
         }))
+    }
+
+    #[test]
+    fn without_accounts_every_page_opens_at_once() {
+        for route in [
+            Route::Home {},
+            Route::Profile {},
+            Route::AppSettings {},
+            Route::Statistics {
+                tree_id: "t".into(),
+            },
+        ] {
+            assert_eq!(gate(&AccountState::Absent, &route), Gate::Open, "{route}");
+            assert_eq!(gate(&signed_in("user"), &route), Gate::Open, "{route}");
+        }
+    }
+
+    #[test]
+    fn a_visitor_is_asked_to_sign_in_where_an_account_is_needed() {
+        let tree = Route::TreeDetail {
+            tree_id: "t".into(),
+            person: None,
+        };
+        for route in [Route::Home {}, Route::Profile {}, tree] {
+            assert_eq!(
+                gate(&AccountState::Anonymous, &route),
+                Gate::SignIn,
+                "{route}"
+            );
+            // Nothing waits for the server's answer.
+            assert_eq!(gate(&AccountState::Loading, &route), Gate::Open, "{route}");
+        }
+        // The application settings are the device's.
+        assert_eq!(
+            gate(&AccountState::Anonymous, &Route::AppSettings {}),
+            Gate::Open
+        );
     }
 
     #[test]

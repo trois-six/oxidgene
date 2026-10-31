@@ -1,5 +1,6 @@
 //! Shared UI components.
 
+pub mod account_nav;
 pub mod audit_log;
 pub mod avatar_cropper;
 pub mod breadcrumb;

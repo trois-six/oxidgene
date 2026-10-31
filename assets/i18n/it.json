@@ -8993,6 +8993,17 @@
     "profile.delete_confirm_title": "Eliminare il tuo account?",
     "profile.delete_confirm_message": "Il tuo account, le sessioni e l'avatar vengono cancellati definitivamente e vieni disconnesso. Gli alberi a cui hai contribuito conservano ciò che hai inserito.",
     "profile.delete_confirm": "Elimina il mio account",
-    "profile.delete_owns_trees": "Sei ancora proprietario di alberi: trasferiscili o eliminali prima di eliminare il tuo account."
+    "profile.delete_owns_trees": "Sei ancora proprietario di alberi: trasferiscili o eliminali prima di eliminare il tuo account.",
+    "account.sign_in": "Accedi",
+    "account.menu": "Menu dell'account",
+    "account.profile": "Profilo",
+    "account.sign_out_failed": "Disconnessione non riuscita. Riprova tra un momento.",
+    "account.try_again": "Riprova",
+    "account.sign_in_required_title": "Accedi per continuare",
+    "account.sign_in_required_message": "I tuoi alberi, e le pagine che li mostrano, sono disponibili dopo l'accesso.",
+    "account.session_ended_title": "La sessione è terminata",
+    "account.session_ended_message": "Sei stato disconnesso o la sessione è scaduta. Accedi di nuovo per tornare a questa pagina.",
+    "account.sign_in_again": "Accedi di nuovo",
+    "account.sign_in_failed_title": "Accesso non riuscito"
   }
 }

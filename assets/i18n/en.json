@@ -8993,6 +8993,17 @@
     "profile.delete_confirm_title": "Delete your account?",
     "profile.delete_confirm_message": "Your account, sessions and avatar are erased for good, and you are signed out. The trees you contributed to keep what you entered.",
     "profile.delete_confirm": "Delete my account",
-    "profile.delete_owns_trees": "You still own trees: transfer or delete them before deleting your account."
+    "profile.delete_owns_trees": "You still own trees: transfer or delete them before deleting your account.",
+    "account.sign_in": "Sign in",
+    "account.menu": "Account menu",
+    "account.profile": "Profile",
+    "account.sign_out_failed": "Signing out failed. Try again in a moment.",
+    "account.try_again": "Try again",
+    "account.sign_in_required_title": "Sign in to continue",
+    "account.sign_in_required_message": "Your trees, and the pages that show them, are available once you are signed in.",
+    "account.session_ended_title": "Your session has ended",
+    "account.session_ended_message": "You were signed out, or your session expired. Sign in again to come back to this page.",
+    "account.sign_in_again": "Sign in again",
+    "account.sign_in_failed_title": "Sign-in failed"
   }
 }

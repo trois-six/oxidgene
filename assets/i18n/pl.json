@@ -9180,6 +9180,17 @@
     "profile.delete_confirm_title": "Usunąć konto?",
     "profile.delete_confirm_message": "Twoje konto, sesje i awatar zostaną trwale usunięte, a Ty zostaniesz wylogowany. Drzewa, które współtworzyłeś, zachowają wprowadzone dane.",
     "profile.delete_confirm": "Usuń moje konto",
-    "profile.delete_owns_trees": "Nadal jesteś właścicielem drzew: przekaż je lub usuń przed usunięciem konta."
+    "profile.delete_owns_trees": "Nadal jesteś właścicielem drzew: przekaż je lub usuń przed usunięciem konta.",
+    "account.sign_in": "Zaloguj się",
+    "account.menu": "Menu konta",
+    "account.profile": "Profil",
+    "account.sign_out_failed": "Wylogowanie nie powiodło się. Spróbuj ponownie za chwilę.",
+    "account.try_again": "Spróbuj ponownie",
+    "account.sign_in_required_title": "Zaloguj się, aby kontynuować",
+    "account.sign_in_required_message": "Twoje drzewa i strony, które je pokazują, są dostępne po zalogowaniu.",
+    "account.session_ended_title": "Twoja sesja wygasła",
+    "account.session_ended_message": "Nastąpiło wylogowanie lub sesja wygasła. Zaloguj się ponownie, aby wrócić na tę stronę.",
+    "account.sign_in_again": "Zaloguj się ponownie",
+    "account.sign_in_failed_title": "Logowanie nie powiodło się"
   }
 }

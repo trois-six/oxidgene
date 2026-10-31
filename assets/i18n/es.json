@@ -8993,6 +8993,17 @@
     "profile.delete_confirm_title": "¿Eliminar su cuenta?",
     "profile.delete_confirm_message": "Su cuenta, sus sesiones y su avatar se borran definitivamente y se cierra su sesión. Los árboles en los que colaboró conservan lo que introdujo.",
     "profile.delete_confirm": "Eliminar mi cuenta",
-    "profile.delete_owns_trees": "Todavía es propietario de árboles: transfiéralos o elimínelos antes de eliminar su cuenta."
+    "profile.delete_owns_trees": "Todavía es propietario de árboles: transfiéralos o elimínelos antes de eliminar su cuenta.",
+    "account.sign_in": "Iniciar sesión",
+    "account.menu": "Menú de la cuenta",
+    "account.profile": "Perfil",
+    "account.sign_out_failed": "No se pudo cerrar la sesión. Vuelva a intentarlo en un momento.",
+    "account.try_again": "Reintentar",
+    "account.sign_in_required_title": "Inicie sesión para continuar",
+    "account.sign_in_required_message": "Sus árboles, y las páginas que los muestran, están disponibles una vez iniciada la sesión.",
+    "account.session_ended_title": "Su sesión ha terminado",
+    "account.session_ended_message": "Se ha cerrado su sesión o ha caducado. Vuelva a iniciar sesión para regresar a esta página.",
+    "account.sign_in_again": "Volver a iniciar sesión",
+    "account.sign_in_failed_title": "Error al iniciar sesión"
   }
 }

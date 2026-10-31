@@ -104,6 +104,14 @@ pub struct MenuButtonProps {
     /// there opens this trigger's menu, the same one a click opens.
     #[props(default)]
     pub shortcut: Option<MenuShortcut>,
+    /// What the trigger shows instead of the "⋮", for a menu that is the
+    /// element itself rather than its secondary actions: the navbar's
+    /// avatar opening the account menu.
+    #[props(default)]
+    pub trigger: Option<Element>,
+    /// The trigger's accessible name, instead of "Actions for \<name\>".
+    #[props(default)]
+    pub label: Option<String>,
 }
 
 /// How an entry of a [`MenuButton`] dismisses its menu.
@@ -295,7 +303,10 @@ pub fn MenuButton(props: MenuButtonProps) -> Element {
     let mut anchor = use_signal(|| None::<(f64, f64)>);
     let mut trigger = use_signal(|| None::<Rc<MountedData>>);
     let menu_id = use_hook(|| format!("menu-button-{}", Uuid::now_v7().simple()));
-    let label = i18n.t_args("common.actions_for", &[("name", &props.name)]);
+    let label = props
+        .label
+        .clone()
+        .unwrap_or_else(|| i18n.t_args("common.actions_for", &[("name", &props.name)]));
     let on_open_change = props.on_open_change;
     let on_request = props.on_request;
 
@@ -412,20 +423,7 @@ pub fn MenuButton(props: MenuButtonProps) -> Element {
                         arrow_down.call(());
                     }
                 },
-                // Drawn rather than typed: a font's "⋮" sits in the middle of
-                // its advance, so the dots never lined up with what the
-                // trigger leads (a media tile's picture), and fonts drew them
-                // at different weights.
-                svg {
-                    class: "menu-button-icon",
-                    width: "4",
-                    height: "16",
-                    "viewBox": "0 0 4 16",
-                    "aria-hidden": "true",
-                    circle { cx: "2", cy: "2", r: "1.75" }
-                    circle { cx: "2", cy: "8", r: "1.75" }
-                    circle { cx: "2", cy: "14", r: "1.75" }
-                }
+                {trigger_content(props.trigger.clone())}
             }
             if is_open {
                 if let (Some((x, y)), Some(items)) = (anchor(), props.items) {
@@ -440,6 +438,28 @@ pub fn MenuButton(props: MenuButtonProps) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+/// What a [`MenuButton`] shows: the "⋮", or the trigger its element gives.
+fn trigger_content(trigger: Option<Element>) -> Element {
+    if let Some(trigger) = trigger {
+        return trigger;
+    }
+    rsx! {
+        // Drawn rather than typed: a font's "⋮" sits in the middle of its
+        // advance, so the dots never lined up with what the trigger leads (a
+        // media tile's picture), and fonts drew them at different weights.
+        svg {
+            class: "menu-button-icon",
+            width: "4",
+            height: "16",
+            "viewBox": "0 0 4 16",
+            "aria-hidden": "true",
+            circle { cx: "2", cy: "2", r: "1.75" }
+            circle { cx: "2", cy: "8", r: "1.75" }
+            circle { cx: "2", cy: "14", r: "1.75" }
         }
     }
 }

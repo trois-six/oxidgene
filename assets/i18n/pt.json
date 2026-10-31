@@ -8993,6 +8993,17 @@
     "profile.delete_confirm_title": "Eliminar a sua conta?",
     "profile.delete_confirm_message": "A sua conta, sessões e avatar são apagados definitivamente, e a sua sessão é terminada. As árvores em que colaborou mantêm o que introduziu.",
     "profile.delete_confirm": "Eliminar a minha conta",
-    "profile.delete_owns_trees": "Ainda é proprietário de árvores: transfira-as ou elimine-as antes de eliminar a sua conta."
+    "profile.delete_owns_trees": "Ainda é proprietário de árvores: transfira-as ou elimine-as antes de eliminar a sua conta.",
+    "account.sign_in": "Iniciar sessão",
+    "account.menu": "Menu da conta",
+    "account.profile": "Perfil",
+    "account.sign_out_failed": "Não foi possível terminar a sessão. Tente novamente dentro de momentos.",
+    "account.try_again": "Tentar novamente",
+    "account.sign_in_required_title": "Inicie sessão para continuar",
+    "account.sign_in_required_message": "As suas árvores, e as páginas que as mostram, ficam disponíveis depois de iniciar sessão.",
+    "account.session_ended_title": "A sua sessão terminou",
+    "account.session_ended_message": "A sua sessão foi terminada ou expirou. Inicie sessão novamente para voltar a esta página.",
+    "account.sign_in_again": "Iniciar sessão novamente",
+    "account.sign_in_failed_title": "Falha ao iniciar sessão"
   }
 }

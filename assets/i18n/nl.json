@@ -8993,6 +8993,17 @@
     "profile.delete_confirm_title": "Uw account verwijderen?",
     "profile.delete_confirm_message": "Uw account, sessies en avatar worden definitief gewist en u wordt afgemeld. De stambomen waaraan u bijdroeg behouden wat u invoerde.",
     "profile.delete_confirm": "Mijn account verwijderen",
-    "profile.delete_owns_trees": "U bent nog eigenaar van stambomen: draag ze over of verwijder ze voordat u uw account verwijdert."
+    "profile.delete_owns_trees": "U bent nog eigenaar van stambomen: draag ze over of verwijder ze voordat u uw account verwijdert.",
+    "account.sign_in": "Aanmelden",
+    "account.menu": "Accountmenu",
+    "account.profile": "Profiel",
+    "account.sign_out_failed": "Afmelden is mislukt. Probeer het zo meteen opnieuw.",
+    "account.try_again": "Opnieuw proberen",
+    "account.sign_in_required_title": "Meld u aan om verder te gaan",
+    "account.sign_in_required_message": "Uw stambomen, en de pagina's die ze tonen, zijn beschikbaar zodra u bent aangemeld.",
+    "account.session_ended_title": "Uw sessie is beëindigd",
+    "account.session_ended_message": "U bent afgemeld of uw sessie is verlopen. Meld u opnieuw aan om naar deze pagina terug te keren.",
+    "account.sign_in_again": "Opnieuw aanmelden",
+    "account.sign_in_failed_title": "Aanmelden mislukt"
   }
 }

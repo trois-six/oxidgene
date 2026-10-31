@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 use std::sync::LazyLock;
 
-use crate::components::{history_nav, tree_cache};
+use crate::components::{account_nav, history_nav, tree_cache};
 use crate::i18n;
 use crate::router::Route;
 
@@ -115,6 +115,8 @@ pub fn AppShell() -> Element {
 #[component]
 pub fn Layout() -> Element {
     let route = use_route::<Route>();
+    let account = crate::account::use_account();
+    let gate = crate::account::gate(&account.read(), &route);
 
     rsx! {
         if route.shows_navbar() {
@@ -129,12 +131,17 @@ pub fn Layout() -> Element {
                         }
                     }
                 }
+                account_nav::AccountNav {}
             }
         }
 
         main { class: "app-main",
-            Outlet::<Route> {}
+            match gate {
+                crate::account::Gate::Open => rsx! { Outlet::<Route> {} },
+                crate::account::Gate::SignIn => rsx! { account_nav::SignInRequired {} },
+            }
         }
+        account_nav::AccountPrompts {}
     }
 }
 
@@ -445,6 +452,49 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     /* ── Account (web build, oidc mode): docs/authentication.md §10 ── */
+
+    .nav-end {
+        display: flex;
+        align-items: center;
+        gap: var(--space-6);
+        flex-shrink: 0;
+    }
+
+    .btn.nav-sign-in {
+        padding: var(--space-3) var(--space-8);
+    }
+
+    .menu-button.account-menu-trigger {
+        padding: var(--space-1);
+        border-radius: var(--radius-pill);
+    }
+
+    .context-menu.account-menu {
+        min-width: 220px;
+    }
+
+    .account-menu-who {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+
+    .account-menu-name {
+        color: var(--text-primary);
+        font-size: var(--text-90);
+    }
+
+    .account-menu-email {
+        font-weight: 400;
+        color: var(--text-muted);
+        overflow-wrap: anywhere;
+    }
+
+    .sign-in-required {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 
     /* The one avatar of a user (`UserAvatar`): the uploaded image, else
        the initials on the colour of `--avatar-N-*`. */
