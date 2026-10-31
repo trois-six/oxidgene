@@ -483,12 +483,16 @@ impl PhashIndex {
         let results: Vec<HashSliceResult> = std::thread::scope(|scope| {
             let handles: Vec<_> = positions
                 .chunks(chunk)
-                .map(|slice| scope.spawn(move || hash_slice(set, slice, target_dimensions, decode)))
+                .map(|slice| {
+                    let worker =
+                        scope.spawn(move || hash_slice(set, slice, target_dimensions, decode));
+                    (slice.len(), worker)
+                })
                 .collect();
 
             handles
                 .into_iter()
-                .filter_map(|handle| handle.join().ok())
+                .map(|(len, handle)| joined(len, handle.join()))
                 .collect()
         });
 
@@ -756,6 +760,13 @@ pub enum Decode {
     Reduced,
 }
 
+/// A worker's result, or, when it panicked (a decoder on a malformed
+/// entry), its whole slice counted undecodable: the run report then still
+/// accounts for every position instead of losing that share of it.
+fn joined(len: usize, result: std::thread::Result<HashSliceResult>) -> HashSliceResult {
+    result.unwrap_or_else(|_| (Vec::new(), len, 0))
+}
+
 fn hash_slice(
     set: &ArchiveSet,
     positions: &[usize],
@@ -854,6 +865,17 @@ mod tests {
     use std::io::Write;
 
     use super::*;
+
+    /// A worker that panicked loses no position from the report: its slice
+    /// is counted undecodable.
+    #[test]
+    fn a_panicked_worker_counts_its_slice_undecodable() {
+        let panicked: std::thread::Result<HashSliceResult> = Err(Box::new("decoder panic"));
+        let (hashes, undecodable, filtered) = joined(7, panicked);
+        assert!(hashes.is_empty());
+        assert_eq!((undecodable, filtered), (7, 0));
+        assert_eq!(joined(7, Ok((Vec::new(), 2, 1))), (Vec::new(), 2, 1));
+    }
 
     /// A deterministic PNG, distinct per `seed`, for content-matching tests.
     fn png(width: u32, height: u32, seed: u32) -> Vec<u8> {
