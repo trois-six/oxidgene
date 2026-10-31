@@ -1283,7 +1283,7 @@ fn PersonFormBody(
                                     ("Unknown", i18n.t("sex.unknown")),
                                 ],
                                 sex_val,
-                                move || has_changes.set(true),
+                                move |_| has_changes.set(true),
                             )}
                         }
 
@@ -1836,7 +1836,7 @@ fn PersonFormBody(
                                 ("Private", i18n.t("privacy.private")),
                             ],
                             privacy_val,
-                            move || has_changes.set(true),
+                            move |_| has_changes.set(true),
                         )}
                     }
 
@@ -2386,7 +2386,7 @@ pub fn MoreDetails(open: Signal<bool>, children: Element) -> Element {
 pub fn render_choice_group(
     options: &[(&'static str, String)],
     mut selected: Signal<String>,
-    on_change: impl FnMut() + Clone + 'static,
+    on_change: impl FnMut(String) + Clone + 'static,
 ) -> Element {
     let options = options.to_vec();
     rsx! {
@@ -2398,7 +2398,11 @@ pub fn render_choice_group(
                         button {
                             class: if selected() == value { "pf-gender-btn active" } else { "pf-gender-btn" },
                             r#type: "button",
-                            onclick: move |_| { selected.set(value.to_string()); on_change(); },
+                            onclick: move |_| {
+                                let previous = selected.peek().clone();
+                                selected.set(value.to_string());
+                                on_change(previous);
+                            },
                             "{label}"
                         }
                     }
@@ -2878,6 +2882,7 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
     let mut adding = use_signal(|| false);
     let mut relation_input = use_signal(String::new);
     let mut refresh_tick = use_signal(|| 0u32);
+    let mut error = use_signal(|| None::<String>);
 
     let api_list = api.clone();
     let witnesses_resource = use_ui_resource("event_witnesses", move || {
@@ -2906,6 +2911,9 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
         .collect();
 
     rsx! {
+        if let Some(message) = error() {
+            div { class: "error-msg", role: "alert", "{message}" }
+        }
         div { class: "pf-witness-list",
             for (w , name) in entries {
                 div { class: "pf-witness-row",
@@ -2922,7 +2930,8 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
                             move |_| {
                                 let api = api.clone();
                                 spawn(async move {
-                                    let _ = api.remove_event_witness(tree_id, event_id, witness_id).await;
+                                    let removed = api.remove_event_witness(tree_id, event_id, witness_id).await;
+                                    error.set(removed.err().map(|e| e.message(&i18n)));
                                     refresh_tick.set(refresh_tick() + 1);
                                 });
                             }
@@ -2954,7 +2963,8 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
                                     relation,
                                     sort_order: 0,
                                 };
-                                let _ = api.add_event_witness(tree_id, event_id, &body).await;
+                                let added = api.add_event_witness(tree_id, event_id, &body).await;
+                                error.set(added.err().map(|e| e.message(&i18n)));
                                 refresh_tick.set(refresh_tick() + 1);
                             });
                             adding.set(false);

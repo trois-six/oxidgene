@@ -661,6 +661,7 @@ fn spouse_section(
 fn privacy_choice(scope: &FormScope, privacy: Signal<String>) -> Element {
     let i18n = scope.i18n;
     let (api, tid, fid) = (scope.api.clone(), scope.tid, scope.fid);
+    let mut save_error = scope.writes.save_error;
     render_choice_group(
         &[
             ("Default", i18n.t("privacy.default")),
@@ -668,11 +669,20 @@ fn privacy_choice(scope: &FormScope, privacy: Signal<String>) -> Element {
             ("Private", i18n.t("privacy.private")),
         ],
         privacy,
-        move || {
+        move |previous: String| {
             let api = api.clone();
-            let privacy = parse_privacy(&privacy());
+            let chosen = parse_privacy(&privacy());
+            let mut privacy = privacy;
             spawn(async move {
-                let _ = api.update_family_privacy(tid, fid, privacy).await;
+                // A refused change puts the choice back to what the server
+                // still holds, and says why.
+                match api.update_family_privacy(tid, fid, chosen).await {
+                    Ok(_) => save_error.set(None),
+                    Err(e) => {
+                        privacy.set(previous);
+                        save_error.set(Some(e.message(&i18n)));
+                    }
+                }
             });
         },
     )

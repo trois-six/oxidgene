@@ -4794,8 +4794,10 @@ fn IdentificationCropperHost(
     on_complete: EventHandler<()>,
 ) -> Element {
     let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
     let media_id = media.id;
     let mut pending = use_signal(|| None::<Vignette>);
+    let mut error = use_signal(|| None::<String>);
     let existing = use_ui_resource("existing_vignette_link", {
         let api = api.clone();
         move || {
@@ -4817,32 +4819,39 @@ fn IdentificationCropperHost(
             div { class: "cropper-backdrop",
                 div { class: "cropper-panel", onclick: move |event| event.stop_propagation(),
                     div { class: "cropper-head",
-                        span { class: "cropper-title", {use_i18n().t("media.identify_person")} }
+                        span { class: "cropper-title", {i18n.t("media.identify_person")} }
                     }
                     SearchPerson {
                         tree_id,
                         on_select: move |person_id| {
                             let api = api_for_select.clone();
                             spawn(async move {
-                                if api.update_vignette(
-                                    tree_id,
-                                    vignette_id,
-                                    &UpdateVignetteBody {
-                                        person_id: Some(Some(person_id)),
-                                        ..Default::default()
-                                    },
-                                ).await.is_ok() {
-                                    on_complete.call(());
+                                let body = UpdateVignetteBody {
+                                    person_id: Some(Some(person_id)),
+                                    ..Default::default()
+                                };
+                                match api.update_vignette(tree_id, vignette_id, &body).await {
+                                    Ok(_) => on_complete.call(()),
+                                    Err(e) => error.set(Some(e.message(&i18n))),
                                 }
                             });
                         },
+                        // The region was saved before its person was asked
+                        // for: cancelling removes it, and a failed removal is
+                        // said rather than leaving an anonymous region behind
+                        // unseen.
                         on_cancel: move |_| {
                             let api = api_for_cancel.clone();
                             spawn(async move {
-                                let _ = api.delete_vignette(tree_id, vignette_id).await;
-                                on_complete.call(());
+                                match api.delete_vignette(tree_id, vignette_id).await {
+                                    Ok(()) => on_complete.call(()),
+                                    Err(e) => error.set(Some(e.message(&i18n))),
+                                }
                             });
                         },
+                    }
+                    if let Some(message) = error() {
+                        div { class: "error-msg", role: "alert", "{message}" }
                     }
                 }
             }
