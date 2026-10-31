@@ -587,7 +587,7 @@ impl PersonRows {
                 .chain(family_events.iter())
                 .filter_map(|e| e.place_id),
         );
-        let source_ids = sorted_unique(citations.rows.iter().map(|c| c.source_id));
+        let source_ids = sorted_unique(citations.all().map(|c| c.source_id));
         let named = sorted_unique(
             witnesses
                 .iter()
@@ -659,8 +659,8 @@ impl PersonRows {
             privacy: person.privacy.into(),
             names,
             events,
-            notes: self.notes.of(|n| n.person_id == Some(person.id)),
-            citations: self.citations.of(|c| c.person_id == Some(person.id)),
+            notes: self.notes.of(Owner::Person(person.id)),
+            citations: self.citations.of(Owner::Person(person.id)),
             parents,
             unions,
         };
@@ -729,8 +729,8 @@ impl PersonRows {
                 |c: &ChildLinkSnapshot| (c.sort_order, c.id),
             ),
             events: self.events(self.events_by_family.get(&family.id)),
-            notes: self.notes.of(|n| n.family_id == Some(family.id)),
-            citations: self.citations.of(|c| c.family_id == Some(family.id)),
+            notes: self.notes.of(Owner::Family(family.id)),
+            citations: self.citations.of(Owner::Family(family.id)),
         }
     }
 
@@ -791,8 +791,8 @@ impl PersonRows {
                     .collect(),
                 |a| a.id,
             ),
-            notes: self.notes.of(|n| n.event_id == Some(e.id)),
-            citations: self.citations.of(|c| c.event_id == Some(e.id)),
+            notes: self.notes.of(Owner::Event(e.id)),
+            citations: self.citations.of(Owner::Event(e.id)),
         }
     }
 }
@@ -899,9 +899,59 @@ async fn live_events(
     Ok((person_events, family_events))
 }
 
-/// Notes and citations attached to persons, events, and families.
+/// Notes and citations attached to persons, events, and families, grouped
+/// by the record they belong to: a snapshot of many persons looks each
+/// record's own up rather than scanning them all once per record.
 struct Attached<T> {
-    rows: Vec<T>,
+    by_owner: HashMap<Owner, Vec<T>>,
+}
+
+/// The record a note or a citation is attached to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Owner {
+    Person(Uuid),
+    Event(Uuid),
+    Family(Uuid),
+}
+
+impl Owner {
+    /// The owners a row's `person_id`, `event_id` and `family_id` name.
+    fn of_row(
+        person_id: Option<Uuid>,
+        event_id: Option<Uuid>,
+        family_id: Option<Uuid>,
+    ) -> impl Iterator<Item = Self> {
+        [
+            person_id.map(Self::Person),
+            event_id.map(Self::Event),
+            family_id.map(Self::Family),
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+impl<T: Clone> Attached<T> {
+    /// `rows`, in ID order, under each owner `owners` names for them.
+    fn grouped<O: Iterator<Item = Owner>>(rows: Vec<T>, owners: impl Fn(&T) -> O) -> Self {
+        let mut by_owner: HashMap<Owner, Vec<T>> = HashMap::new();
+        for row in rows {
+            for owner in owners(&row) {
+                by_owner.entry(owner).or_default().push(row.clone());
+            }
+        }
+        Self { by_owner }
+    }
+
+    /// Every row, once per owner it is attached to.
+    fn all(&self) -> impl Iterator<Item = &T> {
+        self.by_owner.values().flatten()
+    }
+
+    /// The rows attached to `owner`, in ID order.
+    fn rows_of(&self, owner: Owner) -> impl Iterator<Item = &T> {
+        self.by_owner.get(&owner).into_iter().flatten()
+    }
 }
 
 impl Attached<note::Model> {
@@ -933,15 +983,13 @@ impl Attached<note::Model> {
         }
         rows.sort_by_key(|n| n.id);
         rows.dedup_by_key(|n| n.id);
-        Ok(Self { rows })
+        Ok(Self::grouped(rows, |n| {
+            Owner::of_row(n.person_id, n.event_id, n.family_id)
+        }))
     }
 
-    fn of(&self, belongs: impl Fn(&note::Model) -> bool) -> Vec<NoteSnapshot> {
-        self.rows
-            .iter()
-            .filter(|n| belongs(n))
-            .map(note_snapshot)
-            .collect()
+    fn of(&self, owner: Owner) -> Vec<NoteSnapshot> {
+        self.rows_of(owner).map(note_snapshot).collect()
     }
 }
 
@@ -971,13 +1019,13 @@ impl Attached<citation::Model> {
         }
         rows.sort_by_key(|c| c.id);
         rows.dedup_by_key(|c| c.id);
-        Ok(Self { rows })
+        Ok(Self::grouped(rows, |c| {
+            Owner::of_row(c.person_id, c.event_id, c.family_id)
+        }))
     }
 
-    fn of(&self, belongs: impl Fn(&citation::Model) -> bool) -> Vec<CitationSnapshot> {
-        self.rows
-            .iter()
-            .filter(|c| belongs(c))
+    fn of(&self, owner: Owner) -> Vec<CitationSnapshot> {
+        self.rows_of(owner)
             .map(|c| CitationSnapshot {
                 id: c.id,
                 source_id: c.source_id,
