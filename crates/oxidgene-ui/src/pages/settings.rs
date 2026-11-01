@@ -1308,7 +1308,7 @@ fn ExportSection(
                         on_change: move |checked: bool| media.set(checked),
                     }
                 }
-                ExportPrivacyChecks { privacy }
+                ExportPrivacyChecks { privacy, tree_id: tree_id.clone() }
                 if let Some(description) = &downloadable {
                     div { class: "settings-export-row settings-feedback",
                         p { class: "settings-card-desc settings-export-info",
@@ -1815,12 +1815,31 @@ fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>)
 }
 
 /// The export's privacy options (`docs/ui-settings.md` §10): leaving out
-/// the contemporary and private persons, on both builds, and the persons
-/// excluded from sharing, where the tree has other viewers.
+/// the contemporary and private persons, on both builds, and, where the
+/// tree has other viewers, the persons excluded from sharing and the
+/// visitors' privacy rules, the latter for a viewer allowed to export.
 #[component]
-fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>) -> Element {
+fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>, tree_id: String) -> Element {
     let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
     let sharing = crate::sharing::use_sharing_surfaces();
+    let tree = tree_id.parse::<Uuid>().ok();
+    // Asked only where the tree has other viewers: the desktop and the
+    // `none` mode's single viewer is the owner.
+    let access = use_ui_resource("export_viewer_access", move || {
+        let api = api.clone();
+        async move {
+            match tree.filter(|_| sharing) {
+                Some(tree) => api.viewer_access(tree).await.ok(),
+                None => None,
+            }
+        }
+    });
+    let may_export = access
+        .read()
+        .clone()
+        .flatten()
+        .is_some_and(|access| access.allows(oxidgene_core::access::Permission::Export));
     let current = privacy();
     rsx! {
         SettingsCheck {
@@ -1838,6 +1857,16 @@ fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>) -> Element {
                 description: Some(i18n.t("settings.export_leave_out_excluded_desc")),
                 on_change: move |checked: bool| {
                     privacy.set(ExportPrivacy { leave_out_excluded: checked, ..privacy() });
+                },
+            }
+        }
+        if sharing && may_export {
+            SettingsCheck {
+                checked: current.apply_visitor_rules,
+                label: i18n.t("settings.export_apply_visitor_rules"),
+                description: Some(i18n.t("settings.export_apply_visitor_rules_desc")),
+                on_change: move |checked: bool| {
+                    privacy.set(ExportPrivacy { apply_visitor_rules: checked, ..privacy() });
                 },
             }
         }

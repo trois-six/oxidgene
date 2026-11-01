@@ -4652,10 +4652,15 @@ type MutationRoot {
 	`includeNotesAndSources: false` to leave the notes and the sources
 	out, and `includeMedia: false` to pack no media and write no `OBJE`.
 	A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
-	GEDCOM's. `leaveOutPrivate` and `leaveOutExcluded` are
-	`exportGedcom`'s.
+	GEDCOM's. `leaveOutPrivate`, `leaveOutExcluded` and
+	`applyVisitorRules` are `exportGedcom`'s.
 	"""
-	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean, scope: TagTargetInput, leaveOutPrivate: Boolean, leaveOutExcluded: Boolean): GqlBackgroundJobStarted!
+	startExportJob(		treeId: ID!,		includeNotesAndSources: Boolean,		includeMedia: Boolean,		scope: TagTargetInput,		leaveOutPrivate: Boolean,		leaveOutExcluded: Boolean,
+		"""
+		Write the tree as a viewer without `read_private` sees it (docs/privacy.md §8).
+		"""
+		applyVisitorRules: Boolean
+	): GqlBackgroundJobStarted!
 	"""
 	Cancel an import job: a queued one ends at once, a running one stops
 	at its next batch of rows or medium and rolls back everything it
@@ -5289,9 +5294,16 @@ type QueryRoot {
 	standard GEDCOM 7.0, leaves the media out. `leaveOutPrivate` and
 	`leaveOutExcluded` leave out, as the tree's display of hidden persons
 	says, the persons its privacy rules hide and those excluded from
-	sharing (docs/privacy.md §8).
+	sharing, and `applyVisitorRules` writes the tree as a viewer without
+	`read_private` sees it; an exporter who is not the owner never writes
+	what their access hides (docs/privacy.md §8).
 	"""
-	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean, scope: TagTargetInput, leaveOutPrivate: Boolean, leaveOutExcluded: Boolean): GqlExportGedcomResult!
+	exportGedcom(		treeId: ID!,		destination: String,		includeNotesAndSources: Boolean,		scope: TagTargetInput,		leaveOutPrivate: Boolean,		leaveOutExcluded: Boolean,
+		"""
+		Write the tree as a viewer without `read_private` sees it (docs/privacy.md §8).
+		"""
+		applyVisitorRules: Boolean
+	): GqlExportGedcomResult!
 	"""
 	Poll a durable GEDZIP export created by `startExportJob`. With
 	`since`, the `version` last read, and `wait`, in seconds (at most

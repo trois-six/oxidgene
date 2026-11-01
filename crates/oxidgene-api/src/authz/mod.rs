@@ -123,6 +123,14 @@ pub async fn tree_access(
                 None => None,
             };
             match member {
+                // A Guest exports where the tree lets its Guests export
+                // (Privacy §9): the setting is read for a Guest only.
+                Some((TreeRole::Guest, scope_id)) => {
+                    let tree = oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
+                    TreeAccess::of_role(TreeRole::Guest)
+                        .with_guest_export(tree.privacy.guests_may_export)
+                        .scoped(scope_id)
+                }
                 Some((role, scope_id)) => TreeAccess::of_role(role).scoped(scope_id),
                 None => match visitor_access(db, viewer, tree_id, now).await? {
                     Some(access) => access,

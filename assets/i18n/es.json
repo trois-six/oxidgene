@@ -8374,6 +8374,8 @@
     "sharing.leave.button": "Abandonar",
     "sharing.leave.confirm": "Dejará de ver este árbol.",
     "settings.exclusions_title": "Exclusiones del uso compartido",
+    "settings.export_apply_visitor_rules": "Aplicar las reglas de privacidad de los visitantes",
+    "settings.export_apply_visitor_rules_desc": "Escribe el árbol tal como lo vería un visitante: las personas contemporáneas, privadas y excluidas se omiten como se muestran las personas ocultas, y las notas confidenciales no se escriben.",
     "settings.export_available_archive": "Archivo {format} de {size}, disponible hasta el {time}.",
     "settings.export_available_until": "Disponible hasta el {time}.",
     "settings.export_cancel": "Cancelar la exportación",

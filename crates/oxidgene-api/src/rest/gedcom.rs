@@ -37,8 +37,12 @@ pub async fn export_destinations() -> Json<Vec<gedcom::ExportDestination>> {
 /// to leave the notes and the sources out, and
 /// `?format=gedzip&include_media=false` to leave the media out of an
 /// archive. `?scope=` (the target as JSON, URL-encoded) limits the export
-/// to the persons it names and what they reach. Either way the export is
-/// recorded in the tree's audit log, as GraphQL's `exportGedcom` records it.
+/// to the persons it names and what they reach. `?leave_out_private=`,
+/// `?leave_out_excluded=` and `?apply_visitor_rules=` leave persons out for
+/// privacy, and an exporter who is not the owner never writes what their
+/// access hides (docs/privacy.md §8). Either way the export is recorded in
+/// the tree's audit log, with its privacy options, as GraphQL's
+/// `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     viewer: Viewer,
@@ -47,6 +51,7 @@ pub async fn export_gedcom_handler(
 ) -> Result<Response, ApiError> {
     let choices = query.choices()?;
     let scope = query.scope()?;
+    let privacy = gedcom::viewer_privacy(&state.reader, &viewer, tree_id, query.privacy()).await?;
     if query.format.as_deref() != Some("gedzip") {
         let data = gedcom::export_gedcom(
             &viewer,
@@ -54,7 +59,7 @@ pub async fn export_gedcom_handler(
             tree_id,
             choices,
             scope.as_ref(),
-            query.privacy(),
+            privacy,
         )
         .await?;
         return Ok(Json(ExportGedcomResponse {
@@ -70,15 +75,8 @@ pub async fn export_gedcom_handler(
         )));
     }
 
-    let data = gedcom::load_and_export(
-        &state.db,
-        tree_id,
-        choices,
-        scope.as_ref(),
-        true,
-        query.privacy(),
-    )
-    .await?;
+    let data =
+        gedcom::load_and_export(&state.db, tree_id, choices, scope.as_ref(), true, privacy).await?;
     // Staged on disk, never whole in memory: an archive of scans is
     // gigabytes. The file goes when the response has been streamed.
     let staged = state
@@ -94,7 +92,7 @@ pub async fn export_gedcom_handler(
         "gedzip",
         None,
         gedcom::scope_details(scope.as_ref())?,
-        query.privacy().details(),
+        privacy.details(),
     )
     .await?;
 

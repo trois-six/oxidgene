@@ -1,6 +1,9 @@
 //! The persons an export leaves out for privacy (docs/privacy.md §8): the
-//! *Leave out contemporary and private persons* option of both builds, and
-//! the owner's *Leave out excluded persons* of the web build.
+//! *Leave out contemporary and private persons* option of both builds, the
+//! owner's *Leave out excluded persons* and *Apply visitors' privacy rules*
+//! of the web build, and what an exporter who is not the owner may never
+//! write ([`ExportPrivacy::for_access`]): excluded persons, and confidential
+//! notes for one without `read_confidential`.
 //!
 //! The rule is `oxidgene_core::privacy`'s, applied to the records the export
 //! read, with the tree's settings and the current year. A person left out is
@@ -36,13 +39,42 @@ pub struct ExportPrivacy {
     pub leave_out_private: bool,
     /// Leave out the persons excluded from sharing (§6), web build only.
     pub leave_out_excluded: bool,
+    /// Leave out the confidential notes (§3.2): set for an exporter
+    /// without `read_confidential`, never asked for.
+    pub leave_out_confidential: bool,
+    /// *Apply visitors' privacy rules* (§8): write the tree as a viewer
+    /// without `read_private` sees it.
+    pub apply_visitor_rules: bool,
 }
 
 impl ExportPrivacy {
-    /// Whether the export leaves anyone out.
+    /// Whether the export leaves anything out.
     #[must_use]
     pub fn applies(self) -> bool {
-        self.leave_out_private || self.leave_out_excluded
+        self.leave_out_private || self.leave_out_excluded || self.leave_out_confidential
+    }
+
+    /// The options `access`'s viewer exports with, asked for or not
+    /// (§8): anyone but the owner never exports an excluded person, an
+    /// exporter without `read_private` never a private or contemporary one,
+    /// one without `read_confidential` never a confidential note; and
+    /// *Apply visitors' privacy rules* writes the tree as a viewer holding
+    /// neither sees it. A Visitor's scope will narrow it further when
+    /// sharing ships (phase 5): the seam is here, from `access`.
+    #[must_use]
+    pub fn for_access(self, access: &oxidgene_core::access::TreeAccess) -> Self {
+        use oxidgene_core::access::Permission;
+        let visitor = self.apply_visitor_rules;
+        Self {
+            leave_out_private: self.leave_out_private
+                || visitor
+                || !access.allows(Permission::ReadPrivate),
+            leave_out_excluded: self.leave_out_excluded || visitor || access.exclusions_apply,
+            leave_out_confidential: self.leave_out_confidential
+                || visitor
+                || !access.allows(Permission::ReadConfidential),
+            apply_visitor_rules: visitor,
+        }
     }
 
     /// The options as an export's audit entry names them: absent when none
@@ -50,8 +82,10 @@ impl ExportPrivacy {
     #[must_use]
     pub fn details(self) -> Option<String> {
         let names: Vec<&str> = [
+            (self.apply_visitor_rules, "apply_visitor_rules"),
             (self.leave_out_private, "leave_out_private"),
             (self.leave_out_excluded, "leave_out_excluded"),
+            (self.leave_out_confidential, "leave_out_confidential"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -162,6 +196,12 @@ pub(super) fn apply(
     excluded: &HashSet<Uuid>,
 ) {
     if !options.applies() {
+        return;
+    }
+    if options.leave_out_confidential {
+        records.notes.retain(|note| !note.confidential);
+    }
+    if !(options.leave_out_private || options.leave_out_excluded) {
         return;
     }
     let current_year = Utc::now().year();

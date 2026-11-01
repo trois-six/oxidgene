@@ -1798,7 +1798,9 @@ impl TreeQuery {
     /// standard GEDCOM 7.0, leaves the media out. `leaveOutPrivate` and
     /// `leaveOutExcluded` leave out, as the tree's display of hidden persons
     /// says, the persons its privacy rules hide and those excluded from
-    /// sharing (docs/privacy.md §8).
+    /// sharing, and `applyVisitorRules` writes the tree as a viewer without
+    /// `read_private` sees it; an exporter who is not the owner never writes
+    /// what their access hides (docs/privacy.md §8).
     #[expect(
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
@@ -1812,6 +1814,10 @@ impl TreeQuery {
         scope: Option<TagTargetInput>,
         leave_out_private: Option<bool>,
         leave_out_excluded: Option<bool>,
+        #[graphql(
+            desc = "Write the tree as a viewer without `read_private` sees it (docs/privacy.md §8)."
+        )]
+        apply_visitor_rules: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -1828,7 +1834,11 @@ impl TreeQuery {
                 tree_id,
                 choices,
                 scope.as_ref(),
-                crate::rest::dto::export_privacy(leave_out_private, leave_out_excluded),
+                crate::rest::dto::export_privacy(
+                    leave_out_private,
+                    leave_out_excluded,
+                    apply_visitor_rules,
+                ),
             )
             .await?;
             Ok(GqlExportGedcomResult {

@@ -1041,6 +1041,7 @@ pub async fn export_gedcom(
         include_media: true,
         ..choices
     };
+    let privacy = viewer_privacy(db, viewer, tree_id, privacy).await?;
     let data = load_and_export(db, tree_id, choices, scope, false, privacy).await?;
     crate::service::history::record_export(
         viewer,
@@ -1053,6 +1054,24 @@ pub async fn export_gedcom(
     )
     .await?;
     Ok(data)
+}
+
+/// The privacy options `viewer` exports tree `tree_id` with: those asked
+/// for, and what their access never lets them write
+/// ([`ExportPrivacy::for_access`]). The owner's are those asked for; the
+/// access is the request's, resolved already, so this reads nothing.
+///
+/// # Errors
+///
+/// What resolving the viewer's access answers.
+pub async fn viewer_privacy(
+    db: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    asked: ExportPrivacy,
+) -> Result<ExportPrivacy, OxidGeneError> {
+    let access = crate::authz::tree_access(db, viewer, tree_id).await?;
+    Ok(asked.for_access(&access))
 }
 
 /// The scope of an export as its audit entry names it: the target as JSON

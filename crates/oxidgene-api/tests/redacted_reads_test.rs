@@ -20,9 +20,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use crate::common::canary::{CONTEMPORARY, CONTEMPORARY_PLACE, Canaries, EXCLUDED};
+use crate::common::canary::{CONTEMPORARY, CONTEMPORARY_PLACE, Canaries, EXCLUDED, PRIVATE};
 use crate::common::oidc::{MockProvider, TRUSTED_CLIENT};
-use crate::common::{app_on, ok, setup_db};
+use crate::common::{app_on, ok, setup_db, worker_on};
 
 /// A viewer of the fixture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,7 +46,7 @@ const HIDDEN_OCCUPATION: &str = "Lamplighter";
 struct Fixture {
     local: axum::Router,
     app: axum::Router,
-    _db: DatabaseConnection,
+    db: DatabaseConnection,
     tokens: BTreeMap<Who, String>,
     canaries: Canaries,
     _provider: MockProvider,
@@ -121,7 +121,7 @@ impl Fixture {
         Self {
             local,
             app,
-            _db: db,
+            db,
             tokens,
             canaries,
             _provider: provider,
@@ -686,4 +686,180 @@ async fn an_editors_tools_leave_out_hidden_persons() {
         seen["treeAnomalies"]["persons"].as_i64() < owner["treeAnomalies"]["persons"].as_i64(),
         "the persons examined are those the Editor sees"
     );
+}
+
+/// A confidential note on a visible person.
+const SEALED_NOTE: &str = "Sealed ledger remark";
+
+/// The GEDCOM `who` exports through REST with `options`, and through
+/// GraphQL with `arguments`, which must write the same persons.
+async fn exported(f: &Fixture, who: Who, options: &str, arguments: &str) -> String {
+    let (status, body) = f
+        .rest(
+            who,
+            Method::GET,
+            &f.uri(&format!("/gedcom/export?{options}")),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{who:?} {options}: {body}");
+    let rest = body["gedcom"].as_str().unwrap().to_owned();
+    let query = format!(
+        r#"{{ exportGedcom(treeId: "{}"{arguments}) {{ gedcom }} }}"#,
+        f.tree()
+    );
+    let gql = f.gql(who, &query).await["exportGedcom"]["gedcom"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for canary in [CONTEMPORARY, EXCLUDED, PRIVATE, SEALED_NOTE] {
+        assert_eq!(
+            rest.contains(canary),
+            gql.contains(canary),
+            "{who:?} {canary}"
+        );
+    }
+    rest
+}
+
+#[tokio::test]
+async fn an_export_never_holds_what_the_exporter_may_not_see() {
+    let f = Fixture::new().await;
+    ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/notes"),
+        Some(json!({ "text": SEALED_NOTE, "person_id": f.canaries.person("Ashby"), "confidential": true })),
+    )
+    .await;
+
+    // The owner's export holds everything unless asked.
+    let owner = exported(&f, Who::Owner, "", "").await;
+    for canary in [CONTEMPORARY, EXCLUDED, PRIVATE, SEALED_NOTE] {
+        assert!(owner.contains(canary), "{canary}");
+    }
+    // An Editor's never holds an excluded person, asked or not; they read
+    // confidential notes and private persons, so these stay.
+    let editor = exported(&f, Who::Editor, "", "").await;
+    assert!(
+        !editor.contains(CONTEMPORARY) && !editor.contains(EXCLUDED),
+        "{editor}"
+    );
+    assert!(
+        editor.contains(PRIVATE) && editor.contains(SEALED_NOTE),
+        "{editor}"
+    );
+    // Applying the visitors' rules leaves out the private persons and the
+    // confidential notes too, for the owner and the Editor alike.
+    for who in [Who::Owner, Who::Editor] {
+        let visitor = exported(
+            &f,
+            who,
+            "apply_visitor_rules=true",
+            ", applyVisitorRules: true",
+        )
+        .await;
+        for canary in [CONTEMPORARY, EXCLUDED, PRIVATE, SEALED_NOTE] {
+            assert!(!visitor.contains(canary), "{who:?} {canary}");
+        }
+    }
+
+    // A Guest exports only where the tree lets its Guests export, and then
+    // without the confidential notes they may not read.
+    let (status, _) = f
+        .rest(Who::Guest, Method::GET, &f.uri("/gedcom/export"), None)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    ok(
+        &f.local,
+        Method::PUT,
+        &f.uri(""),
+        Some(json!({ "guests_may_export": true })),
+    )
+    .await;
+    let guest = exported(&f, Who::Guest, "", "").await;
+    assert!(guest.contains(PRIVATE), "{guest}");
+    for canary in [CONTEMPORARY, EXCLUDED, SEALED_NOTE] {
+        assert!(!guest.contains(canary), "{canary}");
+    }
+
+    // The export's audit entry names what applied.
+    let audit: Value = serde_json::from_str(
+        &f.get(Who::Owner, &f.uri("/audit?category=export&first=50"))
+            .await,
+    )
+    .unwrap();
+    let privacy: Vec<&str> = audit["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|edge| edge["node"]["details"]["privacy"].as_str())
+        .collect();
+    assert!(
+        privacy.contains(
+            &"apply_visitor_rules,leave_out_private,leave_out_excluded,leave_out_confidential"
+        ),
+        "{privacy:?}"
+    );
+    assert!(privacy.contains(&"leave_out_excluded"), "{privacy:?}");
+    assert!(
+        privacy.contains(&"leave_out_excluded,leave_out_confidential"),
+        "{privacy:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_editors_export_job_applies_the_visitors_rules_on_both_surfaces() {
+    let f = Fixture::new().await;
+    let (status, started) = f
+        .rest(
+            Who::Editor,
+            Method::POST,
+            &f.uri("/export-jobs?apply_visitor_rules=true"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    let rest_job = started["job_id"].as_str().unwrap().to_owned();
+    assert!(worker_on(&f.db).run_once().await.expect("runs the export"));
+    let started = f
+        .gql(
+            Who::Editor,
+            &format!(
+                r#"mutation {{ startExportJob(treeId: "{}", applyVisitorRules: true) {{ jobId }} }}"#,
+                f.tree()
+            ),
+        )
+        .await;
+    let gql_job = started["startExportJob"]["jobId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(worker_on(&f.db).run_once().await.expect("runs the export"));
+    for job in [rest_job, gql_job] {
+        let status: Value = serde_json::from_str(
+            &f.get(Who::Editor, &f.uri(&format!("/export-jobs/{job}")))
+                .await,
+        )
+        .unwrap();
+        assert_eq!(status["phase"], "completed", "{status}");
+        let (status, _, _) = f
+            .raw(
+                Who::Editor,
+                Method::GET,
+                status["download_url"].as_str().unwrap(),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let audit: Value =
+        serde_json::from_str(&f.get(Who::Owner, &f.uri("/audit?category=export")).await).unwrap();
+    for edge in audit["edges"].as_array().unwrap() {
+        assert_eq!(
+            edge["node"]["details"]["privacy"],
+            "apply_visitor_rules,leave_out_private,leave_out_excluded,leave_out_confidential",
+            "{audit}"
+        );
+    }
 }

@@ -1745,8 +1745,8 @@ impl TreeMutation {
     /// `includeNotesAndSources: false` to leave the notes and the sources
     /// out, and `includeMedia: false` to pack no media and write no `OBJE`.
     /// A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
-    /// GEDCOM's. `leaveOutPrivate` and `leaveOutExcluded` are
-    /// `exportGedcom`'s.
+    /// GEDCOM's. `leaveOutPrivate`, `leaveOutExcluded` and
+    /// `applyVisitorRules` are `exportGedcom`'s.
     #[expect(
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
@@ -1760,6 +1760,10 @@ impl TreeMutation {
         scope: Option<TagTargetInput>,
         leave_out_private: Option<bool>,
         leave_out_excluded: Option<bool>,
+        #[graphql(
+            desc = "Write the tree as a viewer without `read_private` sees it (docs/privacy.md §8)."
+        )]
+        apply_visitor_rules: Option<bool>,
     ) -> Result<GqlBackgroundJobStarted> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -1771,7 +1775,11 @@ impl TreeMutation {
                 crate::service::background_job::ArchiveChoices::from_options(
                     include_notes_and_sources,
                     include_media,
-                    crate::rest::dto::export_privacy(leave_out_private, leave_out_excluded),
+                    crate::rest::dto::export_privacy(
+                        leave_out_private,
+                        leave_out_excluded,
+                        apply_visitor_rules,
+                    ),
                 ),
                 scope.as_ref(),
             )

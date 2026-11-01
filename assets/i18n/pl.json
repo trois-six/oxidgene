@@ -8493,6 +8493,8 @@
     "sharing.leave.button": "Opuść",
     "sharing.leave.confirm": "Nie będziesz już widzieć tego drzewa.",
     "settings.exclusions_title": "Wykluczenia z udostępniania",
+    "settings.export_apply_visitor_rules": "Zastosuj reguły prywatności odwiedzających",
+    "settings.export_apply_visitor_rules_desc": "Zapisuje drzewo tak, jak widziałby je odwiedzający: osoby współczesne, prywatne i wykluczone są pomijane tak, jak wyświetlane są osoby ukryte, a poufne notatki nie są zapisywane.",
     "settings.export_available_archive": "Archiwum {format} ({size}), dostępne do {time}.",
     "settings.export_available_until": "Dostępne do {time}.",
     "settings.export_cancel": "Anuluj eksport",

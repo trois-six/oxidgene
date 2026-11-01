@@ -535,6 +535,8 @@ pub struct StartExportJobQuery {
     pub leave_out_private: Option<bool>,
     /// See [`ExportGedcomQuery::leave_out_excluded`].
     pub leave_out_excluded: Option<bool>,
+    /// See [`ExportGedcomQuery::apply_visitor_rules`].
+    pub apply_visitor_rules: Option<bool>,
 }
 
 impl StartExportJobQuery {
@@ -544,7 +546,11 @@ impl StartExportJobQuery {
         crate::service::background_job::ArchiveChoices::from_options(
             self.include_notes_and_sources,
             self.include_media,
-            export_privacy(self.leave_out_private, self.leave_out_excluded),
+            export_privacy(
+                self.leave_out_private,
+                self.leave_out_excluded,
+                self.apply_visitor_rules,
+            ),
         )
     }
 
@@ -607,25 +613,38 @@ pub struct ExportGedcomQuery {
     /// Leave out the persons excluded from sharing (docs/privacy.md §6); a
     /// build without accounts has none. Defaults to `false`.
     pub leave_out_excluded: Option<bool>,
+    /// *Apply visitors' privacy rules*: write the tree as a viewer without
+    /// `read_private` sees it — no contemporary, private or excluded
+    /// person, no confidential note (docs/privacy.md §8). Defaults to
+    /// `false`.
+    pub apply_visitor_rules: Option<bool>,
 }
 
 /// The privacy options a request's flags make, REST's and GraphQL's alike:
-/// a flag left out leaves nobody out.
+/// a flag left out leaves nobody out. What the exporter's access never lets
+/// them write is added by the service.
 #[must_use]
 pub fn export_privacy(
     leave_out_private: Option<bool>,
     leave_out_excluded: Option<bool>,
+    apply_visitor_rules: Option<bool>,
 ) -> crate::service::gedcom::ExportPrivacy {
     crate::service::gedcom::ExportPrivacy {
         leave_out_private: leave_out_private.unwrap_or(false),
         leave_out_excluded: leave_out_excluded.unwrap_or(false),
+        leave_out_confidential: false,
+        apply_visitor_rules: apply_visitor_rules.unwrap_or(false),
     }
 }
 
 impl ExportGedcomQuery {
     /// The privacy options the query names.
     pub fn privacy(&self) -> crate::service::gedcom::ExportPrivacy {
-        export_privacy(self.leave_out_private, self.leave_out_excluded)
+        export_privacy(
+            self.leave_out_private,
+            self.leave_out_excluded,
+            self.apply_visitor_rules,
+        )
     }
 
     /// The scope the query names, `None` for the whole tree.

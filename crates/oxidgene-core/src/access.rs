@@ -97,8 +97,9 @@ impl TreeRole {
     /// What the role may do: the matrix of §3.2.
     ///
     /// A Guest's `export` depends on the tree's `guests_may_export`, a
-    /// setting of the privacy settings (Privacy §9); until it exists, Guests
-    /// do not export.
+    /// setting of the privacy settings (Privacy §9): the role alone does not
+    /// hold it, and the access a request resolves adds it
+    /// ([`TreeAccess::with_guest_export`]).
     pub fn permissions(self) -> PermissionSet {
         use Permission as P;
         const VISITOR: &[Permission] = &[P::Read];
@@ -256,6 +257,12 @@ impl PermissionSet {
         Self(self.0 & !permission.bit())
     }
 
+    /// This set with `permission`.
+    #[must_use]
+    pub fn with(self, permission: Permission) -> Self {
+        Self(self.0 | permission.bit())
+    }
+
     pub fn contains(self, permission: Permission) -> bool {
         self.0 & permission.bit() != 0
     }
@@ -311,6 +318,16 @@ impl TreeAccess {
 
     pub fn allows(&self, permission: Permission) -> bool {
         self.permissions.contains(permission)
+    }
+
+    /// This access with `export` when the tree lets its Guests export
+    /// (`guests_may_export`, Privacy §9) and the access is a Guest's.
+    #[must_use]
+    pub fn with_guest_export(mut self, guests_may_export: bool) -> Self {
+        if self.role == TreeRole::Guest && guests_may_export {
+            self.permissions = self.permissions.with(Permission::Export);
+        }
+        self
     }
 
     /// The part the frontend sees, to offer what the viewer may do.
@@ -725,6 +742,16 @@ mod tests {
         }
         assert_eq!(TreeRole::parse("visitor"), Some(TreeRole::Visitor));
         assert_eq!(TreeRole::parse("admin"), None);
+    }
+
+    #[test]
+    fn a_guest_exports_only_where_the_tree_lets_guests_export() {
+        let guest = TreeAccess::of_role(TreeRole::Guest);
+        assert!(!guest.with_guest_export(false).allows(Permission::Export));
+        assert!(guest.with_guest_export(true).allows(Permission::Export));
+        // The setting is a Guest's only: it takes nothing from anyone else.
+        let editor = TreeAccess::of_role(TreeRole::Editor);
+        assert!(editor.with_guest_export(false).allows(Permission::Export));
     }
 
     #[test]

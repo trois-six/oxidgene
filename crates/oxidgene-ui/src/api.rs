@@ -2474,6 +2474,10 @@ pub struct ExportPrivacy {
     /// The persons excluded from sharing (web build only).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub leave_out_excluded: bool,
+    /// *Apply visitors' privacy rules*: the tree as a viewer without
+    /// `read_private` sees it (web build only).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub apply_visitor_rules: bool,
 }
 
 /// A program a GEDCOM export can be written for.
@@ -3859,6 +3863,21 @@ impl ApiClient {
 
     pub async fn get_tree(&self, id: Uuid) -> Result<Tree, ApiError> {
         self.get(&format!("/api/v1/trees/{id}")).await
+    }
+
+    /// What the viewer may do with tree `id`: the `viewer_access` of its
+    /// read, served from the same cached answer as [`Self::get_tree`].
+    pub async fn viewer_access(
+        &self,
+        id: Uuid,
+    ) -> Result<oxidgene_core::access::ViewerAccess, ApiError> {
+        #[derive(serde::Deserialize)]
+        struct Read {
+            #[serde(default)]
+            viewer_access: oxidgene_core::access::ViewerAccess,
+        }
+        let read: Read = self.get(&format!("/api/v1/trees/{id}")).await?;
+        Ok(read.viewer_access)
     }
 
     pub async fn create_tree(&self, body: &CreateTreeBody) -> Result<Tree, ApiError> {

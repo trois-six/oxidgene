@@ -8374,6 +8374,8 @@
     "sharing.leave.button": "Leave",
     "sharing.leave.confirm": "You will no longer see this tree.",
     "settings.exclusions_title": "Exclusions from sharing",
+    "settings.export_apply_visitor_rules": "Apply visitors' privacy rules",
+    "settings.export_apply_visitor_rules_desc": "Writes the tree as a visitor would see it: contemporary, private and excluded persons are left out as hidden persons are shown, and confidential notes are not written.",
     "settings.export_available_archive": "{format} archive of {size}, available until {time}.",
     "settings.export_available_until": "Available until {time}.",
     "settings.export_cancel": "Cancel export",

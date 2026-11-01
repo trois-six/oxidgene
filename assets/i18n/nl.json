@@ -8374,6 +8374,8 @@
     "sharing.leave.button": "Verlaten",
     "sharing.leave.confirm": "U ziet deze stamboom niet meer.",
     "settings.exclusions_title": "Uitsluitingen van delen",
+    "settings.export_apply_visitor_rules": "Privacyregels voor bezoekers toepassen",
+    "settings.export_apply_visitor_rules_desc": "Schrijft de stamboom zoals een bezoeker hem zou zien: hedendaagse, privé- en uitgesloten personen worden weggelaten zoals verborgen personen worden getoond, en vertrouwelijke notities worden niet geschreven.",
     "settings.export_available_archive": "{format}-archief van {size}, beschikbaar tot {time}.",
     "settings.export_available_until": "Beschikbaar tot {time}.",
     "settings.export_cancel": "Export annuleren",

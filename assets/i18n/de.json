@@ -8374,6 +8374,8 @@
     "sharing.leave.button": "Verlassen",
     "sharing.leave.confirm": "Sie sehen diesen Baum nicht mehr.",
     "settings.exclusions_title": "Vom Teilen ausgeschlossen",
+    "settings.export_apply_visitor_rules": "Datenschutzregeln für Besucher anwenden",
+    "settings.export_apply_visitor_rules_desc": "Schreibt den Stammbaum so, wie ein Besucher ihn sähe: Zeitgenössische, private und ausgeschlossene Personen werden so ausgelassen, wie verborgene Personen angezeigt werden, und vertrauliche Notizen werden nicht geschrieben.",
     "settings.export_available_archive": "{format}-Archiv mit {size}, verfügbar bis {time}.",
     "settings.export_available_until": "Verfügbar bis {time}.",
     "settings.export_cancel": "Export abbrechen",

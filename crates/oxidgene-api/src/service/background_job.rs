@@ -1073,10 +1073,21 @@ impl BackgroundJobWorker {
         self.progress(job.id, "loading", 0, 0).await?;
         let payload = export_payload_of(job)?;
         let scope = payload.scope;
-        let privacy = gedcom::ExportPrivacy {
-            leave_out_private: payload.leave_out_private,
-            leave_out_excluded: payload.leave_out_excluded,
-        };
+        // What the actor may write is read again, as their permission was
+        // before the job started: a role may have changed since.
+        let viewer = crate::authz::job_viewer(&self.db, &job_actor(job)).await?;
+        let privacy = gedcom::viewer_privacy(
+            &self.db,
+            &viewer,
+            job.tree_id,
+            gedcom::ExportPrivacy {
+                leave_out_private: payload.leave_out_private,
+                leave_out_excluded: payload.leave_out_excluded,
+                leave_out_confidential: false,
+                apply_visitor_rules: payload.apply_visitor_rules,
+            },
+        )
+        .await?;
         let data = self
             .with_heartbeat(
                 job.id,
@@ -2788,6 +2799,8 @@ struct ExportJobPayload {
     leave_out_private: bool,
     #[serde(default)]
     leave_out_excluded: bool,
+    #[serde(default)]
+    apply_visitor_rules: bool,
 }
 
 /// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
@@ -2817,6 +2830,7 @@ pub async fn start_export_job(
         scope: scope.cloned(),
         leave_out_private: privacy.leave_out_private,
         leave_out_excluded: privacy.leave_out_excluded,
+        apply_visitor_rules: privacy.apply_visitor_rules,
     };
     enqueue(
         db,
