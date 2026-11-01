@@ -173,6 +173,24 @@ impl PersonRepo {
         .await
     }
 
+    /// The ids of every live person of a tree: what a walk over its family
+    /// links needs, without the persons themselves.
+    pub async fn live_ids(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<std::collections::HashSet<Uuid>, OxidGeneError> {
+        let ids: Vec<Uuid> = Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(ids.into_iter().collect())
+    }
+
     /// List all persons in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
         db: &impl ConnectionTrait,

@@ -37,6 +37,8 @@ pub mod place;
 pub mod profile;
 pub mod reference;
 pub mod repository;
+#[cfg(feature = "auth")]
+pub mod sharing;
 pub mod source;
 pub mod state;
 pub mod statistics;

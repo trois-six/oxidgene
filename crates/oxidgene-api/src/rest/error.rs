@@ -60,7 +60,15 @@ impl ErrorBody {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = ErrorBody::from_error(&self.0);
-        (status(&self.0), axum::Json(body)).into_response()
+        let mut response = (status(&self.0), axum::Json(body)).into_response();
+        if let OxidGeneError::RateLimited { retry_after } = self.0
+            && let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string())
+        {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, value);
+        }
+        response
     }
 }
 
@@ -128,6 +136,7 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::Conflict(_) => StatusCode::CONFLICT,
         OxidGeneError::Unauthenticated => StatusCode::UNAUTHORIZED,
         OxidGeneError::Forbidden => StatusCode::FORBIDDEN,
+        OxidGeneError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
         OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

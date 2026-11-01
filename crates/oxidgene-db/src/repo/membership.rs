@@ -13,7 +13,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{
     ActiveModelTrait, Condition, ConnectionTrait, ExprTrait, IntoActiveModel, QueryFilter,
-    QuerySelect, Set,
+    QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -29,6 +29,8 @@ pub struct TreeMembership {
     pub tree_id: Uuid,
     pub user_id: Uuid,
     pub role: TreeRole,
+    /// The access scope the member is limited to; none for the whole tree.
+    pub scope_id: Option<Uuid>,
     /// The member's own "Who am I?" person.
     pub self_person_id: Option<Uuid>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -49,8 +51,21 @@ impl TreeMembership {
 #[derive(Debug, Clone, Default)]
 pub struct MembershipChanges {
     pub role: Option<TreeRole>,
+    pub scope_id: Option<Option<Uuid>>,
     pub self_person_id: Option<Option<Uuid>>,
     pub expires_at: Option<Option<DateTime<Utc>>>,
+}
+
+/// A membership a share creates (docs/authorization.md §6.1, §6.2).
+#[derive(Debug, Clone)]
+pub struct SharedMembership {
+    pub tree_id: Uuid,
+    pub user_id: Uuid,
+    pub role: TreeRole,
+    pub scope_id: Option<Uuid>,
+    pub expires_at: Option<DateTime<Utc>>,
+    /// The user who shared.
+    pub created_by: Option<Uuid>,
 }
 
 /// The condition of a membership not expired at `now`.
@@ -73,9 +88,23 @@ impl MembershipRepo {
         user_id: Uuid,
         now: DateTime<Utc>,
     ) -> Result<Option<TreeRole>, OxidGeneError> {
-        let role: Option<String> = Entity::find()
+        Ok(Self::live_access(db, tree_id, user_id, now)
+            .await?
+            .map(|(role, _)| role))
+    }
+
+    /// The role user `user_id` holds on tree `tree_id` at `now`, with the
+    /// access scope it is limited to, as [`Self::live_role`] reads it.
+    pub async fn live_access(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        user_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<Option<(TreeRole, Option<Uuid>)>, OxidGeneError> {
+        let row: Option<(String, Option<Uuid>)> = Entity::find()
             .select_only()
             .column(Column::Role)
+            .column(Column::ScopeId)
             .inner_join(tree::Entity)
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::UserId.eq(user_id))
@@ -85,24 +114,25 @@ impl MembershipRepo {
             .one(db)
             .await
             .map_err(db_err)?;
-        Ok(role.as_deref().and_then(TreeRole::parse))
+        Ok(row.and_then(|(role, scope)| Some((TreeRole::parse(&role)?, scope))))
     }
 
     /// The roles user `user_id` holds at `now` on those of `tree_ids` they
-    /// are a member of.
+    /// are a member of, each with the access scope it is limited to.
     pub async fn live_roles(
         db: &impl ConnectionTrait,
         user_id: Uuid,
         tree_ids: &[Uuid],
         now: DateTime<Utc>,
-    ) -> Result<std::collections::HashMap<Uuid, TreeRole>, OxidGeneError> {
+    ) -> Result<std::collections::HashMap<Uuid, (TreeRole, Option<Uuid>)>, OxidGeneError> {
         if tree_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let rows: Vec<(Uuid, String)> = Entity::find()
+        let rows: Vec<(Uuid, String, Option<Uuid>)> = Entity::find()
             .select_only()
             .column(Column::TreeId)
             .column(Column::Role)
+            .column(Column::ScopeId)
             .filter(Column::UserId.eq(user_id))
             .filter(Column::TreeId.is_in(tree_ids.iter().copied()))
             .filter(live_at(now))
@@ -112,7 +142,7 @@ impl MembershipRepo {
             .map_err(db_err)?;
         Ok(rows
             .into_iter()
-            .filter_map(|(tree_id, role)| Some((tree_id, TreeRole::parse(&role)?)))
+            .filter_map(|(tree_id, role, scope)| Some((tree_id, (TreeRole::parse(&role)?, scope))))
             .collect())
     }
 
@@ -193,6 +223,47 @@ impl MembershipRepo {
             .collect())
     }
 
+    /// The users who are members of the other live trees `owner_id` owns
+    /// and not yet of `tree_id`, at most `limit`, in the order they joined:
+    /// the people the owner already shares with (docs/authorization.md
+    /// §6.1).
+    pub async fn co_members(
+        db: &impl ConnectionTrait,
+        owner_id: Uuid,
+        tree_id: Uuid,
+        limit: u64,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let owned = Self::owned_trees(db, owner_id).await?;
+        let others: Vec<Uuid> = owned.into_iter().filter(|id| *id != tree_id).collect();
+        if others.is_empty() {
+            return Ok(Vec::new());
+        }
+        let present: Vec<Uuid> = Entity::find()
+            .select_only()
+            .column(Column::UserId)
+            .filter(Column::TreeId.eq(tree_id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        let rows: Vec<Uuid> = Entity::find()
+            .select_only()
+            .column(Column::UserId)
+            .filter(Column::TreeId.is_in(others))
+            .filter(Column::UserId.ne(owner_id))
+            .order_by_asc(Column::Id)
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        let mut seen: std::collections::HashSet<Uuid> = present.into_iter().collect();
+        Ok(rows
+            .into_iter()
+            .filter(|user| seen.insert(*user))
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect())
+    }
+
     /// The live trees user `user_id` owns.
     pub async fn owned_trees(
         db: &impl ConnectionTrait,
@@ -234,15 +305,36 @@ impl MembershipRepo {
         role: TreeRole,
         created_by: Option<Uuid>,
     ) -> Result<TreeMembership, OxidGeneError> {
+        Self::create_shared(
+            db,
+            SharedMembership {
+                tree_id,
+                user_id,
+                role,
+                scope_id: None,
+                expires_at: None,
+                created_by,
+            },
+        )
+        .await
+    }
+
+    /// Make a user a member of a tree as a share names them: a role, and
+    /// optionally a scope and an expiry.
+    pub async fn create_shared(
+        db: &impl ConnectionTrait,
+        new: SharedMembership,
+    ) -> Result<TreeMembership, OxidGeneError> {
         let now = Utc::now();
         ActiveModel {
             id: Set(Uuid::now_v7()),
-            tree_id: Set(tree_id),
-            user_id: Set(user_id),
-            role: Set(role.as_str().to_string()),
+            tree_id: Set(new.tree_id),
+            user_id: Set(new.user_id),
+            role: Set(new.role.as_str().to_string()),
+            scope_id: Set(new.scope_id),
             self_person_id: Set(None),
-            expires_at: Set(None),
-            created_by: Set(created_by),
+            expires_at: Set(new.expires_at),
+            created_by: Set(new.created_by),
             created_at: Set(now),
             updated_at: Set(now),
         }
@@ -275,6 +367,9 @@ impl MembershipRepo {
         let mut active = model.into_active_model();
         if let Some(role) = changes.role {
             active.role = Set(role.as_str().to_string());
+        }
+        if let Some(scope) = changes.scope_id {
+            active.scope_id = Set(scope);
         }
         if let Some(person) = changes.self_person_id {
             active.self_person_id = Set(person);
@@ -345,6 +440,7 @@ fn into_domain(model: tree_membership::Model) -> TreeMembership {
         user_id: model.user_id,
         // Written only from a `TreeRole`; anything else grants the least.
         role: TreeRole::parse(&model.role).unwrap_or(TreeRole::Visitor),
+        scope_id: model.scope_id,
         self_person_id: model.self_person_id,
         expires_at: model.expires_at,
         created_by: model.created_by,

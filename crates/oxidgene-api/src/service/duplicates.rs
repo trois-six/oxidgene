@@ -209,6 +209,10 @@ async fn merge_persons_in(
     // keeps a person excluded when either record was (docs/privacy.md §6.5).
     #[cfg(feature = "auth")]
     oxidgene_db::repo::ExclusionRepo::move_root(conn, duplicate, kept).await?;
+    // A share whose root is the duplicate is rooted at the kept person
+    // (docs/authorization.md §6.5).
+    #[cfg(feature = "auth")]
+    oxidgene_db::repo::AccessScopeRepo::move_root(conn, tree_id, duplicate, kept).await?;
     profiles
         .invalidate_for_person_delete(conn, tree_id, duplicate)
         .await?;

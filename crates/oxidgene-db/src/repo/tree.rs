@@ -11,7 +11,7 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Tree};
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
 use crate::entities::tree::{self, ActiveModel, Column, Entity};
@@ -36,6 +36,8 @@ pub struct TreeChanges {
     pub hidden_navigation: Option<bool>,
     pub contemporary_photos: Option<bool>,
     pub guests_may_export: Option<bool>,
+    pub visibility: Option<oxidgene_core::sharing::TreeVisibility>,
+    pub visitor_scope_id: Option<Option<Uuid>>,
     pub submitter_name: Option<Option<String>>,
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
@@ -78,6 +80,11 @@ impl TreeChanges {
         set(&mut active.hidden_navigation, self.hidden_navigation);
         set(&mut active.contemporary_photos, self.contemporary_photos);
         set(&mut active.guests_may_export, self.guests_may_export);
+        set(
+            &mut active.visibility,
+            self.visibility.map(|v| v.as_str().to_string()),
+        );
+        set(&mut active.visitor_scope_id, self.visitor_scope_id);
         set(&mut active.submitter_name, self.submitter_name);
         set(&mut active.submitter_email, self.submitter_email);
         set(&mut active.submitter_address, self.submitter_address);
@@ -120,6 +127,50 @@ impl TreeRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// The live trees user `user_id` is a member of at `now`, and those of
+    /// `opened` — the trees their share links open — by cursor
+    /// (docs/authorization.md §6.4).
+    pub async fn list_of_viewer(
+        db: &impl ConnectionTrait,
+        user_id: Uuid,
+        opened: &[Uuid],
+        now: chrono::DateTime<Utc>,
+        params: &PaginationParams,
+    ) -> Result<Connection<Tree>, OxidGeneError> {
+        let mut viewer =
+            sea_orm::Condition::any().add(crate::repo::MembershipRepo::trees_of(user_id, now));
+        if !opened.is_empty() {
+            viewer = viewer.add(Column::Id.is_in(opened.iter().copied()));
+        }
+        let query = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(viewer);
+        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+    }
+
+    /// The visibility of live tree `id` and its visitor scope; none for a
+    /// missing or deleted tree. One read by primary key.
+    pub async fn sharing(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<Option<(oxidgene_core::sharing::TreeVisibility, Option<Uuid>)>, OxidGeneError> {
+        let row: Option<(String, Option<Uuid>)> = Entity::find_by_id(id)
+            .select_only()
+            .column(Column::Visibility)
+            .column(Column::VisitorScopeId)
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        Ok(row.map(|(visibility, scope)| {
+            (
+                oxidgene_core::sharing::TreeVisibility::parse(&visibility),
+                scope,
+            )
+        }))
+    }
+
     /// Get a single tree by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Tree, OxidGeneError> {
         find_live(db, id).await.map(into_domain)
@@ -146,6 +197,10 @@ impl TreeRepo {
             hidden_navigation: Set(true),
             contemporary_photos: Set(false),
             guests_may_export: Set(false),
+            visibility: Set(oxidgene_core::sharing::TreeVisibility::default()
+                .as_str()
+                .to_string()),
+            visitor_scope_id: Set(None),
             submitter_name: Set(None),
             submitter_email: Set(None),
             submitter_address: Set(None),
@@ -281,6 +336,8 @@ fn into_domain(m: tree::Model) -> Tree {
         self_person_id: m.self_person_id,
         default_privacy: m.default_privacy.into(),
         privacy,
+        visibility: oxidgene_core::sharing::TreeVisibility::parse(&m.visibility),
+        visitor_scope_id: m.visitor_scope_id,
         submitter_name: m.submitter_name,
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,

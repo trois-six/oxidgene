@@ -641,7 +641,7 @@ const REST: &[(&str, &str, Requirement)] = &[
     ("GET", "/trees/{tree_id}/suggestions/{field}", Tree(P::Read)),
 ];
 
-/// The operations of the web build's accounts, memberships and exclusions,
+/// The operations of the web build's accounts, memberships, sharing and exclusions,
 /// which only a build with the `auth` feature serves. A member reads their own row of
 /// the members, updates their own "Who am I?" and leaves; the owner manages
 /// the others: the service narrows `read` to that (§10).
@@ -654,6 +654,11 @@ const ACCOUNT_REST: &[(&str, &str, Requirement)] = &[
     ("DELETE", "/me/avatar", SignedIn),
     ("GET", "/me/sessions", SignedIn),
     ("DELETE", "/me/sessions/{session_id}", SignedIn),
+    // The invitations addressed to the user: the service matches their
+    // verified address.
+    ("GET", "/me/invitations", SignedIn),
+    ("POST", "/me/invitations/{invitation_id}/accept", SignedIn),
+    ("POST", "/me/invitations/{invitation_id}/decline", SignedIn),
     ("GET", "/users/{user_id}", SignedIn),
     ("GET", "/users/{user_id}/avatar", SignedIn),
     ("GET", "/admin/users", Administrator),
@@ -665,6 +670,60 @@ const ACCOUNT_REST: &[(&str, &str, Requirement)] = &[
     ("PUT", "/admin/trees/{tree_id}/owner", Administrator),
     ("GET", "/admin/access-log", Administrator),
     ("GET", "/trees/{tree_id}/members", Tree(P::Read)),
+    // Sharing: the owner's alone (§6).
+    ("POST", "/trees/{tree_id}/members", Tree(P::MembersManage)),
+    (
+        "GET",
+        "/trees/{tree_id}/share-candidates",
+        Tree(P::MembersManage),
+    ),
+    (
+        "GET",
+        "/trees/{tree_id}/invitations",
+        Tree(P::MembersManage),
+    ),
+    (
+        "DELETE",
+        "/trees/{tree_id}/invitations/{invitation_id}",
+        Tree(P::MembersManage),
+    ),
+    (
+        "POST",
+        "/trees/{tree_id}/invitations/{invitation_id}/resend",
+        Tree(P::MembersManage),
+    ),
+    (
+        "GET",
+        "/trees/{tree_id}/share-links",
+        Tree(P::MembersManage),
+    ),
+    (
+        "POST",
+        "/trees/{tree_id}/share-links",
+        Tree(P::MembersManage),
+    ),
+    (
+        "PUT",
+        "/trees/{tree_id}/share-links/{link_id}",
+        Tree(P::MembersManage),
+    ),
+    (
+        "DELETE",
+        "/trees/{tree_id}/share-links/{link_id}",
+        Tree(P::MembersManage),
+    ),
+    (
+        "POST",
+        "/trees/{tree_id}/access-scopes/preview",
+        Tree(P::MembersManage),
+    ),
+    // A tree setting, read by the owner alone: its root may be a person
+    // Visitors do not see.
+    (
+        "GET",
+        "/trees/{tree_id}/visitor-scope",
+        Tree(P::SettingsManage),
+    ),
     ("PUT", "/trees/{tree_id}/members/{user_id}", Tree(P::Read)),
     (
         "DELETE",
@@ -878,6 +937,9 @@ const ACCOUNT_GRAPHQL: &[(&str, Requirement)] = &[
     ("deleteMyAvatar", SignedIn),
     ("mySessions", SignedIn),
     ("endMySession", SignedIn),
+    ("myInvitations", SignedIn),
+    ("acceptInvitation", SignedIn),
+    ("declineInvitation", SignedIn),
     ("userProfile", SignedIn),
     ("users", Administrator),
     ("user", Administrator),
@@ -888,6 +950,17 @@ const ACCOUNT_GRAPHQL: &[(&str, Requirement)] = &[
     ("assignTreeOwner", Administrator),
     ("accessEvents", Administrator),
     ("treeMembers", Tree(P::Read)),
+    ("shareTree", Tree(P::MembersManage)),
+    ("shareCandidates", Tree(P::MembersManage)),
+    ("treeInvitations", Tree(P::MembersManage)),
+    ("resendTreeInvitation", Tree(P::MembersManage)),
+    ("revokeTreeInvitation", Tree(P::MembersManage)),
+    ("shareLinks", Tree(P::MembersManage)),
+    ("createShareLink", Tree(P::MembersManage)),
+    ("updateShareLink", Tree(P::MembersManage)),
+    ("revokeShareLink", Tree(P::MembersManage)),
+    ("accessScopePreview", Tree(P::MembersManage)),
+    ("visitorScope", Tree(P::SettingsManage)),
     ("updateTreeMember", Tree(P::Read)),
     ("removeTreeMember", Tree(P::Read)),
     ("transferTreeOwnership", Tree(P::OwnershipTransfer)),

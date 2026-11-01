@@ -46,9 +46,34 @@ pub(crate) async fn authenticate(
     if let Some(client_id) = principal.client_id() {
         tracing::Span::current().record("oxidgene.client_id", client_id);
     }
+    // A bearer token is a program's or an assistant's: share links are
+    // for the people whose browser opened them.
+    let grants = if bearer(request.headers()).is_none() {
+        share_grants(&auth, request.headers()).await
+    } else {
+        Vec::new()
+    };
     request.extensions_mut().insert(principal);
+    request.extensions_mut().insert(ShareGrants(grants));
     request.extensions_mut().insert(auth);
     next.run(request).await
+}
+
+/// The share links whose grant the request's browser holds
+/// (docs/authorization.md §6.3), each checked against the database when a
+/// tree is resolved. A store that cannot be reached grants nothing: the
+/// request goes on with the viewer's own access.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ShareGrants(pub Vec<uuid::Uuid>);
+
+async fn share_grants(auth: &Auth, headers: &HeaderMap) -> Vec<uuid::Uuid> {
+    let (Some(oidc), Some(value)) = (auth.oidc(), cookie::read(headers, cookie::SHARE)) else {
+        return Vec::new();
+    };
+    match oidc.store.get_grants(&super::crypto::digest(&value)).await {
+        Ok(Some(grants)) => grants.links,
+        _ => Vec::new(),
+    }
 }
 
 /// The principal of `request`.

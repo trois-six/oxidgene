@@ -18,7 +18,7 @@
 pub(crate) mod bff;
 pub mod config;
 mod cookie;
-mod crypto;
+pub(crate) mod crypto;
 pub mod identity;
 pub(crate) mod layer;
 mod provider;
@@ -41,12 +41,16 @@ use provider::Provider;
 use token::{IntrospectionCache, Validator};
 
 use crate::service::account::SignupPolicy;
+use crate::service::sharing::{InvitationOutbox, NoOutbox, SharingEnv};
 
 /// The authentication of one server: its mode and, in `oidc`, the provider,
 /// the validator and the session store.
 #[derive(Debug)]
 pub struct Auth {
     mode: Mode,
+    /// Where invitations are mailed: nowhere until notifications and email
+    /// (roadmap phase 4) give the server an outbox.
+    outbox: Arc<dyn InvitationOutbox>,
 }
 
 #[derive(Debug)]
@@ -69,7 +73,10 @@ pub(crate) struct Oidc {
 impl Auth {
     /// The `none` mode: every request acts as the local owner of every tree.
     pub fn none() -> Self {
-        Self { mode: Mode::None }
+        Self {
+            mode: Mode::None,
+            outbox: Arc::new(NoOutbox),
+        }
     }
 
     /// The authentication `config` describes, its session store connected.
@@ -95,6 +102,7 @@ impl Auth {
     /// The `oidc` mode over `store`.
     pub fn with_store(config: OidcConfig, store: Arc<dyn SessionStore>) -> Self {
         Self {
+            outbox: Arc::new(NoOutbox),
             mode: Mode::Oidc(Box::new(Oidc {
                 provider: Provider::new(&config),
                 validator: Validator {
@@ -108,6 +116,29 @@ impl Auth {
                 introspection: IntrospectionCache::default(),
                 config,
             })),
+        }
+    }
+
+    /// This authentication mailing invitations through `outbox`: the seam
+    /// notifications and email (roadmap phase 4) implement.
+    #[must_use]
+    pub fn with_invitation_outbox(mut self, outbox: Arc<dyn InvitationOutbox>) -> Self {
+        self.outbox = outbox;
+        self
+    }
+
+    /// What sharing needs of the deployment, in `oidc`: the `none` mode has
+    /// no accounts to share with, and answers `404` as the desktop does.
+    pub(crate) fn sharing_env(&self) -> Result<SharingEnv, OxidGeneError> {
+        match self.oidc() {
+            Some(oidc) => Ok(SharingEnv {
+                public_url: oidc.config.public_url.trim_end_matches('/').to_string(),
+                outbox: Arc::clone(&self.outbox),
+            }),
+            None => Err(OxidGeneError::NotFound {
+                entity: "Membership",
+                id: Uuid::nil(),
+            }),
         }
     }
 

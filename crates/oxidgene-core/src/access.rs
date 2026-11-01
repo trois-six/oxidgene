@@ -275,11 +275,14 @@ pub struct TreeAccess {
     pub role: TreeRole,
     pub permissions: PermissionSet,
     /// The access scope the viewer is limited to: the persons a share
-    /// reaches (§6.5). Sharing fills it; until then, nobody is scoped.
+    /// reaches (§6.5), none for the whole tree.
     pub scope_id: Option<Uuid>,
     /// Whether the owner's exclusions hide persons from the viewer: always,
     /// unless the viewer is the owner (Privacy §6).
     pub exclusions_apply: bool,
+    /// The share link the access comes from, for a Visitor who holds one
+    /// (§6.3): the access log names it.
+    pub share_link_id: Option<Uuid>,
 }
 
 impl TreeAccess {
@@ -290,7 +293,20 @@ impl TreeAccess {
             permissions: role.permissions(),
             scope_id: None,
             exclusions_apply: role != TreeRole::Owner,
+            share_link_id: None,
         }
+    }
+
+    /// This access limited to scope `scope_id`, when there is one.
+    #[must_use]
+    pub fn scoped(self, scope_id: Option<Uuid>) -> Self {
+        Self { scope_id, ..self }
+    }
+
+    /// Whether this access is preferred to `other` for the same viewer
+    /// (§3.1): the higher role, and at equal role the one without a scope.
+    pub fn outranks(&self, other: &Self) -> bool {
+        (self.role, self.scope_id.is_none()) > (other.role, other.scope_id.is_none())
     }
 
     pub fn allows(&self, permission: Permission) -> bool {
@@ -468,11 +484,15 @@ impl std::fmt::Debug for JobActor {
     }
 }
 
-/// One request's viewer: its principal, and the access to each tree it
-/// named, resolved once (§4.1). Never shared between requests.
+/// One request's viewer: its principal, the share links its browser
+/// session holds, and the access to each tree it named, resolved once
+/// (§4.1). Never shared between requests.
 #[derive(Debug)]
 pub struct ViewerContext {
     principal: Principal,
+    /// The share links whose grant the session holds (§6.3): each makes
+    /// its holder a Visitor of its tree while it is live.
+    share_links: Vec<Uuid>,
     trees: Mutex<HashMap<Uuid, TreeAccess>>,
 }
 
@@ -480,8 +500,21 @@ impl ViewerContext {
     pub fn new(principal: Principal) -> Self {
         Self {
             principal,
+            share_links: Vec::new(),
             trees: Mutex::default(),
         }
+    }
+
+    /// This viewer holding the grants of `share_links` as well.
+    #[must_use]
+    pub fn with_share_links(mut self, share_links: Vec<Uuid>) -> Self {
+        self.share_links = share_links;
+        self
+    }
+
+    /// The share links whose grant the viewer's session holds.
+    pub fn share_links(&self) -> &[Uuid] {
+        &self.share_links
     }
 
     /// The local owner of every tree: the desktop, the `none` mode, the

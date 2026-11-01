@@ -69,6 +69,19 @@ pub struct LoginTransaction {
     pub return_to: String,
 }
 
+/// The share-link grants a browser holds (docs/authorization.md §6.3):
+/// keyed by the digest of the `__Host-oxidgene-share` cookie, whether or
+/// not anyone is signed in. Each link is checked against the database at
+/// every request, so a revoked one grants nothing at once.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LinkGrants {
+    /// The share links whose grant the browser holds.
+    pub links: Vec<Uuid>,
+    /// When the grants end, Unix seconds: at most the browser session's
+    /// absolute lifetime, and at most the expiry of the links they hold.
+    pub expires_at: i64,
+}
+
 /// The operations a session store answers. Keys are digests: base64url,
 /// no separator a key scheme could confuse.
 #[async_trait::async_trait]
@@ -101,6 +114,16 @@ pub trait SessionStore: Send + Sync + std::fmt::Debug {
     /// Whether `name` is seen for the first time within `ttl`: a logout
     /// token's `jti`.
     async fn first_seen(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable>;
+    /// Keep `grants` under `id_hash` until their expiry, replacing any.
+    async fn put_grants(&self, id_hash: &str, grants: &LinkGrants) -> Result<(), StoreUnavailable>;
+    /// The unexpired grants of `id_hash`.
+    async fn get_grants(&self, id_hash: &str) -> Result<Option<LinkGrants>, StoreUnavailable>;
+    async fn delete_grants(&self, id_hash: &str) -> Result<(), StoreUnavailable>;
+}
+
+/// The time to live of `grants` at `now`.
+fn grants_ttl(grants: &LinkGrants, now: i64) -> Duration {
+    Duration::from_secs(u64::try_from((grants.expires_at - now).max(1)).unwrap_or(1))
 }
 
 /// Seconds since the Unix epoch.
@@ -122,6 +145,7 @@ pub struct MemoryStore {
 #[derive(Debug, Default)]
 struct Memory {
     sessions: HashMap<String, Session>,
+    grants: HashMap<String, LinkGrants>,
     logins: HashMap<String, (LoginTransaction, Instant)>,
     /// Locks and seen names, with when they lapse.
     marks: HashMap<String, Instant>,
@@ -142,6 +166,7 @@ impl Memory {
         let wall = self::now();
         self.sessions
             .retain(|_, session| session.expires_at() > wall);
+        self.grants.retain(|_, grants| grants.expires_at > wall);
         self.logins.retain(|_, (_, until)| *until > now);
         self.marks.retain(|_, until| *until > now);
     }
@@ -247,6 +272,29 @@ impl SessionStore for MemoryStore {
     async fn first_seen(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable> {
         Ok(self.with(|memory| mark(&mut memory.marks, &format!("seen:{name}"), ttl)))
     }
+
+    async fn put_grants(&self, id_hash: &str, grants: &LinkGrants) -> Result<(), StoreUnavailable> {
+        self.with(|memory| {
+            memory.grants.insert(id_hash.to_string(), grants.clone());
+        });
+        Ok(())
+    }
+
+    async fn get_grants(&self, id_hash: &str) -> Result<Option<LinkGrants>, StoreUnavailable> {
+        let wall = now();
+        Ok(self.with(|memory| {
+            memory
+                .grants
+                .get(id_hash)
+                .filter(|grants| grants.expires_at > wall)
+                .cloned()
+        }))
+    }
+
+    async fn delete_grants(&self, id_hash: &str) -> Result<(), StoreUnavailable> {
+        self.with(|memory| memory.grants.remove(id_hash));
+        Ok(())
+    }
 }
 
 /// Set `key` in `marks` for `ttl` unless it is set and current: `SET NX`.
@@ -283,6 +331,7 @@ const SID: &str = "oxidgene:sid:";
 const LOGIN: &str = "oxidgene:login:";
 const LOCK: &str = "oxidgene:lock:";
 const SEEN: &str = "oxidgene:seen:";
+const GRANTS: &str = "oxidgene:share-grants:";
 
 impl RedisStore {
     /// Connect to the Redis at `url`.
@@ -476,6 +525,33 @@ impl SessionStore for RedisStore {
     async fn first_seen(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable> {
         let set: Option<String> = self.query(&set_nx(format!("{SEEN}{name}"), ttl)).await?;
         Ok(set.is_some())
+    }
+
+    async fn put_grants(&self, id_hash: &str, grants: &LinkGrants) -> Result<(), StoreUnavailable> {
+        let json = serde_json::to_string(grants).map_err(|_| StoreUnavailable)?;
+        self.query::<()>(
+            redis::cmd("SET")
+                .arg(format!("{GRANTS}{id_hash}"))
+                .arg(json)
+                .arg("EX")
+                .arg(grants_ttl(grants, now()).as_secs()),
+        )
+        .await
+    }
+
+    async fn get_grants(&self, id_hash: &str) -> Result<Option<LinkGrants>, StoreUnavailable> {
+        let json: Option<String> = self
+            .query(redis::cmd("GET").arg(format!("{GRANTS}{id_hash}")))
+            .await?;
+        let wall = now();
+        Ok(json
+            .and_then(|json| serde_json::from_str::<LinkGrants>(&json).ok())
+            .filter(|grants| grants.expires_at > wall))
+    }
+
+    async fn delete_grants(&self, id_hash: &str) -> Result<(), StoreUnavailable> {
+        self.query::<()>(redis::cmd("DEL").arg(format!("{GRANTS}{id_hash}")))
+            .await
     }
 }
 

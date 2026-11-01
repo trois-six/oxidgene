@@ -23,7 +23,12 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use std::collections::HashMap;
+
+use oxidgene_core::sharing::ScopeDefinition;
+
 use crate::authz;
+use crate::service::access_scope::{self, ScopeView};
 use crate::service::account::require_admin;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
@@ -37,6 +42,9 @@ pub struct MemberView {
     /// avatar's initials.
     pub display_name: Option<String>,
     pub role: TreeRole,
+    /// The part of the tree the member is limited to; none for the whole
+    /// tree (§6.5).
+    pub scope: Option<ScopeView>,
     /// The member's own "Who am I?" person.
     pub self_person_id: Option<Uuid>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -50,6 +58,10 @@ pub struct MemberView {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct MemberPatch {
     pub role: Option<TreeRole>,
+    /// The part of the tree the member is limited to; `null` for the
+    /// whole tree.
+    #[serde(default, deserialize_with = "double_option")]
+    pub scope: Option<Option<ScopeDefinition>>,
     #[serde(default, deserialize_with = "double_option")]
     pub expires_at: Option<Option<DateTime<Utc>>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -122,15 +134,25 @@ pub async fn list_members(
     };
     let user_ids: Vec<Uuid> = members.edges.iter().map(|e| e.node.user_id).collect();
     let names = AppUserRepo::shown_names(db, &user_ids).await?;
-    Ok(members.map(|membership| view(membership, &names)))
+    let scope_ids: Vec<Uuid> = members
+        .edges
+        .iter()
+        .filter_map(|e| e.node.scope_id)
+        .collect();
+    let scopes = access_scope::views(db, &scope_ids).await?;
+    Ok(members.map(|membership| member_view(membership, &names, &scopes)))
 }
 
-fn view(
+/// One member as the members list shows them, from the names and the
+/// scopes read for the page.
+pub(crate) fn member_view(
     membership: TreeMembership,
-    names: &std::collections::HashMap<Uuid, Option<String>>,
+    names: &HashMap<Uuid, Option<String>>,
+    scopes: &HashMap<Uuid, ScopeView>,
 ) -> MemberView {
     MemberView {
         display_name: names.get(&membership.user_id).cloned().flatten(),
+        scope: membership.scope_id.and_then(|id| scopes.get(&id).cloned()),
         user_id: membership.user_id,
         role: membership.role,
         self_person_id: membership.self_person_id,
@@ -159,24 +181,50 @@ pub async fn update_member(
         .ok_or_else(|| membership_not_found(user_id))?;
     check_patch(&patch, &current, manages, user_id == identity.user_id)?;
     let txn = begin_tx(db).await?;
-    if let Some(Some(person_id)) = patch.self_person_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
-    }
+    let scope_id = prepare_patch(&txn, tree_id, &patch).await?;
     let updated = MembershipRepo::update(
         &txn,
         current.id,
         MembershipChanges {
             role: patch.role,
+            scope_id,
             self_person_id: patch.self_person_id,
             expires_at: patch.expires_at,
         },
     )
     .await?;
+    access_scope::drop_replaced(&txn, scope_id, current.scope_id).await?;
     record(&txn, viewer, tree_id, AuditAction::Update, current.id).await?;
     commit_tx(txn).await?;
     viewer.forget(tree_id);
-    let names = AppUserRepo::shown_names(db, &[user_id]).await?;
-    Ok(view(updated, &names))
+    one_view(db, updated).await
+}
+
+/// `membership` as the members list shows it.
+async fn one_view(
+    db: &DatabaseConnection,
+    membership: TreeMembership,
+) -> Result<MemberView, OxidGeneError> {
+    let user_id = membership.user_id;
+    crate::service::sharing::member_views(db, vec![membership])
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| membership_not_found(user_id))
+}
+
+/// Check the "Who am I?" person `patch` names, and create the scope it
+/// asks for, in `txn`: the scope change, as [`access_scope::replacement`]
+/// answers it.
+async fn prepare_patch(
+    txn: &impl ConnectionTrait,
+    tree_id: Uuid,
+    patch: &MemberPatch,
+) -> Result<Option<Option<Uuid>>, OxidGeneError> {
+    if let Some(Some(person_id)) = patch.self_person_id {
+        require_tree_resource(txn, tree_id, TreeResource::Person, person_id).await?;
+    }
+    access_scope::replacement(txn, tree_id, patch.scope.as_ref()).await
 }
 
 /// Refuse what `patch` may not change on `current`: the role and expiry
@@ -189,7 +237,8 @@ fn check_patch(
     manages: bool,
     own: bool,
 ) -> Result<(), OxidGeneError> {
-    let changes_role = patch.role.is_some() || patch.expires_at.is_some();
+    crate::service::sharing::future(patch.expires_at.flatten())?;
+    let changes_role = patch.role.is_some() || patch.expires_at.is_some() || patch.scope.is_some();
     if (changes_role && !manages) || (patch.self_person_id.is_some() && !own) {
         return Err(OxidGeneError::Forbidden);
     }
@@ -232,6 +281,9 @@ pub async fn remove_member(
         .ok_or_else(|| membership_not_found(user_id))?;
     let txn = begin_tx(db).await?;
     MembershipRepo::delete(&txn, tree_id, user_id).await?;
+    if let Some(scope_id) = membership.scope_id {
+        oxidgene_db::repo::AccessScopeRepo::delete(&txn, scope_id).await?;
+    }
     record(&txn, viewer, tree_id, AuditAction::Delete, membership.id).await?;
     commit_tx(txn).await?;
     viewer.forget(tree_id);
@@ -276,16 +328,20 @@ pub async fn transfer_ownership(
         target.id,
         MembershipChanges {
             role: Some(TreeRole::Owner),
+            scope_id: Some(None),
             expires_at: Some(None),
             ..MembershipChanges::default()
         },
     )
     .await?;
+    // The owner sees the whole tree: the scope the member had goes.
+    if let Some(scope_id) = target.scope_id {
+        oxidgene_db::repo::AccessScopeRepo::delete(&txn, scope_id).await?;
+    }
     record(&txn, viewer, tree_id, AuditAction::Update, target.id).await?;
     commit_tx(txn).await?;
     viewer.forget(tree_id);
-    let names = AppUserRepo::shown_names(db, &[user_id]).await?;
-    Ok(view(promoted, &names))
+    one_view(db, promoted).await
 }
 
 /// Every live tree with its owner and size, for an administrator: metadata
@@ -343,6 +399,9 @@ pub async fn assign_owner(
                 member.id,
                 MembershipChanges {
                     role: Some(TreeRole::Owner),
+                    // The owner sees the whole tree; the maintenance pass
+                    // deletes the scope nothing holds any more.
+                    scope_id: Some(None),
                     expires_at: Some(None),
                     ..MembershipChanges::default()
                 },
@@ -356,8 +415,7 @@ pub async fn assign_owner(
     let mut event = authz::log::event(viewer, "tree_owner_assigned", "ok");
     event.tree_id = Some(tree_id);
     authz::log::record(db, event);
-    let names = AppUserRepo::shown_names(db, &[user_id]).await?;
-    Ok(view(owner, &names))
+    one_view(db, owner).await
 }
 
 /// Refuse a user who cannot hold a tree: unknown (`404`), deactivated or

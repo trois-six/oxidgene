@@ -43,6 +43,8 @@ mod profile_service_test;
 mod query_scaling_test;
 mod real_import_test;
 mod rest_test;
+#[cfg(all(feature = "auth", feature = "graphql"))]
+mod sharing_test;
 mod tag_bulk_test;
 mod tag_carrier_scaling_test;
 mod tag_reads_test;

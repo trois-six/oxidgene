@@ -60,7 +60,7 @@ mirror_enum!(
         EventWitness, Place, Source, SourceRepository, Repository, Citation, Note, FamilyName,
         Occupation,
         Media, MediaPage, MediaLink, Vignette, Portrait, Tag, RecordTag, PrivacyExclusion,
-        Membership,
+        Membership, TreeInvitation, ShareLink, Visibility,
     }
 );
 mirror_enum!(

@@ -175,6 +175,11 @@ fn every_graphql_field_runs_on_a_small_stack() {
     for (root, keyword) in [("queryType", "query"), ("mutationType", "mutation")] {
         for field in schema.root_fields(root) {
             let name = field["name"].as_str().unwrap();
+            // As for REST: the guard's application, in the `none` mode,
+            // answers the memberships and sharing `NOT_FOUND` at once.
+            if super::surface::MEMBERSHIP_FIELDS.contains(&name) {
+                continue;
+            }
             let mut args = Vec::new();
             for arg in field["args"].as_array().into_iter().flatten() {
                 let arg_name = arg["name"].as_str().unwrap();

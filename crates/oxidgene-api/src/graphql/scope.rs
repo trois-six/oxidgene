@@ -82,8 +82,13 @@ async fn authorized(ctx: &Context<'_>, tree_id: Uuid) -> Result<(), OxidGeneErro
     };
     let viewer = viewer_from_ctx(ctx);
     let requirement = Requirement::Tree(permission);
-    if let Err(error) = authz::check(reader_from_ctx(ctx), viewer, requirement, Some(tree_id)).await
-    {
+    let checked = authz::check(reader_from_ctx(ctx), viewer, requirement, Some(tree_id)).await;
+    #[cfg(feature = "auth")]
+    let checked = match checked {
+        Ok(()) => scoped_write(ctx, field, permission, tree_id).await,
+        refused => refused,
+    };
+    if let Err(error) = checked {
         authz::log::refusal(
             db_from_ctx(ctx),
             viewer,
@@ -95,6 +100,40 @@ async fn authorized(ctx: &Context<'_>, tree_id: Uuid) -> Result<(), OxidGeneErro
         return Err(error);
     }
     Ok(())
+}
+
+/// Apply a scoped Editor's rules to their mutation (docs/authorization.md
+/// §3.3), as REST's middleware does: a change to a record the whole tree
+/// shares is `FORBIDDEN`, and every person its arguments name must be in
+/// the scope.
+#[cfg(feature = "auth")]
+async fn scoped_write(
+    ctx: &Context<'_>,
+    field: &str,
+    permission: Permission,
+    tree_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    let viewer = viewer_from_ctx(ctx);
+    let Some(access) = viewer.cached(tree_id) else {
+        return Ok(());
+    };
+    if !authz::scoped::applies(&access, permission) {
+        return Ok(());
+    }
+    if authz::scoped::refuses_field(field) {
+        return Err(OxidGeneError::Forbidden);
+    }
+    let mut ids = std::collections::HashSet::new();
+    let arguments = ctx
+        .field()
+        .arguments()
+        .map_err(|_| OxidGeneError::Validation("unreadable arguments".into()))?;
+    for (_, value) in arguments {
+        if let Ok(json) = value.into_json() {
+            authz::scoped::ids_in_json(&json, &mut ids);
+        }
+    }
+    authz::scoped::check_named(db_from_ctx(ctx), &access, tree_id, &ids).await
 }
 
 /// The tree a job's status or cancellation names. The local owner's is not

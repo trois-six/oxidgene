@@ -26,9 +26,18 @@ pub fn absent_without_accounts(path: &str) -> bool {
     ["/api/v1/me", "/api/v1/users/", "/api/v1/admin/"]
         .iter()
         .any(|prefix| path.starts_with(prefix))
-        || ["/members", "/ownership", "/access-log"]
-            .iter()
-            .any(|segment| path.contains(segment))
+        || [
+            "/members",
+            "/ownership",
+            "/access-log",
+            "/invitations",
+            "/share-links",
+            "/share-candidates",
+            "/access-scopes/",
+            "/visitor-scope",
+        ]
+        .iter()
+        .any(|segment| path.contains(segment))
 }
 
 /// The GraphQL root fields of the memberships, which name users; see
@@ -41,6 +50,20 @@ pub const MEMBERSHIP_FIELDS: &[&str] = &[
     "transferTreeOwnership",
     "treeAccessEvents",
     "assignTreeOwner",
+    "shareTree",
+    "shareCandidates",
+    "treeInvitations",
+    "resendTreeInvitation",
+    "revokeTreeInvitation",
+    "shareLinks",
+    "createShareLink",
+    "updateShareLink",
+    "revokeShareLink",
+    "accessScopePreview",
+    "visitorScope",
+    "myInvitations",
+    "acceptInvitation",
+    "declineInvitation",
 ];
 
 /// The fixture record a parameter names, by its snake_case name; `link_id`

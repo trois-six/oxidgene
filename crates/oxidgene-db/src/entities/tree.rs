@@ -23,6 +23,10 @@ pub struct Model {
     pub hidden_navigation: bool,
     pub contemporary_photos: bool,
     pub guests_may_export: bool,
+    /// `private`, `site` or `public` (docs/authorization.md §6.4).
+    pub visibility: String,
+    /// The access scope Visitors are limited to.
+    pub visitor_scope_id: Option<Uuid>,
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     #[sea_orm(column_type = "Text")]

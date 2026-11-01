@@ -3,12 +3,14 @@
 //! requirements; memberships, ownership and the tree list; audit authors;
 //! the access log; and a job whose actor loses the tree.
 //!
-//! Every viewer of phase 2 calls every REST route and every GraphQL root
-//! field: anonymous, a signed-in outsider, an instance administrator who is
-//! no member, and the tree's guest, editor and owner. A refusal must be the
-//! exact `401`, `403` or `404` the policy owes that viewer; anything else
-//! must not be a refusal. Visitors, scoped members and API clients join the
-//! matrix with sharing and API clients (phases 5 and 6).
+//! Every viewer calls every REST route and every GraphQL root field:
+//! anonymous, a signed-in outsider, an instance administrator who is no
+//! member, the holder of a share link, the tree's guest, editor and owner,
+//! and a guest and an editor limited to a scope; then, the tree made
+//! `public`, the anonymous and the outsider again, now Visitors. A refusal
+//! must be the exact `401`, `403` or `404` the policy owes that viewer;
+//! anything else must not be a refusal. API clients join the matrix with
+//! phase 6.
 
 use std::collections::BTreeMap;
 
@@ -33,19 +35,31 @@ enum Who {
     Anonymous,
     Outsider,
     Admin,
+    /// An anonymous browser holding a share link to the tree.
+    LinkHolder,
     Guest,
     Editor,
+    /// A guest limited to a scope.
+    ScopedGuest,
+    /// An editor limited to a scope (docs/authorization.md §3.3).
+    ScopedEditor,
     Owner,
 }
 
-const VIEWERS: [Who; 6] = [
+const VIEWERS: [Who; 9] = [
     Who::Anonymous,
     Who::Outsider,
     Who::Admin,
+    Who::LinkHolder,
     Who::Guest,
     Who::Editor,
+    Who::ScopedGuest,
+    Who::ScopedEditor,
     Who::Owner,
 ];
+
+/// The viewers of a `public` tree who are no member: Visitors.
+const PUBLIC_VIEWERS: [Who; 2] = [Who::Anonymous, Who::Outsider];
 
 /// What the policy owes a viewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,27 +71,44 @@ enum Outcome {
     NotFound,
 }
 
-fn role(who: Who) -> Option<TreeRole> {
+fn role(who: Who, public: bool) -> Option<TreeRole> {
     match who {
-        Who::Guest => Some(TreeRole::Guest),
-        Who::Editor => Some(TreeRole::Editor),
+        Who::Guest | Who::ScopedGuest => Some(TreeRole::Guest),
+        Who::Editor | Who::ScopedEditor => Some(TreeRole::Editor),
         Who::Owner => Some(TreeRole::Owner),
+        Who::LinkHolder => Some(TreeRole::Visitor),
+        Who::Anonymous | Who::Outsider if public => Some(TreeRole::Visitor),
         _ => None,
     }
 }
 
-/// The outcome `requirement` owes `who` on the fixture tree. Only the
-/// owner may create trees, only the administrator administers.
-fn expected(requirement: Requirement, who: Who) -> Outcome {
-    if who == Who::Anonymous && requirement != Requirement::Open {
-        return Outcome::Unauthenticated;
+/// Whether `who` has no account.
+fn anonymous(who: Who) -> bool {
+    matches!(who, Who::Anonymous | Who::LinkHolder)
+}
+
+/// The outcome `requirement` owes `who` on the fixture tree, `public` or
+/// private. Only the owner may create trees, only the administrator
+/// administers.
+fn expected(requirement: Requirement, who: Who, public: bool) -> Outcome {
+    match requirement {
+        Requirement::Open | Requirement::Trees(_) => return Outcome::Allowed,
+        Requirement::Tree(permission) if anonymous(who) => {
+            return match role(who, public) {
+                None => Outcome::Unauthenticated,
+                Some(role) if role.permissions().contains(permission) => Outcome::Allowed,
+                Some(_) => Outcome::Forbidden,
+            };
+        }
+        _ if anonymous(who) => return Outcome::Unauthenticated,
+        _ => {}
     }
     match requirement {
         Requirement::Open | Requirement::SignedIn | Requirement::Trees(_) => Outcome::Allowed,
         Requirement::TreeCreation if who == Who::Owner => Outcome::Allowed,
         Requirement::Administrator if who == Who::Admin => Outcome::Allowed,
         Requirement::TreeCreation | Requirement::Administrator => Outcome::Forbidden,
-        Requirement::Tree(permission) => match role(who) {
+        Requirement::Tree(permission) => match role(who, public) {
             None => Outcome::NotFound,
             Some(role) if role.permissions().contains(permission) => Outcome::Allowed,
             Some(_) => Outcome::Forbidden,
@@ -99,19 +130,62 @@ fn destructive(operation: &str) -> bool {
 }
 
 /// What a member's own service answers beyond the declared requirement:
-/// removing another member takes `members_manage` (§10).
-fn narrowed(operation: &str, who: Who) -> Option<Outcome> {
+/// removing another member takes `members_manage` (§10); the members
+/// operations, which a Visitor's `read` passes, need an account; a scoped
+/// Editor may not change a record the whole tree shares (§3.3).
+fn narrowed(operation: &str, who: Who, requirement: Requirement, public: bool) -> Option<Outcome> {
     let removes = matches!(
         operation,
         "DELETE /api/v1/trees/{tree_id}/members/{user_id}" | "Mutation.removeTreeMember"
     );
-    (removes && matches!(who, Who::Guest | Who::Editor)).then_some(Outcome::Forbidden)
+    let members = matches!(
+        operation,
+        "GET /api/v1/trees/{tree_id}/members"
+            | "PUT /api/v1/trees/{tree_id}/members/{user_id}"
+            | "DELETE /api/v1/trees/{tree_id}/members/{user_id}"
+            | "Query.treeMembers"
+            | "Mutation.updateTreeMember"
+            | "Mutation.removeTreeMember"
+    );
+    if members && anonymous(who) {
+        return Some(Outcome::Unauthenticated);
+    }
+    let writes = matches!(
+        requirement,
+        Requirement::Tree(
+            Permission::Create
+                | Permission::Edit
+                | Permission::PrivacyEdit
+                | Permission::Delete
+                | Permission::Merge
+                | Permission::HistoryRestore
+        )
+    );
+    if who == Who::ScopedEditor && writes {
+        let shared = match operation.split_once(' ') {
+            Some((_, route)) => oxidgene_api::authz::scoped::refuses_route(route),
+            None => operation
+                .split_once('.')
+                .is_some_and(|(_, field)| oxidgene_api::authz::scoped::refuses_field(field)),
+        };
+        if shared {
+            return Some(Outcome::Forbidden);
+        }
+    }
+    // Anyone signed in who sees the tree but is not its owner.
+    let sees = matches!(
+        who,
+        Who::Guest | Who::Editor | Who::ScopedGuest | Who::ScopedEditor
+    ) || (public && who == Who::Outsider);
+    (removes && sees).then_some(Outcome::Forbidden)
 }
 
 struct Fixture {
     app: axum::Router,
     db: DatabaseConnection,
     tokens: BTreeMap<Who, String>,
+    /// The share-link cookie of the link holder.
+    share_cookie: String,
     tree_id: Uuid,
     users: BTreeMap<Who, Uuid>,
 }
@@ -157,6 +231,8 @@ async fn fixture() -> (Fixture, MockProvider) {
         (Who::Admin, "admin"),
         (Who::Guest, "guest"),
         (Who::Editor, "editor"),
+        (Who::ScopedGuest, "scoped-guest"),
+        (Who::ScopedEditor, "scoped-editor"),
         (Who::Owner, "owner"),
     ] {
         let id = user(
@@ -174,6 +250,7 @@ async fn fixture() -> (Fixture, MockProvider) {
         app,
         db,
         tokens,
+        share_cookie: String::new(),
         tree_id: Uuid::nil(),
         users,
     };
@@ -201,10 +278,87 @@ async fn fixture() -> (Fixture, MockProvider) {
         .await
         .expect("shares the tree");
     }
+    fixture.share_scoped().await;
+    fixture.open_share_link().await;
     (fixture, provider)
 }
 
 impl Fixture {
+    /// Share the tree with the scoped guest and editor, limited to the
+    /// descendants of a person of their own.
+    async fn share_scoped(&self) {
+        let (status, person) = self
+            .rest(
+                Who::Owner,
+                Method::POST,
+                &format!("/api/v1/trees/{}/persons", self.tree_id),
+                Some(json!({ "sex": "unknown" })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{person}");
+        for (username, role) in [("scoped-guest", "guest"), ("scoped-editor", "editor")] {
+            let (status, shared) = self
+                .rest(
+                    Who::Owner,
+                    Method::POST,
+                    &format!("/api/v1/trees/{}/members", self.tree_id),
+                    Some(json!({
+                        "username": username,
+                        "role": role,
+                        "scope": { "kind": "descendants_of", "person_id": person["id"] },
+                    })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED, "{shared}");
+        }
+    }
+
+    /// Create a share link and open it anonymously: the link holder's
+    /// cookie.
+    async fn open_share_link(&mut self) {
+        let (status, link) = self
+            .rest(
+                Who::Owner,
+                Method::POST,
+                &format!("/api/v1/trees/{}/share-links", self.tree_id),
+                Some(json!({ "label": "Matrix" })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{link}");
+        let path = link["url"]
+            .as_str()
+            .unwrap()
+            .strip_prefix(crate::common::oidc::PUBLIC_URL)
+            .unwrap()
+            .to_owned();
+        let opened = self
+            .app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header(header::HOST, "genealogy.example.invalid")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let cookie = opened.headers()[header::SET_COOKIE].to_str().unwrap();
+        self.share_cookie = cookie.split(';').next().unwrap().to_owned();
+    }
+
+    /// Make the fixture tree `public`: anyone is a Visitor of it.
+    async fn make_public(&self) {
+        let (status, tree) = self
+            .rest(
+                Who::Owner,
+                Method::PUT,
+                &format!("/api/v1/trees/{}", self.tree_id),
+                Some(json!({ "visibility": "public" })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{tree}");
+    }
+
     async fn send(
         &self,
         who: Who,
@@ -214,6 +368,9 @@ impl Fixture {
         let mut request = request.header(header::HOST, "genealogy.example.invalid");
         if let Some(token) = self.tokens.get(&who) {
             request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        if who == Who::LinkHolder {
+            request = request.header(header::COOKIE, &self.share_cookie);
         }
         let response = self
             .app
@@ -301,6 +458,19 @@ fn matches(expected: Outcome, actual: Outcome) -> bool {
 #[tokio::test]
 async fn every_rest_route_answers_each_viewer_as_its_requirement_says() {
     let (fixture, _provider) = fixture().await;
+    rest_matrix(&fixture, &VIEWERS, false, 1500).await;
+}
+
+#[tokio::test]
+async fn every_rest_route_answers_the_visitors_of_a_public_tree() {
+    let (fixture, _provider) = fixture().await;
+    fixture.make_public().await;
+    rest_matrix(&fixture, &PUBLIC_VIEWERS, true, 300).await;
+}
+
+/// Call every REST route as each of `viewers`, the tree `public` or not,
+/// and check the outcome; at least `least` calls.
+async fn rest_matrix(fixture: &Fixture, viewers: &[Who], public: bool, least: usize) {
     let mut failures = Vec::new();
     let mut calls = 0;
     // Refusals first: a permitted viewer's call must not change what the
@@ -308,9 +478,9 @@ async fn every_rest_route_answers_each_viewer_as_its_requirement_says() {
     for refusals_only in [true, false] {
         for (method, route, requirement) in operations::rest_operations() {
             let operation = format!("{method} /api/v1{route}");
-            for who in VIEWERS {
-                let wanted =
-                    narrowed(&operation, who).unwrap_or_else(|| expected(requirement, who));
+            for &who in viewers {
+                let wanted = narrowed(&operation, who, requirement, public)
+                    .unwrap_or_else(|| expected(requirement, who, public));
                 if refusals_only == (wanted == Outcome::Allowed)
                     || (wanted == Outcome::Allowed && destructive(&operation))
                 {
@@ -335,7 +505,7 @@ async fn every_rest_route_answers_each_viewer_as_its_requirement_says() {
         failures.len(),
         failures.join("\n")
     );
-    assert!(calls > 900, "{calls} calls");
+    assert!(calls > least, "{calls} calls");
 }
 
 // ── GraphQL documents from introspection ─────────────────────────────────
@@ -452,6 +622,19 @@ fn gql_outcome(answer: &Value, field: &str) -> Outcome {
 #[tokio::test]
 async fn every_graphql_root_field_answers_each_viewer_as_its_requirement_says() {
     let (fixture, _provider) = fixture().await;
+    graphql_matrix(&fixture, &VIEWERS, false, 1500).await;
+}
+
+#[tokio::test]
+async fn every_graphql_root_field_answers_the_visitors_of_a_public_tree() {
+    let (fixture, _provider) = fixture().await;
+    fixture.make_public().await;
+    graphql_matrix(&fixture, &PUBLIC_VIEWERS, true, 300).await;
+}
+
+/// Call every GraphQL root field as each of `viewers`, the tree `public` or
+/// not, and check the outcome; at least `least` calls.
+async fn graphql_matrix(fixture: &Fixture, viewers: &[Who], public: bool, least: usize) {
     let introspection = fixture
         .gql(
             Who::Owner,
@@ -484,9 +667,9 @@ async fn every_graphql_root_field_answers_each_viewer_as_its_requirement_says() 
                 let requirement = operations::graphql(name)
                     .unwrap_or_else(|| panic!("{operation} declares no requirement"));
                 let document = schema_types.document(root, field, fixture.tree_id);
-                for who in VIEWERS {
-                    let wanted =
-                        narrowed(&operation, who).unwrap_or_else(|| expected(requirement, who));
+                for &who in viewers {
+                    let wanted = narrowed(&operation, who, requirement, public)
+                        .unwrap_or_else(|| expected(requirement, who, public));
                     if refusals_only == (wanted == Outcome::Allowed)
                         || (wanted == Outcome::Allowed && destructive(&operation))
                     {
@@ -509,7 +692,7 @@ async fn every_graphql_root_field_answers_each_viewer_as_its_requirement_says() 
         failures.len(),
         failures.join("\n")
     );
-    assert!(calls > 900, "{calls} calls");
+    assert!(calls > least, "{calls} calls");
 }
 
 // ── Memberships and ownership ───────────────────────────────────────────
@@ -570,7 +753,8 @@ async fn members_leave_the_owner_hands_over_and_cannot_leave() {
     let members = format!("/api/v1/trees/{tree}/members");
     let (status, list) = fixture.rest(Who::Owner, Method::GET, &members, None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(list["total_count"], 3, "{list}");
+    // The owner, the guest, the editor and the two scoped members.
+    assert_eq!(list["total_count"], 5, "{list}");
     // The members page by cursor, as every collection does.
     let (_, first) = fixture
         .rest(Who::Owner, Method::GET, &format!("{members}?first=2"), None)
@@ -586,7 +770,7 @@ async fn members_leave_the_owner_hands_over_and_cannot_leave() {
             None,
         )
         .await;
-    assert_eq!(next["edges"].as_array().unwrap().len(), 1, "{next}");
+    assert_eq!(next["edges"].as_array().unwrap().len(), 2, "{next}");
     let (_, own) = fixture.rest(Who::Guest, Method::GET, &members, None).await;
     assert_eq!(own["total_count"], 1, "a member reads their own row: {own}");
     assert_eq!(own["edges"][0]["node"]["role"], "guest");
@@ -691,8 +875,14 @@ async fn members_leave_the_owner_hands_over_and_cannot_leave() {
         )
         .await;
     let entries = audit["edges"].as_array().unwrap();
-    assert_eq!(entries.len(), 3, "{audit}");
-    assert!(entries.iter().all(|e| e["node"]["entity"] == "membership"));
+    // The test's three changes, newest first, after the fixture's shares.
+    assert_eq!(entries.len(), 6, "{audit}");
+    assert!(
+        entries
+            .iter()
+            .take(3)
+            .all(|e| e["node"]["entity"] == "membership")
+    );
     assert_eq!(
         entries[0]["node"]["author"]["user_id"],
         json!(owner.to_string())

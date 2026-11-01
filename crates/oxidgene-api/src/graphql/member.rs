@@ -30,6 +30,9 @@ pub struct GqlTreeMember {
     pub display_name: Option<String>,
     /// `owner`, `editor` or `guest`.
     pub role: String,
+    /// The part of the tree the member is limited to; none for the whole
+    /// tree.
+    pub scope: Option<super::sharing::GqlAccessScope>,
     pub self_person_id: Option<ID>,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -42,6 +45,7 @@ impl From<MemberView> for GqlTreeMember {
             user_id: id(member.user_id),
             display_name: member.display_name,
             role: member.role.as_str().to_string(),
+            scope: member.scope.map(Into::into),
             self_person_id: member.self_person_id.map(id),
             expires_at: member.expires_at,
             created_at: member.created_at,
@@ -142,6 +146,9 @@ connection!(
 pub struct UpdateTreeMemberInput {
     /// `editor` or `guest`.
     pub role: Option<String>,
+    /// The part of the tree the member is limited to; `null` for the whole
+    /// tree.
+    pub scope: MaybeUndefined<super::inputs::AccessScopeInput>,
     pub expires_at: MaybeUndefined<DateTime<Utc>>,
     pub self_person_id: MaybeUndefined<ID>,
 }
@@ -168,8 +175,14 @@ impl UpdateTreeMemberInput {
             Some(None) => Some(None),
             None => None,
         };
+        let scope = match maybe(self.scope) {
+            Some(Some(scope)) => Some(Some(scope.definition()?)),
+            Some(None) => Some(None),
+            None => None,
+        };
         Ok(MemberPatch {
             role,
+            scope,
             expires_at: maybe(self.expires_at),
             self_person_id,
         })

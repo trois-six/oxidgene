@@ -3,6 +3,8 @@
 #[cfg(feature = "auth")]
 pub mod access_log;
 #[cfg(feature = "auth")]
+pub mod access_scope;
+#[cfg(feature = "auth")]
 pub mod account;
 pub mod ancestry;
 pub mod anomalies;
@@ -49,6 +51,10 @@ pub mod relation_labels;
 pub mod repository;
 pub mod scope;
 pub(crate) mod session_media;
+#[cfg(feature = "auth")]
+pub mod share_link;
+#[cfg(feature = "auth")]
+pub mod sharing;
 pub mod source;
 pub mod statistics;
 pub mod suggestions;

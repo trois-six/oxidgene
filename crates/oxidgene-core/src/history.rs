@@ -92,7 +92,7 @@ string_enum! {
         /// A restored version.
         History => "history",
         /// Who may see and do what with the tree: memberships and their owner,
-        /// the exclusions from sharing (web build only, docs/authorization.md
+        /// invitations, share links, visibility, the exclusions from sharing (web build only, docs/authorization.md
         /// §9.1). Stores no version.
         Access => "access",
     }
@@ -152,6 +152,12 @@ string_enum! {
         /// A user's role on the tree: granted, changed, ended, or the
         /// ownership handed over.
         Membership => "membership",
+        /// An invitation by email: sent, sent again, revoked, declined.
+        TreeInvitation => "tree_invitation",
+        /// A share link: created, changed, revoked.
+        ShareLink => "share_link",
+        /// Who the tree is visible to, and its visitor scope.
+        Visibility => "visibility",
     }
 }
 
@@ -200,7 +206,10 @@ impl AuditCategory {
         match entity {
             AuditEntity::Tree => Self::Settings,
             AuditEntity::PrivacyExclusion => Self::Access,
-            AuditEntity::Membership => Self::Access,
+            AuditEntity::Membership
+            | AuditEntity::TreeInvitation
+            | AuditEntity::ShareLink
+            | AuditEntity::Visibility => Self::Access,
             AuditEntity::Tag | AuditEntity::RecordTag => Self::Data,
             AuditEntity::Media
             | AuditEntity::MediaPage

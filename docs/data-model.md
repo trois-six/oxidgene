@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 
@@ -1395,9 +1395,10 @@ restored: the version before it is the state to go back to.
 The tables of EPIC G, specified in [Authentication](authentication.md),
 [Authorization](authorization.md), [Privacy](privacy.md) and
 [Messaging and Notifications](messaging.md). `app_user` (§6.1),
-`tree_membership` (§6.2), `access_event` (§6.7), `person_visibility`
-(§6.8), the exclusions (§6.9) and the authors and actors of §6.10 exist;
-the others are planned and arrive with their phase. Until the first
+`tree_membership` (§6.2), the invitations (§6.3), the share links (§6.4),
+the access scopes (§6.5), `access_event` (§6.7), `person_visibility`
+(§6.8), the exclusions (§6.9) and the authors, actors and tree visibility
+of §6.10 exist; the others are planned and arrive with their phase. Until the first
 release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the
@@ -1435,7 +1436,7 @@ Sessions are not stored here: they live in the session store
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
 | `user_id` | UUID v7 | FK → `app_user`; unique with `tree_id` |
 | `role` | String | `owner`, `editor`, `guest`; a unique partial index allows one `owner` per tree |
-| `scope_id` | UUID v7? | FK → `access_scope`; added with the access scopes (sharing, phase 5) |
+| `scope_id` | UUID v7? | FK → `access_scope` (cascade: removing a scope ends the membership it limited, never widens it) |
 | `self_person_id` | UUID v7? | The member's "Who am I?" person |
 | `expires_at` | DateTime? | Past it the membership grants nothing; the worker's maintenance pass deletes it |
 | `created_by` | UUID v7? | The user who shared |
@@ -1444,24 +1445,34 @@ Sessions are not stored here: they live in the session store
 ### 6.3 `tree_invitation`
 
 `id`, `tree_id` (cascade), `email` (lower-cased), `role` (`editor`, `guest`),
-`scope_id?`, `membership_expires_at?`, `expires_at`, `created_by`,
+`scope_id?` (cascade), `membership_expires_at?`, `expires_at`, `created_by?`,
 `created_at`, `last_sent_at?`, `accepted_at?`, `accepted_by?`,
-`declined_at?`, `revoked_at?`. Indexed by `email` for the matching at sign-in.
+`declined_at?`, `revoked_at?`. Indexed by `email` for the matching at
+sign-in, and by `tree_id`. The worker's maintenance pass deletes the
+invitations no longer pending: expired, answered or revoked. Erasing an
+account deletes those addressed to its verified address and clears it as
+their author or acceptor.
 
 ### 6.4 `share_link`
 
-`id`, `tree_id` (cascade), `token_hash` (SHA-256, unique), `label?`,
-`scope_id?`, `expires_at?`, `created_by`, `created_at`, `revoked_at?`,
-`last_used_at?`, `use_count`.
+`id`, `tree_id` (cascade), `token_hash` (the token's SHA-256,
+base64url, unique), `label?`, `scope_id?` (cascade), `expires_at?`,
+`created_by?`, `created_at`, `revoked_at?`, `last_used_at?`, `use_count`.
+Indexed by `tree_id`. The grants a browser holds are not stored here but in
+the session store, by the digest of its `__Host-oxidgene-share` cookie
+([Authorization §6.3](authorization.md#63-share-links)).
 
 ### 6.5 `access_scope` and `access_scope_person`
 
 `access_scope`: `id`, `tree_id` (cascade), `definition` (JSON: `kind`,
 `person_id`, `depth?`, `include_self`, `include_spouses`, `collateral`),
-`built_generation?`, `created_at`. `access_scope_person`: `scope_id`
-(cascade), `person_id` (cascade), primary key on both, indexed by
-`person_id`. Rebuilt when `built_generation` differs from the tree's
-`sosa_state.generation` (§4.8).
+`built_generation?`, `created_at`; indexed by `tree_id`.
+`access_scope_person`: `scope_id` (cascade), `person_id` (cascade), primary
+key on both, indexed by `person_id`. Rebuilt when `built_generation` differs
+from the tree's `sosa_state.generation` (§4.8). A scope belongs to the one
+membership, invitation, share link or tree visibility holding it; a merge
+re-roots the scopes of the person it absorbs; the worker's maintenance pass
+deletes the scopes nothing holds any more.
 
 ### 6.6 `api_client` and `api_client_credential`
 
@@ -1513,7 +1524,7 @@ build only.
 
 | Table | Added |
 |---|---|
-| `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. Planned with sharing: `visibility` (`private`, `site`, `public`; default `private`), `visitor_scope_id?` |
+| `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. `visibility` (`private`, `site`, `public`; default `private`) and `visitor_scope_id?` (no foreign key: `access_scope` is created after `tree` and references it), written by the web build only and recorded in the history under `access`, unversioned |
 | `note` | `confidential` (default `false`) |
 | `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
 | `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |

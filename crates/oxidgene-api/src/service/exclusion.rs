@@ -16,8 +16,8 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::ExclusionKind;
 use oxidgene_core::history::{AuditEntity, AuditSubject};
-use oxidgene_core::privacy::{ExclusionScope, Kinship, families_of};
-use oxidgene_db::repo::{AncestryRepo, Exclusion, ExclusionRepo, PersonRepo, display_names};
+use oxidgene_core::privacy::{ExclusionScope, Kinship};
+use oxidgene_db::repo::{Exclusion, ExclusionRepo, display_names};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -81,47 +81,7 @@ async fn links(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
 ) -> Result<(Kinship, HashSet<Uuid>), OxidGeneError> {
-    let (persons, links) = tokio::try_join!(
-        PersonRepo::list_all(conn, tree_id),
-        AncestryRepo::family_links(conn, tree_id),
-    )?;
-    let live: HashSet<Uuid> = persons.iter().map(|person| person.id).collect();
-    let mut spouses = Vec::new();
-    let mut children = Vec::new();
-    for link in links {
-        let row = (link.family_id, link.person_id);
-        if link.spouse_role.is_some() {
-            spouses.push(row);
-        } else {
-            children.push(row);
-        }
-    }
-    let families = families_of(
-        &spouses
-            .into_iter()
-            .map(
-                |(family_id, person_id)| oxidgene_core::types::FamilySpouse {
-                    id: Uuid::nil(),
-                    family_id,
-                    person_id,
-                    role: oxidgene_core::enums::SpouseRole::Partner,
-                    sort_order: 0,
-                },
-            )
-            .collect::<Vec<_>>(),
-        &children
-            .into_iter()
-            .map(|(family_id, person_id)| oxidgene_core::types::FamilyChild {
-                id: Uuid::nil(),
-                family_id,
-                person_id,
-                child_type: oxidgene_core::enums::ChildType::Biological,
-                sort_order: 0,
-            })
-            .collect::<Vec<_>>(),
-        &live,
-    );
-    Ok((Kinship::of_families(&families), live))
+    crate::service::access_scope::kinship(conn, tree_id).await
 }
 
 /// Rebuild the union of `tree_id` in `conn`, when it is stale or `force`.

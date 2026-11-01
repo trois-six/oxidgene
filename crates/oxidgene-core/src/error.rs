@@ -28,6 +28,11 @@ pub enum OxidGeneError {
     #[error("Forbidden")]
     Forbidden,
 
+    /// Over a rate limit: the request may be tried again after
+    /// `retry_after` seconds (docs/authorization.md §4.3).
+    #[error("Rate limited")]
+    RateLimited { retry_after: u64 },
+
     /// Database error.
     #[error("Database error: {0}")]
     Database(String),

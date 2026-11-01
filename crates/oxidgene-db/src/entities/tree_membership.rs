@@ -13,6 +13,9 @@ pub struct Model {
     pub user_id: Uuid,
     /// `owner`, `editor` or `guest`; one `owner` per tree.
     pub role: String,
+    /// The access scope the member is limited to (docs/authorization.md
+    /// §6.5); none for the whole tree.
+    pub scope_id: Option<Uuid>,
     /// The member's own "Who am I?" person.
     pub self_person_id: Option<Uuid>,
     /// Past it, the membership grants nothing.

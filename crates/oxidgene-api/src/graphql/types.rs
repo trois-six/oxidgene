@@ -220,6 +220,34 @@ impl From<GqlTreeDefaultPrivacy> for oxidgene_core::enums::TreeDefaultPrivacy {
     }
 }
 
+/// Who a tree's visibility makes a Visitor (`docs/authorization.md` §6.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlTreeVisibility {
+    Private,
+    Site,
+    Public,
+}
+
+impl From<oxidgene_core::sharing::TreeVisibility> for GqlTreeVisibility {
+    fn from(v: oxidgene_core::sharing::TreeVisibility) -> Self {
+        match v {
+            oxidgene_core::sharing::TreeVisibility::Private => Self::Private,
+            oxidgene_core::sharing::TreeVisibility::Site => Self::Site,
+            oxidgene_core::sharing::TreeVisibility::Public => Self::Public,
+        }
+    }
+}
+
+impl From<GqlTreeVisibility> for oxidgene_core::sharing::TreeVisibility {
+    fn from(v: GqlTreeVisibility) -> Self {
+        match v {
+            GqlTreeVisibility::Private => Self::Private,
+            GqlTreeVisibility::Site => Self::Site,
+            GqlTreeVisibility::Public => Self::Public,
+        }
+    }
+}
+
 /// How a person hidden from a viewer appears (`docs/privacy.md` §5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlHiddenDisplay {
@@ -915,6 +943,10 @@ pub struct GqlTree {
     /// The privacy settings (`docs/privacy.md` §9).
     #[graphql(flatten)]
     pub privacy: GqlPrivacyFields,
+    /// Who is a Visitor (`docs/authorization.md` §6.4). Web build only.
+    pub visibility: GqlTreeVisibility,
+    /// The access scope Visitors are limited to; none for the whole tree.
+    pub visitor_scope_id: Option<ID>,
     /// Who the tree's GEDCOM exports say they are from.
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
@@ -1036,6 +1068,8 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
             privacy: t.privacy.into(),
+            visibility: t.visibility.into(),
+            visitor_scope_id: t.visitor_scope_id.map(|id| ID(id.to_string())),
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,

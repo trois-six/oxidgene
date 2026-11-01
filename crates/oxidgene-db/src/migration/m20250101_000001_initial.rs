@@ -49,7 +49,11 @@ impl MigrationTrait for Migration {
         // projection — before either of them.
         let tables = [
             AccessEvent::Table.into_table_ref(),
+            ShareLink::Table.into_table_ref(),
+            TreeInvitation::Table.into_table_ref(),
             TreeMembership::Table.into_table_ref(),
+            AccessScopePerson::Table.into_table_ref(),
+            AccessScope::Table.into_table_ref(),
             AppUser::Table.into_table_ref(),
             RecordVersion::Table.into_table_ref(),
             AuditEntry::Table.into_table_ref(),
@@ -129,11 +133,64 @@ enum TreeMembership {
     TreeId,
     UserId,
     Role,
+    ScopeId,
     SelfPersonId,
     ExpiresAt,
     CreatedBy,
     CreatedAt,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AccessScope {
+    Table,
+    Id,
+    TreeId,
+    Definition,
+    BuiltGeneration,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AccessScopePerson {
+    Table,
+    ScopeId,
+    PersonId,
+}
+
+#[derive(DeriveIden)]
+enum TreeInvitation {
+    Table,
+    Id,
+    TreeId,
+    Email,
+    Role,
+    ScopeId,
+    MembershipExpiresAt,
+    ExpiresAt,
+    CreatedBy,
+    CreatedAt,
+    LastSentAt,
+    AcceptedAt,
+    AcceptedBy,
+    DeclinedAt,
+    RevokedAt,
+}
+
+#[derive(DeriveIden)]
+enum ShareLink {
+    Table,
+    Id,
+    TreeId,
+    TokenHash,
+    Label,
+    ScopeId,
+    ExpiresAt,
+    CreatedBy,
+    CreatedAt,
+    RevokedAt,
+    LastUsedAt,
+    UseCount,
 }
 
 #[derive(DeriveIden)]
@@ -169,6 +226,8 @@ enum Tree {
     HiddenNavigation,
     ContemporaryPhotos,
     GuestsMayExport,
+    Visibility,
+    VisitorScopeId,
     SubmitterName,
     SubmitterEmail,
     SubmitterAddress,
@@ -652,6 +711,12 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(boolean(Tree::HiddenNavigation).default(true))
                 .col(boolean(Tree::ContemporaryPhotos).default(false))
                 .col(boolean(Tree::GuestsMayExport).default(false))
+                // Who is a Visitor (docs/authorization.md §6.4), and the
+                // access scope Visitors are limited to. No FK on the scope:
+                // `access_scope` is created after the tree and references
+                // it; the sharing service replaces and deletes it.
+                .col(string_len(Tree::Visibility, 8).default("private"))
+                .col(uuid_null(Tree::VisitorScopeId))
                 // Who the tree's GEDCOM exports say they are from (`SUBM`).
                 .col(string_null(Tree::SubmitterName))
                 .col(string_null(Tree::SubmitterEmail))
@@ -3013,8 +3078,205 @@ async fn create_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    create_access_scopes(manager).await?;
     create_memberships(manager).await?;
+    create_invitations(manager).await?;
+    create_share_links(manager).await?;
     create_access_events(manager).await
+}
+
+/// The persons a share is limited to (docs/data-model.md §6.5): a scope's
+/// definition, and its persons materialized as of the tree's ancestry
+/// generation `built_generation`, rebuilt when it moves.
+async fn create_access_scopes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AccessScope::Table)
+                .if_not_exists()
+                .col(uuid(AccessScope::Id).primary_key())
+                .col(uuid(AccessScope::TreeId))
+                .col(text(AccessScope::Definition))
+                .col(big_integer_null(AccessScope::BuiltGeneration))
+                .col(timestamp_with_time_zone(AccessScope::CreatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_access_scope_tree")
+                        .from(AccessScope::Table, AccessScope::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_access_scope_tree_id")
+                .table(AccessScope::Table)
+                .col(AccessScope::TreeId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_table(
+            Table::create()
+                .table(AccessScopePerson::Table)
+                .if_not_exists()
+                .col(uuid(AccessScopePerson::ScopeId))
+                .col(uuid(AccessScopePerson::PersonId))
+                .primary_key(
+                    Index::create()
+                        .col(AccessScopePerson::ScopeId)
+                        .col(AccessScopePerson::PersonId),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_access_scope_person_scope")
+                        .from(AccessScopePerson::Table, AccessScopePerson::ScopeId)
+                        .to(AccessScope::Table, AccessScope::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_access_scope_person_person")
+                        .from(AccessScopePerson::Table, AccessScopePerson::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_access_scope_person_person_id")
+                .table(AccessScopePerson::Table)
+                .col(AccessScopePerson::PersonId)
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Invitations by email (docs/data-model.md §6.3): an address, the role
+/// and scope it grants once accepted, and its own expiry.
+async fn create_invitations(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(TreeInvitation::Table)
+                .if_not_exists()
+                .col(uuid(TreeInvitation::Id).primary_key())
+                .col(uuid(TreeInvitation::TreeId))
+                .col(string(TreeInvitation::Email))
+                .col(string_len(TreeInvitation::Role, 8))
+                .col(uuid_null(TreeInvitation::ScopeId))
+                .col(timestamp_with_time_zone_null(
+                    TreeInvitation::MembershipExpiresAt,
+                ))
+                .col(timestamp_with_time_zone(TreeInvitation::ExpiresAt))
+                .col(uuid_null(TreeInvitation::CreatedBy))
+                .col(timestamp_with_time_zone(TreeInvitation::CreatedAt))
+                .col(timestamp_with_time_zone_null(TreeInvitation::LastSentAt))
+                .col(timestamp_with_time_zone_null(TreeInvitation::AcceptedAt))
+                .col(uuid_null(TreeInvitation::AcceptedBy))
+                .col(timestamp_with_time_zone_null(TreeInvitation::DeclinedAt))
+                .col(timestamp_with_time_zone_null(TreeInvitation::RevokedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_invitation_tree")
+                        .from(TreeInvitation::Table, TreeInvitation::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                // Removing a scope ends what it limited rather than
+                // widening it to the whole tree.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_invitation_scope")
+                        .from(TreeInvitation::Table, TreeInvitation::ScopeId)
+                        .to(AccessScope::Table, AccessScope::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // The owner lists a tree's invitations; a signed-in user's are found by
+    // their address.
+    for (name, column) in [
+        ("idx_tree_invitation_tree_id", TreeInvitation::TreeId),
+        ("idx_tree_invitation_email", TreeInvitation::Email),
+    ] {
+        manager
+            .create_index(
+                Index::create()
+                    .name(name)
+                    .table(TreeInvitation::Table)
+                    .col(column)
+                    .to_owned(),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+/// Share links (docs/data-model.md §6.4): only the token's digest is
+/// stored.
+async fn create_share_links(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ShareLink::Table)
+                .if_not_exists()
+                .col(uuid(ShareLink::Id).primary_key())
+                .col(uuid(ShareLink::TreeId))
+                .col(string_len(ShareLink::TokenHash, 64))
+                .col(string_null(ShareLink::Label))
+                .col(uuid_null(ShareLink::ScopeId))
+                .col(timestamp_with_time_zone_null(ShareLink::ExpiresAt))
+                .col(uuid_null(ShareLink::CreatedBy))
+                .col(timestamp_with_time_zone(ShareLink::CreatedAt))
+                .col(timestamp_with_time_zone_null(ShareLink::RevokedAt))
+                .col(timestamp_with_time_zone_null(ShareLink::LastUsedAt))
+                .col(big_integer(ShareLink::UseCount).default(0))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_share_link_tree")
+                        .from(ShareLink::Table, ShareLink::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_share_link_scope")
+                        .from(ShareLink::Table, ShareLink::ScopeId)
+                        .to(AccessScope::Table, AccessScope::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_share_link_token_hash")
+                .table(ShareLink::Table)
+                .col(ShareLink::TokenHash)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_share_link_tree_id")
+                .table(ShareLink::Table)
+                .col(ShareLink::TreeId)
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
 }
 
 /// Who may do what with each tree (docs/data-model.md §6.2): one row per
@@ -3029,6 +3291,7 @@ async fn create_memberships(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(TreeMembership::TreeId))
                 .col(uuid(TreeMembership::UserId))
                 .col(string_len(TreeMembership::Role, 8))
+                .col(uuid_null(TreeMembership::ScopeId))
                 .col(uuid_null(TreeMembership::SelfPersonId))
                 .col(timestamp_with_time_zone_null(TreeMembership::ExpiresAt))
                 .col(uuid_null(TreeMembership::CreatedBy))
@@ -3046,6 +3309,15 @@ async fn create_memberships(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .name("fk_tree_membership_user")
                         .from(TreeMembership::Table, TreeMembership::UserId)
                         .to(AppUser::Table, AppUser::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                // Removing a scope ends the membership it limited rather
+                // than widening it to the whole tree.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_membership_scope")
+                        .from(TreeMembership::Table, TreeMembership::ScopeId)
+                        .to(AccessScope::Table, AccessScope::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),

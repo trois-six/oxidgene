@@ -6,6 +6,7 @@
 //! - Repository implementations for all entities
 
 mod access_event;
+mod access_scope;
 mod ancestry;
 mod app_user;
 mod background_job;
@@ -23,6 +24,7 @@ mod family_child;
 mod family_spouse;
 mod gedcom_kept;
 mod history;
+mod invitation;
 mod media;
 mod media_library;
 mod media_link;
@@ -40,6 +42,7 @@ mod person_visibility;
 mod place;
 mod record_tag;
 mod repository;
+mod share_link;
 mod snapshot;
 mod sosa;
 mod source;
@@ -48,6 +51,7 @@ mod tree;
 mod vignette;
 
 pub use access_event::{AccessEvent, AccessEventRepo, NewAccessEvent};
+pub use access_scope::{AccessScope, AccessScopeRepo};
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use app_user::{AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, UserStatus};
 pub use background_job::{
@@ -73,10 +77,11 @@ pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
 pub use gedcom_kept::GedcomKeptRepo;
 pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
+pub use invitation::{InvitationEnd, InvitationRepo, NewInvitation, TreeInvitation};
 pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
-pub use membership::{MembershipChanges, MembershipRepo, TreeMembership};
+pub use membership::{MembershipChanges, MembershipRepo, SharedMembership, TreeMembership};
 pub use note::{NoteFilter, NoteRepo};
 pub use pagination::{PaginationParams, encode_cursor};
 pub use person::{PersonRepo, PortraitRow};
@@ -96,6 +101,7 @@ pub use repository::{
     RepositoryFields, RepositoryPatch, RepositoryRepo, SourceRepositoryFields,
     SourceRepositoryPatch, SourceRepositoryRepo,
 };
+pub use share_link::{NewShareLink, ShareLink, ShareLinkChanges, ShareLinkRepo};
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
 pub use sosa::{ParentLink, SosaAncestor, SosaRepo};
 pub use source::{SourceFilter, SourceRepo};

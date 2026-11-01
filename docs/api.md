@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 
@@ -106,7 +106,9 @@ carries `viewer_access: { role, permissions, scoped }` (GraphQL
 `viewerAccess`), so a client offers only what the server allows. The
 desktop and `OXIDGENE_AUTH_MODE=none` act as the local owner of every tree.
 The account, membership and access-log operations are listed under
-[Accounts](#accounts). Privacy values are stored but not enforced for other
+[Accounts](#accounts), sharing under [Sharing](#sharing): a `site` or
+`public` tree, or one a share link the browser opened shows, has Visitors
+who read it with `read` alone. Privacy values are stored but not enforced for other
 viewers yet (phase 3), so clients must not claim that private records are
 hidden; until then the API is local or private infrastructure only and must
 not be published directly to an untrusted network.
@@ -206,10 +208,10 @@ Base path: `/api/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees` | List the viewer's trees (cursor-paginated): every tree for the local owner, the trees a user is a member of otherwise, each with `viewer_access`. List nodes add transient `import_in_progress: bool`, `import_job_id: UUID?` and `import_cancelling: bool` fields from the job queue (GraphQL: `importInProgress`, `importJobId` and `importCancelling` on every `Tree`); these are not persisted tree fields and disappear once the job completes, fails or is cancelled. `import_cancelling` is true while the import was asked to stop and is undoing what it wrote |
+| `GET` | `/trees` | List the viewer's trees (cursor-paginated): every tree for the local owner; otherwise the trees a user is a member of, and those a share link their browser opened shows as a Visitor ([Authorization §6.4](authorization.md#64-tree-visibility): a `site` or `public` tree is reached by its address, never listed), each with `viewer_access`. List nodes add transient `import_in_progress: bool`, `import_job_id: UUID?` and `import_cancelling: bool` fields from the job queue (GraphQL: `importInProgress`, `importJobId` and `importCancelling` on every `Tree`); these are not persisted tree fields and disappear once the job completes, fails or is cancelled. `import_cancelling` is true while the import was asked to stop and is undoing what it wrote |
 | `POST` | `/trees` | Create a tree; a blank `name` is a `validation_error`. A signed-in creator becomes its owner |
 | `GET` | `/trees/{tree_id}` | Get a tree, with `viewer_access` |
-| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error` |
+| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error`. In the web build, `visibility` (`private`, `site`, `public`) and `visitor_scope` (a [scope](#sharing), `null` for the whole tree) set who is a Visitor ([Authorization §6.4](authorization.md#64-tree-visibility)); they are recorded in the history under `access`, entity `visibility`, and a server run without authentication refuses them (`validation_error`). Every tree carries `visibility` and `visitor_scope_id` |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy); the copy, its projections and both trees' audit entries are written in one transaction, so a copy that fails leaves no tree |
 | `GET` | `/trees/recent-persons?tree_ids=ID,ID&limit=N` | The persons modified most recently in each of up to 100 trees (a page of the tree list), more being a `validation_error`, `[{tree_id, persons}]` in the order asked, `persons` being `SearchEntry` rows as for one tree's `recently-modified`; a missing or deleted tree, or one the viewer may not read, is left out, an id that is not a UUID is a `validation_error`. GraphQL: `recentPersonsOfTrees(treeIds, limit)` |
@@ -233,7 +235,7 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `GET` | `/me` | The signed-in user: `{ id, display_name, provider_name, avatar, email, email_verified, locale, instance_role, can_create_trees }`; `display_name` is the user's own, else the provider's. GraphQL: `me` |
 | `PUT` | `/me` | `{ display_name?, locale? }`: a display name of 1 to 80 characters without control characters, trimmed; a locale among the interface languages (`en`, `fr`, `de`, `es`, `it`, `nl`, `pl`, `pt`); `null` returns to the provider's value. Answers the user as `GET /me`. GraphQL: `updateMe(input)` |
 | `DELETE` | `/me` | Erase the account ([Authentication §6.6](authentication.md#66-erasure-and-account-data)): every session ends, the row becomes a tombstone, the avatar's files go; `204`, the session cookie cleared. GraphQL: `deleteMyAccount` |
-| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at, memberships, access_events }`, `user` as `GET /admin/users/{user_id}` answers it, `memberships` `[{ tree_id, role, self_person_id, expires_at, created_at }]`, `access_events` the user's events as `GET /admin/access-log` lists them, oldest first. GraphQL: `myAccountData` |
+| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at, memberships, invitations, access_events }`, `user` as `GET /admin/users/{user_id}` answers it, `memberships` `[{ tree_id, role, self_person_id, expires_at, created_at }]`, `invitations` the invitations addressed to the user's address `[{ tree_id, role, created_at, expires_at, accepted_at, declined_at, revoked_at }]`, `access_events` the user's events as `GET /admin/access-log` lists them, oldest first. GraphQL: `myAccountData` |
 | `PUT` | `/me/avatar` | Multipart: `file`, a JPEG, PNG or WebP image of at most 5 MiB and 40 megapixels, and the crop square `x`, `y`, `size` in pixels of the upright image (all three or none: the centred largest square). Answers the user as `GET /me`. GraphQL: `uploadMyAvatar(input)`, the image base64-encoded within the GraphQL body limit |
 | `DELETE` | `/me/avatar` | Back to the generated avatar; `204`. GraphQL: `deleteMyAvatar` |
 | `GET` | `/me/sessions` | The user's sessions, newest first: `[{ id, created_at, last_used_at, client_id, browser, current }]`, `browser` being `firefox`, `chrome`, `edge`, `safari`, `opera` or `other`. GraphQL: `mySessions` |
@@ -248,8 +250,8 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `GET` | `/admin/trees` | Every live tree, metadata only, cursor-paginated: `{ id, name, owner_id, owner_name, person_count, created_at, updated_at }`, `owner_id` `null` for an ownerless tree. Administrators only. GraphQL: `adminTrees(first, after)` |
 | `PUT` | `/admin/trees/{tree_id}/owner` | `{ user_id }`: give an ownerless tree an owner, a member promoted or anyone else made one; answers the owner as a member. A tree with an owner, or a deactivated user, is a `conflict`; an unknown or erased user `not_found`. GraphQL: `assignTreeOwner(treeId, userId)` |
 | `GET` | `/admin/access-log` | The instance's access events, newest first, cursor-paginated: `{ id, occurred_at, kind, principal_kind, user_id, api_client_id, share_link_id, client_id, tree_id, route, permission, outcome, request_id }`. Administrators only. GraphQL: `accessEvents(first, after)` |
-| `GET` | `/trees/{tree_id}/members` | The tree's members, cursor-paginated: `{ user_id, display_name, role, self_person_id, expires_at, created_at, updated_at }` — every member for the owner, the viewer's own row for another member. GraphQL: `treeMembers(treeId, first, after)` |
-| `PUT` | `/trees/{tree_id}/members/{user_id}` | `{ role?, expires_at?, self_person_id? }`, `null` clearing an optional field: the owner changes a member's role (`editor` or `guest`) and expiry; a member sets their own "Who am I?" person, a person of the tree. Another's field is `forbidden`; the owner's role changes by transfer (`validation_error`). Answers the member. GraphQL: `updateTreeMember(treeId, userId, input)` |
+| `GET` | `/trees/{tree_id}/members` | The tree's members, cursor-paginated: `{ user_id, display_name, role, scope, self_person_id, expires_at, created_at, updated_at }`, `scope` the member's [scope](#sharing) or `null` — every member for the owner, the viewer's own row for another member. GraphQL: `treeMembers(treeId, first, after)` |
+| `PUT` | `/trees/{tree_id}/members/{user_id}` | `{ role?, scope?, expires_at?, self_person_id? }`, `null` clearing an optional field: the owner changes a member's role (`editor` or `guest`), [scope](#sharing) and expiry, a past expiry being a `validation_error`; a member sets their own "Who am I?" person, a person of the tree. Another's field is `forbidden`; the owner's role changes by transfer (`validation_error`). Answers the member. GraphQL: `updateTreeMember(treeId, userId, input)` |
 | `DELETE` | `/trees/{tree_id}/members/{user_id}` | End a membership: the owner removes a member, a member leaves (`204`); the owner leaving is a `conflict`. GraphQL: `removeTreeMember(treeId, userId)` |
 | `POST` | `/trees/{tree_id}/ownership` | `{ user_id }`: hand the tree to one of its members, the owner becoming an editor, in one transaction; answers the new owner as a member. Owner only. GraphQL: `transferTreeOwnership(treeId, userId)` |
 | `GET` | `/trees/{tree_id}/access-log` | The tree's access events, as `/admin/access-log`. Owner only. GraphQL: `treeAccessEvents(treeId, first, after)` |
@@ -283,6 +285,56 @@ family links, deletions or restorations
 ([Privacy §6.5](privacy.md#65-kept-in-sync)). Until redaction for other
 viewers arrives, the owner's export reads it
 ([Import / export](#import--export), `leave_out_excluded`).
+
+### Sharing
+
+Sharing a tree ([Authorization §6](authorization.md#6-sharing)), served only
+by a server built with the `auth` feature — the desktop answers
+`404 not_found` — and absent, `404 not_found`, from a server run without
+authentication, whose local owner has nobody to share with. Every operation
+but the invited user's takes `members_manage`, the owner's alone; the
+visitor scope takes `settings_manage`. Each change is recorded in the tree's
+history under `access` — entity `membership`, `tree_invitation` or
+`share_link`, about the tree — with its author; lookups by email or username
+and share-link redemptions are recorded in the access log, never the
+address, the name or the token.
+
+A **scope** limits a share to persons of the tree
+([Authorization §6.5](authorization.md#65-access-scopes)): `{ kind,
+person_id, depth?, include_self?, include_spouses?, collateral? }`, `kind`
+`ancestors_of`, `descendants_of` or `ancestors_and_descendants_of`, `depth`
+1 to 30 generations (all of them, up to 64, when absent; out of range a
+`validation_error`), `include_self` `true` by default, `include_spouses` the
+spouses of the persons the walk reaches (not the root's, as a bulk target
+names them) and `collateral` their siblings and the siblings' spouses, both
+`false` by default. A root that is not a live person of the tree is
+`not_found`. A scope is answered with its `id`, `person_name` (the root's
+display name) and `person_deleted` (a deleted root, which leaves the scope
+empty until it is restored).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/trees/{tree_id}/members` | Share the tree: `{ email \| username \| user_id, role, scope?, expires_at?, invitation_expires_at? }`, exactly one of `email` (compared with the verified addresses of accounts, without regard to case), `username` (exact) and `user_id` (one of the share candidates); `role` `editor` or `guest`; `expires_at` the membership's end. An account found becomes a member at once: `201 { member, invitation: null }`. An address no account has verified becomes an invitation: `202 { member: null, invitation }`, `invitation` as `GET …/invitations` lists it, waiting until `invitation_expires_at` (14 days by default, at most 90). A username or user id nobody has is `not_found`, someone already a member or an address already invited a `conflict`, another role a `validation_error`. Lookups by email or username are limited to 30 an hour per user (`429 rate_limited`, `Retry-After`). GraphQL: `shareTree(treeId, input)` answering `{ member, invitation }` |
+| `GET` | `/trees/{tree_id}/share-candidates` | The people the owner already shares with — the members of their other trees, not yet members of this one — at most 50: `[{ user_id, display_name }]`, never an address. GraphQL: `shareCandidates(treeId)` |
+| `GET` | `/trees/{tree_id}/invitations` | The pending invitations, cursor-paginated, oldest first: `{ id, email, role, scope, membership_expires_at, expires_at, created_at, last_sent_at, link, delivery }`, `link` being `{public_url}/invitations` — it carries no secret — and `delivery` `email` when OxidGene mails invitations, `manual` when the owner sends the link themselves. GraphQL: `treeInvitations(treeId, first, after)` |
+| `POST` | `/trees/{tree_id}/invitations/{invitation_id}/resend` | Send a pending invitation again: it waits 14 more days if that is later. Answers the invitation; one not pending is `not_found`. GraphQL: `resendTreeInvitation(treeId, invitationId)` |
+| `DELETE` | `/trees/{tree_id}/invitations/{invitation_id}` | Revoke a pending invitation; `204`. GraphQL: `revokeTreeInvitation(treeId, invitationId)` |
+| `GET` | `/me/invitations` | The pending invitations addressed to the signed-in user's verified address: `[{ id, tree_id, tree_name, inviter_name, role, scoped, membership_expires_at, expires_at, created_at }]`; none for an unverified address. GraphQL: `myInvitations` |
+| `POST` | `/me/invitations/{invitation_id}/accept` | The invitation becomes the user's membership, with its role, scope and expiry: `{ member }`. An invitation not addressed to the user's verified address, or not pending, is `not_found` whoever holds the link; someone already a member a `conflict`. GraphQL: `acceptInvitation(invitationId)`, answering the member |
+| `POST` | `/me/invitations/{invitation_id}/decline` | Decline it; `204`. GraphQL: `declineInvitation(invitationId)` |
+| `GET` | `/trees/{tree_id}/share-links` | The share links not revoked, cursor-paginated, oldest first: `{ id, label, scope, expires_at, expired, created_at, last_used_at, use_count }`, never the token. GraphQL: `shareLinks(treeId, first, after)` |
+| `POST` | `/trees/{tree_id}/share-links` | `{ label?, scope?, expires_at? }`, a label of at most 100 characters: `201 { link, url }`, `url` being `{public_url}/auth/share/{token}` with its `ogs_` token, returned this once. GraphQL: `createShareLink(treeId, input)` |
+| `PUT` | `/trees/{tree_id}/share-links/{link_id}` | `{ label?, scope?, expires_at? }`, `null` clearing one; answers the link. A revoked link is `not_found`. GraphQL: `updateShareLink(treeId, linkId, input)` |
+| `DELETE` | `/trees/{tree_id}/share-links/{link_id}` | Revoke the link: every grant made from it ends at the next request; `204`. GraphQL: `revokeShareLink(treeId, linkId)` |
+| `POST` | `/trees/{tree_id}/access-scopes/preview` | `{ scope? }`: what a scope reaches — the whole tree without one — writing nothing: `{ person_count, visitor_count, excluded_count }`, `visitor_count` the persons of it a Visitor sees (neither excluded, private nor contemporary) and `excluded_count` those excluded from sharing. GraphQL: `accessScopePreview(treeId, scope)` |
+| `GET` | `/trees/{tree_id}/visitor-scope` | The scope the tree's Visitors are limited to, or `null`: its root may be a person they do not see, so only the owner reads it. GraphQL: `visitorScope(treeId)` |
+
+Opening a share link, `GET /auth/share/{token}`, is a transport of the
+Backend-for-Frontend ([Authorization §6.3](authorization.md#63-share-links)),
+outside `/api/v1`: the link's grant joins the browser's
+`__Host-oxidgene-share` cookie, signed in or not, and the browser is sent to
+`/trees/{tree_id}`; a link that opens nothing lands on
+`/?auth_error=share_link_invalid`.
 
 ### Persons
 

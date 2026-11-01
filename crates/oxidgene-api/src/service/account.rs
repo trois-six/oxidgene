@@ -28,9 +28,8 @@ use crate::reference::ReferenceLang;
 /// Who gets an account at their first sign-in (`OXIDGENE_AUTH_SIGNUP`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignupRule {
-    /// An identity with a pending invitation, and the bootstrap
-    /// administrator. Invitations arrive with sharing; until then the
-    /// bootstrap administrator alone is admitted.
+    /// An identity whose verified address has a pending invitation, and the
+    /// bootstrap administrator.
     Invitation,
     /// An identity carrying one of the allowed values of the roles claim.
     Claim,
@@ -152,7 +151,7 @@ pub async fn sign_in(
 ) -> Result<Result<Admission, SignInRefusal>, OxidGeneError> {
     let txn = db.begin().await.map_err(db_err)?;
     let existing = AppUserRepo::find_by_identity(&txn, &claims.issuer, &claims.subject).await?;
-    let bootstrap = bootstraps(&txn, policy, claims).await?;
+    let (bootstrap, invited) = gates(&txn, policy, claims, existing.is_none()).await?;
     let outcome = match existing {
         Some(user) if user.status == UserStatus::Deactivated => {
             Err(SignInRefusal::AccountDeactivated)
@@ -177,7 +176,7 @@ pub async fn sign_in(
                 })
             }
         }
-        None if admitted(policy, claims, bootstrap) => {
+        None if admitted(policy, claims, bootstrap, invited) => {
             let changes = claim_changes(policy, claims, None);
             let created = AppUserRepo::create(
                 &txn,
@@ -213,9 +212,16 @@ pub async fn sign_in(
     Ok(outcome)
 }
 
-/// Whether the gate admits a new identity.
-fn admitted(policy: &SignupPolicy, claims: &IdentityClaims, bootstrap: bool) -> bool {
+/// Whether the gate admits a new identity: the bootstrap administrator, an
+/// invited address, and whom the rule lets in.
+fn admitted(
+    policy: &SignupPolicy,
+    claims: &IdentityClaims,
+    bootstrap: bool,
+    invited: bool,
+) -> bool {
     bootstrap
+        || invited
         || match policy.signup {
             SignupRule::Open => true,
             SignupRule::Claim => policy.carries(
@@ -224,6 +230,39 @@ fn admitted(policy: &SignupPolicy, claims: &IdentityClaims, bootstrap: bool) -> 
             ),
             SignupRule::Invitation => false,
         }
+}
+
+/// Whether the sign-in makes the bootstrap administrator, and whether a new
+/// identity is invited.
+async fn gates(
+    db: &impl sea_orm::ConnectionTrait,
+    policy: &SignupPolicy,
+    claims: &IdentityClaims,
+    new: bool,
+) -> Result<(bool, bool), OxidGeneError> {
+    Ok((
+        bootstraps(db, policy, claims).await?,
+        invited(db, policy, claims, new).await?,
+    ))
+}
+
+/// Whether a new identity's verified address has a pending invitation to
+/// a live tree: what the `invitation` signup gate admits beside the bootstrap
+/// administrator (§6.2, docs/authorization.md §6.2).
+async fn invited(
+    db: &impl sea_orm::ConnectionTrait,
+    policy: &SignupPolicy,
+    claims: &IdentityClaims,
+    new: bool,
+) -> Result<bool, OxidGeneError> {
+    let Some(email) = claims.email.as_deref().filter(|_| new) else {
+        return Ok(false);
+    };
+    if policy.signup != SignupRule::Invitation || !claims.email_verified(policy) {
+        return Ok(false);
+    }
+    oxidgene_db::repo::InvitationRepo::has_pending(db, &email.trim().to_lowercase(), Utc::now())
+        .await
 }
 
 /// Whether this sign-in makes the bootstrap administrator: no active
@@ -424,8 +463,23 @@ pub struct AccountData {
     pub updated_at: DateTime<Utc>,
     /// The trees the user holds a role on.
     pub memberships: Vec<AccountMembership>,
+    /// The invitations addressed to the user's address, whatever their
+    /// state.
+    pub invitations: Vec<AccountInvitation>,
     /// The access log's events about the user, oldest first.
     pub access_events: Vec<oxidgene_db::repo::AccessEvent>,
+}
+
+/// An invitation addressed to the user, in their account data.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AccountInvitation {
+    pub tree_id: Uuid,
+    pub role: oxidgene_core::access::TreeRole,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub declined_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
 }
 
 /// One of the user's memberships, in their account data.
@@ -585,6 +639,24 @@ pub async fn account_data(
             created_at: membership.created_at,
         })
         .collect();
+    let invitations = match user.email.as_deref() {
+        Some(email) => {
+            oxidgene_db::repo::InvitationRepo::of_email(db, &email.trim().to_lowercase())
+                .await?
+                .into_iter()
+                .map(|invitation| AccountInvitation {
+                    tree_id: invitation.tree_id,
+                    role: invitation.role,
+                    created_at: invitation.created_at,
+                    expires_at: invitation.expires_at,
+                    accepted_at: invitation.accepted_at,
+                    declined_at: invitation.declined_at,
+                    revoked_at: invitation.revoked_at,
+                })
+                .collect()
+        }
+        None => Vec::new(),
+    };
     Ok(AccountData {
         exported_at: Utc::now(),
         user: ManagedUser::from(&user),
@@ -593,6 +665,7 @@ pub async fn account_data(
         locale: user.locale.clone(),
         updated_at: user.updated_at,
         memberships,
+        invitations,
         access_events: oxidgene_db::repo::AccessEventRepo::of_user(db, user.id).await?,
     })
 }
@@ -871,9 +944,18 @@ async fn erasable(db: &DatabaseConnection, id: Uuid) -> Result<AppUser, OxidGene
 
 /// End the user's memberships and clear what identifies them, in one
 /// transaction.
-async fn tombstone(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+async fn tombstone(
+    db: &DatabaseConnection,
+    id: Uuid,
+    email: Option<&str>,
+) -> Result<(), OxidGeneError> {
     let txn = db.begin().await.map_err(db_err)?;
     MembershipRepo::delete_of_user(&txn, id).await?;
+    // The invitations addressed to them go; those they sent and the share
+    // links they made stay the tree's, without their author.
+    let email = email.map(|email| email.trim().to_lowercase());
+    oxidgene_db::repo::InvitationRepo::forget_user(&txn, id, email.as_deref()).await?;
+    oxidgene_db::repo::ShareLinkRepo::forget_user(&txn, id).await?;
     AppUserRepo::erase(&txn, id).await?;
     txn.commit().await.map_err(db_err)
 }
@@ -882,8 +964,8 @@ async fn tombstone(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneErro
 /// tree, which they transfer or delete first; then their sessions end,
 /// their memberships and the tombstone are written in one transaction, and
 /// their avatar's files go once that commits. What later phases store about
-/// a user — invitations, notifications, API clients, messages — is deleted
-/// here as each ships.
+/// a user — notifications, API clients, messages — is deleted here as each
+/// ships.
 async fn erase(
     db: &DatabaseConnection,
     auth: &Auth,
@@ -892,7 +974,9 @@ async fn erase(
 ) -> Result<(), OxidGeneError> {
     let user = erasable(db, id).await?;
     auth.end_user_sessions(id, "erased").await?;
-    tombstone(db, id).await?;
+    // Only a verified address is theirs to clear.
+    let email = user.email.as_deref().filter(|_| user.email_verified);
+    tombstone(db, id, email).await?;
     if let Some(sha256) = user.avatar_sha256 {
         super::avatar::delete_files(media.as_ref(), id, &sha256).await;
     }
@@ -957,17 +1041,21 @@ mod tests {
     fn the_gate_admits_by_rule() {
         let mut policy = policy();
         let mut claims = IdentityClaims::default();
-        assert!(admitted(&policy, &claims, false));
+        assert!(admitted(&policy, &claims, false, false));
         policy.signup = SignupRule::Invitation;
-        assert!(!admitted(&policy, &claims, false));
+        assert!(!admitted(&policy, &claims, false, false));
         assert!(
-            admitted(&policy, &claims, true),
+            admitted(&policy, &claims, true, false),
             "the bootstrap administrator"
         );
+        assert!(
+            admitted(&policy, &claims, false, true),
+            "an invited address"
+        );
         policy.signup = SignupRule::Claim;
-        assert!(!admitted(&policy, &claims, false));
+        assert!(!admitted(&policy, &claims, false, false));
         claims.roles = Some(vec!["members".into()]);
-        assert!(admitted(&policy, &claims, false));
+        assert!(admitted(&policy, &claims, false, false));
     }
 
     #[test]

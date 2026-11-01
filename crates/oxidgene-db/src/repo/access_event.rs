@@ -45,6 +45,8 @@ pub struct NewAccessEvent {
     pub principal_kind: &'static str,
     pub user_id: Option<Uuid>,
     pub api_client_id: Option<Uuid>,
+    /// The share link the viewer's access came from, or the one redeemed.
+    pub share_link_id: Option<Uuid>,
     pub client_id: Option<String>,
     pub tree_id: Option<Uuid>,
     pub route: Option<String>,
@@ -68,7 +70,7 @@ impl AccessEventRepo {
             principal_kind: Set(event.principal_kind.to_string()),
             user_id: Set(event.user_id),
             api_client_id: Set(event.api_client_id),
-            share_link_id: Set(None),
+            share_link_id: Set(event.share_link_id),
             client_id: Set(event.client_id),
             tree_id: Set(event.tree_id),
             route: Set(event.route),

@@ -755,6 +755,7 @@ impl BackgroundJobWorker {
             sweep_orphaned_job_objects(&self.db, media, now).await,
         );
         log_maintenance_failure("membership_expiry", expire_memberships(&self.db, now).await);
+        log_maintenance_failure("invitation_expiry", end_sharing(&self.db, now).await);
         log_maintenance_failure(
             "access_log_retention",
             prune_access_log(&self.db, now, self.access_log_retention).await,
@@ -1490,6 +1491,19 @@ async fn expire_memberships(
         )
         .await?;
     }
+    Ok(())
+}
+
+/// Delete the invitations no longer pending — expired, answered or
+/// revoked (docs/authorization.md §6.2) — then the access scopes nothing
+/// holds any more: an expired membership's, a removed invitation's. Empty
+/// on the desktop, which shares nothing.
+async fn end_sharing(
+    db: &DatabaseConnection,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), OxidGeneError> {
+    oxidgene_db::repo::InvitationRepo::delete_ended(db, now).await?;
+    oxidgene_db::repo::AccessScopeRepo::delete_orphans(db).await?;
     Ok(())
 }
 

@@ -1,4 +1,19 @@
 """
+An access scope to store: REST's `scope` object.
+"""
+input AccessScopeInput {
+	kind: GqlScopeKind!
+	personId: ID!
+	"""
+	Generations walked, 1 to 30; all of them when absent.
+	"""
+	depth: Int
+	includeSelf: Boolean! = true
+	includeSpouses: Boolean! = false
+	collateral: Boolean! = false
+}
+
+"""
 Input for adding a child to a family.
 """
 input AddChildInput {
@@ -418,6 +433,15 @@ input CreateRepositoryInput {
 }
 
 """
+A link to create: REST `POST /trees/{tree_id}/share-links`.
+"""
+input CreateShareLinkInput {
+	label: String
+	scope: AccessScopeInput
+	expiresAt: DateTime
+}
+
+"""
 Input for creating a source.
 """
 input CreateSourceInput {
@@ -600,6 +624,21 @@ type GqlAccessEventEdge {
 }
 
 """
+A scope as it is shown: REST's `scope` object.
+"""
+type GqlAccessScope {
+	id: ID!
+	kind: GqlScopeKind!
+	personId: ID!
+	depth: Int
+	includeSelf: Boolean!
+	includeSpouses: Boolean!
+	collateral: Boolean!
+	personName: String
+	personDeleted: Boolean!
+}
+
+"""
 The account data export: REST `GET /me/export`.
 """
 type GqlAccountData {
@@ -610,7 +649,24 @@ type GqlAccountData {
 	locale: String
 	updatedAt: DateTime!
 	memberships: [GqlAccountMembership!]!
+	invitations: [GqlAccountInvitation!]!
 	accessEvents: [GqlAccessEvent!]!
+}
+
+"""
+An invitation addressed to the user, in their account data.
+"""
+type GqlAccountInvitation {
+	treeId: ID!
+	"""
+	`editor` or `guest`.
+	"""
+	role: String!
+	createdAt: DateTime!
+	expiresAt: DateTime!
+	acceptedAt: DateTime
+	declinedAt: DateTime
+	revokedAt: DateTime
 }
 
 """
@@ -857,6 +913,9 @@ enum GqlAuditEntity {
 	RECORD_TAG
 	PRIVACY_EXCLUSION
 	MEMBERSHIP
+	TREE_INVITATION
+	SHARE_LINK
+	VISIBILITY
 }
 
 """
@@ -1042,6 +1101,14 @@ type GqlCoupleDetailBundle {
 }
 
 """
+A link just created, with its URL, shown once.
+"""
+type GqlCreatedShareLink {
+	link: GqlShareLink!
+	url: String!
+}
+
+"""
 Date qualifier.
 """
 enum GqlDateQualifier {
@@ -1055,6 +1122,14 @@ enum GqlDateQualifier {
 	OR
 	BETWEEN
 	FROM_AGE
+}
+
+"""
+How an invitation reaches its address.
+"""
+enum GqlDelivery {
+	EMAIL
+	MANUAL
 }
 
 """
@@ -2311,6 +2386,21 @@ type GqlMediaWithLink {
 	media: GqlMedia!
 }
 
+"""
+An invitation the signed-in user may accept: REST `GET /me/invitations`.
+"""
+type GqlMyInvitation {
+	id: ID!
+	treeId: ID!
+	treeName: String!
+	inviterName: String
+	role: String!
+	scoped: Boolean!
+	membershipExpiresAt: DateTime
+	expiresAt: DateTime!
+	createdAt: DateTime!
+}
+
 type GqlNameSnapshot {
 	id: ID!
 	nameType: GqlNameType!
@@ -3194,6 +3284,24 @@ type GqlRepositorySnapshot {
 }
 
 """
+Which side of its root a scope reaches.
+"""
+enum GqlScopeKind {
+	ANCESTORS_OF
+	DESCENDANTS_OF
+	ANCESTORS_AND_DESCENDANTS_OF
+}
+
+"""
+What a scope reaches: REST `POST /trees/{tree_id}/access-scopes/preview`.
+"""
+type GqlScopePreview {
+	personCount: Int!
+	visitorCount: Int!
+	excludedCount: Int!
+}
+
+"""
 A single search result entry.
 """
 type GqlSearchEntry {
@@ -3239,6 +3347,48 @@ enum GqlSex {
 	MALE
 	FEMALE
 	UNKNOWN
+}
+
+"""
+One of the people the owner already shares with.
+"""
+type GqlShareCandidate {
+	userId: ID!
+	displayName: String
+}
+
+"""
+A share link: REST `GET /trees/{tree_id}/share-links`.
+"""
+type GqlShareLink {
+	id: ID!
+	label: String
+	scope: GqlAccessScope
+	expiresAt: DateTime
+	expired: Boolean!
+	createdAt: DateTime!
+	lastUsedAt: DateTime
+	useCount: Int!
+}
+
+type GqlShareLinkConnection {
+	edges: [GqlShareLinkEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlShareLinkEdge {
+	cursor: String!
+	node: GqlShareLink!
+}
+
+"""
+What sharing made: REST `POST /trees/{tree_id}/members`, a membership
+(`201`) or an invitation (`202`).
+"""
+type GqlShareOutcome {
+	member: GqlTreeMember
+	invitation: GqlTreeInvitation
 }
 
 """
@@ -3656,6 +3806,14 @@ type GqlTree {
 	"""
 	guestsMayExport: Boolean!
 	"""
+	Who is a Visitor (`docs/authorization.md` §6.4). Web build only.
+	"""
+	visibility: GqlTreeVisibility!
+	"""
+	The access scope Visitors are limited to; none for the whole tree.
+	"""
+	visitorScopeId: ID
+	"""
 	Who the tree's GEDCOM exports say they are from.
 	"""
 	submitterName: String
@@ -3715,6 +3873,33 @@ type GqlTreeEdge {
 }
 
 """
+A pending invitation: REST `GET /trees/{tree_id}/invitations`.
+"""
+type GqlTreeInvitation {
+	id: ID!
+	email: String!
+	role: String!
+	scope: GqlAccessScope
+	membershipExpiresAt: DateTime
+	expiresAt: DateTime!
+	createdAt: DateTime!
+	lastSentAt: DateTime
+	link: String!
+	delivery: GqlDelivery!
+}
+
+type GqlTreeInvitationConnection {
+	edges: [GqlTreeInvitationEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlTreeInvitationEdge {
+	cursor: String!
+	node: GqlTreeInvitation!
+}
+
+"""
 A flat media link with the display fields needed by tree-wide consumers.
 """
 type GqlTreeMediaLink {
@@ -3738,6 +3923,11 @@ type GqlTreeMember {
 	`owner`, `editor` or `guest`.
 	"""
 	role: String!
+	"""
+	The part of the tree the member is limited to; none for the whole
+	tree.
+	"""
+	scope: GqlAccessScope
 	selfPersonId: ID
 	expiresAt: DateTime
 	createdAt: DateTime!
@@ -3797,6 +3987,15 @@ type GqlTreeSnapshot {
 	submitterEmail: String
 	submitterAddress: String
 	anomalyThresholds: GqlAnomalyThresholds!
+}
+
+"""
+Who a tree's visibility makes a Visitor (`docs/authorization.md` §6.4).
+"""
+enum GqlTreeVisibility {
+	PRIVATE
+	SITE
+	PUBLIC
 }
 
 type GqlUnionSnapshot {
@@ -4559,6 +4758,42 @@ type MutationRoot {
 	Give an ownerless tree an owner: an administrator's act.
 	"""
 	assignTreeOwner(treeId: ID!, userId: ID!): GqlTreeMember!
+	"""
+	Share a tree with a user, by exact email, exact username or among
+	the people the owner already shares with; an email no account has
+	becomes an invitation.
+	"""
+	shareTree(treeId: ID!, input: ShareTreeInput!): GqlShareOutcome!
+	"""
+	Send a pending invitation again.
+	"""
+	resendTreeInvitation(treeId: ID!, invitationId: ID!): GqlTreeInvitation!
+	"""
+	Revoke a pending invitation; true once revoked.
+	"""
+	revokeTreeInvitation(treeId: ID!, invitationId: ID!): Boolean!
+	"""
+	Accept an invitation addressed to the signed-in user's verified
+	address: it becomes their membership.
+	"""
+	acceptInvitation(invitationId: ID!): GqlTreeMember!
+	"""
+	Decline an invitation; true once declined.
+	"""
+	declineInvitation(invitationId: ID!): Boolean!
+	"""
+	Create a share link; its URL is returned once.
+	"""
+	createShareLink(treeId: ID!, input: CreateShareLinkInput!): GqlCreatedShareLink!
+	"""
+	Change a share link's label, scope or expiry.
+	"""
+	updateShareLink(treeId: ID!, linkId: ID!, input: UpdateShareLinkInput!): GqlShareLink!
+	"""
+	Revoke a share link: every grant made from it ends; true once
+	revoked.
+	"""
+	revokeShareLink(treeId: ID!, linkId: ID!): Boolean!
 }
 
 """
@@ -5196,6 +5431,32 @@ type QueryRoot {
 	The instance's access events, newest first, for an administrator.
 	"""
 	accessEvents(first: Int, after: String): GqlAccessEventConnection!
+	"""
+	The pending invitations of the signed-in user's verified address.
+	"""
+	myInvitations: [GqlMyInvitation!]!
+	"""
+	The people the tree's owner already shares with, at most 50.
+	"""
+	shareCandidates(treeId: ID!): [GqlShareCandidate!]!
+	"""
+	The pending invitations of a tree, oldest first.
+	"""
+	treeInvitations(treeId: ID!, first: Int, after: String): GqlTreeInvitationConnection!
+	"""
+	The share links of a tree not revoked, oldest first.
+	"""
+	shareLinks(treeId: ID!, first: Int, after: String): GqlShareLinkConnection!
+	"""
+	The scope a tree's Visitors are limited to; `null` for the whole
+	tree.
+	"""
+	visitorScope(treeId: ID!): GqlAccessScope
+	"""
+	How many persons a scope reaches — the whole tree without one — and
+	how many of them a Visitor sees.
+	"""
+	accessScopePreview(treeId: ID!, scope: AccessScopeInput): GqlScopePreview!
 }
 
 """
@@ -5274,6 +5535,22 @@ type SexSummary {
 	all: Summary!
 	men: Summary!
 	women: Summary!
+}
+
+"""
+A share: REST `POST /trees/{tree_id}/members`.
+"""
+input ShareTreeInput {
+	email: String
+	username: String
+	userId: ID
+	"""
+	`editor` or `guest`.
+	"""
+	role: String!
+	scope: AccessScopeInput
+	expiresAt: DateTime
+	invitationExpiresAt: DateTime
 }
 
 """
@@ -5767,6 +6044,16 @@ input UpdateRepositoryInput {
 }
 
 """
+A link update: REST `PUT /trees/{tree_id}/share-links/{link_id}`;
+`null` clears a field, an absent one is kept.
+"""
+input UpdateShareLinkInput {
+	label: String
+	scope: AccessScopeInput
+	expiresAt: DateTime
+}
+
+"""
 Input for updating a source.
 """
 input UpdateSourceInput {
@@ -5833,6 +6120,15 @@ input UpdateTreeInput {
 	Whether guests may export the tree.
 	"""
 	guestsMayExport: Boolean
+	"""
+	Who is a Visitor (`docs/authorization.md` §6.4). Web build only.
+	"""
+	visibility: GqlTreeVisibility
+	"""
+	The scope Visitors are limited to; `null` for the whole tree. Web
+	build only.
+	"""
+	visitorScope: AccessScopeInput
 	name: String
 	description: String
 	sosaRootPersonId: String
@@ -5858,6 +6154,11 @@ input UpdateTreeMemberInput {
 	`editor` or `guest`.
 	"""
 	role: String
+	"""
+	The part of the tree the member is limited to; `null` for the whole
+	tree.
+	"""
+	scope: AccessScopeInput
 	expiresAt: DateTime
 	selfPersonId: ID
 }

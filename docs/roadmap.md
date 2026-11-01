@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -350,12 +350,16 @@ string in every language, and the user guide. In order:
      templates, digests and unsubscribe; Mailpit in the Compose stack; the
      chart's `mail.smtp` values ([Messaging and Notifications §3](messaging.md#3-email)).
 5. **Sharing.**
-   - [ ] Sharing with users of the instance, email invitations, share links,
+   - [x] Sharing with users of the instance, email invitations, share links,
      tree visibility with its visitor scope
-     ([Authorization §6](authorization.md#6-sharing)).
-   - [ ] Access scopes, materialized and kept current, with their preview
-     and the *Not shared* boundary
-     ([Authorization §6.5](authorization.md#65-access-scopes)).
+     ([Authorization §6](authorization.md#6-sharing)); invitations are not
+     mailed until phase 4's outbox implements the invitation seam: the
+     owner sends the link.
+   - [x] Access scopes, materialized and kept current, with their preview,
+     and a scoped Editor's write rules
+     ([Authorization §3.3, §6.5](authorization.md#65-access-scopes)).
+   - [ ] Every read limited to the viewer's scope, with the *Not shared*
+     boundary, through phase 3's redaction.
    - [ ] The homepage's roles and invitations, and the owner's Members and
      Sharing sections.
 6. **API clients and assistant access over HTTP.**

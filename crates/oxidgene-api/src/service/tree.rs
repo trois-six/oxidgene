@@ -117,6 +117,14 @@ pub struct TreePatch {
     pub contemporary_photos: Option<bool>,
     /// Whether guests may export the tree.
     pub guests_may_export: Option<bool>,
+    /// Who is a Visitor (`docs/authorization.md` §6.4). Web build only.
+    #[cfg(feature = "auth")]
+    pub visibility: Option<oxidgene_core::sharing::TreeVisibility>,
+    /// The scope Visitors are limited to; `null` for the whole tree. Web
+    /// build only.
+    #[cfg(feature = "auth")]
+    #[serde(default, deserialize_with = "double_option")]
+    pub visitor_scope: Option<Option<oxidgene_core::sharing::ScopeDefinition>>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(default, deserialize_with = "double_option")]
     pub submitter_name: Option<Option<String>>,
@@ -130,8 +138,11 @@ pub struct TreePatch {
 }
 
 /// The viewer's trees, a page at a time, each with the import running into
-/// it: every tree for the local owner, a user's memberships otherwise
-/// (docs/authorization.md §6.4).
+/// it: every tree for the local owner; a user's memberships otherwise, and
+/// the trees a share link their session holds opens, as a Visitor
+/// (docs/authorization.md §6.4). A `public` or `site` tree they are no
+/// member of is reached by its address, never listed: there is no
+/// directory of trees.
 pub async fn list_trees(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -141,26 +152,40 @@ pub async fn list_trees(
     let (trees, roles) = match viewer.principal() {
         Principal::Local => (TreeRepo::list(db, params).await?, None),
         Principal::User(identity) => {
-            let trees = TreeRepo::list_of_member(db, identity.user_id, now, params).await?;
+            let opened = crate::authz::link_trees(db, viewer).await?;
+            let trees =
+                TreeRepo::list_of_viewer(db, identity.user_id, &opened, now, params).await?;
             let ids: Vec<Uuid> = trees.edges.iter().map(|edge| edge.node.id).collect();
             let roles = MembershipRepo::live_roles(db, identity.user_id, &ids, now).await?;
             (trees, Some(roles))
         }
         Principal::Anonymous => return Err(OxidGeneError::Unauthenticated),
     };
+    let mut accesses = std::collections::HashMap::new();
+    for tree in trees.edges.iter().map(|edge| &edge.node) {
+        let access = match &roles {
+            None => TreeAccess::of_role(TreeRole::Owner),
+            Some(roles) => match roles.get(&tree.id) {
+                Some(&(role, scope)) => TreeAccess::of_role(role).scoped(scope),
+                // A tree a share link opens: the link's own access.
+                None => crate::authz::tree_access(db, viewer, tree.id).await?,
+            },
+        };
+        accesses.insert(tree.id, access);
+    }
     let active = active_imports(db).await?;
     Ok(trees.map(|tree| {
         let import = active.get(&tree.id).copied();
-        let role = match &roles {
-            None => TreeRole::Owner,
-            Some(roles) => roles.get(&tree.id).copied().unwrap_or(TreeRole::Visitor),
-        };
+        let access = accesses
+            .get(&tree.id)
+            .copied()
+            .unwrap_or_else(|| TreeAccess::of_role(TreeRole::Visitor));
         TreeListItem {
             tree,
             import_in_progress: import.is_some(),
             import_job_id: import.map(|import| import.job_id),
             import_cancelling: import.is_some_and(|import| import.cancelling),
-            viewer_access: TreeAccess::of_role(role).viewer_access(),
+            viewer_access: access.viewer_access(),
         }
     }))
 }
@@ -253,6 +278,8 @@ pub async fn update_tree(
     {
         require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
     }
+    #[cfg(feature = "auth")]
+    let sharing = (patch.visibility, patch.visitor_scope);
     let pending = Change::update(viewer, tree_id, AuditEntity::Tree, tree_id)
         .tree_settings()
         .prepare(&txn)
@@ -276,12 +303,62 @@ pub async fn update_tree(
             submitter_email: patch.submitter_email.map(blank_to_none),
             submitter_address: patch.submitter_address.map(blank_to_none),
             anomaly_thresholds: patch.anomaly_thresholds,
+            ..TreeChanges::default()
         },
     )
     .await?;
     pending.record(&txn).await?;
+    #[cfg(feature = "auth")]
+    let tree = update_sharing(viewer, &txn, tree_id, sharing)
+        .await?
+        .unwrap_or(tree);
     commit_tx(txn).await?;
     Ok(tree)
+}
+
+/// Apply what a tree update changes of who the tree is visible to
+/// (docs/authorization.md §6.4), in `txn`: the visibility and the visitor
+/// scope, the replaced scope deleted once nothing holds it, the change
+/// recorded under `access`. The tree as it is now, or `None` when the
+/// update changes neither. Refused for the `none` mode's local owner, who has
+/// nobody to share with (docs/authentication.md §2).
+#[cfg(feature = "auth")]
+async fn update_sharing(
+    viewer: &ViewerContext,
+    txn: &oxidgene_db::sea_orm::DatabaseTransaction,
+    tree_id: Uuid,
+    (visibility, visitor_scope): (
+        Option<oxidgene_core::sharing::TreeVisibility>,
+        Option<Option<oxidgene_core::sharing::ScopeDefinition>>,
+    ),
+) -> Result<Option<Tree>, OxidGeneError> {
+    use crate::service::access_scope;
+    if visibility.is_none() && visitor_scope.is_none() {
+        return Ok(None);
+    }
+    if viewer.is_local() {
+        return Err(OxidGeneError::Validation(
+            "a tree's visibility needs accounts".to_string(),
+        ));
+    }
+    let former = TreeRepo::get(txn, tree_id).await?.visitor_scope_id;
+    let scope = access_scope::replacement(txn, tree_id, visitor_scope.as_ref()).await?;
+    let tree = TreeRepo::update(
+        txn,
+        tree_id,
+        TreeChanges {
+            visibility,
+            visitor_scope_id: scope,
+            ..TreeChanges::default()
+        },
+    )
+    .await?;
+    access_scope::drop_replaced(txn, scope, former).await?;
+    Change::update(viewer, tree_id, AuditEntity::Visibility, tree_id)
+        .about_tree()
+        .record_unversioned(txn)
+        .await?;
+    Ok(Some(tree))
 }
 
 /// Delete tree `tree_id`: flag it, and leave its rows to the purge worker.

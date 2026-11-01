@@ -41,7 +41,8 @@ pub(crate) fn routes(state: AppState) -> Router {
             .route("/auth/callback", get(callback))
             .route("/auth/logout", post(logout))
             .route("/auth/logout-everywhere", post(logout_everywhere))
-            .route("/auth/backchannel-logout", post(backchannel_logout));
+            .route("/auth/backchannel-logout", post(backchannel_logout))
+            .route("/auth/share/{token}", get(open_share_link));
     }
     router
         .layer(axum::middleware::map_response(no_store))
@@ -531,6 +532,79 @@ async fn session_state(State(state): State<AppState>, headers: HeaderMap) -> Res
     }
 }
 
+/// The most share links one browser holds the grants of: opening another
+/// drops the oldest.
+const MAX_SHARE_GRANTS: usize = 50;
+
+/// `GET /auth/share/{token}`: open a share link (docs/authorization.md
+/// §6.3). The link's grant joins the browser's share grants — created if it
+/// has none, whether anyone is signed in or not — and the browser is sent
+/// to the tree, so the token leaves the address bar at once. A link that
+/// opens nothing lands on the homepage with `auth_error=share_link_invalid`.
+async fn open_share_link(
+    State(state): State<AppState>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let oidc = oidc(&state);
+    let principal = match cookie::read(&headers, cookie::SESSION) {
+        Some(value) => oidc
+            .resolve_session(&state.connections(), &value, None)
+            .await
+            .map_or(oxidgene_core::access::Principal::Anonymous, |resolved| {
+                resolved.principal
+            }),
+        None => oxidgene_core::access::Principal::Anonymous,
+    };
+    let viewer = oxidgene_core::access::ViewerContext::new(principal);
+    let link = match crate::service::share_link::redeem(&state.db, &viewer, &token).await {
+        Ok(Some(link)) => link,
+        Ok(None) => return redirect("/?auth_error=share_link_invalid", &[]),
+        Err(_) => return redirect("/?auth_error=auth_unavailable", &[]),
+    };
+    let at = now();
+    let lifetime = i64::try_from(oidc.config.absolute_lifetime.as_secs()).unwrap_or(i64::MAX / 2);
+    let ends = link.expires_at.map_or(at + lifetime, |expires| {
+        expires.timestamp().min(at + lifetime)
+    });
+    let held = match cookie::read(&headers, cookie::SHARE) {
+        Some(value) => match oidc.store.get_grants(&digest(&value)).await {
+            Ok(Some(grants)) => Some((value, grants)),
+            _ => None,
+        },
+        None => None,
+    };
+    let (value, mut grants) = held.unwrap_or_else(|| {
+        (
+            crypto::random_token(),
+            super::store::LinkGrants {
+                links: Vec::new(),
+                expires_at: at,
+            },
+        )
+    });
+    grants.links.retain(|id| *id != link.id);
+    grants.links.push(link.id);
+    if grants.links.len() > MAX_SHARE_GRANTS {
+        grants.links.remove(0);
+    }
+    grants.expires_at = grants.expires_at.max(ends);
+    if oidc
+        .store
+        .put_grants(&digest(&value), &grants)
+        .await
+        .is_err()
+    {
+        return redirect("/?auth_error=auth_unavailable", &[]);
+    }
+    let max_age =
+        std::time::Duration::from_secs(u64::try_from(grants.expires_at - at).unwrap_or(0));
+    redirect(
+        &format!("/trees/{}", link.tree_id),
+        &[cookie::share(&value, max_age)],
+    )
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct LogoutAnswer {
     /// The provider's end-session address to navigate to, or `null`.
@@ -585,10 +659,17 @@ async fn sign_out(state: &AppState, headers: &HeaderMap, everywhere: bool) -> Re
             logout_url = oidc.logout_url(&metadata, &session);
         }
     }
+    // Signing out on a shared computer leaves no share link's access
+    // behind either.
+    if let Some(value) = cookie::read(headers, cookie::SHARE)
+        && oidc.store.delete_grants(&digest(&value)).await.is_err()
+    {
+        return super::session::Refusal::unavailable().into_response();
+    }
     let mut response = Json(LogoutAnswer { logout_url }).into_response();
-    response
-        .headers_mut()
-        .append(header::SET_COOKIE, cookie::clear(cookie::SESSION));
+    let cleared = response.headers_mut();
+    cleared.append(header::SET_COOKIE, cookie::clear(cookie::SESSION));
+    cleared.append(header::SET_COOKIE, cookie::clear(cookie::SHARE));
     response
 }
 

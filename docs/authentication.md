@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -498,8 +498,9 @@ first successful sign-in that passes the signup gate:
 An identity refused by the gate gets no row and lands on `/?auth_error=signup_closed`;
 nothing about it is stored. While no instance administrator exists, the first
 identity whose verified email equals `OXIDGENE_AUTH_BOOTSTRAP_ADMIN_EMAIL`
-becomes one; the variable is ignored afterwards. Until invitations ship with
-sharing (phase 5), `invitation` admits the bootstrap administrator alone.
+becomes one; the variable is ignored afterwards. With `invitation`, the
+address must be verified and the invitation pending — not expired, answered
+or revoked — on a live tree.
 With `claim`, an existing user who no longer carries an allowed value is
 refused at sign-in with `access_denied`.
 

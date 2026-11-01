@@ -34,6 +34,11 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request is not allowed",
             unexpected: false,
         },
+        OxidGeneError::RateLimited { .. } => ErrorContract {
+            code: "rate_limited",
+            message: "Too many requests; try again later",
+            unexpected: false,
+        },
         OxidGeneError::Database(_) => ErrorContract {
             code: "database_error",
             message: "The request could not be completed",
@@ -89,6 +94,7 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::Conflict(_) => "conflict",
         OxidGeneError::Unauthenticated => "unauthenticated",
         OxidGeneError::Forbidden => "forbidden",
+        OxidGeneError::RateLimited { .. } => "rate_limited",
         OxidGeneError::Gedcom(_) => "gedcom",
         OxidGeneError::Database(message) => database_kind(message),
         OxidGeneError::Io(error) => io_kind(error.kind()),

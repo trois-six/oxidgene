@@ -1,6 +1,7 @@
-//! The two cookies of the Backend-for-Frontend (docs/authentication.md §4.3,
-//! §4.4): `__Host-oxidgene`, the session, and `__Host-oxidgene-login`, the
-//! binding of a sign-in under way. Both are `Secure` — `localhost` is a
+//! The cookies of the Backend-for-Frontend (docs/authentication.md §4.3,
+//! §4.4): `__Host-oxidgene`, the session, `__Host-oxidgene-login`, the
+//! binding of a sign-in under way, and `__Host-oxidgene-share`, the share
+//! links a browser opened (docs/authorization.md §6.3). All are `Secure` — `localhost` is a
 //! secure context to browsers — `HttpOnly`, host-only (`__Host-`, `Path=/`,
 //! no `Domain`).
 
@@ -12,6 +13,9 @@ use axum::http::{HeaderMap, HeaderValue, header};
 pub(crate) const SESSION: &str = "__Host-oxidgene";
 /// The sign-in binding cookie.
 pub(crate) const LOGIN: &str = "__Host-oxidgene-login";
+/// The share-link grants of a browser, signed in or not
+/// (docs/authorization.md §6.3).
+pub(crate) const SHARE: &str = "__Host-oxidgene-share";
 
 /// The value of cookie `name` in `headers`.
 pub(crate) fn read(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -29,6 +33,11 @@ pub(crate) fn read(headers: &HeaderMap, name: &str) -> Option<String> {
 /// The session cookie: `SameSite=Strict`, for at most `lifetime`.
 pub(crate) fn session(value: &str, lifetime: Duration) -> HeaderValue {
     build(SESSION, value, "Strict", lifetime.as_secs())
+}
+
+/// The share-link grants: `SameSite=Strict`, for at most `lifetime`.
+pub(crate) fn share(value: &str, lifetime: Duration) -> HeaderValue {
+    build(SHARE, value, "Strict", lifetime.as_secs())
 }
 
 /// The sign-in binding: `SameSite=Lax`, so that the provider's redirect back

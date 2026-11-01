@@ -53,6 +53,8 @@ pub mod member;
 pub mod mutation;
 pub mod query;
 mod scope;
+#[cfg(feature = "auth")]
+pub mod sharing;
 mod tracing;
 pub mod types;
 
@@ -87,6 +89,7 @@ pub struct QueryRoot(
     #[cfg(feature = "auth")] account::AccountQuery,
     #[cfg(feature = "auth")] exclusion::ExclusionQuery,
     #[cfg(feature = "auth")] member::MemberQuery,
+    #[cfg(feature = "auth")] sharing::SharingQuery,
 );
 
 /// The root mutation type: the tree mutations and, in the web build, the
@@ -98,6 +101,7 @@ pub struct MutationRoot(
     #[cfg(feature = "auth")] account::AccountMutation,
     #[cfg(feature = "auth")] exclusion::ExclusionMutation,
     #[cfg(feature = "auth")] member::MemberMutation,
+    #[cfg(feature = "auth")] sharing::SharingMutation,
 );
 
 /// The full GraphQL schema type.

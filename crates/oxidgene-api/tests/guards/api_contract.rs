@@ -142,6 +142,77 @@ const ACCOUNT_PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/trees/{tree_id}/access-log",
         Gql(&["Query.treeAccessEvents"]),
     ),
+    // Sharing (docs/authorization.md §6), web-only too.
+    (
+        "GET",
+        "/api/v1/me/invitations",
+        Gql(&["Query.myInvitations"]),
+    ),
+    (
+        "POST",
+        "/api/v1/me/invitations/{invitation_id}/accept",
+        Gql(&["Mutation.acceptInvitation"]),
+    ),
+    (
+        "POST",
+        "/api/v1/me/invitations/{invitation_id}/decline",
+        Gql(&["Mutation.declineInvitation"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/members",
+        Gql(&["Mutation.shareTree"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/share-candidates",
+        Gql(&["Query.shareCandidates"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/invitations",
+        Gql(&["Query.treeInvitations"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/invitations/{invitation_id}/resend",
+        Gql(&["Mutation.resendTreeInvitation"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/invitations/{invitation_id}",
+        Gql(&["Mutation.revokeTreeInvitation"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/share-links",
+        Gql(&["Query.shareLinks"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/share-links",
+        Gql(&["Mutation.createShareLink"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/trees/{tree_id}/share-links/{link_id}",
+        Gql(&["Mutation.updateShareLink"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/share-links/{link_id}",
+        Gql(&["Mutation.revokeShareLink"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/access-scopes/preview",
+        Gql(&["Query.accessScopePreview"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/visitor-scope",
+        Gql(&["Query.visitorScope"]),
+    ),
 ];
 
 /// Every operation this build serves: [`PARITY`], and the account

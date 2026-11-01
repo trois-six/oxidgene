@@ -9,7 +9,7 @@
 //! `double_option` deserializer on the REST side, so both surfaces behave
 //! identically.
 
-use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
+use async_graphql::{Enum, Error, ID, InputObject, MaybeUndefined, Result};
 use oxidgene_core::OxidGeneError;
 use std::collections::HashMap;
 
@@ -21,6 +21,85 @@ use super::types::{
     GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
     GqlTreeDefaultPrivacy,
 };
+
+// ── Access scopes ────────────────────────────────────────────────────
+
+/// Which side of its root a scope reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlScopeKind {
+    AncestorsOf,
+    DescendantsOf,
+    AncestorsAndDescendantsOf,
+}
+
+impl From<oxidgene_core::sharing::ScopeKind> for GqlScopeKind {
+    fn from(kind: oxidgene_core::sharing::ScopeKind) -> Self {
+        match kind {
+            oxidgene_core::sharing::ScopeKind::AncestorsOf => Self::AncestorsOf,
+            oxidgene_core::sharing::ScopeKind::DescendantsOf => Self::DescendantsOf,
+            oxidgene_core::sharing::ScopeKind::AncestorsAndDescendantsOf => {
+                Self::AncestorsAndDescendantsOf
+            }
+        }
+    }
+}
+
+impl From<GqlScopeKind> for oxidgene_core::sharing::ScopeKind {
+    fn from(kind: GqlScopeKind) -> Self {
+        match kind {
+            GqlScopeKind::AncestorsOf => Self::AncestorsOf,
+            GqlScopeKind::DescendantsOf => Self::DescendantsOf,
+            GqlScopeKind::AncestorsAndDescendantsOf => Self::AncestorsAndDescendantsOf,
+        }
+    }
+}
+
+/// An access scope to store: REST's `scope` object.
+#[derive(Debug, Clone, InputObject)]
+pub struct AccessScopeInput {
+    pub kind: GqlScopeKind,
+    pub person_id: ID,
+    /// Generations walked, 1 to 30; all of them when absent.
+    pub depth: Option<i32>,
+    #[graphql(default = true)]
+    pub include_self: bool,
+    #[graphql(default)]
+    pub include_spouses: bool,
+    #[graphql(default)]
+    pub collateral: bool,
+}
+
+impl AccessScopeInput {
+    pub(crate) fn definition(self) -> Result<oxidgene_core::sharing::ScopeDefinition> {
+        let depth = self
+            .depth
+            .map(|depth| {
+                u32::try_from(depth).map_err(|_| {
+                    oxidgene_core::OxidGeneError::Validation(
+                        "a scope's depth is a positive number".into(),
+                    )
+                })
+            })
+            .transpose()?;
+        Ok(oxidgene_core::sharing::ScopeDefinition {
+            kind: self.kind.into(),
+            person_id: uuid::Uuid::parse_str(self.person_id.as_str()).map_err(|_| {
+                oxidgene_core::OxidGeneError::Validation("malformed identifier".to_string())
+            })?,
+            depth,
+            include_self: self.include_self,
+            include_spouses: self.include_spouses,
+            collateral: self.collateral,
+        })
+    }
+}
+
+/// An optional scope input as a definition.
+pub(crate) fn definition(
+    input: Option<AccessScopeInput>,
+) -> Result<Option<oxidgene_core::sharing::ScopeDefinition>> {
+    input.map(AccessScopeInput::definition).transpose()
+}
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
 
@@ -48,6 +127,11 @@ pub struct UpdateTreeInput {
     pub contemporary_photos: Option<bool>,
     /// Whether guests may export the tree.
     pub guests_may_export: Option<bool>,
+    /// Who is a Visitor (`docs/authorization.md` §6.4). Web build only.
+    pub visibility: Option<super::types::GqlTreeVisibility>,
+    /// The scope Visitors are limited to; `null` for the whole tree. Web
+    /// build only.
+    pub visitor_scope: MaybeUndefined<AccessScopeInput>,
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
@@ -85,6 +169,14 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             hidden_navigation: input.hidden_navigation,
             contemporary_photos: input.contemporary_photos,
             guests_may_export: input.guests_may_export,
+            #[cfg(feature = "auth")]
+            visibility: input.visibility.map(Into::into),
+            #[cfg(feature = "auth")]
+            visitor_scope: match input.visitor_scope {
+                MaybeUndefined::Undefined => None,
+                MaybeUndefined::Null => Some(None),
+                MaybeUndefined::Value(scope) => Some(Some(scope.definition()?)),
+            },
             submitter_name: patch(input.submitter_name),
             submitter_email: patch(input.submitter_email),
             submitter_address: patch(input.submitter_address),

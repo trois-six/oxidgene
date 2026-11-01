@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{HiddenDisplay, TreeDefaultPrivacy};
+use crate::sharing::TreeVisibility;
 
 /// A genealogical tree (project).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -21,6 +22,14 @@ pub struct Tree {
     /// (`docs/privacy.md` §9), flat beside the other settings.
     #[serde(flatten)]
     pub privacy: PrivacySettings,
+    /// Who is a Visitor without a membership or a share link
+    /// (`docs/authorization.md` §6.4). Web build only.
+    #[serde(default)]
+    pub visibility: TreeVisibility,
+    /// The access scope Visitors are limited to, none for the whole tree.
+    /// Web build only.
+    #[serde(default)]
+    pub visitor_scope_id: Option<Uuid>,
     /// Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when
     /// unset, the "Who am I?" person's name.
     #[serde(default)]

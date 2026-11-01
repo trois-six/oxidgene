@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Connection;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::app_user::{self, ActiveModel, Column, Entity};
@@ -167,6 +167,40 @@ impl AppUserRepo {
         Ok(Entity::find()
             .filter(Column::Issuer.eq(issuer))
             .filter(Column::Subject.eq(subject))
+            .one(db)
+            .await
+            .map_err(db_err)?
+            .map(into_domain))
+    }
+
+    /// The active user whose verified address is `email`, compared without
+    /// regard to case; the first created when several accounts share it
+    /// (docs/authorization.md §6.1).
+    pub async fn find_by_verified_email(
+        db: &impl ConnectionTrait,
+        email: &str,
+    ) -> Result<Option<AppUser>, OxidGeneError> {
+        Ok(Entity::find()
+            .filter(crate::repo::lower_trim_eq(Column::Email, email))
+            .filter(Column::EmailVerified.eq(true))
+            .filter(Column::Status.eq(UserStatus::Active.as_str()))
+            .order_by_asc(Column::Id)
+            .one(db)
+            .await
+            .map_err(db_err)?
+            .map(into_domain))
+    }
+
+    /// The active user whose username is exactly `username`; the first
+    /// created when several providers gave the same one.
+    pub async fn find_by_username(
+        db: &impl ConnectionTrait,
+        username: &str,
+    ) -> Result<Option<AppUser>, OxidGeneError> {
+        Ok(Entity::find()
+            .filter(Column::Username.eq(username))
+            .filter(Column::Status.eq(UserStatus::Active.as_str()))
+            .order_by_asc(Column::Id)
             .one(db)
             .await
             .map_err(db_err)?

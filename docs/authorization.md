@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -19,8 +19,13 @@ generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 its transfer, ownerless trees, the `ViewerContext` of every request, the
 requirement of every operation with the 401, 403 and 404 contract on both
 surfaces, the authors of the history, the jobs' actors and the access log.
-Visitors, sharing, scopes, exclusions, API clients and MCP over HTTP are
-planned; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
+Sharing is in place (phase 5): Visitors from the tree's visibility and from
+share links, sharing with users of the instance, invitations by email,
+access scopes materialized and kept current, and a scoped Editor's write
+rules. The redaction a Visitor reads through, which also shows a scope's
+*Not shared* boundary, is phase 3's
+([Privacy §7](privacy.md#7-enforcement-points)); API clients and MCP over
+HTTP are planned; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
 tracks the phases. Like everything of EPIC G, this is compiled and active
 only in the web build — server, worker and web frontend; the desktop keeps
 its single local user with full access and changes nothing
@@ -161,7 +166,17 @@ more rules, because some records are shared by the whole tree:
 - places, sources, repositories and tags are read and linked, not edited,
   merged or deleted, since a change would reach records outside the scope; a
   scoped Editor may create new ones. Dictionary bulk operations and bulk
-  tagging are refused (`403 forbidden`).
+  tagging are refused (`403 forbidden`), and so is restoring a version.
+
+The rules are checked once, before the operation runs, for REST and
+GraphQL alike (`authz::scoped`): every identifier the write carries — its
+path, its JSON body, its GraphQL arguments — that is a person, a family, an
+event, a name, a witness, a note, a citation, a medium, a media link or a
+vignette of the tree names the persons it is or belongs to, and each must be
+in the scope (`404 not_found` otherwise, as a person outside it is to a
+read). A person without any family link yet passes: it is the one the
+Editor just created, standing alone only until it is linked to a person of
+the scope, which brings it in at the next read.
 
 ### 3.4 Why roles alone are not enough
 
@@ -208,10 +223,13 @@ same tree — a GraphQL document reading several trees resolves each once:
    scopes and the token's (§7.1).
 
 The local owner of the desktop and of the `none` mode holds the owner's
-access to every live tree, without a membership. In phase 2 an anonymous
-viewer may read no tree (`401`) and a signed-in one the trees they are a
-member of; share links, visibility and API clients join the resolution with
-their phases.
+access to every live tree, without a membership. A membership outranks
+every Visitor's grant; among a Visitor's grants — a share link's and the
+visibility's — the one without a scope wins. The share links a browser
+holds are checked against their rows at every request, so a revoked or
+expired one grants nothing at once. A bearer token carries no share link:
+links are for people's browsers. API clients join the resolution with their
+phase.
 
 The result, `TreeAccess`, holds the role, the permission set, the scope id,
 whether exclusions apply (always, unless the viewer is the owner or acts for
@@ -333,6 +351,8 @@ The lookup tells the owner whether an address they already know has an
 account, as any invitation system does; it is limited to 30 lookups per hour
 per user ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force))
 and recorded in the access log, so it cannot be used to sweep addresses.
+The limit is counted by each server process; picking among the people the
+owner already shares with (`user_id`) is no lookup and is not counted.
 
 ### 6.2 Invitations by email
 
@@ -363,14 +383,18 @@ private tree whose owner does not want it `site` or `public`.
   scanners recognize it; only its SHA-256 is stored, which suffices for a
   value of that entropy. It is shown once, as
   `{public_url}/auth/share/{token}`.
-- Opening it adds the link's grant to the browser's session — creating an
-  anonymous session if there is none — and redirects to the tree, so the
-  token leaves the address bar at once. A signed-in user keeps their own
-  access and gains the link's where it is higher.
+- Opening it adds the link's grant to the browser's share grants — the
+  `__Host-oxidgene-share` cookie, `HttpOnly`, `SameSite=Strict`, its value's
+  digest keying the grants in the session store beside the sessions, so a
+  browser holds them whether anyone is signed in or not — and redirects to
+  the tree, so the token leaves the address bar at once. A signed-in user
+  keeps their own access and gains the link's where it is higher. Signing
+  out drops the grants too, so a shared computer keeps none.
 - A link has a label, an optional scope, an optional expiry, and counts its
   uses and last use. Revoking it ends every grant made from it at the next
   request. The session holding the grant expires with it, at most at the
-  link's expiry.
+  link's expiry: the grants last the session's absolute lifetime at most,
+  and no longer than the latest expiry of the links they hold.
 - A link grants Visitor access only: a holder is not identified, so
   contemporaries stay hidden. A link granting Guest access (open decision 4)
   and a link password (open decision 5) are not offered.
@@ -407,8 +431,9 @@ API ([API Contract](api.md#tags), Bulk targets):
 | `ancestors_and_descendants_of` | Both, as one set (an hourglass) |
 
 with `include_self` (default `true` for a scope), `include_spouses` (the
-spouses of the persons reached) and `collateral` (their siblings, and the
-siblings' spouses). An unbounded depth stops at the traversal's 64
+spouses of the persons the walk reaches, not the root's own, as the bulk
+targets name them) and `collateral` (the siblings of the persons reached,
+the root included, and the siblings' spouses). An unbounded depth stops at the traversal's 64
 generations ([Data Model §1](data-model.md#ancestry-traversal-no-table)).
 Tag-defined scopes are not offered: an Editor tagging a person would widen
 what a share shows (open decision 7).
@@ -421,13 +446,22 @@ what a share shows (open decision 7).
   to a family link, a family or a person's deletion
   ([Data Model §4.8](data-model.md#48-sosa-ancestry-sosa_ancestor)) also
   mark scopes stale; the first read that needs a stale scope rebuilds it on
-  the writer, in one transaction, one query per generation. A child added
-  under a shared ancestor enters the share at the next read.
+  the writer, in one transaction: one read of the tree's live persons and
+  one of its family links, the walk in memory as an exclusion's union is
+  built, then the rows replaced. A child added under a shared ancestor
+  enters the share at the next read. A scope belongs to the one membership,
+  invitation, share link or visibility holding it: replaced, it is deleted
+  once its holder has the new one, and deleting a scope ends what it
+  limited rather than widening it; the worker's maintenance pass deletes the
+  scopes nothing holds any more.
 - **Root changes.** A merge that absorbs a scope's root moves the scope to the
   person kept; a deleted root leaves the scope empty until it is restored, and
   the owner's sharing page flags it.
 - **Preview.** `POST /trees/{tree_id}/access-scopes/preview` returns the
-  number of persons a definition reaches, as the bulk-tagging target does.
+  number of persons a definition reaches, as the bulk-tagging target does,
+  how many of them a Visitor sees — neither excluded, private nor
+  contemporary — and how many are excluded; without a definition, the
+  whole tree's, which the visibility settings announce before saving.
 
 **What respects a scope.** Every read: person, family, event and media reads,
 profiles, pedigrees and every other chart, search, recently modified persons,
@@ -648,6 +682,7 @@ parity table when it is implemented; `/me`, `/me/export` and the
 | `PUT` | `/trees/{tree_id}/share-links/{link_id}` | `updateShareLink` | `members_manage` |
 | `DELETE` | `/trees/{tree_id}/share-links/{link_id}` | `revokeShareLink` | `members_manage` |
 | `POST` | `/trees/{tree_id}/access-scopes/preview` | `accessScopePreview` | `members_manage` |
+| `GET` | `/trees/{tree_id}/visitor-scope` | `visitorScope` | `settings_manage`: the visitor scope's definition, whose root Visitors may not see |
 | `GET` | `/trees/{tree_id}/exclusions` | `exclusions` | `exclusions_manage` ([Privacy §6](privacy.md#6-exclusions-from-sharing)) |
 | `POST` | `/trees/{tree_id}/exclusions` | `createExclusions` | `exclusions_manage` |
 | `DELETE` | `/trees/{tree_id}/exclusions/{exclusion_id}` | `deleteExclusion` | `exclusions_manage` |

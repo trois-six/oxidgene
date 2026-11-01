@@ -32,7 +32,7 @@ fn principal<'a>(ctx: &'a Context<'_>) -> &'a Principal {
 }
 
 /// The server's authentication; `none` when the request carries none.
-fn auth_from_ctx(ctx: &Context<'_>) -> Arc<Auth> {
+pub(crate) fn auth_from_ctx(ctx: &Context<'_>) -> Arc<Auth> {
     ctx.data_opt::<Arc<Auth>>()
         .cloned()
         .unwrap_or_else(|| Arc::new(Auth::none()))
@@ -207,7 +207,21 @@ pub struct GqlAccountData {
     pub locale: Option<String>,
     pub updated_at: DateTime<Utc>,
     pub memberships: Vec<GqlAccountMembership>,
+    pub invitations: Vec<GqlAccountInvitation>,
     pub access_events: Vec<super::member::GqlAccessEvent>,
+}
+
+/// An invitation addressed to the user, in their account data.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlAccountInvitation {
+    pub tree_id: ID,
+    /// `editor` or `guest`.
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub declined_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
 }
 
 /// One of the user's memberships, in their account data.
@@ -306,6 +320,19 @@ impl AccountQuery {
                         self_person_id: membership.self_person_id.map(|id| ID(id.to_string())),
                         expires_at: membership.expires_at,
                         created_at: membership.created_at,
+                    })
+                    .collect(),
+                invitations: data
+                    .invitations
+                    .into_iter()
+                    .map(|invitation| GqlAccountInvitation {
+                        tree_id: ID(invitation.tree_id.to_string()),
+                        role: invitation.role.as_str().to_string(),
+                        created_at: invitation.created_at,
+                        expires_at: invitation.expires_at,
+                        accepted_at: invitation.accepted_at,
+                        declined_at: invitation.declined_at,
+                        revoked_at: invitation.revoked_at,
                     })
                     .collect(),
                 access_events: data.access_events.into_iter().map(Into::into).collect(),

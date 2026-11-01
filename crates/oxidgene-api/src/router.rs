@@ -75,6 +75,8 @@ use crate::rest::place;
 use crate::rest::profile;
 use crate::rest::reference;
 use crate::rest::repository;
+#[cfg(feature = "auth")]
+use crate::rest::sharing;
 use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tag;
@@ -657,6 +659,15 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/me/sessions", get(me::list_sessions))
         .route("/me/sessions/{session_id}", delete(me::end_session))
+        .route("/me/invitations", get(sharing::my_invitations))
+        .route(
+            "/me/invitations/{invitation_id}/accept",
+            post(sharing::accept_invitation),
+        )
+        .route(
+            "/me/invitations/{invitation_id}/decline",
+            post(sharing::decline_invitation),
+        )
         .route("/users/{user_id}", get(user::get_user_profile))
         .route("/users/{user_id}/avatar", get(user::get_user_avatar))
         .route("/admin/users", get(admin_user::list_users))
@@ -678,7 +689,43 @@ pub fn build_router(state: AppState) -> Router {
         .route("/admin/access-log", get(access_log::instance_events))
         // A tree's members and its access log (docs/authorization.md §5,
         // §9.2): web-only operations on a tree, beside the accounts.
-        .route("/trees/{tree_id}/members", get(member::list_members))
+        .route(
+            "/trees/{tree_id}/members",
+            get(member::list_members).post(sharing::share_tree),
+        )
+        // Sharing (docs/authorization.md §6).
+        .route(
+            "/trees/{tree_id}/share-candidates",
+            get(sharing::share_candidates),
+        )
+        .route(
+            "/trees/{tree_id}/invitations",
+            get(sharing::list_invitations),
+        )
+        .route(
+            "/trees/{tree_id}/invitations/{invitation_id}",
+            delete(sharing::revoke_invitation),
+        )
+        .route(
+            "/trees/{tree_id}/invitations/{invitation_id}/resend",
+            post(sharing::resend_invitation),
+        )
+        .route(
+            "/trees/{tree_id}/share-links",
+            get(sharing::list_share_links).post(sharing::create_share_link),
+        )
+        .route(
+            "/trees/{tree_id}/share-links/{link_id}",
+            put(sharing::update_share_link).delete(sharing::revoke_share_link),
+        )
+        .route(
+            "/trees/{tree_id}/access-scopes/preview",
+            post(sharing::preview_access_scope),
+        )
+        .route(
+            "/trees/{tree_id}/visitor-scope",
+            get(sharing::visitor_scope),
+        )
         .route(
             "/trees/{tree_id}/members/{user_id}",
             put(member::update_member).delete(member::remove_member),

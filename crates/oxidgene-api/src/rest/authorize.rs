@@ -80,7 +80,11 @@ pub fn viewer_of(extensions: &axum::http::Extensions) -> Arc<ViewerContext> {
             .get::<oxidgene_core::access::Principal>()
             .cloned()
             .unwrap_or(oxidgene_core::access::Principal::Anonymous);
-        Arc::new(ViewerContext::new(principal))
+        let links = extensions
+            .get::<crate::auth::layer::ShareGrants>()
+            .map(|grants| grants.0.clone())
+            .unwrap_or_default();
+        Arc::new(ViewerContext::new(principal).with_share_links(links))
     }
     #[cfg(not(feature = "auth"))]
     {
@@ -94,7 +98,7 @@ pub fn viewer_of(extensions: &axum::http::Extensions) -> Arc<ViewerContext> {
 pub async fn authorize(
     State(state): State<AppState>,
     matched: Option<MatchedPath>,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Response {
     let viewer = viewer_of(request.extensions());
@@ -119,8 +123,72 @@ pub async fn authorize(
         authz::log::refusal(&state.db, &viewer, tree_id, route, requirement, &error);
         return ApiError(error).into_response();
     }
+    #[cfg(feature = "auth")]
+    let request = match scoped_write(&state, &viewer, requirement, tree_id, route, request).await {
+        Ok(request) => request,
+        Err(error) => {
+            authz::log::refusal(&state.db, &viewer, tree_id, route, requirement, &error);
+            return ApiError(error).into_response();
+        }
+    };
+    let mut request = request;
     request.extensions_mut().insert(Viewer(viewer));
     next.run(request).await
+}
+
+/// The largest JSON body a scoped viewer's write is read for the persons
+/// it names; a larger one is refused.
+#[cfg(feature = "auth")]
+const SCOPED_BODY_LIMIT: usize = 2 * 1024 * 1024;
+
+/// Apply a scoped Editor's rules to their write (docs/authorization.md
+/// §3.3, [`authz::scoped`]): a change to a record the whole tree shares is
+/// `403`, and every person the path or the JSON body names must be in the
+/// scope. The body is read here and handed on whole.
+#[cfg(feature = "auth")]
+async fn scoped_write(
+    state: &AppState,
+    viewer: &ViewerContext,
+    requirement: Requirement,
+    tree_id: Option<Uuid>,
+    route: &str,
+    request: Request,
+) -> Result<Request, OxidGeneError> {
+    let (Requirement::Tree(permission), Some(tree_id)) = (requirement, tree_id) else {
+        return Ok(request);
+    };
+    let Some(access) = viewer.cached(tree_id) else {
+        return Ok(request);
+    };
+    if !authz::scoped::applies(&access, permission) {
+        return Ok(request);
+    }
+    if authz::scoped::refuses_route(route) {
+        return Err(OxidGeneError::Forbidden);
+    }
+    let mut ids = std::collections::HashSet::new();
+    authz::scoped::ids_in_path(request.uri().path(), &mut ids);
+    let json = request
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    let (parts, body) = request.into_parts();
+    let bytes = if json {
+        axum::body::to_bytes(body, SCOPED_BODY_LIMIT)
+            .await
+            .map_err(|_| OxidGeneError::Validation("the request body is too large".into()))?
+    } else {
+        // Only JSON bodies name persons; a file upload names none.
+        let request = Request::from_parts(parts, body);
+        authz::scoped::check_named(&state.db, &access, tree_id, &ids).await?;
+        return Ok(request);
+    };
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        authz::scoped::ids_in_json(&value, &mut ids);
+    }
+    authz::scoped::check_named(&state.db, &access, tree_id, &ids).await?;
+    Ok(Request::from_parts(parts, axum::body::Body::from(bytes)))
 }
 
 async fn check(

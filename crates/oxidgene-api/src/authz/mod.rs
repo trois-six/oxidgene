@@ -15,13 +15,15 @@
 
 pub mod log;
 pub mod operations;
+#[cfg(feature = "auth")]
+pub mod scoped;
 
 use chrono::Utc;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Identity, JobActor};
 use oxidgene_core::access::{Permission, Principal, TreeAccess, TreeRole, ViewerContext};
-use oxidgene_db::repo::MembershipRepo;
 use oxidgene_db::repo::{AppUserRepo, UserStatus};
+use oxidgene_db::repo::{MembershipRepo, ShareLinkRepo, TreeRepo};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
 
@@ -54,11 +56,10 @@ impl Requirement {
         let principal = viewer.principal();
         match self {
             Self::Open => Ok(()),
-            _ if matches!(principal, Principal::Anonymous) => {
-                // No tree is public before sharing ships (§6.4): an
-                // anonymous viewer may do nothing but the open operations.
-                Err(OxidGeneError::Unauthenticated)
-            }
+            // A `public` tree, or one a share link opens, has anonymous
+            // Visitors (§6.3, §6.4): the tree decides.
+            Self::Tree(_) | Self::Trees(_) => Ok(()),
+            _ if matches!(principal, Principal::Anonymous) => Err(OxidGeneError::Unauthenticated),
             Self::TreeCreation if !viewer.may_create_trees() => Err(OxidGeneError::Forbidden),
             Self::Administrator if !viewer.is_local() && !viewer.is_admin() => {
                 Err(OxidGeneError::Forbidden)
@@ -89,16 +90,16 @@ impl Requirement {
 }
 
 /// The viewer's access to tree `tree_id`, resolved once per request
-/// (§4.1): the local owner's on any live tree, a member's role otherwise.
+/// (§4.1): the local owner's on any live tree; otherwise, in order, the
+/// viewer's live membership with its scope, then the grants of the share
+/// links their session holds, then the tree's visibility — `public` makes
+/// anyone a Visitor, `site` any signed-in user. Every grant a membership
+/// outranks; among Visitors' grants, one without a scope wins.
 ///
 /// A viewer who cannot see the tree at all — missing, deleted, or not
 /// theirs — is answered as if it did not exist (`not_found`); an anonymous
 /// one is asked to sign in (`unauthenticated`), whether the tree exists or
 /// not.
-///
-/// The seams of the later phases are here: a share link's grant and the
-/// tree's visibility make a Visitor (§6.3, §6.4), and a membership's scope
-/// narrows what it reaches (§6.5).
 pub async fn tree_access(
     db: &impl ConnectionTrait,
     viewer: &ViewerContext,
@@ -107,21 +108,77 @@ pub async fn tree_access(
     if let Some(access) = viewer.cached(tree_id) {
         return Ok(access);
     }
+    let now = Utc::now();
     let access = match viewer.principal() {
         Principal::Local => {
             require_live_tree(db, tree_id).await?;
             TreeAccess::of_role(TreeRole::Owner)
         }
-        Principal::Anonymous => return Err(OxidGeneError::Unauthenticated),
-        Principal::User(identity) => {
-            match MembershipRepo::live_role(db, tree_id, identity.user_id, Utc::now()).await? {
-                Some(role) => TreeAccess::of_role(role),
-                None => return Err(not_found(tree_id)),
+        principal => {
+            let member = match principal.user() {
+                Some(identity) => {
+                    MembershipRepo::live_access(db, tree_id, identity.user_id, now).await?
+                }
+                None => None,
+            };
+            match member {
+                Some((role, scope_id)) => TreeAccess::of_role(role).scoped(scope_id),
+                None => match visitor_access(db, viewer, tree_id, now).await? {
+                    Some(access) => access,
+                    None if viewer.is_anonymous() => return Err(OxidGeneError::Unauthenticated),
+                    None => return Err(not_found(tree_id)),
+                },
             }
         }
     };
     viewer.remember(tree_id, access);
     Ok(access)
+}
+
+/// The Visitor access the viewer holds on tree `tree_id` without a
+/// membership (§6.3, §6.4): from a live share link their session holds,
+/// scoped as the link is, or from the tree's visibility, scoped by its
+/// visitor scope; the one without a scope when both are. None on a
+/// missing or deleted tree.
+async fn visitor_access(
+    db: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> Result<Option<TreeAccess>, OxidGeneError> {
+    let Some((visibility, visitor_scope)) = TreeRepo::sharing(db, tree_id).await? else {
+        return Ok(None);
+    };
+    let visitor = TreeAccess::of_role(TreeRole::Visitor);
+    let mut best = visibility
+        .admits(viewer.user().is_some())
+        .then(|| visitor.scoped(visitor_scope));
+    for link in ShareLinkRepo::live_of_tree(db, tree_id, viewer.share_links(), now).await? {
+        let access = TreeAccess {
+            share_link_id: Some(link.id),
+            ..visitor.scoped(link.scope_id)
+        };
+        if best.is_none_or(|best| access.outranks(&best)) {
+            best = Some(access);
+        }
+    }
+    Ok(best)
+}
+
+/// The trees the viewer's session holds a live share link to: what the
+/// tree list adds to a user's memberships (§6.4).
+pub async fn link_trees(
+    db: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let mut trees: Vec<Uuid> = ShareLinkRepo::live_among(db, viewer.share_links(), Utc::now())
+        .await?
+        .into_iter()
+        .map(|link| link.tree_id)
+        .collect();
+    trees.sort_unstable();
+    trees.dedup();
+    Ok(trees)
 }
 
 /// Check that the viewer holds `permission` on tree `tree_id`: `403
@@ -146,30 +203,37 @@ pub async fn authorize(
 /// The trees of `tree_ids` the viewer holds `permission` on, in the order
 /// given; the others are left out, as missing trees are. The local owner
 /// holds every permission on every tree: the operation leaves out the
-/// missing ones itself. A user's roles are read in one query.
+/// missing ones itself. A user's memberships are read in one query; the
+/// trees they are no member of, and every tree of an anonymous viewer, as
+/// a Visitor would see them (§6.3, §6.4).
 pub async fn permitted_trees(
     db: &DatabaseConnection,
     viewer: &ViewerContext,
     tree_ids: &[Uuid],
     permission: Permission,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
-    match viewer.principal() {
-        Principal::Local => Ok(tree_ids.to_vec()),
-        Principal::Anonymous => Err(OxidGeneError::Unauthenticated),
-        Principal::User(identity) => {
-            let roles =
-                MembershipRepo::live_roles(db, identity.user_id, tree_ids, Utc::now()).await?;
-            Ok(tree_ids
-                .iter()
-                .copied()
-                .filter(|tree_id| {
-                    roles
-                        .get(tree_id)
-                        .is_some_and(|role| role.permissions().contains(permission))
-                })
-                .collect())
+    if viewer.is_local() {
+        return Ok(tree_ids.to_vec());
+    }
+    let now = Utc::now();
+    let roles = match viewer.user() {
+        Some(identity) => MembershipRepo::live_roles(db, identity.user_id, tree_ids, now).await?,
+        None => std::collections::HashMap::new(),
+    };
+    let mut permitted = Vec::new();
+    for &tree_id in tree_ids {
+        let access = match roles.get(&tree_id) {
+            Some(&(role, scope)) => Some(TreeAccess::of_role(role).scoped(scope)),
+            None => visitor_access(db, viewer, tree_id, now).await?,
+        };
+        if let Some(access) = access {
+            viewer.remember(tree_id, access);
+            if access.allows(permission) {
+                permitted.push(tree_id);
+            }
         }
     }
+    Ok(permitted)
 }
 
 /// Check `requirement` for the viewer, on tree `tree_id` when it names one.
