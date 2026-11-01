@@ -30,6 +30,12 @@ pub struct TreeChanges {
     pub sosa_root_person_id: Option<Option<Uuid>>,
     pub self_person_id: Option<Option<Uuid>>,
     pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
+    pub contemporary_rule: Option<bool>,
+    pub contemporary_years: Option<i32>,
+    pub hidden_display: Option<oxidgene_core::enums::HiddenDisplay>,
+    pub hidden_navigation: Option<bool>,
+    pub contemporary_photos: Option<bool>,
+    pub guests_may_export: Option<bool>,
     pub submitter_name: Option<Option<String>>,
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
@@ -63,6 +69,15 @@ impl TreeChanges {
             &mut active.default_privacy,
             self.default_privacy.map(Into::into),
         );
+        set(&mut active.contemporary_rule, self.contemporary_rule);
+        set(&mut active.contemporary_years, self.contemporary_years);
+        set(
+            &mut active.hidden_display,
+            self.hidden_display.map(Into::into),
+        );
+        set(&mut active.hidden_navigation, self.hidden_navigation);
+        set(&mut active.contemporary_photos, self.contemporary_photos);
+        set(&mut active.guests_may_export, self.guests_may_export);
         set(&mut active.submitter_name, self.submitter_name);
         set(&mut active.submitter_email, self.submitter_email);
         set(&mut active.submitter_address, self.submitter_address);
@@ -110,6 +125,12 @@ impl TreeRepo {
             sosa_root_person_id: Set(None),
             self_person_id: Set(None),
             default_privacy: Set(oxidgene_core::enums::TreeDefaultPrivacy::default().into()),
+            contemporary_rule: Set(true),
+            contemporary_years: Set(oxidgene_core::privacy::DEFAULT_CONTEMPORARY_YEARS),
+            hidden_display: Set(oxidgene_core::enums::HiddenDisplay::default().into()),
+            hidden_navigation: Set(true),
+            contemporary_photos: Set(false),
+            guests_may_export: Set(false),
             submitter_name: Set(None),
             submitter_email: Set(None),
             submitter_address: Set(None),
@@ -223,7 +244,20 @@ impl TreeRepo {
     }
 }
 
+/// The privacy settings a stored tree holds.
+pub fn privacy_of(m: &tree::Model) -> oxidgene_core::types::PrivacySettings {
+    oxidgene_core::types::PrivacySettings {
+        contemporary_rule: m.contemporary_rule,
+        contemporary_years: m.contemporary_years,
+        hidden_display: m.hidden_display.into(),
+        hidden_navigation: m.hidden_navigation,
+        contemporary_photos: m.contemporary_photos,
+        guests_may_export: m.guests_may_export,
+    }
+}
+
 fn into_domain(m: tree::Model) -> Tree {
+    let privacy = privacy_of(&m);
     Tree {
         id: m.id,
         name: m.name,
@@ -231,6 +265,7 @@ fn into_domain(m: tree::Model) -> Tree {
         sosa_root_person_id: m.sosa_root_person_id,
         self_person_id: m.self_person_id,
         default_privacy: m.default_privacy.into(),
+        privacy,
         submitter_name: m.submitter_name,
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,

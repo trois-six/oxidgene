@@ -17,8 +17,9 @@ use super::mutation::{patch, patch_id, patch_scalar};
 use super::scope::{opt_uuid, uuid, uuids};
 use super::types::{
     AnomalyThresholdsInput, GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier,
-    GqlDocumentCategory, GqlEventType, GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType,
-    GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    GqlDocumentCategory, GqlEventType, GqlGeneanetMediaFidelity, GqlHiddenDisplay,
+    GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
+    GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -35,6 +36,18 @@ pub struct CreateTreeInput {
 pub struct UpdateTreeInput {
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: Option<GqlTreeDefaultPrivacy>,
+    /// Whether contemporary persons are hidden (`docs/privacy.md` §9).
+    pub contemporary_rule: Option<bool>,
+    /// The contemporary rule's threshold, 50 to 150 years.
+    pub contemporary_years: Option<i32>,
+    /// How a hidden person appears.
+    pub hidden_display: Option<GqlHiddenDisplay>,
+    /// Whether a hidden person's placeholder can be navigated through.
+    pub hidden_navigation: Option<bool>,
+    /// Whether visitors see the photographs of contemporary persons.
+    pub contemporary_photos: Option<bool>,
+    /// Whether guests may export the tree.
+    pub guests_may_export: Option<bool>,
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
@@ -66,6 +79,12 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             sosa_root_person_id: patch_id(input.sosa_root_person_id)?,
             self_person_id: patch_id(input.self_person_id)?,
             default_privacy: input.default_privacy.map(Into::into),
+            contemporary_rule: input.contemporary_rule,
+            contemporary_years: input.contemporary_years,
+            hidden_display: input.hidden_display.map(Into::into),
+            hidden_navigation: input.hidden_navigation,
+            contemporary_photos: input.contemporary_photos,
+            guests_may_export: input.guests_may_export,
             submitter_name: patch(input.submitter_name),
             submitter_email: patch(input.submitter_email),
             submitter_address: patch(input.submitter_address),

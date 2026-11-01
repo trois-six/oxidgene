@@ -17,5 +17,7 @@ pub mod invalidation;
 mod pedigree;
 pub mod service;
 mod sosa;
+#[cfg(feature = "auth")]
+mod visibility;
 
 pub use service::ProfileService;

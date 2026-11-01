@@ -14,6 +14,8 @@ pub mod couple_detail;
 pub mod duplicates;
 pub mod event;
 pub mod event_date;
+#[cfg(feature = "auth")]
+pub mod exclusion;
 pub mod family;
 pub mod family_names;
 pub mod gallery;

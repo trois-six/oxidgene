@@ -295,6 +295,87 @@ impl TreeDefaultPrivacy {
     }
 }
 
+/// What an exclusion from sharing covers (`docs/privacy.md` §6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExclusionKind {
+    /// One person.
+    Person,
+    /// The ancestors of a root person.
+    Ancestors,
+    /// The descendants of a root person.
+    Descendants,
+}
+
+impl ExclusionKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Ancestors => "ancestors",
+            Self::Descendants => "descendants",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "person" => Some(Self::Person),
+            "ancestors" => Some(Self::Ancestors),
+            "descendants" => Some(Self::Descendants),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ExclusionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How a person hidden from a viewer appears (`docs/privacy.md` §5), and how
+/// an export leaving them out writes them (§8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HiddenDisplay {
+    /// A placeholder keeping the tree's shape: sex and family links.
+    #[default]
+    Stub,
+    /// The placeholder with the initials of the first given name and the
+    /// surname.
+    Initials,
+    /// Absent: in no list, chart, count or link.
+    Hidden,
+}
+
+impl std::fmt::Display for HiddenDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl HiddenDisplay {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stub => "stub",
+            Self::Initials => "initials",
+            Self::Hidden => "hidden",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "stub" => Some(Self::Stub),
+            "initials" => Some(Self::Initials),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
+}
+
 /// How much of a date the pages write, and how (`docs/ui-app-settings.md` §8).
 ///
 /// A display choice only: the stored date keeps whatever precision it was

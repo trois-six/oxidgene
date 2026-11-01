@@ -8,8 +8,9 @@ use oxidgene_core::history::{
     NoteSnapshot, PersonSnapshot, PlaceSnapshot, RecordSnapshot, RecordVersion, RepositorySnapshot,
     SourceSnapshot, TreeSnapshot, align,
 };
+use oxidgene_core::types::PrivacySettings;
 use oxidgene_core::types::join_surname_particle;
-use oxidgene_core::{Confidence, SpouseRole, TreeDefaultPrivacy};
+use oxidgene_core::{Confidence, HiddenDisplay, SpouseRole, TreeDefaultPrivacy};
 use uuid::Uuid;
 
 use crate::components::date_input::{format_date, format_day};
@@ -762,6 +763,7 @@ fn tree_section(
     ] {
         group.row(i18n.t(key), before.and_then(get), get(after));
     }
+    privacy_rows(i18n, &mut group, before.map(|t| &t.privacy), &after.privacy);
     // The anomaly thresholds that changed, or that a new tree sets apart from
     // the defaults: seventeen unchanged figures would bury the rest.
     let defaults = oxidgene_core::types::AnomalyThresholds::default();
@@ -796,6 +798,61 @@ fn tree_section(
         groups: vec![group.finish()],
     }
 }
+
+/// The privacy settings that changed, or that a new tree sets apart from the
+/// defaults, as the thresholds are.
+fn privacy_rows(
+    i18n: &I18n,
+    group: &mut GroupBuilder,
+    before: Option<&PrivacySettings>,
+    after: &PrivacySettings,
+) {
+    let yes_no = |on: bool| i18n.t(if on { "common.yes" } else { "common.no" });
+    let display = |d: HiddenDisplay| i18n.t(&format!("settings.hidden_display.{}", d.as_str()));
+    let defaults = PrivacySettings::default();
+    let rows: [PrivacyRow; 6] = [
+        ("settings.contemporary_rule", |p| {
+            Value::Switch(p.contemporary_rule)
+        }),
+        ("settings.contemporary_years", |p| {
+            Value::Number(p.contemporary_years)
+        }),
+        ("settings.hidden_display", |p| {
+            Value::Display(p.hidden_display)
+        }),
+        ("settings.hidden_navigation", |p| {
+            Value::Switch(p.hidden_navigation)
+        }),
+        ("settings.contemporary_photos", |p| {
+            Value::Switch(p.contemporary_photos)
+        }),
+        ("settings.guests_may_export", |p| {
+            Value::Switch(p.guests_may_export)
+        }),
+    ];
+    let text = |value: Value| match value {
+        Value::Switch(on) => yes_no(on),
+        Value::Number(n) => n.to_string(),
+        Value::Display(d) => display(d),
+    };
+    for (key, get) in rows {
+        let old = before.map(get);
+        if old.unwrap_or_else(|| get(&defaults)) != get(after) {
+            group.row(i18n.t(key), old.map(text), Some(text(get(after))));
+        }
+    }
+}
+
+/// One privacy setting's value, as the history compares it.
+#[derive(Clone, Copy, PartialEq)]
+enum Value {
+    Switch(bool),
+    Number(i32),
+    Display(HiddenDisplay),
+}
+
+/// A privacy setting's label key, and how its value is read.
+type PrivacyRow = (&'static str, fn(&PrivacySettings) -> Value);
 
 fn full_name(name: &NameSnapshot) -> String {
     [

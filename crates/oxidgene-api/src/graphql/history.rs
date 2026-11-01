@@ -46,7 +46,7 @@ macro_rules! mirror_enum {
 
 mirror_enum!(
     /// Which part of a tree a write touched.
-    GqlAuditCategory => AuditCategory { Data, Settings, Media, Import, Export, History }
+    GqlAuditCategory => AuditCategory { Data, Settings, Media, Import, Export, History, Access }
 );
 mirror_enum!(
     /// What a write did.
@@ -58,7 +58,7 @@ mirror_enum!(
         Tree, Person, PersonName, PersonDistinct, Family, FamilySpouse, FamilyChild, Event,
         EventWitness, Place, Source, SourceRepository, Repository, Citation, Note, FamilyName,
         Occupation,
-        Media, MediaPage, MediaLink, Vignette, Portrait, Tag, RecordTag,
+        Media, MediaPage, MediaLink, Vignette, Portrait, Tag, RecordTag, PrivacyExclusion,
     }
 );
 mirror_enum!(
@@ -492,6 +492,8 @@ pub struct GqlTreeSnapshot {
     pub name: String,
     pub description: Option<String>,
     pub default_privacy: GqlTreeDefaultPrivacy,
+    #[graphql(flatten)]
+    pub privacy: super::types::GqlPrivacyFields,
     pub sosa_root_person_id: Option<ID>,
     pub self_person_id: Option<ID>,
     pub submitter_name: Option<String>,
@@ -506,6 +508,7 @@ impl From<TreeSnapshot> for GqlTreeSnapshot {
             name: t.name,
             description: t.description,
             default_privacy: t.default_privacy.into(),
+            privacy: t.privacy.into(),
             sosa_root_person_id: t.sosa_root_person_id.map(id),
             self_person_id: t.self_person_id.map(id),
             submitter_name: t.submitter_name,

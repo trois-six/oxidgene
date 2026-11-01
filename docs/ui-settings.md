@@ -224,25 +224,31 @@ privacy control does: *recorded now, nothing is hidden yet*.
 Stored as `tree.default_privacy`; see [Data Model](data-model.md) (Privacy) for
 why it is not a `Privacy` value itself.
 
-With EPIC G, Public becomes the default for a new tree and leads: a record
-nobody classified is public, while the contemporary rule hides living persons
-from visitors and an explicit Private or an exclusion hides more
-([Privacy §3.1](privacy.md#31-precedence)).
+### Contemporary persons
 
-### Contemporary persons (planned)
-
-Cards for the tree's privacy settings of [Privacy §9](privacy.md#9-tree-settings),
-saved immediately like the default privacy:
+A **Contemporary persons** card under the default privacy holds the tree's
+privacy settings of [Privacy §9](privacy.md#9-tree-settings), each saved as
+soon as it changes, with a local override like the default privacy:
 
 | Control | Setting |
 |---|---|
-| **Hide contemporary persons** switch, on by default; turning it off asks for confirmation | `contemporary_rule` |
-| **Age threshold**, a number from 50 to 150 years, 100 by default: a person with no recorded death who cannot be shown born at least that long ago is contemporary ([Privacy §4](privacy.md#4-contemporary-persons)) | `contemporary_years` |
-| **Display of hidden persons**: *Private placeholder* (default), *Initials*, *Hidden* ([Privacy §5](privacy.md#5-what-a-redacted-viewer-sees)) | `hidden_display` |
+| **Hide contemporary persons**, a checkbox on by default, with the rule in one line beneath it; turning it off asks for confirmation (below) | `contemporary_rule` |
+| **Age threshold (years)**, a number from 50 to 150, 100 by default: a person with no recorded death who cannot be shown born at least that long ago is contemporary ([Privacy §4](privacy.md#4-contemporary-persons)). A value out of range says so under the field ("Between 50 and 150.") and is not saved | `contemporary_years` |
+| **Display of hidden persons**: three buttons, *Private placeholder* (default), *Initials*, *Hidden* ([Privacy §5](privacy.md#5-what-a-redacted-viewer-sees)), with one line saying what each does | `hidden_display` |
 
-On the desktop these settings apply to the export option of §10 only, the one
-privacy rule both builds share; the web build also applies them to visitors.
-The web build adds, for the owner:
+Turning the rule off opens the shared confirmation dialog, **Show contemporary
+persons?**, whose confirm button reads **Show them**; cancelling leaves the
+rule on.
+
+On the desktop, and on a web server run without authentication, these
+settings apply to the export option of §10 only, the one privacy rule both
+builds share: the card says so, and the confirmation says that exports
+leaving out contemporary and private persons will write living people in
+full. A web build that authenticates its viewers
+([Authentication §2](authentication.md#2-deployment-modes)) applies them to
+visitors as well, says so, and its confirmation says that living people
+become visible to whoever the tree is visible to. It adds, for the owner,
+three more checkboxes in the same card, each with a line beneath it:
 
 | Control | Setting |
 |---|---|
@@ -250,12 +256,27 @@ The web build adds, for the owner:
 | **Show photos of contemporary persons** | `contemporary_photos` |
 | **Guests may export** | `guests_may_export` |
 
-### Exclusions (planned, web only)
+These web-only controls appear when the web entry point injects the sharing
+capability, once `/auth/session` answers `mode: "oidc"`; the desktop injects
+none, so its card shows the first three controls only. A saved change is
+versioned with the tree's other settings and shown in the
+[History](#9-section-history), each setting that changed with its former and
+its new value.
 
-The owner's list of exclusions from sharing — persons, ancestries and
-descendancies, each with its root, depth and the number of persons covered —
-with **Remove**, as [Privacy §6](privacy.md#6-exclusions-from-sharing)
-specifies. Exclusions are also created from the person menu.
+### Exclusions (web only)
+
+A web build that authenticates its viewers adds an **Exclusions from
+sharing** card, the owner's list of exclusions ([Privacy §6](privacy.md#6-exclusions-from-sharing)):
+one row per exclusion, oldest first, with the root's name, then in one line
+what it covers (*This person*, *Their ancestors*, *Their descendants*), its
+depth in generations when it has one, the number of persons it covers now,
+and *Deleted person: covers nobody until restored* for a deleted root; and a
+**Remove** button, which removes it at once. An empty list says *Nothing is
+excluded from sharing.* Exclusions are created from the person menu
+([Genealogy Tree](ui-genealogy-tree.md), action picker). The list is read
+fresh whenever the section opens, since the persons an exclusion covers
+follow the family links. Absent from the desktop and from a web server run
+without authentication.
 
 ### Visibility, members and sharing (planned, web only)
 

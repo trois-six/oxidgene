@@ -48,6 +48,8 @@ use crate::rest::admin_user;
 use crate::rest::citation;
 use crate::rest::dictionary;
 use crate::rest::event;
+#[cfg(feature = "auth")]
+use crate::rest::exclusion;
 use crate::rest::family;
 use crate::rest::family_member;
 use crate::rest::file_export;
@@ -704,6 +706,25 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/openapi.json", get(openapi::spec));
     #[cfg(feature = "auth")]
     let api_routes = api_routes.nest("/api/v1", account_routes);
+    // The exclusions from sharing (docs/privacy.md §6): tree-scoped, and
+    // like the accounts, served by the web build only.
+    #[cfg(feature = "auth")]
+    let api_routes = api_routes.nest(
+        "/api/v1/trees",
+        Router::new()
+            .route(
+                "/{tree_id}/exclusions",
+                get(exclusion::list_exclusions).post(exclusion::create_exclusion),
+            )
+            .route(
+                "/{tree_id}/exclusions/{exclusion_id}",
+                delete(exclusion::delete_exclusion),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                tree_guard::require_live_tree,
+            )),
+    );
     let rest_router = api_routes
         .fallback(crate::rest::error::unknown_route)
         // Inside the compression layer, so it reads the response as written.

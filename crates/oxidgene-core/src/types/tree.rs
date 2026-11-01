@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::TreeDefaultPrivacy;
+use crate::enums::{HiddenDisplay, TreeDefaultPrivacy};
 
 /// A genealogical tree (project).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,9 +14,13 @@ pub struct Tree {
     /// The person in this tree who represents the current user.
     pub self_person_id: Option<Uuid>,
     /// What `Privacy::Default` resolves to for every person, couple and
-    /// document in this tree. Enforced by nothing yet — see the roadmap.
+    /// document in this tree (`docs/privacy.md` §3.1).
     #[serde(default)]
     pub default_privacy: TreeDefaultPrivacy,
+    /// The contemporary rule and how hidden persons appear
+    /// (`docs/privacy.md` §9), flat beside the other settings.
+    #[serde(flatten)]
+    pub privacy: PrivacySettings,
     /// Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when
     /// unset, the "Who am I?" person's name.
     #[serde(default)]
@@ -33,6 +37,65 @@ pub struct Tree {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+}
+
+/// A tree's privacy settings (`docs/privacy.md` §9): what its records show
+/// to viewers other than its owner, and what the export option leaving out
+/// contemporary and private persons writes. A field a stored or sent value
+/// leaves out keeps its default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrivacySettings {
+    /// Whether contemporary persons are hidden (`docs/privacy.md` §4).
+    pub contemporary_rule: bool,
+    /// The age threshold of the contemporary rule, in years (50 to 150).
+    pub contemporary_years: i32,
+    /// How a hidden person appears (`docs/privacy.md` §5).
+    pub hidden_display: HiddenDisplay,
+    /// Whether a hidden person's placeholder keeps an identifier, so the
+    /// charts go on through it. Web build only.
+    pub hidden_navigation: bool,
+    /// Whether visitors see the photographs of contemporary persons. Web
+    /// build only.
+    pub contemporary_photos: bool,
+    /// Whether guests may export the tree. Web build only.
+    pub guests_may_export: bool,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self {
+            contemporary_rule: true,
+            contemporary_years: crate::privacy::DEFAULT_CONTEMPORARY_YEARS,
+            hidden_display: HiddenDisplay::default(),
+            hidden_navigation: true,
+            contemporary_photos: false,
+            guests_may_export: false,
+        }
+    }
+}
+
+impl PrivacySettings {
+    /// The tree's contemporary rule.
+    #[must_use]
+    pub fn contemporary_rule(&self) -> crate::privacy::ContemporaryRule {
+        crate::privacy::ContemporaryRule {
+            enabled: self.contemporary_rule,
+            years: self.contemporary_years,
+        }
+    }
+}
+
+/// Why `years` cannot be a tree's contemporary threshold, if it cannot.
+pub fn check_contemporary_years(years: i32) -> Result<(), String> {
+    use crate::privacy::{MAX_CONTEMPORARY_YEARS, MIN_CONTEMPORARY_YEARS};
+    if (MIN_CONTEMPORARY_YEARS..=MAX_CONTEMPORARY_YEARS).contains(&years) {
+        Ok(())
+    } else {
+        Err(format!(
+            "contemporary_years must be between {MIN_CONTEMPORARY_YEARS} and {MAX_CONTEMPORARY_YEARS}"
+        ))
+    }
 }
 
 /// The thresholds of the anomaly rules (`docs/ui-tools.md` §3.3), a tree

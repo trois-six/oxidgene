@@ -42,6 +42,8 @@ macro_rules! connection {
 #[cfg(feature = "auth")]
 pub mod account;
 mod error;
+#[cfg(feature = "auth")]
+pub mod exclusion;
 pub mod history;
 pub mod inputs;
 mod loaders;
@@ -79,6 +81,7 @@ const MAX_RECURSIVE_DEPTH: usize = 32;
 pub struct QueryRoot(
     query::TreeQuery,
     #[cfg(feature = "auth")] account::AccountQuery,
+    #[cfg(feature = "auth")] exclusion::ExclusionQuery,
 );
 
 /// The root mutation type: the tree mutations and, in the web build, the
@@ -88,6 +91,7 @@ pub struct QueryRoot(
 pub struct MutationRoot(
     mutation::TreeMutation,
     #[cfg(feature = "auth")] account::AccountMutation,
+    #[cfg(feature = "auth")] exclusion::ExclusionMutation,
 );
 
 /// The full GraphQL schema type.

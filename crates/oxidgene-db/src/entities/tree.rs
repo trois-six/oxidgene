@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::TreeDefaultPrivacy;
+use super::sea_enums::{HiddenDisplay, TreeDefaultPrivacy};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "tree")]
@@ -15,6 +15,14 @@ pub struct Model {
     pub self_person_id: Option<Uuid>,
     /// What `Privacy::Default` means for everything in this tree.
     pub default_privacy: TreeDefaultPrivacy,
+    /// The contemporary rule and how hidden persons appear
+    /// (`docs/privacy.md` §9).
+    pub contemporary_rule: bool,
+    pub contemporary_years: i32,
+    pub hidden_display: HiddenDisplay,
+    pub hidden_navigation: bool,
+    pub contemporary_photos: bool,
+    pub guests_may_export: bool,
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     #[sea_orm(column_type = "Text")]

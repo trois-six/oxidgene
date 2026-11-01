@@ -8,6 +8,7 @@ pub mod collections;
 pub mod enums;
 pub mod error;
 pub mod history;
+pub mod privacy;
 pub mod projection;
 pub mod resources;
 pub mod search;

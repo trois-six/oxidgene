@@ -4,7 +4,6 @@
 //! and GEDCOM export functionality.
 
 use dioxus::prelude::*;
-use oxidgene_core::enums::TreeDefaultPrivacy;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -658,7 +657,7 @@ pub fn Settings(tree_id: String) -> Element {
                         TreeRootsSection { tree_id: tree_id.clone(), tree_resource }
                     },
                     "privacy" => rsx! {
-                        PrivacySection { tree_id: tree_id.clone(), tree_resource }
+                        super::privacy_settings::PrivacySection { tree_id: tree_id.clone(), tree_resource }
                     },
                     "anomalies" => rsx! {
                         AnomaliesSection { tree_resource }
@@ -981,92 +980,6 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
     }
 }
 
-/// What `Default` privacy means for everything in this tree.
-///
-/// Every person, couple and document defaults to "follows the tree", and
-/// until this setting existed there was no tree setting to follow — the
-/// commonest value in the model pointed at nothing.
-#[component]
-fn PrivacySection(
-    tree_id: String,
-    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
-) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
-    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
-
-    let mut save_error = use_signal(|| None::<String>);
-    // Local override so the control answers the click, not the refetch.
-    let mut local_privacy_override = use_signal(|| None::<TreeDefaultPrivacy>);
-
-    let current_privacy =
-        local_privacy_override().unwrap_or_else(|| match &*tree_resource.read() {
-            Some(Some(Ok(tree))) => tree.default_privacy,
-            _ => TreeDefaultPrivacy::default(),
-        });
-
-    rsx! {
-        div { class: "settings-section",
-            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
-            h2 { class: "settings-section-title", {i18n.t("settings.privacy")} }
-            p { class: "settings-section-subtitle",
-                {i18n.t("settings.privacy_desc")}
-            }
-
-            div { class: "card settings-card",
-                h3 { class: "settings-card-title",
-                    {i18n.t("settings.default_privacy")}
-                }
-                p { class: "settings-section-subtitle",
-                    {i18n.t("settings.default_privacy_desc")}
-                }
-                div { class: "pf-gender-group settings-choices",
-                    for (value , label) in [
-                        (TreeDefaultPrivacy::Private, i18n.t("privacy.private")),
-                        (TreeDefaultPrivacy::Public, i18n.t("privacy.public")),
-                    ] {
-                        button {
-                            key: "{value.as_str()}",
-                            class: if current_privacy == value {
-                                "pf-gender-btn active"
-                            } else {
-                                "pf-gender-btn"
-                            },
-                            r#type: "button",
-                            onclick: {
-                                let api = api.clone();
-                                move |_| {
-                                    let api = api.clone();
-                                    local_privacy_override.set(Some(value));
-                                    spawn(async move {
-                                        let Some(tid) = tree_id_parsed else { return };
-                                        let body = UpdateTreeBody {
-                                            default_privacy: Some(value),
-                                            ..Default::default()
-                                        };
-                                        match api.update_tree(tid, &body).await {
-                                            Ok(_) => tree_cache.invalidate(),
-                                            Err(e) => save_error.set(Some(e.message(&i18n))),
-                                        }
-                                    });
-                                }
-                            },
-                            "{label}"
-                        }
-                    }
-                }
-                p { class: "pf-ns-hint settings-hint",
-                    {i18n.t("privacy.not_enforced_yet")}
-                }
-                if let Some(err) = &save_error() {
-                    div { class: "error-msg settings-feedback", "{err}" }
-                }
-            }
-        }
-    }
-}
-
 /// The thresholds of the anomaly rules, by the category of the rules that
 /// apply them, as `AnomalyThresholds` names them.
 const THRESHOLD_GROUPS: [(&str, &[&str]); 4] = [
@@ -1361,7 +1274,7 @@ fn ExportSection(
                 if let Some(tid) = tree_id.parse::<Uuid>().ok() {
                     ExportScopePicker { scope, tree_id: tid }
                 }
-                ExportToggle {
+                SettingsCheck {
                     checked: notes_and_sources(),
                     label: i18n.t("settings.export_notes_and_sources"),
                     description: Some(i18n.t("settings.export_notes_and_sources_desc")),
@@ -1369,7 +1282,7 @@ fn ExportSection(
                     first: is_gedzip,
                 }
                 if is_gedzip {
-                    ExportToggle {
+                    SettingsCheck {
                         checked: media(),
                         label: i18n.t("settings.export_media"),
                         description: Some(i18n.t("settings.export_media_desc")),
@@ -1675,7 +1588,7 @@ fn ExportBranchFields(
         if depth_error {
             p { class: "field-hint field-hint-warn", {i18n.t("settings.export_scope_depth_invalid")} }
         }
-        ExportToggle {
+        SettingsCheck {
             checked: include_self,
             label: i18n.t("settings.export_scope_include_self"),
             on_change: move |checked: bool| {
@@ -1687,7 +1600,7 @@ fn ExportBranchFields(
             },
         }
         if mode == BranchMode::Descendants {
-            ExportToggle {
+            SettingsCheck {
                 checked: include_spouses,
                 label: i18n.t("settings.export_scope_include_spouses"),
                 on_change: move |checked: bool| {
@@ -1882,9 +1795,10 @@ fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>)
 }
 
 /// A checkbox with its label and, when it has one, the description beneath
-/// it. The first of the options is set off from the format row above it.
+/// it: the export options and the privacy settings. The first of the export
+/// options is set off from the format row above it.
 #[component]
-fn ExportToggle(
+pub(crate) fn SettingsCheck(
     checked: bool,
     label: String,
     description: Option<String>,

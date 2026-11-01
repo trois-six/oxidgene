@@ -211,6 +211,9 @@ struct Overlays {
     tagging: Signal<Option<(Uuid, f64, f64)>>,
     /// The person whose branch is being tagged.
     tagging_branch: Signal<Option<Uuid>>,
+    /// What excluding a person from sharing asks for, until the server
+    /// answers.
+    excluding: Signal<Option<(Uuid, oxidgene_core::ExclusionKind)>>,
 }
 
 fn use_overlays() -> Overlays {
@@ -225,6 +228,7 @@ fn use_overlays() -> Overlays {
         delete_error: use_signal(|| None),
         tagging: use_signal(|| None),
         tagging_branch: use_signal(|| None),
+        excluding: use_signal(|| None),
     }
 }
 
@@ -255,6 +259,7 @@ impl Overlays {
             PersonAction::Tags => self.tagging.set(Some((pid, x, y))),
             PersonAction::TagBranch => self.tagging_branch.set(Some(pid)),
             PersonAction::GoTo(relative) => roots.go_to(relative),
+            PersonAction::Exclude(kind) => self.excluding.set(Some((pid, kind))),
             PersonAction::Delete => {
                 self.confirm_delete.set(Some(pid));
                 self.delete_error.set(None);
@@ -789,6 +794,62 @@ fn branch_tagging(
 
 /// The dialogs opened over the chart: merging, deleting, and the person and
 /// union forms.
+/// Asks before excluding a person, their ancestors or their descendants
+/// from sharing (docs/privacy.md §6.1), then creates the exclusion.
+#[component]
+fn ExcludeDialog(
+    tree_id: Uuid,
+    person_id: Uuid,
+    kind: oxidgene_core::ExclusionKind,
+    on_close: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    rsx! {
+        ConfirmDialog {
+            title: i18n.t(&format!("context.exclude.{}", kind.as_str())),
+            message: i18n.t("context.exclude_message"),
+            confirm_label: i18n.t("context.exclude_confirm"),
+            confirm_class: "btn btn-primary".to_string(),
+            error: error(),
+            busy: busy(),
+            on_confirm: move |()| {
+                let api = api.clone();
+                busy.set(true);
+                spawn(async move {
+                    let body = crate::api::CreateExclusionBody { kind, person_id };
+                    match api.create_exclusion(tree_id, &body).await {
+                        Ok(_) => on_close.call(()),
+                        Err(e) => error.set(Some(e.message(&i18n))),
+                    }
+                    busy.set(false);
+                });
+            },
+            on_cancel: move |()| on_close.call(()),
+        }
+    }
+}
+
+/// "Exclude from sharing", from the person's menu, while it asks.
+fn exclude_dialog(
+    tree_id: Uuid,
+    mut excluding: Signal<Option<(Uuid, oxidgene_core::ExclusionKind)>>,
+) -> Element {
+    let Some((person_id, kind)) = excluding() else {
+        return rsx! {};
+    };
+    rsx! {
+        ExcludeDialog {
+            tree_id,
+            person_id,
+            kind,
+            on_close: move |()| excluding.set(None),
+        }
+    }
+}
+
 fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
     let Some(tid) = (writes.tree_id)() else {
         return rsx! {};
@@ -804,10 +865,12 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
         mut delete_error,
         mut tagging,
         tagging_branch,
+        excluding,
         ..
     } = writes.overlays;
     let delete = writes.clone();
     rsx! {
+        {exclude_dialog(tid, excluding)}
         // The tag picker, from the person's menu.
         if let Some((pid, x, y)) = tagging() {
             TreeTagPicker {

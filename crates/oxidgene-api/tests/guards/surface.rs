@@ -59,6 +59,7 @@ pub fn record_key(name: &str, path: &str) -> Option<&'static str> {
         // A tag, the tag a merge moves its links onto, or the tag a scope
         // limits a read to.
         "tag_id" | "tags" | "into" | "tag" => "tag_id",
+        "exclusion_id" => "exclusion_id",
         _ => return None,
     })
 }

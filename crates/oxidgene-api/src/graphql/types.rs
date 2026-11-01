@@ -220,6 +220,65 @@ impl From<GqlTreeDefaultPrivacy> for oxidgene_core::enums::TreeDefaultPrivacy {
     }
 }
 
+/// How a person hidden from a viewer appears (`docs/privacy.md` §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlHiddenDisplay {
+    Stub,
+    Initials,
+    Hidden,
+}
+
+impl From<oxidgene_core::enums::HiddenDisplay> for GqlHiddenDisplay {
+    fn from(v: oxidgene_core::enums::HiddenDisplay) -> Self {
+        match v {
+            oxidgene_core::enums::HiddenDisplay::Stub => Self::Stub,
+            oxidgene_core::enums::HiddenDisplay::Initials => Self::Initials,
+            oxidgene_core::enums::HiddenDisplay::Hidden => Self::Hidden,
+        }
+    }
+}
+
+impl From<GqlHiddenDisplay> for oxidgene_core::enums::HiddenDisplay {
+    fn from(v: GqlHiddenDisplay) -> Self {
+        match v {
+            GqlHiddenDisplay::Stub => Self::Stub,
+            GqlHiddenDisplay::Initials => Self::Initials,
+            GqlHiddenDisplay::Hidden => Self::Hidden,
+        }
+    }
+}
+
+/// A tree's privacy settings (`docs/privacy.md` §9), flat on the tree as
+/// REST returns them.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPrivacyFields {
+    /// Whether contemporary persons are hidden.
+    pub contemporary_rule: bool,
+    /// The contemporary rule's threshold, in years.
+    pub contemporary_years: i32,
+    /// How a hidden person appears.
+    pub hidden_display: GqlHiddenDisplay,
+    /// Whether a hidden person's placeholder can be navigated through.
+    pub hidden_navigation: bool,
+    /// Whether visitors see the photographs of contemporary persons.
+    pub contemporary_photos: bool,
+    /// Whether guests may export the tree.
+    pub guests_may_export: bool,
+}
+
+impl From<oxidgene_core::types::PrivacySettings> for GqlPrivacyFields {
+    fn from(p: oxidgene_core::types::PrivacySettings) -> Self {
+        Self {
+            contemporary_rule: p.contemporary_rule,
+            contemporary_years: p.contemporary_years,
+            hidden_display: p.hidden_display.into(),
+            hidden_navigation: p.hidden_navigation,
+            contemporary_photos: p.contemporary_photos,
+            guests_may_export: p.guests_may_export,
+        }
+    }
+}
+
 /// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlSourceMediaType {
@@ -853,6 +912,9 @@ pub struct GqlTree {
     pub self_person_id: Option<ID>,
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: GqlTreeDefaultPrivacy,
+    /// The privacy settings (`docs/privacy.md` §9).
+    #[graphql(flatten)]
+    pub privacy: GqlPrivacyFields,
     /// Who the tree's GEDCOM exports say they are from.
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
@@ -929,6 +991,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             sosa_root_person_id: t.sosa_root_person_id.map(|id| ID(id.to_string())),
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
+            privacy: t.privacy.into(),
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,

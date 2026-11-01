@@ -699,6 +699,9 @@ pub enum PersonAction {
     TagBranch,
     /// Make a relative the chart's focus.
     GoTo(Uuid),
+    /// Exclude the person, their ancestors or their descendants from
+    /// sharing (web build with other viewers only, docs/privacy.md §6.1).
+    Exclude(oxidgene_core::ExclusionKind),
     Delete,
 }
 
@@ -726,6 +729,8 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
     let i18n = use_i18n();
     let mut show_union_sub = use_signal(|| false);
     let mut show_go_to = use_signal(|| false);
+    let mut show_exclude = use_signal(|| false);
+    let sharing = crate::sharing::use_sharing_surfaces();
 
     let union_count = props.unions.len();
 
@@ -742,7 +747,29 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                 "{props.person_name}"
             }
 
-            if show_go_to() {
+            if show_exclude() {
+                button {
+                    role: "menuitem",
+                    class: "context-menu-item context-menu-back",
+                    onclick: move |_| show_exclude.set(false),
+                    "\u{2190} {i18n.t(\"common.back\")}"
+                }
+                hr { class: "context-menu-divider" }
+                div { class: "context-menu-subheader", {i18n.t("context.exclude")} }
+                for kind in [
+                    oxidgene_core::ExclusionKind::Person,
+                    oxidgene_core::ExclusionKind::Ancestors,
+                    oxidgene_core::ExclusionKind::Descendants,
+                ] {
+                    button {
+                        key: "{kind.as_str()}",
+                        role: "menuitem",
+                        class: "context-menu-item",
+                        onclick: move |_| props.on_action.call(PersonAction::Exclude(kind)),
+                        {i18n.t(&format!("context.exclude.{}", kind.as_str()))}
+                    }
+                }
+            } else if show_go_to() {
                 button {
                     role: "menuitem",
                     class: "context-menu-item context-menu-back",
@@ -874,6 +901,14 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Kinship),
                     {i18n.t("context.kinship")}
+                }
+                if sharing {
+                    button {
+                        role: "menuitem",
+                        class: "context-menu-item",
+                        onclick: move |_| show_exclude.set(true),
+                        {i18n.t("context.exclude")}
+                    }
                 }
                 hr { class: "context-menu-divider" }
                 button {

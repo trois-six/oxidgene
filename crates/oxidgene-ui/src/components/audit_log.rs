@@ -38,11 +38,15 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
         }
     });
 
+    let sharing = crate::sharing::use_sharing_surfaces();
     let filters: Vec<(Option<AuditCategory>, String)> =
         std::iter::once((None, i18n.t("history.category.all")))
             .chain(
                 AuditCategory::ALL
                     .iter()
+                    // Who may see what is recorded only where other viewers
+                    // exist (docs/privacy.md §6.1).
+                    .filter(|c| **c != AuditCategory::Access || sharing)
                     .map(|c| (Some(*c), i18n.t(&format!("history.category.{c}")))),
             )
             .collect();

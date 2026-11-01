@@ -115,6 +115,8 @@ impl ProfileService {
 
         let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
         PersonSearchRepo::replace_tree(conn, tree_id, &search_entries).await?;
+        #[cfg(feature = "auth")]
+        super::visibility::rebuild_from(conn, tree_id, &tree_data).await?;
         // Having just written a tree's worth of rows the planner has no
         // statistics for — an import's last bulk write: its history entry
         // stores no version.
@@ -181,6 +183,29 @@ impl ProfileService {
         SosaRepo::number(&self.reader, tree_id, person_id).await
     }
 
+    // ── Person visibility ────────────────────────────────────────────────
+
+    /// The stored inputs of the contemporary rule of `person_ids` in
+    /// `tree_id` (docs/privacy.md §4.5), by person: the tree's rows are
+    /// rebuilt on the writer first when they are missing or were derived by
+    /// an earlier version of the rule. A person without a row is absent.
+    #[cfg(feature = "auth")]
+    pub async fn visibility(
+        &self,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, oxidgene_core::privacy::PersonVisibility>, OxidGeneError> {
+        use oxidgene_db::repo::PersonVisibilityRepo;
+        if !PersonVisibilityRepo::is_materialized(&self.reader, tree_id).await? {
+            let txn = self.writer.begin().await.map_err(db_err)?;
+            if !PersonVisibilityRepo::is_materialized(&txn, tree_id).await? {
+                super::visibility::rebuild_tree(&txn, tree_id).await?;
+            }
+            txn.commit().await.map_err(db_err)?;
+        }
+        PersonVisibilityRepo::get_many(&self.reader, person_ids).await
+    }
+
     // ── Person projections ───────────────────────────────────────────────
 
     /// Read a person's projection, building it on the writer if absent.
@@ -237,6 +262,8 @@ impl ProfileService {
             })?;
         PersonDenormRepo::upsert(conn, std::slice::from_ref(&built)).await?;
         PersonSearchRepo::upsert(conn, &[build_db_search_entry(&built)]).await?;
+        #[cfg(feature = "auth")]
+        super::visibility::refresh(conn, tree_id, &[person_id]).await?;
         Ok(built)
     }
 
@@ -616,6 +643,10 @@ impl ProfileService {
         if !remaining.is_empty() {
             self.rebuild_affected(conn, tree_id, &remaining).await?;
         }
+        // The deleted person's row goes; their relatives' were refreshed with
+        // their projections.
+        #[cfg(feature = "auth")]
+        super::visibility::refresh(conn, tree_id, &[person_id]).await?;
 
         debug!(
             count = remaining.len(),
@@ -634,6 +665,8 @@ impl ProfileService {
     ) -> Result<(), OxidGeneError> {
         info!("Dropping all projections for deleted tree");
         PersonSearchRepo::delete_tree(conn, tree_id).await?;
+        #[cfg(feature = "auth")]
+        oxidgene_db::repo::PersonVisibilityRepo::delete_tree(conn, tree_id).await?;
         PersonDenormRepo::delete_tree(conn, tree_id).await
     }
 
@@ -670,6 +703,8 @@ impl ProfileService {
         let rebuilt = self.rebuild_persons(conn, tree_id, affected).await?;
         let entries: Vec<_> = rebuilt.iter().map(build_db_search_entry).collect();
         PersonSearchRepo::upsert(conn, &entries).await?;
+        #[cfg(feature = "auth")]
+        super::visibility::refresh(conn, tree_id, affected).await?;
         Ok(())
     }
 

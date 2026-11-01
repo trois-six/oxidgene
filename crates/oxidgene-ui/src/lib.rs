@@ -23,6 +23,7 @@ pub mod pages;
 pub mod prefs;
 pub mod router;
 pub mod shared;
+pub mod sharing;
 pub mod theme;
 pub mod ui_observability;
 pub mod utils;

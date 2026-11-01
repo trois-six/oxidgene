@@ -631,6 +631,38 @@ impl From<TreeDefaultPrivacy> for enums::TreeDefaultPrivacy {
     }
 }
 
+/// How a hidden person appears — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(10))")]
+pub enum HiddenDisplay {
+    #[sea_orm(string_value = "stub")]
+    Stub,
+    #[sea_orm(string_value = "initials")]
+    Initials,
+    #[sea_orm(string_value = "hidden")]
+    Hidden,
+}
+
+impl From<enums::HiddenDisplay> for HiddenDisplay {
+    fn from(v: enums::HiddenDisplay) -> Self {
+        match v {
+            enums::HiddenDisplay::Stub => Self::Stub,
+            enums::HiddenDisplay::Initials => Self::Initials,
+            enums::HiddenDisplay::Hidden => Self::Hidden,
+        }
+    }
+}
+
+impl From<HiddenDisplay> for enums::HiddenDisplay {
+    fn from(v: HiddenDisplay) -> Self {
+        match v {
+            HiddenDisplay::Stub => Self::Stub,
+            HiddenDisplay::Initials => Self::Initials,
+            HiddenDisplay::Hidden => Self::Hidden,
+        }
+    }
+}
+
 /// GEDCOM's `SOURCE_MEDIA_TYPE` — stored as a string column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]

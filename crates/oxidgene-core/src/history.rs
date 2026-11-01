@@ -90,6 +90,9 @@ string_enum! {
         Export => "export",
         /// A restored version.
         History => "history",
+        /// Who may see what: the exclusions from sharing (web build only,
+        /// docs/authorization.md §9.1).
+        Access => "access",
     }
 }
 
@@ -142,6 +145,8 @@ string_enum! {
         MediaLink => "media_link",
         Vignette => "vignette",
         Portrait => "portrait",
+        /// An exclusion from sharing (docs/privacy.md §6).
+        PrivacyExclusion => "privacy_exclusion",
     }
 }
 
@@ -189,6 +194,7 @@ impl AuditCategory {
         }
         match entity {
             AuditEntity::Tree => Self::Settings,
+            AuditEntity::PrivacyExclusion => Self::Access,
             AuditEntity::Tag | AuditEntity::RecordTag => Self::Data,
             AuditEntity::Media
             | AuditEntity::MediaPage
@@ -549,6 +555,10 @@ pub struct TreeSnapshot {
     pub name: String,
     pub description: Option<String>,
     pub default_privacy: TreeDefaultPrivacy,
+    /// The privacy settings; a snapshot written before them reads as the
+    /// defaults.
+    #[serde(flatten)]
+    pub privacy: crate::types::PrivacySettings,
     pub sosa_root_person_id: Option<Uuid>,
     pub self_person_id: Option<Uuid>,
     #[serde(default)]

@@ -325,20 +325,24 @@ string in every language, and the user guide. In order:
      ([Authorization §9](authorization.md#9-audit),
      [Authentication §5.5](authentication.md#55-background-jobs)).
 3. **Privacy and exclusions.**
-   - [ ] Public as the default record privacy, with the precedence of
+   - [x] Public as the default record privacy, with the precedence of
      [Privacy §3.1](privacy.md#31-precedence).
-   - [ ] `person_visibility` and the contemporary rule with its inference
+   - [x] `person_visibility` and the contemporary rule with its inference
      from descendants and other relatives
      ([Privacy §4](privacy.md#4-contemporary-persons)); the export's *Leave
      out contemporary and private persons* option, on both builds.
    - [ ] Redaction for Visitors in every enforcement point and display mode,
      confidential notes, media privacy, cache headers
-     ([Privacy §5, §7](privacy.md#7-enforcement-points)).
-   - [ ] Exclusions of persons and subtrees, materialized and kept current,
+     ([Privacy §5, §7](privacy.md#7-enforcement-points)), and the export's
+     *Apply visitors' privacy rules*.
+   - [x] Exclusions of persons and subtrees, materialized and kept current,
      from the person menu and the privacy settings
-     ([Privacy §6](privacy.md#6-exclusions-from-sharing)).
-   - [ ] The tree's privacy settings in [Settings §8](ui-settings.md#8-section-privacy)
-     and the leak suite with its canary persons.
+     ([Privacy §6](privacy.md#6-exclusions-from-sharing)), and the owner's
+     *Leave out excluded persons* export option.
+   - [x] The tree's privacy settings in [Settings §8](ui-settings.md#8-section-privacy),
+     and the canary persons of the privacy tests.
+   - [ ] The leak suite over the canary persons, for every restricted
+     viewer, once the viewers exist.
 4. **Notifications and email.**
    - [ ] In-app notifications, preferences and the long poll
      ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)).

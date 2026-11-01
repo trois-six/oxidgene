@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
 ---
 
 
@@ -236,6 +236,31 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 
 Used by: the web frontend's profile page and its Instance section
 ([Authentication §10](authentication.md#10-user-interface)).
+
+### Exclusions from sharing
+
+The owner's exclusions of persons and subtrees from every share
+([Privacy §6](privacy.md#6-exclusions-from-sharing)), served only by a server
+built with the `auth` feature — the desktop answers `404 not_found`. An
+exclusion is `{ id, kind, person_id, depth, include_root, include_spouses,
+created_by, created_at, person_name, person_deleted, person_count }`:
+`person_name` is the root's display name, `person_deleted` says the root is
+deleted, and `person_count` the number of persons it covers now. Creating
+and removing one is recorded in the tree's history, category `access`,
+entity `privacy_exclusion`, about the root.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/exclusions` | The tree's exclusions, oldest first, whole. GraphQL: `exclusions(treeId)` |
+| `POST` | `/trees/{tree_id}/exclusions` | `{ kind, person_id, depth?, include_root?, include_spouses? }`: `kind` is `person`, `ancestors` or `descendants`; `depth`, 1 to 30 generations (all of them when absent), is read for an ancestry or a descendancy, out of range a `validation_error`; `include_root` defaults to `false` for ancestors and `true` for descendants; `include_spouses`, the spouses of the descendants, to `true` and is read for a descendancy only. A root that is not a live person of the tree is `not_found`. `201` with the exclusion. GraphQL: `createExclusion(treeId, input)` |
+| `DELETE` | `/trees/{tree_id}/exclusions/{exclusion_id}` | Remove an exclusion; `204`, an exclusion of another tree `not_found`. GraphQL: `deleteExclusion(treeId, exclusionId)` |
+
+The union of a tree's exclusions is materialized and rebuilt with each
+exclusion written, and by the next read after any change to the tree's
+family links, deletions or restorations
+([Privacy §6.5](privacy.md#65-kept-in-sync)). Until redaction for other
+viewers arrives, the owner's export reads it
+([Import / export](#import--export), `leave_out_excluded`).
 
 ### Persons
 
@@ -756,6 +781,18 @@ taking its default and an unknown name refused. A value out of its range
 `max_lifespan_years` or a `twin_days` not below `min_sibling_gap_days` is a
 `400 validation_error` (GraphQL `VALIDATION_ERROR`) and changes nothing.
 Every tree carries its `anomaly_thresholds`, the defaults until set.
+It also accepts the tree's privacy settings
+([Privacy §9](privacy.md#9-tree-settings)), returned flat on every tree:
+`contemporary_rule` (bool, default `true`), `contemporary_years` (50 to 150,
+default `100`), `hidden_display` (`"stub" | "initials" | "hidden"`, default
+`"stub"`), `hidden_navigation` (default `true`), `contemporary_photos` and
+`guests_may_export` (default `false`) — GraphQL `contemporaryRule`,
+`contemporaryYears`, `hiddenDisplay` (`GqlHiddenDisplay`), `hiddenNavigation`,
+`contemporaryPhotos`, `guestsMayExport`, on `UpdateTreeInput` and on the tree.
+Each is omitted to keep it; a `contemporary_years` out of its range is a
+`400 validation_error` (GraphQL `VALIDATION_ERROR`) and changes nothing. Both
+builds store them all; the desktop reads the first three for its export
+option ([Privacy §8](privacy.md#8-exports)).
 **Privacy** is accepted on
 all three of `PUT .../persons/{id}`,
 `PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
@@ -1759,6 +1796,7 @@ Every other list is one of these documented exceptions:
 | `/portraits` | One short row per person with a portrait |
 | `/gedcom/export-destinations` | The programs an export can be written for, which `oxidged` compiles in: a fixed list the export section draws as one select |
 | `/trees/{tree_id}/tags` (`tags(treeId)`) | The vocabulary, a handful of short rows the picker and the Tags tab filter as the reader types |
+| `/trees/{tree_id}/exclusions` (`exclusions(treeId)`) | The owner's exclusions from sharing, a handful of short rows listed together in the privacy settings |
 
 Batch reads (`/pedigrees`, `/portrait-images`, `/image-data`,
 `/gallery-bundle`, `/relation-labels`, the reference bundles) take a list of

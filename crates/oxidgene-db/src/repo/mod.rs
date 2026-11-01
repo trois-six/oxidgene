@@ -16,6 +16,7 @@ mod dictionary;
 mod event;
 mod event_spouse_age;
 mod event_witness;
+mod exclusion;
 mod family;
 mod family_child;
 mod family_spouse;
@@ -33,6 +34,7 @@ mod person_distinct;
 mod person_merge;
 mod person_name;
 mod person_search;
+mod person_visibility;
 mod place;
 mod record_tag;
 mod repository;
@@ -62,6 +64,7 @@ pub use dictionary::{
 pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
 pub use event_spouse_age::EventSpouseAgeRepo;
 pub use event_witness::EventWitnessRepo;
+pub use exclusion::{Exclusion, ExclusionRepo};
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
@@ -82,6 +85,7 @@ pub use person_search::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchSort,
     RELATIVE_SEP,
 };
+pub use person_visibility::{Membership, MembershipsOf, PersonVisibilityRepo};
 pub use place::{PlaceFilter, PlaceRepo};
 pub use record_tag::RecordTagRepo;
 pub use repository::{

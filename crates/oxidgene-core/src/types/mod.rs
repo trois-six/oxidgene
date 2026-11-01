@@ -47,4 +47,4 @@ pub use surname::{
     surname_sort_key,
 };
 pub use tag::{RecordKind, TAG_COLOR_SLOTS, TAG_LABEL_MAX, TagRef, tag_key};
-pub use tree::{AnomalyThresholds, Tree};
+pub use tree::{AnomalyThresholds, PrivacySettings, Tree, check_contemporary_years};

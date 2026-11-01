@@ -15,6 +15,7 @@ pub mod media_viewer;
 pub mod not_found;
 pub mod person_detail;
 pub mod person_history;
+pub mod privacy_settings;
 pub mod profile;
 pub mod search_results;
 pub mod settings;

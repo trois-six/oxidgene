@@ -348,6 +348,17 @@ input CreateEventInput {
 }
 
 """
+An exclusion to create: REST `POST /trees/{tree_id}/exclusions`.
+"""
+input CreateExclusionInput {
+	kind: GqlExclusionKind!
+	personId: ID!
+	depth: Int
+	includeRoot: Boolean
+	includeSpouses: Boolean
+}
+
+"""
 Input for creating a media link.
 """
 input CreateMediaLinkInput {
@@ -707,6 +718,7 @@ enum GqlAuditCategory {
 	IMPORT
 	EXPORT
 	HISTORY
+	ACCESS
 }
 
 """
@@ -755,6 +767,7 @@ enum GqlAuditEntity {
 	PORTRAIT
 	TAG
 	RECORD_TAG
+	PRIVACY_EXCLUSION
 }
 
 """
@@ -1360,6 +1373,33 @@ type GqlEventWitness {
 }
 
 """
+An exclusion from sharing, with its root and the persons it covers:
+REST `GET /trees/{tree_id}/exclusions`.
+"""
+type GqlExclusion {
+	id: ID!
+	kind: GqlExclusionKind!
+	personId: ID!
+	depth: Int
+	includeRoot: Boolean!
+	includeSpouses: Boolean!
+	createdBy: ID
+	createdAt: DateTime!
+	personName: String
+	personDeleted: Boolean!
+	personCount: Int!
+}
+
+"""
+What an exclusion covers.
+"""
+enum GqlExclusionKind {
+	PERSON
+	ANCESTORS
+	DESCENDANTS
+}
+
+"""
 Result of a GEDCOM export operation.
 """
 type GqlExportGedcomResult {
@@ -1722,6 +1762,15 @@ type GqlGivenNameReference {
 type GqlGivenNameReferenceMatch {
 	term: String!
 	reference: GqlGivenNameReference!
+}
+
+"""
+How a person hidden from a viewer appears (`docs/privacy.md` §5).
+"""
+enum GqlHiddenDisplay {
+	STUB
+	INITIALS
+	HIDDEN
 }
 
 """
@@ -3480,6 +3529,30 @@ type GqlTree {
 	"""
 	defaultPrivacy: GqlTreeDefaultPrivacy!
 	"""
+	Whether contemporary persons are hidden.
+	"""
+	contemporaryRule: Boolean!
+	"""
+	The contemporary rule's threshold, in years.
+	"""
+	contemporaryYears: Int!
+	"""
+	How a hidden person appears.
+	"""
+	hiddenDisplay: GqlHiddenDisplay!
+	"""
+	Whether a hidden person's placeholder can be navigated through.
+	"""
+	hiddenNavigation: Boolean!
+	"""
+	Whether visitors see the photographs of contemporary persons.
+	"""
+	contemporaryPhotos: Boolean!
+	"""
+	Whether guests may export the tree.
+	"""
+	guestsMayExport: Boolean!
+	"""
 	Who the tree's GEDCOM exports say they are from.
 	"""
 	submitterName: String
@@ -3560,6 +3633,30 @@ type GqlTreeSnapshot {
 	name: String!
 	description: String
 	defaultPrivacy: GqlTreeDefaultPrivacy!
+	"""
+	Whether contemporary persons are hidden.
+	"""
+	contemporaryRule: Boolean!
+	"""
+	The contemporary rule's threshold, in years.
+	"""
+	contemporaryYears: Int!
+	"""
+	How a hidden person appears.
+	"""
+	hiddenDisplay: GqlHiddenDisplay!
+	"""
+	Whether a hidden person's placeholder can be navigated through.
+	"""
+	hiddenNavigation: Boolean!
+	"""
+	Whether visitors see the photographs of contemporary persons.
+	"""
+	contemporaryPhotos: Boolean!
+	"""
+	Whether guests may export the tree.
+	"""
+	guestsMayExport: Boolean!
 	sosaRootPersonId: ID
 	selfPersonId: ID
 	submitterName: String
@@ -4283,6 +4380,14 @@ type MutationRoot {
 	Erase a user.
 	"""
 	eraseUser(userId: ID!): Boolean!
+	"""
+	Exclude a person, their ancestors or their descendants from sharing.
+	"""
+	createExclusion(treeId: ID!, input: CreateExclusionInput!): GqlExclusion!
+	"""
+	Remove an exclusion from sharing; true once removed.
+	"""
+	deleteExclusion(treeId: ID!, exclusionId: ID!): Boolean!
 }
 
 """
@@ -4895,6 +5000,10 @@ type QueryRoot {
 	One user, for an administrator; `null` when there is none.
 	"""
 	user(userId: ID!): GqlUser
+	"""
+	The exclusions from sharing of a tree, oldest first.
+	"""
+	exclusions(treeId: ID!): [GqlExclusion!]!
 }
 
 """
@@ -5508,6 +5617,30 @@ input UpdateTreeInput {
 	What `Default` privacy resolves to for everything in this tree.
 	"""
 	defaultPrivacy: GqlTreeDefaultPrivacy
+	"""
+	Whether contemporary persons are hidden (`docs/privacy.md` §9).
+	"""
+	contemporaryRule: Boolean
+	"""
+	The contemporary rule's threshold, 50 to 150 years.
+	"""
+	contemporaryYears: Int
+	"""
+	How a hidden person appears.
+	"""
+	hiddenDisplay: GqlHiddenDisplay
+	"""
+	Whether a hidden person's placeholder can be navigated through.
+	"""
+	hiddenNavigation: Boolean
+	"""
+	Whether visitors see the photographs of contemporary persons.
+	"""
+	contemporaryPhotos: Boolean
+	"""
+	Whether guests may export the tree.
+	"""
+	guestsMayExport: Boolean
 	name: String
 	description: String
 	sosaRootPersonId: String

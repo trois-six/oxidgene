@@ -1388,8 +1388,9 @@ restored: the version before it is the state to go back to.
 
 The tables of EPIC G, specified in [Authentication](authentication.md),
 [Authorization](authorization.md), [Privacy](privacy.md) and
-[Messaging and Notifications](messaging.md). `app_user` (§6.1) exists; the
-others are planned and arrive with their phase. Until the first
+[Messaging and Notifications](messaging.md). `app_user` (§6.1),
+`person_visibility` (§6.8) and the exclusions (§6.9) exist; the others are
+planned and arrive with their phase. Until the first
 release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the
@@ -1477,25 +1478,34 @@ name or token.
 
 ### 6.8 `person_visibility`
 
-`person_id` (PK, cascade), `tree_id` (indexed), `privacy`, `deceased`,
-`latest_birth_year?`, `earliest_birth_year?`, `updated_at` — the inputs of the contemporary rule
+`person_id` (PK, cascade), `tree_id` (cascade), `privacy`, `deceased`,
+`latest_birth_year?`, `earliest_birth_year?`, `recorded_birth_year?` (the
+bound the person's recorded dates give their ancestors),
+`kin_birth_year?` (the bound of their own and their close relatives'
+dates), `descent` (the bounds their descendants give, one per generation
+down to ten, comma-separated), `rule_version`, `updated_at`; indexed by
+`(tree_id, rule_version)` — the inputs of the contemporary rule
 ([Privacy §4.5](privacy.md#45-stored-inputs)), refreshed in the transaction of
-every write that changes them.
+every write that changes them. Built: written by the web build only.
 
 ### 6.9 `privacy_exclusion` and `excluded_person`
 
 `privacy_exclusion`: `id`, `tree_id` (cascade), `kind` (`person`,
-`ancestors`, `descendants`), `person_id`, `depth?`, `include_root`,
-`include_spouses`, `created_by`, `created_at`. `excluded_person`: `tree_id`,
-`person_id`, primary key on both, the union of the tree's exclusions;
-`exclusion_state`: `tree_id` (PK), `built_generation?`
-([Privacy §6.5](privacy.md#65-kept-in-sync)).
+`ancestors`, `descendants`), `person_id` (cascade: a purged root takes its
+exclusions, a soft-deleted one keeps them), `depth?`, `include_root`,
+`include_spouses`, `created_by?`, `created_at`; indexed by `tree_id` and
+`person_id`. `excluded_person`: `tree_id`, `person_id` (both cascade),
+primary key on both, indexed by `person_id`, the union of the tree's
+exclusions; `exclusion_state`: `tree_id` (PK), `built_generation?`, the
+`sosa_state.generation` the union was built from
+([Privacy §6.5](privacy.md#65-kept-in-sync)). Built: written by the web
+build only.
 
 ### 6.10 Changes to existing tables
 
 | Table | Added |
 |---|---|
-| `tree` | `default_privacy` defaults to `public` instead of `private` ([Privacy §3.1](privacy.md#31-precedence)); `visibility` (`private`, `site`, `public`; default `private`), `visitor_scope_id?`, `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)) |
+| `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. Planned with sharing: `visibility` (`private`, `site`, `public`; default `private`), `visitor_scope_id?` |
 | `note` | `confidential` (default `false`) |
 | `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
 | `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |

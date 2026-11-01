@@ -269,6 +269,17 @@ impl Builder<'_> {
             let link = format!("/tags/{tag}/records/{kind}/{record}");
             self.send(Method::PUT, &link, json!({})).await;
         }
+        // An exclusion from sharing, which the web build alone serves.
+        #[cfg(feature = "auth")]
+        {
+            let person = self.id("other_person_id");
+            self.create(
+                "exclusion_id",
+                "/exclusions",
+                json!({ "kind": "person", "person_id": person }),
+            )
+            .await;
+        }
     }
 
     /// Two edits, so the history holds versions; a completed export job;

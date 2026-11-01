@@ -804,6 +804,19 @@ pub struct UpdateTreeBody {
     /// What `Privacy::Default` resolves to for everything in this tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_privacy: Option<TreeDefaultPrivacy>,
+    /// The privacy settings (`docs/privacy.md` §9), each saved on its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contemporary_rule: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contemporary_years: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_display: Option<oxidgene_core::HiddenDisplay>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_navigation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contemporary_photos: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guests_may_export: Option<bool>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitter_name: Option<Option<String>>,
@@ -814,6 +827,31 @@ pub struct UpdateTreeBody {
     /// The thresholds of the anomaly rules, all at once.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anomaly_thresholds: Option<AnomalyThresholds>,
+}
+
+/// An exclusion from sharing, as the tree's list shows it
+/// (`docs/privacy.md` §6).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Exclusion {
+    pub id: Uuid,
+    pub kind: oxidgene_core::ExclusionKind,
+    pub person_id: Uuid,
+    pub depth: Option<i32>,
+    pub include_root: bool,
+    pub include_spouses: bool,
+    /// The root's display name.
+    pub person_name: Option<String>,
+    /// The root is deleted: the exclusion covers nobody until it is restored.
+    pub person_deleted: bool,
+    /// The persons it covers now.
+    pub person_count: u64,
+}
+
+/// An exclusion to create; the server's defaults for what is left out.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateExclusionBody {
+    pub kind: oxidgene_core::ExclusionKind,
+    pub person_id: Uuid,
 }
 
 #[derive(Debug, Serialize)]
@@ -3435,6 +3473,53 @@ impl ApiClient {
         // The batch of several trees' recent persons names no single tree.
         self.cache.invalidate_prefix(RECENT_PERSONS_PATH);
         self.pictures.invalidate_tree(tree_id);
+    }
+
+    /// The exclusions from sharing of tree `tree_id`, oldest first. Read
+    /// fresh each time: the persons they cover follow the family links.
+    pub async fn list_exclusions(&self, tree_id: Uuid) -> Result<Vec<Exclusion>, ApiError> {
+        let path = format!("/api/v1/trees/{tree_id}/exclusions");
+        self.cache.invalidate_prefix(&path);
+        self.get(&path).await
+    }
+
+    /// Exclude what `body` names from sharing in tree `tree_id`.
+    pub async fn create_exclusion(
+        &self,
+        tree_id: Uuid,
+        body: &CreateExclusionBody,
+    ) -> Result<Exclusion, ApiError> {
+        let path = format!("/api/v1/trees/{tree_id}/exclusions");
+        let created = self.post(&path, body).await?;
+        self.cache.invalidate_prefix(&path);
+        Ok(created)
+    }
+
+    /// Remove exclusion `exclusion_id` of tree `tree_id`.
+    pub async fn delete_exclusion(
+        &self,
+        tree_id: Uuid,
+        exclusion_id: Uuid,
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/exclusions/{exclusion_id}"
+        ))
+        .await?;
+        self.cache
+            .invalidate_prefix(&format!("/api/v1/trees/{tree_id}/exclusions"));
+        Ok(())
+    }
+
+    /// The authentication mode the server reports on `/auth/session`:
+    /// `oidc` or `none` (`docs/authentication.md` §2). Only the web entry
+    /// point asks; the desktop's embedded server has no such route.
+    pub async fn auth_mode(&self) -> Result<String, ApiError> {
+        #[derive(Deserialize)]
+        struct Session {
+            mode: String,
+        }
+        let session: Session = self.get("/auth/session").await?;
+        Ok(session.mode)
     }
 
     /// Helper: send a cached GET request and deserialize JSON response.

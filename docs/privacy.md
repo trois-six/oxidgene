@@ -13,8 +13,12 @@ generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
 > [Tree Settings §8](ui-settings.md#8-section-privacy) · [Data Model](data-model.md) ·
 > [API Contract](api.md) · [Cross-cutting Rules](cross-cutting.md)
 
-**Status: planned, nothing is enforced yet.** Privacy values are stored today
-and hide nothing ([Data Model](data-model.md#media), "Privacy");
+**Status: partly built.** Records default to public (§3.1); the
+contemporary rule (§4) is derived and, in the web build, materialized in
+`person_visibility`; the exclusions (§6) are stored and materialized in the
+web build; the tree settings (§9) and the export options (§8) work. Nothing
+is redacted for other viewers yet: that arrives with the roles of
+[Authorization](authorization.md);
 [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks the
 phases. Viewer redaction and exclusions are compiled and active only in the
 web build; the desktop has one user who sees everything, and keeps today's
@@ -147,8 +151,12 @@ older than their own records prove only when no reasonable life fits
 otherwise.
 
 **The person's own other events.** A dated event other than birth or
-baptism — marriage, occupation, residence, census — at its earliest possible
-year E: born at the latest in E, or E − 14 for their own marriage.
+baptism — marriage, occupation, residence, census — at its latest possible
+year E (the last year its date allows: a marriage `between 1900 and 1910`
+gives 1910, one `after 1900` nothing): born at the latest in E, or E − 14
+for their own marriage. The latest, not the earliest, year: the person was
+born before the event, which may have happened as late as its date allows,
+so only that bound fails closed.
 
 **Descendants.** A descendant at depth d (a child is 1, a grandchild 2…)
 whose own latest possible birth year is Y — from their birth, else their
@@ -197,12 +205,22 @@ The rule needs relatives' dates, which a request listing thousands of persons
 cannot gather one by one. `person_visibility`
 ([Data Model §6.8](data-model.md#68-person_visibility)) stores per person its
 `privacy`, `deceased` (rule 1), `latest_birth_year` and `earliest_birth_year`
-(§4.2, §4.3). It is refreshed in the same transaction as every write changing
+(§4.2, §4.3), and what refreshing them reads: the bound the person's own
+recorded dates give their ancestors, the bound of their own and their close
+relatives' dates, and the bounds their descendants give by depth, one per
+generation down to ten. It is refreshed in the same transaction as every write changing
 a person's privacy or events, the dated events of a parent, child, spouse or
 sibling, or the links between them; because descendants count, such a write
 also refreshes the rows of the person's ancestors up to 10 generations, one
-bounded walk. Imports and merges rebuild the persons they touch, and a change
-to the derivation rebuilds every tree, as the projections are. The threshold
+bounded walk: generation by generation, each parent's bounds by depth are
+computed again from their children's stored rows, and the walk goes up only
+while they change. Imports and merges rebuild the persons they touch, and a change
+to the derivation rebuilds every tree, as the projections are: each row
+records the version of the rule it was derived by
+(`VISIBILITY_RULE_VERSION`), and the first read of a tree holding none, or
+an older one, rebuilds the tree's rows on the writer. Only the web build
+writes them; the desktop's export derives the rule from the records it
+reads. The threshold
 and the year are applied at read time, so changing the threshold rewrites
 nothing:
 `contemporary = NOT deceased AND (latest_birth_year IS NULL OR latest_birth_year > current_year - contemporary_years)`.

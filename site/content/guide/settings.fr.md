@@ -31,6 +31,20 @@ Un nouvel arbre est Public : un enregistrement que personne n’a classé est pu
 
 La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore rien. Comme l’indique la section : **Enregistré dès maintenant. Rien n’est encore masqué — cela prendra effet avec les comptes et la publication.**
 
+### Personnes contemporaines
+
+La carte **Personnes contemporaines** décide qui compte comme vivant, et comment apparaît une personne écartée :
+
+- **Cacher les personnes contemporaines**, activé par défaut. Une personne est contemporaine quand aucun décès, inhumation ni crémation n’est enregistré pour elle et que ni ses propres dates ni celles de ses proches ne la montrent née il y a au moins le seuil : une personne sans date dont un petit-enfant a été baptisé en 1890, par exemple, est née au plus tard en 1860 et n’est pas contemporaine. Désactiver la règle demande une confirmation.
+- **Seuil d’âge (années)**, de 50 à 150, 100 par défaut.
+- **Affichage des personnes cachées** : **Emplacement privé** garde la forme de l’arbre avec une personne sans nom ni dates, **Initiales** y ajoute ses initiales, **Masquée** la retire entièrement.
+
+Ces réglages sont ceux qu’applique l’option d’export **Écarter les personnes contemporaines et privées** (voir [Import et export](@/guide/import-export.fr.md#exporter-un-arbre)). Un serveur web partagé avec d’autres personnes les applique aussi à ses visiteurs, et ajoute **Permettre la navigation à travers les personnes cachées**, **Montrer les photos des personnes contemporaines** et **Les invités peuvent exporter**.
+
+### Exclusions du partage
+
+Sur un serveur web partagé avec d’autres personnes, vous pouvez garder pour vous des personnes et des branches entières : ouvrez le menu d’une personne dans l’arbre, choisissez **Exclure du partage**, puis **Exclure cette personne**, **Exclure ses ascendants** ou **Exclure ses descendants**, et confirmez. Personne d’autre que vous ne les verra, quoi que vous partagiez. La carte **Exclusions du partage** des réglages de Confidentialité les liste, avec le nombre de personnes que couvre chacune, et **Retirer** en retire une. Un enfant ajouté plus tard sous une branche exclue est exclu lui aussi. L’application de bureau, utilisée par vous seul, n’a pas d’exclusions.
+
 ## Seuils des anomalies
 
 {{ <screenshot name="tree-settings-anomalies" alt="Section Seuils des anomalies des paramètres de l’arbre, ses seuils en quatre cartes : dates, filiation, unions et lieux" lang={lang} /> }}

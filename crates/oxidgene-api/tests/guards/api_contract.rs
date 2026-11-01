@@ -90,6 +90,22 @@ const ACCOUNT_PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/admin/users/{user_id}/identity",
         Gql(&["Mutation.rebindUserIdentity"]),
     ),
+    // The exclusions from sharing (docs/privacy.md §6), also web-only.
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/exclusions",
+        Gql(&["Query.exclusions"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/exclusions",
+        Gql(&["Mutation.createExclusion"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/exclusions/{exclusion_id}",
+        Gql(&["Mutation.deleteExclusion"]),
+    ),
 ];
 
 /// Every operation this build serves: [`PARITY`], and the account

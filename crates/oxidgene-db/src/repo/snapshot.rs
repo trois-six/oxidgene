@@ -289,6 +289,7 @@ impl SnapshotRepo {
             .chain(row.self_person_id)
             .collect();
         let labels = into_labels(display_names(db, &named).await?);
+        let privacy = crate::repo::tree::privacy_of(&row);
         Ok(vec![BuiltSnapshot {
             record_id: row.id,
             deleted: row.deleted_at.is_some(),
@@ -296,6 +297,7 @@ impl SnapshotRepo {
                 name: row.name,
                 description: row.description,
                 default_privacy: row.default_privacy.into(),
+                privacy,
                 sosa_root_person_id: row.sosa_root_person_id,
                 self_person_id: row.self_person_id,
                 submitter_name: row.submitter_name,
@@ -494,6 +496,13 @@ impl SnapshotRepo {
         active.name = Set(snapshot.name.clone());
         active.description = Set(snapshot.description.clone());
         active.default_privacy = Set(snapshot.default_privacy.into());
+        let privacy = &snapshot.privacy;
+        active.contemporary_rule = Set(privacy.contemporary_rule);
+        active.contemporary_years = Set(privacy.contemporary_years);
+        active.hidden_display = Set(privacy.hidden_display.into());
+        active.hidden_navigation = Set(privacy.hidden_navigation);
+        active.contemporary_photos = Set(privacy.contemporary_photos);
+        active.guests_may_export = Set(privacy.guests_may_export);
         active.submitter_name = Set(snapshot.submitter_name.clone());
         active.submitter_email = Set(snapshot.submitter_email.clone());
         active.submitter_address = Set(snapshot.submitter_address.clone());

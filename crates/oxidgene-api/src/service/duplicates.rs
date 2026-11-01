@@ -193,6 +193,10 @@ async fn merge_persons_in(
     write_merge(conn, tree_id, kept, duplicate, choices).await?;
     // What the duplicate kept from its GEDCOM file follows it onto the kept person.
     GedcomKeptRepo::repoint(conn, KeptEntityKind::Person, duplicate, kept).await?;
+    // An exclusion rooted at the duplicate roots at the kept person: a merge
+    // keeps a person excluded when either record was (docs/privacy.md §6.5).
+    #[cfg(feature = "auth")]
+    oxidgene_db::repo::ExclusionRepo::move_root(conn, duplicate, kept).await?;
     profiles
         .invalidate_for_person_delete(conn, tree_id, duplicate)
         .await?;

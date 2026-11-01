@@ -166,6 +166,35 @@ impl EventRepo {
         hydrate(db, events).await
     }
 
+    /// The live events of the given persons and of the given families,
+    /// without their tags and spouse ages: what the contemporary rule reads
+    /// of them is their type and their date.
+    pub async fn list_untagged_by_owners(
+        db: &impl ConnectionTrait,
+        person_ids: &[Uuid],
+        family_ids: &[Uuid],
+    ) -> Result<Vec<Event>, OxidGeneError> {
+        let mut events = Vec::new();
+        for (ids, column) in [
+            (person_ids, Column::PersonId),
+            (family_ids, Column::FamilyId),
+        ] {
+            events.extend(
+                in_chunks(ids, |chunk| async move {
+                    let models = Entity::find()
+                        .filter(column.is_in(chunk))
+                        .filter(Column::DeletedAt.is_null())
+                        .all(db)
+                        .await
+                        .map_err(db_err)?;
+                    Ok(models.into_iter().map(into_domain).collect::<Vec<_>>())
+                })
+                .await?,
+            );
+        }
+        Ok(events)
+    }
+
     /// List all events attached to any of the given families (excludes soft-deleted).
     pub async fn list_by_families(
         db: &impl ConnectionTrait,

@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::enums::TreeDefaultPrivacy;
+use oxidgene_core::enums::{HiddenDisplay, TreeDefaultPrivacy};
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{AnomalyThresholds, Connection, Tree};
+use oxidgene_core::types::{AnomalyThresholds, Connection, Tree, check_contemporary_years};
 use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,18 @@ pub struct TreePatch {
     pub self_person_id: Option<Option<Uuid>>,
     /// What `privacy: "default"` resolves to for everything in the tree.
     pub default_privacy: Option<TreeDefaultPrivacy>,
+    /// Whether contemporary persons are hidden (`docs/privacy.md` §9).
+    pub contemporary_rule: Option<bool>,
+    /// The contemporary rule's threshold, 50 to 150 years.
+    pub contemporary_years: Option<i32>,
+    /// How a hidden person appears.
+    pub hidden_display: Option<HiddenDisplay>,
+    /// Whether a hidden person's placeholder can be navigated through.
+    pub hidden_navigation: Option<bool>,
+    /// Whether visitors see the photographs of contemporary persons.
+    pub contemporary_photos: Option<bool>,
+    /// Whether guests may export the tree.
+    pub guests_may_export: Option<bool>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(default, deserialize_with = "double_option")]
     pub submitter_name: Option<Option<String>>,
@@ -146,7 +158,7 @@ pub async fn create_tree(db: &DatabaseConnection, new: NewTree) -> Result<Tree, 
 }
 
 /// Update tree `tree_id`. A blank name is refused, so are anomaly thresholds
-/// out of their ranges, and a SOSA root or own record from another tree is
+/// and a contemporary threshold out of their ranges, and a SOSA root or own record from another tree is
 /// not found.
 pub async fn update_tree(
     db: &DatabaseConnection,
@@ -158,6 +170,9 @@ pub async fn update_tree(
     }
     if let Some(thresholds) = &patch.anomaly_thresholds {
         thresholds.check().map_err(OxidGeneError::Validation)?;
+    }
+    if let Some(years) = patch.contemporary_years {
+        check_contemporary_years(years).map_err(OxidGeneError::Validation)?;
     }
     let txn = begin_tx(db).await?;
     for person_id in [patch.sosa_root_person_id, patch.self_person_id]
@@ -180,6 +195,12 @@ pub async fn update_tree(
             sosa_root_person_id: patch.sosa_root_person_id,
             self_person_id: patch.self_person_id,
             default_privacy: patch.default_privacy,
+            contemporary_rule: patch.contemporary_rule,
+            contemporary_years: patch.contemporary_years,
+            hidden_display: patch.hidden_display,
+            hidden_navigation: patch.hidden_navigation,
+            contemporary_photos: patch.contemporary_photos,
+            guests_may_export: patch.guests_may_export,
             submitter_name: patch.submitter_name.map(blank_to_none),
             submitter_email: patch.submitter_email.map(blank_to_none),
             submitter_address: patch.submitter_address.map(blank_to_none),

@@ -31,6 +31,20 @@ A new tree starts as Public: a record nobody classified is public, while living 
 
 Privacy is recorded today but does not hide anything yet. As the section says: **Recorded now. Nothing is hidden yet — this takes effect when accounts and publishing arrive.**
 
+### Contemporary persons
+
+The **Contemporary persons** card decides who counts as living, and how a person left out appears:
+
+- **Hide contemporary persons**, on by default. A person is contemporary when no death, burial or cremation is recorded for them and neither their own dates nor their relatives' show them born at least the threshold ago: a person with no date of their own whose grandchild was baptized in 1890, for example, was born by 1860 at the latest and is not contemporary. Turning the rule off asks you to confirm.
+- **Age threshold (years)**, from 50 to 150, 100 by default.
+- **Display of hidden persons**: **Private placeholder** keeps the shape of the tree with a person without a name or dates, **Initials** adds their initials, **Hidden** leaves them out altogether.
+
+These settings are what the export option **Leave out contemporary and private persons** applies (see [Import and export](@/guide/import-export.md#export-options)). A web server shared with other people also applies them to its visitors, and adds **Allow navigation through hidden persons**, **Show photos of contemporary persons** and **Guests may export**.
+
+### Exclusions from sharing
+
+On a web server shared with other people, you can keep persons and whole branches to yourself: open a person's menu in the tree, choose **Exclude from sharing**, then **Exclude this person**, **Exclude their ancestors** or **Exclude their descendants**, and confirm. Nobody but you will see them, whatever you share. The **Exclusions from sharing** card of the Privacy settings lists them, with the number of persons each covers, and **Remove** takes one away. A child you add later under an excluded branch is excluded too. The desktop application, used by you alone, has no exclusions.
+
 ## Anomaly thresholds
 
 {{ <screenshot name="tree-settings-anomalies" alt="Anomaly thresholds section of the tree settings, its thresholds in four cards: dates, filiation, unions and places" lang={lang} /> }}

@@ -55,6 +55,10 @@ impl MigrationTrait for Migration {
             BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
             ProjectionState::Table.into_table_ref(),
+            PersonVisibility::Table.into_table_ref(),
+            ExcludedPerson::Table.into_table_ref(),
+            ExclusionState::Table.into_table_ref(),
+            PrivacyExclusion::Table.into_table_ref(),
             SosaAncestor::Table.into_table_ref(),
             SosaState::Table.into_table_ref(),
             RecordTag::Table.into_table_ref(),
@@ -125,6 +129,12 @@ enum Tree {
     SosaRootPersonId,
     SelfPersonId,
     DefaultPrivacy,
+    ContemporaryRule,
+    ContemporaryYears,
+    HiddenDisplay,
+    HiddenNavigation,
+    ContemporaryPhotos,
+    GuestsMayExport,
     SubmitterName,
     SubmitterEmail,
     SubmitterAddress,
@@ -404,6 +414,50 @@ enum ProjectionState {
 }
 
 #[derive(DeriveIden)]
+enum PersonVisibility {
+    Table,
+    PersonId,
+    TreeId,
+    Privacy,
+    Deceased,
+    LatestBirthYear,
+    EarliestBirthYear,
+    RecordedBirthYear,
+    KinBirthYear,
+    Descent,
+    RuleVersion,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum PrivacyExclusion {
+    Table,
+    Id,
+    TreeId,
+    Kind,
+    PersonId,
+    Depth,
+    IncludeRoot,
+    IncludeSpouses,
+    CreatedBy,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum ExcludedPerson {
+    Table,
+    TreeId,
+    PersonId,
+}
+
+#[derive(DeriveIden)]
+enum ExclusionState {
+    Table,
+    TreeId,
+    BuiltGeneration,
+}
+
+#[derive(DeriveIden)]
 enum SosaState {
     Table,
     TreeId,
@@ -518,6 +572,8 @@ async fn create_derived(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     create_traversal_indexes(manager).await?;
     create_projections(manager).await?;
     create_sosa(manager).await?;
+    create_person_visibility(manager).await?;
+    create_exclusions(manager).await?;
     create_person_distinct(manager).await?;
     create_history(manager).await
 }
@@ -543,6 +599,18 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default("public"),
                 )
+                // The privacy settings (docs/privacy.md §9).
+                .col(boolean(Tree::ContemporaryRule).default(true))
+                .col(integer(Tree::ContemporaryYears).default(100))
+                .col(
+                    ColumnDef::new(Tree::HiddenDisplay)
+                        .string_len(10)
+                        .not_null()
+                        .default("stub"),
+                )
+                .col(boolean(Tree::HiddenNavigation).default(true))
+                .col(boolean(Tree::ContemporaryPhotos).default(false))
+                .col(boolean(Tree::GuestsMayExport).default(false))
                 // Who the tree's GEDCOM exports say they are from (`SUBM`).
                 .col(string_null(Tree::SubmitterName))
                 .col(string_null(Tree::SubmitterEmail))
@@ -2429,6 +2497,172 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
     "CREATE TRIGGER sosa_person_delete AFTER DELETE ON person \
          FOR EACH ROW EXECUTE FUNCTION sosa_owner_changed()",
 ];
+
+/// The stored inputs of the contemporary rule (docs/data-model.md §6.8,
+/// docs/privacy.md §4.5): one row per live person, written by the web
+/// build only, in the transaction of every write that changes them. The
+/// threshold and the current year are applied when reading, so a change of
+/// threshold rewrites nothing.
+async fn create_person_visibility(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(PersonVisibility::Table)
+                .if_not_exists()
+                .col(uuid(PersonVisibility::PersonId).primary_key())
+                .col(uuid(PersonVisibility::TreeId))
+                .col(string_len(PersonVisibility::Privacy, 10))
+                .col(boolean(PersonVisibility::Deceased))
+                .col(integer_null(PersonVisibility::LatestBirthYear))
+                .col(integer_null(PersonVisibility::EarliestBirthYear))
+                .col(integer_null(PersonVisibility::RecordedBirthYear))
+                .col(integer_null(PersonVisibility::KinBirthYear))
+                // The bounds descendants give by depth (`Descent::encode`).
+                .col(string(PersonVisibility::Descent))
+                // `VISIBILITY_RULE_VERSION` the row was derived with.
+                .col(integer(PersonVisibility::RuleVersion))
+                .col(timestamp_with_time_zone(PersonVisibility::UpdatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_visibility_person")
+                        .from(PersonVisibility::Table, PersonVisibility::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_visibility_tree")
+                        .from(PersonVisibility::Table, PersonVisibility::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_visibility_tree_version")
+                .table(PersonVisibility::Table)
+                .col(PersonVisibility::TreeId)
+                .col(PersonVisibility::RuleVersion)
+                .to_owned(),
+        )
+        .await
+}
+
+/// The owner's exclusions from sharing (docs/data-model.md §6.9,
+/// docs/privacy.md §6): each exclusion, the union of the persons they cover,
+/// and the SOSA ancestry generation that union was built from. Written by
+/// the web build only.
+async fn create_exclusions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(PrivacyExclusion::Table)
+                .if_not_exists()
+                .col(uuid(PrivacyExclusion::Id).primary_key())
+                .col(uuid(PrivacyExclusion::TreeId))
+                .col(string_len(PrivacyExclusion::Kind, 12))
+                .col(uuid(PrivacyExclusion::PersonId))
+                .col(integer_null(PrivacyExclusion::Depth))
+                .col(boolean(PrivacyExclusion::IncludeRoot))
+                .col(boolean(PrivacyExclusion::IncludeSpouses))
+                .col(uuid_null(PrivacyExclusion::CreatedBy))
+                .col(timestamp_with_time_zone(PrivacyExclusion::CreatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_privacy_exclusion_tree")
+                        .from(PrivacyExclusion::Table, PrivacyExclusion::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                // A purged root takes its exclusions; a soft-deleted one
+                // keeps them, and they apply again once it is restored.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_privacy_exclusion_person")
+                        .from(PrivacyExclusion::Table, PrivacyExclusion::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    for (name, column) in [
+        ("idx_privacy_exclusion_tree_id", PrivacyExclusion::TreeId),
+        (
+            "idx_privacy_exclusion_person_id",
+            PrivacyExclusion::PersonId,
+        ),
+    ] {
+        manager
+            .create_index(
+                Index::create()
+                    .name(name)
+                    .table(PrivacyExclusion::Table)
+                    .col(column)
+                    .to_owned(),
+            )
+            .await?;
+    }
+    manager
+        .create_table(
+            Table::create()
+                .table(ExcludedPerson::Table)
+                .if_not_exists()
+                .col(uuid(ExcludedPerson::TreeId))
+                .col(uuid(ExcludedPerson::PersonId))
+                .primary_key(
+                    Index::create()
+                        .col(ExcludedPerson::TreeId)
+                        .col(ExcludedPerson::PersonId),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_excluded_person_tree")
+                        .from(ExcludedPerson::Table, ExcludedPerson::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_excluded_person_person")
+                        .from(ExcludedPerson::Table, ExcludedPerson::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_excluded_person_person_id")
+                .table(ExcludedPerson::Table)
+                .col(ExcludedPerson::PersonId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_table(
+            Table::create()
+                .table(ExclusionState::Table)
+                .if_not_exists()
+                .col(uuid(ExclusionState::TreeId).primary_key())
+                .col(big_integer_null(ExclusionState::BuiltGeneration))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_exclusion_state_tree")
+                        .from(ExclusionState::Table, ExclusionState::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
+}
 
 /// Answers that two same-named persons are different people.
 ///

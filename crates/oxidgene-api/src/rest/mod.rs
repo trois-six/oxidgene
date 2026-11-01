@@ -9,6 +9,8 @@ pub mod dictionary;
 pub mod dto;
 pub mod error;
 pub mod event;
+#[cfg(feature = "auth")]
+pub mod exclusion;
 pub mod family;
 pub mod family_member;
 pub mod file_export;

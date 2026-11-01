@@ -30,6 +30,15 @@ const ABSENT_WITHOUT_ACCOUNTS: &[&str] = &["/api/v1/admin/users"];
 #[cfg(feature = "graphql")]
 const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &["users"];
 
+/// The whole lists only a build with the `auth` feature serves.
+#[cfg(feature = "auth")]
+const WHOLE_LISTS_WITH_ACCOUNTS: &[(&str, &str)] = &[(
+    "/api/v1/trees/{tree_id}/exclusions",
+    "whole: the owner's exclusions, a handful of short rows",
+)];
+#[cfg(not(feature = "auth"))]
+const WHOLE_LISTS_WITH_ACCOUNTS: &[(&str, &str)] = &[];
+
 /// GET routes answering a whole list, by path, with docs/api.md's reason.
 const WHOLE_LISTS: &[(&str, &str)] = &[
     (
@@ -191,14 +200,17 @@ async fn every_collection_pages_and_every_whole_list_is_declared() {
         let (status, answer) = send(&app, Method::GET, &uri, None).await;
         if status.is_success()
             && answer.is_array()
-            && !WHOLE_LISTS.iter().any(|(whole, _)| whole == path)
+            && !WHOLE_LISTS
+                .iter()
+                .chain(WHOLE_LISTS_WITH_ACCOUNTS)
+                .any(|(whole, _)| whole == path)
         {
             problems.push(format!(
                 "GET {path}: a whole list neither paged nor declared in WHOLE_LISTS"
             ));
         }
     }
-    for (whole, _) in WHOLE_LISTS {
+    for (whole, _) in WHOLE_LISTS.iter().chain(WHOLE_LISTS_WITH_ACCOUNTS) {
         if !paths.contains_key(*whole) {
             problems.push(format!("WHOLE_LISTS names {whole}, which is no route"));
         }
