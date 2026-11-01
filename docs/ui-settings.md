@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 
@@ -80,6 +80,15 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component:
 ## 4. Left Navigation
 
 Fixed width: 200px. Divided into four labeled groups.
+
+On the web build, each section is listed only for a viewer who may use it
+([Authorization §11](authorization.md#11-user-interface)): Tree & Roots,
+Privacy and Anomaly thresholds for whom manages the tree's settings
+(`settings_manage`) — Tree & Roots also for a member who may leave the tree,
+showing only **Leave this tree** (§8e) — History for whom reads it
+(`history_read`), Export for whom may export, and the Global Preferences for
+everyone. A group left without a section is not shown, and the page opens on
+the first section offered. The sidebar's gear always leads here.
 
 Each group has an uppercase orange label. Each item is a text button. The active item has an orange text color, bold weight, and a subtle background (`var(--bg-card)`).
 

@@ -788,6 +788,13 @@ pub struct TreeListItem {
     pub viewer_access: oxidgene_core::access::ViewerAccess,
 }
 
+/// The part of a tree read that says what the viewer may do.
+#[derive(serde::Deserialize)]
+struct ViewerAccessRead {
+    #[serde(default)]
+    viewer_access: oxidgene_core::access::ViewerAccess,
+}
+
 impl std::ops::Deref for TreeListItem {
     type Target = Tree;
 
@@ -3872,13 +3879,15 @@ impl ApiClient {
         &self,
         id: Uuid,
     ) -> Result<oxidgene_core::access::ViewerAccess, ApiError> {
-        #[derive(serde::Deserialize)]
-        struct Read {
-            #[serde(default)]
-            viewer_access: oxidgene_core::access::ViewerAccess,
-        }
-        let read: Read = self.get(&format!("/api/v1/trees/{id}")).await?;
+        let read: ViewerAccessRead = self.get(&format!("/api/v1/trees/{id}")).await?;
         Ok(read.viewer_access)
+    }
+
+    /// The `viewer_access` of tree `id` the cache already holds, without a
+    /// request: what a page draws its first frame with.
+    pub fn cached_viewer_access(&self, id: Uuid) -> Option<oxidgene_core::access::ViewerAccess> {
+        self.cached::<ViewerAccessRead>(&format!("/api/v1/trees/{id}"), false)
+            .map(|read| read.viewer_access)
     }
 
     pub async fn create_tree(&self, body: &CreateTreeBody) -> Result<Tree, ApiError> {

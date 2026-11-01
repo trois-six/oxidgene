@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -367,7 +367,7 @@ string in every language, and the user guide. In order:
      boundary, through phase 3's redaction; exports too.
    - [x] The homepage's roles and invitations, and the owner's Members and
      Sharing sections, the visitor banner and **Leave this tree**.
-   - [ ] Edit controls hidden throughout the tree pages where
+   - [x] Edit controls hidden throughout the tree pages where
      `viewer_access` lacks their permission
      ([Authorization §11](authorization.md#11-user-interface), Read-only
      views).

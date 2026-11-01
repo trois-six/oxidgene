@@ -25,6 +25,7 @@ use crate::components::person_form::{
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
+use crate::permissions::{IfCan, Permission};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     child_type_label_key, event_type_label_key, event_type_value, opt_str, parse_event_type,
@@ -293,10 +294,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                     {children_section.render(&children_resource.read())}
                 }
 
-                // ── Privacy ──
-                FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
-                    {privacy_choice(&scope, privacy_val)}
-                    p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
+                // ── Privacy ── to whom may change it (`privacy_edit`).
+                IfCan { permission: Permission::PrivacyEdit,
+                    FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
+                        {privacy_choice(&scope, privacy_val)}
+                        p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
+                    }
                 }
 
                 // ── Media ──

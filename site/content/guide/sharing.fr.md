@@ -70,6 +70,8 @@ Un éditeur limité à une branche ne modifie que les personnes qu’elle contie
 
 ## Ce que voient les visiteurs
 
+OxidGene ne montre à chacun que ce que son rôle lui permet. Un invité ou un visiteur ne trouve aucun bouton ni aucune entrée de menu qui modifierait l’arbre : ni **Modifier**, ni **Supprimer**, ni **Fusionner avec…**, ni **Ajouter**, aucune étiquette à poser, aucun envoi de fichier, et dans les réglages seulement les préférences de son appareil — plus **Quitter cet arbre** pour un invité. Un visiteur ne voit aucune étiquette. Un éditeur limité à une branche garde les actions sur les personnes, mais ne trouve aucune entrée pour modifier, fusionner ou supprimer un lieu, une source, un dépôt ou une étiquette, renommer un nom de famille ou une profession, étiqueter en masse ou restaurer une version.
+
 Quand vous visitez un arbre en tant que visiteur, un bandeau indique **Vous consultez cet arbre en tant que visiteur**, avec **Se connecter** si vous n’êtes pas connecté. Sur la page d’accueil, chaque carte indique votre rôle sur l’arbre, et **Mes arbres** et **Partagés avec moi** gardent les arbres qui vous appartiennent ou ceux que d’autres partagent avec vous.
 
 Pour ne plus voir un arbre qu’on a partagé avec vous, ouvrez ses réglages et cliquez sur **Quitter** sous **Quitter cet arbre**.

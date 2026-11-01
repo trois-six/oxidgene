@@ -121,31 +121,39 @@ pub fn Layout() -> Element {
     let crate::account::AnonymousRefusals(refusals) = use_context();
     let at_mount = use_hook(|| *refusals.peek());
     let gate = crate::account::gate(&account.read(), &route, refusals() > at_mount);
+    let tree_id = route
+        .tree_id()
+        .and_then(|tree| tree.parse::<uuid::Uuid>().ok());
+    let tree_key = tree_id.map(|tree| tree.to_string()).unwrap_or_default();
 
     rsx! {
-        if route.shows_navbar() {
-            nav { class: "app-nav",
-                div { class: "nav-start",
-                    history_nav::HistoryNav {}
-                    Link { to: Route::Home {}, class: "nav-logo",
-                        img {
-                            src: logo_data_url(),
-                            alt: "OxidGene",
-                            class: "nav-logo-img",
+        // What the viewer may do with the tree on screen, read once for the
+        // page and every component in it (docs/authorization.md §11).
+        crate::permissions::TreePermissionsProvider { key: "{tree_key}", tree_id,
+            if route.shows_navbar() {
+                nav { class: "app-nav",
+                    div { class: "nav-start",
+                        history_nav::HistoryNav {}
+                        Link { to: Route::Home {}, class: "nav-logo",
+                            img {
+                                src: logo_data_url(),
+                                alt: "OxidGene",
+                                class: "nav-logo-img",
+                            }
                         }
                     }
+                    account_nav::AccountNav {}
                 }
-                account_nav::AccountNav {}
             }
-        }
 
-        if let Some(tree_id) = route.tree_id().filter(|_| gate == crate::account::Gate::Open) {
-            account_nav::VisitorBanner { key: "{tree_id}", tree_id: tree_id.to_string() }
-        }
-        main { class: "app-main",
-            match gate {
-                crate::account::Gate::Open => rsx! { Outlet::<Route> {} },
-                crate::account::Gate::SignIn => rsx! { account_nav::SignInRequired {} },
+            if tree_id.is_some() && gate == crate::account::Gate::Open {
+                account_nav::VisitorBanner {}
+            }
+            main { class: "app-main",
+                match gate {
+                    crate::account::Gate::Open => rsx! { Outlet::<Route> {} },
+                    crate::account::Gate::SignIn => rsx! { account_nav::SignInRequired {} },
+                }
             }
         }
         account_nav::AccountPrompts {}

@@ -33,6 +33,7 @@ use crate::components::tree_cache::{
 };
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::nav_history::{use_restored_view, use_saved_view};
+use crate::permissions::{IfCan, Permission};
 use highlight::{
     CardMark, HighlightTool, TagHighlight, card_mark, dim_class, highlight_marks, mark_dot,
     mark_stroke, use_carriers, use_chart_highlight,
@@ -3501,6 +3502,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         on_person_click: EventHandler::new(|_: (Uuid, f64, f64)| {}),
         on_empty_slot: EventHandler::new(|_: (Uuid, bool)| {}),
         menu: false,
+        adds: false,
         menu_open: None,
         press: use_signal(|| 0),
     };
@@ -3943,6 +3945,10 @@ struct ChartActions {
     /// Whether the chart opens the person menu from a selected card. A mini
     /// fragment has no menu, so its cards show no trigger.
     menu: bool,
+    /// Whether an empty slot offers to add the person missing there: on the
+    /// interactive chart, to a viewer who may create persons
+    /// (docs/authorization.md §11).
+    adds: bool,
     /// The person whose menu the page is showing: their trigger reads as expanded.
     menu_open: Option<Uuid>,
     /// Counts the touches that began and the moves and ends that followed, so
@@ -4674,7 +4680,7 @@ fn PedigreeCard(
     let card = CardContext {
         root_person_id,
         actions,
-        empty_slots_open: true,
+        empty_slots_open: actions.adds,
         mini_tooltip: None,
         theme,
         i18n,
@@ -5020,6 +5026,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         on_person_click: props.on_person_click,
         on_empty_slot: props.on_empty_slot,
         menu: true,
+        adds: crate::permissions::use_can(Permission::Create),
         menu_open: props.menu_person_id,
         press,
     };
@@ -5050,11 +5057,14 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 on_pedigree_view: move |_| {},
                 on_add_person: props.on_add_person,
                 controls::PedigreeTools { view, saver, viewport_rect, max_zoom, fit_target }
-                HighlightTool {
-                    highlight,
-                    vocabulary: vocabulary_now.clone(),
-                    carriers_failed,
-                    on_open: move |()| ask_vocabulary(vocabulary_requests, &vocabulary),
+                // A Visitor knows no tags: there is nothing to highlight by.
+                IfCan { permission: Permission::ReadTags,
+                    HighlightTool {
+                        highlight,
+                        vocabulary: vocabulary_now.clone(),
+                        carriers_failed,
+                        on_open: move |()| ask_vocabulary(vocabulary_requests, &vocabulary),
+                    }
                 }
             }
 

@@ -10,7 +10,7 @@
 //! devices.
 
 use chrono::{DateTime, Utc};
-use oxidgene_core::access::{TreeRole, ViewerAccess};
+use oxidgene_core::access::TreeRole;
 use oxidgene_core::sharing::{ScopeDefinition, TreeVisibility};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -174,12 +174,6 @@ struct OwnershipBody {
     user_id: Uuid,
 }
 
-/// What a tree read says the viewer may do.
-#[derive(Deserialize)]
-struct TreeAccessAnswer {
-    viewer_access: ViewerAccess,
-}
-
 /// A tree's visibility and visitor scope, as the tree update sets them.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct VisibilityBody {
@@ -193,12 +187,6 @@ pub struct VisibilityBody {
 const PAGE: u64 = 100;
 
 impl ApiClient {
-    /// What the viewer may do with tree `tree_id`, read afresh.
-    pub async fn tree_access(&self, tree_id: Uuid) -> Result<ViewerAccess, ApiError> {
-        let answer: TreeAccessAnswer = self.get_fresh(&format!("/api/v1/trees/{tree_id}")).await?;
-        Ok(answer.viewer_access)
-    }
-
     /// The members of tree `tree_id`: all of them for the owner.
     pub async fn tree_members(&self, tree_id: Uuid) -> Result<Vec<Member>, ApiError> {
         self.collect_fresh_pages(&format!("/api/v1/trees/{tree_id}/members"), PAGE)

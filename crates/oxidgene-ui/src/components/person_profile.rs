@@ -8,7 +8,6 @@
 //! union they share out of both columns, and draws it once across the two.
 
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
@@ -29,7 +28,6 @@ use crate::api::{
 use oxidgene_archives::{CitationEvidence, HeldAt};
 
 use crate::archive_viewer::{ArchiveOffer, ArchiveSourceLink};
-use crate::components::context_menu::MenuButton;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
@@ -37,7 +35,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
-use crate::components::tags::{MenuTarget, RecordMenu, TagBadges};
+use crate::components::tags::{MenuTarget, RecordMenu, RecordMenuButton, TagBadges};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
 use crate::router::{Route, push_tree_route};
@@ -1543,13 +1541,10 @@ pub(crate) fn notes_section(
                                 }
                                 TagBadges { tree_id: tree_id.to_string(), tags: note.tags.clone() }
                             }
-                            MenuButton {
+                            RecordMenuButton {
                                 name: i18n.t("history.entity.note"),
-                                expanded: menu.is_open_for(&target.row_id),
-                                on_request: {
-                                    let target = target.clone();
-                                    move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
-                                },
+                                menu: menu,
+                                target: target.clone(),
                             }
                         }
                             }
@@ -1590,6 +1585,7 @@ pub(crate) fn ProfileMediaCard(
 ) -> Element {
     let i18n = crate::i18n::use_i18n();
     let mut document_form_open = use_signal(|| false);
+    let adds = crate::permissions::use_can(crate::permissions::Permission::Create);
     let upload_events = event_links
         .iter()
         .map(|link| (link.event_id, link.label.clone()))
@@ -1598,13 +1594,15 @@ pub(crate) fn ProfileMediaCard(
         div { class: "card pd-section",
             div { class: "pd-media-header",
                 h2 { class: "section-title", "{title}" }
-                div { class: "media-drop media-upload-icon",
-                    button {
-                        class: "media-upload-icon-btn",
-                        r#type: "button",
-                        title: i18n.t("media.new_document"),
-                        onclick: move |_| document_form_open.set(true),
-                        span { class: "media-upload-icon-glyph", "+" }
+                if adds {
+                    div { class: "media-drop media-upload-icon",
+                        button {
+                            class: "media-upload-icon-btn",
+                            r#type: "button",
+                            title: i18n.t("media.new_document"),
+                            onclick: move |_| document_form_open.set(true),
+                            span { class: "media-upload-icon-glyph", "+" }
+                        }
                     }
                 }
             }
@@ -1938,13 +1936,10 @@ pub(crate) fn timeline_section(
                                                 }
                                             }
                                             TagBadges { tree_id: tree_id.to_string(), tags: event.tags.clone() }
-                                            MenuButton {
+                                            RecordMenuButton {
                                                 name: event_type_label.clone(),
-                                                expanded: menu.is_open_for(&event_target.row_id),
-                                                on_request: {
-                                                    let target = event_target.clone();
-                                                    move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
-                                                },
+                                                menu: menu,
+                                                target: event_target.clone(),
                                             }
                                         }
                                         div { class: "pd-ev-origin", "{origin_display}" }
@@ -2004,13 +1999,10 @@ pub(crate) fn timeline_section(
                                                                     }
                                                                 }
                                                                 TagBadges { tree_id: tree_id.to_string(), tags: source.tags.clone() }
-                                                                MenuButton {
+                                                                RecordMenuButton {
                                                                     name: i18n.t("history.entity.citation"),
-                                                                    expanded: menu.is_open_for(&citation_target.row_id),
-                                                                    on_request: {
-                                                                        let target = citation_target.clone();
-                                                                        move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone())
-                                                                    },
+                                                                    menu: menu,
+                                                                    target: citation_target.clone(),
                                                                 }
                                                             }
                                                         }

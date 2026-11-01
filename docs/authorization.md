@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -736,9 +736,18 @@ refuses (`401`) gives way to the invitation to sign in.
   viewer's role badge (Owner, Editor, Guest, Visitor); pending invitations
   above the cards, each with **Accept** and **Decline**; **New tree** only
   with tree creation.
-- **Read-only views.** Edit controls are absent where `viewer_access` lacks
-  their permission; a Visitor's tree view carries a banner — *You are viewing
-  this tree as a visitor* — with **Sign in** when anonymous.
+- **Read-only views.** Every control that writes is absent where
+  `viewer_access` lacks its permission (§3.2): adding, editing, deleting and
+  merging records, tags, uploads and crops, privacy and confidentiality,
+  exclusions, restores, and the settings sections the viewer does not
+  manage. A scoped Editor (§3.3) keeps the person controls but none that
+  edits, merges or deletes a place, source, repository or tag, renames a
+  dictionary value, tags in bulk or restores a version; a Visitor sees no
+  tags. The tree's pages read `viewer_access` once, from the tree read they
+  share, and every component asks that one value
+  ([Common UI §1](ui-common.md#1-scope-and-rules)); once the server has
+  said it signs users in, nothing editable is drawn until it is known. A Visitor's tree view carries a banner — *You
+  are viewing this tree as a visitor* — with **Sign in** when anonymous.
 - **Tree Settings, owner only** ([Settings §4](ui-settings.md#4-left-navigation)):
   **Members** (members with role, scope, expiry, last change; **Share** by
   email, username or among the people they already share with; pending

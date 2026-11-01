@@ -24,6 +24,7 @@ use crate::pages::dictionary::{
     person_usage_parts, render_clear_filters, render_toolbar_with, surname_first, total_pages,
     with_headers,
 };
+use crate::permissions::{Permission, use_tree_permissions};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::event_type_label_key;
@@ -142,6 +143,9 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
     let mut deleting = use_signal(|| None::<TagSummary>);
     let mut delete_error = use_signal(|| None::<String>);
     let mut deleting_busy = use_signal(|| false);
+    // A scoped Editor creates tags, but edits and deletes none: a tag is the
+    // whole tree's (docs/authorization.md §3.3).
+    let permissions = use_tree_permissions();
 
     let api_list = api.clone();
     let mut vocabulary = use_ui_resource("tags_vocabulary", move || {
@@ -193,16 +197,18 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
         });
     };
 
-    let add = rsx! {
-        button {
-            class: "pf-add-btn",
-            r#type: "button",
-            onclick: move |_| editing.set(Some(Editing::New)),
-            {i18n.t("tag.dictionary.new")}
+    let add = permissions.can(Permission::Create).then(|| {
+        rsx! {
+            button {
+                class: "pf-add-btn",
+                r#type: "button",
+                onclick: move |_| editing.set(Some(Editing::New)),
+                {i18n.t("tag.dictionary.new")}
+            }
         }
-    };
+    });
     rsx! {
-        {render_toolbar_with(i18n, &letters, filters, total_filtered, Some(add))}
+        {render_toolbar_with(i18n, &letters, filters, total_filtered, add)}
         if !loaded {
             if failed {
                 div { class: "error-msg", {i18n.t("dictionary.error")} }
@@ -295,6 +301,12 @@ fn TagRow(
     let edit_label = i18n.t("common.edit");
     let delete_label = i18n.t("common.delete");
     let shortcut = use_menu_shortcut();
+    let permissions = use_tree_permissions();
+    let (edits, deletes) = (
+        permissions.can_edit_shared(),
+        permissions.can_shared(Permission::Delete),
+    );
+    let has_menu = edits || deletes;
     rsx! {
         div {
             div {
@@ -306,12 +318,20 @@ fn TagRow(
                     if is_enter_or_space(&event) {
                         event.prevent_default();
                         on_toggle.call(id);
-                    } else {
+                    } else if has_menu {
                         shortcut.key(&event);
                     }
                 },
-                oncontextmenu: move |event: Event<MouseData>| shortcut.right_click(&event),
-                onpointerdown: move |event: Event<PointerData>| shortcut.press_start(&event),
+                oncontextmenu: move |event: Event<MouseData>| {
+                    if has_menu {
+                        shortcut.right_click(&event);
+                    }
+                },
+                onpointerdown: move |event: Event<PointerData>| {
+                    if has_menu {
+                        shortcut.press_start(&event);
+                    }
+                },
                 onpointerup: move |_| shortcut.press_end(),
                 onpointercancel: move |_| shortcut.press_end(),
                 div { class: "dict-row-main",
@@ -321,39 +341,45 @@ fn TagRow(
                     }
                 }
                 span { class: "dict-row-count", {counts} }
-                MenuButton {
-                    name: tag.label.clone(),
-                    shortcut: Some(shortcut),
-                    items: {
-                        let edited = edited.clone();
-                        let removed = removed.clone();
-                        move |menu: MenuClose| rsx! {
-                            button {
-                                role: "menuitem",
-                                class: "context-menu-item",
-                                onclick: {
-                                    let edited = edited.clone();
-                                    move |_| {
-                                        menu.close.call(());
-                                        on_edit.call(edited.clone());
+                if has_menu {
+                    MenuButton {
+                        name: tag.label.clone(),
+                        shortcut: Some(shortcut),
+                        items: {
+                            let edited = edited.clone();
+                            let removed = removed.clone();
+                            move |menu: MenuClose| rsx! {
+                                if edits {
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item",
+                                        onclick: {
+                                            let edited = edited.clone();
+                                            move |_| {
+                                                menu.close.call(());
+                                                on_edit.call(edited.clone());
+                                            }
+                                        },
+                                        "{edit_label}"
                                     }
-                                },
-                                "{edit_label}"
-                            }
-                            button {
-                                role: "menuitem",
-                                class: "context-menu-item context-menu-danger",
-                                onclick: {
-                                    let removed = removed.clone();
-                                    move |_| {
-                                        menu.hand_off.call(());
-                                        on_delete.call(removed.clone());
+                                }
+                                if deletes {
+                                    button {
+                                        role: "menuitem",
+                                        class: "context-menu-item context-menu-danger",
+                                        onclick: {
+                                            let removed = removed.clone();
+                                            move |_| {
+                                                menu.hand_off.call(());
+                                                on_delete.call(removed.clone());
+                                            }
+                                        },
+                                        "{delete_label}"
                                     }
-                                },
-                                "{delete_label}"
+                                }
                             }
-                        }
-                    },
+                        },
+                    }
                 }
                 span {
                     class: "dict-row-chevron",
@@ -434,6 +460,8 @@ fn TaggedKind(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    // Taking a record off the tag is editing the record.
+    let untags = use_tree_permissions().tags_records();
     let api_page = api.clone();
     let records = use_paged_list("tag_records", move |cursor: Option<String>| {
         let api = api_page.clone();
@@ -506,35 +534,37 @@ fn TaggedKind(
                             } else {
                                 {record_link(i18n, &tree, record)}
                             }
-                            button {
-                                id: "{untag_button_id(record_id)}",
-                                class: "tag-chip-remove",
-                                r#type: "button",
-                                title: "{remove_label}",
-                                aria_label: "{remove_label}",
-                                onclick: move |_| {
-                                    let api = api.clone();
-                                    taken.write().push(record_id);
-                                    untag_error.set(None);
-                                    // The line leaves at once, so the focus moves on with it; a
-                                    // failure brings the line back and the focus with it.
-                                    refocus.set(Some(focus_on.clone()));
-                                    spawn(async move {
-                                        match api.untag_record(tree_id, tag_id, kind, record_id).await {
-                                            Ok(()) => {
-                                                // Read again before the counts, which may drop this kind's group.
-                                                first.restart();
-                                                on_untagged.call(());
+                            if untags {
+                                button {
+                                    id: "{untag_button_id(record_id)}",
+                                    class: "tag-chip-remove",
+                                    r#type: "button",
+                                    title: "{remove_label}",
+                                    aria_label: "{remove_label}",
+                                    onclick: move |_| {
+                                        let api = api.clone();
+                                        taken.write().push(record_id);
+                                        untag_error.set(None);
+                                        // The line leaves at once, so the focus moves on with it; a
+                                        // failure brings the line back and the focus with it.
+                                        refocus.set(Some(focus_on.clone()));
+                                        spawn(async move {
+                                            match api.untag_record(tree_id, tag_id, kind, record_id).await {
+                                                Ok(()) => {
+                                                    // Read again before the counts, which may drop this kind's group.
+                                                    first.restart();
+                                                    on_untagged.call(());
+                                                }
+                                                Err(err) => {
+                                                    taken.with_mut(|ids| ids.retain(|id| *id != record_id));
+                                                    untag_error.set(Some(error_message(&i18n, &err)));
+                                                    refocus.set(Some(untag_button_id(record_id)));
+                                                }
                                             }
-                                            Err(err) => {
-                                                taken.with_mut(|ids| ids.retain(|id| *id != record_id));
-                                                untag_error.set(Some(error_message(&i18n, &err)));
-                                                refocus.set(Some(untag_button_id(record_id)));
-                                            }
-                                        }
-                                    });
-                                },
-                                "\u{00D7}"
+                                        });
+                                    },
+                                    "\u{00D7}"
+                                }
                             }
                         }
                     }

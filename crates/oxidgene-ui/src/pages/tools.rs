@@ -561,6 +561,9 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
     });
     let mut opened = use_signal(|| None::<Uuid>);
     let mut editing = use_signal(|| None::<Uuid>);
+    // A place is the whole tree's: a scoped Editor corrects none
+    // (docs/authorization.md §3.3).
+    let corrects = crate::permissions::use_tree_permissions().can_edit_shared();
     let edited = use_signal(String::new);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -676,7 +679,7 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
                                     },
                                     {i18n.t("tools.places.show_uses")}
                                 }
-                                if editing() != Some(place.place_id) {
+                                if corrects && editing() != Some(place.place_id) {
                                     button {
                                         class: "btn btn-outline btn-sm",
                                         onclick: {

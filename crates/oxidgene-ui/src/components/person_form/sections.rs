@@ -26,6 +26,7 @@ use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::suggest_input::ValueInput;
 use crate::i18n::I18n;
+use crate::permissions::{Permission, use_can};
 use crate::utils::{
     NAME_TYPES, event_type_label_key, event_type_value, name_type_label_key, name_type_value,
     opt_str, parse_event_type, parse_name_type,
@@ -777,7 +778,8 @@ pub(super) fn PersonNotesBlock(
     // Confidentiality only means something where the tree has other
     // viewers (docs/privacy.md §3.2): the desktop and the `none` mode have
     // one, who reads every note.
-    let sharing = crate::sharing::use_sharing_surfaces();
+    let privacy_edit = use_can(Permission::PrivacyEdit);
+    let sharing = crate::sharing::use_sharing_surfaces() && privacy_edit;
 
     // Person-scoped notes only: a note stamped with an event belongs to that
     // event's own panel, not to the person's list. (Older rows carry both
@@ -931,7 +933,10 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
     let mut form_text = use_signal(String::new);
     let mut form_confidential = use_signal(|| false);
     let mut form_error = use_signal(|| None::<String>);
-    let sharing = crate::sharing::use_sharing_surfaces();
+    // A note's confidentiality is set by whom may change it, where the tree
+    // has other viewers.
+    let privacy_edit = use_can(Permission::PrivacyEdit);
+    let sharing = crate::sharing::use_sharing_surfaces() && privacy_edit;
 
     let on_create = {
         let api = api.clone();

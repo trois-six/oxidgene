@@ -24,6 +24,7 @@ use crate::pages::app_settings::{
     AppearanceSection, DateDisplaySection, EntryOptionsSection, LanguageSection, NamesSection,
     PedigreeDefaultsSection, use_settings_scroll_reset,
 };
+use crate::permissions::{Permission, TreePermissions, use_can, use_tree_permissions};
 use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::ui_observability::{
     UiAction, UiActionStep, UiLoadTrace, UiPage, trace_ui_action, trace_ui_action_step,
@@ -172,6 +173,23 @@ const SETTINGS_NAV: [(&str, &[(&str, &str)]); 4] = [
         ],
     ),
 ];
+
+/// Whether the viewer `permissions` describes is offered section `section`
+/// (docs/authorization.md §11): the tree's own settings to whom manages
+/// them — Tree & Roots also to a member leaving the tree — the history to
+/// whom reads it, the export to whom exports, and the device's preferences
+/// to everyone.
+fn offers_section(permissions: TreePermissions, leaves: bool, section: &str) -> bool {
+    match section {
+        "tree-roots" => permissions.can(Permission::SettingsManage) || leaves,
+        "privacy" | "anomalies" => permissions.can(Permission::SettingsManage),
+        "history" => permissions.can(Permission::HistoryRead),
+        "export" => permissions.can(Permission::Export),
+        // The owner's sections of the web build (§8c, §8d).
+        "members" | "sharing" => permissions.shares() && permissions.can(Permission::MembersManage),
+        _ => true,
+    }
+}
 
 /// Where a GEDZIP export is saved: in the browser, the save picker, opened
 /// during the click, before any network await.
@@ -501,7 +519,7 @@ pub fn Settings(tree_id: String) -> Element {
     let sort_particles = use_context::<Signal<SortParticles>>();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
     use_ui_load_trace(UiPage::Settings);
-    let mut active_section = use_signal(|| "tree-roots".to_string());
+    let active_section = use_signal(|| "tree-roots".to_string());
     use_settings_scroll_reset(active_section);
     let mut export_loading = use_signal(|| false);
     let mut export_error = use_signal(|| None::<String>);
@@ -627,7 +645,9 @@ pub fn Settings(tree_id: String) -> Element {
         .filter(is_live)
         .map(|export| kept_export_label(&i18n, &export));
 
-    let sec = active_section();
+    // A section the viewer is not offered opens the first one they are.
+    let offered = offered_sections(use_tree_permissions(), sharing.leaver.is_some());
+    let sec = shown_section(&offered, active_section());
 
     rsx! {
         style { {SETTINGS_STYLES} }
@@ -642,21 +662,7 @@ pub fn Settings(tree_id: String) -> Element {
             content_class: "pd-content",
         div { class: "settings-layout",
             // Left navigation
-            nav { class: "settings-nav",
-                for (group, entries) in SETTINGS_NAV {
-                    div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", {i18n.t(group)} }
-                        for (section, label) in entries {
-                            button {
-                                class: if sec == *section { "settings-nav-item active" } else { "settings-nav-item" },
-                                onclick: move |_| active_section.set(section.to_string()),
-                                {i18n.t(label)}
-                            }
-                        }
-                        super::sharing_settings::SharingNav { group, manages: sharing.manages, active_section }
-                    }
-                }
-            }
+            SettingsNav { offered, current: sec.clone(), manages: sharing.manages, active_section }
 
             // Content area
             div { class: "settings-content",
@@ -715,12 +721,76 @@ pub fn Settings(tree_id: String) -> Element {
     }
 }
 
+/// The sections of [`SETTINGS_NAV`], then the owner's, offered to the viewer
+/// `permissions` describes, who may leave the tree or not.
+fn offered_sections(permissions: TreePermissions, leaves: bool) -> Vec<&'static str> {
+    SETTINGS_NAV
+        .iter()
+        .flat_map(|(_, entries)| entries.iter())
+        .map(|(section, _)| *section)
+        .chain(["members", "sharing"])
+        .filter(|section| offers_section(permissions, leaves, section))
+        .collect()
+}
+
+/// The section shown: `active` when it is offered, else the first offered.
+fn shown_section(offered: &[&'static str], active: String) -> String {
+    Some(active)
+        .filter(|section| offered.contains(&section.as_str()))
+        .or_else(|| offered.first().map(|section| section.to_string()))
+        .unwrap_or_default()
+}
+
+/// The left menu: the groups holding a section in `offered`, and the
+/// owner's sections after the first group's when the viewer `manages` the
+/// members.
+#[component]
+fn SettingsNav(
+    offered: Vec<&'static str>,
+    current: String,
+    manages: bool,
+    active_section: Signal<String>,
+) -> Element {
+    let i18n = use_i18n();
+    let mut active_section = active_section;
+    rsx! {
+        nav { class: "settings-nav",
+            for (group, entries) in SETTINGS_NAV {
+                if entries.iter().any(|(section, _)| offered.contains(section)) || (manages && group == "settings.breadcrumb") {
+                    div { class: "settings-nav-group",
+                        div { class: "settings-nav-group-label", {i18n.t(group)} }
+                        for (section, label) in entries.iter().filter(|(section, _)| offered.contains(section)) {
+                            button {
+                                class: if current == *section { "settings-nav-item active" } else { "settings-nav-item" },
+                                onclick: move |_| active_section.set(section.to_string()),
+                                {i18n.t(label)}
+                            }
+                        }
+                        super::sharing_settings::SharingNav { group, manages, active_section }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Tree & Roots: the tree's name, SOSA root and self person for whom
+/// manages the settings; the title alone for a member, above **Leave this
+/// tree**.
 #[component]
 fn TreeRootsSection(
     tree_id: String,
     tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
 ) -> Element {
     let i18n = use_i18n();
+    if !use_can(Permission::SettingsManage) {
+        return rsx! {
+            div { class: "settings-section",
+                div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+                h2 { class: "settings-section-title", {i18n.t("settings.tree_roots")} }
+            }
+        };
+    }
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
     let loaded = tree_resource.read();
     let tree = loaded
@@ -1308,7 +1378,7 @@ fn ExportSection(
                         on_change: move |checked: bool| media.set(checked),
                     }
                 }
-                ExportPrivacyChecks { privacy, tree_id: tree_id.clone() }
+                ExportPrivacyChecks { privacy }
                 if let Some(description) = &downloadable {
                     div { class: "settings-export-row settings-feedback",
                         p { class: "settings-card-desc settings-export-info",
@@ -1819,27 +1889,13 @@ fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>)
 /// tree has other viewers, the persons excluded from sharing and the
 /// visitors' privacy rules, the latter for a viewer allowed to export.
 #[component]
-fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>, tree_id: String) -> Element {
+fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let sharing = crate::sharing::use_sharing_surfaces();
-    let tree = tree_id.parse::<Uuid>().ok();
-    // Asked only where the tree has other viewers: the desktop and the
-    // `none` mode's single viewer is the owner.
-    let access = use_ui_resource("export_viewer_access", move || {
-        let api = api.clone();
-        async move {
-            match tree.filter(|_| sharing) {
-                Some(tree) => api.viewer_access(tree).await.ok(),
-                None => None,
-            }
-        }
-    });
-    let may_export = access
-        .read()
-        .clone()
-        .flatten()
-        .is_some_and(|access| access.allows(oxidgene_core::access::Permission::Export));
+    // Only where the tree has other viewers: the desktop and the `none`
+    // mode's single viewer is the owner.
+    let permissions = crate::permissions::use_tree_permissions();
+    let sharing = permissions.shares();
+    let may_export = permissions.can(crate::permissions::Permission::Export);
     let current = privacy();
     rsx! {
         SettingsCheck {
@@ -2092,3 +2148,67 @@ const SETTINGS_STYLES: &str = r#"
         }
     }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use oxidgene_core::access::{TreeAccess, TreeRole};
+
+    use super::{TreePermissions, offered_sections, shown_section};
+
+    fn of(role: TreeRole) -> TreePermissions {
+        TreePermissions::of(&TreeAccess::of_role(role).viewer_access())
+    }
+
+    const PREFERENCES: [&str; 6] = [
+        "appearance",
+        "language",
+        "pedigree",
+        "names",
+        "date-display",
+        "entry-options",
+    ];
+
+    #[test]
+    fn the_owner_and_the_local_user_are_offered_every_section() {
+        for permissions in [TreePermissions::local(), of(TreeRole::Owner)] {
+            let offered = offered_sections(permissions, false);
+            for section in ["tree-roots", "privacy", "anomalies", "history", "export"] {
+                assert!(offered.contains(&section), "{section}");
+            }
+            assert!(PREFERENCES.iter().all(|section| offered.contains(section)));
+        }
+        // The owner's sharing sections exist where the tree has other
+        // viewers: not on the desktop.
+        let local = offered_sections(TreePermissions::local(), false);
+        assert!(!local.contains(&"members"));
+        let owner = offered_sections(of(TreeRole::Owner), false);
+        assert!(owner.contains(&"members") && owner.contains(&"sharing"));
+        assert_eq!(shown_section(&owner, "members".into()), "members");
+    }
+
+    #[test]
+    fn a_guest_is_offered_the_preferences_and_leaving() {
+        let offered = offered_sections(of(TreeRole::Guest), true);
+        let mut expected = vec!["tree-roots"];
+        expected.extend(PREFERENCES);
+        assert_eq!(offered, expected);
+        // A Visitor, who is no member, not even Tree & Roots.
+        assert_eq!(offered_sections(of(TreeRole::Visitor), false), PREFERENCES);
+    }
+
+    #[test]
+    fn an_editor_reads_the_history_and_exports() {
+        let offered = offered_sections(of(TreeRole::Editor), true);
+        let mut expected = vec!["tree-roots", "history", "export"];
+        expected.extend(PREFERENCES);
+        assert_eq!(offered, expected);
+    }
+
+    #[test]
+    fn a_section_not_offered_gives_way_to_the_first_offered() {
+        let offered = offered_sections(of(TreeRole::Visitor), false);
+        assert_eq!(shown_section(&offered, "tree-roots".into()), "appearance");
+        assert_eq!(shown_section(&offered, "names".into()), "names");
+        assert_eq!(shown_section(&[], "privacy".into()), "");
+    }
+}

@@ -2,22 +2,20 @@
 //! the tree holding sources, each row unfolding into the sources it holds,
 //! editable, and a button adding one. See `docs/ui-dictionary.md`.
 
-use std::rc::Rc;
-
 use dioxus::prelude::*;
 use oxidgene_core::types::Repository;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, HeldSource};
-use crate::components::context_menu::MenuButton;
 use crate::components::empty_state::EmptyState;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
 use crate::components::tags::{
-    MenuTarget, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation, stop_row_press,
-    use_record_menu,
+    MenuTarget, RecordMenuButton, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation,
+    stop_row_press, use_record_menu,
 };
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::reveal_row;
+use crate::permissions::{IfCan, Permission};
 use crate::ui_observability::use_ui_resource;
 use oxidgene_core::types::RecordKind;
 
@@ -169,11 +167,15 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                 value: "{quick}",
                 oninput: move |e: Event<FormData>| quick.set(e.value()),
             }
-            button {
-                class: "pf-add-btn",
-                r#type: "button",
-                onclick: move |_| editing.set(Some(Editing::New)),
-                {i18n.t("dictionary.repository.add")}
+            // A scoped Editor adds a repository, but edits none of the
+            // listed ones (docs/authorization.md §3.3).
+            IfCan { permission: Permission::Create,
+                button {
+                    class: "pf-add-btn",
+                    r#type: "button",
+                    onclick: move |_| editing.set(Some(Editing::New)),
+                    {i18n.t("dictionary.repository.add")}
+                }
             }
         }
         match listed {
@@ -236,13 +238,10 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
                                                 span { class: "dict-row-meta", "{meta}" }
                                             }
                                         }
-                                        MenuButton {
+                                        RecordMenuButton {
                                             name: repository.name.clone(),
-                                            expanded: record_menu.is_open_for(&target.row_id),
-                                            on_request: {
-                                                let target = target.clone();
-                                                move |trigger: Rc<MountedData>| record_menu.open_from_trigger(trigger, target.clone())
-                                            },
+                                            menu: record_menu,
+                                            target: target.clone(),
                                         }
                                         button {
                                             class: "dict-row-action",

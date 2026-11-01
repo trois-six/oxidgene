@@ -120,9 +120,14 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         }
     };
 
-    let can_restore = shown
-        .as_ref()
-        .is_some_and(|v| !v.current && !v.deleted && v.snapshot.is_some());
+    // Restoring is a scoped Editor's as little as a Guest's
+    // (docs/authorization.md §3.3).
+    let restores = crate::permissions::use_tree_permissions()
+        .can_shared(crate::permissions::Permission::HistoryRestore);
+    let can_restore = restores
+        && shown
+            .as_ref()
+            .is_some_and(|v| !v.current && !v.deleted && v.snapshot.is_some());
     let older_versions: Vec<i32> = versions
         .read()
         .iter()

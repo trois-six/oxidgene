@@ -158,6 +158,10 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
     let tree_cache = use_tree_cache();
     let mut restoring = use_signal(|| None::<VersionChange>);
     let mut restore_error = use_signal(|| None::<String>);
+    // Restoring a version is the viewer's to do when the whole tree is
+    // theirs: never a scoped Editor's (docs/authorization.md §3.3).
+    let restores = crate::permissions::use_tree_permissions()
+        .can_shared(crate::permissions::Permission::HistoryRestore);
 
     let api_changes = api.clone();
     let changes = use_paged_list("audit_changes", move |cursor: Option<String>| {
@@ -242,7 +246,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                                             {i18n.t("history.open_person_history")}
                                         }
                                     }
-                                    if !change.previous.deleted {
+                                    if restores && !change.previous.deleted {
                                         button {
                                             class: "btn btn-outline btn-sm",
                                             onclick: {

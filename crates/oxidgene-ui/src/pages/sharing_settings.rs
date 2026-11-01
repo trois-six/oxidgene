@@ -12,7 +12,7 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use dioxus::prelude::*;
-use oxidgene_core::access::TreeRole;
+use oxidgene_core::access::{Permission, TreeRole};
 use oxidgene_core::sharing::{ScopeDefinition, ScopeKind, TreeVisibility};
 use uuid::Uuid;
 
@@ -531,18 +531,26 @@ fn MemberRow(
         });
     };
     let api_act = api.clone();
+    // A transfer makes the viewer an Editor: what the pages offer follows.
+    let refresh_access = crate::permissions::use_refresh_tree_permissions();
     let act = move |_| {
         let api = api_act.clone();
         let Some(action) = confirm() else { return };
         confirm.set(None);
         spawn(async move {
-            let result = if action == "transfer" {
+            let transfer = action == "transfer";
+            let result = if transfer {
                 api.transfer_ownership(tree_id, user_id).await.map(drop)
             } else {
                 api.remove_member(tree_id, user_id).await
             };
             match result {
-                Ok(()) => on_change.call(()),
+                Ok(()) => {
+                    on_change.call(());
+                    if transfer {
+                        refresh_access.call(());
+                    }
+                }
                 Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
@@ -935,26 +943,16 @@ pub struct TreeSharing {
 /// What the settings page of tree `tree_id` offers of sharing, from the
 /// viewer's access to the tree.
 pub fn use_tree_sharing(tree_id: Option<Uuid>) -> TreeSharing {
-    let api = use_context::<ApiClient>();
     let account = crate::account::use_account();
-    let access = use_ui_resource("viewer_access", move || {
-        let api = api.clone();
-        let surfaces = crate::sharing::offered(&account.read());
-        async move {
-            match tree_id.filter(|_| surfaces) {
-                Some(tree) => api.tree_access(tree).await.ok(),
-                None => None,
-            }
-        }
-    });
-    let Some(Some(access)) = &*access.read() else {
+    let permissions = crate::permissions::use_tree_permissions();
+    if !permissions.shares() {
         return TreeSharing::default();
-    };
+    }
     let me = account.read().me().map(|me| me.id);
     TreeSharing {
         tree_id,
-        manages: access.allows(oxidgene_core::access::Permission::MembersManage),
-        leaver: me.filter(|_| access.allows(oxidgene_core::access::Permission::Leave)),
+        manages: permissions.can(Permission::MembersManage),
+        leaver: me.filter(|_| permissions.can(Permission::Leave)),
     }
 }
 

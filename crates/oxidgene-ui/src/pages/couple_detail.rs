@@ -123,6 +123,8 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let media_revision = use_signal(|| 0_u32);
     let record_menu = use_record_menu();
     let mut show_edit_couple = use_signal(|| false);
+    // Editing the couple is offered to whom may (docs/authorization.md §11).
+    let edits = crate::permissions::use_can(crate::permissions::Permission::Edit);
     let mut show_create_person = use_signal(|| false);
 
     // Reactive IDs, as on the person page: the router reuses this instance
@@ -328,7 +330,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                     unknown: &unknown,
                 };
                 rsx! {
-                    {couple_actions(&i18n, show_edit_couple, refresh, CoupleTags {
+                    {couple_actions(&i18n, edits, show_edit_couple, refresh, CoupleTags {
                         tree_id: ctx.tree_id,
                         family_id,
                         tags: data.family_tags.clone(),
@@ -466,6 +468,7 @@ struct CoupleTags {
 /// The couple's own actions: editing it, its tags, and refreshing the page.
 fn couple_actions(
     i18n: &I18n,
+    edits: bool,
     mut show_edit: Signal<bool>,
     mut refresh: Signal<u32>,
     tags: CoupleTags,
@@ -480,17 +483,19 @@ fn couple_actions(
                 tags: tags.tags.clone(),
                 on_changed: move |()| refresh += 1,
             }
-            button {
-                class: "btn btn-outline pd-header-action-btn",
-                title: i18n.t("couple.edit"),
-                aria_label: i18n.t("couple.edit"),
-                onclick: move |_| show_edit.set(true),
-                svg {
-                    class: "pd-header-action-icon",
-                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                    stroke: "currentColor", "strokeWidth": "2",
-                    path { d: "M12 20h9" }
-                    path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+            if edits {
+                button {
+                    class: "btn btn-outline pd-header-action-btn",
+                    title: i18n.t("couple.edit"),
+                    aria_label: i18n.t("couple.edit"),
+                    onclick: move |_| show_edit.set(true),
+                    svg {
+                        class: "pd-header-action-icon",
+                        width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                        stroke: "currentColor", "strokeWidth": "2",
+                        path { d: "M12 20h9" }
+                        path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+                    }
                 }
             }
             if SHOW_MANUAL_REFRESH {

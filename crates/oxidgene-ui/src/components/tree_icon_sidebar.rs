@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::components::print::PrintAction;
 use crate::i18n::use_i18n;
+use crate::permissions::{Permission, use_tree_permissions};
 use crate::router::{Route, pedigree_route, person_route, push_tree_route};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,6 +37,12 @@ pub fn TreeIconSidebar(
     // page's route names its tree, and each button leads to that page of it.
     let route = use_route::<Route>();
     let tree_id = route.tree_id().map(str::to_string);
+    // Adding a person and the Tools page are offered to whom may use them
+    // (docs/authorization.md §11); the Settings page always holds the
+    // device's preferences.
+    let permissions = use_tree_permissions();
+    let adds_person = show_add_person && permissions.can(Permission::Create);
+    let tools = permissions.can(Permission::Tools);
 
     let profile_class = button_class(active_view == TreeSidebarView::Profile);
     let couple_class = button_class(active_view == TreeSidebarView::Couple);
@@ -111,7 +118,7 @@ pub fn TreeIconSidebar(
 
             {children}
 
-            if show_add_person {
+            if adds_person {
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.add_person\")}",
@@ -136,7 +143,9 @@ pub fn TreeIconSidebar(
                 div { class: "isb-hr" }
                 TreePageButton { page: TreePage::Dictionary, tree_id: tree_id.clone(), route: route.clone() }
                 TreePageButton { page: TreePage::Statistics, tree_id: tree_id.clone(), route: route.clone() }
-                TreePageButton { page: TreePage::Tools, tree_id: tree_id.clone(), route: route.clone() }
+                if tools {
+                    TreePageButton { page: TreePage::Tools, tree_id: tree_id.clone(), route: route.clone() }
+                }
                 PrintAction {}
                 TreePageButton { page: TreePage::Settings, tree_id, route }
             }

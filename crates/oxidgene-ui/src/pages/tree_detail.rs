@@ -622,6 +622,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         use_pedigree_view(load_trace, pedigree_resource, tree_resource, selected_root);
     let (pedigree_data, root_person_id) = pedigree_view();
 
+    // An empty tree offers its first person to whom may create one.
+    let adds = crate::permissions::use_can(crate::permissions::Permission::Create);
     let writes = TreeWrites {
         api: api.clone(),
         i18n,
@@ -723,7 +725,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 },
                 // Show the empty-tree UI once the pedigree has loaded without
                 // one: an error means no persons, or a network failure.
-                _ if pedigree_resource.read().is_some() => empty_tree(&i18n, writes.clone()),
+                _ if pedigree_resource.read().is_some() => empty_tree(&i18n, writes.clone(), adds),
                 _ => rsx! {
                     div { class: "loading", {i18n.t("tree.loading_pedigree")} }
                 },
@@ -1007,25 +1009,28 @@ fn add_parent_context(
     }
 }
 
-/// A tree with no one yet: the button creating its first person.
-fn empty_tree(i18n: &I18n, writes: TreeWrites) -> Element {
+/// A tree with no one yet: the button creating its first person, when the
+/// viewer may create one.
+fn empty_tree(i18n: &I18n, writes: TreeWrites, adds: bool) -> Element {
     rsx! {
         div { class: "empty-tree-container",
-            button {
-                class: "empty-tree-slot",
-                title: "{i18n.t(\"tree.no_persons_hint\")}",
-                onclick: move |_| writes.add_first_person(),
-                svg {
-                    width: "32",
-                    height: "32",
-                    fill: "none",
-                    "viewBox": "0 0 24 24",
-                    stroke: "currentColor",
-                    "strokeWidth": "1.5",
-                    line { x1: "12", y1: "5", x2: "12", y2: "19" }
-                    line { x1: "5", y1: "12", x2: "19", y2: "12" }
+            if adds {
+                button {
+                    class: "empty-tree-slot",
+                    title: "{i18n.t(\"tree.no_persons_hint\")}",
+                    onclick: move |_| writes.add_first_person(),
+                    svg {
+                        width: "32",
+                        height: "32",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "1.5",
+                        line { x1: "12", y1: "5", x2: "12", y2: "19" }
+                        line { x1: "5", y1: "12", x2: "19", y2: "12" }
+                    }
+                    span { {i18n.t("tree.add_first_person")} }
                 }
-                span { {i18n.t("tree.add_first_person")} }
             }
         }
     }

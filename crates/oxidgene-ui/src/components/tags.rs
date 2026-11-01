@@ -12,11 +12,12 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, BulkTagAction, TagSummary, TagTarget};
 use crate::components::context_menu::{
-    ContextMenuSurface, LONG_PRESS_MS, focus_trigger, trigger_point,
+    ContextMenuSurface, LONG_PRESS_MS, MenuButton, focus_trigger, trigger_point,
 };
 use crate::components::modal::Modal;
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
+use crate::permissions::{Permission, use_tree_permissions};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 
@@ -991,6 +992,10 @@ pub fn TagsButton(
 ) -> Element {
     let i18n = use_i18n();
     let mut picker_at = use_signal(|| None::<(f64, f64)>);
+    // Only to whom may tag the record (docs/authorization.md §11).
+    if !use_tree_permissions().tags_records() {
+        return rsx! {};
+    }
     rsx! {
         button {
             class: "btn btn-outline pd-header-action-btn",
@@ -1044,7 +1049,9 @@ fn tag_route(tree_id: &str, tag: &TagRef) -> Route {
 pub fn TagBadges(tree_id: String, tags: Vec<TagRef>, #[props(default)] header: bool) -> Element {
     let i18n = use_i18n();
     let mut expanded = use_signal(|| false);
-    if tags.is_empty() {
+    // A viewer who knows no tags — a Visitor — sees none.
+    let reads_tags = use_tree_permissions().can(Permission::ReadTags);
+    if tags.is_empty() || !reads_tags {
         return rsx! {};
     }
     let budget = if header {
@@ -1407,6 +1414,9 @@ pub struct RecordMenu {
     /// Counts the touches that began and ended, so a long press that was
     /// lifted before its time out does not open the menu.
     press: Signal<u32>,
+    /// Whether the viewer may change the records: else the menu, all of
+    /// whose entries write, is not offered (docs/authorization.md §11).
+    offered: bool,
 }
 
 /// The menu state of a list, created by the page component.
@@ -1416,10 +1426,16 @@ pub fn use_record_menu() -> RecordMenu {
         target: use_signal(|| None),
         trigger: use_signal(|| None),
         press: use_signal(|| 0),
+        offered: use_tree_permissions().tags_records(),
     }
 }
 
 impl RecordMenu {
+    /// Whether the rows offer the menu: their ⋮ trigger is drawn only then.
+    pub fn offered(self) -> bool {
+        self.offered
+    }
+
     /// Whether the menu is open for the row with this DOM id. The page calls
     /// it while rendering the row, so the row's ⋮ trigger reads as expanded.
     pub fn is_open_for(self, row_id: &str) -> bool {
@@ -1440,6 +1456,9 @@ impl RecordMenu {
     /// Opens the menu of `target` beside the ⋮ trigger that was activated. The
     /// focus returns to the trigger when the menu closes.
     pub fn open_from_trigger(mut self, trigger: Rc<MountedData>, target: MenuTarget) {
+        if !self.offered {
+            return;
+        }
         spawn(async move {
             if let Some(point) = trigger_point(&trigger).await {
                 self.open(target, point);
@@ -1450,6 +1469,9 @@ impl RecordMenu {
 
     /// Opens the menu of `target` where a right click landed.
     pub fn open_at_pointer(self, event: &Event<MouseData>, target: MenuTarget) {
+        if !self.offered {
+            return;
+        }
         event.prevent_default();
         event.stop_propagation();
         let point = event.client_coordinates();
@@ -1464,7 +1486,7 @@ impl RecordMenu {
             Key::F10 => event.modifiers().shift(),
             _ => false,
         };
-        if !opens {
+        if !opens || !self.offered {
             return;
         }
         event.prevent_default();
@@ -1480,7 +1502,7 @@ impl RecordMenu {
     /// Starts a long press when a touch begins on a row: the menu opens where
     /// the touch landed once the long-press delay passes, unless the touch ends first.
     pub fn press_start(mut self, event: &Event<PointerData>, target: MenuTarget) {
-        if event.pointer_type() != "touch" {
+        if event.pointer_type() != "touch" || !self.offered {
             return;
         }
         event.stop_propagation();
@@ -1498,6 +1520,22 @@ impl RecordMenu {
     /// Ends a touch: a long press not yet due no longer opens the menu.
     pub fn press_end(mut self) {
         self.press += 1;
+    }
+}
+
+/// The ⋮ trigger of a row whose menu is `menu`'s, opening it on `target`;
+/// nothing when the menu is not offered to the viewer.
+#[component]
+pub fn RecordMenuButton(name: String, menu: RecordMenu, target: MenuTarget) -> Element {
+    if !menu.offered() {
+        return rsx! {};
+    }
+    rsx! {
+        MenuButton {
+            name,
+            expanded: menu.is_open_for(&target.row_id),
+            on_request: move |trigger: Rc<MountedData>| menu.open_from_trigger(trigger, target.clone()),
+        }
     }
 }
 
@@ -1547,9 +1585,18 @@ pub fn RecordTagMenu(
     let open = at();
     let picked = picker_at();
     let current = target();
-    let edit_target = current
-        .clone()
-        .filter(|target| edits.contains(&target.kind));
+    // A place, a source or a repository is the whole tree's: a scoped
+    // Editor tags it, but does not edit it (docs/authorization.md §3.3).
+    let permissions = use_tree_permissions();
+    let edit_target = current.clone().filter(|target| {
+        edits.contains(&target.kind)
+            && match target.kind {
+                RecordKind::Place | RecordKind::Source | RecordKind::Repository => {
+                    permissions.can_edit_shared()
+                }
+                _ => permissions.can(Permission::Edit),
+            }
+    });
     let has_edit = on_edit.is_some() && edit_target.is_some();
     let menu_row_id = current
         .as_ref()

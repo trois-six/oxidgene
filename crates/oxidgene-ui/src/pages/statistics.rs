@@ -232,6 +232,8 @@ pub fn Statistics(tree_id: String) -> Element {
 
     let limited = tag.chosen().is_some();
     let carried = tag.carried();
+    // A Visitor knows no tags: the tag filter is not theirs.
+    let reads_tags = crate::permissions::use_can(crate::permissions::Permission::ReadTags);
     let stats_read = stats.read();
     let stats_value = stats_read.as_ref().and_then(Option::as_ref);
     let growth_read = growth.read();
@@ -246,16 +248,18 @@ pub fn Statistics(tree_id: String) -> Element {
             page_class: "stats-page",
             content_class: "stats-content",
             topbar: rsx! {
-                label { class: "stats-option", r#for: "stats-tag", {i18n.t("stats.tag")} }
-                TagSelect {
-                    id: "stats-tag",
-                    tags: carried.clone(),
-                    selected: tag.chosen(),
-                    placeholder: i18n.t("stats.tag_all"),
-                    loading: matches!(tag.vocabulary(), Vocabulary::Loading),
-                    failure: tag.failure(),
-                    on_open: move |_| tag.open(),
-                    on_change: move |value| tag.choose(value),
+                if reads_tags {
+                    label { class: "stats-option", r#for: "stats-tag", {i18n.t("stats.tag")} }
+                    TagSelect {
+                        id: "stats-tag",
+                        tags: carried.clone(),
+                        selected: tag.chosen(),
+                        placeholder: i18n.t("stats.tag_all"),
+                        loading: matches!(tag.vocabulary(), Vocabulary::Loading),
+                        failure: tag.failure(),
+                        on_open: move |_| tag.open(),
+                        on_change: move |value| tag.choose(value),
+                    }
                 }
                 label {
                     class: "stats-option",

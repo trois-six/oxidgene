@@ -10,6 +10,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::i18n::use_i18n;
+use crate::permissions::{Permission, TreePermissions, use_tree_permissions};
 
 /// The anchor of a menu opened from a [`MenuButton`]: its right edge and the
 /// gap below its bottom edge, from the trigger's client rectangle. The menu
@@ -730,7 +731,11 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
     let mut show_union_sub = use_signal(|| false);
     let mut show_go_to = use_signal(|| false);
     let mut show_exclude = use_signal(|| false);
-    let sharing = crate::sharing::use_sharing_surfaces();
+    // Each action is offered to whom may take it (docs/authorization.md
+    // §11): going to a relative and the kinship are everyone's.
+    let permissions = use_tree_permissions();
+    let deletes = permissions.can(Permission::Delete);
+    let excludes = offers_exclusion(permissions);
 
     let union_count = props.unions.len();
 
@@ -826,68 +831,19 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     }
                 }
             } else {
-                // Main action list.
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::Edit),
-                    {i18n.t("context.edit_individual")}
+                // Main action list: first what changes the person, to whom
+                // may (docs/authorization.md §11).
+                PersonWriteEntries {
+                    has_union: props.has_union,
+                    union_count,
+                    on_action: props.on_action,
+                    on_unions: move |()| show_union_sub.set(true),
                 }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::Merge),
-                    {i18n.t("context.merge")}
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::Tags),
-                    {i18n.t("tag.picker.open")}
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::TagBranch),
-                    {i18n.t("tag.branch.open")}
-                }
-                if props.has_union {
-                    if union_count > 1 {
-                        button {
-                            role: "menuitem",
-                            class: "context-menu-item",
-                            onclick: move |_| show_union_sub.set(true),
-                            {i18n.t("context.edit_union_submenu")}
-                        }
-                    } else {
-                        button {
-                            role: "menuitem",
-                            class: "context-menu-item",
-                            onclick: move |_| props.on_action.call(PersonAction::EditUnion),
-                            {i18n.t("context.edit_union")}
-                        }
-                    }
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::AddSpouse),
-                    {i18n.t("context.add_spouse")}
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::AddChild),
-                    {i18n.t("context.add_child")}
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::AddSibling),
-                    {i18n.t("context.add_sibling")}
-                }
+                // A divider only between groups: none above the first entry.
                 if !props.go_to.is_empty() {
-                    hr { class: "context-menu-divider" }
+                    if permissions.writes() {
+                        hr { class: "context-menu-divider" }
+                    }
                     button {
                         role: "menuitem",
                         class: "context-menu-item",
@@ -895,14 +851,16 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                         {i18n.t("context.go_to")}
                     }
                 }
-                hr { class: "context-menu-divider" }
+                if permissions.writes() || !props.go_to.is_empty() {
+                    hr { class: "context-menu-divider" }
+                }
                 button {
                     role: "menuitem",
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::Kinship),
                     {i18n.t("context.kinship")}
                 }
-                if sharing {
+                if excludes {
                     button {
                         role: "menuitem",
                         class: "context-menu-item",
@@ -910,13 +868,107 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                         {i18n.t("context.exclude")}
                     }
                 }
-                hr { class: "context-menu-divider" }
+                if deletes {
+                    hr { class: "context-menu-divider" }
+                    button {
+                        role: "menuitem",
+                        class: "context-menu-item context-menu-danger",
+                        onclick: move |_| props.on_action.call(PersonAction::Delete),
+                        {i18n.t("common.delete")}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Whether the person menu offers to exclude from sharing: where the tree
+/// has other viewers, to whom manages the exclusions.
+fn offers_exclusion(permissions: TreePermissions) -> bool {
+    permissions.shares() && permissions.can(Permission::ExclusionsManage)
+}
+
+/// The person menu's entries that change the tree, each for a viewer who
+/// may: editing the person and their unions, merging, tagging, and adding
+/// relatives. Bulk tagging is never a scoped Editor's (§3.3).
+#[component]
+fn PersonWriteEntries(
+    has_union: bool,
+    union_count: usize,
+    on_action: EventHandler<PersonAction>,
+    on_unions: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let permissions = use_tree_permissions();
+    let edits = permissions.can(Permission::Edit);
+    rsx! {
+        if edits {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::Edit),
+                {i18n.t("context.edit_individual")}
+            }
+        }
+        if permissions.can(Permission::Merge) {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::Merge),
+                {i18n.t("context.merge")}
+            }
+        }
+        if permissions.tags_records() {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::Tags),
+                {i18n.t("tag.picker.open")}
+            }
+        }
+        if permissions.can_shared(Permission::Merge) {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::TagBranch),
+                {i18n.t("tag.branch.open")}
+            }
+        }
+        if edits && has_union {
+            if union_count > 1 {
                 button {
                     role: "menuitem",
-                    class: "context-menu-item context-menu-danger",
-                    onclick: move |_| props.on_action.call(PersonAction::Delete),
-                    {i18n.t("common.delete")}
+                    class: "context-menu-item",
+                    onclick: move |_| on_unions.call(()),
+                    {i18n.t("context.edit_union_submenu")}
                 }
+            } else {
+                button {
+                    role: "menuitem",
+                    class: "context-menu-item",
+                    onclick: move |_| on_action.call(PersonAction::EditUnion),
+                    {i18n.t("context.edit_union")}
+                }
+            }
+        }
+        if permissions.can(Permission::Create) {
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::AddSpouse),
+                {i18n.t("context.add_spouse")}
+            }
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::AddChild),
+                {i18n.t("context.add_child")}
+            }
+            button {
+                role: "menuitem",
+                class: "context-menu-item",
+                onclick: move |_| on_action.call(PersonAction::AddSibling),
+                {i18n.t("context.add_sibling")}
             }
         }
     }

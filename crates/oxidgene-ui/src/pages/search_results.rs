@@ -31,6 +31,7 @@ use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::components::view_toggle::ViewToggle;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
+use crate::permissions::{Permission, use_can, use_tree_permissions};
 use crate::router::Route;
 use crate::ui_observability::{
     UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource,
@@ -469,6 +470,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     // "Tag the results…" is open, and bumped after each change so the
     // results and their tags are searched again.
     let mut tagging_results = use_signal(|| false);
+    // Tagging the results in bulk is never a scoped Editor's (docs/authorization.md §3.3).
+    let bulk_tags = use_tree_permissions().can_shared(Permission::Merge);
     let tag_revision = use_signal(|| 0_u32);
     let sections_open = [
         use_signal(|| true),
@@ -633,7 +636,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             }
         }
 
-        {toolbar(&i18n, total_filtered, filters, EventHandler::new(move |()| tagging_results.set(true)))}
+        {toolbar(&i18n, total_filtered, filters, bulk_tags.then(|| EventHandler::new(move |()| tagging_results.set(true))))}
         {tag_results_picker(tree_id, filters, tagging_results, tag_revision)}
 
         // ── Results ──
@@ -953,18 +956,36 @@ fn person_criteria(i18n: &I18n, suggest_tree_id: Uuid, filters: SearchFilters) -
                 }
                 span { {i18n.t("search.has_media")} }
             }
-            div { class: "sr-filter-group sr-tag-group",
-                label { {i18n.t("search.tags")} }
-                TagFilter { tree_id: suggest_tree_id, tags: filters.tags, on_change: move |()| filters.restart() }
-            }
+            TagFilter { tree_id: suggest_tree_id, tags: filters.tags, on_change: move |()| filters.restart() }
         }
     }
 }
 
 /// The Tags filter: a field suggesting the tree's person tags, each choice
 /// added as a chip that removes itself with its ×.
+/// The Tags filter's group, for a viewer who knows the tags: a Visitor
+/// knows none (docs/authorization.md §3.2).
 #[component]
 fn TagFilter(tree_id: Uuid, tags: Signal<Vec<TagRef>>, on_change: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    if !use_can(Permission::ReadTags) {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "sr-filter-group sr-tag-group",
+            label { {i18n.t("search.tags")} }
+            TagFilterField { tree_id, tags, on_change }
+        }
+    }
+}
+
+/// The field of the Tags filter.
+#[component]
+fn TagFilterField(
+    tree_id: Uuid,
+    tags: Signal<Vec<TagRef>>,
+    on_change: EventHandler<()>,
+) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let vocabulary = use_ui_resource("search_tag_vocabulary", move || {
@@ -1142,7 +1163,8 @@ fn toolbar(
     i18n: &I18n,
     total: usize,
     filters: SearchFilters,
-    on_tag_results: EventHandler<()>,
+    // "Tag the results…", for a viewer who may tag in bulk.
+    on_tag_results: Option<EventHandler<()>>,
 ) -> Element {
     let SearchFilters {
         mut sort, mut view, ..
@@ -1161,12 +1183,14 @@ fn toolbar(
                     }
                 }
             }
-            button {
-                class: "btn btn-outline btn-sm",
-                r#type: "button",
-                disabled: total == 0,
-                onclick: move |_| on_tag_results.call(()),
-                {i18n.t("tag.results.open")}
+            if let Some(on_tag_results) = on_tag_results {
+                button {
+                    class: "btn btn-outline btn-sm",
+                    r#type: "button",
+                    disabled: total == 0,
+                    onclick: move |_| on_tag_results.call(()),
+                    {i18n.t("tag.results.open")}
+                }
             }
             ViewToggle {
                 list: view() == ViewMode::List,

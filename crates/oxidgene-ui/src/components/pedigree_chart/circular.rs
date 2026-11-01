@@ -885,6 +885,13 @@ fn render_empty_segment(
     let is_father = entry.node.is_father;
     let child = entry.node.child_of;
     let (cx, cy) = segment.centroid;
+    if !actions.adds {
+        return rsx! {
+            g { key: "fs-{entry.sosa}",
+                path { class: "fan-slot-shape", d: "{segment.path}" }
+            }
+        };
+    }
     // A "+" only where the segment is wide enough to show one; the whole
     // segment stays clickable either way.
     let show_plus = segment.ring.r_in * (segment.end - segment.start).to_radians() >= 18.0;

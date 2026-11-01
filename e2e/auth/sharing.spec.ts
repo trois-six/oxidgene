@@ -108,3 +108,95 @@ test("an owner shares a tree by invitation and by link", async ({ browser }) => 
     // The owner deletes the fixture.
     expect((await owner.request.delete(`/api/v1/trees/${tree}`, { headers })).status()).toBe(204);
 });
+
+/// Opens the action menu of the pedigree's selected card of `tree` on `page`.
+async function openPersonMenu(page: Page, tree: string) {
+    await page.goto(`/trees/${tree}`);
+    const trigger = page.locator(".chart-menu-button");
+    await expect(trigger).toHaveCount(1);
+    await trigger.first().click();
+    const menu = page.locator(".context-menu");
+    await expect(menu).toBeVisible();
+    return menu;
+}
+
+// Read-only views (docs/authorization.md §11): a Guest is offered nothing
+// that would change the tree, where the owner is offered everything.
+test("a guest reads a shared tree without any control that would change it", async ({ browser }) => {
+    const owner = await signedIn(browser, "owner");
+    const headers = await writeHeaders(owner.request);
+    const name = `Read-only fixture ${Date.now()}`;
+    const created = await owner.request.post("/api/v1/trees", { headers, data: { name } });
+    expect(created.status(), await created.text()).toBe(201);
+    const tree = ((await created.json()) as { id: string }).id;
+    const person = await owner.request.post(`/api/v1/trees/${tree}/persons`, { headers, data: { sex: "male" } });
+    expect(person.status(), await person.text()).toBe(201);
+    const personId = ((await person.json()) as { id: string }).id;
+    const named = await owner.request.post(`/api/v1/trees/${tree}/persons/${personId}/names`, {
+        headers,
+        data: { name_type: "birth", given_names: "Aldric", surname: "Fictiveau", is_primary: true },
+    });
+    expect(named.status(), await named.text()).toBe(201);
+    const rooted = await owner.request.put(`/api/v1/trees/${tree}`, {
+        headers,
+        data: { sosa_root_person_id: personId },
+    });
+    expect(rooted.ok(), await rooted.text()).toBeTruthy();
+
+    // The owner is offered every action: what the guest misses below is
+    // withheld from them, not absent from the page.
+    const ownerMenu = await openPersonMenu(owner, tree);
+    for (const entry of ["Edit individual", "Merge with…", "Add spouse", "Delete"]) {
+        await expect(ownerMenu.getByRole("menuitem", { name: entry, exact: true })).toBeVisible();
+    }
+    await owner.keyboard.press("Escape");
+
+    const guest = await signedIn(browser, "guest");
+    const shared = await owner.request.post(`/api/v1/trees/${tree}/members`, {
+        headers,
+        data: { email: "guest@example.invalid", role: "guest" },
+    });
+    expect([201, 202], await shared.text()).toContain(shared.status());
+    if (shared.status() === 202) {
+        await guest.goto("/invitations");
+        const invitation = guest.locator(".home-invitation", { hasText: name });
+        await expect(invitation).toBeVisible();
+        await invitation.getByRole("button", { name: "Accept" }).click();
+    }
+
+    // The pedigree: the person's menu keeps what only reads the tree.
+    const menu = await openPersonMenu(guest, tree);
+    await expect(menu.getByRole("menuitem", { name: "Relationship with…", exact: true })).toBeVisible();
+    for (const entry of ["Edit individual", "Merge with…", "Tags…", "Add spouse", "Add child", "Add sibling", "Delete"]) {
+        await expect(menu.getByRole("menuitem", { name: entry, exact: true })).toHaveCount(0);
+    }
+    await guest.keyboard.press("Escape");
+    const sidebar = guest.locator(".tree-icon-sidebar");
+    await expect(sidebar.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: "Add person", exact: true })).toHaveCount(0);
+    await expect(sidebar.getByRole("button", { name: "Tools", exact: true })).toHaveCount(0);
+
+    // The person page: no header action that writes, no document to add.
+    await guest.goto(`/trees/${tree}/persons/${personId}`);
+    await expect(guest.locator(".card.page-header h1")).toContainText("Aldric");
+    const actions = guest.locator(".pd-header-buttons");
+    for (const action of ["Edit", "Delete", "Merge with…", "Tags…", "History"]) {
+        await expect(actions.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+    }
+    await expect(guest.getByTitle("Add a document", { exact: true })).toHaveCount(0);
+
+    // The settings: the device's preferences and leaving the tree, none of
+    // the sections the owner manages.
+    await guest.goto(`/trees/${tree}/settings`);
+    const nav = guest.locator(".settings-nav");
+    await expect(nav.getByRole("button", { name: "Appearance", exact: true })).toBeVisible();
+    for (const section of ["Privacy", "Anomaly thresholds", "History", "Export Tree", "Members", "Sharing"]) {
+        await expect(nav.getByRole("button", { name: section, exact: true })).toHaveCount(0);
+    }
+    await nav.getByRole("button", { name: "Tree & Roots", exact: true }).click();
+    await expect(guest.getByRole("button", { name: "Leave", exact: true })).toBeVisible();
+    await expect(guest.locator(".settings-content input")).toHaveCount(0);
+
+    // The owner deletes the fixture.
+    expect((await owner.request.delete(`/api/v1/trees/${tree}`, { headers })).status()).toBe(204);
+});

@@ -48,6 +48,7 @@ use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBadges, TagPicker};
 use crate::i18n::{I18n, use_i18n};
+use crate::permissions::{IfCan, Permission, use_can, use_tree_permissions};
 use crate::router::Route;
 use crate::ui_observability::{UiCommand, measure_ui, trace_ui_action, use_ui_resource};
 use crate::utils::parse_privacy;
@@ -795,6 +796,9 @@ fn MediaTile(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    // Every entry of the tile's menu writes: a viewer who may change
+    // nothing gets no menu (docs/authorization.md §11).
+    let has_menu = use_can(Permission::Edit);
 
     let mut confirming = use_signal(|| false);
     let busy = use_signal(|| false);
@@ -922,11 +926,12 @@ fn MediaTile(
     // The right click and a long press are shortcuts to the ⋮ menu of the
     // tile, which holds the thumbnail and its caption alike.
     let press = use_signal(|| 0_u32);
+    // Opens nothing for a viewer who is offered no menu.
     let mut open_at = move |point: (f64, f64)| {
         event_menu.set(None);
         event_menu_offset.set(0);
         menu_trigger.set(None);
-        menu_at.set(Some(point));
+        menu_at.set(has_menu.then_some(point));
     };
 
     rsx! {
@@ -968,19 +973,21 @@ fn MediaTile(
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
                 // The ⋮ lies on the picture, at its bottom right (ui-common.md
                 // §4.8); its own click and press never reach the picture.
-                MenuButton {
-                    name: caption.clone(),
-                    expanded: menu_at().is_some(),
-                    on_request: move |trigger: Rc<MountedData>| {
-                        event_menu.set(None);
-                        event_menu_offset.set(0);
-                        menu_trigger.set(Some(trigger.clone()));
-                        spawn(async move {
-                            if let Some(point) = trigger_point(&trigger).await {
-                                menu_at.set(Some(point));
-                            }
-                        });
-                    },
+                IfCan { permission: Permission::Edit,
+                    MenuButton {
+                        name: caption.clone(),
+                        expanded: menu_at().is_some(),
+                        on_request: move |trigger: Rc<MountedData>| {
+                            event_menu.set(None);
+                            event_menu_offset.set(0);
+                            menu_trigger.set(Some(trigger.clone()));
+                            spawn(async move {
+                                if let Some(point) = trigger_point(&trigger).await {
+                                    menu_at.set(Some(point));
+                                }
+                            });
+                        },
+                    }
                 }
             }
             div { class: "media-caption-row",
@@ -1443,6 +1450,7 @@ fn TileMenu(
     on_delete: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let can_delete = can_delete && use_can(Permission::Delete);
     let profile_label = if is_portrait {
         "media.clear_profile_image"
     } else {
@@ -1556,7 +1564,9 @@ fn VignetteTile(
     let vignette_id = vignette.id;
     let caption = i18n.t("media.vignette");
     // The right click and a long press are shortcuts to the ⋮ menu, which
-    // exists only for a vignette that identifies a person.
+    // exists only for a vignette that identifies a person, and only for a
+    // viewer who may change it (docs/authorization.md §11).
+    let has_menu = person_id.is_some() && use_can(Permission::Edit);
     let press = use_signal(|| 0_u32);
     let mut open_at = move |point: (f64, f64)| {
         menu_trigger.set(None);
@@ -1612,7 +1622,7 @@ fn VignetteTile(
         div {
             class: "media-tile",
             oncontextmenu: move |e: Event<MouseData>| {
-                if person_id.is_none() {
+                if !has_menu {
                     return;
                 }
                 e.prevent_default();
@@ -1620,7 +1630,7 @@ fn VignetteTile(
                 open_at((point.x, point.y));
             },
             onpointerdown: move |e: Event<PointerData>| {
-                if person_id.is_some() && e.pointer_type() == "touch" {
+                if has_menu && e.pointer_type() == "touch" {
                     let point = e.client_coordinates();
                     long_press_start(press, (point.x, point.y), open_at);
                 }
@@ -1650,7 +1660,7 @@ fn VignetteTile(
                 // Says what it is: without it a crop and the whole scan look
                 // like two photographs of the same thing.
                 span { class: "media-vignette-badge", title: i18n.t("media.vignette"), "\u{2702}" }
-                if person_id.is_some() {
+                if has_menu {
                     MenuButton {
                         name: caption.clone(),
                         expanded: menu_at().is_some(),
@@ -3174,6 +3184,7 @@ fn AttachmentRow(
     children: Element,
 ) -> Element {
     let i18n = use_i18n();
+    let deletes = use_can(Permission::Delete);
     rsx! {
         div { class: "media-vignette-item",
             AttachmentThumbnail { thumbnail, picture }
@@ -3181,14 +3192,16 @@ fn AttachmentRow(
             if let Some(scope) = scope {
                 span { class: "media-relation-scope", "{scope}" }
             }
-            button {
-                class: "media-identification-delete",
-                r#type: "button",
-                disabled: busy,
-                title: i18n.t("media.delete_attachment"),
-                aria_label: i18n.t("media.delete_attachment"),
-                onclick: move |_| on_delete.call(()),
-                "\u{00D7}"
+            if deletes {
+                button {
+                    class: "media-identification-delete",
+                    r#type: "button",
+                    disabled: busy,
+                    title: i18n.t("media.delete_attachment"),
+                    aria_label: i18n.t("media.delete_attachment"),
+                    onclick: move |_| on_delete.call(()),
+                    "\u{00D7}"
+                }
             }
         }
     }
@@ -3208,6 +3221,7 @@ fn IdentificationRow(
     on_delete: EventHandler<Uuid>,
 ) -> Element {
     let i18n = use_i18n();
+    let deletes = use_can(Permission::Delete);
     let vignette_id = vignette.id;
     rsx! {
         div {
@@ -3230,7 +3244,7 @@ fn IdentificationRow(
                         span { class: "media-relation-scope", "{scope}" }
                     }
                 }
-                if name.is_some() {
+                if deletes && name.is_some() {
                     button {
                         class: "media-identification-delete",
                         r#type: "button",
@@ -3260,6 +3274,8 @@ fn MediaEventLinks(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut error = use_signal(|| None::<String>);
+    // Shown to every reader, changed only by whom may edit.
+    let edits = use_can(Permission::Edit);
     let toggle = use_callback({
         let api = api.clone();
         move |(event_id, attach): (Uuid, bool)| {
@@ -3287,6 +3303,7 @@ fn MediaEventLinks(
                                 input {
                                     r#type: "checkbox",
                                     checked: attached,
+                                    disabled: !edits,
                                     onchange: move |event: Event<FormData>| toggle.call((event_id, event.checked())),
                                 }
                                 span { "{label}" }
@@ -3556,6 +3573,9 @@ fn MediaViewer(
     let pdf_position = use_signal(|| (1_u32, 0_u32));
     let pdf_goto = use_signal(|| None::<u32>);
     let mut asset_media_id = use_signal(|| None::<Uuid>);
+    // The viewer's writes, offered to whom may make them
+    // (docs/authorization.md §11).
+    let permissions = use_tree_permissions();
 
     // `opening` names what opened the overlay, so it does not change when the
     // gallery refreshes underneath it; the bundle, reloaded after an edit,
@@ -3698,21 +3718,23 @@ fn MediaViewer(
     // couple, and identify somebody on a picture — over an image and a PDF
     // alike; a PDF has no identification, its pages being no picture to cut.
     let relation_button = rsx! {
-        button {
-            class: "isb-btn media-relation-menu-button",
-            r#type: "button",
-            title: i18n.t("media.relations"),
-            aria_label: i18n.t("media.relations"),
-            onclick: move |event: Event<MouseData>| {
-                let point = event.client_coordinates();
-                relation_menu_at.set(Some((point.x, point.y)));
-            },
-            svg {
-                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                stroke: "currentColor", "strokeWidth": "2",
-                circle { cx: "12", cy: "12", r: "9" }
-                circle { cx: "12", cy: "12", r: "5" }
-                circle { cx: "12", cy: "12", r: "1" }
+        if permissions.tags_records() {
+            button {
+                class: "isb-btn media-relation-menu-button",
+                r#type: "button",
+                title: i18n.t("media.relations"),
+                aria_label: i18n.t("media.relations"),
+                onclick: move |event: Event<MouseData>| {
+                    let point = event.client_coordinates();
+                    relation_menu_at.set(Some((point.x, point.y)));
+                },
+                svg {
+                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                    stroke: "currentColor", "strokeWidth": "2",
+                    circle { cx: "12", cy: "12", r: "9" }
+                    circle { cx: "12", cy: "12", r: "5" }
+                    circle { cx: "12", cy: "12", r: "1" }
+                }
             }
         }
     };
@@ -3837,7 +3859,7 @@ fn MediaViewer(
                         // means leaving the page that prompted them.
                         div { class: "media-facts-actions",
                             TagBadges { tree_id: tree_id.to_string(), tags: current_media.tags.clone(), header: true }
-                            if is_document {
+                            if is_document && permissions.can(Permission::Edit) {
                                 button {
                                     class: "btn btn-outline media-facts-pages",
                                     r#type: "button",
@@ -3845,20 +3867,24 @@ fn MediaViewer(
                                     {i18n.t("media.manage_pages")}
                                 }
                             }
-                            button {
-                                class: "pf-confirm-btn media-facts-edit",
-                                r#type: "button",
-                                onclick: move |_| editing.set(true),
-                                {i18n.t("media.viewer_edit")}
+                            IfCan { permission: Permission::Edit,
+                                button {
+                                    class: "pf-confirm-btn media-facts-edit",
+                                    r#type: "button",
+                                    onclick: move |_| editing.set(true),
+                                    {i18n.t("media.viewer_edit")}
+                                }
                             }
-                            MediaDeleteButton {
-                                tree_id,
-                                media_id: current_media.id,
-                                link_id: opening.link_id,
-                                on_deleted: move |()| {
-                                    on_changed.call(());
-                                    on_close.call(());
-                                },
+                            IfCan { permission: Permission::Delete,
+                                MediaDeleteButton {
+                                    tree_id,
+                                    media_id: current_media.id,
+                                    link_id: opening.link_id,
+                                    on_deleted: move |()| {
+                                        on_changed.call(());
+                                        on_close.call(());
+                                    },
+                                }
                             }
                         }
                     }

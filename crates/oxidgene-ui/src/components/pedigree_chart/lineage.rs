@@ -379,6 +379,13 @@ fn render_slim_slot(
     let is_father = entry.node.is_father;
     let child = entry.node.child_of;
     let on_empty_slot = actions.on_empty_slot;
+    if !actions.adds {
+        return rsx! {
+            g { key: "{key}",
+                rect { class: "fan-slot-shape", x: "{x:.2}", y: "{y:.2}", width: "{w:.2}", height: "{h}", rx: "3" }
+            }
+        };
+    }
     rsx! {
         g {
             key: "{key}",
@@ -522,7 +529,7 @@ pub(super) fn LineageCanvas(
     let card = CardContext {
         root_person_id,
         actions,
-        empty_slots_open: true,
+        empty_slots_open: actions.adds,
         mini_tooltip: None,
         theme,
         i18n,

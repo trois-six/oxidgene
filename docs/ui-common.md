@@ -35,6 +35,19 @@ reference these rules instead of redefining them.
   canvases and of print, which Rust computes or paper fixes, stay literal.
 - Removing a component or state also removes its CSS selectors, translations,
   tests, and obsolete API calls.
+- A control that writes is drawn only for a viewer who may use it
+  ([Authorization §11](authorization.md#11-user-interface), Read-only
+  views). The layout reads what the viewer may do with the tree on screen
+  once per page — the tree read's `viewer_access`, served from the cache
+  the page shares — and provides it to every component
+  (`permissions::use_tree_permissions`, `use_can`, `IfCan`); no component
+  asks the server itself. A menu whose every entry is withheld loses its ⋮
+  trigger and its shortcuts; a section or page offering nothing to the
+  viewer leaves the navigation. The desktop and the web build without
+  authentication hold the local owner's permissions at once and draw what
+  they always drew, and so does the web build until the server says it
+  signs users in; then nothing editable is drawn until the viewer's access
+  is known. The server checks every operation regardless.
 
 ## 2. Shared page layout
 

@@ -52,8 +52,13 @@ pub fn ArchiveSourceLink(
     let mut notice = use_signal(|| None::<String>);
     let mut finding = use_signal(|| false);
     let mut attaching = use_signal(|| None::<Attaching>);
+    // Attaching the views and completing the citation write: offered to whom
+    // may (docs/authorization.md §11).
+    let permissions = crate::permissions::use_tree_permissions();
+    let edits = permissions.can(crate::permissions::Permission::Edit);
     let archive = offer.archive();
-    let attachable = offers_attach(archive, ATTACH_OFFERED);
+    let attachable = offers_attach(archive, ATTACH_OFFERED)
+        && permissions.can(crate::permissions::Permission::Create);
     let hint = i18n.t_args("person.source_open_archive", &[("archive", &archive.name)]);
 
     let received = use_attach_targets(tree_id, &offer, bridge.clone(), attaching);
@@ -136,7 +141,7 @@ pub fn ArchiveSourceLink(
                 find: find.clone(),
                 on_find: move |(link, written): (ArchiveLink, Option<String>)| {
                     finding.set(false);
-                    if let (Some(written), Some(citation_id)) = (written, link.citation_id) {
+                    if let (Some(written), Some(citation_id), true) = (written, link.citation_id, edits) {
                         let (api, page) = (api.clone(), link.evidence.page.clone());
                         spawn(async move {
                             if keep_parts(&api, tree_id, citation_id, page, written).await {

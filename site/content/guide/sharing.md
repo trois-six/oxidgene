@@ -70,6 +70,8 @@ An editor limited to a branch changes only the persons in it, and the persons th
 
 ## What visitors see
 
+OxidGene shows each person only what their role lets them do. A guest or a visitor finds no button or menu entry that would change the tree: no **Edit**, **Delete**, **Merge with…** or **Add**, no tags to put on, no upload, and in the settings only the preferences of their device — plus **Leave this tree** for a guest. A visitor sees no tags at all. An editor limited to a branch keeps the person actions, but finds no entry to edit, merge or delete a place, a source, a repository or a tag, to rename a family name or an occupation, to tag in bulk, or to restore a version.
+
 When you visit a tree as a visitor, a banner says **You are viewing this tree as a visitor**, with **Sign in** when you are not signed in. On the home page, each card shows your role on the tree, and **My trees** and **Shared with me** keep the trees you own or those others share with you.
 
 To stop seeing a tree someone shared with you, open its settings and click **Leave** under **Leave this tree**.

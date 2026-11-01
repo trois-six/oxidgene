@@ -22,6 +22,7 @@ use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::components::tree_page::ToolPageFrame;
 use crate::i18n::use_i18n;
+use crate::permissions::{Permission, use_tree_permissions};
 use crate::router::{Route, person_route, push_tree_route};
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 use oxidgene_core::types::RecordKind;
@@ -65,6 +66,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let mut show_create_person = use_signal(|| false);
     let mut media_revision = use_signal(|| 0_u32);
     let record_menu = use_record_menu();
+    let permissions = use_tree_permissions();
 
     // ── Resources ────────────────────────────────────────────────────
 
@@ -350,13 +352,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         profile.person.as_ref().map(|person| person.tags.clone()).unwrap_or_default(),
                         header_actions(
                             &i18n,
-                            move || {
+                            permissions.can(Permission::Delete).then_some(move || {
                                 confirm_delete.set(true);
                                 delete_error.set(None);
-                            },
-                            move || show_edit_person.set(true),
-                            move || merging.set(true),
-                            {
+                            }),
+                            permissions.can(Permission::Edit).then_some(move || show_edit_person.set(true)),
+                            permissions.can(Permission::Merge).then_some(move || merging.set(true)),
+                            permissions.can(Permission::HistoryRead).then_some({
                                 let tree_id = tree_id.clone();
                                 let person_id = person_id.clone();
                                 move || {
@@ -365,7 +367,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                         person_id: person_id.clone(),
                                     });
                                 }
-                            },
+                            }),
                             move || refresh += 1,
                             rsx! {
                                 TagsButton {
@@ -417,63 +419,72 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 }
 
 /// The person header's Delete, Edit, Merge with…, History and (on the web)
-/// Refresh buttons.
+/// Refresh buttons: each action the viewer may not take is `None`, and its
+/// button is not drawn (docs/authorization.md §11).
 fn header_actions(
     i18n: &crate::i18n::I18n,
-    mut on_delete: impl FnMut() + 'static,
-    mut on_edit: impl FnMut() + 'static,
-    mut on_merge: impl FnMut() + 'static,
-    mut on_history: impl FnMut() + 'static,
+    on_delete: Option<impl FnMut() + 'static>,
+    on_edit: Option<impl FnMut() + 'static>,
+    on_merge: Option<impl FnMut() + 'static>,
+    on_history: Option<impl FnMut() + 'static>,
     on_refresh: impl FnMut() + 'static,
     tags_button: Element,
 ) -> Element {
     rsx! {
-        button {
-            class: "btn btn-danger pd-header-action-btn",
-            title: i18n.t("common.delete"),
-            aria_label: i18n.t("common.delete"),
-            onclick: move |_| on_delete(),
-            TrashIcon { class: "pd-header-action-icon" }
-        }
-        button {
-            class: "btn btn-outline pd-header-action-btn",
-            title: i18n.t("common.edit"),
-            aria_label: i18n.t("common.edit"),
-            onclick: move |_| on_edit(),
-            svg {
-                class: "pd-header-action-icon",
-                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                stroke: "currentColor", "strokeWidth": "2",
-                path { d: "M12 20h9" }
-                path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+        if let Some(mut on_delete) = on_delete {
+            button {
+                class: "btn btn-danger pd-header-action-btn",
+                title: i18n.t("common.delete"),
+                aria_label: i18n.t("common.delete"),
+                onclick: move |_| on_delete(),
+                TrashIcon { class: "pd-header-action-icon" }
             }
         }
-        button {
-            class: "btn btn-outline pd-header-action-btn",
-            title: i18n.t("context.merge"),
-            aria_label: i18n.t("context.merge"),
-            onclick: move |_| on_merge(),
-            svg {
-                class: "pd-header-action-icon",
-                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                stroke: "currentColor", "strokeWidth": "2",
-                path { d: "M6 3v6a6 6 0 0 0 6 6a6 6 0 0 0 6-6V3" }
-                path { d: "M12 15v6" }
+        if let Some(mut on_edit) = on_edit {
+            button {
+                class: "btn btn-outline pd-header-action-btn",
+                title: i18n.t("common.edit"),
+                aria_label: i18n.t("common.edit"),
+                onclick: move |_| on_edit(),
+                svg {
+                    class: "pd-header-action-icon",
+                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                    stroke: "currentColor", "strokeWidth": "2",
+                    path { d: "M12 20h9" }
+                    path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+                }
+            }
+        }
+        if let Some(mut on_merge) = on_merge {
+            button {
+                class: "btn btn-outline pd-header-action-btn",
+                title: i18n.t("context.merge"),
+                aria_label: i18n.t("context.merge"),
+                onclick: move |_| on_merge(),
+                svg {
+                    class: "pd-header-action-icon",
+                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                    stroke: "currentColor", "strokeWidth": "2",
+                    path { d: "M6 3v6a6 6 0 0 0 6 6a6 6 0 0 0 6-6V3" }
+                    path { d: "M12 15v6" }
+                }
             }
         }
         {tags_button}
-        button {
-            class: "btn btn-outline pd-header-action-btn",
-            title: i18n.t("history.button"),
-            aria_label: i18n.t("history.button"),
-            onclick: move |_| on_history(),
-            svg {
-                class: "pd-header-action-icon",
-                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                stroke: "currentColor", "strokeWidth": "2",
-                path { d: "M3 12a9 9 0 1 0 3-6.7L3 8" }
-                path { d: "M3 3v5h5" }
-                path { d: "M12 7v5l3 3" }
+        if let Some(mut on_history) = on_history {
+            button {
+                class: "btn btn-outline pd-header-action-btn",
+                title: i18n.t("history.button"),
+                aria_label: i18n.t("history.button"),
+                onclick: move |_| on_history(),
+                svg {
+                    class: "pd-header-action-icon",
+                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                    stroke: "currentColor", "strokeWidth": "2",
+                    path { d: "M3 12a9 9 0 1 0 3-6.7L3 8" }
+                    path { d: "M3 3v5h5" }
+                    path { d: "M12 7v5l3 3" }
+                }
             }
         }
         if SHOW_MANUAL_REFRESH {

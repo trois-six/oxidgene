@@ -42,6 +42,7 @@ use crate::components::parent_suggestions::ParentSuggestions;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
+use crate::permissions::{IfCan, Permission};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     event_type_label_key, event_type_value, name_type_label_key, name_type_value, opt_str,
@@ -574,17 +575,19 @@ fn form_body(
             {vital_section(scope, i18n.t("person_form.birth"), folds.birth, fields.birth, &place_options, has_changes)}
             {vital_section(scope, i18n.t("person_form.death"), folds.death, fields.death, &place_options, has_changes)}
 
-            // ── Privacy ──
-            FormSection { title: i18n.t("person_form.privacy"), open: folds.privacy,
-                {render_choice_group(
-                    &[
-                        (Privacy::Default, i18n.t("privacy.default")),
-                        (Privacy::Public, i18n.t("privacy.public")),
-                        (Privacy::Private, i18n.t("privacy.private")),
-                    ],
-                    fields.privacy,
-                    move |_| has_changes.set(true),
-                )}
+            // ── Privacy ── to whom may change it (`privacy_edit`).
+            IfCan { permission: Permission::PrivacyEdit,
+                FormSection { title: i18n.t("person_form.privacy"), open: folds.privacy,
+                    {render_choice_group(
+                        &[
+                            (Privacy::Default, i18n.t("privacy.default")),
+                            (Privacy::Public, i18n.t("privacy.public")),
+                            (Privacy::Private, i18n.t("privacy.private")),
+                        ],
+                        fields.privacy,
+                        move |_| has_changes.set(true),
+                    )}
+                }
             }
 
             OtherEventsSection {

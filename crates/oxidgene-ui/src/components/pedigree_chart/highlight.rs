@@ -264,6 +264,7 @@ pub(super) fn HighlightTool(
     let mut dim_pending = use_signal(|| true);
     // The search field's text, cleared each time the dialog opens.
     let mut query = use_signal(String::new);
+
     let tags: Vec<TagSummary> = match &vocabulary {
         Vocabulary::Ready(tags) => tags.clone(),
         _ => Vec::new(),
