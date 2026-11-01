@@ -566,3 +566,118 @@ async fn the_sources_drill_down_costs_the_same_whatever_levels_it_skips() {
         "statements of the root level and of a final list, short titles then long ones"
     );
 }
+
+/// What an Editor's record reads cost beyond the owner's: the redaction's
+/// own reads and the one statement selecting every hidden record, never a
+/// read per kind of record (docs/privacy.md §7). Before, the records side
+/// read the hidden records kind by kind on every request, some 39
+/// statements more than the owner's.
+///
+/// The tree is the enriched family blocks with one person excluded from
+/// sharing; the Editor is a member signed in through the mock provider.
+/// The statements and the time of each read are printed for both viewers.
+#[cfg(feature = "auth")]
+#[tokio::test]
+async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
+    use std::time::Instant;
+
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use oxidgene_core::access::{InstanceRole, TreeRole};
+    use oxidgene_db::repo::{AppUserRepo, MembershipRepo, NewAppUser};
+    use tower::ServiceExt as _;
+
+    /// The statements a restricted viewer may run beyond the owner's.
+    const EXTRA: usize = 8;
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let provider = crate::common::oidc::MockProvider::start().await;
+    let db = setup_db().await;
+    let local = app_on(db.clone());
+    let (tree, anchor) = family_blocks_tree(&local, &db, 16).await;
+    enrich(&local, &tree).await;
+    let profiles = all_profiles(&local, &tree).await;
+    let excluded = profiles
+        .iter()
+        .filter_map(|p| p["person_id"].as_str())
+        .find(|id| *id != anchor)
+        .unwrap()
+        .to_string();
+    ok(
+        &local,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/exclusions"),
+        Some(json!({ "kind": "person", "person_id": excluded })),
+    )
+    .await;
+    let user = AppUserRepo::create(
+        &db,
+        NewAppUser {
+            issuer: provider.issuer().to_string(),
+            subject: "editor".into(),
+            email: Some("editor@example.invalid".into()),
+            email_verified: true,
+            provider_name: Some("Fictive editor".into()),
+            username: Some("editor".into()),
+            locale: None,
+            instance_role: InstanceRole::User,
+            can_create_trees: false,
+        },
+    )
+    .await
+    .expect("creates the editor");
+    MembershipRepo::create(&db, tree.parse().unwrap(), user.id, TreeRole::Editor, None)
+        .await
+        .expect("shares the tree");
+    let token = provider.access_token("editor", crate::common::oidc::TRUSTED_CLIENT, 3600);
+    let (app, _) = provider.app(&db, &[]);
+
+    let mut grown = Vec::new();
+    for path in [
+        "/events?first=100",
+        "/notes?first=100",
+        "/citations?first=100",
+        "/media",
+        "/persons/{anchor}/detail-bundle",
+    ] {
+        let uri = format!("/api/v1/trees/{tree}{}", path.replace("{anchor}", &anchor));
+        // Each viewer's first read warms what a read builds once.
+        let mut costs = Vec::new();
+        for editor in [false, true, false, true] {
+            let mut request = Request::get(&uri).header(header::HOST, "genealogy.example.invalid");
+            if editor {
+                request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+            }
+            let router = if editor { &app } else { &local };
+            counter.store(0, Ordering::Relaxed);
+            let started = Instant::now();
+            let response = router
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let elapsed = started.elapsed();
+            assert!(
+                response.status().is_success(),
+                "{uri}: {}",
+                response.status()
+            );
+            costs.push((counter.load(Ordering::Relaxed), elapsed));
+        }
+        let (owner, editor) = (costs[2], costs[3]);
+        eprintln!(
+            "{path}: owner {} statements in {:?}, editor {} statements in {:?}",
+            owner.0, owner.1, editor.0, editor.1
+        );
+        if editor.0 > owner.0 + EXTRA {
+            grown.push(format!(
+                "{path}: {} statements for the owner, {} for an Editor",
+                owner.0, editor.0
+            ));
+        }
+    }
+    assert!(grown.is_empty(), "{}", grown.join("\n"));
+}

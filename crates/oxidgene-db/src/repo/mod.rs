@@ -92,9 +92,7 @@ pub use note::{NoteFilter, NoteRepo};
 pub use notification::{NewNotification, Notification, NotificationRepo, UPDATES_CHANNEL};
 pub use pagination::{PaginationParams, encode_cursor};
 pub use person::{PersonRepo, PortraitRow};
-pub use redaction::{
-    EventOwner, LeaveOut, LinkOwner, MediumOwner, NoteOwners, RedactionRepo, VignetteOwner,
-};
+pub use redaction::{LeaveOut, RedactionRepo};
 
 pub use person_denorm::{EncodedProfiles, PersonDenormRepo};
 pub use person_distinct::PersonDistinctRepo;

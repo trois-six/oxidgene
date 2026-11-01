@@ -3,7 +3,9 @@
 //! repositories and places a redaction hides, and the tags it withholds.
 //!
 //! [`Records`] pairs the request's [`Redaction`] with the [`HiddenRecords`]
-//! it implies, derived once per request and tree and kept in the
+//! it implies, read once per request and tree in one statement
+//! ([`RedactionRepo::hidden_records`]: the rules of `oxidgene_db`'s
+//! `hiding` module, as common table expressions) and kept in the
 //! [`ViewerContext`]. The owner's is unrestricted and costs no query; so is
 //! a restricted viewer's on a tree where nobody is hidden — then only
 //! confidential notes and tags can be withheld, which need no read either.
@@ -13,7 +15,7 @@
 //! - an event of a hidden person or of a withheld family is hidden;
 //! - a citation on a hidden person, a withheld family or a hidden event is
 //!   hidden;
-//! - a medium is hidden as [`Redaction::medium_withheld`] decides from the
+//! - a medium is hidden as `Redaction::medium_withheld` decides from the
 //!   persons and families it shows — linked to it, on one of its vignettes,
 //!   through a linked event or a vignette's event — and its privacy; a page
 //!   follows its document;
@@ -39,7 +41,7 @@ use oxidgene_core::types::{
     Citation, Event, Family, ImageSource, Media, MediaLink, Note, Place, RecordKind, Repository,
     Source, TagRef, Vignette,
 };
-use oxidgene_db::repo::{LeaveOut, NoteOwners, RedactionRepo, Unseen};
+use oxidgene_db::repo::{LeaveOut, RedactionRepo, Unseen};
 use sea_orm::DatabaseConnection;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -64,10 +66,6 @@ pub struct HiddenRecords {
 
 /// The slot of a request's [`HiddenRecords`] for one tree.
 type Slot = OnceCell<Arc<HiddenRecords>>;
-
-fn sorted(ids: impl IntoIterator<Item = Uuid>) -> Vec<Uuid> {
-    oxidgene_core::collections::sorted_unique(ids)
-}
 
 fn holds(ids: &[Uuid], id: Uuid) -> bool {
     ids.binary_search(&id).is_ok()
@@ -164,9 +162,7 @@ impl Records {
         }
         let slot = viewer.derived::<Slot>(tree_id);
         let hidden = slot
-            .get_or_try_init(|| async {
-                hidden_records(db, tree_id, &redaction).await.map(Arc::new)
-            })
+            .get_or_try_init(|| async { hidden_records(db, &unseen).await.map(Arc::new) })
             .await?;
         Ok(Self {
             hidden: Arc::clone(hidden),
@@ -459,204 +455,40 @@ fn nothing_hidden(redaction: &Redaction) -> bool {
         && !redaction.withholds_private_records()
 }
 
-/// The records of tree `tree_id` that `redaction` hides.
+/// The records `unseen` hides, each kind sorted: one statement.
 async fn hidden_records(
     db: &DatabaseConnection,
-    tree_id: Uuid,
-    redaction: &Redaction,
+    unseen: &Unseen,
 ) -> Result<HiddenRecords, OxidGeneError> {
-    let persons = sorted(redaction.hidden_persons());
-    let families = sorted(redaction.withheld_families());
-
-    let event_rows = RedactionRepo::events_of(db, tree_id, &persons, &families).await?;
-    let events = sorted(event_rows.iter().map(|e| e.id));
-
-    let media = hidden_media(db, tree_id, redaction, &persons, &families, &event_rows).await?;
-    let medium_ids = sorted(media.iter().map(|m| m.id));
-
-    let citation_rows = RedactionRepo::citations_of(db, &persons, &families, &events).await?;
-    let citations = sorted(citation_rows.iter().map(|(id, _)| *id));
-
-    let (sources, repositories) = hidden_sources(db, &citation_rows, &citations).await?;
-    let places = hidden_places(db, tree_id, &event_rows, &events, &media, &medium_ids).await?;
-
-    let notes = RedactionRepo::notes_of(
-        db,
-        tree_id,
-        &NoteOwners {
-            persons: &persons,
-            families: &families,
-            events: &events,
-            media: &medium_ids,
-            sources: &sources,
-            repositories: &repositories,
-        },
-    )
-    .await?;
-
-    let mut links = RedactionRepo::links_of(db, &persons, &families, &events, &sources).await?;
-    links.extend(RedactionRepo::links_of_media(db, &medium_ids).await?);
-    let media_links = sorted(links.into_iter().map(|l| l.id));
-    let vignettes = sorted(
-        RedactionRepo::vignettes_of(db, &persons, &events, &medium_ids)
-            .await?
-            .into_iter()
-            .map(|v| v.id),
-    );
-
-    Ok(HiddenRecords {
-        events,
-        citations,
-        notes: sorted(notes),
-        media: medium_ids,
-        sources,
-        repositories,
-        places,
-        media_links,
-        vignettes,
-    })
-}
-
-/// Of `candidates`, those no visible user names: `uses` lists each use of
-/// a candidate with whether its user is hidden.
-fn used_only_by_hidden(
-    candidates: Vec<Uuid>,
-    uses: impl IntoIterator<Item = (Uuid, bool)>,
-) -> Vec<Uuid> {
-    let shown: std::collections::HashSet<Uuid> = uses
-        .into_iter()
-        .filter_map(|(candidate, hidden)| (!hidden).then_some(candidate))
-        .collect();
-    candidates
-        .into_iter()
-        .filter(|candidate| !shown.contains(candidate))
-        .collect()
-}
-
-/// The sources only hidden citations draw on — of those `citations` (with
-/// their sources) do — and the repositories only holding such sources.
-async fn hidden_sources(
-    db: &DatabaseConnection,
-    citation_rows: &[(Uuid, Uuid)],
-    citations: &[Uuid],
-) -> Result<(Vec<Uuid>, Vec<Uuid>), OxidGeneError> {
-    let cited = sorted(citation_rows.iter().map(|(_, source)| *source));
-    let uses = RedactionRepo::citations_of_sources(db, &cited).await?;
-    let sources = used_only_by_hidden(
-        cited,
-        uses.into_iter()
-            .map(|(citation, source)| (source, holds(citations, citation))),
-    );
-    let held = sorted(
-        RedactionRepo::holdings_of_sources(db, &sources)
-            .await?
-            .into_iter()
-            .map(|(_, repository)| repository),
-    );
-    let holdings = RedactionRepo::holdings_of_repositories(db, &held).await?;
-    let repositories = used_only_by_hidden(
-        held,
-        holdings
-            .into_iter()
-            .map(|(source, repository)| (repository, holds(&sources, source))),
-    );
-    Ok((sources, repositories))
-}
-
-/// The places only hidden events and media use, of those they use.
-async fn hidden_places(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    event_rows: &[oxidgene_db::repo::EventOwner],
-    events: &[Uuid],
-    media: &[oxidgene_db::repo::MediumOwner],
-    medium_ids: &[Uuid],
-) -> Result<Vec<Uuid>, OxidGeneError> {
-    let used = sorted(
-        event_rows
-            .iter()
-            .filter_map(|e| e.place_id)
-            .chain(media.iter().filter_map(|m| m.place_id)),
-    );
-    let at_events = RedactionRepo::events_at(db, tree_id, &used).await?;
-    let at_media = RedactionRepo::media_at(db, tree_id, &used).await?;
-    let uses = at_events
-        .iter()
-        .filter_map(|e| Some((e.place_id?, holds(events, e.id))))
-        .chain(
-            at_media
-                .iter()
-                .filter_map(|m| Some((m.place_id?, holds(medium_ids, m.id)))),
-        );
-    Ok(used_only_by_hidden(used, uses))
-}
-
-/// The media of tree `tree_id` the redaction withholds, pages included:
-/// those showing a hidden person or a withheld family, through a link, a
-/// vignette or an event, and the private ones.
-async fn hidden_media(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    redaction: &Redaction,
-    persons: &[Uuid],
-    families: &[Uuid],
-    events: &[oxidgene_db::repo::EventOwner],
-) -> Result<Vec<oxidgene_db::repo::MediumOwner>, OxidGeneError> {
-    use std::collections::HashMap;
-
-    let event_ids = sorted(events.iter().map(|e| e.id));
-    let owner: HashMap<Uuid, &oxidgene_db::repo::EventOwner> =
-        events.iter().map(|e| (e.id, e)).collect();
-    // What each medium shows: the hidden persons and withheld families.
-    let mut shows: HashMap<Uuid, (Vec<Uuid>, Vec<Uuid>)> = HashMap::new();
-    let mut show =
-        |medium: Uuid, person: Option<Uuid>, family: Option<Uuid>, event: Option<Uuid>| {
-            let entry = shows.entry(medium).or_default();
-            let by_event = event.and_then(|e| owner.get(&e));
-            entry
-                .0
-                .extend(person.into_iter().chain(by_event.and_then(|e| e.person_id)));
-            entry
-                .1
-                .extend(family.into_iter().chain(by_event.and_then(|e| e.family_id)));
+    let mut hidden = HiddenRecords::default();
+    for (kind, id) in RedactionRepo::hidden_records(db, unseen).await? {
+        let ids = match kind.as_str() {
+            "event" => &mut hidden.events,
+            "citation" => &mut hidden.citations,
+            "note" => &mut hidden.notes,
+            "media" => &mut hidden.media,
+            "source" => &mut hidden.sources,
+            "repository" => &mut hidden.repositories,
+            "place" => &mut hidden.places,
+            "media_link" => &mut hidden.media_links,
+            "vignette" => &mut hidden.vignettes,
+            _ => continue,
         };
-    for link in RedactionRepo::links_of(db, persons, families, &event_ids, &[]).await? {
-        show(link.media_id, link.person_id, link.family_id, link.event_id);
+        ids.push(id);
     }
-    for vignette in RedactionRepo::vignettes_of(db, persons, &event_ids, &[]).await? {
-        show(
-            vignette.media_id,
-            vignette.person_id,
-            None,
-            vignette.event_id,
-        );
+    for ids in [
+        &mut hidden.events,
+        &mut hidden.citations,
+        &mut hidden.notes,
+        &mut hidden.media,
+        &mut hidden.sources,
+        &mut hidden.repositories,
+        &mut hidden.places,
+        &mut hidden.media_links,
+        &mut hidden.vignettes,
+    ] {
+        ids.sort_unstable();
+        ids.dedup();
     }
-    let candidates = sorted(shows.keys().copied());
-    let mut media = RedactionRepo::media(db, tree_id, &candidates).await?;
-    if redaction.withholds_private_records() {
-        media.extend(RedactionRepo::unpublished_media(db, tree_id).await?);
-    }
-    // A page shows what its document shows: the document decides.
-    let documents = sorted(media.iter().filter_map(|m| m.document_id));
-    media.extend(RedactionRepo::media(db, tree_id, &documents).await?);
-    let privacy: HashMap<Uuid, oxidgene_core::enums::Privacy> =
-        media.iter().map(|m| (m.id, m.privacy)).collect();
-    let mut decided: HashMap<Uuid, (Vec<Uuid>, Vec<Uuid>)> = HashMap::new();
-    for medium in &media {
-        let root = medium.document_id.unwrap_or(medium.id);
-        let entry = decided.entry(root).or_default();
-        if let Some((p, f)) = shows.get(&medium.id) {
-            entry.0.extend(p);
-            entry.1.extend(f);
-        }
-    }
-    let withheld: Vec<Uuid> = sorted(decided.into_iter().filter_map(|(root, (p, f))| {
-        let privacy = privacy.get(&root).copied()?;
-        redaction.medium_withheld(privacy, p, f).then_some(root)
-    }));
-    let mut hidden = RedactionRepo::media(db, tree_id, &withheld).await?;
-    hidden.extend(RedactionRepo::pages_of(db, tree_id, &withheld).await?);
-    hidden.sort_by_key(|m| m.id);
-    hidden.dedup_by_key(|m| m.id);
     Ok(hidden)
 }

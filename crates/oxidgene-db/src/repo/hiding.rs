@@ -124,10 +124,10 @@ impl Unseen {
     }
 
     /// The one statement reading every hidden record of the tree, as rows
-    /// of a kind — `person`, `family`, `event`, `citation`, `media`,
-    /// `source`, `repository`, `place`, `note`, `media_link`, `vignette` —
-    /// and an identifier: each set a common table expression, built once
-    /// and named by those after it.
+    /// of a kind — `event`, `citation`, `media`, `source`, `repository`,
+    /// `place`, `note`, `media_link`, `vignette` — and an identifier: each
+    /// set a common table expression, built once and named by those after
+    /// it.
     #[must_use]
     pub fn hidden_records_query(&self) -> WithQuery {
         let mut with = WithClause::new();
@@ -142,9 +142,8 @@ impl Unseen {
                     .to_owned(),
             );
         }
+        // The persons and families a request knows from its redaction.
         let rows = [
-            ("person", "hidden_person"),
-            ("family", "withheld_family"),
             ("event", "hidden_event"),
             ("citation", "hidden_citation"),
             ("media", "hidden_media"),

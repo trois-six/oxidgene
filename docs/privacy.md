@@ -388,7 +388,10 @@ pseudonym, or absent, so nothing else names them.
   by a list of their identifiers: its bound parameters stay the same few
   however many persons are hidden, under SQLite's 32,766 and PostgreSQL's
   65,535. The person rules are the same as the projections' redaction
-  applies in memory.
+  applies in memory. A direct read or a nested list deciding record by
+  record reads the hidden records of every kind once per request, in one
+  statement whose sets are common table expressions, so that a restricted
+  viewer's read costs the owner's plus a fixed few statements.
 - A placeholder that may not be navigated through carries a pseudonym drawn
   afresh for each request: within one response it names the same
   placeholder everywhere; across requests it links nothing. Its only

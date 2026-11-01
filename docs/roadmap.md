@@ -347,6 +347,8 @@ string in every language, and the user guide. In order:
    - [x] Hidden persons and records left out of every list, count and search
      by subqueries over the visibility, exclusion and scope tables, whatever
      their number ([Privacy §7](privacy.md#7-enforcement-points)).
+   - [x] A restricted viewer's hidden records read once per request in one
+     statement: their record reads cost the owner's plus a fixed few.
 4. **Notifications and email.**
    - [x] In-app notifications, preferences and the long poll
      ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)):
