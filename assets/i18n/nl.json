@@ -7978,6 +7978,8 @@
     "nav_history.page.couple": "Paar",
     "nav_history.page.home": "Start",
     "nav_history.page.person": "Persoon",
+    "forbidden.message": "U mag deze pagina van de stamboom niet openen.",
+    "forbidden.title": "403 — Geen toegang",
     "not_found.go_home": "Naar de startpagina",
     "not_found.message_prefix": "De pagina “",
     "not_found.message_suffix": "” bestaat niet.",

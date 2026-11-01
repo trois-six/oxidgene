@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person History"
 description: "Every state the history kept of a person, and their current one, compared field by field side by side, with the restore of an earlier one."
 tags: [oxidgene, specification, ui, ux, history]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
 ---
 
 
@@ -135,6 +135,7 @@ who no longer exists is never brought back — is defined in
 | Error | The shared error line with the message |
 | No version | An empty state: *No version has been recorded for this person yet.* — a person that does not exist and was never versioned |
 | Deleted person | A *Deleted* badge beside the title |
+| Not allowed | The forbidden page, for a viewer of the web build who does not read the history (`history_read`) and opened the address ([Authorization §11](authorization.md#11-user-interface)) |
 
 ---
 

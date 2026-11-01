@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -375,10 +375,11 @@ string in every language, and the user guide. In order:
      in kinship ([Authorization §6.5](authorization.md#65-access-scopes)).
    - [x] The homepage's roles and invitations, and the owner's Members and
      Sharing sections, the visitor banner and **Leave this tree**.
-   - [x] Edit controls hidden throughout the tree pages where
-     `viewer_access` lacks their permission
+   - [x] Edit controls hidden throughout the tree pages and their edit
+     forms where `viewer_access` lacks their permission, and the Tools and
+     history pages answering their typed address with the forbidden page
      ([Authorization §11](authorization.md#11-user-interface), Read-only
-     views).
+     views, Pages reserved to a permission).
 6. **API clients and assistant access over HTTP.**
    - [ ] Tree and user API clients over client credentials, with
      provisioning, rotation, revocation, rate limits and usage

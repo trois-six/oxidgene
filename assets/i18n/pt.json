@@ -7978,6 +7978,8 @@
     "nav_history.page.couple": "Casal",
     "nav_history.page.home": "Início",
     "nav_history.page.person": "Pessoa",
+    "forbidden.message": "Não tem permissão para abrir esta página da árvore.",
+    "forbidden.title": "403 — Acesso negado",
     "not_found.go_home": "Voltar ao início",
     "not_found.message_prefix": "A página «",
     "not_found.message_suffix": "» não existe.",

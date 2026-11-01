@@ -43,7 +43,9 @@ reference these rules instead of redefining them.
   (`permissions::use_tree_permissions`, `use_can`, `IfCan`); no component
   asks the server itself. A menu whose every entry is withheld loses its ⋮
   trigger and its shortcuts; a section or page offering nothing to the
-  viewer leaves the navigation. The desktop and the web build without
+  viewer leaves the navigation, and a page reserved to a permission
+  answers its typed address with the forbidden page
+  (`permissions::RequirePermission`). The desktop and the web build without
   authentication hold the local owner's permissions at once and draw what
   they always drew, and so does the web build until the server says it
   signs users in; then nothing editable is drawn until the viewer's access

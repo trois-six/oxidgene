@@ -76,10 +76,21 @@ impl Tab for ToolsTab {
     }
 }
 
+/// Page rendered at `/trees/:tree_id/tools`: for whom may use the tools
+/// (`tools`), the forbidden page for the others (docs/authorization.md §11).
 #[component]
 pub fn Tools(tree_id: String) -> Element {
-    let i18n = use_i18n();
     use_ui_load_trace(UiPage::Tools);
+    rsx! {
+        crate::permissions::RequirePermission { permission: crate::permissions::Permission::Tools,
+            ToolsPage { tree_id }
+        }
+    }
+}
+
+#[component]
+fn ToolsPage(tree_id: String) -> Element {
+    let i18n = use_i18n();
     let tid = tree_id.parse::<Uuid>().ok();
 
     let (tab, choose_tab) = use_stored_tab::<ToolsTab>(TAB_STORAGE_KEY);

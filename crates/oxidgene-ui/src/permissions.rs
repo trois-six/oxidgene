@@ -215,6 +215,66 @@ pub fn IfCan(permission: Permission, children: Element) -> Element {
     }
 }
 
+/// What a page reserved to one permission shows, opened by its address
+/// rather than from a control the viewer was offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageAccess {
+    /// The page itself.
+    Open,
+    /// The forbidden page: the viewer sees the tree but lacks the
+    /// permission, as the server's `403` says (docs/authorization.md §4.3).
+    Refused,
+    /// Nothing yet: whether the server signs users in, or what the tree lets
+    /// the viewer do, is still being asked. The page's body is not drawn
+    /// until it is known.
+    Unknown,
+}
+
+/// What a page needing `permission` shows to the user `account` describes,
+/// who may do `permissions` with its tree. The local owner — the desktop's,
+/// the `none` mode's — opens it as before; the web build waits for
+/// `/auth/session` before drawing it, so that no one is shown a body they
+/// may not read.
+pub fn page_access(
+    account: &AccountState,
+    permissions: TreePermissions,
+    permission: Permission,
+) -> PageAccess {
+    match (account, permissions.0) {
+        (AccountState::Loading, _) | (_, Access::Pending) => PageAccess::Unknown,
+        _ if permissions.can(permission) => PageAccess::Open,
+        _ => PageAccess::Refused,
+    }
+}
+
+/// Renders `children`, a page reserved to whom holds `permission`, or in
+/// its place the forbidden page, or nothing while the access is unknown
+/// (docs/authorization.md §11). The navigation offers the page only to
+/// whom may open it; this answers its address typed or bookmarked.
+#[component]
+pub fn RequirePermission(permission: Permission, children: Element) -> Element {
+    let permissions = use_tree_permissions();
+    let account = try_use_context::<Signal<AccountState>>();
+    let access = match account {
+        Some(account) => page_access(&account.read(), permissions, permission),
+        None => page_access(&AccountState::Absent, permissions, permission),
+    };
+    match access {
+        PageAccess::Open => children,
+        PageAccess::Refused => rsx! { crate::pages::not_found::Forbidden {} },
+        PageAccess::Unknown => rsx! {},
+    }
+}
+
+/// Whether a form may delete a source its own edit left unused, as `access`,
+/// the tree's last read, says: a scoped Editor creates sources, places,
+/// repositories and tags but deletes none (§3.3), so the clean-up is not
+/// attempted. Without a read at hand it is: the server keeps whatever it
+/// refuses.
+pub fn deletes_shared_records(access: Option<&ViewerAccess>) -> bool {
+    access.is_none_or(|access| TreePermissions::of(access).can_shared(Permission::Delete))
+}
+
 /// Asks the tree's access again, after a change to the viewer's own role
 /// on it: an ownership transferred.
 pub fn use_refresh_tree_permissions() -> Callback<()> {
@@ -374,6 +434,65 @@ mod tests {
         assert_eq!(held(visitor), vec![Permission::Read]);
         assert!(!visitor.can(Permission::ReadTags));
         assert!(!visitor.writes());
+    }
+
+    #[test]
+    fn a_page_opens_to_whom_holds_its_permission_and_is_refused_to_the_others() {
+        let signed_in = AccountState::Anonymous;
+        for (role, scoped, opens) in [
+            (TreeRole::Owner, false, true),
+            (TreeRole::Editor, false, true),
+            (TreeRole::Editor, true, true),
+            (TreeRole::Guest, false, false),
+            (TreeRole::Guest, true, false),
+            (TreeRole::Visitor, false, false),
+        ] {
+            let permissions = viewer(role, scoped);
+            let expected = if opens {
+                PageAccess::Open
+            } else {
+                PageAccess::Refused
+            };
+            for permission in [Permission::Tools, Permission::HistoryRead] {
+                assert_eq!(
+                    page_access(&signed_in, permissions, permission),
+                    expected,
+                    "{role:?} scoped={scoped} {}",
+                    permission.as_str()
+                );
+            }
+        }
+        // The desktop and the `none` mode open it at once, as before.
+        let local = TreePermissions::resolve(&AccountState::Absent, None);
+        assert_eq!(
+            page_access(&AccountState::Absent, local, Permission::Tools),
+            PageAccess::Open
+        );
+        // Nothing is drawn before the server has answered: whether it signs
+        // users in, then what the tree lets the viewer do.
+        let loading = TreePermissions::resolve(&AccountState::Loading, None);
+        assert_eq!(
+            page_access(&AccountState::Loading, loading, Permission::Tools),
+            PageAccess::Unknown
+        );
+        assert_eq!(
+            page_access(&signed_in, TreePermissions::pending(), Permission::Tools),
+            PageAccess::Unknown
+        );
+    }
+
+    #[test]
+    fn a_form_cleans_up_shared_records_unless_its_editor_is_scoped() {
+        let read = |role: TreeRole, scoped: bool| {
+            TreeAccess::of_role(role)
+                .scoped(scoped.then(Uuid::nil))
+                .viewer_access()
+        };
+        assert!(deletes_shared_records(None));
+        assert!(deletes_shared_records(Some(&read(TreeRole::Owner, false))));
+        assert!(deletes_shared_records(Some(&read(TreeRole::Editor, false))));
+        assert!(!deletes_shared_records(Some(&read(TreeRole::Editor, true))));
+        assert!(!deletes_shared_records(Some(&read(TreeRole::Guest, false))));
     }
 
     #[test]

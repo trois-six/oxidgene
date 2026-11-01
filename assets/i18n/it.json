@@ -7978,6 +7978,8 @@
     "nav_history.page.couple": "Coppia",
     "nav_history.page.home": "Home",
     "nav_history.page.person": "Persona",
+    "forbidden.message": "Non hai il permesso di aprire questa pagina dell’albero.",
+    "forbidden.title": "403 — Accesso negato",
     "not_found.go_home": "Torna alla home",
     "not_found.message_prefix": "La pagina “",
     "not_found.message_suffix": "” non esiste.",

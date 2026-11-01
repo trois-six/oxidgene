@@ -2042,18 +2042,26 @@ pub(crate) async fn save_notes_source(
         (None, None) => {}
     }
 
-    // The source that was just let go may now be catalogued but unused:
-    // free-text entry mints one `Source` per distinct title, so a corrected
-    // typo would otherwise leave its row in the tree, and in the source
-    // dictionary, forever. The server keeps any source still referenced, so
-    // this only ever collects what nothing points at.
     if let Some(previous) = current.source_id
         && Some(previous) != source_id
     {
-        let _ = api.delete_source_if_unused(tree_id, previous).await;
+        let_go_source(api, tree_id, previous).await;
     }
 
     Ok(saved)
+}
+
+/// Deletes source `previous` of tree `tree_id`, which a citation was just
+/// repointed away from, if nothing uses it any more: free-text entry mints
+/// one `Source` per distinct title, so a corrected typo would otherwise
+/// leave its row in the tree, and in the source dictionary, forever. The
+/// server keeps any source still referenced, so this only ever collects
+/// what nothing points at. A scoped Editor deletes no source
+/// (docs/authorization.md §3.3): the form leaves it in place.
+async fn let_go_source(api: &ApiClient, tree_id: Uuid, previous: Uuid) {
+    if crate::permissions::deletes_shared_records(api.cached_viewer_access(tree_id).as_ref()) {
+        let _ = api.delete_source_if_unused(tree_id, previous).await;
+    }
 }
 
 /// The notes textarea + source field themselves, bound to caller-owned

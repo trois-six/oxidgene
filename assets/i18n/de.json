@@ -7978,6 +7978,8 @@
     "nav_history.page.couple": "Paar",
     "nav_history.page.home": "Startseite",
     "nav_history.page.person": "Person",
+    "forbidden.message": "Sie dürfen diese Seite des Stammbaums nicht öffnen.",
+    "forbidden.title": "403 — Zugriff verweigert",
     "not_found.go_home": "Zur Startseite",
     "not_found.message_prefix": "Die Seite „",
     "not_found.message_suffix": "“ existiert nicht.",

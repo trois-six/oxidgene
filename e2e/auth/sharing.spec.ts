@@ -150,6 +150,11 @@ test("a guest reads a shared tree without any control that would change it", asy
         await expect(ownerMenu.getByRole("menuitem", { name: entry, exact: true })).toBeVisible();
     }
     await owner.keyboard.press("Escape");
+    // The pages reserved to a permission open to the owner by their address.
+    await owner.goto(`/trees/${tree}/tools`);
+    await expect(owner.locator(".tools-page")).toBeVisible();
+    await owner.goto(`/trees/${tree}/persons/${personId}/history`);
+    await expect(owner.locator(".ph-content")).toBeVisible();
 
     const guest = await signedIn(browser, "guest");
     const shared = await owner.request.post(`/api/v1/trees/${tree}/members`, {
@@ -184,6 +189,14 @@ test("a guest reads a shared tree without any control that would change it", asy
         await expect(actions.getByRole("button", { name: action, exact: true })).toHaveCount(0);
     }
     await expect(guest.getByTitle("Add a document", { exact: true })).toHaveCount(0);
+
+    // The Tools page and the person's history, opened by their address,
+    // answer with the forbidden page and nothing of their body.
+    for (const path of [`/trees/${tree}/tools`, `/trees/${tree}/persons/${personId}/history`]) {
+        await guest.goto(path);
+        await expect(guest.getByRole("heading", { name: "403 — Forbidden", exact: true })).toBeVisible();
+        await expect(guest.locator(".tools-page, .ph-content")).toHaveCount(0);
+    }
 
     // The settings: the device's preferences and leaving the tree, none of
     // the sections the owner manages.

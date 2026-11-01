@@ -7978,6 +7978,8 @@
     "nav_history.page.couple": "Couple",
     "nav_history.page.home": "Home",
     "nav_history.page.person": "Person",
+    "forbidden.message": "You are not allowed to open this page of the tree.",
+    "forbidden.title": "403 — Forbidden",
     "not_found.go_home": "Go Home",
     "not_found.message_prefix": "The page \"",
     "not_found.message_suffix": "\" does not exist.",

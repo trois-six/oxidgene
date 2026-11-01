@@ -21,10 +21,23 @@ use crate::ui_observability::{
     UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace,
 };
 
-/// Page rendered at `/trees/:tree_id/persons/:person_id/history`.
+/// Page rendered at `/trees/:tree_id/persons/:person_id/history`: for whom
+/// reads the history (`history_read`), the forbidden page for the others
+/// (docs/authorization.md §11).
 #[component]
 pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
-    let load_trace = use_ui_load_trace(UiPage::PersonHistory);
+    use_ui_load_trace(UiPage::PersonHistory);
+    rsx! {
+        crate::permissions::RequirePermission { permission: crate::permissions::Permission::HistoryRead,
+            HistoryPage { tree_id, person_id }
+        }
+    }
+}
+
+#[component]
+fn HistoryPage(tree_id: String, person_id: String) -> Element {
+    // The trace the route opened, for the page's own resources.
+    let load_trace = use_context::<crate::ui_observability::UiLoadTrace>();
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();

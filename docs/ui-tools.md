@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-10-31T18:00:53Z }
+generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -24,6 +24,11 @@ Gear, so it opens the same way from the pedigree canvas, a profile, and every
 other tree page. Like [Statistics](ui-statistics.md), it uses the `sub-page`
 layout with the shared left icon sidebar, whose wrench button shows as
 current here.
+
+On the web build it is for whom may use the tools (`tools`: the owner and
+the Editors): the wrench is offered to them only, and anyone else opening
+the address sees the forbidden page instead
+([Authorization §11](authorization.md#11-user-interface)).
 
 ## 2. Layout
 
