@@ -26,9 +26,8 @@ use futures_util::future::BoxFuture;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::EventType;
 use oxidgene_db::repo::{
-    CitationFilter, CitationRepo, EventFilter, EventRepo, FamilyRepo, NoteFilter, NoteRepo,
-    PaginationParams, PersonSearchFilters, PersonSearchSort, PlaceRepo, RepositoryRepo, SourceRepo,
-    SourceRepositoryRepo, TreeRepo,
+    CitationFilter, EventFilter, FamilyRepo, NoteFilter, PaginationParams, PersonSearchFilters,
+    PersonSearchSort, PlaceRepo, RepositoryRepo, SourceRepo, TreeRepo,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -417,7 +416,8 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("list_tags", async {
             self.tree(p.tree_id).await?;
-            let usages = crate::service::tag::list(&self.db, p.tree_id).await?;
+            let records = self.records(p.tree_id).await?;
+            let usages = crate::service::tag::list(&self.db, &records, p.tree_id).await?;
             Ok::<_, OxidGeneError>(usages.into_iter().map(TagView::from).collect::<Vec<_>>())
         })
         .await
@@ -534,12 +534,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_family", async {
             self.tree(p.tree_id).await?;
+            let records = self.records(p.tree_id).await?;
             let spouses =
-                crate::service::family::list_spouses(&self.db, p.tree_id, p.family_id).await?;
+                crate::service::family::list_spouses(&self.db, &records, p.tree_id, p.family_id)
+                    .await?;
             let children =
-                crate::service::family::list_children(&self.db, p.tree_id, p.family_id).await?;
+                crate::service::family::list_children(&self.db, &records, p.tree_id, p.family_id)
+                    .await?;
             Ok::<_, OxidGeneError>(FamilyWithMembers {
-                family: FamilyRepo::get(&self.db, p.family_id).await?,
+                family: records.family(FamilyRepo::get(&self.db, p.family_id).await?),
                 spouses,
                 children,
             })
@@ -558,7 +561,10 @@ impl OxidGeneMcp {
                 person_id: p.person_id,
                 family_id: p.family_id,
             };
-            EventRepo::list(&self.db, p.tree_id, &filter, &p.page.params()).await
+            let records = self.records(p.tree_id).await?;
+            let params = p.page.params();
+            crate::service::event::list_events(&self.db, &records, p.tree_id, &filter, &params)
+                .await
         })
         .await
     }
@@ -570,7 +576,8 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("list_event_witnesses", async {
             self.tree(p.tree_id).await?;
-            crate::service::event::list_witnesses(&self.db, p.tree_id, p.event_id).await
+            let records = self.records(p.tree_id).await?;
+            crate::service::event::list_witnesses(&self.db, &records, p.tree_id, p.event_id).await
         })
         .await
     }
@@ -582,7 +589,8 @@ impl OxidGeneMcp {
         respond("get_place", async {
             self.tree(p.tree_id).await?;
             require_tree_resource(&self.db, p.tree_id, TreeResource::Place, p.place_id).await?;
-            PlaceRepo::get(&self.db, p.place_id).await
+            let records = self.records(p.tree_id).await?;
+            records.require(PlaceRepo::get(&self.db, p.place_id).await?)
         })
         .await
     }
@@ -594,9 +602,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_source", async {
             self.tree(p.tree_id).await?;
-            require_tree_resource(&self.db, p.tree_id, TreeResource::Source, p.source_id).await?;
-            let source = SourceRepo::get(&self.db, p.source_id).await?;
-            let links = SourceRepositoryRepo::list_by_source(&self.db, p.source_id).await?;
+            let records = self.records(p.tree_id).await?;
+            let links = crate::service::repository::list_source_repositories(
+                &self.db,
+                &records,
+                p.tree_id,
+                p.source_id,
+            )
+            .await?;
+            let source = records.require(SourceRepo::get(&self.db, p.source_id).await?)?;
             let ids: Vec<Uuid> = links.iter().map(|l| l.repository_id).collect();
             let names: HashMap<Uuid, String> = RepositoryRepo::get_many_untagged(&self.db, &ids)
                 .await?
@@ -635,7 +649,12 @@ impl OxidGeneMcp {
                 family_id: p.family_id,
                 source_id: p.source_id,
             };
-            CitationRepo::list(&self.db, p.tree_id, &filter, &p.page.params()).await
+            let records = self.records(p.tree_id).await?;
+            let params = p.page.params();
+            crate::service::citation::list_citations(
+                &self.db, &records, p.tree_id, &filter, &params,
+            )
+            .await
         })
         .await
     }
@@ -655,7 +674,9 @@ impl OxidGeneMcp {
                 media_id: None,
                 repository_id: None,
             };
-            NoteRepo::list(&self.db, p.tree_id, &filter, &p.page.params()).await
+            let records = self.records(p.tree_id).await?;
+            let params = p.page.params();
+            crate::service::note::list_notes(&self.db, &records, p.tree_id, &filter, &params).await
         })
         .await
     }
@@ -771,6 +792,15 @@ impl OxidGeneMcp {
         tree_id: Uuid,
     ) -> Result<Arc<oxidgene_core::redaction::Redaction>, OxidGeneError> {
         crate::authz::redaction::redaction(&self.db, &self.profiles, &self.viewer, tree_id).await
+    }
+
+    /// What the server's viewer sees of the records of tree `tree_id`
+    /// (docs/privacy.md §3.2): everything, for the local owner.
+    async fn records(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<crate::authz::records::Records, OxidGeneError> {
+        crate::authz::records::Records::of(&self.db, &self.profiles, &self.viewer, tree_id).await
     }
 }
 

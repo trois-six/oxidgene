@@ -18,6 +18,7 @@ use crate::service::scope::{TreeResource, require_tree_resource};
 /// GET /api/v1/trees/:tree_id/families
 pub async fn list_families(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Connection<Family>>, ApiError> {
@@ -25,9 +26,10 @@ pub async fn list_families(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    Ok(Json(
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(records.families(
         FamilyRepo::list(&state.reader, tree_id, &params).await?,
-    ))
+    )))
 }
 
 /// POST /api/v1/trees/:tree_id/families
@@ -43,10 +45,14 @@ pub async fn create_family(
 /// GET /api/v1/trees/:tree_id/families/:family_id
 pub async fn get_family(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Family>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Family, family_id).await?;
-    Ok(Json(FamilyRepo::get(&state.reader, family_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(
+        records.family(FamilyRepo::get(&state.reader, family_id).await?),
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/families/:family_id
@@ -88,12 +94,15 @@ pub async fn delete_family(
 /// family's own media.
 pub async fn get_couple_detail_bundle(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<crate::service::couple_detail::CoupleDetailBundle>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
         crate::service::couple_detail::load_couple_detail_bundle(
             &state.reader,
             &state.profiles,
+            &records,
             tree_id,
             family_id,
         )

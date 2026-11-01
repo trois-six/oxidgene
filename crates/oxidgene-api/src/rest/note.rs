@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::types::{Connection, Note};
-use oxidgene_db::repo::{NoteFilter, NoteRepo, PaginationParams};
+use oxidgene_db::repo::{NoteFilter, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::NoteListQuery;
@@ -16,6 +16,7 @@ use crate::service::note::{self, NewNote, NotePatch};
 /// GET /api/v1/trees/:tree_id/notes
 pub async fn list_notes(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<NoteListQuery>,
 ) -> Result<Json<Connection<Note>>, ApiError> {
@@ -31,8 +32,9 @@ pub async fn list_notes(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        NoteRepo::list(&state.reader, tree_id, &filter, &params).await?,
+        note::list_notes(&state.reader, &records, tree_id, &filter, &params).await?,
     ))
 }
 
@@ -50,9 +52,13 @@ pub async fn create_note(
 /// GET /api/v1/trees/:tree_id/notes/:note_id
 pub async fn get_note(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, note_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Note>, ApiError> {
-    Ok(Json(note::get_note(&state.reader, tree_id, note_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(
+        note::get_note(&state.reader, &records, tree_id, note_id).await?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/notes/:note_id

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use axum::Router;
 use axum::http::{Method, StatusCode};
 use common::{app_on, new_person, new_tree, ok, send, setup_db};
+use oxidgene_api::authz::records::Records;
 use oxidgene_api::service::tag;
 use oxidgene_core::types::RecordKind;
 use oxidgene_db::repo::{DictionaryRepo, NoteRepo, PaginationParams, PlaceRepo, RepositoryRepo};
@@ -196,9 +197,16 @@ async fn reading_tagged_places_repositories_and_notes_costs_the_same_on_many_as_
     );
 
     // The labels of a tagged list read the names without the tags.
-    let listed = tag::tagged_records(&db, large, large_tag, RecordKind::Place, &params)
-        .await
-        .unwrap();
+    let listed = tag::tagged_records(
+        &db,
+        &Records::unrestricted(),
+        large,
+        large_tag,
+        RecordKind::Place,
+        &params,
+    )
+    .await
+    .unwrap();
     assert_eq!(listed.edges.len(), 30);
 }
 
@@ -333,9 +341,16 @@ async fn reading_tagged_events_couples_citations_and_notes_costs_the_same_on_man
         RecordKind::Note,
     ] {
         let few = statements(&counter, || async {
-            let page = tag::tagged_records(&db, small, small_tag, kind, &params)
-                .await
-                .unwrap();
+            let page = tag::tagged_records(
+                &db,
+                &Records::unrestricted(),
+                small,
+                small_tag,
+                kind,
+                &params,
+            )
+            .await
+            .unwrap();
             assert_eq!(page.edges.len(), 1, "{kind:?}");
             assert!(
                 page.edges[0]
@@ -348,9 +363,16 @@ async fn reading_tagged_events_couples_citations_and_notes_costs_the_same_on_man
         })
         .await;
         let many = statements(&counter, || async {
-            let page = tag::tagged_records(&db, large, large_tag, kind, &params)
-                .await
-                .unwrap();
+            let page = tag::tagged_records(
+                &db,
+                &Records::unrestricted(),
+                large,
+                large_tag,
+                kind,
+                &params,
+            )
+            .await
+            .unwrap();
             assert_eq!(page.edges.len(), 30, "{kind:?}");
             assert!(
                 page.edges.iter().all(|edge| edge

@@ -12,6 +12,7 @@ use common::populated::{png, upload_page};
 use common::{
     all_profiles, app_on, gql, gql_error_code, gql_ok, new_person, new_tree, ok, send, setup_db,
 };
+use oxidgene_api::authz::records::Records;
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::tag;
 use oxidgene_core::error::OxidGeneError;
@@ -175,7 +176,13 @@ async fn create_folds_the_label_onto_the_existing_tag() {
     assert!(!created);
     assert_eq!(again.tag.id, first.tag.id);
     assert_eq!(again.tag.color, 3);
-    assert_eq!(tag::list(&f.db, f.tree_id()).await.unwrap().len(), 1);
+    assert_eq!(
+        tag::list(&f.db, &Records::unrestricted(), f.tree_id())
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -292,7 +299,12 @@ async fn delete_counts_links_and_clears_profiles() {
     assert!(f.profile_tags(&p1).await.is_empty());
     assert!(f.profile_tags(&p2).await.is_empty());
     assert!(f.tags_of(RecordKind::Family, &family).await.is_empty());
-    assert!(tag::list(&f.db, f.tree_id()).await.unwrap().is_empty());
+    assert!(
+        tag::list(&f.db, &Records::unrestricted(), f.tree_id())
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -387,7 +399,9 @@ async fn tag_and_untag_every_kind_of_record() {
         // Idempotent: a second tagging adds no link.
         f.tag_record(label, kind, &target).await.unwrap();
         assert_eq!(f.tags_of(kind, &read_back).await, ["Epsilon"], "{kind:?}");
-        let usage = tag::list(&f.db, f.tree_id()).await.unwrap();
+        let usage = tag::list(&f.db, &Records::unrestricted(), f.tree_id())
+            .await
+            .unwrap();
         assert_eq!(usage[0].count(kind), 1, "{kind:?}");
 
         tag::untag_record(

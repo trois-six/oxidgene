@@ -10,11 +10,13 @@
 use std::collections::{HashMap, HashSet};
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{ImageCrop, ImageSource, Media, is_pdf_mime};
+use oxidgene_core::types::{ImageCrop, ImageSource, Media, RecordKind, is_pdf_mime};
 use oxidgene_db::repo::{MediaLinkRepo, MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
+
+use crate::authz::records::Records;
 
 const MAX_ITEMS_PER_REQUEST: usize = 1_024;
 /// How many pages a document tile draws. The grid is two by two.
@@ -205,6 +207,39 @@ pub async fn load_gallery_bundle(
             )
             .collect(),
     })
+}
+
+/// [`load_gallery_bundle`] of what the viewer of `records` may see: a
+/// hidden medium or vignette asked for is left out as a missing one is, and
+/// a tile's events are the visible ones.
+pub async fn load_visible_gallery_bundle(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+    media_ids: &[Uuid],
+    vignette_ids: &[Uuid],
+) -> Result<GalleryBundle, OxidGeneError> {
+    if records.is_unrestricted() {
+        return load_gallery_bundle(db, tree_id, media_ids, vignette_ids).await;
+    }
+    let media_ids: Vec<Uuid> = media_ids
+        .iter()
+        .copied()
+        .filter(|id| !records.hides(RecordKind::Media, *id))
+        .collect();
+    let vignette_ids: Vec<Uuid> = vignette_ids
+        .iter()
+        .copied()
+        .filter(|id| !records.hides_vignette(*id))
+        .collect();
+    let mut bundle = load_gallery_bundle(db, tree_id, &media_ids, &vignette_ids).await?;
+    for item in &mut bundle.media {
+        item.event_ids
+            .retain(|event| !records.hides(RecordKind::Event, *event));
+        item.document_previews
+            .retain(|preview| !records.hides_image(preview));
+    }
+    Ok(bundle)
 }
 
 /// The pictures each document's tile draws, by document: the first

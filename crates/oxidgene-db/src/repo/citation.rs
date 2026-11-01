@@ -18,6 +18,7 @@ use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
+use crate::repo::redaction::LeaveOut;
 
 /// Optional entity filters for listing citations.
 #[derive(Debug, Clone, Default)]
@@ -39,10 +40,22 @@ impl CitationRepo {
         filter: &CitationFilter,
         params: &PaginationParams,
     ) -> Result<Connection<Citation>, OxidGeneError> {
+        Self::list_visible(db, tree_id, filter, params, LeaveOut::NONE).await
+    }
+
+    /// [`Self::list`] without the citations `leave_out` names.
+    pub async fn list_visible(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: &CitationFilter,
+        params: &PaginationParams,
+        leave_out: LeaveOut<'_>,
+    ) -> Result<Connection<Citation>, OxidGeneError> {
         let mut query = Entity::find()
             .join(JoinType::InnerJoin, citation::Relation::Source.def())
             .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null());
+            .filter(source::Column::DeletedAt.is_null())
+            .filter(leave_out.keeping(Column::Id));
 
         if let Some(person_id) = filter.person_id {
             query = query.filter(Column::PersonId.eq(person_id));

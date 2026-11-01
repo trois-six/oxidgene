@@ -27,6 +27,8 @@ pub struct PlaceFilter<'a> {
     pub name: Option<&'a str>,
     /// These places: how an editor names the places its events sit on.
     pub ids: Option<&'a [Uuid]>,
+    /// The places the viewer may not see, left out.
+    pub hidden: &'a [Uuid],
 }
 
 impl PlaceRepo {
@@ -51,7 +53,9 @@ impl PlaceRepo {
         filter: &PlaceFilter<'_>,
         params: &PaginationParams,
     ) -> Result<Connection<Place>, OxidGeneError> {
-        let mut query = Entity::find().filter(Column::TreeId.eq(tree_id));
+        let mut query = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(crate::repo::redaction::not_in(Column::Id, filter.hidden));
         if let Some(q) = filter.search {
             query = query.filter(crate::repo::lower_contains(Column::Name, q));
         }

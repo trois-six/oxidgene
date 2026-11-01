@@ -22,7 +22,8 @@ use super::loaders::{
     PersonNames, PersonNotes, PlaceById, RepositoryById, RepositorySources, SourceById,
     SourceCitations, SourceRepositories, TreeFamilyCount, TreePersonCount,
 };
-use super::scope::uuid;
+use super::scope::{records, records_of, uuid};
+use oxidgene_core::types::RecordKind;
 
 use oxidgene_db::repo::{MediaLinkTarget, PortraitRow};
 
@@ -1148,6 +1149,7 @@ impl GqlPerson {
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
         let mut events = loaders::list(ctx, PersonEvents(uuid(&self.id)?)).await?;
         events.sort_by_key(|event| event.id);
+        let events = records_of(ctx, &self.tree_id).await?.retain(events);
         Ok(events.into_iter().map(GqlEvent::from).collect())
     }
 
@@ -1161,18 +1163,20 @@ impl GqlPerson {
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let key = PersonCitations(uuid(&self.tree_id)?, uuid(&self.id)?);
         let citations = loaders::list(ctx, key).await?;
+        let citations = records_of(ctx, &self.tree_id).await?.retain(citations);
         Ok(citations.into_iter().map(GqlCitation::from).collect())
     }
 
     /// Media linked to this person, in gallery order.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
-        linked_media(ctx, MediaLinkTarget::Person, &self.id).await
+        linked_media(ctx, &self.tree_id, MediaLinkTarget::Person, &self.id).await
     }
 
     /// Notes attached to this person.
     async fn notes(&self, ctx: &Context<'_>) -> Result<Vec<GqlNote>> {
         let key = PersonNotes(uuid(&self.tree_id)?, uuid(&self.id)?);
         let notes = loaders::list(ctx, key).await?;
+        let notes = records_of(ctx, &self.tree_id).await?.retain(notes);
         Ok(notes.into_iter().map(GqlNote::from).collect())
     }
 }
@@ -1272,6 +1276,11 @@ impl GqlFamily {
     /// Spouses in this family.
     async fn spouses(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilySpouseDetail>> {
         let spouses = loaders::list(ctx, FamilySpouses(uuid(&self.id)?)).await?;
+        let records = records_of(ctx, &self.tree_id).await?;
+        let spouses: Vec<_> = spouses
+            .into_iter()
+            .filter(|s| records.redaction().appears(s.person_id))
+            .collect();
         let mut persons =
             loaders::many(ctx, spouses.iter().map(|s| PersonById(s.person_id))).await?;
         Ok(spouses
@@ -1290,6 +1299,11 @@ impl GqlFamily {
     /// Children in this family.
     async fn children(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilyChildDetail>> {
         let children = loaders::list(ctx, FamilyChildren(uuid(&self.id)?)).await?;
+        let records = records_of(ctx, &self.tree_id).await?;
+        let children: Vec<_> = children
+            .into_iter()
+            .filter(|c| records.redaction().appears(c.person_id))
+            .collect();
         let mut persons =
             loaders::many(ctx, children.iter().map(|c| PersonById(c.person_id))).await?;
         Ok(children
@@ -1309,17 +1323,21 @@ impl GqlFamily {
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
         let mut events = loaders::list(ctx, FamilyEvents(uuid(&self.id)?)).await?;
         events.sort_by_key(|event| event.id);
+        let events = records_of(ctx, &self.tree_id).await?.retain(events);
         Ok(events.into_iter().map(GqlEvent::from).collect())
     }
 }
 
-/// The media linked to entity `id`, in gallery order, each once.
+/// The media of tree `tree_id` linked to entity `id`, in gallery order,
+/// each once, less those the viewer may not see.
 async fn linked_media(
     ctx: &Context<'_>,
+    tree_id: &ID,
     target: MediaLinkTarget,
     id: &ID,
 ) -> Result<Vec<GqlMedia>> {
     let media = loaders::list(ctx, LinkedMedia(target, uuid(id)?)).await?;
+    let media = records_of(ctx, tree_id).await?.retain(media);
     Ok(media.into_iter().map(GqlMedia::from).collect())
 }
 
@@ -1427,7 +1445,8 @@ impl GqlEvent {
             return Ok(None);
         };
         let place = loaders::one(ctx, PlaceById(uuid(pid)?)).await?;
-        Ok(place.map(GqlPlace::from))
+        let records = records_of(ctx, &self.tree_id).await?;
+        Ok(place.and_then(|p| records.show(p)).map(GqlPlace::from))
     }
 
     /// Resolved person for this event.
@@ -1445,31 +1464,36 @@ impl GqlEvent {
             return Ok(None);
         };
         let family = loaders::one(ctx, FamilyById(uuid(fid)?)).await?;
-        Ok(family.map(GqlFamily::from))
+        let records = records_of(ctx, &self.tree_id).await?;
+        Ok(family.map(|f| GqlFamily::from(records.family(f))))
     }
 
     /// Citations for this event.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let key = EventCitations(uuid(&self.tree_id)?, uuid(&self.id)?);
         let citations = loaders::list(ctx, key).await?;
+        let citations = records_of(ctx, &self.tree_id).await?.retain(citations);
         Ok(citations.into_iter().map(GqlCitation::from).collect())
     }
 
     /// Media linked to this event, in gallery order.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
-        linked_media(ctx, MediaLinkTarget::Event, &self.id).await
+        linked_media(ctx, &self.tree_id, MediaLinkTarget::Event, &self.id).await
     }
 
     /// Notes for this event.
     async fn notes(&self, ctx: &Context<'_>) -> Result<Vec<GqlNote>> {
         let key = EventNotes(uuid(&self.tree_id)?, uuid(&self.id)?);
         let notes = loaders::list(ctx, key).await?;
+        let notes = records_of(ctx, &self.tree_id).await?.retain(notes);
         Ok(notes.into_iter().map(GqlNote::from).collect())
     }
 
     /// Witnesses (godparents, etc.) linked to this event.
     async fn witnesses(&self, ctx: &Context<'_>) -> Result<Vec<GqlEventWitness>> {
         let witnesses = loaders::list(ctx, EventWitnesses(uuid(&self.id)?)).await?;
+        let records = records_of(ctx, &self.tree_id).await?;
+        let witnesses = crate::service::event::visible_witnesses(&records, witnesses);
         Ok(witnesses.into_iter().map(GqlEventWitness::from).collect())
     }
 }
@@ -1611,13 +1635,19 @@ impl GqlSource {
     /// Citations from this source.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let citations = loaders::list(ctx, SourceCitations(uuid(&self.id)?)).await?;
+        let citations = records_of(ctx, &self.tree_id).await?.retain(citations);
         Ok(citations.into_iter().map(GqlCitation::from).collect())
     }
 
     /// The repositories holding this source, each under one call number.
     async fn repositories(&self, ctx: &Context<'_>) -> Result<Vec<GqlSourceRepository>> {
         let links = loaders::list(ctx, SourceRepositories(uuid(&self.id)?)).await?;
-        Ok(links.into_iter().map(GqlSourceRepository::from).collect())
+        let records = records_of(ctx, &self.tree_id).await?;
+        Ok(links
+            .into_iter()
+            .filter(|l| !records.hides(RecordKind::Repository, l.repository_id))
+            .map(GqlSourceRepository::from)
+            .collect())
     }
 
     /// Where this source opens on its archive's portal, as cited by
@@ -1838,7 +1868,12 @@ impl GqlRepository {
     /// The live sources this repository holds, one link per call number.
     async fn sources(&self, ctx: &Context<'_>) -> Result<Vec<GqlSourceRepository>> {
         let links = loaders::list(ctx, RepositorySources(uuid(&self.id)?)).await?;
-        Ok(links.into_iter().map(GqlSourceRepository::from).collect())
+        let records = records_of(ctx, &self.tree_id).await?;
+        Ok(links
+            .into_iter()
+            .filter(|l| !records.hides(RecordKind::Source, l.source_id))
+            .map(GqlSourceRepository::from)
+            .collect())
     }
 }
 
@@ -1883,14 +1918,22 @@ pub struct GqlSourceRepository {
 impl GqlSourceRepository {
     /// The repository, unless it was deleted.
     async fn repository(&self, ctx: &Context<'_>) -> Result<Option<GqlRepository>> {
-        let repository = loaders::one(ctx, RepositoryById(uuid(&self.repository_id)?)).await?;
-        Ok(repository.map(GqlRepository::from))
+        let Some(repository) =
+            loaders::one(ctx, RepositoryById(uuid(&self.repository_id)?)).await?
+        else {
+            return Ok(None);
+        };
+        let records = records(ctx, repository.tree_id).await?;
+        Ok(records.show(repository).map(GqlRepository::from))
     }
 
     /// The source, unless it was deleted.
     async fn source(&self, ctx: &Context<'_>) -> Result<Option<GqlSource>> {
-        let source = loaders::one(ctx, SourceById(uuid(&self.source_id)?)).await?;
-        Ok(source.map(GqlSource::from))
+        let Some(source) = loaders::one(ctx, SourceById(uuid(&self.source_id)?)).await? else {
+            return Ok(None);
+        };
+        let records = records(ctx, source.tree_id).await?;
+        Ok(records.show(source).map(GqlSource::from))
     }
 }
 

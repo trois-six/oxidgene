@@ -13,13 +13,14 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::{AuditAction, AuditEntity};
-use oxidgene_core::types::{Media, normalize_mime};
+use oxidgene_core::types::{Media, RecordKind, normalize_mime};
 use oxidgene_core::{Calendar, DateQualifier};
 use oxidgene_db::repo::{MediaLinkRepo, MediaPatch, MediaRepo, PersonRepo};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::media::{self, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::event_date;
@@ -632,11 +633,13 @@ pub async fn delete_media(
 /// else.
 pub async fn can_delete_media(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     id: Uuid,
     allowed_link_id: Uuid,
 ) -> Result<bool, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Media, id).await?;
+    records.require_id(RecordKind::Media, id)?;
     require_tree_resource(db, tree_id, TreeResource::MediaLink, allowed_link_id).await?;
     MediaRepo::can_purge_if_unreferenced_elsewhere(db, id, allowed_link_id).await
 }
@@ -682,13 +685,18 @@ pub(crate) async fn persons_showing(
 
 /// Download reads must not outlive a soft-deleted tree or parent document,
 /// even while the asynchronous purge has not removed the page rows yet.
+///
+/// A medium the viewer of `records` may not see is not found, as its
+/// metadata is: a page follows its document.
 pub async fn download_record(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     media_id: Uuid,
 ) -> Result<Media, OxidGeneError> {
     crate::service::scope::require_live_tree(db, tree_id).await?;
     require_tree_resource(db, tree_id, TreeResource::Media, media_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
     let media = MediaRepo::get(db, media_id).await?;
     if let Some(parent) = media.parent_media_id {
         require_tree_resource(db, tree_id, TreeResource::Media, parent).await?;
@@ -700,10 +708,11 @@ pub async fn download_record(
 /// must be in the tree, and every page we hold must have its bytes.
 pub async fn archive_pages(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     media_id: Uuid,
 ) -> Result<(Media, Vec<Media>), OxidGeneError> {
-    let document = download_record(db, tree_id, media_id).await?;
+    let document = download_record(db, records, tree_id, media_id).await?;
     let pages = MediaRepo::list_pages(db, media_id).await?;
     let missing = OxidGeneError::NotFound {
         entity: "Media file",

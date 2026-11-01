@@ -8,7 +8,7 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{Connection, Event, EventWitness, SpouseAge};
+use oxidgene_core::types::{Connection, Event, EventWitness, RecordKind, SpouseAge};
 use oxidgene_core::{Calendar, DateQualifier, EventType};
 use oxidgene_db::repo::{
     EventDetails, EventDetailsPatch, EventFilter, EventRepo, EventSpouseAgeRepo, EventWitnessRepo,
@@ -18,6 +18,7 @@ use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::event_date;
 use crate::service::history::Change;
@@ -106,10 +107,12 @@ pub struct NewWitness {
     pub sort_order: i32,
 }
 
-/// The events of `tree_id`, narrowed by `filter`, a page at a time. A person
-/// or family filter naming a record of another tree is not found.
+/// The events of `tree_id` the viewer of `records` sees, narrowed by
+/// `filter`, a page at a time. A person or family filter naming a record of
+/// another tree is not found.
 pub async fn list_events(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     filter: &EventFilter,
     params: &PaginationParams,
@@ -122,7 +125,19 @@ pub async fn list_events(
             require_tree_resource(db, tree_id, resource, id).await?;
         }
     }
-    EventRepo::list(db, tree_id, filter, params).await
+    let leave_out = records.leave_out(RecordKind::Event);
+    Ok(records.page(EventRepo::list_visible(db, tree_id, filter, params, leave_out).await?))
+}
+
+/// Event `id` of `tree_id`, unless the viewer of `records` may not see it.
+pub async fn get_event(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+    id: Uuid,
+) -> Result<Event, OxidGeneError> {
+    require_tree_resource(db, tree_id, TreeResource::Event, id).await?;
+    records.require(EventRepo::get(db, id).await?)
 }
 
 /// Create an event in `tree_id`.
@@ -406,14 +421,33 @@ fn blank_to_none(text: Option<String>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty())
 }
 
-/// The witnesses of event `event_id` of `tree_id`.
+/// The witnesses of event `event_id` of `tree_id`, as the viewer of
+/// `records` sees them: an absent witness left out, a hidden one under the
+/// identifier the viewer may know them by.
 pub async fn list_witnesses(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     event_id: Uuid,
 ) -> Result<Vec<EventWitness>, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Event, event_id).await?;
-    EventWitnessRepo::list_by_event(db, event_id).await
+    records.require_id(RecordKind::Event, event_id)?;
+    let witnesses = EventWitnessRepo::list_by_event(db, event_id).await?;
+    Ok(visible_witnesses(records, witnesses))
+}
+
+/// `witnesses` as the viewer of `records` sees them.
+pub fn visible_witnesses(records: &Records, witnesses: Vec<EventWitness>) -> Vec<EventWitness> {
+    if records.is_unrestricted() {
+        return witnesses;
+    }
+    witnesses
+        .into_iter()
+        .filter_map(|mut witness| {
+            witness.person_id = records.person_id(witness.person_id)?;
+            Some(witness)
+        })
+        .collect()
 }
 
 /// Add a witness to event `event_id` of `tree_id`.

@@ -8,15 +8,67 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::MediaLink;
-use oxidgene_db::repo::MediaLinkRepo;
+use oxidgene_core::types::{Media, MediaLink, RecordKind};
+use oxidgene_db::repo::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+
+/// The media of `tree_id` linked to entity `entity_id` of kind `target`,
+/// each with its link, as the viewer of `records` sees them: a hidden link
+/// or medium is left out.
+pub async fn entity_media(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+    target: MediaLinkTarget,
+    entity_id: Uuid,
+) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
+    let resource = match target {
+        MediaLinkTarget::Person => TreeResource::Person,
+        MediaLinkTarget::Family => TreeResource::Family,
+        MediaLinkTarget::Event => TreeResource::Event,
+        MediaLinkTarget::Source => TreeResource::Source,
+    };
+    require_tree_resource(db, tree_id, resource, entity_id).await?;
+    let rows = MediaLinkRepo::list_with_media(db, target, entity_id).await?;
+    Ok(rows
+        .into_iter()
+        .filter(|(link, _)| !records.hides_media_link(link.id))
+        .filter_map(|(link, media)| Some((link, records.show(media)?)))
+        .collect())
+}
+
+/// The links of medium `media_id` of `tree_id` the viewer of `records` sees;
+/// `not_found` for a medium they may not see.
+pub async fn links_of_media(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+    media_id: Uuid,
+) -> Result<Vec<MediaLink>, OxidGeneError> {
+    require_tree_resource(db, tree_id, TreeResource::Media, media_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
+    Ok(records.media_links(MediaLinkRepo::list_by_media(db, media_id).await?))
+}
+
+/// The person and event links of `tree_id` the viewer of `records` sees.
+pub async fn tree_links(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+) -> Result<Vec<MediaLinkRow>, OxidGeneError> {
+    let mut rows = MediaLinkRepo::list_for_tree(db, tree_id).await?;
+    rows.retain(|r| {
+        !records.hides_media_link(r.link_id) && !records.hides(RecordKind::Media, r.media_id)
+    });
+    Ok(rows)
+}
 
 /// A media link to create: the media, and what it is attached to.
 #[derive(Debug, Deserialize)]

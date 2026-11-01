@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_archives::ArchiveTarget;
-use oxidgene_core::types::{Connection, Source};
+use oxidgene_core::types::{Connection, RecordKind, Source};
 use oxidgene_db::repo::{PaginationParams, SourceFilter, SourceRepo};
 use uuid::Uuid;
 
@@ -19,6 +19,7 @@ use crate::service::source::{self, NewSource, SourcePatch};
 /// GET /api/v1/trees/:tree_id/sources
 pub async fn list_sources(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<SourceListQuery>,
 ) -> Result<Json<Connection<Source>>, ApiError> {
@@ -31,13 +32,15 @@ pub async fn list_sources(
         .as_deref()
         .map(super::dto::comma_separated_ids)
         .transpose()?;
+    let records = state.records(&viewer, tree_id).await?;
     let filter = SourceFilter {
         title: query.title.as_deref(),
         ids: ids.as_deref(),
+        hidden: records.hidden(RecordKind::Source),
     };
-    Ok(Json(
+    Ok(Json(records.page(
         SourceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?,
-    ))
+    )))
 }
 
 /// POST /api/v1/trees/:tree_id/sources
@@ -54,10 +57,14 @@ pub async fn create_source(
 /// GET /api/v1/trees/:tree_id/sources/:source_id
 pub async fn get_source(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Source>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Source, source_id).await?;
-    Ok(Json(SourceRepo::get(&state.reader, source_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(records.require(
+        SourceRepo::get(&state.reader, source_id).await?,
+    )?))
 }
 
 /// PUT /api/v1/trees/:tree_id/sources/:source_id

@@ -4,7 +4,7 @@ use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::types::{Connection, Place};
+use oxidgene_core::types::{Connection, Place, RecordKind};
 use oxidgene_db::repo::{PaginationParams, PlaceFilter, PlaceRepo};
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ use crate::service::scope::{TreeResource, require_tree_resource};
 /// GET /api/v1/trees/:tree_id/places
 pub async fn list_places(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PlaceListQuery>,
 ) -> Result<Json<Connection<Place>>, ApiError> {
@@ -29,13 +30,15 @@ pub async fn list_places(
         .as_deref()
         .map(super::dto::comma_separated_ids)
         .transpose()?;
+    let records = state.records(&viewer, tree_id).await?;
     let filter = PlaceFilter {
         search: query.search.as_deref(),
         name: query.name.as_deref(),
         ids: ids.as_deref(),
+        hidden: records.hidden(RecordKind::Place),
     };
     let places = PlaceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?;
-    Ok(Json(places))
+    Ok(Json(records.page(places)))
 }
 
 /// POST /api/v1/trees/:tree_id/places
@@ -52,10 +55,14 @@ pub async fn create_place(
 /// GET /api/v1/trees/:tree_id/places/:place_id
 pub async fn get_place(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Place>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Place, place_id).await?;
-    Ok(Json(PlaceRepo::get(&state.reader, place_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(
+        records.require(PlaceRepo::get(&state.reader, place_id).await?)?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/places/:place_id

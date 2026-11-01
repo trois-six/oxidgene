@@ -12,10 +12,11 @@ use sea_orm::sea_query::{Alias, Expr, ExprTrait, OnConflict, Query, SelectStatem
 use sea_orm::{ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use uuid::Uuid;
 
-use crate::entities::{record_tag, tag};
+use crate::entities::{note, record_tag, tag};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, encode_cursor};
+use crate::repo::redaction::LeaveOut;
 
 /// Rows written per `INSERT` or `DELETE` of a bulk change: nine bound values
 /// each, well inside what one statement may bind.
@@ -271,6 +272,19 @@ impl RecordTagRepo {
         kind: RecordKind,
         params: &PaginationParams,
     ) -> Result<Connection<Uuid>, OxidGeneError> {
+        Self::visible_records_of_tag(db, tree_id, tag_id, kind, params, LeaveOut::NONE).await
+    }
+
+    /// [`Self::records_of_tag`] without the records `leave_out` names, so
+    /// that the page and its `total_count` see only what the viewer sees.
+    pub async fn visible_records_of_tag(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        tag_id: Uuid,
+        kind: RecordKind,
+        params: &PaginationParams,
+        leave_out: LeaveOut<'_>,
+    ) -> Result<Connection<Uuid>, OxidGeneError> {
         let column = column_of(kind);
         let limit = params.clamped_first();
         let after = params.decode_cursor()?;
@@ -280,7 +294,8 @@ impl RecordTagRepo {
                 .column(column)
                 .filter(record_tag::Column::TreeId.eq(tree_id))
                 .filter(record_tag::Column::TagId.eq(tag_id))
-                .filter(column.is_not_null());
+                .filter(column.is_not_null())
+                .filter(visible(kind, leave_out));
             if let Some(live) = live_records(kind, tree_id) {
                 query = query.filter(column.in_subquery(live));
             }
@@ -323,6 +338,26 @@ impl RecordTagRepo {
 }
 
 /// The `record_tag` column that names a record of `kind`.
+/// The condition keeping the `record_tag` rows of `kind` a viewer may see:
+/// not on a record `leave_out` names, nor on a confidential note when it
+/// leaves those out.
+pub(crate) fn visible(kind: RecordKind, leave_out: LeaveOut<'_>) -> sea_orm::Condition {
+    let column = column_of(kind);
+    let mut condition = leave_out.keeping(column);
+    if kind == RecordKind::Note && leave_out.confidential {
+        condition = condition.add(
+            column.not_in_subquery(
+                sea_orm::sea_query::Query::select()
+                    .column(note::Column::Id)
+                    .from(note::Entity)
+                    .and_where(note::Column::Confidential.eq(true))
+                    .to_owned(),
+            ),
+        );
+    }
+    condition
+}
+
 pub(crate) fn column_of(kind: RecordKind) -> record_tag::Column {
     match kind {
         RecordKind::Person => record_tag::Column::PersonId,

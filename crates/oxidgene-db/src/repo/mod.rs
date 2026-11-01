@@ -42,6 +42,7 @@ mod person_search;
 mod person_visibility;
 mod place;
 mod record_tag;
+mod redaction;
 mod repository;
 mod share_link;
 mod snapshot;
@@ -86,6 +87,9 @@ pub use membership::{MembershipChanges, MembershipRepo, SharedMembership, TreeMe
 pub use note::{NoteFilter, NoteRepo};
 pub use pagination::{PaginationParams, encode_cursor};
 pub use person::{PersonRepo, PortraitRow};
+pub use redaction::{
+    EventOwner, LeaveOut, LinkOwner, MediumOwner, NoteOwners, RedactionRepo, VignetteOwner,
+};
 
 pub use person_denorm::{EncodedProfiles, PersonDenormRepo};
 pub use person_distinct::PersonDistinctRepo;

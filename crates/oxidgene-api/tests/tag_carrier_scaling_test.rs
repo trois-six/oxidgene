@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use axum::Router;
 use axum::http::{Method, StatusCode};
 use common::{app_on, new_person, new_tree, ok, send, setup_db};
+use oxidgene_api::authz::records::Records;
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::tag;
 use oxidgene_core::types::RecordKind;
@@ -432,9 +433,16 @@ async fn a_page_of_tagged_events_citations_and_notes_costs_the_same_on_many_as_o
 
     for kind in [RecordKind::Event, RecordKind::Citation, RecordKind::Note] {
         let few = statements(&counter, || async {
-            let page = tag::tagged_records(&db, small_id, small_tag, kind, &params)
-                .await
-                .unwrap();
+            let page = tag::tagged_records(
+                &db,
+                &Records::unrestricted(),
+                small_id,
+                small_tag,
+                kind,
+                &params,
+            )
+            .await
+            .unwrap();
             assert_eq!(page.edges.len(), 2, "{kind:?} on one event per owner");
             for edge in &page.edges {
                 assert!(
@@ -446,9 +454,16 @@ async fn a_page_of_tagged_events_citations_and_notes_costs_the_same_on_many_as_o
         })
         .await;
         let many = statements(&counter, || async {
-            let page = tag::tagged_records(&db, large_id, large_tag, kind, &params)
-                .await
-                .unwrap();
+            let page = tag::tagged_records(
+                &db,
+                &Records::unrestricted(),
+                large_id,
+                large_tag,
+                kind,
+                &params,
+            )
+            .await
+            .unwrap();
             assert_eq!(page.edges.len(), 60, "{kind:?} on thirty events per owner");
             for edge in &page.edges {
                 assert!(

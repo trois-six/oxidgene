@@ -19,6 +19,7 @@ use crate::service::repository::{
 /// GET /api/v1/trees/:tree_id/repositories
 pub async fn list_repositories(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Connection<Repository>>, ApiError> {
@@ -26,8 +27,9 @@ pub async fn list_repositories(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        repository::list_repositories(&state.reader, tree_id, &params).await?,
+        repository::list_repositories(&state.reader, &records, tree_id, &params).await?,
     ))
 }
 
@@ -45,10 +47,12 @@ pub async fn create_repository(
 /// GET /api/v1/trees/:tree_id/repositories/:repository_id
 pub async fn get_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Repository>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        repository::get_repository(&state.reader, tree_id, repository_id).await?,
+        repository::get_repository(&state.reader, &records, tree_id, repository_id).await?,
     ))
 }
 
@@ -112,9 +116,11 @@ pub async fn delete_repository(
 /// its source.
 pub async fn list_repository_sources(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<HeldSource>>, ApiError> {
-    let held = repository::held_sources(&state.reader, tree_id, repository_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let held = repository::held_sources(&state.reader, &records, tree_id, repository_id).await?;
     Ok(Json(
         held.into_iter()
             .map(|(link, source)| HeldSource { link, source })
@@ -125,10 +131,12 @@ pub async fn list_repository_sources(
 /// GET /api/v1/trees/:tree_id/sources/:source_id/repositories
 pub async fn list_source_repositories(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<SourceRepository>>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        repository::list_source_repositories(&state.reader, tree_id, source_id).await?,
+        repository::list_source_repositories(&state.reader, &records, tree_id, source_id).await?,
     ))
 }
 

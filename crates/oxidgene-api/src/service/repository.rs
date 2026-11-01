@@ -12,7 +12,7 @@ use oxidgene_core::types::KeptEntityKind;
 use std::collections::HashMap;
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{Connection, Repository, Source, SourceRepository};
+use oxidgene_core::types::{Connection, RecordKind, Repository, Source, SourceRepository};
 use oxidgene_db::repo::{
     GedcomKeptRepo, PaginationParams, RepositoryFields, RepositoryPatch as RepoPatch,
     RepositoryRepo, SourceRepo, SourceRepositoryFields, SourceRepositoryPatch as LinkRepoPatch,
@@ -22,6 +22,7 @@ use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
@@ -97,23 +98,28 @@ pub struct SourceRepositoryPatch {
     pub sort_order: Option<i32>,
 }
 
-/// The repositories of `tree_id`, a page at a time.
+/// The repositories of `tree_id` the viewer of `records` sees, a page at a
+/// time.
 pub async fn list_repositories(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     params: &PaginationParams,
 ) -> Result<Connection<Repository>, OxidGeneError> {
-    RepositoryRepo::list(db, tree_id, params).await
+    let leave_out = records.leave_out(RecordKind::Repository);
+    Ok(records.page(RepositoryRepo::list_visible(db, tree_id, params, leave_out).await?))
 }
 
-/// Repository `id` of `tree_id`.
+/// Repository `id` of `tree_id`, unless the viewer of `records` may not see
+/// it.
 pub async fn get_repository(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<Repository, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Repository, id).await?;
-    RepositoryRepo::get(db, id).await
+    records.require(RepositoryRepo::get(db, id).await?)
 }
 
 /// Create a repository in `tree_id`. A blank name is refused.
@@ -269,25 +275,35 @@ pub async fn merge_repository(
     Ok(repository)
 }
 
-/// The repositories holding source `source_id` of `tree_id`, in order.
+/// The repositories holding source `source_id` of `tree_id`, in order, less
+/// those the viewer of `records` may not see.
 pub async fn list_source_repositories(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     source_id: Uuid,
 ) -> Result<Vec<SourceRepository>, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Source, source_id).await?;
-    SourceRepositoryRepo::list_by_source(db, source_id).await
+    records.require_id(RecordKind::Source, source_id)?;
+    let mut links = SourceRepositoryRepo::list_by_source(db, source_id).await?;
+    links.retain(|link| !records.hides(RecordKind::Repository, link.repository_id));
+    Ok(links)
 }
 
 /// The live sources repository `repository_id` of `tree_id` holds, one per
 /// call number, each with its link.
+///
+/// Only the sources the viewer of `records` sees.
 pub async fn held_sources(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     repository_id: Uuid,
 ) -> Result<Vec<(SourceRepository, Source)>, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Repository, repository_id).await?;
-    let links = SourceRepositoryRepo::list_by_repository(db, repository_id).await?;
+    records.require_id(RecordKind::Repository, repository_id)?;
+    let mut links = SourceRepositoryRepo::list_by_repository(db, repository_id).await?;
+    links.retain(|link| !records.hides(RecordKind::Source, link.source_id));
     let source_ids: Vec<Uuid> = links.iter().map(|l| l.source_id).collect();
     let sources: HashMap<Uuid, Source> = SourceRepo::get_many(db, tree_id, &source_ids)
         .await?
@@ -297,7 +313,8 @@ pub async fn held_sources(
     let mut held: Vec<(SourceRepository, Source)> = links
         .into_iter()
         .filter_map(|link| {
-            let source = sources.get(&link.source_id)?.clone();
+            let mut source = sources.get(&link.source_id)?.clone();
+            records.strip_tags(&mut source);
             Some((link, source))
         })
         .collect();

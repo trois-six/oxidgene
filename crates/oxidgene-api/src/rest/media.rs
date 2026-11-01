@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{Connection, Media, last_path_segment};
+use oxidgene_core::types::{Connection, Media, RecordKind, last_path_segment};
 use oxidgene_db::repo::{MediaRepo, PaginationParams};
 use uuid::Uuid;
 
@@ -38,11 +38,14 @@ use crate::service::scope::{TreeResource, require_tree_resource};
 /// longer hold.
 pub async fn image_data(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<crate::rest::dto::ImageDataRequest>,
 ) -> Result<Json<Vec<Option<String>>>, ApiError> {
-    let urls = crate::service::image_bytes::load_image_data_urls(
+    let records = state.records(&viewer, tree_id).await?;
+    let urls = crate::service::image_bytes::load_visible_image_data_urls(
         &state.reader,
+        &records,
         &state.media,
         tree_id,
         &body.sources,
@@ -54,11 +57,14 @@ pub async fn image_data(
 /// POST /api/v1/trees/:tree_id/gallery-bundle
 pub async fn gallery_bundle(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<GalleryBundleRequest>,
 ) -> Result<Json<crate::service::gallery::GalleryBundle>, ApiError> {
-    let bundle = crate::service::gallery::load_gallery_bundle(
+    let records = state.records(&viewer, tree_id).await?;
+    let bundle = crate::service::gallery::load_visible_gallery_bundle(
         &state.reader,
+        &records,
         tree_id,
         &body.media_ids,
         &body.vignette_ids,
@@ -74,6 +80,7 @@ pub async fn gallery_bundle(
 /// `offset` starts the page that many documents in, in place of `after`.
 pub async fn list_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<MediaListQuery>,
     Query(pairs): Query<Vec<(String, String)>>,
@@ -83,8 +90,16 @@ pub async fn list_media(
         after: query.after.clone(),
     };
     let filters = query.filters(crate::rest::dto::tag_ids(pairs)?);
-    let connection =
-        media_library::list(&state.reader, tree_id, filters, &params, query.offset).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let connection = media_library::list(
+        &state.reader,
+        &records,
+        tree_id,
+        filters,
+        &params,
+        query.offset,
+    )
+    .await?;
     Ok(Json(connection))
 }
 
@@ -95,11 +110,13 @@ pub async fn list_media(
 /// among the documents carrying every tag given.
 pub async fn list_media_facets(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<media_library::MediaFacets>, ApiError> {
-    let facets =
-        media_library::facets(&state.reader, tree_id, crate::rest::dto::tag_ids(pairs)?).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let tags = crate::rest::dto::tag_ids(pairs)?;
+    let facets = media_library::facets(&state.reader, &records, tree_id, tags).await?;
     Ok(Json(facets))
 }
 
@@ -122,10 +139,14 @@ pub async fn create_media(
 /// GET /api/v1/trees/:tree_id/media/:media_id
 pub async fn get_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Media>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
-    Ok(Json(MediaRepo::get(&state.reader, media_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(
+        records.require(MediaRepo::get(&state.reader, media_id).await?)?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id
@@ -158,10 +179,15 @@ pub async fn create_document(
 /// GET /api/v1/trees/:tree_id/media/:media_id/pages
 pub async fn list_pages(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Media>>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
-    Ok(Json(MediaRepo::list_pages(&state.reader, media_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
+    Ok(Json(records.retain(
+        MediaRepo::list_pages(&state.reader, media_id).await?,
+    )))
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/viewer-bundle
@@ -173,12 +199,15 @@ pub async fn list_pages(
 /// portraits and sexes, and where the page's and the regions' pictures are.
 pub async fn get_media_viewer_bundle(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<MediaViewerQuery>,
 ) -> Result<Json<crate::service::media_viewer::MediaViewerBundle>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
         crate::service::media_viewer::load_media_viewer_bundle(
             &state.reader,
+            &records,
             tree_id,
             media_id,
             query.page,
@@ -278,12 +307,19 @@ pub async fn delete_media(
 /// reference. The UI calls this before asking for definitive deletion.
 pub async fn media_deletion_status(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<MediaDeletionStatusQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let can_delete =
-        media_service::can_delete_media(&state.reader, tree_id, media_id, query.allowed_link_id)
-            .await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let can_delete = media_service::can_delete_media(
+        &state.reader,
+        &records,
+        tree_id,
+        media_id,
+        query.allowed_link_id,
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "can_delete": can_delete })))
 }
 
@@ -346,10 +382,12 @@ pub async fn upload_media(
 /// The stored bytes, served inline.
 pub async fn download_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let media = download_record(&state.reader, tree_id, media_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let media = download_record(&state.reader, &records, tree_id, media_id).await?;
     let key = stored_key(&media)?;
     serve(
         &state,
@@ -377,15 +415,17 @@ pub async fn download_media(
 /// Entries use Stored compression to avoid recompressing media files.
 pub async fn download_archive(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     // Bound temporary archives through delivery, not just while packaging them.
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let permit = SLOTS
         .acquire()
         .await
         .map_err(|_| ApiError(OxidGeneError::Internal("archive worker unavailable".into())))?;
-    let (document, pages) = archive_pages(&state.reader, tree_id, media_id).await?;
+    let (document, pages) = archive_pages(&state.reader, &records, tree_id, media_id).await?;
     let runtime = tokio::runtime::Handle::current();
     let (_alive, mut cancelled) = tokio::sync::oneshot::channel::<()>();
     let archive_span = tracing::info_span!("media.archive", page.count = pages.len());
@@ -539,10 +579,13 @@ fn archive_stem(file_name: &str) -> String {
 /// upload — so a gallery can fall back to an icon on the status code alone.
 pub async fn download_thumbnail(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
     let media = MediaRepo::get(&state.reader, media_id).await?;
     let Some(key) = media.thumbnail_key.as_deref() else {
         return Err(ApiError(OxidGeneError::NotFound {
@@ -569,10 +612,13 @@ pub async fn download_thumbnail(
 /// renditions existed). `404` when it has neither.
 pub async fn download_card(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
     let media = MediaRepo::get(&state.reader, media_id).await?;
     let Some(key) = crate::service::image_bytes::card_or_thumbnail(&media) else {
         return Err(ApiError(OxidGeneError::NotFound {
@@ -761,9 +807,11 @@ fn attachment_disposition(file_name: &str) -> String {
 /// Stream one original as an attachment; previews keep using `/file` inline.
 pub async fn download_attachment(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    let media = download_record(&state.reader, tree_id, media_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let media = download_record(&state.reader, &records, tree_id, media_id).await?;
     let key = stored_key(&media)?;
     let stream = state.media.get_stream(key).await?;
     let mut headers = HeaderMap::new();

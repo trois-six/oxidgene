@@ -23,6 +23,7 @@ use oxidgene_db::repo::{MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::media::MediaStore;
 use crate::media::thumbnail::Rendition;
 
@@ -68,6 +69,38 @@ pub async fn load_image_data_urls(
         .await;
     resolved.sort_by_key(|(index, _)| *index);
     Ok(resolved.into_iter().map(|(_, data)| data).collect())
+}
+
+/// [`load_image_data_urls`] of what the viewer of `records` may see: the
+/// slot of a hidden picture is `None`, as that of one we no longer hold.
+pub async fn load_visible_image_data_urls(
+    db: &DatabaseConnection,
+    records: &Records,
+    store: &Arc<dyn MediaStore>,
+    tree_id: Uuid,
+    sources: &[ImageSource],
+) -> Result<Vec<Option<String>>, OxidGeneError> {
+    if records.is_unrestricted() {
+        return load_image_data_urls(db, store, tree_id, sources).await;
+    }
+    let shown: Vec<ImageSource> = sources
+        .iter()
+        .filter(|source| !records.hides_image(source))
+        .cloned()
+        .collect();
+    let mut loaded = load_image_data_urls(db, store, tree_id, &shown)
+        .await?
+        .into_iter();
+    Ok(sources
+        .iter()
+        .map(|source| {
+            if records.hides_image(source) {
+                None
+            } else {
+                loaded.next().flatten()
+            }
+        })
+        .collect())
 }
 
 /// What producing one picture takes: a stored blob, and for a crop the

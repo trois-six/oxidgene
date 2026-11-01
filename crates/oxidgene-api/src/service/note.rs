@@ -7,12 +7,13 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Permission, ViewerContext};
 use oxidgene_core::history::AuditAction;
-use oxidgene_core::types::Note;
-use oxidgene_db::repo::{NoteFilter, NoteRepo};
+use oxidgene_core::types::{Connection, Note, RecordKind};
+use oxidgene_db::repo::{NoteFilter, NoteRepo, PaginationParams};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::{self, NoteTarget};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
@@ -50,14 +51,30 @@ pub struct NotePatch {
     pub confidential: Option<bool>,
 }
 
-/// Note `id` of `tree_id`.
+/// Note `id` of `tree_id`, unless the viewer of `records` may not see it:
+/// confidential to a viewer without `read_confidential`, or about a record
+/// they may not see.
 pub async fn get_note(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<Note, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Note, id).await?;
-    NoteRepo::get(db, id).await
+    records.require(NoteRepo::get(db, id).await?)
+}
+
+/// The notes of `tree_id` the viewer of `records` sees, narrowed by
+/// `filter`, a page at a time.
+pub async fn list_notes(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+    filter: &NoteFilter,
+    params: &PaginationParams,
+) -> Result<Connection<Note>, OxidGeneError> {
+    let leave_out = records.leave_out(RecordKind::Note);
+    Ok(records.page(NoteRepo::list_visible(db, tree_id, filter, params, leave_out).await?))
 }
 
 /// Create a note in `tree_id`. A note with no text is refused.

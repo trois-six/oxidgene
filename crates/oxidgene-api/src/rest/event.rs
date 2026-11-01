@@ -5,18 +5,18 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::types::{Connection, Event, EventWitness};
-use oxidgene_db::repo::{EventFilter, EventRepo, PaginationParams};
+use oxidgene_db::repo::{EventFilter, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::EventListQuery;
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::event::{self, EventPatch, NewEvent, NewWitness};
-use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/events
 pub async fn list_events(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<EventListQuery>,
 ) -> Result<Json<Connection<Event>>, ApiError> {
@@ -29,8 +29,9 @@ pub async fn list_events(
         person_id: query.person_id,
         family_id: query.family_id,
     };
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        event::list_events(&state.reader, tree_id, &filter, &params).await?,
+        event::list_events(&state.reader, &records, tree_id, &filter, &params).await?,
     ))
 }
 
@@ -48,10 +49,13 @@ pub async fn create_event(
 /// GET /api/v1/trees/:tree_id/events/:event_id
 pub async fn get_event(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Event>, ApiError> {
-    require_tree_resource(&state.reader, tree_id, TreeResource::Event, event_id).await?;
-    Ok(Json(EventRepo::get(&state.reader, event_id).await?))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(
+        event::get_event(&state.reader, &records, tree_id, event_id).await?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id/events/:event_id
@@ -79,10 +83,12 @@ pub async fn delete_event(
 /// GET /api/v1/trees/:tree_id/events/:event_id/witnesses
 pub async fn list_witnesses(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<EventWitness>>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        event::list_witnesses(&state.reader, tree_id, event_id).await?,
+        event::list_witnesses(&state.reader, &records, tree_id, event_id).await?,
     ))
 }
 

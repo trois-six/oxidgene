@@ -16,6 +16,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 /// GET /api/v1/trees/:tree_id/citations
 pub async fn list_citations(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<CitationListQuery>,
 ) -> Result<Json<Connection<Citation>>, ApiError> {
@@ -29,8 +30,9 @@ pub async fn list_citations(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        citation::list_citations(&state.reader, tree_id, &filter, &params).await?,
+        citation::list_citations(&state.reader, &records, tree_id, &filter, &params).await?,
     ))
 }
 

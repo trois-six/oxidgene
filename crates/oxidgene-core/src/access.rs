@@ -514,6 +514,31 @@ pub struct ViewerContext {
     /// What the viewer sees of each tree the request read (Privacy §5),
     /// built once by the first read that redacts.
     redactions: Mutex<HashMap<Uuid, std::sync::Arc<crate::redaction::Redaction>>>,
+    /// What the API layer derives from a tree's redaction for the rest of
+    /// the request — the records it hides — one value per tree and type.
+    derived: Derived,
+}
+
+/// The values [`ViewerContext::derived`] keeps, by tree and type.
+#[derive(Default)]
+struct Derived(Mutex<HashMap<(Uuid, std::any::TypeId), DerivedValue>>);
+
+/// A value [`ViewerContext::derived`] keeps.
+type DerivedValue = std::sync::Arc<dyn std::any::Any + Send + Sync>;
+
+impl std::fmt::Debug for Derived {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Derived").finish_non_exhaustive()
+    }
+}
+
+impl Derived {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(Uuid, std::any::TypeId), DerivedValue>> {
+        // A panic while holding it leaves a valid map.
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl ViewerContext {
@@ -523,6 +548,7 @@ impl ViewerContext {
             share_links: Vec::new(),
             trees: Mutex::default(),
             redactions: Mutex::default(),
+            derived: Derived::default(),
         }
     }
 
@@ -641,6 +667,23 @@ impl ViewerContext {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&tree_id);
+        self.derived.lock().retain(|(tree, _), _| *tree != tree_id);
+    }
+
+    /// The request's value of type `T` for tree `tree_id`, made with
+    /// `T::default()` the first time it is asked for: a slot the API layer
+    /// fills once per request with what it derives from the tree's
+    /// redaction.
+    pub fn derived<T: Default + Send + Sync + 'static>(&self, tree_id: Uuid) -> std::sync::Arc<T> {
+        let value = std::sync::Arc::clone(
+            self.derived
+                .lock()
+                .entry((tree_id, std::any::TypeId::of::<T>()))
+                .or_insert_with(|| std::sync::Arc::new(T::default())),
+        );
+        value
+            .downcast::<T>()
+            .expect("a derived value is filed under its type")
     }
 
     /// What the viewer sees of tree `tree_id`, as this request built it.

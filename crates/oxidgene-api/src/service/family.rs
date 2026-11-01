@@ -16,6 +16,7 @@ use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
@@ -113,23 +114,44 @@ pub async fn delete_family(
 }
 
 /// The spouses of family `family_id` of `tree_id`.
+///
+/// As the viewer of `records` sees them: an absent spouse is left out, a
+/// hidden one is under the identifier the viewer may know them by.
 pub async fn list_spouses(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     family_id: Uuid,
 ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Family, family_id).await?;
-    FamilySpouseRepo::list_by_family(db, family_id).await
+    let spouses = FamilySpouseRepo::list_by_family(db, family_id).await?;
+    Ok(spouses
+        .into_iter()
+        .filter_map(|mut spouse| {
+            spouse.person_id = records.person_id(spouse.person_id)?;
+            Some(spouse)
+        })
+        .collect())
 }
 
 /// The children of family `family_id` of `tree_id`.
+///
+/// As the viewer of `records` sees them, as [`list_spouses`] says.
 pub async fn list_children(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     family_id: Uuid,
 ) -> Result<Vec<FamilyChild>, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Family, family_id).await?;
-    FamilyChildRepo::list_by_family(db, family_id).await
+    let children = FamilyChildRepo::list_by_family(db, family_id).await?;
+    Ok(children
+        .into_iter()
+        .filter_map(|mut child| {
+            child.person_id = records.person_id(child.person_id)?;
+            Some(child)
+        })
+        .collect())
 }
 
 /// Add a spouse to family `family_id` of `tree_id`.

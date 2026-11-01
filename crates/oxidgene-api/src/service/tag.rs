@@ -25,6 +25,7 @@ use oxidgene_db::sea_orm::{
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
 use crate::service::scope::{
@@ -32,8 +33,18 @@ use crate::service::scope::{
 };
 
 /// The vocabulary of `tree_id` with every tag's counts, sorted by folded label.
-pub async fn list(db: &DatabaseConnection, tree_id: Uuid) -> Result<Vec<TagUsage>, OxidGeneError> {
-    TagRepo::list(db, tree_id).await
+///
+/// As the viewer of `records` sees it: nothing for a viewer without
+/// `read_tags`, and only the records they see counted.
+pub async fn list(
+    db: &DatabaseConnection,
+    records: &Records,
+    tree_id: Uuid,
+) -> Result<Vec<TagUsage>, OxidGeneError> {
+    if records.redaction().withholds_tags() {
+        return Ok(Vec::new());
+    }
+    TagRepo::list_visible(db, tree_id, |kind| records.tag_leave_out(kind)).await
 }
 
 /// The record kind named by a request, spelled as `RecordKind::as_str` spells
@@ -266,15 +277,27 @@ pub struct TaggedCitation {
 /// One page of the live records of `kind` carrying tag `tag_id` of `tree_id`.
 /// The reads behind the page are a fixed number of grouped queries, whatever
 /// the number of records on it.
+///
+/// Only the records the viewer of `records` sees, the page and its count
+/// alike; a viewer without `read_tags` knows no tag (`not_found`).
 pub async fn tagged_records(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     tag_id: Uuid,
     kind: RecordKind,
     params: &PaginationParams,
 ) -> Result<Connection<TaggedRecord>, OxidGeneError> {
+    if records.redaction().withholds_tags() {
+        return Err(OxidGeneError::NotFound {
+            entity: "Tag",
+            id: tag_id,
+        });
+    }
     TagRepo::get(db, tree_id, tag_id).await?;
-    let page = RecordTagRepo::records_of_tag(db, tree_id, tag_id, kind, params).await?;
+    let leave_out = records.tag_leave_out(kind);
+    let page =
+        RecordTagRepo::visible_records_of_tag(db, tree_id, tag_id, kind, params, leave_out).await?;
     let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node).collect();
     let details = page_details(db, tree_id, kind, &ids).await?;
     let persons = persons_of(db, kind, &ids, &details.owners).await?;

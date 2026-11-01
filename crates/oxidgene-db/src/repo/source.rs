@@ -27,6 +27,8 @@ pub struct SourceFilter<'a> {
     /// These sources: how a link to a source finds its title without reading
     /// every source of the tree, an unknown id simply finding none.
     pub ids: Option<&'a [Uuid]>,
+    /// The sources the viewer may not see, left out.
+    pub hidden: &'a [Uuid],
 }
 
 impl SourceRepo {
@@ -48,7 +50,8 @@ impl SourceRepo {
     ) -> Result<Connection<Source>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null());
+            .filter(Column::DeletedAt.is_null())
+            .filter(crate::repo::redaction::not_in(Column::Id, filter.hidden));
         if let Some(title) = filter.title {
             query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
         }

@@ -16,10 +16,12 @@ use crate::service::family::{self, NewChild, NewSpouse};
 /// GET /api/v1/trees/:tree_id/families/:family_id/spouses
 pub async fn list_spouses(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<FamilySpouse>>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        family::list_spouses(&state.reader, tree_id, family_id).await?,
+        family::list_spouses(&state.reader, &records, tree_id, family_id).await?,
     ))
 }
 
@@ -65,10 +67,12 @@ pub async fn remove_spouse(
 /// GET /api/v1/trees/:tree_id/families/:family_id/children
 pub async fn list_children(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<FamilyChild>>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
-        family::list_children(&state.reader, tree_id, family_id).await?,
+        family::list_children(&state.reader, &records, tree_id, family_id).await?,
     ))
 }
 

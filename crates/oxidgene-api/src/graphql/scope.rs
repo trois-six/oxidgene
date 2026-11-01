@@ -136,6 +136,31 @@ async fn scoped_write(
     authz::scoped::check_named(db_from_ctx(ctx), &access, tree_id, &ids).await
 }
 
+/// What the request's viewer sees of the records of tree `tree_id`
+/// (docs/privacy.md §3.2): what every resolver reading them filters with,
+/// nested fields included.
+pub(crate) async fn records(
+    ctx: &Context<'_>,
+    tree_id: Uuid,
+) -> Result<crate::authz::records::Records> {
+    Ok(crate::authz::records::Records::of(
+        reader_from_ctx(ctx),
+        super::types::profiles_from_ctx(ctx),
+        viewer_from_ctx(ctx),
+        tree_id,
+    )
+    .await?)
+}
+
+/// [`records`] of the tree `tree_id` names: a nested field's, whose parent
+/// carries it.
+pub(crate) async fn records_of(
+    ctx: &Context<'_>,
+    tree_id: &ID,
+) -> Result<crate::authz::records::Records> {
+    records(ctx, uuid(tree_id)?).await
+}
+
 /// The tree a job's status or cancellation names. The local owner's is not
 /// read: a running job answers from memory, without the database, and the
 /// service checks the tree when it has to read. Anyone else's goes through

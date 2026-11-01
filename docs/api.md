@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:00:00Z }
 ---
 
 
@@ -139,6 +139,36 @@ a medium's bytes and crops keep `Cache-Control: private` and their `ETag`
 (a matching `If-None-Match` is `304`) and add `Vary: Cookie, Authorization`
 ([Authentication §9.1](authentication.md#91-origin-headers-and-caching)). The
 desktop's headers are unchanged.
+
+**Records a restricted viewer does not see** (web build, phase 3). The reads
+of events, families' spouses and children, citations, notes, media, media
+links, vignettes, sources, repositories, places and tags apply the viewer's
+redaction ([Privacy §3.2](privacy.md#32-records)) alike on both surfaces,
+GraphQL's nested fields included (a person's, family's or event's events,
+citations, notes and media, a source's citations and repositories, a
+repository's sources, an event's place and witnesses). A record hidden from
+the viewer read directly is `404 not_found` (GraphQL `null`, or
+`NOT_FOUND` from a field that takes it as argument); a list, a page and its
+`total_count`, the media facets and the tags' counts leave it out, in SQL
+where the list is paged or counted. What is hidden: an event, citation or
+note of a hidden person or of a family whose content is withheld; a note
+that is confidential to a viewer without `read_confidential`; a medium as
+[Privacy §3.2](privacy.md#32-records) says, with its pages, and every bytes
+route of it (`file`, `download`, `archive`, `thumbnail`, `card`, a
+vignette's `image` and `card`) answers as its metadata does; a media link or
+vignette of a hidden medium, person, family, event or source; a source only
+hidden citations draw on, a repository only hidden sources are held at, a
+place only hidden events and media use. A family stays, its links to the
+persons who appear kept: an absent spouse or child is left out of
+`/families/{id}/spouses` and `/children`, a placeholder keeps the identifier
+the viewer may know it by, and the family's tags go with its content. A
+viewer without `read_tags` gets an empty `GET /tags` (`tags`), no tags on
+any record and in no media facet, and `404` from a tag's records. In
+`gallery-bundle` and `image-data` a hidden medium, vignette or picture is
+answered as a missing one is; the media viewer's bundle, the couple page's
+bundle and the tag lists leave out what the viewer may not see. The owner,
+the desktop and `OXIDGENE_AUTH_MODE=none` see everything, at no extra
+query.
 
 Direct HTTP media representations remain API-client transports, not browser
 navigation destinations. Frontends fetch their bytes through the typed client

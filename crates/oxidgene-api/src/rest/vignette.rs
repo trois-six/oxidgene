@@ -9,7 +9,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_N
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::Vignette;
+use oxidgene_core::types::{RecordKind, Vignette};
 use oxidgene_db::repo::{MediaRepo, VignetteRepo};
 use uuid::Uuid;
 
@@ -23,11 +23,14 @@ use crate::service::vignette::{self, NewVignette, VignetteUpdate};
 /// GET /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn list_media_vignettes(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    records.require_id(RecordKind::Media, media_id)?;
     let vignettes = VignetteRepo::list_for_media(&state.reader, media_id).await?;
-    Ok(Json(vignettes))
+    Ok(Json(records.vignettes(vignettes)))
 }
 
 /// GET /api/v1/trees/:tree_id/vignettes?person_id=…&event_id=…
@@ -36,6 +39,7 @@ pub async fn list_media_vignettes(
 /// is not a view anything needs, and paginating one would be busywork.
 pub async fn list_vignettes(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<VignetteListQuery>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
@@ -54,7 +58,8 @@ pub async fn list_vignettes(
             )));
         }
     }?;
-    Ok(Json(vignettes))
+    let records = state.records(&viewer, tree_id).await?;
+    Ok(Json(records.vignettes(vignettes)))
 }
 
 /// POST /api/v1/trees/:tree_id/media/:media_id/vignettes
@@ -71,11 +76,13 @@ pub async fn create_vignette(
 /// GET /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn get_vignette(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vignette>, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Vignette, vignette_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
     let vignette = VignetteRepo::get(&state.reader, vignette_id).await?;
-    Ok(Json(vignette))
+    Ok(Json(records.require_vignette(vignette)?))
 }
 
 /// PUT /api/v1/trees/:tree_id/vignettes/:vignette_id
@@ -109,11 +116,13 @@ pub async fn delete_vignette(
 /// rows, not eight copies of a 40 MB scan.
 pub async fn vignette_image(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
     request_headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     cropped_image(
         &state,
+        &viewer,
         tree_id,
         vignette_id,
         &request_headers,
@@ -127,11 +136,13 @@ pub async fn vignette_image(
 /// The cropped region at the size of a portrait on a card.
 pub async fn vignette_card(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
     request_headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     cropped_image(
         &state,
+        &viewer,
         tree_id,
         vignette_id,
         &request_headers,
@@ -143,13 +154,16 @@ pub async fn vignette_card(
 /// Vignette `vignette_id` of tree `tree_id`, cut and sized for `rendition`.
 async fn cropped_image(
     state: &AppState,
+    viewer: &Viewer,
     tree_id: Uuid,
     vignette_id: Uuid,
     request_headers: &HeaderMap,
     rendition: Rendition,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Vignette, vignette_id).await?;
-    let vignette = VignetteRepo::get(&state.reader, vignette_id).await?;
+    let records = state.records(viewer, tree_id).await?;
+    let vignette =
+        records.require_vignette(VignetteRepo::get(&state.reader, vignette_id).await?)?;
     let media = MediaRepo::get(&state.reader, vignette.media_id).await?;
 
     let Some(key) = media.storage_key.as_deref() else {

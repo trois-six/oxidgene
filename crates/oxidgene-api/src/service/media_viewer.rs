@@ -20,7 +20,8 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::service::gallery::{GalleryBundle, load_gallery_bundle};
+use crate::authz::records::Records;
+use crate::service::gallery::{GalleryBundle, load_visible_gallery_bundle};
 use crate::service::portrait::portrait_refs;
 use crate::service::relation_labels::{RelationLabels, load_labels};
 use crate::service::scope::{TreeResource, require_tree_resource};
@@ -69,21 +70,27 @@ pub struct MediaViewerPerson {
 }
 
 /// The viewer's bundle of media `media_id` of tree `tree_id`, describing its
-/// page at position `page` (see [`MediaViewerBundle::page`]).
+/// page at position `page` (see [`MediaViewerBundle::page`]), as the viewer
+/// of `records` sees it: a hidden medium is not found, and the notes, links,
+/// regions, place and persons they may not see are left out.
 #[tracing::instrument(name = "media_viewer.load", skip_all)]
 pub async fn load_media_viewer_bundle(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     media_id: Uuid,
     page: Option<usize>,
 ) -> Result<MediaViewerBundle, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Media, media_id).await?;
-    let opened = MediaRepo::get(db, media_id).await?;
+    let opened = records.require(MediaRepo::get(db, media_id).await?)?;
     let (media, named_page) = match opened.parent_media_id {
-        Some(document_id) => (MediaRepo::get(db, document_id).await?, Some(opened.id)),
+        Some(document_id) => (
+            records.require(MediaRepo::get(db, document_id).await?)?,
+            Some(opened.id),
+        ),
         None => (opened, None),
     };
-    let pages = MediaRepo::list_pages(db, media.id).await?;
+    let pages = records.retain(MediaRepo::list_pages(db, media.id).await?);
     let named = named_page.and_then(|id| pages.iter().position(|item| item.id == id));
     let page = page
         .or(named)
@@ -107,6 +114,10 @@ pub async fn load_media_viewer_bundle(
             }
         },
     )?;
+    let notes = records.retain(notes);
+    let links = records.media_links(links);
+    let vignettes = records.vignettes(vignettes);
+    let place = place.and_then(|place| records.show(place));
     let first_note = |owner: Option<Uuid>| {
         notes
             .iter()
@@ -132,8 +143,9 @@ pub async fn load_media_viewer_bundle(
         load_labels(db, tree_id, &named_persons, &families),
         PersonRepo::get_many(db, &attached),
         portrait_refs(db, tree_id, &attached),
-        load_gallery_bundle(db, tree_id, shown.as_slice(), &vignette_ids),
+        load_visible_gallery_bundle(db, records, tree_id, shown.as_slice(), &vignette_ids),
     )?;
+    portraits.retain(|_, portrait| !records.hides_image(&portrait.source));
     let sexes = persons
         .into_iter()
         .filter(|person| person.tree_id == tree_id)

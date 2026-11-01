@@ -9,6 +9,7 @@ use async_graphql::{Context, ID, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::redaction::Redaction;
+use oxidgene_core::types::RecordKind;
 use oxidgene_geneanet::archive::LocalOriginals;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -21,9 +22,9 @@ use crate::service::surname_descent::{self, DescentRequest};
 use crate::service::tag_bulk;
 
 use oxidgene_db::repo::{
-    AuditFilter, CitationFilter, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo,
-    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
-    PersonSearchFilters, PlaceRepo, RepositoryRepo, SourceRepo, TreeRepo, VignetteRepo,
+    AuditFilter, CitationFilter, EventFilter, FamilyRepo, MediaLinkTarget, MediaRepo, NoteFilter,
+    PaginationParams, PersonRepo, PersonSearchFilters, PlaceRepo, RepositoryRepo, SourceRepo,
+    TreeRepo, VignetteRepo,
 };
 
 use super::history::{
@@ -35,7 +36,7 @@ use super::inputs::{
     geneanet_deposit_sizes, tag_target_spec,
 };
 use super::scope::{
-    boxed, job_tree, live_tree, opt_uuid, uuid, uuids, viewer_from_ctx, visible_tree,
+    boxed, job_tree, live_tree, opt_uuid, records, uuid, uuids, viewer_from_ctx, visible_tree,
 };
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlDownloadableExport, GqlEvent, GqlEventConnection,
@@ -191,10 +192,12 @@ impl TreeQuery {
         family_id: ID,
     ) -> Result<super::types::GqlCoupleDetailBundle> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::couple_detail::load_couple_detail_bundle(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &records(ctx, tree_id).await?,
+                tree_id,
                 uuid(&family_id)?,
             )
             .await?
@@ -215,9 +218,11 @@ impl TreeQuery {
         page: Option<u64>,
     ) -> Result<super::types::GqlMediaViewerBundle> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::media_viewer::load_media_viewer_bundle(
                 reader_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &records(ctx, tree_id).await?,
+                tree_id,
                 uuid(&media_id)?,
                 page.map(|page| usize::try_from(page).unwrap_or(usize::MAX)),
             )
@@ -569,10 +574,12 @@ impl TreeQuery {
                 .into_iter()
                 .map(oxidgene_core::types::ImageSource::try_from)
                 .collect::<Result<Vec<_>>>()?;
-            Ok(crate::service::image_bytes::load_image_data_urls(
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(crate::service::image_bytes::load_visible_image_data_urls(
                 reader_from_ctx(ctx),
+                &records(ctx, tree_id).await?,
                 media_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                tree_id,
                 &sources,
             )
             .await?)
@@ -591,9 +598,11 @@ impl TreeQuery {
         boxed(async move {
             let media_ids = uuids(&media_ids)?;
             let vignette_ids = uuids(&vignette_ids)?;
-            Ok(crate::service::gallery::load_gallery_bundle(
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(crate::service::gallery::load_visible_gallery_bundle(
                 reader_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &records(ctx, tree_id).await?,
+                tree_id,
                 &media_ids,
                 &vignette_ids,
             )
@@ -651,7 +660,7 @@ impl TreeQuery {
                 after,
             };
             let conn = FamilyRepo::list(db, tid, &params).await?;
-            Ok(conn.into())
+            Ok(records(ctx, tid).await?.families(conn).into())
         })
         .await
     }
@@ -662,7 +671,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(db, tid, TreeResource::Family, id, FamilyRepo::get(db, id)).await
+            let records = records(ctx, tid).await?;
+            let read = async { FamilyRepo::get(db, id).await.map(|f| records.family(f)) };
+            in_tree(db, tid, TreeResource::Family, id, read).await
         })
         .await
     }
@@ -696,7 +707,9 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            let conn = crate::service::event::list_events(db, tid, &filter, &params).await?;
+            let records = records(ctx, tid).await?;
+            let conn =
+                crate::service::event::list_events(db, &records, tid, &filter, &params).await?;
             Ok(conn.into())
         })
         .await
@@ -708,7 +721,8 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(db, tid, TreeResource::Event, id, EventRepo::get(db, id)).await
+            let records = records(ctx, tid).await?;
+            found(crate::service::event::get_event(db, &records, tid, id).await)
         })
         .await
     }
@@ -738,13 +752,15 @@ impl TreeQuery {
                 after,
             };
             let ids = ids.as_deref().map(uuids).transpose()?;
+            let records = records(ctx, tid).await?;
             let filter = oxidgene_db::repo::PlaceFilter {
                 search: search.as_deref(),
                 name: name.as_deref(),
                 ids: ids.as_deref(),
+                hidden: records.hidden(RecordKind::Place),
             };
             let conn = PlaceRepo::list_filtered(db, tid, &filter, &params).await?;
-            Ok(conn.into())
+            Ok(records.page(conn).into())
         })
         .await
     }
@@ -755,7 +771,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(db, tid, TreeResource::Place, id, PlaceRepo::get(db, id)).await
+            let records = records(ctx, tid).await?;
+            let read = async { records.require(PlaceRepo::get(db, id).await?) };
+            in_tree(db, tid, TreeResource::Place, id, read).await
         })
         .await
     }
@@ -782,12 +800,14 @@ impl TreeQuery {
                 after,
             };
             let ids = ids.as_deref().map(uuids).transpose()?;
+            let records = records(ctx, tid).await?;
             let filter = oxidgene_db::repo::SourceFilter {
                 title: title.as_deref(),
                 ids: ids.as_deref(),
+                hidden: records.hidden(RecordKind::Source),
             };
             let conn = SourceRepo::list_filtered(db, tid, &filter, &params).await?;
-            Ok(conn.into())
+            Ok(records.page(conn).into())
         })
         .await
     }
@@ -798,7 +818,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(db, tid, TreeResource::Source, id, SourceRepo::get(db, id)).await
+            let records = records(ctx, tid).await?;
+            let read = async { records.require(SourceRepo::get(db, id).await?) };
+            in_tree(db, tid, TreeResource::Source, id, read).await
         })
         .await
     }
@@ -820,7 +842,8 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(repository::list_repositories(db, tid, &params)
+            let records = records(ctx, tid).await?;
+            Ok(repository::list_repositories(db, &records, tid, &params)
                 .await?
                 .into())
         })
@@ -838,14 +861,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(
-                db,
-                tid,
-                TreeResource::Repository,
-                id,
-                RepositoryRepo::get(db, id),
-            )
-            .await
+            let records = records(ctx, tid).await?;
+            let read = async { records.require(RepositoryRepo::get(db, id).await?) };
+            in_tree(db, tid, TreeResource::Repository, id, read).await
         })
         .await
     }
@@ -879,8 +897,9 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
+            let records = records(ctx, tree_id).await?;
             Ok(
-                crate::service::citation::list_citations(db, tree_id, &filter, &params)
+                crate::service::citation::list_citations(db, &records, tree_id, &filter, &params)
                     .await?
                     .into(),
             )
@@ -892,7 +911,11 @@ impl TreeQuery {
     async fn note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlNote>> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            found(crate::service::note::get_note(reader_from_ctx(ctx), tree_id, uuid(&id)?).await)
+            let records = records(ctx, tree_id).await?;
+            found(
+                crate::service::note::get_note(reader_from_ctx(ctx), &records, tree_id, uuid(&id)?)
+                    .await,
+            )
         })
         .await
     }
@@ -930,7 +953,12 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(NoteRepo::list(db, tree_id, &filter, &params).await?.into())
+            let records = records(ctx, tree_id).await?;
+            Ok(
+                crate::service::note::list_notes(db, &records, tree_id, &filter, &params)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -1473,6 +1501,7 @@ impl TreeQuery {
             };
             let conn = crate::service::media_library::list(
                 db,
+                &records(ctx, tid).await?,
                 tid,
                 crate::service::media_library::MediaListFilters::try_from(
                     filter.unwrap_or_default(),
@@ -1491,7 +1520,8 @@ impl TreeQuery {
     async fn tags(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlTag>> {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
-            let usages = crate::service::tag::list(reader_from_ctx(ctx), tid).await?;
+            let records = records(ctx, tid).await?;
+            let usages = crate::service::tag::list(reader_from_ctx(ctx), &records, tid).await?;
             Ok(usages.into_iter().map(GqlTag::from).collect())
         })
         .await
@@ -1534,6 +1564,7 @@ impl TreeQuery {
             };
             let page = crate::service::tag::tagged_records(
                 reader_from_ctx(ctx),
+                &records(ctx, tid).await?,
                 tid,
                 tag_id,
                 kind,
@@ -1557,8 +1588,9 @@ impl TreeQuery {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let tags = tags.iter().map(uuid).collect::<Result<Vec<_>>>()?;
+            let records = records(ctx, tid).await?;
             Ok(
-                crate::service::media_library::facets(reader_from_ctx(ctx), tid, tags)
+                crate::service::media_library::facets(reader_from_ctx(ctx), &records, tid, tags)
                     .await?
                     .into(),
             )
@@ -1572,7 +1604,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(db, tid, TreeResource::Media, id, MediaRepo::get(db, id)).await
+            let records = records(ctx, tid).await?;
+            let read = async { records.require(MediaRepo::get(db, id).await?) };
+            in_tree(db, tid, TreeResource::Media, id, read).await
         })
         .await
     }
@@ -1588,7 +1622,8 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tree_id = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            let media = crate::service::media::download_record(db, tree_id, id).await?;
+            let records = records(ctx, tree_id).await?;
+            let media = crate::service::media::download_record(db, &records, tree_id, id).await?;
             let key = crate::service::media::stored_key(&media)?;
             // Open without collecting the body, preserving storage errors and bounded memory.
             let _stream = media_from_ctx(ctx).get_stream(key).await?;
@@ -1609,8 +1644,10 @@ impl TreeQuery {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
+            let records = records(ctx, tree_id).await?;
             let (_, pages) =
-                crate::service::media::archive_pages(reader_from_ctx(ctx), tree_id, id).await?;
+                crate::service::media::archive_pages(reader_from_ctx(ctx), &records, tree_id, id)
+                    .await?;
             for page in &pages {
                 // A remote page contributes a shortcut, not bytes: there is no
                 // stored file to check before promising the archive.
@@ -1640,6 +1677,7 @@ impl TreeQuery {
             let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::media::can_delete_media(
                 reader_from_ctx(ctx),
+                &records(ctx, tree_id).await?,
                 tree_id,
                 uuid(&id)?,
                 uuid(&allowed_link_id)?,
@@ -1669,14 +1707,10 @@ impl TreeQuery {
                 )))
             })?;
             let entity_id = uuid(&entity_id)?;
-            let resource = match target {
-                MediaLinkTarget::Person => TreeResource::Person,
-                MediaLinkTarget::Family => TreeResource::Family,
-                MediaLinkTarget::Event => TreeResource::Event,
-                MediaLinkTarget::Source => TreeResource::Source,
-            };
-            require_tree_resource(db, tid, resource, entity_id).await?;
-            let rows = MediaLinkRepo::list_with_media(db, target, entity_id).await?;
+            let records = records(ctx, tid).await?;
+            let rows =
+                crate::service::media_link::entity_media(db, &records, tid, target, entity_id)
+                    .await?;
             Ok(rows
                 .into_iter()
                 .map(|(link, media)| GqlMediaWithLink {
@@ -1704,8 +1738,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let media_id = uuid(&media_id)?;
-            require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-            let links = MediaLinkRepo::list_by_media(db, media_id).await?;
+            let records = records(ctx, tid).await?;
+            let links =
+                crate::service::media_link::links_of_media(db, &records, tid, media_id).await?;
             Ok(links.into_iter().map(Into::into).collect())
         })
         .await
@@ -1721,7 +1756,8 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tree_id = live_tree(ctx, &tree_id).await?;
             TreeRepo::get(db, tree_id).await?;
-            let links = MediaLinkRepo::list_for_tree(db, tree_id).await?;
+            let records = records(ctx, tree_id).await?;
+            let links = crate::service::media_link::tree_links(db, &records, tree_id).await?;
             Ok(links.into_iter().map(Into::into).collect())
         })
         .await
@@ -1739,7 +1775,9 @@ impl TreeQuery {
             let tid = live_tree(ctx, &tree_id).await?;
             let media_id = uuid(&media_id)?;
             require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-            let pages = MediaRepo::list_pages(db, media_id).await?;
+            let records = records(ctx, tid).await?;
+            records.require_id(RecordKind::Media, media_id)?;
+            let pages = records.retain(MediaRepo::list_pages(db, media_id).await?);
             Ok(pages.into_iter().map(Into::into).collect())
         })
         .await
@@ -1759,7 +1797,9 @@ impl TreeQuery {
             let tid = live_tree(ctx, &tree_id).await?;
             let mid = uuid(&media_id)?;
             require_tree_resource(db, tid, TreeResource::Media, mid).await?;
-            let vignettes = VignetteRepo::list_for_media(db, mid).await?;
+            let records = records(ctx, tid).await?;
+            records.require_id(RecordKind::Media, mid)?;
+            let vignettes = records.vignettes(VignetteRepo::list_for_media(db, mid).await?);
             Ok(vignettes.into_iter().map(Into::into).collect())
         })
         .await
@@ -1797,6 +1837,7 @@ impl TreeQuery {
                     .into());
                 }
             };
+            let vignettes = records(ctx, tid).await?.vignettes(vignettes);
             Ok(vignettes.into_iter().map(Into::into).collect())
         })
         .await
@@ -1813,14 +1854,9 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            in_tree(
-                db,
-                tid,
-                TreeResource::Vignette,
-                id,
-                VignetteRepo::get(db, id),
-            )
-            .await
+            let records = records(ctx, tid).await?;
+            let read = async { records.require_vignette(VignetteRepo::get(db, id).await?) };
+            in_tree(db, tid, TreeResource::Vignette, id, read).await
         })
         .await
     }

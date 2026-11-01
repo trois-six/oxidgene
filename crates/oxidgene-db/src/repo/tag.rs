@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::entities::{record_tag, tag};
 use crate::repo::db_err;
 use crate::repo::record_tag::{column_of, live_records};
+use crate::repo::redaction::LeaveOut;
 
 /// A tag of the vocabulary and the number of live records of each kind that
 /// carry it, in [`RecordKind::ALL`] order.
@@ -43,6 +44,16 @@ impl TagRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<TagUsage>, OxidGeneError> {
+        Self::list_visible(db, tree_id, |_| LeaveOut::NONE).await
+    }
+
+    /// [`Self::list`], counting only the records a viewer sees: of each
+    /// kind, those `leave_out` does not name.
+    pub async fn list_visible<'a>(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        leave_out: impl Fn(RecordKind) -> LeaveOut<'a>,
+    ) -> Result<Vec<TagUsage>, OxidGeneError> {
         let mut tags = tag::Entity::find()
             .filter(tag::Column::TreeId.eq(tree_id))
             .all(db)
@@ -57,7 +68,8 @@ impl TagRepo {
                 .column(record_tag::Column::TagId)
                 .column_as(record_tag::Column::Id.count(), "uses")
                 .filter(record_tag::Column::TreeId.eq(tree_id))
-                .filter(column_of(kind).is_not_null());
+                .filter(column_of(kind).is_not_null())
+                .filter(crate::repo::record_tag::visible(kind, leave_out(kind)));
             if let Some(live) = live_records(kind, tree_id) {
                 query = query.filter(column_of(kind).in_subquery(live));
             }

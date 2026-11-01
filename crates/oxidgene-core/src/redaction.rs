@@ -252,6 +252,18 @@ impl Redaction {
         self.families.contains(&id)
     }
 
+    /// The families whose content is withheld ([`Self::family_withheld`]).
+    pub fn withheld_families(&self) -> impl Iterator<Item = Uuid> + '_ {
+        self.families.iter().copied()
+    }
+
+    /// Whether private records are withheld: a viewer without
+    /// `read_private`.
+    #[must_use]
+    pub fn withholds_private_records(&self) -> bool {
+        self.withhold_private_records
+    }
+
     /// Whether a record of `privacy` — a medium, a family — is private to
     /// this viewer (rule 2 of §3.1).
     #[must_use]

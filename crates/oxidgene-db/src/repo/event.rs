@@ -15,6 +15,7 @@ use crate::repo::db_err;
 use crate::repo::event_spouse_age::EventSpouseAgeRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
+use crate::repo::redaction::LeaveOut;
 
 /// Optional filters for listing events.
 #[derive(Debug, Clone, Default)]
@@ -79,9 +80,21 @@ impl EventRepo {
         filter: &EventFilter,
         params: &PaginationParams,
     ) -> Result<Connection<Event>, OxidGeneError> {
+        Self::list_visible(db, tree_id, filter, params, LeaveOut::NONE).await
+    }
+
+    /// [`Self::list`] without the events `leave_out` names.
+    pub async fn list_visible(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: &EventFilter,
+        params: &PaginationParams,
+        leave_out: LeaveOut<'_>,
+    ) -> Result<Connection<Event>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null());
+            .filter(Column::DeletedAt.is_null())
+            .filter(leave_out.keeping(Column::Id));
 
         if let Some(ref et) = filter.event_type {
             query = query.filter(Column::EventType.eq(sea_enums::EventType::from(*et)));

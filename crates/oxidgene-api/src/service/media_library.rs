@@ -6,11 +6,13 @@ use chrono::NaiveDate;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::enums::{DocumentCategory, MediaFileKind};
-use oxidgene_core::types::{Connection, Edge, Media, TagRef};
+use oxidgene_core::types::{Connection, Edge, Media, RecordKind, TagRef};
 use oxidgene_db::repo::{MediaFilter, MediaLibraryRepo, PaginationParams};
 use sea_orm::ConnectionTrait;
 use serde::Serialize;
 use uuid::Uuid;
+
+use crate::authz::records::Records;
 
 /// The media list's filters as a client sends them. Blank text is no filter.
 #[derive(Debug, Clone, Default)]
@@ -63,6 +65,7 @@ impl MediaListFilters {
             event_to: self.event_to,
             added_from: self.added_from,
             added_to: self.added_to,
+            hidden: Vec::new(),
         })
     }
 }
@@ -76,20 +79,25 @@ pub struct MediaListItem {
     pub usage_count: i64,
 }
 
-/// A page of the tree's documents matching `filters`, each with its usage
-/// count, starting after the cursor of `params` or `offset` documents in.
-/// Counting the page's usage is one grouped query, whatever its size.
+/// A page of the tree's documents the viewer of `records` sees matching
+/// `filters`, each with its usage count, starting after the cursor of
+/// `params` or `offset` documents in. Counting the page's usage is one
+/// grouped query, whatever its size.
 pub async fn list(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     filters: MediaListFilters,
     params: &PaginationParams,
     offset: Option<u64>,
 ) -> Result<Connection<MediaListItem>, OxidGeneError> {
-    let filter = filters.into_filter()?;
-    let connection = MediaLibraryRepo::list(db, tree_id, &filter, params, offset).await?;
+    let mut filter = filters.into_filter()?;
+    filter.hidden = records.hidden(RecordKind::Media).to_vec();
+    let connection =
+        records.page(MediaLibraryRepo::list(db, tree_id, &filter, params, offset).await?);
     let ids: Vec<Uuid> = connection.edges.iter().map(|edge| edge.node.id).collect();
-    let usage = MediaLibraryRepo::usage_counts(db, &ids).await?;
+    let usage =
+        MediaLibraryRepo::visible_usage_counts(db, &ids, records.hidden_media_links()).await?;
     Ok(Connection {
         edges: connection
             .edges
@@ -141,15 +149,23 @@ pub struct MediaFacets {
 /// The kinds and categories count the whole library; the tags count the
 /// documents carrying every tag of `with_tags`, so a selection of tags only
 /// offers the tags that still narrow it. Never narrowed by the other filters.
+/// Only the documents the viewer of `records` sees count, and the tags are
+/// listed only to a viewer holding `read_tags`.
 pub async fn facets(
     db: &impl ConnectionTrait,
+    records: &Records,
     tree_id: Uuid,
     with_tags: Vec<Uuid>,
 ) -> Result<MediaFacets, OxidGeneError> {
-    let facets = MediaLibraryRepo::facets(db, tree_id, &sorted_unique(with_tags)).await?;
+    let hidden = records.hidden(RecordKind::Media);
+    let facets = MediaLibraryRepo::facets(db, tree_id, &sorted_unique(with_tags), hidden).await?;
+    let tags = if records.redaction().withholds_tags() {
+        Vec::new()
+    } else {
+        facets.tags
+    };
     Ok(MediaFacets {
-        tags: facets
-            .tags
+        tags: tags
             .into_iter()
             .map(|tag| MediaTagFacet {
                 tag: tag.tag,

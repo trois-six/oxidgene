@@ -6,13 +6,14 @@
 
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{Citation, Connection};
+use oxidgene_core::types::{Citation, Connection, RecordKind};
 use oxidgene_core::{Confidence, OxidGeneError};
 use oxidgene_db::repo::{CitationFilter, CitationRepo, PaginationParams};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
@@ -50,10 +51,12 @@ pub struct CitationPatch {
     pub text: Option<Option<String>>,
 }
 
-/// The citations of `tree_id`, narrowed by `filter`, a page at a time. A
-/// filter naming a record of another tree is not found.
+/// The citations of `tree_id` the viewer of `records` sees, narrowed by
+/// `filter`, a page at a time. A filter naming a record of another tree is
+/// not found.
 pub async fn list_citations(
     db: &DatabaseConnection,
+    records: &Records,
     tree_id: Uuid,
     filter: &CitationFilter,
     params: &PaginationParams,
@@ -68,7 +71,8 @@ pub async fn list_citations(
             require_tree_resource(db, tree_id, resource, id).await?;
         }
     }
-    CitationRepo::list(db, tree_id, filter, params).await
+    let leave_out = records.leave_out(RecordKind::Citation);
+    Ok(records.page(CitationRepo::list_visible(db, tree_id, filter, params, leave_out).await?))
 }
 
 /// Create a citation in `tree_id`.

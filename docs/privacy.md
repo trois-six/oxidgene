@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -105,6 +105,27 @@ For a Visitor:
 With the tree's default `public`, a Visitor sees every record nobody
 classified, living persons excepted; switching it to `private` limits them to
 what was published explicitly.
+
+The same rules hide the records of an excluded person from Editors and
+Guests (§6.4), and a confidential note from Guests. Where the table leaves a
+case open, the records' redaction decides:
+
+- A medium's own persons are those linked to it, those on its vignettes,
+  and those of the events linked to it or its vignettes; its families, those
+  linked to it and those of its events. A vignette on a page shows that
+  person in the whole document, so it decides for the document and every
+  page.
+- A medium shown although it shows a hidden person — the tree shows
+  contemporaries' photos — keeps it unnamed: the link to that person and
+  the vignette of them stay hidden.
+- A source no citation draws on, and a repository holding no source, stay
+  visible: only being cited or held by hidden records hides them. A media
+  link to a hidden source is hidden, its medium deciding for itself.
+- Tags are content: a record hidden, or a family whose content is withheld,
+  carries none and counts in no tag; a viewer without `read_tags` gets an
+  empty vocabulary and knows no tag (`404`).
+- A medium's usage count counts the records it is linked to that the viewer
+  sees.
 
 ---
 

@@ -7,14 +7,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::MediaLink;
-use oxidgene_db::repo::{MediaLinkRepo, MediaLinkTarget};
+use oxidgene_db::repo::MediaLinkTarget;
 use uuid::Uuid;
 
 use super::dto::{MediaLinkListQuery, MediaLinkListRow, MediaWithLink};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::media_link::{self, NewMediaLink};
-use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media-links
 ///
@@ -25,23 +24,19 @@ use crate::service::scope::{TreeResource, require_tree_resource};
 /// those separately would be a request per tile.
 pub async fn list_media_links(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<MediaLinkListQuery>,
 ) -> Result<Response, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     if let (Some(entity_type), Some(entity_id)) = (&query.entity_type, query.entity_id) {
         let target = MediaLinkTarget::parse(entity_type).ok_or_else(|| {
             ApiError(OxidGeneError::Validation(format!(
                 "unknown entity_type `{entity_type}`; expected person, family, event or source"
             )))
         })?;
-        let resource = match target {
-            MediaLinkTarget::Person => TreeResource::Person,
-            MediaLinkTarget::Family => TreeResource::Family,
-            MediaLinkTarget::Event => TreeResource::Event,
-            MediaLinkTarget::Source => TreeResource::Source,
-        };
-        require_tree_resource(&state.reader, tree_id, resource, entity_id).await?;
-        let rows = MediaLinkRepo::list_with_media(&state.reader, target, entity_id).await?;
+        let rows =
+            media_link::entity_media(&state.reader, &records, tree_id, target, entity_id).await?;
         let response: Vec<MediaWithLink> = rows
             .into_iter()
             .map(|(link, media)| MediaWithLink {
@@ -62,12 +57,11 @@ pub async fn list_media_links(
     // what lets a media's own panel say which events it documents, without
     // the caller having to walk every event's gallery to find out.
     if let Some(media_id) = query.media_id {
-        require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
-        let links = MediaLinkRepo::list_by_media(&state.reader, media_id).await?;
+        let links = media_link::links_of_media(&state.reader, &records, tree_id, media_id).await?;
         return Ok(Json(links).into_response());
     }
 
-    let db_rows = MediaLinkRepo::list_for_tree(&state.reader, tree_id).await?;
+    let db_rows = media_link::tree_links(&state.reader, &records, tree_id).await?;
     let response: Vec<MediaLinkListRow> = db_rows
         .into_iter()
         .map(|r| MediaLinkListRow {

@@ -94,9 +94,11 @@ pub struct TaggedRecordsQuery {
 /// The whole vocabulary, answered in one response (docs/api.md, Tags).
 pub async fn list_tags(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<TagView>>, ApiError> {
-    let tags = tag::list(&state.reader, tree_id).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let tags = tag::list(&state.reader, &records, tree_id).await?;
     Ok(Json(tags.into_iter().map(TagView::from).collect()))
 }
 
@@ -173,6 +175,7 @@ pub async fn delete_tag(
 /// GET /api/v1/trees/:tree_id/tags/:tag_id/records?kind=...
 pub async fn list_tagged_records(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<TaggedRecordsQuery>,
 ) -> Result<Json<Connection<TaggedRecord>>, ApiError> {
@@ -181,7 +184,8 @@ pub async fn list_tagged_records(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let page = tag::tagged_records(&state.reader, tree_id, tag_id, kind, &params).await?;
+    let records = state.records(&viewer, tree_id).await?;
+    let page = tag::tagged_records(&state.reader, &records, tree_id, tag_id, kind, &params).await?;
     Ok(Json(page))
 }
 

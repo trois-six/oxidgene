@@ -59,6 +59,16 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// What `viewer` sees of the records of tree `tree_id`, read through
+    /// the read pool (docs/privacy.md §3.2).
+    pub async fn records(
+        &self,
+        viewer: &oxidgene_core::access::ViewerContext,
+        tree_id: uuid::Uuid,
+    ) -> Result<crate::authz::records::Records, OxidGeneError> {
+        crate::authz::records::Records::of(&self.reader, &self.profiles, viewer, tree_id).await
+    }
+
     /// Create a new `AppState` storing media under `media_root`.
     ///
     /// Projections live in the `person_denorm` table of the same database,
