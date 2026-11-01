@@ -10,8 +10,10 @@
 //! with the identifiers of the anchor's own records, then with those of a
 //! visible person, and its answer must hold none of the viewer's canaries.
 //!
-//! Adding a kind of viewer — the Visitor of sharing (phase 5) — is a line of
-//! [`VIEWERS`] and its canaries in [`canaries`].
+//! The viewers are an Editor, a Guest, a Guest limited to an access scope
+//! and a Visitor of the tree's `site` visibility; a share link's holder
+//! reads through the same Visitor access. Adding a kind of viewer is a line
+//! of [`VIEWERS`] and its canaries in [`canaries`].
 
 use std::collections::BTreeMap;
 
@@ -19,7 +21,11 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use http_body_util::BodyExt as _;
 use oxidgene_core::access::{InstanceRole, TreeRole};
-use oxidgene_db::repo::{AppUserRepo, MembershipRepo, NewAppUser};
+use oxidgene_core::sharing::{ScopeDefinition, TreeVisibility};
+use oxidgene_db::repo::{
+    AccessScopeRepo, AppUserRepo, MembershipRepo, NewAppUser, SharedMembership, TreeChanges,
+    TreeRepo,
+};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -35,15 +41,21 @@ use crate::guards::surface::Spec;
 enum Who {
     Guest,
     Editor,
+    /// A Guest whose membership is limited to an access scope.
+    ScopedGuest,
+    /// A signed-in user without a membership, a Visitor of a `site` tree.
+    Visitor,
 }
 
-/// Every restricted viewer the suite runs as. Sharing adds `Visitor`.
-const VIEWERS: [Who; 2] = [Who::Guest, Who::Editor];
+/// Every restricted viewer the suite runs as.
+const VIEWERS: [Who; 4] = [Who::Guest, Who::Editor, Who::ScopedGuest, Who::Visitor];
 
-fn role(who: Who) -> TreeRole {
+/// The membership role of `who`, none for a Visitor.
+fn role(who: Who) -> Option<TreeRole> {
     match who {
-        Who::Guest => TreeRole::Guest,
-        Who::Editor => TreeRole::Editor,
+        Who::Guest | Who::ScopedGuest => Some(TreeRole::Guest),
+        Who::Editor => Some(TreeRole::Editor),
+        Who::Visitor => None,
     }
 }
 
@@ -51,8 +63,9 @@ fn role(who: Who) -> TreeRole {
 const CONFIDENTIAL_MARKER: &str = "Wickerbrand sealed remark";
 
 /// What `who` may not meet anywhere: the excluded anchor's name and
-/// identifier, every record only they reach, and for a Guest the
-/// confidential note.
+/// identifier, every record only they reach, for a viewer without
+/// `read_confidential` the confidential note, and for a scoped viewer the
+/// identifier of the anchor's spouse, outside the scope.
 fn canaries(who: Who, fixture: &Fixture) -> Vec<String> {
     let mut found = vec![
         "Anchor".to_string(),
@@ -63,8 +76,11 @@ fn canaries(who: Who, fixture: &Fixture) -> Vec<String> {
         "Fictitious archive".to_string(),
         "Fictitious scan".to_string(),
     ];
-    if who == Who::Guest {
+    if who != Who::Editor {
         found.push(CONFIDENTIAL_MARKER.to_string());
+    }
+    if who == Who::ScopedGuest {
+        found.push(fixture.tree.id("spouse_id").to_string());
     }
     found
 }
@@ -78,6 +94,8 @@ struct Fixture {
     anchor: String,
     /// The fixture's records with a visible person in the anchor's place.
     visible: Populated,
+    /// The scoped Guest's access scope.
+    scope: Uuid,
     _provider: MockProvider,
 }
 
@@ -126,13 +144,45 @@ async fn fixture() -> Fixture {
     .await;
     let (app, _) = provider.app(&db, &[]);
     let tree_id: Uuid = tree.tree_id.parse().unwrap();
+    // Every signed-in user is a Visitor of the tree.
+    TreeRepo::update(
+        &db,
+        tree_id,
+        TreeChanges {
+            visibility: Some(TreeVisibility::Site),
+            ..TreeChanges::default()
+        },
+    )
+    .await
+    .expect("opens the tree to the site");
+    // A scope away from the anchor's couple: an unrelated person and their
+    // ancestors.
+    let definition: ScopeDefinition = serde_json::from_value(
+        json!({ "kind": "ancestors_of", "person_id": tree.id("other_person_id") }),
+    )
+    .unwrap();
+    let scope = oxidgene_api::service::access_scope::create(&db, tree_id, &definition)
+        .await
+        .expect("creates the scope");
     let mut tokens = BTreeMap::new();
     for who in VIEWERS {
         let subject = format!("{who:?}").to_lowercase();
         let id = user(&db, &provider, &subject).await;
-        MembershipRepo::create(&db, tree_id, id, role(who), None)
+        if let Some(role) = role(who) {
+            MembershipRepo::create_shared(
+                &db,
+                SharedMembership {
+                    tree_id,
+                    user_id: id,
+                    role,
+                    scope_id: (who == Who::ScopedGuest).then_some(scope.id),
+                    expires_at: None,
+                    created_by: None,
+                },
+            )
             .await
             .expect("shares the tree");
+        }
         tokens.insert(who, provider.access_token(&subject, TRUSTED_CLIENT, 3600));
     }
     let mut visible = Populated {
@@ -150,6 +200,7 @@ async fn fixture() -> Fixture {
         tree,
         anchor,
         visible,
+        scope: scope.id,
         _provider: provider,
     }
 }
@@ -383,8 +434,23 @@ async fn counts_leave_the_hidden_persons_out() {
         let (_, profiles) = f
             .rest(who, Method::GET, &format!("{base}/profiles?first=1"), None)
             .await;
-        // The anchor and the persons the fixture excludes itself.
-        assert_eq!(total(&profiles), all_profiles - 2, "{who:?} {profiles}");
+        // The anchor and the persons the fixture excludes itself; a scoped
+        // viewer's own scope; a Visitor's, the privacy rules hiding more.
+        let profiles = total(&profiles);
+        match who {
+            Who::Guest | Who::Editor => assert_eq!(profiles, all_profiles - 2, "{who:?}"),
+            Who::ScopedGuest => {
+                let scope = AccessScopeRepo::persons(&f.db, f.scope).await.unwrap();
+                let tree_id = f.tree.tree_id.parse().unwrap();
+                let excluded = oxidgene_api::service::exclusion::excluded_persons(&f.db, tree_id)
+                    .await
+                    .unwrap();
+                let shown = scope.difference(&excluded).count() as u64;
+                assert!(shown > 0);
+                assert_eq!(profiles, shown, "{who:?}");
+            }
+            Who::Visitor => assert!(profiles <= all_profiles - 2, "{who:?}"),
+        }
 
         let (status, _) = f
             .rest(
@@ -396,15 +462,19 @@ async fn counts_leave_the_hidden_persons_out() {
             .await;
         // Guests may not tag at all; an Editor may not name a hidden person.
         let refused = match who {
-            Who::Guest => StatusCode::FORBIDDEN,
             Who::Editor => StatusCode::NOT_FOUND,
+            Who::Guest | Who::ScopedGuest | Who::Visitor => StatusCode::FORBIDDEN,
         };
         assert_eq!(status, refused, "{who:?} tags a hidden person");
 
         let (_, growth) = f
             .rest(who, Method::GET, &format!("{base}/statistics/growth"), None)
             .await;
-        assert_eq!(net_growth(&growth), all_growth - 2, "{who:?} {growth}");
+        let growth = net_growth(&growth);
+        match who {
+            Who::Guest | Who::Editor => assert_eq!(growth, all_growth - 2, "{who:?}"),
+            Who::ScopedGuest | Who::Visitor => assert!(growth <= all_growth - 2, "{who:?}"),
+        }
     }
 }
 
