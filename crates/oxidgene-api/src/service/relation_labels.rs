@@ -17,9 +17,12 @@ pub struct RelationLabels {
     pub spouses: Vec<FamilySpouse>,
 }
 
-/// Load only the names and spouse links needed to label media relations.
+/// Load only the names and spouse links needed to label media relations,
+/// as `redaction`'s viewer sees them: names of the persons shown in full
+/// only, and no spouse link naming a person absent to them.
 pub async fn load_relation_labels(
     db: &impl ConnectionTrait,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     person_ids: &[Uuid],
     family_ids: &[Uuid],
@@ -30,7 +33,20 @@ pub async fn load_relation_labels(
         )));
     }
 
-    load_labels(db, tree_id, person_ids, family_ids).await
+    let mut labels = load_labels(db, tree_id, person_ids, family_ids).await?;
+    if !redaction.is_unrestricted() {
+        labels.names.retain(|name| redaction.shows(name.person_id));
+        labels
+            .spouses
+            .retain_mut(|spouse| match redaction.public_id(spouse.person_id) {
+                Some(id) => {
+                    spouse.person_id = id;
+                    true
+                }
+                None => false,
+            });
+    }
+    Ok(labels)
 }
 
 /// [`load_relation_labels`] without its bound on the ids, for a read model

@@ -25,11 +25,19 @@ pub async fn list_person_names(
 /// POST /api/v1/trees/:tree_id/relation-labels
 pub async fn relation_labels(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<RelationLabelsRequest>,
 ) -> Result<Json<RelationLabels>, ApiError> {
-    let labels =
-        load_relation_labels(&state.reader, tree_id, &body.person_ids, &body.family_ids).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let labels = load_relation_labels(
+        &state.reader,
+        &redaction,
+        tree_id,
+        &body.person_ids,
+        &body.family_ids,
+    )
+    .await?;
     Ok(Json(labels))
 }
 

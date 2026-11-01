@@ -110,7 +110,8 @@ impl PersonDenormRepo {
         Ok(EncodedProfiles(models))
     }
 
-    /// One page of a tree's projections, by person id.
+    /// One page of a tree's projections, by person id, less the persons of
+    /// `hidden`, which the count leaves out too.
     ///
     /// Like [`Self::list_tree`] it is not filtered by version: its caller
     /// materializes the tree first, so nothing stale is left.
@@ -118,10 +119,13 @@ impl PersonDenormRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &crate::repo::PaginationParams,
+        hidden: &[Uuid],
     ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
         let page = crate::repo::pagination::paginate(
             db,
-            Entity::find().filter(Column::TreeId.eq(tree_id)),
+            Entity::find()
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(crate::repo::none_of(Column::PersonId, hidden)),
             Column::PersonId,
             params,
             |model: Model| (model.person_id, model),

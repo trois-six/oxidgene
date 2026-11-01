@@ -50,6 +50,22 @@ use crate::service::background_job::live_state;
 #[derive(Debug, Clone)]
 pub struct Viewer(pub Arc<ViewerContext>);
 
+impl Viewer {
+    /// What the viewer sees of tree `tree_id` (docs/privacy.md §5), built
+    /// once per request.
+    ///
+    /// # Errors
+    ///
+    /// What resolving the viewer's access answers, and database failures.
+    pub async fn redaction(
+        &self,
+        state: &AppState,
+        tree_id: Uuid,
+    ) -> Result<Arc<oxidgene_core::redaction::Redaction>, OxidGeneError> {
+        authz::redaction::redaction(&state.reader, &state.profiles, &self.0, tree_id).await
+    }
+}
+
 impl std::ops::Deref for Viewer {
     type Target = ViewerContext;
 

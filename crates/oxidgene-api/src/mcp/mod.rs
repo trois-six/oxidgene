@@ -464,8 +464,10 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_pedigree", async {
             self.tree(p.tree_id).await?;
+            let redaction = self.seen(p.tree_id).await?;
             crate::service::pedigrees::pedigree(
                 &self.profiles,
+                &redaction,
                 p.tree_id,
                 p.root_person_id,
                 p.ancestor_depth.into(),
@@ -486,7 +488,17 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_relation_labels", async {
             self.tree(p.tree_id).await?;
-            load_relation_labels(&self.db, p.tree_id, &p.person_ids, &p.family_ids).await
+            {
+                let redaction = self.seen(p.tree_id).await?;
+                load_relation_labels(
+                    &self.db,
+                    &redaction,
+                    p.tree_id,
+                    &p.person_ids,
+                    &p.family_ids,
+                )
+                .await
+            }
         })
         .await
     }
@@ -500,9 +512,11 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_kinship", async {
             self.tree(p.tree_id).await?;
+            let redaction = self.seen(p.tree_id).await?;
             crate::service::kinship::find_kinship(
                 &self.db,
                 &self.profiles,
+                &redaction,
                 p.tree_id,
                 p.person_id,
                 p.other_person_id,
@@ -756,7 +770,7 @@ impl OxidGeneMcp {
         &self,
         tree_id: Uuid,
     ) -> Result<Arc<oxidgene_core::redaction::Redaction>, OxidGeneError> {
-        dictionary::seen_by(&self.db, &self.profiles, &self.viewer, tree_id).await
+        crate::authz::redaction::redaction(&self.db, &self.profiles, &self.viewer, tree_id).await
     }
 }
 

@@ -26,7 +26,7 @@ pub async fn family_names(
     viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::family_names(&state.reader, &seen, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
@@ -37,7 +37,7 @@ pub async fn occupations(
     viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::occupations(&state.reader, &seen, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
@@ -57,7 +57,7 @@ pub async fn sources(
     Query(query): Query<DictionarySourcesQuery>,
 ) -> Result<Json<Vec<SourceDictionaryEntry>>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     Ok(Json(
         crate::service::source::dictionary_sources(
             &state.reader,
@@ -87,7 +87,7 @@ pub async fn source_groups(
     Query(query): Query<SourcePrefixQuery>,
 ) -> Result<Json<SourceDrillResponse>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let drill = dictionary::source_drill(&state.reader, &seen, tree_id, &prefix).await?;
     Ok(Json(SourceDrillResponse {
         prefix: drill.prefix,
@@ -107,7 +107,7 @@ pub async fn places(
     viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PlaceDictionaryEntry>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::places(&state.reader, &seen, tree_id).await?;
     Ok(Json(
         entries
@@ -123,7 +123,7 @@ pub async fn source_usage(
     viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::source_usage(&state.reader, &seen, tree_id, source_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
@@ -134,7 +134,7 @@ pub async fn place_usage(
     viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::place_usage(&state.reader, &seen, tree_id, place_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
@@ -146,7 +146,7 @@ pub async fn occupation_usage(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries = dictionary::occupation_usage(&state.reader, &seen, tree_id, &query.value).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
@@ -158,7 +158,7 @@ pub async fn family_name_usage(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     let entries =
         dictionary::family_name_usage(&state.reader, &seen, tree_id, &query.value).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
@@ -179,7 +179,7 @@ pub async fn family_name_descent(
         offset: query.offset,
         person_id: query.person_id,
     };
-    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     Ok(Json(
         surname_descent::descent(&state.reader, &state.profiles, &seen, tree_id, request).await?,
     ))

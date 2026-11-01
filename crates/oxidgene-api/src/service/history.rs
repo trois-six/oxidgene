@@ -855,18 +855,30 @@ pub const RECENT_PERSONS_MAX_LIMIT: usize = 50;
 pub async fn recently_modified_persons(
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     limit: usize,
 ) -> Result<Vec<SearchEntry>, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
-    let person_ids = HistoryRepo::recently_modified_persons(
-        db,
-        tree_id,
-        limit.min(RECENT_PERSONS_MAX_LIMIT) as u64,
-    )
-    .await?;
-    profiles.search_entries(tree_id, &person_ids).await
+    let limit = limit.min(RECENT_PERSONS_MAX_LIMIT);
+    // A hidden person modified lately takes a place the viewer does not
+    // see: read past them, up to a bound.
+    let hidden = redaction
+        .hidden_persons()
+        .count()
+        .min(RECENT_PERSONS_HIDDEN_SLACK);
+    let person_ids =
+        HistoryRepo::recently_modified_persons(db, tree_id, (limit + hidden) as u64).await?;
+    let mut entries = profiles
+        .search_entries_as(redaction, tree_id, &person_ids)
+        .await?;
+    entries.truncate(limit);
+    Ok(entries)
 }
+
+/// How many hidden persons a restricted viewer's recent persons read past
+/// at most.
+const RECENT_PERSONS_HIDDEN_SLACK: usize = 200;
 
 /// The most trees one request may ask the recent persons of: a page of the
 /// tree list holds at most 100, and the home page asks for all its cards at
@@ -887,6 +899,7 @@ pub struct TreeRecentPersons {
 pub async fn recently_modified_persons_of_trees(
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
+    viewer: &ViewerContext,
     tree_ids: &[Uuid],
     limit: usize,
 ) -> Result<Vec<TreeRecentPersons>, OxidGeneError> {
@@ -897,7 +910,15 @@ pub async fn recently_modified_persons_of_trees(
     }
     let mut out = Vec::with_capacity(tree_ids.len());
     for &tree_id in tree_ids {
-        match recently_modified_persons(db, profiles, tree_id, limit).await {
+        let redaction =
+            match crate::authz::redaction::redaction(profiles.reader(), profiles, viewer, tree_id)
+                .await
+            {
+                Ok(redaction) => redaction,
+                Err(OxidGeneError::NotFound { .. }) => continue,
+                Err(error) => return Err(error),
+            };
+        match recently_modified_persons(db, profiles, &redaction, tree_id, limit).await {
             Ok(persons) => out.push(TreeRecentPersons { tree_id, persons }),
             Err(OxidGeneError::NotFound { .. }) => {}
             Err(error) => return Err(error),

@@ -13,6 +13,7 @@ use axum::extract::{Path, Query, State};
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile};
 use uuid::Uuid;
 
+use super::authorize::Viewer;
 use super::dto::{
     PaginationQuery, PedigreeExpandQuery, PedigreeQuery, PedigreesRequest, ProfileDropResponse,
     ProfileRebuildResponse,
@@ -44,11 +45,13 @@ pub async fn get_person_detail_bundle(
 /// not been materialized yet.
 pub async fn get_person_profile(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PersonProfile>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let profile = state
         .profiles
-        .get_or_build_person(tree_id, person_id)
+        .person_as(&redaction, tree_id, person_id)
         .await?;
 
     Ok(Json(profile))
@@ -60,6 +63,7 @@ pub async fn get_person_profile(
 /// the tree first if it has never been built.
 pub async fn get_person_profiles(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<oxidgene_core::types::Connection<PersonProfile>>, ApiError> {
@@ -67,7 +71,13 @@ pub async fn get_person_profiles(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    Ok(Json(state.profiles.persons_page(tree_id, &params).await?))
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    Ok(Json(
+        state
+            .profiles
+            .persons_page_as(&redaction, tree_id, &params)
+            .await?,
+    ))
 }
 
 /// `POST /api/v1/trees/{tree_id}/profiles/rebuild`
@@ -120,11 +130,14 @@ pub async fn drop_tree_profiles(
 /// projections.
 pub async fn get_pedigree(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeQuery>,
 ) -> Result<Json<Pedigree>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let pedigree = crate::service::pedigrees::pedigree(
         &state.profiles,
+        &redaction,
         tree_id,
         root_person_id,
         params.ancestor_depth.into(),
@@ -141,12 +154,15 @@ pub async fn get_pedigree(
 /// first person — so a client opening a tree needs nothing else first.
 pub async fn get_default_pedigree(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(params): Query<PedigreeQuery>,
 ) -> Result<Json<Pedigree>, ApiError> {
-    let root = crate::service::pedigrees::default_root(&state.reader, tree_id).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let root = crate::service::pedigrees::default_root(&state.reader, &redaction, tree_id).await?;
     let pedigree = crate::service::pedigrees::pedigree(
         &state.profiles,
+        &redaction,
         tree_id,
         root,
         params.ancestor_depth.into(),
@@ -163,11 +179,14 @@ pub async fn get_default_pedigree(
 /// cannot be assembled is omitted rather than failing the batch.
 pub async fn load_pedigrees(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<PedigreesRequest>,
 ) -> Result<Json<Vec<crate::service::pedigrees::PedigreeEntry>>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let entries = crate::service::pedigrees::load_pedigrees(
         &state.profiles,
+        &redaction,
         tree_id,
         &body.root_person_ids,
         body.ancestor_depth.into(),
@@ -184,6 +203,7 @@ pub async fn load_pedigrees(
 /// `other_depth` is the depth already loaded in the opposite direction.
 pub async fn expand_pedigree(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeExpandQuery>,
 ) -> Result<Json<PedigreeDelta>, ApiError> {
@@ -203,8 +223,10 @@ pub async fn expand_pedigree(
         }
     };
 
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let delta = crate::service::pedigrees::expand_pedigree(
         &state.profiles,
+        &redaction,
         tree_id,
         root_person_id,
         Expansion {

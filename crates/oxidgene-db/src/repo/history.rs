@@ -322,8 +322,9 @@ impl HistoryRepo {
     pub async fn person_restores(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
+        hidden: &[Uuid],
     ) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, OxidGeneError> {
-        let restored = sorted_unique(
+        let mut restored = sorted_unique(
             audit_entry::Entity::find()
                 .select_only()
                 .column(audit_entry::Column::EntityId)
@@ -337,6 +338,7 @@ impl HistoryRepo {
                 .await
                 .map_err(db_err)?,
         );
+        restored.retain(|id| !hidden.contains(id));
         let mut rows: Vec<(Uuid, i32, bool, DateTime<Utc>)> =
             in_chunks(&restored, |chunk| async move {
                 record_version::Entity::find()

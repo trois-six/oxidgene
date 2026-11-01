@@ -89,6 +89,18 @@ impl ProfileService {
         }
     }
 
+    /// The writer: where derived rows a read finds stale are rebuilt. Only
+    /// the web build's redaction rebuilds any.
+    #[cfg(feature = "auth")]
+    pub(crate) fn writer(&self) -> &DatabaseConnection {
+        &self.writer
+    }
+
+    /// The read pool, where projections and search rows are read.
+    pub(crate) fn reader(&self) -> &DatabaseConnection {
+        &self.reader
+    }
+
     /// What the reads of a tree keep in memory between requests.
     pub fn cache(&self) -> &Arc<TreeCache> {
         &self.cache
@@ -130,7 +142,7 @@ impl ProfileService {
     ///
     /// Covers missing or outdated projections and independently cleared
     /// search rows. Checked on the read pool, built on the writer.
-    async fn ensure_materialized(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
+    pub(super) async fn ensure_materialized(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
         // Usable only when no row predates the current schema version.
         let denorm = PersonDenormRepo::is_materialized(&self.reader, tree_id).await?;
         let search = PersonSearchRepo::has_tree(&self.reader, tree_id).await?;
@@ -390,7 +402,7 @@ impl ProfileService {
         params: &oxidgene_db::repo::PaginationParams,
     ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
         self.ensure_materialized(tree_id).await?;
-        PersonDenormRepo::list_page(&self.reader, tree_id, params).await
+        PersonDenormRepo::list_page(&self.reader, tree_id, params, &[]).await
     }
 
     // ── Pedigree ─────────────────────────────────────────────────────────

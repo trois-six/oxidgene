@@ -24,7 +24,7 @@ pub async fn list_trees(
         after: query.after,
     };
     Ok(Json(
-        tree::list_trees(&viewer, &state.reader, &params).await?,
+        tree::list_trees(&viewer, &state.reader, &state.profiles, &params).await?,
     ))
 }
 
@@ -44,7 +44,9 @@ pub async fn get_tree(
     viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<TreeView>, ApiError> {
-    Ok(Json(tree::get_tree(&viewer, &state.reader, tree_id).await?))
+    Ok(Json(
+        tree::get_tree(&viewer, &state.reader, &state.profiles, tree_id).await?,
+    ))
 }
 
 /// PUT /api/v1/trees/:tree_id
@@ -124,6 +126,7 @@ pub async fn recent_persons(
         crate::service::history::recently_modified_persons_of_trees(
             &state.reader,
             &state.profiles,
+            &viewer,
             &tree_ids,
             query
                 .limit

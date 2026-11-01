@@ -105,9 +105,16 @@ async fn lineage(
 ) -> Result<Vec<GqlPersonWithDepth>> {
     let db = reader_from_ctx(ctx);
     let tree_id = live_tree(ctx, tree_id).await?;
-    let links =
-        crate::service::person::lineage(db, tree_id, uuid(person_id)?, direction, max_depth)
-            .await?;
+    let redaction = seen(ctx, tree_id).await?;
+    let links = crate::service::person::lineage_as(
+        &redaction,
+        db,
+        tree_id,
+        uuid(person_id)?,
+        direction,
+        max_depth,
+    )
+    .await?;
     let ids: Vec<Uuid> = links.iter().map(|link| link.person_id).collect();
     let mut persons: HashMap<Uuid, oxidgene_core::types::Person> = PersonRepo::get_many(db, &ids)
         .await?
@@ -130,7 +137,7 @@ async fn lineage(
 /// What the request's viewer sees of tree `tree_id` (docs/privacy.md §5),
 /// once the root field has checked the tree.
 async fn seen(ctx: &Context<'_>, tree_id: Uuid) -> Result<std::sync::Arc<Redaction>> {
-    Ok(crate::service::dictionary::seen_by(
+    Ok(crate::authz::redaction::redaction(
         reader_from_ctx(ctx),
         profiles_from_ctx(ctx),
         viewer_from_ctx(ctx),
@@ -235,11 +242,14 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(
-                crate::service::tree::list_trees(viewer_from_ctx(ctx), db, &params)
-                    .await?
-                    .into(),
+            Ok(crate::service::tree::list_trees(
+                viewer_from_ctx(ctx),
+                db,
+                profiles_from_ctx(ctx),
+                &params,
             )
+            .await?
+            .into())
         })
         .await
     }
@@ -394,9 +404,13 @@ impl TreeQuery {
             let Some(id) = visible_tree(ctx, &id).await? else {
                 return Ok(None);
             };
-            let view =
-                crate::service::tree::get_tree(viewer_from_ctx(ctx), reader_from_ctx(ctx), id)
-                    .await?;
+            let view = crate::service::tree::get_tree(
+                viewer_from_ctx(ctx),
+                reader_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                id,
+            )
+            .await?;
             let mut tree = GqlTree::from(view.tree);
             tree.access = Some(view.viewer_access);
             Ok(Some(tree))
@@ -422,7 +436,15 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            let conn = PersonRepo::list_filtered(db, tid, search.as_deref(), &params).await?;
+            let redaction = seen(ctx, tid).await?;
+            let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+            let mut conn =
+                PersonRepo::list_filtered(db, tid, search.as_deref(), &params, &hidden).await?;
+            if redaction.withholds_tags() {
+                for edge in &mut conn.edges {
+                    edge.node.tags.clear();
+                }
+            }
             Ok(conn.into())
         })
         .await
@@ -434,7 +456,12 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            found(PersonRepo::get_in_tree(db, tid, id).await)
+            let redaction = seen(ctx, tid).await?;
+            found(
+                PersonRepo::get_in_tree(db, tid, id)
+                    .await
+                    .and_then(|person| crate::profile::person_record(&redaction, person)),
+            )
         })
         .await
     }
@@ -451,8 +478,10 @@ impl TreeQuery {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let person_ids = uuids(&person_ids)?;
             let family_ids = uuids(&family_ids)?;
+            let redaction = seen(ctx, tree_id).await?;
             Ok(crate::service::relation_labels::load_relation_labels(
                 reader_from_ctx(ctx),
+                &redaction,
                 tree_id,
                 &person_ids,
                 &family_ids,
@@ -475,9 +504,11 @@ impl TreeQuery {
     ) -> Result<Option<GqlPerson>> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tree_id).await?;
             let person =
                 crate::service::person::person_by_sosa(reader_from_ctx(ctx), tree_id, number)
-                    .await?;
+                    .await?
+                    .filter(|person| redaction.shows(person.id));
             Ok(person.map(Into::into))
         })
         .await
@@ -488,7 +519,12 @@ impl TreeQuery {
     async fn portraits(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlPortrait>> {
         boxed(async move {
             let db = reader_from_ctx(ctx);
-            let portraits = PersonRepo::list_portraits(db, live_tree(ctx, &tree_id).await?).await?;
+            let tid = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tid).await?;
+            let portraits = crate::service::portrait::portraits_as(
+                &redaction,
+                PersonRepo::list_portraits(db, tid).await?,
+            );
             Ok(portraits.into_iter().map(Into::into).collect())
         })
         .await
@@ -502,10 +538,15 @@ impl TreeQuery {
         person_ids: Vec<ID>,
     ) -> Result<Vec<GqlPortraitImage>> {
         boxed(async move {
-            let person_ids = uuids(&person_ids)?;
+            let tid = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tid).await?;
+            let person_ids: Vec<Uuid> = uuids(&person_ids)?
+                .into_iter()
+                .filter(|id| redaction.shows(*id))
+                .collect();
             let images = crate::service::portrait::load_portrait_images(
                 reader_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                tid,
                 &person_ids,
             )
             .await?;
@@ -1019,10 +1060,12 @@ impl TreeQuery {
         boxed(async move {
             let lang = crate::service::statistics::language(language.as_deref())?;
             let tag = tag.as_ref().map(uuid).transpose()?;
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::statistics::load(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
                 approximate.unwrap_or(false),
                 lang,
                 tag,
@@ -1040,9 +1083,11 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<crate::service::statistics::growth::TreeGrowth> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::statistics::growth::load(
                 reader_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
             )
             .await?)
         })
@@ -2052,7 +2097,8 @@ impl TreeQuery {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let pid = uuid(&person_id)?;
-            let profile = profiles.get_or_build_person(tid, pid).await?;
+            let redaction = seen(ctx, tid).await?;
+            let profile = profiles.person_as(&redaction, tid, pid).await?;
             Ok(profile.into())
         })
         .await
@@ -2076,7 +2122,11 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(profiles.persons_page(tid, &params).await?.into())
+            let redaction = seen(ctx, tid).await?;
+            Ok(profiles
+                .persons_page_as(&redaction, tid, &params)
+                .await?
+                .into())
         })
         .await
     }
@@ -2142,9 +2192,12 @@ impl TreeQuery {
                 event_from,
                 event_to,
                 has_media,
+                hidden: Vec::new(),
             };
+            let redaction = seen(ctx, tid).await?;
             let result = profiles
-                .search_filtered(
+                .search_as(
+                    &redaction,
                     tid,
                     &query,
                     &filters,
@@ -2172,7 +2225,8 @@ impl TreeQuery {
             let tid = live_tree(ctx, &tree_id).await?;
             let pid = uuid(&person_id)?;
             PersonRepo::get_in_tree(db, tid, pid).await?;
-            let homonyms = profiles.homonyms(tid, pid).await?;
+            let redaction = seen(ctx, tid).await?;
+            let homonyms = profiles.homonyms_as(&redaction, tid, pid).await?;
             Ok(homonyms.into_iter().map(Into::into).collect())
         })
         .await
@@ -2191,9 +2245,11 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
-            let persons =
-                crate::service::history::recently_modified_persons(db, profiles, tid, limit)
-                    .await?;
+            let redaction = seen(ctx, tid).await?;
+            let persons = crate::service::history::recently_modified_persons(
+                db, profiles, &redaction, tid, limit,
+            )
+            .await?;
             Ok(persons.into_iter().map(Into::into).collect())
         })
         .await
@@ -2220,6 +2276,7 @@ impl TreeQuery {
             let trees = crate::service::history::recently_modified_persons_of_trees(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
+                viewer_from_ctx(ctx),
                 &tree_ids,
                 limit,
             )
@@ -2242,10 +2299,13 @@ impl TreeQuery {
         boxed(async move {
             let db = reader_from_ctx(ctx);
             let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tid).await?;
             let kinship = crate::service::kinship::find_kinship(
                 db,
                 profiles,
-                live_tree(ctx, &tree_id).await?,
+                &redaction,
+                tid,
                 uuid(&person_id)?,
                 uuid(&other_person_id)?,
             )
@@ -2273,12 +2333,17 @@ impl TreeQuery {
         boxed(async move {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tid).await?;
             let rid = match root_person_id {
                 Some(root) => uuid(&root)?,
-                None => crate::service::pedigrees::default_root(reader_from_ctx(ctx), tid).await?,
+                None => {
+                    crate::service::pedigrees::default_root(reader_from_ctx(ctx), &redaction, tid)
+                        .await?
+                }
             };
             let pedigree = crate::service::pedigrees::pedigree(
                 profiles,
+                &redaction,
                 tid,
                 rid,
                 ancestor_depth.into(),
@@ -2302,9 +2367,12 @@ impl TreeQuery {
     ) -> Result<Vec<GqlPedigreeEntry>> {
         boxed(async move {
             let root_person_ids = uuids(&root_person_ids)?;
+            let tid = live_tree(ctx, &tree_id).await?;
+            let redaction = seen(ctx, tid).await?;
             Ok(crate::service::pedigrees::load_pedigrees(
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &redaction,
+                tid,
                 &root_person_ids,
                 ancestor_depth.into(),
                 descendant_depth.into(),
@@ -2341,12 +2409,14 @@ impl TreeQuery {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let rid = uuid(&root_person_id)?;
+            let redaction = seen(ctx, tid).await?;
 
             // Boxed: the expansion assembles two pedigrees, and inlining that
             // future into the root's pushed the compiler's Send check past its
             // recursion limit (rust-lang/rust#159228).
             let delta = Box::pin(crate::service::pedigrees::expand_pedigree(
                 profiles,
+                &redaction,
                 tid,
                 rid,
                 crate::service::pedigrees::Expansion {

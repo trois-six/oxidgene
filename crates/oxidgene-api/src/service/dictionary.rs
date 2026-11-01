@@ -7,32 +7,14 @@
 //! own, with no statement more. A restricted viewer's reads go through the
 //! repository's `*_for` twins.
 
-use std::sync::Arc;
-
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::access::ViewerContext;
 use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::Place;
 use oxidgene_db::repo::{DictionaryRepo, DictionaryValueEntry, PersonUsageEntry};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::profile::ProfileService;
 use crate::service::scope::{TreeResource, require_tree_resource};
-
-/// What `viewer` sees of tree `tree_id`: built once per request.
-///
-/// # Errors
-///
-/// What resolving the viewer's access answers, and database failures.
-pub async fn seen_by(
-    db: &DatabaseConnection,
-    profiles: &ProfileService,
-    viewer: &ViewerContext,
-    tree_id: Uuid,
-) -> Result<Arc<Redaction>, OxidGeneError> {
-    crate::authz::redaction::redaction(db, profiles, viewer, tree_id).await
-}
 
 /// The family names the viewer sees, with their bearers.
 pub async fn family_names(

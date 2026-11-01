@@ -1351,6 +1351,7 @@ pub(crate) fn tag_target_spec(
                 event_from: search.event_from,
                 event_to: search.event_to,
                 has_media: search.has_media.unwrap_or(false),
+                hidden: Vec::new(),
                 tags: match search.tags {
                     Some(tags) => uuids(&tags)?,
                     None => Vec::new(),

@@ -58,14 +58,19 @@ pub struct GrowthImport {
 }
 
 /// Loads a tree's growth: 404 for an unknown tree.
+///
+/// A person `redaction` hides from its viewer counts on no day
+/// (docs/privacy.md §7, "Statistics").
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
 ) -> Result<TreeGrowth, oxidgene_core::OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
-    let created = PersonRepo::count_by_creation(db, tree_id).await?;
-    let deleted = PersonRepo::count_by_deletion(db, tree_id).await?;
-    let restores = HistoryRepo::person_restores(db, tree_id).await?;
+    let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+    let created = PersonRepo::count_by_creation(db, tree_id, &hidden).await?;
+    let deleted = PersonRepo::count_by_deletion(db, tree_id, &hidden).await?;
+    let restores = HistoryRepo::person_restores(db, tree_id, &hidden).await?;
     let imports = HistoryRepo::imports(db, tree_id).await?;
     Ok(compute(&created, &deleted, &restores, imports))
 }

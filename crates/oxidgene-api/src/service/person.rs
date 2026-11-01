@@ -143,6 +143,25 @@ pub async fn lineage(
     }
 }
 
+/// [`lineage`] as `redaction`'s viewer sees it: from a person they reach,
+/// the persons they see in full.
+pub async fn lineage_as(
+    redaction: &oxidgene_core::redaction::Redaction,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    person_id: Uuid,
+    direction: Lineage,
+    max_depth: Option<i32>,
+) -> Result<Vec<AncestryLink>, OxidGeneError> {
+    if redaction.is_unrestricted() {
+        return lineage(db, tree_id, person_id, direction, max_depth).await;
+    }
+    crate::profile::require_reachable(redaction, person_id)?;
+    let mut links = lineage(db, tree_id, person_id, direction, max_depth).await?;
+    links.retain(|link| redaction.shows(link.person_id));
+    Ok(links)
+}
+
 /// The person at SOSA number `number` of tree `tree_id`, walking down from its
 /// SOSA root (root = 1, father = 2n, mother = 2n + 1).
 ///

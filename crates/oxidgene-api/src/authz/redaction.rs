@@ -63,7 +63,7 @@ async fn restricted(
 
     let tree = TreeRepo::get(db, tree_id).await?;
     let excluded = if viewing.exclusions_apply {
-        crate::service::exclusion::excluded_persons(db, tree_id).await?
+        crate::service::exclusion::excluded_persons(profiles.writer(), tree_id).await?
     } else {
         HashSet::new()
     };

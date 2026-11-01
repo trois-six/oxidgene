@@ -791,6 +791,7 @@ pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::Oxid
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     approximate: bool,
     lang: ReferenceLang,
@@ -800,8 +801,13 @@ pub async fn load(
     if let Some(tag) = tag {
         oxidgene_db::repo::TagRepo::get(db, tree_id, tag).await?;
     }
-    let persons = profiles.get_all_persons(tree_id).await?;
-    let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
+    // Over the persons and records the viewer sees (docs/privacy.md §7).
+    let persons = crate::service::redacted::shown_profiles(
+        redaction,
+        profiles.get_all_persons(tree_id).await?,
+    );
+    let places =
+        oxidgene_db::repo::DictionaryRepo::places_with_usage_for(db, tree_id, redaction).await?;
     let sources = oxidgene_db::repo::SourceRepo::count_in_tree(db, tree_id).await?;
     let places = match tag {
         Some(tag) => places_of_tagged(&persons, places, tag),

@@ -146,6 +146,7 @@ pub struct TreePatch {
 pub async fn list_trees(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     params: &PaginationParams,
 ) -> Result<Connection<TreeListItem>, OxidGeneError> {
     let now = chrono::Utc::now();
@@ -174,6 +175,18 @@ pub async fn list_trees(
         accesses.insert(tree.id, access);
     }
     let active = active_imports(db).await?;
+    let mut trees = trees;
+    // The roots a member may not see are not named (docs/privacy.md §6.4).
+    for edge in &mut trees.edges {
+        let restricted = roles.as_ref().is_some_and(|roles| {
+            roles.get(&edge.node.id).map(|(role, _)| role) != Some(&TreeRole::Owner)
+        });
+        if restricted {
+            let redaction =
+                crate::authz::redaction::redaction(db, profiles, viewer, edge.node.id).await?;
+            crate::profile::redact_tree(&redaction, &mut edge.node);
+        }
+    }
     Ok(trees.map(|tree| {
         let import = active.get(&tree.id).copied();
         let access = accesses
@@ -195,11 +208,15 @@ pub async fn list_trees(
 pub async fn get_tree(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     tree_id: Uuid,
 ) -> Result<TreeView, OxidGeneError> {
     let access = crate::authz::tree_access(db, viewer, tree_id).await?;
+    let redaction = crate::authz::redaction::redaction(db, profiles, viewer, tree_id).await?;
+    let mut tree = TreeRepo::get(db, tree_id).await?;
+    crate::profile::redact_tree(&redaction, &mut tree);
     Ok(TreeView {
-        tree: TreeRepo::get(db, tree_id).await?,
+        tree,
         viewer_access: access.viewer_access(),
     })
 }

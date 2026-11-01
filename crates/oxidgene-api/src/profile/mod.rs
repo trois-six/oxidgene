@@ -15,9 +15,11 @@
 pub mod builder;
 pub mod invalidation;
 mod pedigree;
+mod redacted;
 pub mod service;
 mod sosa;
 #[cfg(feature = "auth")]
 mod visibility;
 
+pub use redacted::{person_record, redact_tree, require_reachable, sosa_shown};
 pub use service::ProfileService;

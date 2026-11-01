@@ -14,6 +14,8 @@ use oxidgene_core::projection::{Pedigree, PedigreeDelta, PedigreeDirection};
 use serde::Serialize;
 use uuid::Uuid;
 
+use oxidgene_core::redaction::Redaction;
+
 use crate::profile::ProfileService;
 
 /// Deepest a pedigree reaches in either direction, in generations: the range
@@ -36,9 +38,11 @@ pub fn depth(value: i64) -> Result<u32, OxidGeneError> {
 }
 
 /// The pedigree of `root_person_id` in `tree_id`, `ancestor_depth`
-/// generations up and `descendant_depth` down.
+/// generations up and `descendant_depth` down, as `redaction`'s viewer sees
+/// it.
 pub async fn pedigree(
     profiles: &ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
     root_person_id: Uuid,
     ancestor_depth: i64,
@@ -46,20 +50,32 @@ pub async fn pedigree(
 ) -> Result<Pedigree, OxidGeneError> {
     let (ancestor_depth, descendant_depth) = (depth(ancestor_depth)?, depth(descendant_depth)?);
     profiles
-        .get_or_build_pedigree(tree_id, root_person_id, ancestor_depth, descendant_depth)
+        .pedigree_as(
+            redaction,
+            tree_id,
+            root_person_id,
+            ancestor_depth,
+            descendant_depth,
+        )
         .await
 }
 
 /// The person a tree's pedigree is drawn around when nobody was chosen: its
-/// SOSA root while that is a live person of the tree, else its first person.
-/// A tree without anyone has no pedigree (`not_found`).
+/// SOSA root while that is a live person of the tree the viewer sees, else
+/// its first such person. A tree without anyone has no pedigree
+/// (`not_found`).
 pub async fn default_root(
     db: &impl sea_orm::ConnectionTrait,
+    redaction: &Redaction,
     tree_id: Uuid,
 ) -> Result<Uuid, OxidGeneError> {
     use oxidgene_db::repo::{PaginationParams, PersonRepo, TreeRepo};
 
-    if let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id {
+    let root = TreeRepo::get(db, tree_id)
+        .await?
+        .sosa_root_person_id
+        .filter(|root| redaction.shows(*root));
+    if let Some(root) = root {
         match PersonRepo::get_in_tree(db, tree_id, root).await {
             Ok(_) => return Ok(root),
             Err(OxidGeneError::NotFound { .. }) => {}
@@ -70,7 +86,8 @@ pub async fn default_root(
         first: 1,
         after: None,
     };
-    PersonRepo::list_filtered(db, tree_id, None, &first)
+    let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+    PersonRepo::list_filtered(db, tree_id, None, &first, &hidden)
         .await?
         .edges
         .first()
@@ -94,6 +111,7 @@ pub struct Expansion {
 /// `expansion`.
 pub async fn expand_pedigree(
     profiles: &ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
     root_person_id: Uuid,
     expansion: Expansion,
@@ -106,7 +124,10 @@ pub async fn expand_pedigree(
             "to_depth ({to}) must be greater than from_depth ({from})"
         )));
     }
-    profiles
+    if !redaction.is_unrestricted() {
+        crate::profile::require_reachable(redaction, root_person_id)?;
+    }
+    let mut delta = profiles
         .expand_pedigree(
             tree_id,
             root_person_id,
@@ -115,7 +136,9 @@ pub async fn expand_pedigree(
             to,
             other,
         )
-        .await
+        .await?;
+    ProfileService::redact_delta(redaction, &mut delta);
+    Ok(delta)
 }
 
 /// Small enough that a page of results always fits, and bounded like every
@@ -138,6 +161,7 @@ pub struct PedigreeEntry {
 /// cards should not go blank because one of them is stale.
 pub async fn load_pedigrees(
     profiles: &Arc<ProfileService>,
+    redaction: &Redaction,
     tree_id: Uuid,
     root_person_ids: &[Uuid],
     ancestor_depth: i64,
@@ -152,12 +176,16 @@ pub async fn load_pedigrees(
     let pedigrees = profiles
         .assemble_pedigrees(tree_id, root_person_ids, ancestor_depth, descendant_depth)
         .await?;
+    // A root the viewer may not reach is omitted, as a stale one is.
     let entries: Vec<PedigreeEntry> = root_person_ids
         .iter()
+        .filter(|root| redaction.public_id(**root) == Some(**root))
         .filter_map(|&root_person_id| {
+            let mut pedigree = pedigrees.get(&root_person_id)?.clone();
+            redaction.pedigree(&mut pedigree);
             Some(PedigreeEntry {
                 root_person_id,
-                pedigree: pedigrees.get(&root_person_id)?.clone(),
+                pedigree,
             })
         })
         .collect();

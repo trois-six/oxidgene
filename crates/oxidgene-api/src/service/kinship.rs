@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::{Kinship, KinshipPath, KinshipSegment};
 use oxidgene_db::repo::{AncestryRepo, FamilyLink, PersonRepo};
 use sea_orm::ConnectionTrait;
@@ -49,9 +50,16 @@ const MAX_GENERATIONS: usize = 64;
 /// `NotFound` if either person is missing from the tree; `Validation` if both
 /// are the same person.
 #[tracing::instrument(name = "kinship.find", skip_all)]
+///
+/// As `redaction`'s viewer sees it (docs/privacy.md §7, "Kinship"): both
+/// persons must be shown to them in full; no path goes through a person
+/// absent to them, so two persons related only through one are unrelated;
+/// a placeholder on a path keeps the identifier the viewer may know, and
+/// has no row in `persons`.
 pub async fn find_kinship(
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
     from: Uuid,
     to: Uuid,
@@ -63,8 +71,19 @@ pub async fn find_kinship(
     }
     PersonRepo::get_in_tree(db, tree_id, from).await?;
     PersonRepo::get_in_tree(db, tree_id, to).await?;
+    for person in [from, to] {
+        if !redaction.shows(person) {
+            return Err(OxidGeneError::NotFound {
+                entity: "Person",
+                id: person,
+            });
+        }
+    }
 
-    let links = AncestryRepo::family_links(db, tree_id).await?;
+    let mut links = AncestryRepo::family_links(db, tree_id).await?;
+    if !redaction.is_unrestricted() {
+        links.retain(|link| redaction.appears(link.person_id));
+    }
     // Indexing every family link of the tree and walking it is the costly
     // part, and pure computation: kept off the async workers.
     let span = tracing::info_span!("kinship.walk", link.count = links.len());
@@ -86,7 +105,22 @@ pub async fn find_kinship(
             }
         }
     }
-    let persons = profiles.search_entries(tree_id, &named).await?;
+    let persons = profiles
+        .search_entries_as(redaction, tree_id, &named)
+        .await?;
+    let mut paths = paths;
+    if !redaction.is_unrestricted() {
+        let public = |ids: &mut Vec<Uuid>| {
+            for id in ids.iter_mut() {
+                *id = redaction.public_id(*id).unwrap_or(*id);
+            }
+        };
+        for segment in paths.iter_mut().flat_map(|path| &mut path.segments) {
+            public(&mut segment.ancestor_ids);
+            public(&mut segment.from_line);
+            public(&mut segment.to_line);
+        }
+    }
 
     Ok(Kinship {
         from_person_id: from,

@@ -22,6 +22,21 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
 
+/// The portraits of `rows` the viewer may see: those of persons shown in
+/// full.
+#[must_use]
+pub fn portraits_as(
+    redaction: &oxidgene_core::redaction::Redaction,
+    rows: Vec<oxidgene_db::repo::PortraitRow>,
+) -> Vec<oxidgene_db::repo::PortraitRow> {
+    if redaction.is_unrestricted() {
+        return rows;
+    }
+    rows.into_iter()
+        .filter(|row| redaction.shows(row.person_id))
+        .collect()
+}
+
 /// What is to represent a person: a whole media, a region of one — a face in
 /// a group photograph — or, both absent, nothing.
 ///

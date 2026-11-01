@@ -29,6 +29,7 @@ use super::state::AppState;
 /// nickname — containing it.
 pub async fn list_persons(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonListQuery>,
 ) -> Result<Json<Connection<Person>>, ApiError> {
@@ -36,8 +37,21 @@ pub async fn list_persons(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let persons =
-        PersonRepo::list_filtered(&state.reader, tree_id, query.search.as_deref(), &params).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+    let mut persons = PersonRepo::list_filtered(
+        &state.reader,
+        tree_id,
+        query.search.as_deref(),
+        &params,
+        &hidden,
+    )
+    .await?;
+    if redaction.withholds_tags() {
+        for edge in &mut persons.edges {
+            edge.node.tags.clear();
+        }
+    }
     Ok(Json(persons))
 }
 
@@ -55,10 +69,17 @@ pub async fn create_person(
 /// GET /api/v1/trees/:tree_id/persons/:person_id
 pub async fn get_person(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PersonDetailResponse>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let person = PersonRepo::get_in_tree(&state.reader, tree_id, person_id).await?;
-    let sosa_number = state.profiles.sosa_number(tree_id, person_id).await?;
+    let person = crate::profile::person_record(&redaction, person)?;
+    let sosa_number = crate::profile::sosa_shown(
+        &redaction,
+        person_id,
+        state.profiles.sosa_number(tree_id, person_id).await?,
+    );
     Ok(Json(PersonDetailResponse {
         person,
         sosa_number,
@@ -101,10 +122,17 @@ pub async fn delete_person(
 /// somebody else.
 pub async fn list_homonyms(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<SearchEntry>>, ApiError> {
     PersonRepo::get_in_tree(&state.reader, tree_id, person_id).await?;
-    Ok(Json(state.profiles.homonyms(tree_id, person_id).await?))
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    Ok(Json(
+        state
+            .profiles
+            .homonyms_as(&redaction, tree_id, person_id)
+            .await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/persons/:person_id/distinct
@@ -147,10 +175,13 @@ pub async fn merge_persons(
 /// GET /api/v1/trees/:tree_id/persons/:person_id/ancestors
 pub async fn get_ancestors(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<Vec<AncestryLink>>, ApiError> {
-    let ancestors = person::lineage(
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let ancestors = person::lineage_as(
+        &redaction,
         &state.reader,
         tree_id,
         person_id,
@@ -164,10 +195,13 @@ pub async fn get_ancestors(
 /// GET /api/v1/trees/:tree_id/persons/:person_id/descendants
 pub async fn get_descendants(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<Vec<AncestryLink>>, ApiError> {
-    let descendants = person::lineage(
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let descendants = person::lineage_as(
+        &redaction,
         &state.reader,
         tree_id,
         person_id,
@@ -185,11 +219,14 @@ pub async fn get_descendants(
 /// ancestor.
 pub async fn get_kinship(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id, other_person_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Json<Kinship>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let kinship = kinship::find_kinship(
         &state.reader,
         &state.profiles,
+        &redaction,
         tree_id,
         person_id,
         other_person_id,
@@ -207,6 +244,7 @@ pub async fn get_kinship(
 /// tag id, keeps the persons carrying every one of the tags given.
 pub async fn search_persons(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonSearchQuery>,
     Query(mut filters): Query<PersonSearchFilters>,
@@ -215,9 +253,11 @@ pub async fn search_persons(
     // The repeated `tag` parameter names the tags a person must carry; the
     // struct above takes no sequence from a query string.
     filters.tags = crate::rest::dto::tag_ids(pairs)?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let results = state
         .profiles
-        .search_filtered(
+        .search_as(
+            &redaction,
             tree_id,
             query.q.as_deref().unwrap_or_default(),
             &filters,
@@ -234,12 +274,15 @@ pub async fn search_persons(
 /// The persons modified most recently, newest first, as search entries.
 pub async fn list_recently_modified(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<RecentlyModifiedQuery>,
 ) -> Result<Json<Vec<SearchEntry>>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let persons = history::recently_modified_persons(
         &state.reader,
         &state.profiles,
+        &redaction,
         tree_id,
         query.limit.unwrap_or(history::RECENT_PERSONS_DEFAULT_LIMIT),
     )
@@ -254,10 +297,13 @@ pub async fn list_recently_modified(
 /// or no person exists at that number.
 pub async fn get_person_by_sosa(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, number)): Path<(Uuid, u64)>,
 ) -> Result<Json<PersonDetailResponse>, ApiError> {
+    let redaction = viewer.redaction(&state, tree_id).await?;
     let person = person::person_by_sosa(&state.reader, tree_id, number)
         .await?
+        .filter(|person| redaction.shows(person.id))
         .ok_or(ApiError(OxidGeneError::NotFound {
             entity: "Person (by SOSA number)",
             id: tree_id,
@@ -297,11 +343,14 @@ pub async fn set_person_portrait(
 /// the same answer.
 pub async fn list_portraits(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PortraitRow>>, ApiError> {
-    Ok(Json(
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    Ok(Json(portrait::portraits_as(
+        &redaction,
         PersonRepo::list_portraits(&state.reader, tree_id).await?,
-    ))
+    )))
 }
 
 /// POST /api/v1/trees/:tree_id/portrait-images
@@ -311,9 +360,17 @@ pub async fn list_portraits(
 /// portraits retain their original URL.
 pub async fn load_portrait_images(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<PortraitImagesRequest>,
 ) -> Result<Json<Vec<PortraitImage>>, ApiError> {
-    let images = portrait::load_portrait_images(&state.reader, tree_id, &body.person_ids).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let shown: Vec<Uuid> = body
+        .person_ids
+        .iter()
+        .copied()
+        .filter(|id| redaction.shows(*id))
+        .collect();
+    let images = portrait::load_portrait_images(&state.reader, tree_id, &shown).await?;
     Ok(Json(images))
 }

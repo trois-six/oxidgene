@@ -11,6 +11,7 @@ mod ancestry;
 mod app_user;
 mod background_job;
 pub(crate) mod batch;
+pub use batch::none_of;
 mod citation;
 mod connection;
 mod descent;

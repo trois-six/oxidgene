@@ -27,9 +27,7 @@ pub async fn suggest(
     Path((tree_id, field)): Path<(Uuid, SuggestionField)>,
     Query(query): Query<ValueSuggestionQuery>,
 ) -> Result<Json<Vec<ValueSuggestion>>, ApiError> {
-    let seen =
-        crate::service::dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id)
-            .await?;
+    let seen = viewer.redaction(&state, tree_id).await?;
     Ok(Json(
         suggestions::suggest(
             &state.reader,

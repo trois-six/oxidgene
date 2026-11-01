@@ -14,6 +14,16 @@ use uuid::Uuid;
 /// values, and a list this long is already far past where it stops helping.
 pub(crate) const MAX_BOUND_IDS: usize = 10_000;
 
+/// The condition that `column` names none of `ids`: one `NOT IN` per
+/// bounded slice, all of them holding. What a list leaves out for a viewer
+/// who may not see some persons (docs/privacy.md §7).
+pub fn none_of<C: sea_orm::ColumnTrait>(column: C, ids: &[Uuid]) -> sea_orm::Condition {
+    ids.chunks(MAX_BOUND_IDS)
+        .fold(sea_orm::Condition::all(), |condition, chunk| {
+            condition.add(column.is_not_in(chunk.iter().copied()))
+        })
+}
+
 /// Run `query` over `ids` one bounded slice at a time and concatenate the rows.
 ///
 /// An empty `ids` runs no query at all.

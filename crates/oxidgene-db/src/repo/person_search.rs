@@ -152,6 +152,12 @@ pub struct PersonSearchFilters {
     pub has_media: bool,
     /// Only persons carrying every one of these tags, by id.
     pub tags: Vec<Uuid>,
+    /// Persons the viewer may not see, left out of the matches and the
+    /// count (docs/privacy.md §7). Set by the server, never read from a
+    /// request.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub hidden: Vec<Uuid>,
 }
 
 /// Stable server-side ordering for person search.
@@ -1165,7 +1171,24 @@ fn filtered_conditions(
     push_event_filters(values, &mut conditions, backend, tree_id, filters);
     push_relative_filters(values, &mut conditions, backend, tree_id, filters);
     push_tag_filters(values, &mut conditions, backend, tree_id, filters);
+    push_hidden(values, &mut conditions, backend, &filters.hidden);
     conditions.join(" AND ")
+}
+
+/// Leave out the persons of `hidden`, a bounded slice of them per `NOT IN`.
+fn push_hidden(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    hidden: &[Uuid],
+) {
+    for chunk in hidden.chunks(MAX_BOUND_IDS) {
+        let params: Vec<String> = chunk
+            .iter()
+            .map(|id| push_value(values, backend, id.to_string().into()))
+            .collect();
+        conditions.push(format!("person_id NOT IN ({})", params.join(", ")));
+    }
 }
 
 /// The `ORDER BY` clause of a sort.
@@ -1279,6 +1302,7 @@ mod tests {
             event_to: Some(1830),
             has_media: true,
             tags: vec![Uuid::from_u128(5)],
+            hidden: Vec::new(),
         }
     }
 
