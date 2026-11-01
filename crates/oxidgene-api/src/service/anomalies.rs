@@ -15,6 +15,7 @@ use std::sync::Arc;
 use chrono::{Datelike, Duration, NaiveDate};
 use oxidgene_core::calendar::DAYS_PER_YEAR;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{AnomalyThresholds, EventWitness, FamilyChild, Place};
 use oxidgene_core::{ChildType, DateQualifier, EventType, OxidGeneError, Sex, SpouseRole};
@@ -314,10 +315,15 @@ impl Anomaly {
 /// events (counted by the database), and only when the projections show a
 /// need for them the child links of the persons who are children of several
 /// families and the places of a person's events on one day.
+///
+/// A restricted viewer's rules examine only the persons `redaction` shows in
+/// full, as the viewer sees them, and the links between them, so that no
+/// anomaly names or counts a hidden person (docs/privacy.md §7).
 #[tracing::instrument(name = "anomalies.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
     tag: Option<Uuid>,
 ) -> Result<TreeAnomalies, OxidGeneError> {
@@ -326,20 +332,29 @@ pub async fn load(
     if let Some(tag) = tag {
         oxidgene_db::repo::TagRepo::get(db, tree_id, tag).await?;
     }
-    let persons = profiles.get_all_persons(tree_id).await?;
-    let witnesses = EventWitnessRepo::list_by_tree(db, tree_id).await?;
-    let repeated_events = EventRepo::repeated_person_events(db, tree_id, &UNIQUE_EVENTS).await?;
+    let persons = crate::service::redacted::shown_profiles(
+        redaction,
+        profiles.get_all_persons(tree_id).await?,
+    );
+    let mut witnesses = EventWitnessRepo::list_by_tree(db, tree_id).await?;
+    let mut repeated_events =
+        EventRepo::repeated_person_events(db, tree_id, &UNIQUE_EVENTS).await?;
+    if !redaction.is_unrestricted() {
+        witnesses.retain(|witness| redaction.shows(witness.person_id));
+        repeated_events.retain(|(person, ..)| redaction.shows(*person));
+    }
     let span = tracing::info_span!("anomalies.wanted", person.count = persons.len());
     let (persons, wanted) = crate::service::blocking::run(span, move || {
         let wanted = Wanted::of(&persons);
         (persons, wanted)
     })
     .await?;
-    let child_links = if wanted.children.is_empty() {
+    let mut child_links = if wanted.children.is_empty() {
         Vec::new()
     } else {
         FamilyChildRepo::list_by_persons(db, &wanted.children).await?
     };
+    child_links.retain(|link| redaction.shows(link.person_id));
     let coordinates = coordinates(db, profiles.cache(), tree_id, &wanted.places).await?;
     let records = Records {
         thresholds: tree.anomaly_thresholds,
@@ -354,10 +369,35 @@ pub async fn load(
         person.count = persons.len(),
         witness.count = records.witnesses.len(),
     );
-    crate::service::blocking::run(span, move || {
+    let shown = (!redaction.is_unrestricted()).then(|| crate::service::redacted::ids(&persons));
+    let mut found = crate::service::blocking::run(span, move || {
         compute_for_tag(&persons, &records, today, tag)
     })
-    .await
+    .await?;
+    if let Some(shown) = shown {
+        name_only_shown(&mut found, &shown, redaction);
+    }
+    Ok(found)
+}
+
+/// Leave out of `found` any anomaly naming a person outside `shown` or a
+/// family `redaction` withholds: the rules saw only the persons shown, so
+/// this is the last guard, not the filter.
+fn name_only_shown(found: &mut TreeAnomalies, shown: &HashSet<Uuid>, redaction: &Redaction) {
+    let names_shown =
+        |anomaly: &Anomaly| {
+            anomaly.persons.iter().all(|person| {
+                Uuid::parse_str(&person.person_id).is_ok_and(|id| shown.contains(&id))
+            }) && anomaly.family_id.as_deref().is_none_or(|family| {
+                Uuid::parse_str(family).is_ok_and(|id| !redaction.family_withheld(id))
+            })
+        };
+    for rule in &mut found.rules {
+        let before = rule.items.len();
+        rule.items.retain(|anomaly| names_shown(anomaly));
+        rule.count -= (before - rule.items.len()) as i64;
+    }
+    found.rules.retain(|rule| rule.count > 0);
 }
 
 /// Where the places `ids` of tree `tree_id` lie: their own coordinates, else
@@ -396,17 +436,21 @@ async fn coordinates(
 }
 
 /// Loads a tree's used places and returns those that cannot be located, most
-/// used first: the places the statistics count as not located, by the same
+/// used first, as `redaction`'s viewer sees the places: the places the statistics count as not located, by the same
 /// rule (`crate::service::statistics::locate_used`), the dictionary
 /// readings coming from the tree cache of `profiles`.
 #[tracing::instrument(name = "anomalies.unlocated_places", skip_all)]
 pub async fn load_unlocated_places(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
 ) -> Result<Vec<PlaceUsage>, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
+    // A restricted viewer's: the places their visible records use, counted
+    // so (docs/privacy.md §7).
+    let places =
+        oxidgene_db::repo::DictionaryRepo::places_with_usage_for(db, tree_id, redaction).await?;
     let readings = PlaceReadings::of_used(profiles.cache(), tree_id, &places).await?;
     // The language only names countries and regions, which this list does
     // not show.

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:30:00Z }
 ---
 
 
@@ -1362,6 +1362,20 @@ The response is `{ days, imports }`:
 
 Read models backing the [Tools](ui-tools.md) page, computed on each request
 from the person projections; nothing is stored.
+
+**What a restricted viewer's tools leave out** ([Privacy §7](privacy.md#7-enforcement-points)).
+For a viewer holding `tools` whom the owner's redaction does not show
+everything — an Editor, who does not see the owner's excluded persons — the
+four reads, REST's and GraphQL's alike, compute over the persons the viewer
+sees in full, each projection as the viewer sees it: a hidden relative is
+renamed or gone, a withheld family's events are left out, and a hidden
+person's witness links, repeated events and child links are not read. No
+anomaly, duplicate pair or ancestry entry names a hidden person, and
+`persons` counts the persons examined; an anomaly about a withheld family is
+left out; an ancestor the viewer does not see is missing, with the line
+above them; a SOSA root the viewer does not see is no root. The unlocated
+places are those the viewer's [Dictionary](#dictionary) lists, counted so.
+The owner's tools are unchanged.
 
 | Method | Path | Description |
 |---|---|---|

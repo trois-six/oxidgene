@@ -1060,10 +1060,12 @@ impl TreeQuery {
     ) -> Result<crate::service::ancestry::AncestryCompleteness> {
         boxed(async move {
             let generations = crate::service::ancestry::generations(generations)?;
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::ancestry::load(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
                 generations,
             )
             .await?)
@@ -1082,10 +1084,12 @@ impl TreeQuery {
     ) -> Result<super::types::GqlTreeAnomalies> {
         boxed(async move {
             let tag = tag.as_ref().map(uuid).transpose()?;
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::anomalies::load(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
                 tag,
             )
             .await?
@@ -1101,10 +1105,12 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<super::types::GqlPotentialDuplicates> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::duplicates::load_potential_duplicates(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
             )
             .await?
             .into())
@@ -1120,10 +1126,12 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<Vec<crate::service::statistics::PlaceUsage>> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::anomalies::load_unlocated_places(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &*seen(ctx, tree_id).await?,
+                tree_id,
             )
             .await?)
         })

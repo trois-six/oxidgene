@@ -584,3 +584,106 @@ async fn the_history_leaves_out_what_is_about_hidden_persons() {
     );
     assert!(!names_hidden(&seen), "{seen}");
 }
+
+#[tokio::test]
+async fn an_editors_tools_leave_out_hidden_persons() {
+    let f = Fixture::new().await;
+    let thistle = f.canaries.person("Thistle").to_owned();
+    let quillon = f.canaries.person("Quillon").to_owned();
+    // An occupation after death for the excluded canary and for a visible
+    // ancestor: an anomaly naming each.
+    for (given, year) in [("Thistle", "2010"), ("Ashby", "1950")] {
+        ok(
+            &f.local,
+            Method::POST,
+            &f.uri("/events"),
+            Some(json!({
+                "event_type": "occupation",
+                "date_value": year,
+                "person_id": f.canaries.person(given),
+            })),
+        )
+        .await;
+    }
+    // A visible namesake of the excluded canary: a potential duplicate.
+    let namesake = ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/persons"),
+        Some(json!({ "sex": "female" })),
+    )
+    .await;
+    let namesake = namesake["id"].as_str().unwrap().to_owned();
+    ok(
+        &f.local,
+        Method::POST,
+        &f.uri(&format!("/persons/{namesake}/names")),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": "Thistle",
+            "surname": "Wrenfield",
+            "is_primary": true,
+        })),
+    )
+    .await;
+    // The contemporary canary as the SOSA root.
+    ok(
+        &f.local,
+        Method::PUT,
+        &f.uri(""),
+        Some(json!({ "sosa_root_person_id": quillon })),
+    )
+    .await;
+
+    let anomalies = f.get(Who::Owner, &f.uri("/anomalies")).await;
+    assert!(anomalies.contains(&thistle), "{anomalies}");
+    let seen = f.get(Who::Editor, &f.uri("/anomalies")).await;
+    assert!(!seen.contains(&thistle), "{seen}");
+    assert!(
+        seen.contains(f.canaries.person("Ashby")),
+        "a visible anomaly stays: {seen}"
+    );
+    let ancestry = f.get(Who::Owner, &f.uri("/ancestry-completeness")).await;
+    assert!(ancestry.contains(&quillon), "{ancestry}");
+    let seen = f.get(Who::Editor, &f.uri("/ancestry-completeness")).await;
+    assert!(!seen.contains(&quillon) && !names_hidden(&seen), "{seen}");
+    for path in [
+        "/anomalies",
+        "/duplicates",
+        "/unlocated-places",
+        "/ancestry-completeness",
+    ] {
+        let seen = f.get(Who::Editor, &f.uri(path)).await;
+        assert!(
+            !seen.contains(&thistle) && !seen.contains(&quillon),
+            "{path}: {seen}"
+        );
+        assert!(!names_hidden(&seen), "{path}: {seen}");
+    }
+
+    let query = format!(
+        r#"{{ treeAnomalies(treeId: "{t}") {{ persons rules {{ rule count items {{ persons {{ personId name }} }} }} }}
+             potentialDuplicates(treeId: "{t}") {{ count pairs {{ first {{ personId }} second {{ personId }} }} }}
+             unlocatedPlaces(treeId: "{t}") {{ placeId name count }}
+             ancestryCompleteness(treeId: "{t}") {{ root {{ personId name }} }} }}"#,
+        t = f.tree()
+    );
+    let owner = f.gql(Who::Owner, &query).await;
+    assert!(owner.to_string().contains(&thistle), "{owner}");
+    assert_eq!(
+        owner["ancestryCompleteness"]["root"]["personId"],
+        quillon.as_str()
+    );
+    let seen = f.gql(Who::Editor, &query).await;
+    let text = seen.to_string();
+    assert!(
+        !text.contains(&thistle) && !text.contains(&quillon),
+        "{text}"
+    );
+    assert!(!names_hidden(&text), "{text}");
+    assert_eq!(seen["ancestryCompleteness"]["root"], Value::Null);
+    assert!(
+        seen["treeAnomalies"]["persons"].as_i64() < owner["treeAnomalies"]["persons"].as_i64(),
+        "the persons examined are those the Editor sees"
+    );
+}

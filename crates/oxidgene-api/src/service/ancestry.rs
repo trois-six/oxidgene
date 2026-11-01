@@ -108,22 +108,31 @@ pub fn generations(requested: Option<i64>) -> Result<u32, OxidGeneError> {
 }
 
 /// Loads a tree's projections and computes its ancestry completeness from
-/// its SOSA root.
+/// its SOSA root, over the persons `redaction` shows in full: an ancestor
+/// the viewer does not see is missing, and so is the line above them; a
+/// root they do not see is no root (docs/privacy.md §7).
 #[tracing::instrument(name = "ancestry.load", skip_all, fields(ancestry.generations = generations))]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     generations: u32,
 ) -> Result<AncestryCompleteness, OxidGeneError> {
     let tree = oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let Some(root) = tree.sosa_root_person_id else {
+    let Some(root) = tree
+        .sosa_root_person_id
+        .filter(|root| redaction.shows(*root))
+    else {
         return Ok(AncestryCompleteness {
             root: None,
             generations: Vec::new(),
         });
     };
-    let persons = profiles.get_all_persons(tree_id).await?;
+    let persons = crate::service::redacted::shown_profiles(
+        redaction,
+        profiles.get_all_persons(tree_id).await?,
+    );
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!("ancestry.compute", person.count = persons.len());
     crate::service::blocking::run(span, move || compute(&persons, root, generations, today)).await

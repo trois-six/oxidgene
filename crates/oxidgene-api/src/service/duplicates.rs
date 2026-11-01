@@ -502,15 +502,20 @@ pub struct PotentialDuplicates {
 }
 
 /// Loads a tree's projections and its distinct-person confirmations, and
-/// finds the pairs of records that may be one person.
+/// finds the pairs of records that may be one person: among the persons
+/// `redaction` shows in full, as its viewer sees them (docs/privacy.md §7).
 #[tracing::instrument(name = "duplicates.load", skip_all)]
 pub async fn load_potential_duplicates(
     db: &sea_orm::DatabaseConnection,
     profiles: &ProfileService,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
 ) -> Result<PotentialDuplicates, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let persons = profiles.get_all_persons(tree_id).await?;
+    let persons = crate::service::redacted::shown_profiles(
+        redaction,
+        profiles.get_all_persons(tree_id).await?,
+    );
     let distinct = PersonDistinctRepo::pairs_in_tree(db, tree_id).await?;
     let span = tracing::info_span!(
         "duplicates.compute",

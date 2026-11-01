@@ -49,6 +49,7 @@ pub mod person_name;
 pub mod place;
 pub mod portrait;
 pub mod purge;
+pub mod redacted;
 pub mod relation_labels;
 pub mod repository;
 pub mod scope;
