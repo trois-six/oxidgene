@@ -13,6 +13,7 @@ use std::str::FromStr;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditCategory, AuditDetails, AuditEntity};
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::RecordKind;
 use oxidgene_db::entities::person;
 use oxidgene_db::repo::{
@@ -123,10 +124,11 @@ pub async fn bulk_tag(
     action: BulkAction,
     spec: &TagTargetSpec,
 ) -> Result<u64, OxidGeneError> {
+    let redaction = crate::authz::redaction::redaction(db, profiles, viewer, tree_id).await?;
     let txn = begin_tx(db).await?;
     require_live_tree(&txn, tree_id).await?;
     let tag = TagRepo::get(&txn, tree_id, tag_id).await?;
-    let ids = resolve(&txn, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
+    let ids = resolve(&txn, &redaction, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
     let (changed, audit_action) = match action {
         BulkAction::Add => (
             RecordTagRepo::add_persons(&txn, tree_id, tag.id, &ids).await?,
@@ -164,11 +166,12 @@ pub async fn bulk_tag(
 /// The size of the target and the tags its persons carry, writing nothing.
 pub async fn target_counts(
     db: &DatabaseConnection,
+    redaction: &Redaction,
     tree_id: Uuid,
     spec: &TagTargetSpec,
 ) -> Result<TargetCounts, OxidGeneError> {
     require_live_tree(db, tree_id).await?;
-    let ids = resolve(db, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
+    let ids = resolve(db, redaction, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;
     let counts = RecordTagRepo::person_tag_counts(db, tree_id, &ids).await?;
     let mut tags: Vec<TagTargetCount> = counts
         .into_iter()
@@ -187,7 +190,90 @@ pub async fn target_counts(
 /// `not_found` on a listed or walked-from person, or on a tag, that is not
 /// live in the tree. A bulk change and a count are bounded by
 /// [`MAX_TARGET_PERSONS`]; an export is not.
+///
+/// Only the persons `redaction` shows in full are named: a listed or
+/// walked-from person it hides is `not_found`, and the others it hides are
+/// left out, neither counted nor changed (docs/privacy.md §6.4).
 async fn resolve(
+    db: &impl ConnectionTrait,
+    redaction: &Redaction,
+    tree_id: Uuid,
+    spec: &TagTargetSpec,
+    bound: Option<usize>,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let ids = resolve_all(db, tree_id, spec, bound).await?;
+    if redaction.is_unrestricted() {
+        return Ok(ids);
+    }
+    let named = spec
+        .persons
+        .iter()
+        .flatten()
+        .copied()
+        .chain(spec.ancestors_of)
+        .chain(spec.descendants_of)
+        .chain(spec.ancestors_and_descendants_of);
+    for id in named {
+        crate::profile::require_reachable(redaction, id)?;
+    }
+    let root = spec
+        .ancestors_of
+        .or(spec.descendants_of)
+        .or(spec.ancestors_and_descendants_of);
+    let reached = match root {
+        Some(root) => Some(seen_branch(db, redaction, tree_id, root, spec).await?),
+        None => None,
+    };
+    Ok(ids
+        .into_iter()
+        .filter(|id| redaction.shows(*id))
+        .filter(|id| reached.as_ref().is_none_or(|reached| reached.contains(id)))
+        .collect())
+}
+
+/// The persons a branch target may name for `redaction`'s viewer: those
+/// they reach from `root` through persons who appear to them, the spouses
+/// of the descendants reached, and the root.
+async fn seen_branch(
+    db: &impl ConnectionTrait,
+    redaction: &Redaction,
+    tree_id: Uuid,
+    root: Uuid,
+    spec: &TagTargetSpec,
+) -> Result<HashSet<Uuid>, OxidGeneError> {
+    let depth = depth_bound(spec.depth)?;
+    let links = AncestryRepo::family_links(db, tree_id).await?;
+    let walk = |up| {
+        crate::service::redacted::seen_lineage(&links, redaction, root, up, depth)
+            .into_iter()
+            .map(|link| link.person_id)
+    };
+    let mut reached: HashSet<Uuid> = HashSet::from([root]);
+    if spec.ancestors_of.is_some() || spec.ancestors_and_descendants_of.is_some() {
+        reached.extend(walk(true));
+    }
+    if spec.descendants_of.is_some() || spec.ancestors_and_descendants_of.is_some() {
+        let descendants: HashSet<Uuid> = walk(false).collect();
+        if spec.include_spouses {
+            let families: HashSet<Uuid> = links
+                .iter()
+                .filter(|l| l.spouse_role.is_some() && descendants.contains(&l.person_id))
+                .map(|l| l.family_id)
+                .collect();
+            reached.extend(
+                links
+                    .iter()
+                    .filter(|l| l.spouse_role.is_some() && families.contains(&l.family_id))
+                    .map(|l| l.person_id),
+            );
+        }
+        reached.extend(descendants);
+    }
+    Ok(reached)
+}
+
+/// [`resolve`] for a viewer who sees every person.
+async fn resolve_all(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     spec: &TagTargetSpec,
@@ -236,7 +322,8 @@ pub async fn export_persons(
     tree_id: Uuid,
     spec: &TagTargetSpec,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
-    let ids = resolve(db, tree_id, spec, None).await?;
+    // The export itself leaves out what its exporter may not see (§8).
+    let ids = resolve_all(db, tree_id, spec, None).await?;
     if ids.is_empty() {
         return Err(OxidGeneError::Validation(
             "a scope holds no person".to_owned(),

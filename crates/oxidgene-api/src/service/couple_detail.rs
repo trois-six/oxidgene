@@ -18,9 +18,7 @@ use uuid::Uuid;
 use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::gallery::{GalleryBundle, load_visible_gallery_bundle};
-use crate::service::person_detail::{
-    PersonDetailBundle, ProfileMediaTile, load_person_detail_bundle,
-};
+use crate::service::person_detail::{PersonDetailBundle, ProfileMediaTile, load_seen_bundle};
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// The most notes a couple page shows for each of the family and its
@@ -67,7 +65,7 @@ pub async fn load_couple_detail_bundle(
     let persons = futures_util::future::try_join_all(
         spouses
             .iter()
-            .map(|spouse| load_person_detail_bundle(db, profiles, tree_id, spouse.person_id)),
+            .map(|spouse| load_seen_bundle(db, profiles, records, tree_id, spouse.person_id)),
     )
     .await?;
 

@@ -170,10 +170,12 @@ impl TreeQuery {
         person_id: ID,
     ) -> Result<GqlPersonDetailBundle> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(crate::service::person_detail::load_person_detail_bundle(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                live_tree(ctx, &tree_id).await?,
+                &records(ctx, tree_id).await?,
+                tree_id,
                 uuid(&person_id)?,
             )
             .await?
@@ -1538,7 +1540,9 @@ impl TreeQuery {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let spec = tag_target_spec(target)?;
-            let counts = tag_bulk::target_counts(reader_from_ctx(ctx), tid, &spec).await?;
+            let counts =
+                tag_bulk::target_counts(reader_from_ctx(ctx), &*seen(ctx, tid).await?, tid, &spec)
+                    .await?;
             Ok(counts.into())
         })
         .await

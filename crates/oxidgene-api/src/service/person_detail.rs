@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::types::{
-    Citation, Event, FamilyChild, FamilySpouse, Media, Person, PersonName, Place, PortraitRef,
-    Source, Vignette,
+    Citation, Event, FamilyChild, FamilySpouse, Media, MediaLink, Person, PersonName, Place,
+    PortraitRef, Source, Vignette,
 };
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
@@ -17,8 +17,9 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::profile::ProfileService;
-use crate::service::gallery::{GalleryBundle, load_gallery_bundle};
+use crate::service::gallery::{GalleryBundle, load_gallery_bundle, load_visible_gallery_bundle};
 
 const GALLERY_BATCH_SIZE: usize = 1_024;
 
@@ -106,22 +107,176 @@ pub struct EventVignette {
     pub document_id: Option<Uuid>,
 }
 
+/// The person page of `person_id` as the viewer of `records` sees it
+/// (docs/privacy.md §7): `not_found` unless they reach the person by that
+/// identifier; a placeholder's page holds its record alone; a shown
+/// person's leaves out the relatives absent to the viewer, names its
+/// hidden ones by the identifier the viewer may know, and holds none of
+/// the events, citations, sources, places and media the viewer may not
+/// see.
 #[tracing::instrument(name = "person_detail.load", skip_all)]
 pub async fn load_person_detail_bundle(
     db: &DatabaseConnection,
     profiles: &ProfileService,
+    records: &Records,
     tree_id: Uuid,
     person_id: Uuid,
 ) -> Result<PersonDetailBundle, OxidGeneError> {
+    crate::profile::require_reachable(records.redaction(), person_id)?;
+    load_seen_bundle(db, profiles, records, tree_id, person_id).await
+}
+
+/// The page of a person the viewer of `records` sees, in full or as a
+/// placeholder, whether or not they may reach it by `person_id`: a couple
+/// page's spouse, named by the identifier the viewer may know.
+pub(crate) async fn load_seen_bundle(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    records: &Records,
+    tree_id: Uuid,
+    person_id: Uuid,
+) -> Result<PersonDetailBundle, OxidGeneError> {
+    let not_found = OxidGeneError::NotFound {
+        entity: "Person",
+        id: person_id,
+    };
     let person = PersonRepo::get(db, person_id).await?;
     if person.tree_id != tree_id {
-        return Err(OxidGeneError::NotFound {
-            entity: "Person",
-            id: person_id,
-        });
+        return Err(not_found);
+    }
+    let redaction = records.redaction();
+    let shown = redaction.shows(person_id);
+    let person = crate::profile::seen_person(redaction, person).ok_or(not_found)?;
+    if !shown {
+        return Ok(placeholder_bundle(person));
     }
     let sosa_number = profiles.sosa_number(tree_id, person_id).await?;
 
+    let PageFamilies {
+        profile_family_ids,
+        spouses,
+        children,
+        person_ids,
+        related_person_ids,
+        direct_family_id_list,
+        timeline_person_ids,
+    } = page_families(db, person_id).await?;
+
+    let (mut persons, mut names, mut events, family_events) = tokio::try_join!(
+        PersonRepo::get_many(db, &related_person_ids),
+        PersonNameRepo::list_by_persons(db, &person_ids),
+        EventRepo::list_by_persons(db, &timeline_person_ids),
+        EventRepo::list_by_families(db, &direct_family_id_list),
+    )?;
+    persons.push(person);
+    events.extend(family_events);
+    events.sort_by_key(|event| event.id);
+    events.dedup_by_key(|event| event.id);
+    let (mut spouses, mut children) = (spouses, children);
+    if !records.is_unrestricted() {
+        persons = persons
+            .into_iter()
+            .filter_map(|person| crate::profile::seen_person(redaction, person))
+            .collect();
+        events = records.retain(events);
+        seen_links(records, &mut names, &mut spouses, &mut children);
+    }
+    persons.sort_by_key(|person| person.id);
+
+    let place_ids = sorted_unique(events.iter().filter_map(|event| event.place_id));
+    let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
+    let (places, citations, media_rows, profile_media_rows, profile_vignettes, event_vignettes) = tokio::try_join!(
+        PlaceRepo::get_many(db, &place_ids),
+        CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
+        MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
+        MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
+        VignetteRepo::list_for_person(db, person_id),
+        live_event_vignettes(db, &event_ids),
+    )?;
+    let PageEvidence {
+        citations,
+        media_rows,
+        profile_media_rows,
+        profile_vignettes,
+        event_vignettes,
+    } = PageEvidence {
+        citations,
+        media_rows,
+        profile_media_rows,
+        profile_vignettes,
+        event_vignettes,
+    }
+    .seen_by(records);
+    let source_ids = sorted_unique(citations.iter().map(|citation| citation.source_id));
+    let (sources, source_holdings, source_links) = cited_sources(db, tree_id, &source_ids).await?;
+
+    let (event_media, profile_media) = media_tiles(person_id, media_rows, profile_media_rows);
+    let media_ids = sorted_unique(
+        event_media
+            .iter()
+            .map(|item| item.media.id)
+            .chain(profile_media.iter().map(|item| item.media.id)),
+    );
+    let vignette_ids = sorted_unique(
+        profile_vignettes
+            .iter()
+            .map(|item| item.id)
+            .chain(event_vignettes.iter().map(|item| item.vignette.id)),
+    );
+    let gallery = if records.is_unrestricted() {
+        load_page_gallery(db, tree_id, &media_ids, &vignette_ids).await
+    } else {
+        load_visible_gallery_bundle(db, records, tree_id, &media_ids, &vignette_ids).await
+    }?;
+    let (portrait, mut sosa_ancestor_ids) =
+        page_marks(db, profiles, tree_id, person_id, &persons).await?;
+    sosa_ancestor_ids.retain(|id| redaction.shows(*id));
+
+    Ok(PersonDetailBundle {
+        portrait,
+        sosa_ancestor_ids,
+        sosa_number,
+        persons,
+        names,
+        events,
+        places,
+        spouses,
+        children,
+        citations,
+        sources,
+        source_holdings,
+        source_links,
+        profile_media,
+        profile_vignettes,
+        event_media,
+        event_vignettes,
+        gallery,
+    })
+}
+
+/// The families a person page draws: the person's unions, their parents'
+/// family and their parents' other unions, with the identifiers the page
+/// reads next.
+struct PageFamilies {
+    /// The person's unions, whose media the profile shows.
+    profile_family_ids: Vec<Uuid>,
+    spouses: Vec<FamilySpouse>,
+    children: Vec<FamilyChild>,
+    /// The person and every member of those families.
+    person_ids: Vec<Uuid>,
+    /// The same without the person.
+    related_person_ids: Vec<Uuid>,
+    /// The person's unions and their parents' family, whose events the
+    /// timeline shows.
+    direct_family_id_list: Vec<Uuid>,
+    /// The person, their parents and the children of those families.
+    timeline_person_ids: Vec<Uuid>,
+}
+
+async fn page_families(
+    db: &DatabaseConnection,
+    person_id: Uuid,
+) -> Result<PageFamilies, OxidGeneError> {
     let (own_spouse_links, own_child_links) = tokio::try_join!(
         FamilySpouseRepo::list_by_person(db, person_id),
         FamilyChildRepo::list_by_person(db, person_id),
@@ -175,32 +330,24 @@ pub async fn load_person_detail_bundle(
             .chain(children.iter().map(|link| link.person_id)),
     );
 
-    let (mut persons, names, mut events, family_events) = tokio::try_join!(
-        PersonRepo::get_many(db, &related_person_ids),
-        PersonNameRepo::list_by_persons(db, &person_ids),
-        EventRepo::list_by_persons(db, &timeline_person_ids),
-        EventRepo::list_by_families(db, &direct_family_id_list),
-    )?;
-    persons.push(person);
-    persons.sort_by_key(|person| person.id);
-    events.extend(family_events);
-    events.sort_by_key(|event| event.id);
-    events.dedup_by_key(|event| event.id);
+    Ok(PageFamilies {
+        profile_family_ids,
+        spouses,
+        children,
+        person_ids,
+        related_person_ids,
+        direct_family_id_list,
+        timeline_person_ids,
+    })
+}
 
-    let place_ids = sorted_unique(events.iter().filter_map(|event| event.place_id));
-    let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
-    let (places, citations, media_rows, mut profile_media_rows, profile_vignettes, event_vignettes) =
-        tokio::try_join!(
-            PlaceRepo::get_many(db, &place_ids),
-            CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
-            MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
-            MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
-            VignetteRepo::list_for_person(db, person_id),
-            live_event_vignettes(db, &event_ids),
-        )?;
-    let source_ids = sorted_unique(citations.iter().map(|citation| citation.source_id));
-    let (sources, source_holdings, source_links) = cited_sources(db, tree_id, &source_ids).await?;
-
+/// The page's media tiles: those of its events, then its person's own
+/// and their unions', each medium once, the person's own first.
+fn media_tiles(
+    person_id: Uuid,
+    media_rows: Vec<(MediaLink, Media)>,
+    mut profile_media_rows: Vec<(MediaLink, Media)>,
+) -> (Vec<EventMediaTile>, Vec<ProfileMediaTile>) {
     let event_media = media_rows
         .into_iter()
         .filter_map(|(link, media)| {
@@ -228,42 +375,95 @@ pub async fn load_person_detail_bundle(
                 })
         })
         .collect::<Vec<_>>();
-    let media_ids = sorted_unique(
-        event_media
-            .iter()
-            .map(|item| item.media.id)
-            .chain(profile_media.iter().map(|item| item.media.id)),
-    );
-    let vignette_ids = sorted_unique(
-        profile_vignettes
-            .iter()
-            .map(|item| item.id)
-            .chain(event_vignettes.iter().map(|item| item.vignette.id)),
-    );
-    let gallery = load_page_gallery(db, tree_id, &media_ids, &vignette_ids).await?;
-    let (portrait, sosa_ancestor_ids) =
-        page_marks(db, profiles, tree_id, person_id, &persons).await?;
+    (event_media, profile_media)
+}
 
-    Ok(PersonDetailBundle {
-        portrait,
-        sosa_ancestor_ids,
-        sosa_number,
-        persons,
-        names,
-        events,
-        places,
-        spouses,
-        children,
-        citations,
-        sources,
-        source_holdings,
-        source_links,
-        profile_media,
-        profile_vignettes,
-        event_media,
-        event_vignettes,
-        gallery,
-    })
+/// The page of a placeholder: its record alone.
+fn placeholder_bundle(person: Person) -> PersonDetailBundle {
+    PersonDetailBundle {
+        sosa_number: None,
+        persons: vec![person],
+        names: Vec::new(),
+        events: Vec::new(),
+        places: Vec::new(),
+        spouses: Vec::new(),
+        children: Vec::new(),
+        citations: Vec::new(),
+        sources: Vec::new(),
+        source_holdings: Vec::new(),
+        source_links: Vec::new(),
+        profile_media: Vec::new(),
+        profile_vignettes: Vec::new(),
+        event_media: Vec::new(),
+        event_vignettes: Vec::new(),
+        gallery: GalleryBundle {
+            media: Vec::new(),
+            vignettes: Vec::new(),
+        },
+        portrait: None,
+        sosa_ancestor_ids: Vec::new(),
+    }
+}
+
+/// What a page shows about its events and its person, as loaded.
+struct PageEvidence {
+    citations: Vec<Citation>,
+    media_rows: Vec<(MediaLink, Media)>,
+    profile_media_rows: Vec<(MediaLink, Media)>,
+    profile_vignettes: Vec<Vignette>,
+    event_vignettes: Vec<EventVignette>,
+}
+
+impl PageEvidence {
+    /// What of it the viewer of `records` may see.
+    fn seen_by(mut self, records: &Records) -> Self {
+        if records.is_unrestricted() {
+            return self;
+        }
+        self.event_vignettes
+            .retain(|item| !records.hides_vignette(item.vignette.id));
+        Self {
+            citations: records.retain(self.citations),
+            media_rows: visible_media(records, self.media_rows),
+            profile_media_rows: visible_media(records, self.profile_media_rows),
+            profile_vignettes: records.vignettes(self.profile_vignettes),
+            event_vignettes: self.event_vignettes,
+        }
+    }
+}
+
+/// The names of the persons the viewer sees in full, and the family member
+/// links they may see under the identifiers they may know.
+fn seen_links(
+    records: &Records,
+    names: &mut Vec<PersonName>,
+    spouses: &mut Vec<FamilySpouse>,
+    children: &mut Vec<FamilyChild>,
+) {
+    names.retain(|name| records.redaction().shows(name.person_id));
+    spouses.retain_mut(|link| relink(records, &mut link.person_id));
+    children.retain_mut(|link| relink(records, &mut link.person_id));
+}
+
+/// Keep a family member link the viewer may see, under the identifier
+/// they may know of its person.
+fn relink(records: &Records, person_id: &mut Uuid) -> bool {
+    match records.person_id(*person_id) {
+        Some(id) => {
+            *person_id = id;
+            true
+        }
+        None => false,
+    }
+}
+
+/// The media links and their media the viewer may see, the media's tags
+/// left out for a viewer without `read_tags`.
+fn visible_media(records: &Records, rows: Vec<(MediaLink, Media)>) -> Vec<(MediaLink, Media)> {
+    rows.into_iter()
+        .filter(|(link, _)| !records.hides_media_link(link.id))
+        .filter_map(|(link, media)| Some((link, records.show(media)?)))
+        .collect()
 }
 
 /// The regions standing as evidence for `event_ids` whose page, and the
@@ -635,9 +835,10 @@ mod tests {
         .unwrap();
 
         let profiles = ProfileService::new(db.clone());
-        let bundle = load_person_detail_bundle(&db, &profiles, tree_id, target)
-            .await
-            .unwrap();
+        let bundle =
+            load_person_detail_bundle(&db, &profiles, &Records::unrestricted(), tree_id, target)
+                .await
+                .unwrap();
 
         let person_ids = bundle
             .persons

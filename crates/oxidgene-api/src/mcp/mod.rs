@@ -384,7 +384,14 @@ impl OxidGeneMcp {
     /// Get a tree: its name, description, SOSA root and the person who represents the user.
     #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn get_tree(&self, params: Parameters<TreeParams>) -> CallToolResult {
-        respond("get_tree", TreeRepo::get(&self.db, params.0.tree_id)).await
+        let tree_id = params.0.tree_id;
+        respond("get_tree", async {
+            let redaction = self.seen(tree_id).await?;
+            let mut tree = TreeRepo::get(&self.db, tree_id).await?;
+            crate::profile::redact_tree(&redaction, &mut tree);
+            Ok(tree)
+        })
+        .await
     }
 
     /// Search the persons of a tree by free text and structured filters (all combined with
@@ -395,8 +402,10 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("search_persons", async {
             self.tree(p.tree_id).await?;
+            let redaction = self.seen(p.tree_id).await?;
             self.profiles
-                .search_filtered(
+                .search_as(
+                    &redaction,
                     p.tree_id,
                     p.q.as_deref().unwrap_or_default(),
                     &p.filters,
@@ -430,8 +439,9 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_person_profile", async {
             self.tree(p.tree_id).await?;
+            let redaction = self.seen(p.tree_id).await?;
             self.profiles
-                .get_or_build_person(p.tree_id, p.person_id)
+                .person_as(&redaction, p.tree_id, p.person_id)
                 .await
         })
         .await
@@ -443,8 +453,10 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_person_by_sosa", async {
             self.tree(p.tree_id).await?;
+            let redaction = self.seen(p.tree_id).await?;
             let person = crate::service::person::person_by_sosa(&self.db, p.tree_id, p.number)
                 .await?
+                .filter(|person| redaction.shows(person.id))
                 .ok_or(OxidGeneError::NotFound {
                     entity: "Person (by SOSA number)",
                     id: p.tree_id,

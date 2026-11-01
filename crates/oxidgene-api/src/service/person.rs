@@ -144,7 +144,7 @@ pub async fn lineage(
 }
 
 /// [`lineage`] as `redaction`'s viewer sees it: from a person they reach,
-/// the persons they see in full.
+/// the persons they see in full, walking through none absent to them.
 pub async fn lineage_as(
     redaction: &oxidgene_core::redaction::Redaction,
     db: &DatabaseConnection,
@@ -157,9 +157,21 @@ pub async fn lineage_as(
         return lineage(db, tree_id, person_id, direction, max_depth).await;
     }
     crate::profile::require_reachable(redaction, person_id)?;
-    let mut links = lineage(db, tree_id, person_id, direction, max_depth).await?;
-    links.retain(|link| redaction.shows(link.person_id));
-    Ok(links)
+    let max_depth = max_depth.unwrap_or(MAX_ANCESTRY_DEPTH);
+    if !(1..=MAX_ANCESTRY_DEPTH).contains(&max_depth) {
+        return Err(OxidGeneError::Validation(format!(
+            "max_depth must be between 1 and {MAX_ANCESTRY_DEPTH}"
+        )));
+    }
+    PersonRepo::get_in_tree(db, tree_id, person_id).await?;
+    let links = oxidgene_db::repo::AncestryRepo::family_links(db, tree_id).await?;
+    Ok(crate::service::redacted::seen_lineage(
+        &links,
+        redaction,
+        person_id,
+        direction == Lineage::Ancestors,
+        max_depth,
+    ))
 }
 
 /// The person at SOSA number `number` of tree `tree_id`, walking down from its

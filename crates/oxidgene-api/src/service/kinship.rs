@@ -71,14 +71,8 @@ pub async fn find_kinship(
     }
     PersonRepo::get_in_tree(db, tree_id, from).await?;
     PersonRepo::get_in_tree(db, tree_id, to).await?;
-    for person in [from, to] {
-        if !redaction.shows(person) {
-            return Err(OxidGeneError::NotFound {
-                entity: "Person",
-                id: person,
-            });
-        }
-    }
+    crate::profile::require_shown(redaction, from)?;
+    crate::profile::require_shown(redaction, to)?;
 
     let mut links = AncestryRepo::family_links(db, tree_id).await?;
     if !redaction.is_unrestricted() {
@@ -109,18 +103,7 @@ pub async fn find_kinship(
         .search_entries_as(redaction, tree_id, &named)
         .await?;
     let mut paths = paths;
-    if !redaction.is_unrestricted() {
-        let public = |ids: &mut Vec<Uuid>| {
-            for id in ids.iter_mut() {
-                *id = redaction.public_id(*id).unwrap_or(*id);
-            }
-        };
-        for segment in paths.iter_mut().flat_map(|path| &mut path.segments) {
-            public(&mut segment.ancestor_ids);
-            public(&mut segment.from_line);
-            public(&mut segment.to_line);
-        }
-    }
+    name_publicly(redaction, &mut paths);
 
     Ok(Kinship {
         from_person_id: from,
@@ -129,6 +112,24 @@ pub async fn find_kinship(
         truncated,
         persons,
     })
+}
+
+/// Name the persons on `paths` by the identifiers `redaction`'s viewer
+/// may know of them.
+fn name_publicly(redaction: &Redaction, paths: &mut [KinshipPath]) {
+    if redaction.is_unrestricted() {
+        return;
+    }
+    let public = |ids: &mut Vec<Uuid>| {
+        for id in ids.iter_mut() {
+            *id = redaction.public_id(*id).unwrap_or(*id);
+        }
+    };
+    for segment in paths.iter_mut().flat_map(|path| &mut path.segments) {
+        public(&mut segment.ancestor_ids);
+        public(&mut segment.from_line);
+        public(&mut segment.to_line);
+    }
 }
 
 /// A step of a walk through unions.

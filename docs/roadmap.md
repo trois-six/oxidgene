@@ -331,18 +331,20 @@ string in every language, and the user guide. In order:
      from descendants and other relatives
      ([Privacy §4](privacy.md#4-contemporary-persons)); the export's *Leave
      out contemporary and private persons* option, on both builds.
-   - [ ] Redaction for Visitors in every enforcement point and display mode,
-     confidential notes, media privacy, cache headers
+   - [x] Redaction in every enforcement point and display mode, confidential
+     notes, media privacy, cache headers
      ([Privacy §5, §7](privacy.md#7-enforcement-points)), and the export's
-     *Apply visitors' privacy rules*.
+     *Apply visitors' privacy rules*: enforced for Editors and Guests, and
+     ready for Visitors, who read through the same policy once phase 5
+     gives them a tree access.
    - [x] Exclusions of persons and subtrees, materialized and kept current,
      from the person menu and the privacy settings
      ([Privacy §6](privacy.md#6-exclusions-from-sharing)), and the owner's
      *Leave out excluded persons* export option.
    - [x] The tree's privacy settings in [Settings §8](ui-settings.md#8-section-privacy),
      and the canary persons of the privacy tests.
-   - [ ] The leak suite over the canary persons, for every restricted
-     viewer, once the viewers exist.
+   - [x] The leak suite over the canary persons, over every REST and GraphQL
+     read, for Editors and Guests; Visitors join it with phase 5.
 4. **Notifications and email.**
    - [ ] In-app notifications, preferences and the long poll
      ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)).
@@ -435,8 +437,9 @@ Releases:
   macOS, WebView2): whether it raises `beforeprint`, and whether it honours
   the pedigree's landscape page.
 
-Privacy fields currently record intent but do not hide data. The UI must state
-this clearly until privacy is enforced for other viewers (phase 3).
+Privacy fields hide nothing yet from the members of a tree, who all hold
+`read_private`: they take effect for Visitors (phase 5). The UI must state
+this clearly until then.
 
 ## 9. Planned: assistant access (MCP)
 

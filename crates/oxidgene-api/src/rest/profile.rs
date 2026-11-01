@@ -27,11 +27,14 @@ use super::state::AppState;
 /// detail page, assembled in bounded batch queries.
 pub async fn get_person_detail_bundle(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<crate::service::person_detail::PersonDetailBundle>, ApiError> {
+    let records = state.records(&viewer, tree_id).await?;
     let bundle = crate::service::person_detail::load_person_detail_bundle(
         &state.reader,
         &state.profiles,
+        &records,
         tree_id,
         person_id,
     )

@@ -1128,17 +1128,28 @@ pub struct GqlPerson {
     pub updated_at: DateTime<Utc>,
 }
 
+impl GqlPerson {
+    /// The person's names, none for a placeholder (docs/privacy.md §5).
+    async fn seen_names(&self, ctx: &Context<'_>) -> Result<Vec<oxidgene_core::types::PersonName>> {
+        let id = uuid(&self.id)?;
+        if !records_of(ctx, &self.tree_id).await?.redaction().shows(id) {
+            return Ok(Vec::new());
+        }
+        loaders::list(ctx, PersonNames(id)).await
+    }
+}
+
 #[ComplexObject]
 impl GqlPerson {
     /// All names for this person.
     async fn names(&self, ctx: &Context<'_>) -> Result<Vec<GqlPersonName>> {
-        let names = loaders::list(ctx, PersonNames(uuid(&self.id)?)).await?;
+        let names = self.seen_names(ctx).await?;
         Ok(names.into_iter().map(GqlPersonName::from).collect())
     }
 
     /// Primary name of this person.
     async fn primary_name(&self, ctx: &Context<'_>) -> Result<Option<GqlPersonName>> {
-        let names = loaders::list(ctx, PersonNames(uuid(&self.id)?)).await?;
+        let names = self.seen_names(ctx).await?;
         Ok(names
             .into_iter()
             .find(|n| n.is_primary)

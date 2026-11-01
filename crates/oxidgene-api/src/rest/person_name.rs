@@ -16,9 +16,12 @@ use crate::service::relation_labels::{RelationLabels, load_relation_labels};
 /// GET /api/v1/trees/:tree_id/persons/:person_id/names
 pub async fn list_person_names(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonName>>, ApiError> {
-    let names = person_name::list_person_names(&state.reader, tree_id, person_id).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let names =
+        person_name::list_person_names(&state.reader, &redaction, tree_id, person_id).await?;
     Ok(Json(names))
 }
 

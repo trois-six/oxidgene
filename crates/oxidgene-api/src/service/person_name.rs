@@ -66,13 +66,20 @@ pub struct PersonNamePatch {
     pub sort_order: Option<i32>,
 }
 
-/// The names of person `person_id` of `tree_id`.
+/// The names of person `person_id` of `tree_id` as `redaction`'s viewer
+/// sees them: `not_found` unless they reach the person by that identifier,
+/// none for a placeholder.
 pub async fn list_person_names(
     db: &DatabaseConnection,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     person_id: Uuid,
 ) -> Result<Vec<PersonName>, OxidGeneError> {
+    crate::profile::require_reachable(redaction, person_id)?;
     require_tree_resource(db, tree_id, TreeResource::Person, person_id).await?;
+    if !redaction.shows(person_id) {
+        return Ok(Vec::new());
+    }
     PersonNameRepo::list_by_person(db, person_id).await
 }
 

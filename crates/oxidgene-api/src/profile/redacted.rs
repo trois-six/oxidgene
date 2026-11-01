@@ -49,6 +49,19 @@ pub fn require_reachable(redaction: &Redaction, id: Uuid) -> Result<(), OxidGene
     }
 }
 
+/// Check that the viewer sees person `id` in full: `not_found` otherwise.
+///
+/// # Errors
+///
+/// [`OxidGeneError::NotFound`] for a person not shown in full.
+pub fn require_shown(redaction: &Redaction, id: Uuid) -> Result<(), OxidGeneError> {
+    if redaction.shows(id) {
+        Ok(())
+    } else {
+        Err(not_found(id))
+    }
+}
+
 /// Whether `filters` names a relative.
 fn has_relative_filter(filters: &PersonSearchFilters) -> bool {
     [
@@ -114,14 +127,29 @@ pub fn person_record(
         return Ok(person);
     }
     require_reachable(redaction, person.id)?;
+    let id = person.id;
+    seen_person(redaction, person).ok_or_else(|| not_found(id))
+}
+
+/// A related person's record as the viewer sees it: none when absent; a
+/// placeholder, keeping its sex and privacy only, under the identifier the
+/// viewer may know when hidden.
+pub fn seen_person(
+    redaction: &Redaction,
+    mut person: oxidgene_core::types::Person,
+) -> Option<oxidgene_core::types::Person> {
+    if redaction.is_unrestricted() {
+        return Some(person);
+    }
+    let id = redaction.public_id(person.id)?;
     if redaction.shows(person.id) {
-        let mut person = person;
         if redaction.withholds_tags() {
             person.tags.clear();
         }
-        return Ok(person);
+        return Some(person);
     }
-    Ok(oxidgene_core::types::Person {
+    Some(oxidgene_core::types::Person {
+        id,
         portrait_media_id: None,
         portrait_vignette_id: None,
         tags: Vec::new(),

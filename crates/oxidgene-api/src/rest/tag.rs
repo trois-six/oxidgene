@@ -283,9 +283,11 @@ pub async fn bulk_tag(
 /// Writes nothing (docs/api.md, Tags).
 pub async fn tag_target(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<TagTargetRequest>,
 ) -> Result<Json<TargetCounts>, ApiError> {
-    let counts = tag_bulk::target_counts(&state.reader, tree_id, &body.target).await?;
+    let redaction = viewer.redaction(&state, tree_id).await?;
+    let counts = tag_bulk::target_counts(&state.reader, &redaction, tree_id, &body.target).await?;
     Ok(Json(counts))
 }

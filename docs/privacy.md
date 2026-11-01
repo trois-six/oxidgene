@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -16,11 +16,13 @@ generated: { by: human:maintainer, at: 2026-11-01T23:00:00Z }
 **Status: partly built.** Records default to public (§3.1); the
 contemporary rule (§4) is derived and, in the web build, materialized in
 `person_visibility`; the exclusions (§6) are stored and materialized in the
-web build; the tree settings (§9) and the export options (§8) work. Nothing
-is redacted for other viewers yet: that arrives with the roles of
-[Authorization](authorization.md);
-[Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks the
-phases. Viewer redaction and exclusions are compiled and active only in the
+web build; the tree settings (§9) and the export options (§8) work. Every
+enforcement point of §7 redacts what Editors and Guests may not see — the
+owner's exclusions, confidential notes for Guests, and tags without
+`read_tags` — through one policy built from the viewer's permissions; the
+same policy hides private and contemporary persons from Visitors once they
+exist ([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment),
+phase 5). Viewer redaction and exclusions are compiled and active only in the
 web build; the desktop has one user who sees everything, and keeps today's
 behaviour ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
 The export option that leaves out contemporary and private persons (§8) is
@@ -307,9 +309,11 @@ citations and media withheld, as a hidden spouse does for Visitors (§3).
 
 ### 6.3 How excluded persons appear
 
-As a hidden person does in the tree's display mode (§5), but never more: in
-`initials` mode they are a plain stub, and a stub of an excluded person has no
-identifier and no navigation, so nothing beyond it is reached through it.
+Absent, in every display mode, as in the `hidden` mode (§5): a stub of an
+excluded person could have no initials, no identifier and no navigation, so
+it would be a blank, unreachable card that only says someone is there. A
+family with an excluded spouse shows the other alone, and a child of an
+excluded parent shows one parent.
 
 ### 6.4 Effects
 
@@ -369,6 +373,32 @@ the history, a snapshot label naming a hidden person is left out rather
 than replaced: the frontend renders an unlabelled record as its unknown
 placeholder, and the hidden person's identifier is the redaction's
 pseudonym, or absent, so nothing else names them.
+
+**Decisions for the person reads.**
+
+- Lists, search, recently modified persons, portraits, ancestors and
+  descendants hold the persons shown in full only, in every display mode: a
+  placeholder appears where a person names it (a family member, a pedigree
+  node, a kinship path), never as a list entry of its own. Paged lists
+  leave hidden persons out in SQL, so pages and `total_count` agree.
+- A placeholder that may not be navigated through carries a pseudonym drawn
+  afresh for each request: within one response it names the same
+  placeholder everywhere; across requests it links nothing. Its only
+  structure is a version-7 time prefix, which says when the request ran.
+- Ancestors, descendants and the branch targets of bulk tagging walk the
+  family links through the persons who appear to the viewer only, as
+  kinship does: a person reached only through an absent one is not
+  reached, counted or tagged, and a listed or walked-from hidden person is
+  `404 not_found`.
+- Search filters on spouses and parents match the relatives the viewer sees:
+  the candidates matching the other filters, at most 10,000, are read and
+  filtered on their redacted relatives.
+- A person's page is `404 not_found` unless the viewer reaches the person
+  under its own identifier; a placeholder's page holds its record alone.
+  The person record of a placeholder keeps its sex and privacy, not its
+  portrait or tags.
+- Statistics count the persons shown in full, and the growth chart adds or
+  removes none of the hidden ones on any day.
 
 ---
 
@@ -472,7 +502,12 @@ the tree is visible to.
 - **Leak suite.** The canary persons of [Authorization §12](authorization.md#12-tests)
   — contemporary, private, excluded, out of scope — never appear in any REST,
   GraphQL, MCP or export output for a viewer who may not see them, in
-  bodies, counts, ranks, suggestions or statistics.
+  bodies, counts, ranks, suggestions or statistics. The suite enumerates
+  every REST read from the OpenAPI document and every GraphQL query field
+  from introspection, so a new route is covered without being listed, and
+  runs once per restricted kind of viewer: Editors and Guests today, with
+  an excluded person and a confidential note as canaries; Visitors join it
+  with one entry.
 - **Exports.** Each row of §8 on both builds, with `RESN` per version, and
   re-import of a redacted export.
 

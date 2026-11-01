@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 
@@ -108,10 +108,9 @@ desktop and `OXIDGENE_AUTH_MODE=none` act as the local owner of every tree.
 The account, membership and access-log operations are listed under
 [Accounts](#accounts), sharing under [Sharing](#sharing): a `site` or
 `public` tree, or one a share link the browser opened shows, has Visitors
-who read it with `read` alone. Privacy values are stored but not enforced for other
-viewers yet (phase 3), so clients must not claim that private records are
-hidden; until then the API is local or private infrastructure only and must
-not be published directly to an untrusted network.
+who read it with `read` alone. Every read redacts what the viewer may not
+see ([Privacy §7](privacy.md#7-enforcement-points)): an Editor or a Guest
+never reads a person the owner excluded, nor a Guest a confidential note.
 
 The planned contract, for the web build only, is specified in
 [Authentication](authentication.md), [Authorization](authorization.md),
@@ -320,9 +319,9 @@ owner's alone.
 The union of a tree's exclusions is materialized and rebuilt with each
 exclusion written, and by the next read after any change to the tree's
 family links, deletions or restorations
-([Privacy §6.5](privacy.md#65-kept-in-sync)). Until redaction for other
-viewers arrives, the owner's export reads it
-([Import / export](#import--export), `leave_out_excluded`).
+([Privacy §6.5](privacy.md#65-kept-in-sync)). Every read by anyone but the
+owner leaves the excluded persons out, and the owner's export does when
+asked ([Import / export](#import--export), `leave_out_excluded`).
 
 ### Sharing
 
