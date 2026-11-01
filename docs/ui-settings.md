@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 
@@ -90,10 +90,11 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Privacy | `privacy` |
 | Anomaly thresholds | `anomalies` |
 
-The web build will add, for the tree's owner, **Members**, **Sharing**,
-**API clients** and **Access log**, specified in
-[Authorization §11](authorization.md#11-user-interface); the desktop shows
-none of them.
+The web build adds, for the tree's owner (`members_manage`), **Members**
+(`members`) and **Sharing** (`sharing`) after these, specified in §8c and
+§8d; **API clients** and **Access log** follow with their phases
+([Authorization §11](authorization.md#11-user-interface)). The desktop and a
+web server run without authentication show none of them.
 
 ### Group 2 — Tools
 | Item | Section ID |
@@ -278,13 +279,70 @@ fresh whenever the section opens, since the persons an exclusion covers
 follow the family links. Absent from the desktop and from a web server run
 without authentication.
 
-### Visibility, members and sharing (planned, web only)
+### Visibility, members and sharing (web only)
 
-Visibility (*Private*, *Visible to the site's users*, *Public on the web*)
-with its visitor scope, members, invitations, share links, the tree's API
-clients and its access log are the owner's sections of
-[Authorization §11](authorization.md#11-user-interface). They are absent
+Visibility, members, invitations and share links are the owner's
+**Members** and **Sharing** sections (§8c, §8d). The tree's API clients and
+its access log follow with their phases
+([Authorization §11](authorization.md#11-user-interface)). They are absent
 from the desktop.
+
+## 8c. Section: Members (web only, owner)
+
+Read fresh whenever the section opens.
+
+- **Share the tree** card: **Email address or username** (an address when
+  it holds `@`), or **Or someone you already share with** — a select of the
+  share candidates, which disables the text field once one is chosen;
+  **Role** (*Guest*, *Editor*) with a sentence saying what it lets the member
+  do; **What is shared**, the scope editor (below); **Ends on**, an optional
+  day (the end of that day); **Share**. A membership appears in the list; an
+  address without an account becomes an invitation, and the card says so —
+  with, when the server mails nothing, the sentence that the owner sends the
+  link themselves and the **Invitation link** in the shared copy field.
+- **Members of the tree**: one row per member — the name (*Former member*
+  for an erased one), then in a line the scope (*Whole tree*, or *{name} and
+  their descendants* with its generations, spouses, siblings and *Deleted
+  person: shares nobody until restored*) and the end of the share. The
+  owner's row carries an *Owner* badge; another's a role select saving at
+  once, **Make owner** and **Remove**, each confirmed in the shared
+  confirmation dialog.
+- **Pending invitations**: one row per invitation — the address, its role,
+  scope and the day it waits until, the link in a copy field when the server
+  mails nothing — with **Resend** and **Revoke**; *No invitation is waiting
+  for an answer.* otherwise.
+
+**The scope editor** is the one control of a share's scope: a choice between
+**Whole tree** and **A branch**; for a branch, the shared person picker for
+its root, the side (*Descendants*, *Ancestors*, *Ancestors and
+descendants*), **Generations** (1 to 30, empty for all), **Include the root
+person**, **Include the spouses of the persons reached** and **Include their
+siblings and the siblings' spouses**. Under it, the number of persons the
+scope reaches — the whole tree for **Whole tree** — how many Visitors see
+and how many are excluded, from the preview operation as the draft changes;
+a branch without a root, or generations out of range, says so instead.
+
+## 8d. Section: Sharing (web only, owner)
+
+- **Visibility** card: *Private*, *Visible to the site's users*, *Public on
+  the web* as a segmented choice, with a sentence on who visits the tree —
+  reached by its address, listed nowhere. Unless private, **What visitors
+  see** with the scope editor, the stored visitor scope filled in, and the
+  sentence that Visitors see every record nobody marked private but living
+  and excluded persons. **Save** writes the visibility and the visitor scope
+  together, once the owner has seen the count.
+- **Share links** card: one row per link not revoked — its label (*Link
+  without a label*), its scope, its end, *Opened: N* and *expired* — with
+  **Revoke**; *No share link.* otherwise. **New link**: **Label**, the scope
+  editor, **Ends on** and **Create the link**, after which the link's
+  address appears once in a copy field, with the sentence that it is shown
+  this once.
+
+## 8e. Leaving a tree (web only)
+
+A member who is not the owner (`leave`) finds a **Leave this tree** card at
+the end of **Tree & Roots**: **Leave**, confirmed, ends the membership and
+opens the homepage.
 
 ---
 

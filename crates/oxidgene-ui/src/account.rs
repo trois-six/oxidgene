@@ -117,18 +117,20 @@ pub enum Gate {
     SignIn,
 }
 
-/// What `route` shows to the user `state` describes. Only tree content and
-/// the profile need an account; the application settings are the device's.
+/// What `route` shows to the user `state` describes. The tree list and the
+/// profile need an account; the application settings are the device's.
+/// A tree's pages open to an anonymous visitor: a `public` tree, or one a
+/// share link opened, has anonymous Visitors (docs/authorization.md §6.3,
+/// §6.4). Any other answers `401`, `refused` says so, and the page gives way
+/// to the invitation to sign in.
 ///
 /// A page opens while `/auth/session` is still being asked: nothing waits
-/// for the answer, so the `none` mode loads as fast as the desktop. A
-/// visitor's first requests are refused, and the page gives way to the
-/// invitation once the answer comes.
-pub fn gate(state: &AccountState, route: &Route) -> Gate {
+/// for the answer, so the `none` mode loads as fast as the desktop.
+pub fn gate(state: &AccountState, route: &Route, refused: bool) -> Gate {
     let needs_account = match route {
         Route::AppSettings {} | Route::NotFound { .. } => false,
-        Route::Home {} | Route::Profile {} => true,
-        other => other.tree_id().is_some(),
+        Route::Home {} | Route::Invitations {} | Route::Profile {} => true,
+        other => other.tree_id().is_some() && refused,
     };
     if needs_account && *state == AccountState::Anonymous {
         Gate::SignIn
@@ -136,6 +138,12 @@ pub fn gate(state: &AccountState, route: &Route) -> Gate {
         Gate::Open
     }
 }
+
+/// How many requests of an anonymous visitor the server refused with `401`
+/// since the application opened: a page compares it with the count at its
+/// mount to know whether it was refused.
+#[derive(Clone, Copy)]
+pub struct AnonymousRefusals(pub Signal<u64>);
 
 /// A dialog the account UI opens over the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +163,8 @@ pub enum AuthError {
     SignupClosed,
     AccountDeactivated,
     AuthUnavailable,
+    /// A share link that opens nothing: unknown, revoked or expired.
+    ShareLinkInvalid,
 }
 
 impl AuthError {
@@ -170,6 +180,7 @@ impl AuthError {
             "signup_closed" => Self::SignupClosed,
             "account_deactivated" => Self::AccountDeactivated,
             "auth_unavailable" => Self::AuthUnavailable,
+            "share_link_invalid" => Self::ShareLinkInvalid,
             _ => Self::LoginFailed,
         })
     }
@@ -181,6 +192,7 @@ impl AuthError {
             Self::SignupClosed => "account.auth_error.signup_closed",
             Self::AccountDeactivated => "account.auth_error.account_deactivated",
             Self::AuthUnavailable => "account.auth_error.auth_unavailable",
+            Self::ShareLinkInvalid => "account.auth_error.share_link_invalid",
         }
     }
 }
@@ -215,26 +227,44 @@ pub fn use_init_account() {
         })
     });
     let prompt = use_context_provider(|| Signal::new(None::<AccountPrompt>));
+    let refusals = use_context_provider(|| AnonymousRefusals(Signal::new(0)));
     use_context_provider(|| AvatarImages(Signal::new(HashMap::new())));
     use_hook(move || {
         if let Some(accounts) = accounts {
             // Read before the router takes over the address, which drops
             // a query its route does not name.
             let failed = AuthError::from_query(&accounts.query());
-            spawn(follow_account(api, failed, state, prompt, language));
+            let watch = AccountWatch {
+                state,
+                prompt,
+                refusals,
+            };
+            spawn(follow_account(api, failed, watch, language));
         }
     });
 }
 
+/// What [`follow_account`] keeps current.
+struct AccountWatch {
+    state: Signal<AccountState>,
+    prompt: Signal<Option<AccountPrompt>>,
+    refusals: AnonymousRefusals,
+}
+
 /// Learns who is signed in, then turns every `401` of a signed-in page into
-/// the session-ended dialog, for as long as the application runs.
+/// the session-ended dialog, and counts an anonymous visitor's, for as long
+/// as the application runs.
 async fn follow_account(
     api: ApiClient,
     failed: Option<AuthError>,
-    mut state: Signal<AccountState>,
-    mut prompt: Signal<Option<AccountPrompt>>,
+    watch: AccountWatch,
     language: Signal<Language>,
 ) {
+    let AccountWatch {
+        mut state,
+        mut prompt,
+        refusals: AnonymousRefusals(mut refusals),
+    } = watch;
     let session = match api.auth_session().await {
         Ok(session) if session.signs_in() => session,
         // `none` mode, or no answer: the interface is the desktop's.
@@ -247,7 +277,11 @@ async fn follow_account(
         prompt.set(Some(AccountPrompt::SignInFailed(error)));
     }
     let Some(user) = session.user.filter(|_| session.authenticated) else {
+        let mut unauthorized = api.watch_unauthorized();
         state.set(AccountState::Anonymous);
+        while unauthorized.next().await.is_some() {
+            refusals += 1;
+        }
         return;
     };
     api.set_csrf_token(session.csrf_token.as_deref());
@@ -335,8 +369,16 @@ mod tests {
                 tree_id: "t".into(),
             },
         ] {
-            assert_eq!(gate(&AccountState::Absent, &route), Gate::Open, "{route}");
-            assert_eq!(gate(&signed_in("user"), &route), Gate::Open, "{route}");
+            assert_eq!(
+                gate(&AccountState::Absent, &route, false),
+                Gate::Open,
+                "{route}"
+            );
+            assert_eq!(
+                gate(&signed_in("user"), &route, true),
+                Gate::Open,
+                "{route}"
+            );
         }
     }
 
@@ -346,18 +388,25 @@ mod tests {
             tree_id: "t".into(),
             person: None,
         };
-        for route in [Route::Home {}, Route::Profile {}, tree] {
+        for route in [Route::Home {}, Route::Profile {}, Route::Invitations {}] {
             assert_eq!(
-                gate(&AccountState::Anonymous, &route),
+                gate(&AccountState::Anonymous, &route, false),
                 Gate::SignIn,
                 "{route}"
             );
             // Nothing waits for the server's answer.
-            assert_eq!(gate(&AccountState::Loading, &route), Gate::Open, "{route}");
+            assert_eq!(
+                gate(&AccountState::Loading, &route, false),
+                Gate::Open,
+                "{route}"
+            );
         }
+        // A tree opens to an anonymous visitor until the server refuses it.
+        assert_eq!(gate(&AccountState::Anonymous, &tree, false), Gate::Open);
+        assert_eq!(gate(&AccountState::Anonymous, &tree, true), Gate::SignIn);
         // The application settings are the device's.
         assert_eq!(
-            gate(&AccountState::Anonymous, &Route::AppSettings {}),
+            gate(&AccountState::Anonymous, &Route::AppSettings {}, true),
             Gate::Open
         );
     }
@@ -396,6 +445,7 @@ mod tests {
             AuthError::SignupClosed,
             AuthError::AccountDeactivated,
             AuthError::AuthUnavailable,
+            AuthError::ShareLinkInvalid,
         ] {
             assert!(english.contains_key(error.message_key()), "{error:?}");
         }

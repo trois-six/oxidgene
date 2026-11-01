@@ -360,8 +360,12 @@ string in every language, and the user guide. In order:
      ([Authorization §3.3, §6.5](authorization.md#65-access-scopes)).
    - [ ] Every read limited to the viewer's scope, with the *Not shared*
      boundary, through phase 3's redaction.
-   - [ ] The homepage's roles and invitations, and the owner's Members and
-     Sharing sections.
+   - [x] The homepage's roles and invitations, and the owner's Members and
+     Sharing sections, the visitor banner and **Leave this tree**.
+   - [ ] Edit controls hidden throughout the tree pages where
+     `viewer_access` lacks their permission
+     ([Authorization §11](authorization.md#11-user-interface), Read-only
+     views).
 6. **API clients and assistant access over HTTP.**
    - [ ] Tree and user API clients over client credentials, with
      provisioning, rotation, revocation, rate limits and usage

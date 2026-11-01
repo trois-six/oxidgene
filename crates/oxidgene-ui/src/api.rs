@@ -7,6 +7,7 @@
 
 pub mod account;
 mod history;
+pub mod sharing;
 
 use base64::Engine as _;
 #[cfg(feature = "telemetry-client")]
@@ -781,6 +782,9 @@ pub struct TreeListItem {
     /// what it wrote.
     #[serde(default)]
     pub import_cancelling: bool,
+    /// What the viewer may do with the tree (docs/authorization.md §4.1).
+    #[serde(default)]
+    pub viewer_access: oxidgene_core::access::ViewerAccess,
 }
 
 impl std::ops::Deref for TreeListItem {

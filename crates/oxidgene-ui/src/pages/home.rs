@@ -5,9 +5,13 @@ use std::collections::HashMap;
 use chrono::Utc;
 use dioxus::prelude::*;
 use oxidgene_core::Sex;
+use oxidgene_core::access::{Permission, TreeRole};
 use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
+use super::home_sharing::{
+    HOME_SHARING_STYLES, HomeInvitations, Ownership, OwnershipFilter, RoleBadge,
+};
 use crate::api::{
     ApiClient, CreateTreeBody, DuplicateTreeBody, FileImportJobStatus, UpdateTreeBody, follow_job,
 };
@@ -31,8 +35,23 @@ const RECENT_PERSONS: usize = 5;
 /// Dashboard shown at `/`.
 #[component]
 pub fn Home() -> Element {
+    use_ui_load_trace(UiPage::Home);
+    rsx! { HomeBody {} }
+}
+
+/// The page an invitation's link opens: the homepage, which lists the
+/// invitations waiting for the signed-in user (docs/authorization.md §6.2).
+#[component]
+pub fn Invitations() -> Element {
+    use_ui_load_trace(UiPage::Home);
+    rsx! { HomeBody {} }
+}
+
+/// The dashboard, its load traced by the trace its route opened.
+#[component]
+fn HomeBody() -> Element {
+    let load_trace = use_context::<crate::ui_observability::UiLoadTrace>();
     let api = use_context::<ApiClient>();
-    let load_trace = use_ui_load_trace(UiPage::Home);
     let mut refresh_counter = use_signal(|| 0u32);
     // Mutating a tree from here must also reach the shared `TreeCache`: it is
     // keyed by tree id alone, so a snapshot loaded before the change survives
@@ -88,6 +107,11 @@ pub fn Home() -> Element {
     let search_query = use_signal(String::new);
     let sort_mode = use_signal(|| "recent".to_string());
     let list_view = use_signal(|| false);
+    let ownership = use_signal(|| Ownership::All);
+    // A user without the instance's tree creation right is offered none
+    // (docs/authorization.md §11); the desktop and `none` mode always are.
+    let account = crate::account::use_account();
+    let creates = account.read().me().is_none_or(|me| me.can_create_trees);
 
     let i18n = use_i18n();
 
@@ -136,7 +160,13 @@ pub fn Home() -> Element {
         div { class: "home-page",
             div { class: "home-main",
                 HomeHeader {}
-                HomeToolbar { search_query, sort_mode, list_view, show_create }
+                HomeToolbar { search_query, sort_mode, list_view, ownership, show_create, creates }
+                HomeInvitations {
+                    on_accepted: move |()| {
+                        api.invalidate_tree_list();
+                        refresh_counter += 1;
+                    },
+                }
 
                 // ── Trees grid ───────────────────────────────────────
                 match &*trees_resource.read() {
@@ -145,6 +175,8 @@ pub fn Home() -> Element {
                             trees: trees.iter().map(TreeSummary::of).collect::<Vec<_>>(),
                             query: search_query(),
                             sort: sort_mode(),
+                            ownership: ownership(),
+                            creates,
                             list: list_view(),
                             duplicating: duplicating_tree_id(),
                             on_create: move |_| show_create.set(true),
@@ -241,6 +273,7 @@ pub fn Home() -> Element {
         }
 
         style { {HOME_STYLES} }
+        style { {HOME_SHARING_STYLES} }
     }
 }
 
@@ -276,6 +309,9 @@ struct TreeSummary {
     cancelling: bool,
     /// The import job running, when the list names it.
     import_job: Option<Uuid>,
+    /// The viewer's role on the tree, and what it lets them do.
+    role: TreeRole,
+    permissions: Vec<Permission>,
 }
 
 impl TreeSummary {
@@ -290,6 +326,8 @@ impl TreeSummary {
             importing: tree.import_in_progress || tree.import_cancelling,
             cancelling: tree.import_cancelling,
             import_job: tree.import_job_id,
+            role: tree.viewer_access.role,
+            permissions: tree.viewer_access.permissions.clone(),
         }
     }
 }
@@ -336,7 +374,10 @@ fn HomeToolbar(
     search_query: Signal<String>,
     sort_mode: Signal<String>,
     list_view: Signal<bool>,
+    ownership: Signal<Ownership>,
     show_create: Signal<bool>,
+    /// Whether the viewer may create a tree.
+    creates: bool,
 ) -> Element {
     let i18n = use_i18n();
     rsx! {
@@ -369,13 +410,14 @@ fn HomeToolbar(
                 option { value: "name", {i18n.t("home.sort_name")} }
                 option { value: "name_desc", {i18n.t("home.sort_name_desc")} }
             }
+            OwnershipFilter { ownership }
             ViewToggle {
                 list: list_view(),
                 list_label: i18n.t("home.view_list"),
                 grid_label: i18n.t("home.view_grid"),
                 on_change: move |list| list_view.set(list),
             }
-            button {
+            if creates { button {
                 class: "home-btn-new home-btn-new-toolbar",
                 title: "{i18n.t(\"home.new_tree\")}",
                 "aria-label": "{i18n.t(\"home.new_tree\")}",
@@ -390,18 +432,24 @@ fn HomeToolbar(
                     path { d: "M12 5v14M5 12h14" }
                 }
                 span { class: "home-btn-new-label", {i18n.t("home.new_tree")} }
-            }
+            } }
         }
     }
 }
 
-/// The trees matching `query` in their name or description, sorted by name
-/// (`name`, or `name_desc` from Z to A) or else by last change, newest
-/// first.
-fn visible_trees(trees: &[TreeSummary], query: &str, sort: &str) -> Vec<TreeSummary> {
+/// The trees matching `query` in their name or description and kept by
+/// `ownership`, sorted by name (`name`, or `name_desc` from Z to A) or else
+/// by last change, newest first.
+fn visible_trees(
+    trees: &[TreeSummary],
+    query: &str,
+    sort: &str,
+    ownership: Ownership,
+) -> Vec<TreeSummary> {
     let query = query.to_lowercase();
     let mut visible: Vec<TreeSummary> = trees
         .iter()
+        .filter(|tree| ownership.keeps(tree.role))
         .filter(|tree| {
             query.is_empty()
                 || tree.name.to_lowercase().contains(&query)
@@ -426,6 +474,9 @@ fn TreesGrid(
     trees: Vec<TreeSummary>,
     query: String,
     sort: String,
+    ownership: Ownership,
+    /// Whether the viewer may create a tree.
+    creates: bool,
     /// One card per row rather than as many as fit.
     list: bool,
     duplicating: Option<Uuid>,
@@ -438,7 +489,7 @@ fn TreesGrid(
     on_import_over: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let visible = visible_trees(&trees, &query, &sort);
+    let visible = visible_trees(&trees, &query, &sort, ownership);
     if trees.is_empty() {
         return rsx! {
             EmptyState {
@@ -446,10 +497,12 @@ fn TreesGrid(
                 icon: rsx! { "🌳" },
                 title: i18n.t("home.no_trees"),
                 action: rsx! {
-                    button {
-                        class: "home-btn-new",
-                        onclick: move |_| on_create.call(()),
-                        {i18n.t("home.new_tree")}
+                    if creates {
+                        button {
+                            class: "home-btn-new",
+                            onclick: move |_| on_create.call(()),
+                            {i18n.t("home.new_tree")}
+                        }
                     }
                 },
                 p { {i18n.t("home.no_trees_hint")} }
@@ -490,6 +543,8 @@ fn TreesGrid(
                     importing: tree.importing,
                     cancelling: tree.cancelling,
                     import_job: tree.import_job,
+                    role: tree.role,
+                    permissions: tree.permissions.clone(),
                     on_import_over,
                     on_rename: {
                         let tree = (tree.id, tree.name.clone());
@@ -511,13 +566,15 @@ fn TreesGrid(
             }
 
             // Add-new card
-            div {
-                class: "tree-card tree-card-add",
-                onclick: move |_| on_create.call(()),
-                div { class: "tree-card-add-icon", "＋" }
-                div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
-                div { class: "tree-card-add-sub",
-                    {i18n.t("home.add_card_subtitle")}
+            if creates {
+                div {
+                    class: "tree-card tree-card-add",
+                    onclick: move |_| on_create.call(()),
+                    div { class: "tree-card-add-icon", "＋" }
+                    div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
+                    div { class: "tree-card-add-sub",
+                        {i18n.t("home.add_card_subtitle")}
+                    }
                 }
             }
         }
@@ -714,6 +771,9 @@ fn TreeCard(
     cancelling: bool,
     /// The import job running, which the overlay follows.
     import_job: Option<Uuid>,
+    /// The viewer's role, and what it lets them do: the menu offers that.
+    role: TreeRole,
+    permissions: Vec<Permission>,
     on_import_over: EventHandler<()>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
@@ -729,6 +789,13 @@ fn TreeCard(
     let time_ago = modified_ago(&i18n, diff);
 
     let is_recent = diff.num_hours() < 24;
+    let may = |permission: Permission| permissions.contains(&permission);
+    let (renames, duplicates, imports, deletes) = (
+        may(Permission::SettingsManage),
+        may(Permission::TreeDuplicate),
+        may(Permission::Import),
+        may(Permission::TreeDelete),
+    );
 
     // Lift the card above the backdrop while its dropdown is open.
     let card_class = if importing {
@@ -773,7 +840,7 @@ fn TreeCard(
                                         onclick: move |_| menu.close.call(()),
                                         {i18n.t("common.open")}
                                     }
-                                    button {
+                                    if renames { button {
                                         role: "menuitem",
                                         class: "context-menu-item",
                                         onclick: move |_| {
@@ -781,8 +848,8 @@ fn TreeCard(
                                             on_rename.call(());
                                         },
                                         {i18n.t("common.rename")}
-                                    }
-                                    button {
+                                    } }
+                                    if duplicates { button {
                                         role: "menuitem",
                                         class: "context-menu-item",
                                         disabled: duplicating,
@@ -791,8 +858,8 @@ fn TreeCard(
                                             on_duplicate.call(());
                                         },
                                         if duplicating { {i18n.t("common.duplicating")} } else { {i18n.t("common.duplicate")} }
-                                    }
-                                    button {
+                                    } }
+                                    if imports { button {
                                         role: "menuitem",
                                         class: "context-menu-item",
                                         onclick: move |_| {
@@ -800,7 +867,7 @@ fn TreeCard(
                                             on_import.call(());
                                         },
                                         {i18n.t("common.import")}
-                                    }
+                                    } }
                                     Link {
                                         to: settings_route.clone(),
                                         role: "menuitem",
@@ -808,7 +875,7 @@ fn TreeCard(
                                         onclick: move |_| menu.close.call(()),
                                         {i18n.t("common.settings")}
                                     }
-                                    button {
+                                    if deletes { button {
                                         role: "menuitem",
                                         class: "context-menu-item context-menu-danger",
                                         onclick: move |_| {
@@ -816,7 +883,7 @@ fn TreeCard(
                                             on_delete.call(());
                                         },
                                         {i18n.t("common.delete")}
-                                    }
+                                    } }
                                 }
                             },
                         }
@@ -832,6 +899,7 @@ fn TreeCard(
                 }
                 div { class: "tree-card-footer",
                     div { class: "tree-card-footer-left",
+                        RoleBadge { role }
                         span { class: "tree-last-update", "{time_ago}" }
                         if is_recent {
                             span { class: "tree-badge-recent", {i18n.t("home.badge_recent")} }
@@ -1603,6 +1671,8 @@ mod tests {
             importing: false,
             cancelling: false,
             import_job: None,
+            role: TreeRole::Owner,
+            permissions: Vec::new(),
         }
     }
 
@@ -1615,17 +1685,36 @@ mod tests {
     fn trees_sort_by_recency_or_by_name_either_way() {
         let trees = [tree("beta", 1), tree("Alpha", 3), tree("gamma", 2)];
         assert_eq!(
-            names(visible_trees(&trees, "", "recent")),
+            names(visible_trees(&trees, "", "recent", Ownership::All)),
             ["beta", "gamma", "Alpha"]
         );
         assert_eq!(
-            names(visible_trees(&trees, "", "name")),
+            names(visible_trees(&trees, "", "name", Ownership::All)),
             ["Alpha", "beta", "gamma"]
         );
         assert_eq!(
-            names(visible_trees(&trees, "", "name_desc")),
+            names(visible_trees(&trees, "", "name_desc", Ownership::All)),
             ["gamma", "beta", "Alpha"]
         );
-        assert_eq!(names(visible_trees(&trees, "AL", "name_desc")), ["Alpha"]);
+        assert_eq!(
+            names(visible_trees(&trees, "AL", "name_desc", Ownership::All)),
+            ["Alpha"]
+        );
+    }
+
+    /// *My trees* keeps the viewer's own, *Shared with me* the others'.
+    #[test]
+    fn trees_filter_by_ownership() {
+        let mut shared = tree("Shared", 1);
+        shared.role = TreeRole::Guest;
+        let trees = [tree("Own", 2), shared];
+        assert_eq!(
+            names(visible_trees(&trees, "", "recent", Ownership::Mine)),
+            ["Own"]
+        );
+        assert_eq!(
+            names(visible_trees(&trees, "", "recent", Ownership::Shared)),
+            ["Shared"]
+        );
     }
 }

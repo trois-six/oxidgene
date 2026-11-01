@@ -518,6 +518,9 @@ pub fn Settings(tree_id: String) -> Element {
     let mut export_job = use_signal(|| None::<ExportJobView>);
 
     let page = use_tree_page(&tree_id);
+    // The owner's sections and the member's **Leave this tree**: the web
+    // build's sharing surfaces only.
+    let sharing = super::sharing_settings::use_tree_sharing(tree_id_parsed);
     let tree_resource = page.resource;
     let tree_name = page.name();
 
@@ -628,6 +631,7 @@ pub fn Settings(tree_id: String) -> Element {
 
     rsx! {
         style { {SETTINGS_STYLES} }
+        style { {super::sharing_settings::SHARING_SETTINGS_STYLES} }
 
         ToolPageFrame {
             tree_id: tree_id.clone(),
@@ -649,6 +653,7 @@ pub fn Settings(tree_id: String) -> Element {
                                 {i18n.t(label)}
                             }
                         }
+                        super::sharing_settings::SharingNav { group, manages: sharing.manages, active_section }
                     }
                 }
             }
@@ -658,6 +663,14 @@ pub fn Settings(tree_id: String) -> Element {
                 match sec.as_str() {
                     "tree-roots" => rsx! {
                         TreeRootsSection { tree_id: tree_id.clone(), tree_resource }
+                        super::sharing_settings::LeaveTree { sharing }
+                    },
+                    "members" | "sharing" => rsx! {
+                        super::sharing_settings::OwnerSection {
+                            section: sec.clone(),
+                            sharing,
+                            visibility: page.tree.as_ref().map(|tree| tree.visibility).unwrap_or_default(),
+                        }
                     },
                     "privacy" => rsx! {
                         super::privacy_settings::PrivacySection { tree_id: tree_id.clone(), tree_resource }
@@ -1429,7 +1442,7 @@ impl ExportScope {
 
 /// The label of a branch's root person in the picker: the person's row once
 /// their profile has loaded, their id until then, or while unknown.
-fn root_person_row(
+pub(crate) fn root_person_row(
     root: Uuid,
     loaded: &Option<Option<PersonSearchSummary>>,
     i18n: &I18n,
@@ -1625,7 +1638,7 @@ fn ExportBranchFields(
 /// The generations a branch walks, from the text typed for them: `None` for
 /// an empty field (all of them), and an error for anything that is neither
 /// empty nor a number from 1 to 30.
-fn parse_depth(text: &str) -> (Option<i64>, bool) {
+pub(crate) fn parse_depth(text: &str) -> (Option<i64>, bool) {
     if text.is_empty() {
         return (None, false);
     }

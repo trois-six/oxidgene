@@ -17,6 +17,8 @@ Every setting is saved as soon as you change it; there is no save button to reme
 
 The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**, **Anomaly thresholds**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
 
+On the web version, the owner of a tree also finds **Members** and **Sharing** in the first group, to share the tree (see [Share a tree](@/guide/sharing.md)). A member who is not its owner finds **Leave this tree** at the bottom of **Tree & Roots**.
+
 ## Tree & Roots
 
 - **Tree name**: type the new name and click the disk icon beside it.

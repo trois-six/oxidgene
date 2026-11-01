@@ -14,7 +14,7 @@ use crate::pages::{
         Dictionary, DictionaryPlace, DictionaryPlaces, DictionaryRepositories,
         DictionaryRepository, DictionarySource, DictionarySources, DictionaryTag,
     },
-    home::Home,
+    home::{Home, Invitations},
     kinship::Kinship,
     media_viewer::Media,
     not_found::NotFound,
@@ -39,6 +39,11 @@ pub enum Route {
     /// Home / landing page.
     #[route("/")]
     Home {},
+
+    /// Where an invitation's link leads (docs/authorization.md §6.2): the
+    /// homepage, whose invitations the user accepts or declines.
+    #[route("/invitations")]
+    Invitations {},
 
     /// Detail view for a single tree (shows persons, families, etc.).
     /// Optional `person` query param to focus on a specific person.
@@ -184,9 +189,11 @@ impl Route {
             | Route::Statistics { tree_id }
             | Route::Tools { tree_id }
             | Route::Settings { tree_id } => Some(tree_id),
-            Route::Home {} | Route::AppSettings {} | Route::Profile {} | Route::NotFound { .. } => {
-                None
-            }
+            Route::Home {}
+            | Route::Invitations {}
+            | Route::AppSettings {}
+            | Route::Profile {}
+            | Route::NotFound { .. } => None,
         }
     }
 
@@ -194,7 +201,7 @@ impl Route {
     /// about: the page's breadcrumb label where it has one.
     pub fn page_label_key(&self) -> &'static str {
         match self {
-            Route::Home {} => "nav_history.page.home",
+            Route::Home {} | Route::Invitations {} => "nav_history.page.home",
             Route::TreeDetail { .. } => "pedigree.breadcrumb",
             Route::SearchResults { .. } => "search.title",
             Route::PersonDetail { .. } => "nav_history.page.person",
@@ -224,7 +231,7 @@ impl Route {
     pub fn shows_navbar(&self) -> bool {
         matches!(
             self,
-            Route::Home {} | Route::AppSettings {} | Route::Profile {}
+            Route::Home {} | Route::Invitations {} | Route::AppSettings {} | Route::Profile {}
         )
     }
 }

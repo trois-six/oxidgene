@@ -41,6 +41,7 @@ use crate::ui_observability::{UiActionStep, UiCommand, trace_ui_action, trace_ui
 pub fn is_printable(route: &Route) -> bool {
     match route {
         Route::Home {}
+        | Route::Invitations {}
         | Route::Settings { .. }
         | Route::AppSettings {}
         | Route::Profile {}

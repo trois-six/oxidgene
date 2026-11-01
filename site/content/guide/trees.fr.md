@@ -19,6 +19,8 @@ La page d’accueil, intitulée **Mes Arbres Généalogiques**, affiche une cart
 
 Cliquez n’importe où sur une carte pour ouvrir l’arbre. Cliquez sur l’une des personnes modifiées récemment pour ouvrir l’arbre centré sur elle.
 
+Dans la version web, la page liste aussi les arbres que d’autres partagent avec vous. Chaque carte indique alors votre rôle sur l’arbre — **Propriétaire**, **Éditeur**, **Invité** ou **Visiteur** — et son menu ne propose que ce que ce rôle permet. **Invitations**, au-dessus des cartes, liste les arbres auxquels vous êtes invité, chacun avec **Accepter** et **Refuser** (voir [Partager un arbre](@/guide/sharing.fr.md)).
+
 L’icône en forme d’engrenage, en haut à droite de la page, ouvre les paramètres de l’application (voir [Paramètres](@/guide/settings.fr.md)).
 
 ## Retrouver un arbre
@@ -28,6 +30,7 @@ Quand vous avez de nombreux arbres, servez-vous de la barre d’outils au-dessus
 - Tapez dans **Rechercher un arbre…** pour ne garder que les arbres dont le nom ou la description contient le texte saisi.
 - Choisissez un ordre : **Récemment modifiés** (par défaut), **Nom A → Z** ou **Nom Z → A**.
 - Passez de **Grille des arbres** à **Liste des arbres** (une carte par ligne) avec les deux boutons d’affichage.
+- Dans la version web, gardez **Tous les arbres**, **Mes arbres** ou les arbres **Partagés avec moi**.
 
 Si rien ne correspond à votre recherche, la page indique **Aucun arbre trouvé**. Si vous n’avez encore aucun arbre, elle affiche **Aucun arbre** et un bouton **Nouvel arbre**.
 

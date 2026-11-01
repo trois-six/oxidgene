@@ -19,6 +19,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::user_avatar::UserAvatar;
 use crate::i18n::{Language, use_i18n};
 use crate::router::Route;
+use crate::ui_observability::use_ui_resource;
 
 /// The navbar's right zone: **Sign in** for a visitor, the user's avatar
 /// opening their menu once signed in.
@@ -155,6 +156,53 @@ pub fn SignInRequired() -> Element {
                     }
                 },
                 p { class: "text-muted", {i18n.t("account.sign_in_required_message")} }
+            }
+        }
+    }
+}
+
+/// The banner over a tree's pages when the viewer is a Visitor of it
+/// (docs/authorization.md §11): they browse it under its privacy settings;
+/// an anonymous one is offered to sign in. The web build's sharing surfaces
+/// only: the desktop and the `none` mode show none.
+#[component]
+pub fn VisitorBanner(tree_id: String) -> Element {
+    let sharing = crate::sharing::use_sharing_surfaces();
+    let accounts = use_accounts();
+    let api = use_context::<ApiClient>();
+    let language = use_context::<Signal<Language>>();
+    let route = use_route::<Route>();
+    let account = use_account();
+    let i18n = use_i18n();
+    let tree = tree_id.parse::<uuid::Uuid>().ok();
+    let api_access = api.clone();
+    let access = use_ui_resource("viewer_access", move || {
+        let api = api_access.clone();
+        async move {
+            match tree.filter(|_| sharing) {
+                Some(tree) => api.tree_access(tree).await.ok(),
+                None => None,
+            }
+        }
+    });
+    let visitor = matches!(
+        &*access.read(),
+        Some(Some(access)) if access.role == oxidgene_core::access::TreeRole::Visitor
+    );
+    let (true, Some(accounts)) = (visitor, accounts) else {
+        return rsx! {};
+    };
+    let anonymous = *account.read() == AccountState::Anonymous;
+    rsx! {
+        div { class: "visitor-banner", role: "status",
+            span { {i18n.t("sharing.visitor_banner")} }
+            if anonymous {
+                button {
+                    class: "btn btn-outline btn-sm",
+                    r#type: "button",
+                    onclick: move |_| sign_in(&accounts, &api, &route, language()),
+                    {i18n.t("account.sign_in")}
+                }
             }
         }
     }

@@ -17,6 +17,8 @@ Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bo
 
 Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**, **Seuils des anomalies**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
 
+Dans la version web, le propriétaire d’un arbre trouve aussi **Membres** et **Partage** dans le premier groupe, pour partager l’arbre (voir [Partager un arbre](@/guide/sharing.fr.md)). Un membre qui n’en est pas le propriétaire trouve **Quitter cet arbre** en bas de **Arbre et racines**.
+
 ## Arbre et racines
 
 - **Nom de l’arbre** : saisissez le nouveau nom et cliquez sur l’icône de disquette à côté.

@@ -16,6 +16,7 @@ use oxidgene_guards::{files, line_of, read, relative};
 
 /// The `UiPage` of a route whose page is not named after it.
 const PAGE_NAMES: &[(&str, &str)] = &[
+    ("Invitations", "Home"),
     ("TreeDetail", "Pedigree"),
     ("DictionaryTag", "Dictionary"),
     ("DictionarySources", "Dictionary"),

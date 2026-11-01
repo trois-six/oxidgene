@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 
@@ -51,7 +51,8 @@ Minimal shared navbar, always visible at the top. See [Common UI](ui-common.md).
 - Logo (`OxidGene.svg`) on the left, acts as a link to the homepage
 - No navigation links in MVP
 - **Web build, `oidc` mode only**: **Sign in**, or the user's avatar opening the account menu to their profile page, in the navbar right zone ([Authentication §10](authentication.md#10-user-interface)). Until someone is signed in, the page shows *Sign in to continue* and **Sign in** in place of the header, toolbar and cards. The desktop and the web build's `none` mode keep this page as it is
-- **Planned, web build only (EPIC G)**: the notifications bell and messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone; the cards' role badges, *My trees* and *Shared with me* filters and pending invitations of [Authorization §11](authorization.md#11-user-interface)
+- **Web build, `oidc` mode only (sharing)**: the cards' role badges, the *My trees* and *Shared with me* filter and the pending invitations of [Authorization §11](authorization.md#11-user-interface) (§5, §6, §6b below). `/invitations`, the address an invitation's link names, opens this page
+- **Planned, web build only (EPIC G)**: the notifications bell and messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone
 
 ---
 
@@ -80,7 +81,9 @@ Both name orders ignore case.
 
 **View toggle** — the shared [ViewToggle](ui-common.md#416-viewtoggle): a list button, then a grid button, the grid pressed by default. In list view the cards stack one per row (`grid-template-columns` collapses to a single column); the choice lasts while the page is open.
 
-**"+ New tree" button** — rightmost element. Visually prominent: orange gradient background, Cinzel font, white text, subtle shadow. Opens the new tree modal on click. Always visible regardless of the number of existing trees.
+**Ownership filter** — web build with the sharing surfaces only, after the sort selector: **All trees** (default), **My trees** (the viewer owns them) or **Shared with me** (any other role).
+
+**"+ New tree" button** — rightmost element. Visually prominent: orange gradient background, Cinzel font, white text, subtle shadow. Opens the new tree modal on click. Always visible regardless of the number of existing trees, unless the signed-in user lacks the instance's tree creation right: then neither the button, the add card nor the empty state's button is shown.
 
 ---
 
@@ -95,7 +98,7 @@ The card opens straight on its padded body; there is no illustration above it.
 1. **Header row** — tree name (Cinzel, bold, uppercase) on the left; three-dot menu button (vertical dots) on the right. It is the top of the card.
 2. **Description** — one line, truncated, when the tree has one.
 3. **Recently modified people** — a small uppercase muted label, then the five persons of the tree modified most recently, newest first, each drawn by the shared quick-search row on a single line: a small portrait (or the sex silhouette), the name, truncated when too long, and the dates with their precision. The relatives and birth place the [search results](ui-search-results.md) add are left out, so the five persons fit the card. The rows are static: no hover wash — the card is what reacts to hover — only the hovered row's name turns orange. A tree with nobody to list shows the label and "No person modified yet"; nothing is shown while the list loads or when it cannot be read.
-4. **Footer row** — "Modified X ago" date on the left, followed by an optional "Recent" badge (shown for trees modified within the last 24 hours); the Open link on the right. The list above grows, so the footer sits at the bottom of a card stretched to a taller neighbour's height.
+4. **Footer row** — in the web build with the sharing surfaces, the viewer's role on the tree as a badge (*Owner*, *Editor*, *Guest*, *Visitor*); "Modified X ago" date on the left, followed by an optional "Recent" badge (shown for trees modified within the last 24 hours); the Open link on the right. The list above grows, so the footer sits at the bottom of a card stretched to a taller neighbour's height.
 
 "Modified" for a person is what the [change history](data-model.md#5-change-history) records: a write about them — a change to their record, names, events, notes, citations or unions, a merge, a restore. Imports are about the tree and are left out, so a tree nobody has edited since its import lists nobody. Deleted persons are left out. Every card's list comes from one `GET /trees/recent-persons?tree_ids=…&limit=5` for the whole page; its rows carry their portraits' sources, so each card then asks for its pictures in one request (see [API Contract](api.md#trees)).
 
@@ -146,9 +149,13 @@ The last card in the grid. Dashed border, centered `+` icon in a green circle, "
 
 ---
 
+### 6b. Pending invitations (web build)
+
+With the sharing surfaces and a signed-in user, the invitations addressed to their verified address (`GET /me/invitations`) are listed above the cards under **Invitations**, one row each: *{inviter} invites you to {tree} as {role}*, whether it covers part of the tree, and the day it must be answered by; **Decline** and **Accept**. Accepting reads the tree list again, the tree now among the cards. Nothing is shown when there is none.
+
 ## 7. Three-Dot Menu (vertical dots)
 
-Appears in the top-right of each card. Opens a dropdown with:
+Appears in the top-right of each card. Opens a dropdown with the entries the viewer's `viewer_access` allows — **Rename** needs `settings_manage`, **Duplicate** `tree_duplicate`, **Import** `import` and **Delete** `tree_delete`; the local owner has them all:
 
 - **Open** — navigates to the tree view
 - **Rename** — inline rename or modal

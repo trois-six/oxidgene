@@ -191,7 +191,10 @@ pub const USERS_PAGE_SIZE: u64 = 50;
 
 impl ApiClient {
     /// A GET that is never cached.
-    async fn get_fresh<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+    pub(super) async fn get_fresh<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<T, ApiError> {
         let response = self
             .send_request("GET", self.client.get(self.url(path)))
             .await?;

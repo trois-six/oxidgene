@@ -116,7 +116,11 @@ pub fn AppShell() -> Element {
 pub fn Layout() -> Element {
     let route = use_route::<Route>();
     let account = crate::account::use_account();
-    let gate = crate::account::gate(&account.read(), &route);
+    // Remounted on every navigation: a refusal counted since the mount is
+    // this page's.
+    let crate::account::AnonymousRefusals(refusals) = use_context();
+    let at_mount = use_hook(|| *refusals.peek());
+    let gate = crate::account::gate(&account.read(), &route, refusals() > at_mount);
 
     rsx! {
         if route.shows_navbar() {
@@ -135,6 +139,9 @@ pub fn Layout() -> Element {
             }
         }
 
+        if let Some(tree_id) = route.tree_id().filter(|_| gate == crate::account::Gate::Open) {
+            account_nav::VisitorBanner { key: "{tree_id}", tree_id: tree_id.to_string() }
+        }
         main { class: "app-main",
             match gate {
                 crate::account::Gate::Open => rsx! { Outlet::<Route> {} },
@@ -494,6 +501,19 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: center;
+    }
+
+    /* Over a tree's pages when the viewer is one of its Visitors. */
+    .visitor-banner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-6);
+        padding: var(--space-3) var(--space-8);
+        font-size: var(--text-80);
+        color: var(--text-secondary);
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border);
     }
 
     /* The one avatar of a user (`UserAvatar`): the uploaded image, else

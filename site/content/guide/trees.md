@@ -19,6 +19,8 @@ The home page, titled **My Genealogy Trees**, shows one card per tree. Each card
 
 Click anywhere on a card to open the tree. Click one of the recently modified people to open the tree centred on that person.
 
+On the web version, the page also lists the trees others share with you. Each card then shows your role on the tree — **Owner**, **Editor**, **Guest** or **Visitor** — and its menu offers only what that role allows. **Invitations** above the cards lists the trees you are invited to, each with **Accept** and **Decline** (see [Share a tree](@/guide/sharing.md)).
+
 The gear icon at the top right of the page opens the application settings (see [Settings](@/guide/settings.md)).
 
 ## Find a tree
@@ -28,6 +30,7 @@ When you have many trees, use the toolbar above the cards:
 - Type in **Search a tree…** to keep only the trees whose name or description contains what you typed.
 - Choose an order: **Recently modified** (the default), **Name A → Z** or **Name Z → A**.
 - Switch between **Grid of trees** and **List of trees** (one card per row) with the two layout buttons.
+- On the web version, keep **All trees**, **My trees** or the trees **Shared with me**.
 
 If nothing matches your search, the page says **No tree found**. When you have no tree at all, it shows **No trees yet** and a **New Tree** button.
 

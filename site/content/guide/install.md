@@ -90,6 +90,6 @@ OxidGene can also run as a web application, used from a browser, backed by Postg
 - **Docker Compose**, to try the web version on one machine.
 - **Kubernetes with Helm**, for a server deployment.
 
-Connected to an identity provider, the web version has user accounts: each person signs in, and only signed-in users reach the trees (see [Accounts and profile](@/guide/accounts.md)). Who may read or change which tree is not decided yet: every signed-in user can read, change and delete every tree, so admit only people you trust. Run without an identity provider, it has no accounts at all, like the desktop application: anyone who can reach it can do everything, so keep it on a private network. A few features are desktop-only, among them importing photos from Geneanet and connecting an AI assistant.
+Connected to an identity provider, the web version has user accounts: each person signs in, and only signed-in users reach the trees (see [Accounts and profile](@/guide/accounts.md)). Each tree belongs to the account that created it, which shares it with the people it chooses (see [Share a tree](@/guide/sharing.md)); until it does, nobody else sees it. Run without an identity provider, it has no accounts at all, like the desktop application: anyone who can reach it can do everything, so keep it on a private network. A few features are desktop-only, among them importing photos from Geneanet and connecting an AI assistant.
 
 Learn more: [technical quickstart](@/tech/quickstart.md).

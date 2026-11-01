@@ -717,8 +717,15 @@ returned once and never readable again. `/auth/*` and
 
 ## 11. User interface
 
-Outline of the web build's surfaces; each is translated in every interface
-language and absent from the desktop.
+The web build's surfaces; each is translated in every interface language
+and absent from the desktop and from a server run without authentication.
+The homepage's roles, filters and invitations, the visitor banner, and the
+owner's Members and Sharing sections are built
+([Homepage §6, §6b](ui-home.md#6b-pending-invitations-web-build),
+[Settings §8c, §8d](ui-settings.md#8c-section-members-web-only-owner));
+the rest follows with its phase. A tree's pages open to an anonymous
+browser, which a `public` tree or a share link lets in; one the server
+refuses (`401`) gives way to the invitation to sign in.
 
 - **Homepage.** *My trees* and *Shared with me* filters; each card shows the
   viewer's role badge (Owner, Editor, Guest, Visitor); pending invitations
