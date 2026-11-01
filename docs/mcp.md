@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-10-31T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -338,7 +338,24 @@ single user. The web build's HTTP transport (§10) acts for the signed-in user
 whose token it receives: filtering by viewer access — scope, exclusions,
 redaction — happens once, in the read path that REST, GraphQL, exports, and
 MCP share ([Privacy §7](privacy.md#7-enforcement-points)). There is no
-MCP-specific filter. A future "never send to an assistant" choice, if one is wanted, is a
+MCP-specific filter.
+
+**Every call is authorized as its REST operation.** A session acts for one
+principal — the stdio server's local owner, or the user of a session over
+HTTP — and each call gets a `ViewerContext` of its own. Before the tool
+runs, the server finds the REST operation it maps to (the *Product
+operation* column of §5) and checks that operation's declared requirement
+([Authorization §3.2](authorization.md#32-permission-matrix)) on the tree
+the call names: a tree the viewer may not see is `not_found`, a missing
+permission `forbidden`, an anonymous principal `unauthenticated`, and the
+refusal is recorded in the access log as REST's is. A write of a scoped
+Editor follows [Authorization §3.3](authorization.md#33-scoped-members):
+a change to a place, source or tag is `forbidden`, and every person its
+arguments name must be in the scope. `list_trees` lists the trees the
+viewer may read as `GET /trees` does — every tree for the local owner, a
+user's memberships and the trees their share links open — and every read
+then applies the viewer's scope, exclusions and redaction. A tool without
+a declared operation is refused; a test keeps every tool mapped. A future "never send to an assistant" choice, if one is wanted, is a
 separate setting, not an overloaded `privacy` value.
 
 ### 7.3 Untrusted content
@@ -437,7 +454,8 @@ To allow writes (§7.1), the user appends the flag: `… oxidgene-desktop mcp
   `tree:write`, the user's per-tree access, `Origin` validation and the same
   required `tree_id` as §3 — is specified in
   [Authorization §8](authorization.md#8-assistant-access-over-http-mcp).
-  `list_trees` then returns only the trees the user may read.
+  The tools already act for any viewer (§7.2): the transport hands them
+  the token's user.
 - **Media.** Thumbnails as image content, bounded in size and count.
 - **Output schemas.** An `outputSchema` per tool, once the result types carry
   JSON Schema derives.
@@ -462,5 +480,9 @@ To allow writes (§7.1), the user appends the flag: `… oxidgene-desktop mcp
   read-only session neither lists nor runs a write tool.
 - A test asserts that a session writes nothing but protocol messages to its
   output stream, with and without `--allow-writes`.
+- A session acting for a signed-in Guest, a Visitor and an anonymous
+  principal is checked as REST checks them: `list_trees`, a tree they may
+  not see, an excluded person, a write without the permission, tags for a
+  Visitor.
 - A tool whose operation's behavior changes is re-tested with the REST and
   GraphQL tests of that operation.

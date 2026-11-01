@@ -379,6 +379,9 @@ string in every language, and the user guide. In order:
      provisioning, rotation, revocation, rate limits and usage
      ([Authorization §7](authorization.md#7-api-clients)), and their
      `api_client_expiring` notification.
+   - [x] The MCP tools act for any viewer and are checked as their REST
+     operations are; `list_trees` lists the trees the viewer may read
+     ([Assistant Access §7.2](mcp.md#72-privacy-values-are-not-applied)).
    - [ ] MCP over Streamable HTTP with protected resource metadata
      ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)).
    - [ ] Token exchange for the first worker task that calls a service on

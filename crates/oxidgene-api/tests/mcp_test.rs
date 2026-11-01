@@ -1503,3 +1503,197 @@ async fn a_write_to_a_tree_deleted_mid_session_is_not_found() {
         );
     }
 }
+
+// ── Viewers other than the local owner ───────────────────────────────────────
+
+/// A session acting for `principal`, as a session over HTTP acts for its
+/// token's user (docs/authorization.md §8).
+#[cfg(feature = "auth")]
+async fn session_as(
+    db: &oxidgene_db::sea_orm::DatabaseConnection,
+    principal: oxidgene_core::access::Principal,
+) -> RunningService<RoleClient, ()> {
+    let (server_transport, client_transport) = tokio::io::duplex(64 * 1024);
+    tokio::spawn(oxidgene_api::mcp::serve_as(
+        db.clone(),
+        Access::ReadWrite,
+        principal,
+        server_transport,
+    ));
+    ().serve(client_transport).await.expect("MCP handshake")
+}
+
+/// A signed-in user of the instance, by subject.
+#[cfg(feature = "auth")]
+async fn signed_in(
+    db: &oxidgene_db::sea_orm::DatabaseConnection,
+    subject: &str,
+) -> oxidgene_core::access::Principal {
+    use oxidgene_core::access::{Identity, InstanceRole, Principal};
+    use oxidgene_db::repo::{AppUserRepo, NewAppUser};
+    let user = AppUserRepo::create(
+        db,
+        NewAppUser {
+            issuer: "https://id.example.invalid".into(),
+            subject: subject.into(),
+            email: Some(format!("{subject}@example.invalid")),
+            email_verified: true,
+            provider_name: Some(format!("Fictive {subject}")),
+            username: Some(subject.into()),
+            locale: None,
+            instance_role: InstanceRole::User,
+            can_create_trees: false,
+        },
+    )
+    .await
+    .expect("creates the user");
+    Principal::User(Identity {
+        issuer: "https://id.example.invalid".into(),
+        subject: subject.into(),
+        user_id: user.id,
+        client_id: Some("oxidgene-mcp".into()),
+        scopes: vec!["tree:read".into(), "tree:write".into()],
+        session_id: None,
+        api_client_id: None,
+        instance_role: InstanceRole::User,
+        can_create_trees: false,
+    })
+}
+
+/// Every tool checks a viewer other than the local owner as its REST twin
+/// does: `list_trees` lists the trees they may read, a tree they may not is
+/// `not_found`, a write without the permission is `forbidden`, a person
+/// excluded from sharing is absent, a Visitor knows no tag, and an
+/// anonymous session is asked to sign in.
+#[cfg(feature = "auth")]
+#[tokio::test]
+async fn a_viewer_other_than_the_owner_is_checked_like_rest() {
+    use oxidgene_core::access::{Principal, TreeRole};
+    use oxidgene_core::sharing::TreeVisibility;
+    use oxidgene_db::repo::{MembershipRepo, TreeChanges, TreeRepo};
+
+    let db = setup_db().await;
+    let owner = Harness {
+        rest: app_on(db.clone()),
+        client: session_as(&db, Principal::Local).await,
+    };
+    let shared = owner.tree("Shared Fixture").await;
+    let private = owner.tree("Unshared Fixture").await;
+    let shown = owner.person(&shared, "female", "Wren", "Ashcombe").await;
+    let excluded = owner.person(&shared, "male", "Sorrel", "Ashcombe").await;
+    let (status, body) = owner
+        .rest(
+            Method::POST,
+            &format!("/api/v1/trees/{shared}/exclusions"),
+            Some(json!({ "kind": "person", "person_id": excluded })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let shared_id: uuid::Uuid = shared.parse().unwrap();
+    // The local owner's session sees every tree, as the stdio server does.
+    let listed = owner.ok("list_trees", json!({})).await;
+    assert_eq!(
+        listed["edges"].as_array().map(Vec::len),
+        Some(2),
+        "{listed}"
+    );
+
+    let guest = signed_in(&db, "guest").await;
+    let Principal::User(identity) = &guest else {
+        unreachable!("a signed-in user")
+    };
+    MembershipRepo::create(&db, shared_id, identity.user_id, TreeRole::Guest, None)
+        .await
+        .expect("shares the tree");
+    let as_guest = Harness {
+        rest: owner.rest.clone(),
+        client: session_as(&db, guest).await,
+    };
+    let listed = as_guest.ok("list_trees", json!({})).await;
+    let ids: Vec<&str> = listed["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|edge| edge["node"]["id"].as_str())
+        .collect();
+    assert_eq!(ids, [shared.as_str()], "{listed}");
+    assert_eq!(
+        as_guest
+            .error_code("get_tree", json!({ "tree_id": private }))
+            .await,
+        "not_found"
+    );
+    let found = as_guest
+        .ok(
+            "search_persons",
+            json!({ "tree_id": shared, "q": "Ashcombe" }),
+        )
+        .await;
+    assert_eq!(found["total_count"], 1, "{found}");
+    assert!(!found.to_string().contains("Sorrel"), "{found}");
+    assert_eq!(
+        as_guest
+            .error_code(
+                "get_person_profile",
+                json!({ "tree_id": shared, "person_id": excluded }),
+            )
+            .await,
+        "not_found"
+    );
+    as_guest
+        .ok(
+            "get_person_profile",
+            json!({ "tree_id": shared, "person_id": shown }),
+        )
+        .await;
+    assert_eq!(
+        as_guest
+            .error_code("create_person", json!({ "tree_id": shared, "sex": "male" }))
+            .await,
+        "forbidden"
+    );
+
+    // A Visitor of a `site` tree reads it, is not offered it in the list,
+    // and knows no tag.
+    TreeRepo::update(
+        &db,
+        shared_id,
+        TreeChanges {
+            visibility: Some(TreeVisibility::Site),
+            ..TreeChanges::default()
+        },
+    )
+    .await
+    .expect("opens the tree to the site");
+    let as_visitor = Harness {
+        rest: owner.rest.clone(),
+        client: session_as(&db, signed_in(&db, "visitor").await).await,
+    };
+    let listed = as_visitor.ok("list_trees", json!({})).await;
+    assert_eq!(listed["edges"], json!([]), "{listed}");
+    as_visitor
+        .ok("get_tree", json!({ "tree_id": shared }))
+        .await;
+    assert_eq!(
+        as_visitor
+            .error_code("list_tags", json!({ "tree_id": shared }))
+            .await,
+        "forbidden"
+    );
+
+    // Anonymous: nothing but a request to sign in.
+    let anonymous = Harness {
+        rest: owner.rest.clone(),
+        client: session_as(&db, Principal::Anonymous).await,
+    };
+    assert_eq!(
+        anonymous.error_code("list_trees", json!({})).await,
+        "unauthenticated"
+    );
+    assert_eq!(
+        anonymous
+            .error_code("get_tree", json!({ "tree_id": private }))
+            .await,
+        "unauthenticated"
+    );
+}

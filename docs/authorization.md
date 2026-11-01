@@ -603,7 +603,10 @@ part requires:
   ([Authentication §5.1](authentication.md#51-accepted-credentials)); OxidGene
   never passes a token on.
 - **Rights.** The token's user's `ViewerContext`, cut down by `tree:read`
-  (read tools) and `tree:write` (mutating tools); `list_trees` returns the
+  (read tools) and `tree:write` (mutating tools); each call is checked
+  against the requirement of the REST operation its tool maps to, a scoped
+  Editor's write rules included ([Assistant Access §7.2](mcp.md#72-privacy-values-are-not-applied)),
+  whatever the transport; `list_trees` returns the
   trees the user may read; every tool keeps its required `tree_id` and applies
   scope, exclusions and redaction as REST does. A token lacking the scope
   answers `403` with `insufficient_scope`.

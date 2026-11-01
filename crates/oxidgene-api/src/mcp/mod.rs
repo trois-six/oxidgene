@@ -11,6 +11,15 @@
 //! the write tools of [`write`] are then added to the read tools of this
 //! module. A read-only session does not list them at all.
 //!
+//! Every call acts for the session's [`Principal`]: the stdio server's is
+//! the local owner, as the desktop's; a session over HTTP acts for the
+//! user its token names (docs/authorization.md §8). Each call gets a
+//! [`ViewerContext`] of its own and is checked like the REST operation it
+//! maps to ([`TOOL_OPERATIONS`]) before it runs: the operation's declared
+//! requirement on the tree it names, and a scoped Editor's rules on a
+//! write; its reads then apply the viewer's scope, exclusions and
+//! redaction as REST does.
+//!
 //! The server owns no background work: it holds a database connection and a
 //! [`ProfileService`] and nothing else, so it can run in a second process
 //! beside an open desktop window. See `docs/mcp.md`.
@@ -53,7 +62,7 @@ use crate::rest::tag::TagView;
 use crate::service::dictionary;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
-use oxidgene_core::access::ViewerContext;
+use oxidgene_core::access::{Principal, ViewerContext};
 
 pub use crate::service::pedigrees::MAX_PEDIGREE_DEPTH;
 
@@ -103,8 +112,9 @@ pub struct OxidGeneMcp {
     profiles: Arc<ProfileService>,
     /// Whom every tool acts for: the desktop's local owner, whose writes
     /// the history records as `local` (docs/authorization.md §8: the stdio
-    /// server is unchanged).
-    viewer: Arc<ViewerContext>,
+    /// server is unchanged), or the user of a session over HTTP. Each call
+    /// gets a [`ViewerContext`] of its own.
+    principal: Principal,
     access: Access,
     tool_router: ToolRouter<Self>,
 }
@@ -121,7 +131,23 @@ where
     T: IntoTransport<RoleServer, E, A>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    let server = OxidGeneMcp::new(db, access)
+    serve_as(db, access, Principal::Local, transport).await
+}
+
+/// Serve MCP over the given transport for `principal` until the peer
+/// disconnects: every call is authorized and redacted as `principal`'s
+/// REST request would be (docs/authorization.md §8).
+pub async fn serve_as<T, E, A>(
+    db: DatabaseConnection,
+    access: Access,
+    principal: Principal,
+    transport: T,
+) -> Result<(), OxidGeneError>
+where
+    T: IntoTransport<RoleServer, E, A>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    let server = OxidGeneMcp::for_principal(db, access, principal)
         .serve(transport)
         .await
         .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
@@ -357,15 +383,22 @@ pub struct DictionaryUsageParams {
 // ── Tools ────────────────────────────────────────────────────────────────────
 
 impl OxidGeneMcp {
-    /// A server over `db`, offering the tools `access` allows.
+    /// A server over `db` for the local owner, offering the tools `access`
+    /// allows.
     pub fn new(db: DatabaseConnection, access: Access) -> Self {
+        Self::for_principal(db, access, Principal::Local)
+    }
+
+    /// A server over `db` acting for `principal`, offering the tools
+    /// `access` allows.
+    pub fn for_principal(db: DatabaseConnection, access: Access, principal: Principal) -> Self {
         let mut tool_router = Self::read_tool_router();
         if access == Access::ReadWrite {
             tool_router += Self::write_tool_router();
         }
         Self {
             profiles: Arc::new(ProfileService::new(db.clone())),
-            viewer: Arc::new(ViewerContext::local()),
+            principal,
             db,
             access,
             tool_router,
@@ -378,7 +411,14 @@ impl OxidGeneMcp {
     /// List the genealogy trees. Their IDs are the `tree_id` every other tool requires.
     #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn list_trees(&self, params: Parameters<PageParams>) -> CallToolResult {
-        respond("list_trees", TreeRepo::list(&self.db, &params.0.params())).await
+        respond("list_trees", async {
+            let viewer = self.viewer();
+            let page = params.0.params();
+            let trees =
+                crate::service::tree::list_trees(&viewer, &self.db, &self.profiles, &page).await?;
+            Ok::<_, OxidGeneError>(trees.map(|item| item.tree))
+        })
+        .await
     }
 
     /// Get a tree: its name, description, SOSA root and the person who represents the user.
@@ -791,7 +831,275 @@ async fn usage_entries(
     }
 }
 
+tokio::task_local! {
+    /// The viewer of the tool call running on this task: set by
+    /// [`OxidGeneMcp::call_tool`] around the call, after its authorization.
+    static VIEWER: Arc<ViewerContext>;
+}
+
+/// The REST operation each tool maps to (docs/mcp.md §5), whose declared
+/// requirement it is checked against (docs/authorization.md §3.2): by
+/// method and route template, under `/api/v1`.
+const TOOL_OPERATIONS: &[(&str, &str, &str)] = &[
+    ("list_trees", "GET", "/trees"),
+    ("get_tree", "GET", "/trees/{tree_id}"),
+    ("search_persons", "GET", "/trees/{tree_id}/persons/search"),
+    ("list_tags", "GET", "/trees/{tree_id}/tags"),
+    (
+        "get_person_profile",
+        "GET",
+        "/trees/{tree_id}/profiles/{person_id}",
+    ),
+    (
+        "get_person_by_sosa",
+        "GET",
+        "/trees/{tree_id}/persons/sosa/{number}",
+    ),
+    (
+        "get_pedigree",
+        "GET",
+        "/trees/{tree_id}/pedigree/{root_person_id}",
+    ),
+    (
+        "get_relation_labels",
+        "POST",
+        "/trees/{tree_id}/relation-labels",
+    ),
+    (
+        "get_kinship",
+        "GET",
+        "/trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}",
+    ),
+    ("get_family", "GET", "/trees/{tree_id}/families/{family_id}"),
+    ("list_events", "GET", "/trees/{tree_id}/events"),
+    (
+        "list_event_witnesses",
+        "GET",
+        "/trees/{tree_id}/events/{event_id}/witnesses",
+    ),
+    ("get_place", "GET", "/trees/{tree_id}/places/{place_id}"),
+    ("get_source", "GET", "/trees/{tree_id}/sources/{source_id}"),
+    ("list_citations", "GET", "/trees/{tree_id}/citations"),
+    ("list_notes", "GET", "/trees/{tree_id}/notes"),
+    (
+        "list_dictionary",
+        "GET",
+        "/trees/{tree_id}/dictionary/family-names",
+    ),
+    (
+        "dictionary_usage",
+        "GET",
+        "/trees/{tree_id}/dictionary/family-names/usage",
+    ),
+    ("create_person", "POST", "/trees/{tree_id}/persons"),
+    (
+        "update_person",
+        "PUT",
+        "/trees/{tree_id}/persons/{person_id}",
+    ),
+    (
+        "add_person_name",
+        "POST",
+        "/trees/{tree_id}/persons/{person_id}/names",
+    ),
+    (
+        "update_person_name",
+        "PUT",
+        "/trees/{tree_id}/persons/{person_id}/names/{name_id}",
+    ),
+    (
+        "delete_person_name",
+        "DELETE",
+        "/trees/{tree_id}/persons/{person_id}/names/{name_id}",
+    ),
+    (
+        "delete_person",
+        "DELETE",
+        "/trees/{tree_id}/persons/{person_id}",
+    ),
+    ("create_event", "POST", "/trees/{tree_id}/events"),
+    ("update_event", "PUT", "/trees/{tree_id}/events/{event_id}"),
+    (
+        "delete_event",
+        "DELETE",
+        "/trees/{tree_id}/events/{event_id}",
+    ),
+    (
+        "add_event_witness",
+        "POST",
+        "/trees/{tree_id}/events/{event_id}/witnesses",
+    ),
+    (
+        "remove_event_witness",
+        "DELETE",
+        "/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}",
+    ),
+    ("create_family", "POST", "/trees/{tree_id}/families"),
+    (
+        "update_family",
+        "PUT",
+        "/trees/{tree_id}/families/{family_id}",
+    ),
+    (
+        "delete_family",
+        "DELETE",
+        "/trees/{tree_id}/families/{family_id}",
+    ),
+    (
+        "add_spouse",
+        "POST",
+        "/trees/{tree_id}/families/{family_id}/spouses",
+    ),
+    (
+        "remove_spouse",
+        "DELETE",
+        "/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}",
+    ),
+    (
+        "add_child",
+        "POST",
+        "/trees/{tree_id}/families/{family_id}/children",
+    ),
+    (
+        "remove_child",
+        "DELETE",
+        "/trees/{tree_id}/families/{family_id}/children/{child_id}",
+    ),
+    ("create_place", "POST", "/trees/{tree_id}/places"),
+    ("update_place", "PUT", "/trees/{tree_id}/places/{place_id}"),
+    (
+        "delete_place",
+        "DELETE",
+        "/trees/{tree_id}/places/{place_id}",
+    ),
+    ("create_source", "POST", "/trees/{tree_id}/sources"),
+    (
+        "update_source",
+        "PUT",
+        "/trees/{tree_id}/sources/{source_id}",
+    ),
+    (
+        "delete_source",
+        "DELETE",
+        "/trees/{tree_id}/sources/{source_id}",
+    ),
+    ("create_citation", "POST", "/trees/{tree_id}/citations"),
+    (
+        "update_citation",
+        "PUT",
+        "/trees/{tree_id}/citations/{citation_id}",
+    ),
+    (
+        "delete_citation",
+        "DELETE",
+        "/trees/{tree_id}/citations/{citation_id}",
+    ),
+    ("create_note", "POST", "/trees/{tree_id}/notes"),
+    ("update_note", "PUT", "/trees/{tree_id}/notes/{note_id}"),
+    ("delete_note", "DELETE", "/trees/{tree_id}/notes/{note_id}"),
+    ("create_tag", "POST", "/trees/{tree_id}/tags"),
+    ("delete_tag", "DELETE", "/trees/{tree_id}/tags/{tag_id}"),
+    (
+        "tag_record",
+        "PUT",
+        "/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}",
+    ),
+    (
+        "untag_record",
+        "DELETE",
+        "/trees/{tree_id}/tags/{tag_id}/records/{kind}/{record_id}",
+    ),
+];
+
+/// The REST operation tool `tool` maps to: its route template, `/api/v1`
+/// included, and its requirement.
+fn operation_of(tool: &str) -> Option<(String, crate::authz::Requirement)> {
+    let (_, method, path) = TOOL_OPERATIONS.iter().find(|(name, ..)| *name == tool)?;
+    let route = format!("/api/v1{path}");
+    let requirement = crate::authz::operations::rest(method, &route)?;
+    Some((route, requirement))
+}
+
 impl OxidGeneMcp {
+    /// The viewer of the running call; anonymous, who may read nothing,
+    /// outside of one.
+    fn viewer(&self) -> Arc<ViewerContext> {
+        VIEWER
+            .try_with(Arc::clone)
+            .unwrap_or_else(|_| Arc::new(ViewerContext::anonymous()))
+    }
+
+    /// Check call `request` for `viewer` as its REST operation is checked
+    /// (docs/authorization.md §8): the operation's requirement on the tree
+    /// it names, then a scoped Editor's rules on a write — a change to a
+    /// record the whole tree shares is refused, and every person its
+    /// arguments name must be in the scope. A tool without a declared
+    /// operation is refused.
+    async fn authorize(
+        &self,
+        viewer: &ViewerContext,
+        request: &rmcp::model::CallToolRequestParams,
+    ) -> Result<(), OxidGeneError> {
+        let Some((route, requirement)) = operation_of(&request.name) else {
+            // An unknown tool is the router's to answer; a known one without
+            // an operation is refused.
+            return if self.tool_router.has_route(&request.name) {
+                Err(OxidGeneError::Forbidden)
+            } else {
+                Ok(())
+            };
+        };
+        let arguments = request.arguments.as_ref();
+        // A malformed or missing tree fails the tool's own parameters.
+        let tree_id = arguments
+            .and_then(|arguments| arguments.get("tree_id"))
+            .and_then(Value::as_str)
+            .and_then(|id| Uuid::parse_str(id).ok());
+        let outcome = self
+            .checked(viewer, requirement, &route, tree_id, arguments)
+            .await;
+        if let Err(error) = &outcome {
+            crate::authz::log::refusal(&self.db, viewer, tree_id, &route, requirement, error);
+        }
+        outcome
+    }
+
+    async fn checked(
+        &self,
+        viewer: &ViewerContext,
+        requirement: crate::authz::Requirement,
+        route: &str,
+        tree_id: Option<Uuid>,
+        arguments: Option<&rmcp::model::JsonObject>,
+    ) -> Result<(), OxidGeneError> {
+        let named = match requirement {
+            crate::authz::Requirement::Tree(_) => tree_id,
+            _ => None,
+        };
+        if matches!(requirement, crate::authz::Requirement::Tree(_)) && named.is_none() {
+            requirement.check_viewer(viewer)?;
+            return Ok(());
+        }
+        crate::authz::check(&self.db, viewer, requirement, named).await?;
+        #[cfg(feature = "auth")]
+        if let (crate::authz::Requirement::Tree(permission), Some(tree_id)) = (requirement, named)
+            && let Some(access) = viewer.cached(tree_id)
+            && crate::authz::scoped::applies(&access, permission)
+        {
+            if crate::authz::scoped::refuses_route(route) {
+                return Err(OxidGeneError::Forbidden);
+            }
+            let mut ids = std::collections::HashSet::new();
+            if let Some(arguments) = arguments {
+                crate::authz::scoped::ids_in_json(&Value::Object(arguments.clone()), &mut ids);
+            }
+            crate::authz::scoped::check_named(&self.db, &access, tree_id, &ids).await?;
+        }
+        #[cfg(not(feature = "auth"))]
+        let _ = (route, arguments);
+        Ok(())
+    }
+
     /// Resolve the tree a call names. A missing or soft-deleted tree is
     /// `not_found`, as the REST tree guard reports it.
     async fn tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
@@ -803,7 +1111,7 @@ impl OxidGeneMcp {
         &self,
         tree_id: Uuid,
     ) -> Result<Arc<oxidgene_core::redaction::Redaction>, OxidGeneError> {
-        crate::authz::redaction::redaction(&self.db, &self.profiles, &self.viewer, tree_id).await
+        crate::authz::redaction::redaction(&self.db, &self.profiles, &self.viewer(), tree_id).await
     }
 
     /// What the server's viewer sees of the records of tree `tree_id`
@@ -812,12 +1120,30 @@ impl OxidGeneMcp {
         &self,
         tree_id: Uuid,
     ) -> Result<crate::authz::records::Records, OxidGeneError> {
-        crate::authz::records::Records::of(&self.db, &self.profiles, &self.viewer, tree_id).await
+        crate::authz::records::Records::of(&self.db, &self.profiles, &self.viewer(), tree_id).await
     }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for OxidGeneMcp {
+    /// Run a tool call for a viewer of its own, once authorized: a refusal
+    /// is a tool error carrying the REST error envelope, as any domain
+    /// error is.
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
+        let viewer = Arc::new(ViewerContext::new(self.principal.clone()));
+        if let Err(error) = self.authorize(&viewer, &request).await {
+            let tool = request.name.clone();
+            info!(tool = %tool, outcome = classify(&error).code, "MCP tool call refused");
+            return Ok(error_result(&error).into());
+        }
+        let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        VIEWER.scope(viewer, self.tool_router.call(call)).await
+    }
+
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("oxidgene", env!("CARGO_PKG_VERSION")))
@@ -868,13 +1194,16 @@ fn respond<'a, T: Serialize>(
                 Value::Object(_) => value,
                 items => serde_json::json!({ "items": items }),
             }),
-            Err(error) => {
-                let body = serde_json::to_value(ErrorBody::from_error(&error))
-                    .expect("an envelope of strings and a UUID always serializes");
-                CallToolResult::structured_error(body)
-            }
+            Err(error) => error_result(&error),
         }
     })
+}
+
+/// The tool error answering `error`: the shared REST error envelope.
+fn error_result(error: &OxidGeneError) -> CallToolResult {
+    let body = serde_json::to_value(ErrorBody::from_error(error))
+        .expect("an envelope of strings and a UUID always serializes");
+    CallToolResult::structured_error(body)
 }
 
 /// The `mcp.tool` span of one call, named after its tool.
@@ -889,4 +1218,26 @@ fn tool_span(tool: &'static str) -> tracing::Span {
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, OxidGeneError> {
     serde_json::to_value(value).map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every tool maps to a declared REST operation, so it is checked as
+    /// its REST twin is.
+    #[test]
+    fn every_tool_maps_to_a_declared_operation() {
+        let server = OxidGeneMcp::new(DatabaseConnection::default(), Access::ReadWrite);
+        let tools = server.tool_router.list_all();
+        assert!(!tools.is_empty());
+        for tool in tools {
+            assert!(
+                operation_of(&tool.name).is_some(),
+                "{} maps to no declared REST operation",
+                tool.name
+            );
+        }
+        assert_eq!(TOOL_OPERATIONS.len(), server.tool_router.list_all().len());
+    }
 }
