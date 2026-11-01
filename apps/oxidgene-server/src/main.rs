@@ -15,7 +15,10 @@ use std::sync::Arc;
 
 use axum::http::HeaderValue;
 use oxidgene_api::auth::Auth;
-use oxidgene_api::startup::{ReferenceWarmup, open_database, or_exit, spawn_background_worker};
+use oxidgene_api::mail::MailOutbox;
+use oxidgene_api::startup::{
+    MailSetup, ReferenceWarmup, open_database, or_exit, spawn_background_worker,
+};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_observability::init;
 use tokio::net::TcpListener;
@@ -61,8 +64,8 @@ async fn main() {
         "Starting OxidGene server"
     );
 
-    // ── Authentication ───────────────────────────────────────────────
-    let (auth, access_log_retention) = start_auth().await;
+    // ── Authentication and mail ──────────────────────────────────────
+    let (auth, access_log_retention, mail) = start_auth().await;
 
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
@@ -93,10 +96,16 @@ async fn main() {
         // SQLite has no separate worker: this process was the only one
         // running the jobs a previous run left marked as running.
         spawn_background_worker(&state, uses_sqlite, "embedded-server").await;
+        // The embedded worker sends the mail too.
+        if let Some(mail) = &mail {
+            mail.spawn_sender(state.db.clone());
+        }
     }
     // Under PostgreSQL the workers may run in other processes: their writes
-    // reach this one's waiting job status reads as notifications.
+    // reach this one's waiting job status reads as notifications, and the
+    // notifications they and the other replicas write reach its long polls.
     tokio::spawn(oxidgene_api::service::job_watch::listen(state.db.clone()));
+    tokio::spawn(oxidgene_api::service::updates::listen(state.db.clone()));
     let mut api_router = build_router(state);
     if cfg.graphiql {
         api_router = api_router.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));
@@ -136,12 +145,12 @@ async fn main() {
     telemetry.shutdown();
 }
 
-/// The authentication `OXIDGENE_AUTH_MODE` and its settings describe, and
-/// how long the access log keeps its events
-/// (`OXIDGENE_ACCESS_LOG_RETENTION`), which the embedded worker enforces.
-/// An invalid setting ends the process with its category and variable,
-/// never its value.
-async fn start_auth() -> (Arc<Auth>, std::time::Duration) {
+/// The authentication `OXIDGENE_AUTH_MODE` and its settings describe, how
+/// long the access log keeps its events (`OXIDGENE_ACCESS_LOG_RETENTION`),
+/// which the embedded worker enforces, and the SMTP relay of the `oidc`
+/// mode, if `OXIDGENE_SMTP_HOST` names one. An invalid setting ends the
+/// process with its category and variable, never its value.
+async fn start_auth() -> (Arc<Auth>, std::time::Duration, Option<MailSetup>) {
     let settings = or_exit(
         // Its text may quote a value, and is not logged.
         ServerConfig::load_auth().map_err(|error| error.to_string()),
@@ -154,13 +163,24 @@ async fn start_auth() -> (Arc<Auth>, std::time::Duration) {
     let retention = settings
         .access_log_retention()
         .unwrap_or_else(|failure| invalid_auth(failure));
-    let auth = Arc::new(or_exit(
+    let mail_settings = or_exit(
+        ServerConfig::load_mail().map_err(|error| error.to_string()),
+        "mail_config_invalid",
+        "Failed to load the mail settings",
+    );
+    let mail = MailSetup::resolve(&settings, &mail_settings);
+    let auth = or_exit(
         Auth::start(config).await,
         "session_store_unavailable",
         "Failed to connect to the session store",
-    ));
+    )
+    .with_invitation_outbox(Arc::new(MailOutbox::new(mail.is_some())));
+    let auth = Arc::new(auth);
     announce(&auth);
-    (auth, retention)
+    if mail.is_some() {
+        info!(mail = "smtp", "Mail goes through the configured SMTP relay");
+    }
+    (auth, retention, mail)
 }
 
 /// End the process over an invalid authentication setting, named by its

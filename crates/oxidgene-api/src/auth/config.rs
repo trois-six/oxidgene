@@ -264,6 +264,25 @@ impl AuthSettings {
         lifetime(&self.access_log_retention, "OXIDGENE_ACCESS_LOG_RETENTION")
     }
 
+    /// What a process that sends mail needs of the `oidc` deployment: the
+    /// public URL its links start with, without a trailing slash, and the
+    /// session keys its unsubscribe tokens are signed with
+    /// (docs/messaging.md §2.3). The worker reads these alone, needing none
+    /// of the sign-in settings.
+    ///
+    /// # Errors
+    ///
+    /// The category and variable of the first missing or invalid value.
+    pub fn mail_signing(&self) -> Result<(String, Vec<[u8; 32]>), AuthConfigError> {
+        let (public_url, _) = public_url(self.public_url.as_deref())?;
+        let keys = secret(
+            &self.session_keys,
+            &self.session_keys_file,
+            "OXIDGENE_SESSION_KEYS",
+        )?;
+        Ok((public_url, session_keys(&keys)?))
+    }
+
     /// Check the settings.
     ///
     /// # Errors

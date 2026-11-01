@@ -164,7 +164,79 @@ pub async fn spawn_background_worker(state: &AppState, requeue_running: bool, wo
     )
     .with_work_dir(state.work_dir.clone())
     .with_access_log_retention(state.access_log_retention);
+    #[cfg(feature = "auth")]
+    let worker = worker.with_mailing(state.auth.mailing().0);
     tokio::spawn(worker.run());
+}
+
+/// The relay and the `oidc` deployment a process mails for, when
+/// `OXIDGENE_SMTP_HOST` names a relay. The `none` mode mails nothing and
+/// requires no relay: its settings are not read.
+#[cfg(feature = "auth")]
+pub struct MailSetup {
+    pub smtp: crate::mail::SmtpConfig,
+    /// Where links start and what unsubscribe tokens are signed with.
+    pub context: crate::mail::MailContext,
+}
+
+#[cfg(feature = "auth")]
+impl MailSetup {
+    /// The mail of the deployment `auth` and `mail` describe, if any: a
+    /// relay in `oidc` mode, with the public URL and the session keys. The
+    /// sign-in settings are not read, so that a worker needs none of them.
+    /// An invalid setting ends the process with its category and variable,
+    /// never its value; a `danger-insecure` relay is warned about.
+    pub fn resolve(
+        auth: &crate::auth::AuthSettings,
+        mail: &crate::mail::MailSettings,
+    ) -> Option<Self> {
+        if auth.auth_mode.trim() == "none" {
+            return None;
+        }
+        let smtp = match mail.resolve() {
+            Ok(smtp) => smtp?,
+            Err(failure) => invalid(failure.category, failure.variable),
+        };
+        let (public_url, keys) = match auth.mail_signing() {
+            Ok(signing) => signing,
+            Err(failure) => invalid(failure.category, failure.variable),
+        };
+        if smtp.tls == crate::mail::SmtpTls::DangerInsecure {
+            tracing::warn!(
+                mail = "smtp_without_tls",
+                "Mail goes to the SMTP relay without TLS: for a development relay only"
+            );
+        }
+        Some(Self {
+            smtp,
+            context: crate::mail::context(&public_url, &keys),
+        })
+    }
+
+    /// Start this process's mail sender over `db`.
+    pub fn spawn_sender(&self, db: DatabaseConnection) {
+        let sender = or_exit(
+            crate::mail::sender(db, &self.smtp, self.context.clone()),
+            "mail_config_invalid",
+            "Failed to configure the SMTP relay",
+        );
+        tokio::spawn(sender.run());
+    }
+}
+
+/// End the process over an invalid setting, named by its category and
+/// variable, never its value.
+#[cfg(feature = "auth")]
+fn invalid(category: &'static str, variable: &'static str) -> ! {
+    error!(error = category, variable, "Invalid mail configuration");
+    std::process::exit(1)
+}
+
+#[cfg(feature = "auth")]
+impl FailureKind for crate::mail::RelayFailure {
+    fn failure_kind(&self) -> &'static str {
+        self.category
+    }
 }
 
 /// `api` behind a `GET /healthz` answering `200 OK` with `{"status":"ok"}`.

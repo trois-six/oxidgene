@@ -15,6 +15,8 @@ mod error_contract;
 #[cfg(feature = "graphql")]
 pub mod graphql;
 pub mod limits;
+#[cfg(feature = "auth")]
+pub mod mail;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod media;

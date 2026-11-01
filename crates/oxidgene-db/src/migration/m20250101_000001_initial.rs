@@ -48,6 +48,9 @@ impl MigrationTrait for Migration {
         // `tree` — the history, `person_distinct`, the `person_denorm`
         // projection — before either of them.
         let tables = [
+            MailOutbox::Table.into_table_ref(),
+            NotificationPreference::Table.into_table_ref(),
+            Notification::Table.into_table_ref(),
             AccessEvent::Table.into_table_ref(),
             ShareLink::Table.into_table_ref(),
             TreeInvitation::Table.into_table_ref(),
@@ -191,6 +194,46 @@ enum ShareLink {
     RevokedAt,
     LastUsedAt,
     UseCount,
+}
+
+#[derive(DeriveIden)]
+enum Notification {
+    Table,
+    Id,
+    UserId,
+    Kind,
+    TreeId,
+    ActorUserId,
+    SubjectId,
+    Count,
+    CreatedAt,
+    ReadAt,
+}
+
+#[derive(DeriveIden)]
+enum NotificationPreference {
+    Table,
+    UserId,
+    Kind,
+    Email,
+}
+
+#[derive(DeriveIden)]
+enum MailOutbox {
+    Table,
+    Id,
+    UserId,
+    ToAddress,
+    Kind,
+    Language,
+    Params,
+    Status,
+    Attempts,
+    NextAttemptAt,
+    LeaseUntil,
+    SentAt,
+    ErrorCategory,
+    CreatedAt,
 }
 
 #[derive(DeriveIden)]
@@ -3084,7 +3127,9 @@ async fn create_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     create_memberships(manager).await?;
     create_invitations(manager).await?;
     create_share_links(manager).await?;
-    create_access_events(manager).await
+    create_access_events(manager).await?;
+    create_notifications(manager).await?;
+    create_mail_outbox(manager).await
 }
 
 /// The persons a share is limited to (docs/data-model.md §6.5): a scope's
@@ -3408,6 +3453,142 @@ async fn create_access_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
         index.name(name).table(AccessEvent::Table).col(first);
         if let Some(second) = second {
             index.col(second);
+        }
+        manager.create_index(index.to_owned()).await?;
+    }
+    Ok(())
+}
+
+/// In-app notifications and their email preferences
+/// (docs/messaging.md §2, §10): rows of one user each, holding ids only.
+/// `tree_id`, `actor_user_id` and `subject_id` have no foreign key: a
+/// notification outlives what it names, and reads *no longer shared* once
+/// its reader may not see the tree, until its 90 days are over.
+async fn create_notifications(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(Notification::Table)
+                .if_not_exists()
+                .col(uuid(Notification::Id).primary_key())
+                .col(uuid(Notification::UserId))
+                .col(string_len(Notification::Kind, 32))
+                .col(uuid_null(Notification::TreeId))
+                .col(uuid_null(Notification::ActorUserId))
+                .col(uuid_null(Notification::SubjectId))
+                .col(integer(Notification::Count).default(1))
+                .col(timestamp_with_time_zone(Notification::CreatedAt))
+                .col(timestamp_with_time_zone_null(Notification::ReadAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_notification_user")
+                        .from(Notification::Table, Notification::UserId)
+                        .to(AppUser::Table, AppUser::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // A user's notifications, newest first, and those after a cursor: ids
+    // are UUID v7, so they sort by creation.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_notification_user")
+                .table(Notification::Table)
+                .col(Notification::UserId)
+                .col(Notification::Id)
+                .to_owned(),
+        )
+        .await?;
+    // The retention sweep deletes by age.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_notification_created_at")
+                .table(Notification::Table)
+                .col(Notification::CreatedAt)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_table(
+            Table::create()
+                .table(NotificationPreference::Table)
+                .if_not_exists()
+                .col(uuid(NotificationPreference::UserId))
+                .col(string_len(NotificationPreference::Kind, 32))
+                .col(string_len(NotificationPreference::Email, 12))
+                .primary_key(
+                    Index::create()
+                        .col(NotificationPreference::UserId)
+                        .col(NotificationPreference::Kind),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_notification_preference_user")
+                        .from(
+                            NotificationPreference::Table,
+                            NotificationPreference::UserId,
+                        )
+                        .to(AppUser::Table, AppUser::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
+}
+
+/// The mail OxidGene queues for its SMTP relay (docs/messaging.md §3.3):
+/// written in the transaction of what causes it, sent by the worker.
+async fn create_mail_outbox(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(MailOutbox::Table)
+                .if_not_exists()
+                .col(uuid(MailOutbox::Id).primary_key())
+                .col(uuid_null(MailOutbox::UserId))
+                .col(string(MailOutbox::ToAddress))
+                .col(string_len(MailOutbox::Kind, 32))
+                .col(string_len(MailOutbox::Language, 16))
+                .col(text(MailOutbox::Params))
+                .col(string_len(MailOutbox::Status, 12))
+                .col(integer(MailOutbox::Attempts).default(0))
+                .col(timestamp_with_time_zone(MailOutbox::NextAttemptAt))
+                .col(timestamp_with_time_zone_null(MailOutbox::LeaseUntil))
+                .col(timestamp_with_time_zone_null(MailOutbox::SentAt))
+                .col(string_len_null(MailOutbox::ErrorCategory, 32))
+                .col(timestamp_with_time_zone(MailOutbox::CreatedAt))
+                // A mail to a user goes with their account's deletion; the
+                // erasure, which keeps the row, deletes it itself.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_mail_outbox_user")
+                        .from(MailOutbox::Table, MailOutbox::UserId)
+                        .to(AppUser::Table, AppUser::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // The worker claims the due rows of a status; a user's pending digest is
+    // found by user and kind.
+    for (name, columns) in [
+        (
+            "idx_mail_outbox_due",
+            [MailOutbox::Status, MailOutbox::NextAttemptAt],
+        ),
+        (
+            "idx_mail_outbox_user",
+            [MailOutbox::UserId, MailOutbox::Kind],
+        ),
+    ] {
+        let mut index = Index::create();
+        index.name(name).table(MailOutbox::Table);
+        for column in columns {
+            index.col(column);
         }
         manager.create_index(index.to_owned()).await?;
     }

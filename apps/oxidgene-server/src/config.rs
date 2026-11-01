@@ -36,7 +36,9 @@
 //! The authentication settings — `OXIDGENE_AUTH_MODE`, `OXIDGENE_PUBLIC_URL`,
 //! `OXIDGENE_OIDC_*`, `OXIDGENE_AUTH_*`, `OXIDGENE_SESSION_*`,
 //! `OXIDGENE_REDIS_URL` — are read from the same sources by
-//! [`ServerConfig::load_auth`] (docs/authentication.md §3.2).
+//! [`ServerConfig::load_auth`] (docs/authentication.md §3.2), and the SMTP
+//! relay's — `OXIDGENE_SMTP_*`, `OXIDGENE_MAIL_FROM` — by
+//! [`ServerConfig::load_mail`] (docs/messaging.md §3.2).
 //!
 //! `OXIDGENE_MEDIA_ROOT` defaults to the platform's user-data directory —
 //! `~/.local/share/oxidgene/media` on Linux. A containerised deployment
@@ -59,6 +61,7 @@ use config::builder::DefaultState;
 use config::{Config, ConfigBuilder, Environment, File};
 use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::auth::AuthSettings;
+use oxidgene_api::mail::MailSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
 use oxidgene_api::tree_cache::CacheSettings;
 use oxidgene_api::workdir::WorkDir;
@@ -275,6 +278,12 @@ impl ServerConfig {
 
     /// Load the authentication settings from the same sources.
     pub fn load_auth() -> Result<AuthSettings, config::ConfigError> {
+        sources().build()?.try_deserialize()
+    }
+
+    /// Load the SMTP relay's settings (`OXIDGENE_SMTP_*`,
+    /// `OXIDGENE_MAIL_FROM`, docs/messaging.md §3.2) from the same sources.
+    pub fn load_mail() -> Result<MailSettings, config::ConfigError> {
         sources().build()?.try_deserialize()
     }
 

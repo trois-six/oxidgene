@@ -3,11 +3,12 @@
 //!
 //! Drift it prevents: a manifest change — the desktop's, or that of a crate
 //! it depends on — that enables `oxidgene-api`'s `auth` or `graphql`
-//! feature in the desktop's build, linking sign-in, sessions, accounts and
-//! their dependencies (`jsonwebtoken`, `redis`) into an application that
-//! must keep its one local user and its loopback guards unchanged. Cargo
-//! unifies features across a build, so the desktop's own manifest is not
-//! enough to read: the guard asks Cargo for the resolved graph.
+//! feature in the desktop's build, linking sign-in, sessions, accounts,
+//! mail and their dependencies (`jsonwebtoken`, `redis`, `lettre`) into an
+//! application that must keep its one local user and its loopback guards
+//! unchanged. Cargo unifies features across a build, so the desktop's own
+//! manifest is not enough to read: the guard asks Cargo for the resolved
+//! graph.
 //!
 //! Fixing a failure: enable the feature in `oxidgene-server` or
 //! `oxidgene-worker` only, and inject a desktop capability through a UI
@@ -19,7 +20,7 @@ use std::process::Command;
 const WEB_ONLY_FEATURES: &[&str] = &["auth", "graphql"];
 
 /// Crates only those features link.
-const WEB_ONLY_CRATES: &[&str] = &["jsonwebtoken", "redis", "async-graphql"];
+const WEB_ONLY_CRATES: &[&str] = &["jsonwebtoken", "redis", "lettre", "async-graphql"];
 
 /// `cargo tree` of `package` with its features, for every target.
 ///

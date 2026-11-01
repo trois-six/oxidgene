@@ -26,11 +26,13 @@ mod family_spouse;
 mod gedcom_kept;
 mod history;
 mod invitation;
+mod mail_outbox;
 mod media;
 mod media_library;
 mod media_link;
 mod membership;
 mod note;
+mod notification;
 mod pagination;
 mod person;
 
@@ -80,11 +82,13 @@ pub use family_spouse::FamilySpouseRepo;
 pub use gedcom_kept::GedcomKeptRepo;
 pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
 pub use invitation::{InvitationEnd, InvitationRepo, NewInvitation, TreeInvitation};
+pub use mail_outbox::{MAIL_CHANNEL, MailOutboxRepo, MailStatus, NewMail, OutboxMail};
 pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use membership::{MembershipChanges, MembershipRepo, SharedMembership, TreeMembership};
 pub use note::{NoteFilter, NoteRepo};
+pub use notification::{NewNotification, Notification, NotificationRepo, UPDATES_CHANNEL};
 pub use pagination::{PaginationParams, encode_cursor};
 pub use person::{PersonRepo, PortraitRow};
 pub use redaction::{

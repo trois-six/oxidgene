@@ -25,7 +25,7 @@ mcp = ["dep:rmcp", "dep:schemars", "oxidgene-db/schema", "oxidgene-core/schema"]
 # Authentication, sessions and accounts of the web build — the server and the
 # worker opt in; the desktop never does, and a guard keeps it so
 # (docs/authentication.md §7).
-auth = ["dep:jsonwebtoken", "dep:aws-lc-rs", "dep:redis", "dep:reqwest"]
+auth = ["dep:jsonwebtoken", "dep:aws-lc-rs", "dep:lettre", "dep:redis", "dep:reqwest"]
 
 [dependencies]
 oxidgene-core = { workspace = true }
@@ -82,6 +82,9 @@ jsonwebtoken = { workspace = true, optional = true }
 aws-lc-rs = { workspace = true, optional = true }
 redis = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["form"] }
+# The `auth` feature's mail: the worker hands OxidGene's mail to the SMTP
+# relay (docs/messaging.md §3).
+lettre = { workspace = true, optional = true }
 
 # The allocator settings of `memory`: glibc's `mallopt` and `malloc_trim`.
 # Already in the graph through tokio; no other target needs it.

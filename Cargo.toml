@@ -240,6 +240,19 @@ redis = { version = "1.8", default-features = false, features = [
     "tokio-rustls-comp",
     "connection-manager",
 ] }
+# OxidGene's own mail through the operator's SMTP relay (docs/messaging.md
+# §3, §13), in the same `auth` feature: SMTP over Tokio with rustls on the
+# `aws-lc-rs` provider rustls already builds, the certificates checked by the
+# platform verifier reqwest already uses, and the message builder. Defaults
+# are off: no native TLS, no connection pool (one worker sends one mail at a
+# time), no `hostname` crate (the greeting names the public URL's host).
+lettre = { version = "0.11.23", default-features = false, features = [
+    "aws-lc-rs",
+    "builder",
+    "rustls-platform-verifier",
+    "smtp-transport",
+    "tokio1-rustls",
+] }
 
 [profile.dev]
 debug = "line-tables-only"  # smaller debug info → faster incremental builds
