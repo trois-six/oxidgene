@@ -29,13 +29,13 @@ Ouvrez les réglages de l’arbre, puis **Membres** — une section que seul le 
 4. Si vous le souhaitez, fixez le jour où le partage **Prend fin**.
 5. Cliquez sur **Partager**.
 
-Une personne qui a un compte devient membre aussitôt et trouve l’arbre sur sa page d’accueil. Une adresse qui n’a pas encore de compte reçoit à la place une **invitation**. Quand l’instance n’envoie pas de courriel, la section le dit et affiche le **Lien d’invitation** à envoyer vous-même : il ne contient aucun secret, puisque seule l’adresse invitée peut l’accepter.
+Une personne qui a un compte devient membre aussitôt, trouve l’arbre sur sa page d’accueil et reçoit une [notification](@/guide/accounts.fr.md#notifications) — par courriel aussi, sauf si elle l’a désactivé. Une adresse qui n’a pas encore de compte reçoit à la place une **invitation** : quand l’instance envoie des courriels, OxidGene la lui envoie, avec qui l’invite, sur quel arbre et avec quel rôle, et comment l’accepter. Quand l’instance n’envoie pas de courriel, la section le dit et affiche le **Lien d’invitation** à envoyer vous-même : il ne contient aucun secret, puisque seule l’adresse invitée peut l’accepter.
 
 La recherche d’une personne par adresse ou nom d’utilisateur est limitée à trente fois par heure.
 
 **Membres de l’arbre** liste chacun avec son rôle, ce qu’il voit et la fin de son partage. Pour chaque membre, vous pouvez changer le rôle, **Rendre propriétaire** pour céder l’arbre — vous devenez alors éditeur — ou le **Retirer**.
 
-**Invitations en attente** liste les invitations auxquelles personne n’a encore répondu, chacune avec son lien, **Renvoyer** et **Révoquer**. Une invitation attend quatorze jours.
+**Invitations en attente** liste les invitations auxquelles personne n’a encore répondu, chacune avec **Renvoyer**, qui l’envoie de nouveau, et **Révoquer** — et son lien quand l’instance n’envoie pas de courriel. Une invitation attend quatorze jours. Une invitation révoquée dont le courriel n’est pas encore parti n’est pas envoyée. Quand quelqu’un accepte votre invitation, ou qu’un membre quitte l’arbre, vous recevez une notification.
 
 ## Accepter une invitation
 

@@ -23,9 +23,14 @@ pub const NOT_RECORDS: &[&str] = &[
 /// answers them `404`, as the desktop does (docs/api.md, Accounts). They
 /// name users, not records of a tree; `authorization_test` covers them.
 pub fn absent_without_accounts(path: &str) -> bool {
-    ["/api/v1/me", "/api/v1/users/", "/api/v1/admin/"]
-        .iter()
-        .any(|prefix| path.starts_with(prefix))
+    [
+        "/api/v1/me",
+        "/api/v1/users/",
+        "/api/v1/admin/",
+        "/api/v1/mail/",
+    ]
+    .iter()
+    .any(|prefix| path.starts_with(prefix))
         || [
             "/members",
             "/ownership",
@@ -64,6 +69,12 @@ pub const MEMBERSHIP_FIELDS: &[&str] = &[
     "myInvitations",
     "acceptInvitation",
     "declineInvitation",
+    "notifications",
+    "markNotificationsRead",
+    "notificationPreferences",
+    "updateNotificationPreferences",
+    "updates",
+    "unsubscribe",
 ];
 
 /// The fixture record a parameter names, by its snake_case name; `link_id`

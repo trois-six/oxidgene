@@ -24,3 +24,4 @@ pub mod sharing_settings;
 pub mod statistics;
 pub mod tools;
 pub mod tree_detail;
+pub mod unsubscribe;

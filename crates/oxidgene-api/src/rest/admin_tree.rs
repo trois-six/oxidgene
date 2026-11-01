@@ -44,6 +44,13 @@ pub async fn assign_owner(
     Json(body): Json<OwnerAssignment>,
 ) -> Result<Json<MemberView>, ApiError> {
     Ok(Json(
-        membership::assign_owner(&viewer, &state.db, tree_id, body.user_id).await?,
+        membership::assign_owner(
+            &viewer,
+            &state.db,
+            state.auth.mailing(),
+            tree_id,
+            body.user_id,
+        )
+        .await?,
     ))
 }

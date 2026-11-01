@@ -497,6 +497,80 @@ pub const LAYOUT_STYLES: &str = r#"
         overflow-wrap: anywhere;
     }
 
+    /* ── Notifications (web build, oidc mode): docs/messaging.md §2.2 ── */
+
+    .menu-button.notification-bell {
+        position: relative;
+        padding: var(--space-2);
+        border-radius: var(--radius-pill);
+    }
+
+    .notification-bell-icon {
+        width: 22px;
+        height: 22px;
+        fill: currentColor;
+    }
+
+    .notification-badge {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: 16px;
+        padding: 0 var(--space-1);
+        border-radius: var(--radius-pill);
+        background: var(--danger);
+        color: var(--on-accent);
+        font-size: var(--text-75);
+        line-height: 16px;
+        text-align: center;
+    }
+
+    .context-menu.notification-panel {
+        width: min(360px, calc(100vw - 2 * var(--space-6)));
+    }
+
+    .notification-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+    }
+
+    .notification-panel-title {
+        color: var(--text-primary);
+    }
+
+    .notification-empty {
+        padding: var(--space-4) var(--space-6);
+        color: var(--text-muted);
+    }
+
+    .context-menu-item.notification-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-1);
+        white-space: normal;
+        text-align: start;
+    }
+
+    .notification-item.unread .notification-text {
+        font-weight: 600;
+    }
+
+    .notification-time {
+        color: var(--text-muted);
+        font-size: var(--text-75);
+    }
+
+    .unsubscribe-page {
+        max-width: 560px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-6);
+        align-items: flex-start;
+    }
+
     .sign-in-required {
         display: flex;
         align-items: center;

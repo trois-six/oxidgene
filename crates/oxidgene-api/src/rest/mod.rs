@@ -32,6 +32,8 @@ pub mod media_link;
 #[cfg(feature = "auth")]
 pub mod member;
 pub mod note;
+#[cfg(feature = "auth")]
+pub mod notification;
 pub mod openapi;
 pub mod person;
 pub mod person_name;

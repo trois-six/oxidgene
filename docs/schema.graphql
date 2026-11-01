@@ -655,6 +655,7 @@ type GqlAccountData {
 	updatedAt: DateTime!
 	memberships: [GqlAccountMembership!]!
 	invitations: [GqlAccountInvitation!]!
+	notificationPreferences: [GqlAccountPreference!]!
 	accessEvents: [GqlAccessEvent!]!
 }
 
@@ -686,6 +687,20 @@ type GqlAccountMembership {
 	selfPersonId: ID
 	expiresAt: DateTime
 	createdAt: DateTime!
+}
+
+"""
+A notification preference the user changed, in their account data.
+"""
+type GqlAccountPreference {
+	"""
+	A notification kind, or `all` for the switch of all email.
+	"""
+	kind: String!
+	"""
+	`off`, `immediate`, `daily`, or `on` for the switch.
+	"""
+	email: String!
 }
 
 """
@@ -1327,6 +1342,15 @@ type GqlDuplicatePair {
 	"""
 	firstDates: LifeDates!
 	secondDates: LifeDates!
+}
+
+"""
+How a kind is mailed: REST's `email`.
+"""
+enum GqlEmailPreference {
+	OFF
+	IMMEDIATE
+	DAILY
 }
 
 """
@@ -2070,6 +2094,14 @@ type GqlImportResult {
 }
 
 """
+One kind's email preference.
+"""
+type GqlKindPreference {
+	kind: GqlNotificationKind!
+	email: GqlEmailPreference!
+}
+
+"""
 Every way found to go from one person of a tree to another.
 """
 type GqlKinship {
@@ -2480,6 +2512,62 @@ type GqlNoteSnapshot {
 	text: String!
 	sharedGroup: ID
 	confidential: Boolean!
+}
+
+"""
+A notification: REST `GET /me/notifications`.
+"""
+type GqlNotification {
+	id: ID!
+	kind: GqlNotificationKind!
+	treeId: ID
+	treeName: String
+	treeUnavailable: Boolean!
+	actorId: ID
+	actorName: String
+	subjectId: ID
+	subjectName: String
+	outcome: String
+	count: Int!
+	createdAt: DateTime!
+	readAt: DateTime
+}
+
+"""
+A page of notifications, newest first, and how many are unread.
+"""
+type GqlNotificationConnection {
+	edges: [GqlNotificationEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+	unreadCount: Int!
+}
+
+type GqlNotificationEdge {
+	cursor: String!
+	node: GqlNotification!
+}
+
+"""
+What a notification is about: REST's `kind`.
+"""
+enum GqlNotificationKind {
+	TREE_SHARED
+	MEMBERSHIP_CHANGED
+	MEMBERSHIP_ENDED
+	INVITATION_ACCEPTED
+	OWNERSHIP_TRANSFERRED
+	MEMBER_LEFT
+	JOB_FINISHED
+}
+
+"""
+The preferences: REST `GET /me/notification-preferences`.
+"""
+type GqlNotificationPreferences {
+	emailAvailable: Boolean!
+	emailEnabled: Boolean!
+	kinds: [GqlKindPreference!]!
 }
 
 """
@@ -4019,6 +4107,25 @@ type GqlUnionSnapshot {
 }
 
 """
+One event of the long poll: its type and id.
+"""
+type GqlUpdateEvent {
+	"""
+	`notification`.
+	"""
+	type: String!
+	id: ID!
+}
+
+"""
+What the long poll answers: REST `GET /me/updates`.
+"""
+type GqlUpdates {
+	events: [GqlUpdateEvent!]!
+	cursor: String!
+}
+
+"""
 A user as an administrator manages them: REST `GET /admin/users`.
 """
 type GqlUser {
@@ -4215,6 +4322,14 @@ input ImageSourceInput {
 	url: String
 	mediaId: ID
 	vignetteId: ID
+}
+
+"""
+One kind's preference to set.
+"""
+input KindPreferenceInput {
+	kind: GqlNotificationKind!
+	email: GqlEmailPreference!
 }
 
 """
@@ -4774,6 +4889,20 @@ type MutationRoot {
 	"""
 	assignTreeOwner(treeId: ID!, userId: ID!): GqlTreeMember!
 	"""
+	Mark the notifications `ids` read, every one without ids; how many
+	are left unread.
+	"""
+	markNotificationsRead(ids: [ID!]): Int!
+	"""
+	Change the signed-in user's notification preferences.
+	"""
+	updateNotificationPreferences(input: NotificationPreferencesInput!): GqlNotificationPreferences!
+	"""
+	A mail's one-click unsubscribe, without a session: what the signed
+	`token` names is no longer mailed. The kind, or `digest`.
+	"""
+	unsubscribe(token: String!): String!
+	"""
 	Share a tree with a user, by exact email, exact username or among
 	the people the owner already shares with; an email no account has
 	becomes an invitation.
@@ -4821,6 +4950,14 @@ Format: %Y-%m-%d
 * `2000-02-24`
 """
 scalar NaiveDate
+
+"""
+A change to the preferences: REST `PUT /me/notification-preferences`.
+"""
+input NotificationPreferencesInput {
+	emailEnabled: Boolean
+	kinds: [KindPreferenceInput!]! = []
+}
 
 type ParentAgeSeries {
 	fatherFirstChild: [YearSum!]!
@@ -5453,6 +5590,19 @@ type QueryRoot {
 	The instance's access events, newest first, for an administrator.
 	"""
 	accessEvents(first: Int, after: String): GqlAccessEventConnection!
+	"""
+	The signed-in user's notifications, newest first.
+	"""
+	notifications(first: Int, after: String): GqlNotificationConnection!
+	"""
+	The signed-in user's notification preferences.
+	"""
+	notificationPreferences: GqlNotificationPreferences!
+	"""
+	The long poll: the events after `after`, waiting up to `wait`
+	seconds (at most 30, 25 by default) for one.
+	"""
+	updates(after: String, wait: Int): GqlUpdates!
 	"""
 	The pending invitations of the signed-in user's verified address.
 	"""

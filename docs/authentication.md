@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 # Authentication and Sessions
@@ -559,7 +559,8 @@ lifetime (§4.6) and keeps their row.
   export, and a conversation's text is exported from one of the user's devices
   ([Messaging §5](messaging.md#5-end-to-end-encryption)). Each section joins
   the export with the phase that stores it; today it holds the user row and
-  profile, the memberships and the access events
+  profile, the memberships, the invitations to their address, the
+  notification preferences and the access events
   ([API Contract §2](api.md#accounts)).
 
 ### 6.7 Profile and avatar
@@ -852,10 +853,15 @@ provider, its mail relay and the session store beside the application:
   `admin@example.invalid` as bootstrap administrator, the account page and
   a development session key. Compose adds the back channel and
   `OXIDGENE_SESSION_STORE=redis` on the stack's `redis`.
-- A `mailpit` service keeps every mail — Rauthy's own today, without which
-  Rauthy stops at start — for inspection on `http://127.0.0.1:8025` (SMTP on
-  `127.0.0.1:1025`) and delivers none
-  ([Messaging §3.5](messaging.md#35-without-smtp)).
+- A `mailpit` service keeps every mail — Rauthy's own, without which Rauthy
+  stops at start, and OxidGene's — for inspection on `http://127.0.0.1:8025`
+  (SMTP on `127.0.0.1:1025`) and delivers none
+  ([Messaging §3.5](messaging.md#35-without-smtp)). The settings file above
+  names it as `localhost:1025` with `OXIDGENE_SMTP_TLS=none` and
+  `OXIDGENE_MAIL_FROM` `OxidGene development <oxidgene@example.invalid>`,
+  for `just dev-web`, whose embedded worker sends; the stack's server, which
+  queues OxidGene's mail, and its worker, which reads the same file and
+  sends it, use `mailpit:1025` with `danger-insecure` instead.
 - The `web` container proxies `/api`, `/graphql`, `/auth`, `/mcp` and
   `/.well-known/oauth-protected-resource` to the server
   (`docker/nginx-dev-proxy.conf`, mounted into the image's
@@ -1002,8 +1008,11 @@ and no other account route is ever called.
     password and second factor, **Download my account data**, and **Delete
     my account**, which lists the trees to transfer or delete first.
 
-  Phase 1 ships *Profile*, *Language*, *Sessions* and *Account*; the other
-  sections join the page with their phases. Until memberships exist (phase 2)
+  Phase 1 ships *Profile*, *Language*, *Sessions* and *Account*, phase 4
+  *Notifications* — a switch *Send me emails* and a choice per kind, *Not by
+  email*, *By email, at once* or *In a daily email summary*, or, on a
+  server without a relay, only that notifications appear in the
+  application; the other sections join the page with their phases. Until memberships exist (phase 2)
   no user owns a tree, so deletion has nothing to list; a refusal (`409`)
   says to transfer or delete the trees first. On the desktop and in `none`
   mode, `/profile` is not found.
@@ -1035,13 +1044,16 @@ and no other account route is ever called.
 | JWS verification | `jsonwebtoken` on the `aws-lc-rs` backend | One crate and a few small ones; the backend is already built |
 | Token encryption at rest | `aws-lc-rs` AES-256-GCM, already built | None |
 | Session store | The `redis` crate with its Tokio and `rustls` features | A handful of crates, server only |
+| OxidGene's mail | `lettre`, in the same `auth` feature ([Messaging §13](messaging.md#13-dependencies-and-size)) | A few small crates, server and worker only |
 | OpenID Connect client crates (`openidconnect`, `oauth2`) | **Not used**: discovery, the code flow and refresh are a few hundred lines over `reqwest`, and the crates bring their own HTTP and crypto stacks | — |
 | The bundled identity provider | Rauthy's image (`ghcr.io/sebadob/rauthy`, pinned), run by the chart's `rauthy` mode and the development stack, never linked | No crate; one container of about 95 MB |
 | Completing Rauthy's web client | `curlimages/curl` (pinned), the chart's init container and job and the development stack's `rauthy-init` | No crate; one container of about 11 MB |
 
 Each addition is measured with `cargo tree`, the dependency budget and the
 binary-size budget when it lands ([Development §2.8](development.md#28-guards)).
-The WASM frontend gains no dependency: it calls `/auth/session` and navigates.
+The WASM frontend gains no dependency: it calls `/auth/session` and
+navigates. A guard keeps `jsonwebtoken`, `redis`, `lettre` and
+`async-graphql` out of the desktop's dependency graph.
 
 ---
 

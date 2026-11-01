@@ -29,13 +29,13 @@ Open the tree's settings, then **Members** — a section only the owner sees.
 4. Optionally, set the day the share **Ends on**.
 5. Click **Share**.
 
-Someone with an account becomes a member at once, and finds the tree on their home page. An address that has no account yet receives an **invitation** instead. When the instance sends no email, the section says so and shows the **Invitation link** to send yourself: it carries no secret, since only the invited address can accept it.
+Someone with an account becomes a member at once, finds the tree on their home page and gets a [notification](@/guide/accounts.md#notifications) — by email too, unless they turned it off. An address that has no account yet receives an **invitation** instead: when the instance sends email, OxidGene mails it, saying who invites them, to which tree and as what, and how to accept. When the instance sends no email, the section says so and shows the **Invitation link** to send yourself: it carries no secret, since only the invited address can accept it.
 
 Looking someone up by address or username is limited to thirty times an hour.
 
 **Members of the tree** lists everyone with their role, what they see and when their share ends. For each member, you can change the role, **Make owner** to hand the tree over — you then become an editor — or **Remove** them.
 
-**Pending invitations** lists the invitations nobody has answered yet, each with its link, **Resend** and **Revoke**. An invitation waits fourteen days.
+**Pending invitations** lists the invitations nobody has answered yet, each with **Resend**, which mails it again, and **Revoke** — and its link when the instance sends no email. An invitation waits fourteen days. A revoked invitation whose mail has not left yet is not sent. When someone accepts your invitation, or a member leaves the tree, you get a notification.
 
 ## Accept an invitation
 

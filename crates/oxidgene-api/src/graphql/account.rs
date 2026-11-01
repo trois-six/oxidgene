@@ -208,7 +208,17 @@ pub struct GqlAccountData {
     pub updated_at: DateTime<Utc>,
     pub memberships: Vec<GqlAccountMembership>,
     pub invitations: Vec<GqlAccountInvitation>,
+    pub notification_preferences: Vec<GqlAccountPreference>,
     pub access_events: Vec<super::member::GqlAccessEvent>,
+}
+
+/// A notification preference the user changed, in their account data.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlAccountPreference {
+    /// A notification kind, or `all` for the switch of all email.
+    pub kind: String,
+    /// `off`, `immediate`, `daily`, or `on` for the switch.
+    pub email: String,
 }
 
 /// An invitation addressed to the user, in their account data.
@@ -333,6 +343,14 @@ impl AccountQuery {
                         accepted_at: invitation.accepted_at,
                         declined_at: invitation.declined_at,
                         revoked_at: invitation.revoked_at,
+                    })
+                    .collect(),
+                notification_preferences: data
+                    .notification_preferences
+                    .into_iter()
+                    .map(|preference| GqlAccountPreference {
+                        kind: preference.kind,
+                        email: preference.email,
                     })
                     .collect(),
                 access_events: data.access_events.into_iter().map(Into::into).collect(),

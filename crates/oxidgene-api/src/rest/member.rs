@@ -45,7 +45,15 @@ pub async fn update_member(
     Json(body): Json<MemberPatch>,
 ) -> Result<Json<MemberView>, ApiError> {
     Ok(Json(
-        membership::update_member(&viewer, &state.db, tree_id, user_id, body).await?,
+        membership::update_member(
+            &viewer,
+            &state.db,
+            state.auth.mailing(),
+            tree_id,
+            user_id,
+            body,
+        )
+        .await?,
     ))
 }
 
@@ -55,7 +63,7 @@ pub async fn remove_member(
     viewer: Viewer,
     Path((tree_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    membership::remove_member(&viewer, &state.db, tree_id, user_id).await?;
+    membership::remove_member(&viewer, &state.db, state.auth.mailing(), tree_id, user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -67,6 +75,13 @@ pub async fn transfer_ownership(
     Json(body): Json<OwnershipTransfer>,
 ) -> Result<Json<MemberView>, ApiError> {
     Ok(Json(
-        membership::transfer_ownership(&viewer, &state.db, tree_id, body.user_id).await?,
+        membership::transfer_ownership(
+            &viewer,
+            &state.db,
+            state.auth.mailing(),
+            tree_id,
+            body.user_id,
+        )
+        .await?,
     ))
 }

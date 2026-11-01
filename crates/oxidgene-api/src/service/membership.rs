@@ -31,6 +31,7 @@ use crate::authz;
 use crate::service::access_scope::{self, ScopeView};
 use crate::service::account::require_admin;
 use crate::service::history::Change;
+use crate::service::notification::{About, Mailing, Notices, NotificationKind};
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
@@ -164,10 +165,12 @@ pub(crate) fn member_view(
 
 /// Change the membership of `user_id` on tree `tree_id`: the owner changes
 /// a member's role, between Editor and Guest, and expiry; a member sets
-/// their own "Who am I?" person.
+/// their own "Who am I?" person. A change of the role, scope or expiry
+/// notifies the member (`membership_changed`).
 pub async fn update_member(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
     patch: MemberPatch,
@@ -195,7 +198,18 @@ pub async fn update_member(
     .await?;
     access_scope::drop_replaced(&txn, scope_id, current.scope_id).await?;
     record(&txn, viewer, tree_id, AuditAction::Update, current.id).await?;
+    // The owner changing a member's access tells them; a member's own
+    // "Who am I?" tells nobody.
+    let note = (changes_access(&patch) && user_id != identity.user_id).then(|| {
+        (
+            NotificationKind::MembershipChanged,
+            user_id,
+            About::tree(tree_id, viewer),
+        )
+    });
+    let notices = Notices::write(&txn, mailing, note).await?;
     commit_tx(txn).await?;
+    notices.publish();
     viewer.forget(tree_id);
     one_view(db, updated).await
 }
@@ -227,6 +241,12 @@ async fn prepare_patch(
     access_scope::replacement(txn, tree_id, patch.scope.as_ref()).await
 }
 
+/// Whether `patch` changes what the member may see: the role, the scope or
+/// the expiry, the owner's to change.
+fn changes_access(patch: &MemberPatch) -> bool {
+    patch.role.is_some() || patch.expires_at.is_some() || patch.scope.is_some()
+}
+
 /// Refuse what `patch` may not change on `current`: the role and expiry
 /// but by the owner (`manages`), and never the owner's own, which changes
 /// by transfer; the "Who am I?" person but by the member themselves
@@ -238,7 +258,7 @@ fn check_patch(
     own: bool,
 ) -> Result<(), OxidGeneError> {
     crate::service::sharing::future(patch.expires_at.flatten())?;
-    let changes_role = patch.role.is_some() || patch.expires_at.is_some() || patch.scope.is_some();
+    let changes_role = changes_access(patch);
     if (changes_role && !manages) || (patch.self_person_id.is_some() && !own) {
         return Err(OxidGeneError::Forbidden);
     }
@@ -257,10 +277,13 @@ fn check_patch(
 
 /// End the membership of `user_id` on tree `tree_id`: the owner removes a
 /// member, a member leaves. The owner cannot leave: they transfer the tree
-/// or delete it (`409`).
+/// or delete it (`409`). The member removed is notified
+/// (`membership_ended`); the owner of a member who leaves too
+/// (`member_left`).
 pub async fn remove_member(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), OxidGeneError> {
@@ -281,20 +304,53 @@ pub async fn remove_member(
         .ok_or_else(|| membership_not_found(user_id))?;
     let txn = begin_tx(db).await?;
     MembershipRepo::delete(&txn, tree_id, user_id).await?;
-    if let Some(scope_id) = membership.scope_id {
-        oxidgene_db::repo::AccessScopeRepo::delete(&txn, scope_id).await?;
-    }
+    drop_scope(&txn, membership.scope_id).await?;
     record(&txn, viewer, tree_id, AuditAction::Delete, membership.id).await?;
+    let notices = removal_notices(&txn, viewer, mailing, (tree_id, user_id), leaving).await?;
     commit_tx(txn).await?;
+    notices.publish();
     viewer.forget(tree_id);
     Ok(())
 }
 
+/// Delete the scope a membership that ended or became the owner's held.
+async fn drop_scope(
+    txn: &impl ConnectionTrait,
+    scope_id: Option<Uuid>,
+) -> Result<(), OxidGeneError> {
+    match scope_id {
+        Some(scope_id) => oxidgene_db::repo::AccessScopeRepo::delete(txn, scope_id).await,
+        None => Ok(()),
+    }
+}
+
+/// The notices of member `user_id` leaving tree `tree_id` (`member_left`,
+/// to its owner) or being removed from it (`membership_ended`, to them).
+async fn removal_notices(
+    txn: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+    mailing: Mailing,
+    (tree_id, user_id): (Uuid, Uuid),
+    leaving: bool,
+) -> Result<Notices, OxidGeneError> {
+    let about = About::tree(tree_id, viewer);
+    let note = if leaving {
+        MembershipRepo::owner(txn, tree_id)
+            .await?
+            .map(|owner| (NotificationKind::MemberLeft, owner.user_id, about))
+    } else {
+        Some((NotificationKind::MembershipEnded, user_id, about))
+    };
+    Notices::write(txn, mailing, note).await
+}
+
 /// Hand tree `tree_id` to its member `user_id`, who becomes its owner while
-/// the former owner becomes an Editor, in one transaction (§5).
+/// the former owner becomes an Editor, in one transaction (§5); both are
+/// notified (`ownership_transferred`).
 pub async fn transfer_ownership(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
 ) -> Result<MemberView, OxidGeneError> {
@@ -335,11 +391,18 @@ pub async fn transfer_ownership(
     )
     .await?;
     // The owner sees the whole tree: the scope the member had goes.
-    if let Some(scope_id) = target.scope_id {
-        oxidgene_db::repo::AccessScopeRepo::delete(&txn, scope_id).await?;
-    }
+    drop_scope(&txn, target.scope_id).await?;
     record(&txn, viewer, tree_id, AuditAction::Update, target.id).await?;
+    let about = About::tree(tree_id, viewer).subject(user_id);
+    let notices = Notices::write(
+        &txn,
+        mailing,
+        [user_id, owner.user_id]
+            .map(|reader| (NotificationKind::OwnershipTransferred, reader, about)),
+    )
+    .await?;
     commit_tx(txn).await?;
+    notices.publish();
     viewer.forget(tree_id);
     one_view(db, promoted).await
 }
@@ -377,10 +440,12 @@ pub async fn admin_trees(
 
 /// Give ownerless tree `tree_id` the owner `user_id`: an administrator's
 /// act, refused (`409`) for a tree that has one. A member of the tree is
-/// promoted; anyone else becomes its owner.
+/// promoted; anyone else becomes its owner. The new owner is notified
+/// (`ownership_transferred`).
 pub async fn assign_owner(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
 ) -> Result<MemberView, OxidGeneError> {
@@ -411,7 +476,17 @@ pub async fn assign_owner(
         None => MembershipRepo::create(&txn, tree_id, user_id, TreeRole::Owner, created_by).await?,
     };
     record(&txn, viewer, tree_id, AuditAction::Create, owner.id).await?;
+    let mut notices = Notices::new(mailing);
+    notices
+        .add(
+            &txn,
+            NotificationKind::OwnershipTransferred,
+            user_id,
+            About::tree(tree_id, viewer).subject(user_id),
+        )
+        .await?;
     commit_tx(txn).await?;
+    notices.publish();
     let mut event = authz::log::event(viewer, "tree_owner_assigned", "ok");
     event.tree_id = Some(tree_id);
     authz::log::record(db, event);

@@ -430,6 +430,10 @@ pub struct BackgroundJobWorker {
     work_dir: WorkDir,
     /// How long the maintenance keeps access events.
     access_log_retention: Duration,
+    /// Whether the notifications this worker writes may be mailed: the
+    /// deployment has an SMTP relay (docs/messaging.md §3.5).
+    #[cfg(feature = "auth")]
+    mailing: crate::service::notification::Mailing,
 }
 
 impl std::fmt::Debug for BackgroundJobWorker {
@@ -463,7 +467,18 @@ impl BackgroundJobWorker {
             lease_duration,
             work_dir: WorkDir::temporary(),
             access_log_retention: DEFAULT_ACCESS_LOG_RETENTION,
+            #[cfg(feature = "auth")]
+            mailing: crate::service::notification::Mailing(false),
         }
+    }
+
+    /// Mail the notifications this worker writes as their readers want:
+    /// the deployment has an SMTP relay.
+    #[cfg(feature = "auth")]
+    #[must_use]
+    pub fn with_mailing(mut self, mailing: bool) -> Self {
+        self.mailing = crate::service::notification::Mailing(mailing);
+        self
     }
 
     /// Keep access events for `retention` (`OXIDGENE_ACCESS_LOG_RETENTION`,
@@ -524,6 +539,7 @@ impl BackgroundJobWorker {
         );
         async {
             let Err(error) = Box::pin(self.execute(&job, &cancel)).await else {
+                self.notify_finished(&job).await;
                 return Ok(());
             };
             if cancel.is_cancelled() {
@@ -549,7 +565,9 @@ impl BackgroundJobWorker {
                 job.format = %job.format,
                 "background job failed"
             );
-            self.end(&job, Ending::Failed(code)).await
+            self.end(&job, Ending::Failed(code)).await?;
+            self.notify_finished(&job).await;
+            Ok(())
         }
         .instrument(span)
         .await?;
@@ -559,6 +577,38 @@ impl BackgroundJobWorker {
         let _ = super::blocking::spawn(crate::memory::release_free_memory).await;
         Ok(true)
     }
+
+    /// Tell the user who started `job` that it completed or failed
+    /// (`job_finished`, docs/messaging.md §2.1); nothing for a job without
+    /// an account behind it, such as the desktop's. A failure is logged:
+    /// the job's outcome stands either way.
+    #[cfg(feature = "auth")]
+    async fn notify_finished(&self, job: &BackgroundJob) {
+        use crate::service::notification::{About, Notices, NotificationKind};
+        let Some(user_id) = job.actor_user_id else {
+            return;
+        };
+        let mut notices = Notices::new(self.mailing);
+        let about = About {
+            tree_id: Some(job.tree_id),
+            actor_user_id: None,
+            subject_id: Some(job.id),
+        };
+        match notices
+            .add(&self.db, NotificationKind::JobFinished, user_id, about)
+            .await
+        {
+            Ok(()) => notices.publish(),
+            Err(error) => tracing::warn!(
+                error.kind = error_kind(&error),
+                job.kind = %job.kind,
+                "could not notify the end of a job"
+            ),
+        }
+    }
+
+    #[cfg(not(feature = "auth"))]
+    async fn notify_finished(&self, _job: &BackgroundJob) {}
 
     /// Fail `job`, claimed more than [`MAX_ATTEMPTS`] times, without running
     /// it again.
@@ -754,12 +804,62 @@ impl BackgroundJobWorker {
             "job_object_sweep",
             sweep_orphaned_job_objects(&self.db, media, now).await,
         );
-        log_maintenance_failure("membership_expiry", expire_memberships(&self.db, now).await);
+        log_maintenance_failure("membership_expiry", self.expire_memberships(now).await);
         log_maintenance_failure("invitation_expiry", end_sharing(&self.db, now).await);
         log_maintenance_failure(
             "access_log_retention",
             prune_access_log(&self.db, now, self.access_log_retention).await,
         );
+        // Notifications are kept 90 days, ended mail seven
+        // (docs/messaging.md §2.2, §3.3).
+        #[cfg(feature = "auth")]
+        log_maintenance_failure(
+            "notification_retention",
+            crate::service::notification::prune(&self.db, now).await,
+        );
+    }
+
+    /// Delete the memberships past their expiry, each with a
+    /// `membership_expired` access event (docs/authorization.md §5), and
+    /// tell each member (`membership_ended`). They granted nothing since
+    /// they expired; this only removes the rows. Empty on the desktop,
+    /// which has no memberships.
+    async fn expire_memberships(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), OxidGeneError> {
+        for membership in oxidgene_db::repo::MembershipRepo::delete_expired(&self.db, now).await? {
+            oxidgene_db::repo::AccessEventRepo::insert(
+                &self.db,
+                oxidgene_db::repo::NewAccessEvent {
+                    kind: "membership_expired",
+                    principal_kind: "user",
+                    user_id: Some(membership.user_id),
+                    tree_id: Some(membership.tree_id),
+                    outcome: membership.role.as_str().to_string(),
+                    ..oxidgene_db::repo::NewAccessEvent::default()
+                },
+            )
+            .await?;
+            #[cfg(feature = "auth")]
+            {
+                use crate::service::notification::{About, Notices, NotificationKind};
+                let mut notices = Notices::new(self.mailing);
+                notices
+                    .add(
+                        &self.db,
+                        NotificationKind::MembershipEnded,
+                        membership.user_id,
+                        About {
+                            tree_id: Some(membership.tree_id),
+                            ..About::default()
+                        },
+                    )
+                    .await?;
+                notices.publish();
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -1480,31 +1580,6 @@ fn job_permission(job: &BackgroundJob) -> Permission {
 
 /// How long access events are kept unless the deployment says otherwise.
 pub const DEFAULT_ACCESS_LOG_RETENTION: Duration = Duration::from_secs(180 * 24 * 60 * 60);
-
-/// Delete the memberships past their expiry, each with a
-/// `membership_expired` access event (docs/authorization.md §5). They
-/// granted nothing since they expired; this only removes the rows. Empty on
-/// the desktop, which has no memberships.
-async fn expire_memberships(
-    db: &DatabaseConnection,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), OxidGeneError> {
-    for membership in oxidgene_db::repo::MembershipRepo::delete_expired(db, now).await? {
-        oxidgene_db::repo::AccessEventRepo::insert(
-            db,
-            oxidgene_db::repo::NewAccessEvent {
-                kind: "membership_expired",
-                principal_kind: "user",
-                user_id: Some(membership.user_id),
-                tree_id: Some(membership.tree_id),
-                outcome: membership.role.as_str().to_string(),
-                ..oxidgene_db::repo::NewAccessEvent::default()
-            },
-        )
-        .await?;
-    }
-    Ok(())
-}
 
 /// Delete the invitations no longer pending — expired, answered or
 /// revoked (docs/authorization.md §6.2) — then the access scopes nothing

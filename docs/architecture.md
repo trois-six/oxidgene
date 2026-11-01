@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 
@@ -529,6 +529,15 @@ before, and keeps claiming until the queue is empty.
 A running job reports its progress every second, whatever the idle worker's
 pace: the report renews its lease and reads its cancellation under
 PostgreSQL, and moves what its status reads show.
+
+The web build's mail sender and notifications' long poll wake the same way
+([Messaging and Notifications §3.3, §6](messaging.md#6-delivery-without-polling)):
+a mail queued, or a notification written, wakes its process's sender or its
+user's waiting requests in memory once the transaction commits, and other
+processes through `pg_notify` on `oxidgene_mail` and `oxidgene_updates`,
+each listened to by one connection per process; the idle sender reads when
+its earliest pending mail falls due and a minute after it went to sleep at
+the latest, and a waiting long poll reads nothing until it is woken.
 
 ---
 

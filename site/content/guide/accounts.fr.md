@@ -1,6 +1,6 @@
 +++
 title = "Comptes et profil"
-description = "Se connecter à la version web d’OxidGene, gérer son profil, son avatar, sa langue et ses sessions, télécharger ou supprimer son compte et, pour un administrateur, gérer les utilisateurs de l’instance."
+description = "Se connecter à la version web d’OxidGene, suivre ses notifications, gérer son profil, son avatar, sa langue, ses courriels de notification et ses sessions, télécharger ou supprimer son compte et, pour un administrateur, gérer les utilisateurs de l’instance."
 weight = 155
 +++
 
@@ -30,9 +30,19 @@ Une fois connecté, votre avatar remplace **Se connecter** en haut à droite de 
 
 Une session se termine après un temps d’inactivité, au bout d’une durée maximale, quand vous utilisez **Se déconnecter partout** sur un autre appareil, ou quand un administrateur désactive votre compte. Si elle se termine alors qu’une page est ouverte, la fenêtre **Votre session est terminée** apparaît à votre prochaine action. **Se reconnecter** vous ramène sur la même page ; **Fermer** laisse la page en l’état, pour que vous puissiez copier ce que vous étiez en train de saisir avant de vous reconnecter.
 
+## Notifications
+
+OxidGene vous dit ce qui vous arrive, à vous et à vos arbres : un arbre partagé avec vous, votre accès à un arbre modifié ou terminé, quelqu’un qui accepte votre invitation, un membre qui quitte votre arbre, un arbre qui change de propriétaire, un import ou un export que vous avez lancé qui se termine.
+
+- **La cloche**, à gauche de votre avatar, indique combien de notifications vous n’avez pas lues. Cliquez dessus pour voir les dernières, de la plus récente à la plus ancienne, les non lues en gras. Cliquez sur l’une d’elles pour ouvrir ce dont elle parle — l’arbre, ou ses paramètres pour une invitation acceptée et un membre parti — et elle compte comme lue. **Tout marquer comme lu** remet le compteur à zéro.
+- **Les nouvelles notifications arrivent d’elles-mêmes** tant que la page est ouverte : rien à recharger. Un onglet en arrière-plan ne demande rien jusqu’à ce que vous y reveniez.
+- Une notification sur un arbre que vous ne voyez plus indique *Un arbre n’est plus partagé avec vous*, sans son nom. Les notifications sont conservées 90 jours.
+
+Quand l’instance envoie des courriels, certaines notifications vous parviennent aussi par courriel, comme vous le choisissez dans votre profil (ci-dessous). Chaque courriel se termine par **Ne plus recevoir ces courriels** : le lien ouvre une page qui demande confirmation avant de désactiver ce type de courriel, et le bouton *Se désabonner* de votre messagerie fait de même aussitôt. Les courriels de connexion de l’instance — vérification d’adresse, mot de passe oublié — viennent du fournisseur d’identité, pas d’OxidGene, et ces réglages ne les changent pas.
+
 ## Votre profil
 
-Ouvrez **Profil** depuis le menu du compte. Son menu de gauche compte quatre sections.
+Ouvrez **Profil** depuis le menu du compte. Son menu de gauche compte cinq sections.
 
 ### Profil
 
@@ -43,7 +53,16 @@ Ouvrez **Profil** depuis le menu du compte. Son menu de gauche compte quatre sec
 
 ### Langue
 
-Choisissez la langue de l’interface pour votre compte. Elle s’applique aussitôt sur cet appareil, et sur tout appareil où aucune langue n’a été choisie dans les [paramètres de l’application](@/guide/settings.fr.md).
+Choisissez la langue de l’interface pour votre compte. Elle s’applique aussitôt sur cet appareil, et sur tout appareil où aucune langue n’a été choisie dans les [paramètres de l’application](@/guide/settings.fr.md). Les courriels qu’OxidGene vous envoie sont écrits dans cette langue aussi.
+
+### Notifications
+
+Les notifications apparaissent toujours sous la cloche. Cette section choisit celles qui vous parviennent aussi par courriel :
+
+- **M’envoyer des courriels** : désactivé, aucune notification ne vous parvient par courriel, quels que soient les choix ci-dessous.
+- Pour chaque type de notification : **Pas par courriel**, **Par courriel, aussitôt**, ou **Dans un résumé quotidien par courriel** — un courriel par jour, tôt le matin (6 h UTC), qui liste ce que vous n’avez pas encore lu. Par défaut, un arbre partagé avec vous et une invitation acceptée sont envoyés aussitôt, le reste pas du tout.
+
+OxidGene n’écrit qu’à l’adresse que votre fournisseur d’identité a vérifiée. Quand l’instance n’envoie pas de courriel, la section le dit, et ne propose aucun choix.
 
 ### Sessions
 
@@ -57,8 +76,8 @@ Terminez toute session que vous ne reconnaissez pas, puis changez votre mot de p
 ### Compte
 
 - **Mot de passe et validation en deux étapes** : **Ouvrir** mène à la page de compte de votre fournisseur d’identité, où vous les modifiez.
-- **Télécharger les données de mon compte** : un fichier JSON avec tout ce qu’OxidGene conserve sur votre compte.
-- **Supprimer mon compte** : après confirmation, votre compte, vos sessions et votre avatar sont effacés définitivement, et vous êtes déconnecté. La généalogie que vous avez saisie reste dans ses arbres. L’historique présente vos modifications comme celles d’un ancien membre.
+- **Télécharger les données de mon compte** : un fichier JSON avec tout ce qu’OxidGene conserve sur votre compte, vos réglages de notifications compris.
+- **Supprimer mon compte** : après confirmation, votre compte, vos sessions, votre avatar, vos notifications et les courriels en attente sont effacés définitivement, et vous êtes déconnecté. La généalogie que vous avez saisie reste dans ses arbres. L’historique présente vos modifications comme celles d’un ancien membre.
 
 ## Gérer les utilisateurs de l’instance
 

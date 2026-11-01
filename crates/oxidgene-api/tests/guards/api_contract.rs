@@ -142,6 +142,34 @@ const ACCOUNT_PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/trees/{tree_id}/access-log",
         Gql(&["Query.treeAccessEvents"]),
     ),
+    // Notifications and their delivery (docs/messaging.md §2, §6), web-only
+    // too.
+    (
+        "GET",
+        "/api/v1/me/notifications",
+        Gql(&["Query.notifications"]),
+    ),
+    (
+        "POST",
+        "/api/v1/me/notifications/read",
+        Gql(&["Mutation.markNotificationsRead"]),
+    ),
+    (
+        "GET",
+        "/api/v1/me/notification-preferences",
+        Gql(&["Query.notificationPreferences"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/me/notification-preferences",
+        Gql(&["Mutation.updateNotificationPreferences"]),
+    ),
+    ("GET", "/api/v1/me/updates", Gql(&["Query.updates"])),
+    (
+        "POST",
+        "/api/v1/mail/unsubscribe",
+        Gql(&["Mutation.unsubscribe"]),
+    ),
     // Sharing (docs/authorization.md §6), web-only too.
     (
         "GET",

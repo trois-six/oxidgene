@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 
@@ -52,7 +52,8 @@ Minimal shared navbar, always visible at the top. See [Common UI](ui-common.md).
 - No navigation links in MVP
 - **Web build, `oidc` mode only**: **Sign in**, or the user's avatar opening the account menu to their profile page, in the navbar right zone ([Authentication §10](authentication.md#10-user-interface)). Until someone is signed in, the page shows *Sign in to continue* and **Sign in** in place of the header, toolbar and cards. The desktop and the web build's `none` mode keep this page as it is
 - **Web build, `oidc` mode only (sharing)**: the cards' role badges, the *My trees* and *Shared with me* filter and the pending invitations of [Authorization §11](authorization.md#11-user-interface) (§5, §6, §6b below). `/invitations`, the address an invitation's link names, opens this page
-- **Planned, web build only (EPIC G)**: the notifications bell and messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone
+- **Web build, `oidc` mode only (notifications)**: the bell before the avatar, with the unread count ([Messaging and Notifications §2.2](messaging.md#22-delivery-in-the-application), [Common UI §2.1](ui-common.md#21-navbar))
+- **Planned, web build only (EPIC G)**: the messages icon ([Messaging and Notifications §12](messaging.md#12-user-interface)) in the navbar right zone
 
 ---
 

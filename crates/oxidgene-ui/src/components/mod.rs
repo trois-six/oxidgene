@@ -26,6 +26,7 @@ pub mod media_stage;
 pub mod merge_dialog;
 pub mod merge_fields;
 pub mod modal;
+pub mod notification_bell;
 pub mod paged_list;
 pub mod pager;
 pub mod parent_suggestions;

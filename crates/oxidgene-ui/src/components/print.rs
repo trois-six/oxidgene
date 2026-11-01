@@ -45,6 +45,7 @@ pub fn is_printable(route: &Route) -> bool {
         | Route::Settings { .. }
         | Route::AppSettings {}
         | Route::Profile {}
+        | Route::Unsubscribe { .. }
         | Route::Media { .. }
         | Route::NotFound { .. } => false,
         Route::TreeDetail { .. }

@@ -7,6 +7,7 @@
 
 pub mod account;
 mod history;
+pub mod notification;
 pub mod sharing;
 
 use base64::Engine as _;

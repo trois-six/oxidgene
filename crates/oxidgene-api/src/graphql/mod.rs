@@ -51,6 +51,8 @@ mod loaders;
 #[cfg(feature = "auth")]
 pub mod member;
 pub mod mutation;
+#[cfg(feature = "auth")]
+pub mod notification;
 pub mod query;
 mod scope;
 #[cfg(feature = "auth")]
@@ -89,6 +91,7 @@ pub struct QueryRoot(
     #[cfg(feature = "auth")] account::AccountQuery,
     #[cfg(feature = "auth")] exclusion::ExclusionQuery,
     #[cfg(feature = "auth")] member::MemberQuery,
+    #[cfg(feature = "auth")] notification::NotificationQuery,
     #[cfg(feature = "auth")] sharing::SharingQuery,
 );
 
@@ -101,6 +104,7 @@ pub struct MutationRoot(
     #[cfg(feature = "auth")] account::AccountMutation,
     #[cfg(feature = "auth")] exclusion::ExclusionMutation,
     #[cfg(feature = "auth")] member::MemberMutation,
+    #[cfg(feature = "auth")] notification::NotificationMutation,
     #[cfg(feature = "auth")] sharing::SharingMutation,
 );
 

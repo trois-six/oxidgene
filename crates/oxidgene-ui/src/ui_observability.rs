@@ -24,6 +24,7 @@ pub enum UiPage {
     Tools,
     AppSettings,
     Profile,
+    Unsubscribe,
     NotFound,
     Component,
 }
@@ -554,6 +555,7 @@ span_names! {
         Tools => "ui.tools.load",
         AppSettings => "ui.app_settings.load",
         Profile => "ui.profile.load",
+        Unsubscribe => "ui.unsubscribe.load",
         NotFound => "ui.not_found.load",
         Component => "ui.component.load",
     }
@@ -637,6 +639,7 @@ mod tests {
             (UiPage::Tools, "ui.tools.load"),
             (UiPage::AppSettings, "ui.app_settings.load"),
             (UiPage::Profile, "ui.profile.load"),
+            (UiPage::Unsubscribe, "ui.unsubscribe.load"),
             (UiPage::NotFound, "ui.not_found.load"),
             (UiPage::Component, "ui.component.load"),
         ];

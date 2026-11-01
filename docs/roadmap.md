@@ -345,17 +345,21 @@ string in every language, and the user guide. In order:
    - [x] The leak suite over the canary persons, over every REST and GraphQL
      read, for Editors, Guests, a scoped Guest and Visitors.
 4. **Notifications and email.**
-   - [ ] In-app notifications, preferences and the long poll
-     ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)).
-   - [ ] The SMTP relay, the outbox processed by the worker, translated
+   - [x] In-app notifications, preferences and the long poll
+     ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)):
+     the kinds of the memberships, ownership, invitations and jobs, the
+     navbar's bell, the profile's *Notifications* section, and the long poll
+     woken in memory and through PostgreSQL's notifications.
+   - [x] The SMTP relay, the outbox processed by the worker, translated
      templates, digests and unsubscribe; Mailpit in the Compose stack; the
-     chart's `mail.smtp` values ([Messaging and Notifications §3](messaging.md#3-email)).
+     chart's `mail.smtp` values ([Messaging and Notifications §3](messaging.md#3-email)),
+     invitations mailed through the outbox.
 5. **Sharing.**
    - [x] Sharing with users of the instance, email invitations, share links,
      tree visibility with its visitor scope
-     ([Authorization §6](authorization.md#6-sharing)); invitations are not
-     mailed until phase 4's outbox implements the invitation seam: the
-     owner sends the link.
+     ([Authorization §6](authorization.md#6-sharing)); invitations are
+     mailed through phase 4's outbox where the deployment has a relay, and
+     the owner sends the link where it has none.
    - [x] Access scopes, materialized and kept current, with their preview,
      and a scoped Editor's write rules
      ([Authorization §3.3, §6.5](authorization.md#65-access-scopes)).
@@ -370,7 +374,8 @@ string in every language, and the user guide. In order:
 6. **API clients and assistant access over HTTP.**
    - [ ] Tree and user API clients over client credentials, with
      provisioning, rotation, revocation, rate limits and usage
-     ([Authorization §7](authorization.md#7-api-clients)).
+     ([Authorization §7](authorization.md#7-api-clients)), and their
+     `api_client_expiring` notification.
    - [ ] MCP over Streamable HTTP with protected resource metadata
      ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)).
    - [ ] Token exchange for the first worker task that calls a service on
@@ -383,6 +388,8 @@ string in every language, and the user guide. In order:
    - [ ] Blocking, reporting, moderation, rate limits, retention and erasure;
      the inbox, conversation and Messaging security surfaces; the web
      bundle's measured size budget.
+   - [ ] The `messages` and `report_resolved` notifications, the messages
+     digest's counts, and the messaging events of the long poll.
 8. **Rauthy mode.**
    - [x] `auth.idp.mode=rauthy`: the StatefulSet on Hiqlite or on its own
      CloudNativePG `Cluster`, the bootstrapped setup and the job completing

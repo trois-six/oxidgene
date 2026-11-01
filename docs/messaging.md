@@ -1,9 +1,9 @@
 ---
 type: "Product Specification"
 title: "Messaging and Notifications"
-description: "Planned communication between the users of a web deployment: in-app notifications and their preferences, email sent through the operator's SMTP relay from a worker-processed outbox, and end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
+description: "Communication between the users of a web deployment: in-app notifications and their preferences and email sent through the operator's SMTP relay from a worker-processed outbox, with translated templates, daily digests and one-click unsubscribe, implemented; and, planned, end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 # Messaging and Notifications
@@ -13,7 +13,9 @@ generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 > [Privacy](privacy.md) · [API Contract](api.md) · [Data Model](data-model.md) ·
 > [Cross-cutting Rules](cross-cutting.md) · [Roadmap](roadmap.md)
 
-**Status: planned, nothing is implemented.** [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
+**Status: notifications and email (§2, §3, §6) are implemented; the
+conversations, their encryption and moderation (§4 to §9) are planned.**
+[Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
 tracks the phases. Notifications, email and messaging exist only between the
 users of a web deployment, so they are compiled and active only in the web
 build — server, worker and web frontend. The desktop has one user, sends no
@@ -63,6 +65,18 @@ reads *A tree is no longer shared with you*, without its name.
 | `report_resolved` | The reporter | A moderator resolved their report (§7) |
 | `api_client_expiring` | The client's owner | Seven days before an API client or credential expires |
 
+The first seven exist (`oxidgene_api::service::notification`); `messages`
+and `report_resolved` arrive with the conversations, `api_client_expiring`
+with the API clients ([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment),
+phases 7 and 6). A notification is written in the transaction of the change
+that causes it — the share, the member update or removal, the acceptance,
+the transfer, the maintenance pass that deletes an expired membership, the
+end of a job — and its readers' long polls are woken once that commits.
+`ownership_transferred` names the new owner as its subject, and reads *You
+are now the owner* to them; an administrator's owner for an ownerless tree
+notifies the new owner alone. `job_finished` names the job, whose outcome —
+completed or failed, import or export — is read when the notification is; a
+cancelled job, which its actor stopped, notifies nobody.
 ### 2.2 Delivery in the application
 
 The navbar's bell shows the unread count; its panel lists the latest
@@ -75,8 +89,19 @@ when opened, with **Mark all as read**. New ones arrive through the long poll
 Per user and per kind: in the application always; by email *off*,
 *immediately* or in a *daily digest*. Defaults: `tree_shared` and
 `invitation_accepted` immediately, `messages` daily, the rest off. One switch
-turns all email off. Every mail carries a one-click unsubscribe (RFC 8058) for
-its kind, through a signed token valid without signing in.
+turns all email off; it is stored as the preference of the kind `all`. Every
+notification mail carries a one-click unsubscribe (RFC 8058) for its kind,
+through a signed token valid without signing in: its `List-Unsubscribe`
+header names `POST /api/v1/mail/unsubscribe?token=`, which a mail client
+posts to, and its body links to the page `/unsubscribe?token=`, which asks
+before posting it, so that a scanner following the link unsubscribes nobody.
+A digest's token turns off every kind the user had in a digest. The token is
+the user's id and the kind, signed with HMAC-SHA256 under a key derived from
+the session keys (`OXIDGENE_SESSION_KEYS`): the first key signs, any key
+opens, so that rotating them keeps the links of mail already sent working
+until the old key goes. An invitation's mail carries none: its address has no
+account to keep a preference in, and it is sent once per send, at the
+owner's request.
 
 ---
 
@@ -99,12 +124,23 @@ relay.
 |---|---|---|
 | `OXIDGENE_SMTP_HOST` | `mail.smtp.host` | The relay. Unset disables mail (§3.5) |
 | `OXIDGENE_SMTP_PORT` | `mail.smtp.port` | Default 587 |
-| `OXIDGENE_SMTP_TLS` | `mail.smtp.tls` | `starttls` (default) or `implicit` (port 465); `none` only towards a loopback relay |
-| `OXIDGENE_SMTP_USERNAME`, `OXIDGENE_SMTP_PASSWORD` | `mail.smtp.credentialsSecret` | From a Kubernetes Secret; the password never reaches a log |
-| `OXIDGENE_MAIL_FROM` | `mail.from` | The sender address, such as `OxidGene <no-reply@genealogy.example.invalid>` |
+| `OXIDGENE_SMTP_TLS` | `mail.smtp.tls` | `starttls` (default) or `implicit` (port 465); `none` only towards a loopback relay; `danger-insecure`, plain SMTP towards any relay, for a development relay such as the Compose stack's Mailpit, warned about at every start |
+| `OXIDGENE_SMTP_USERNAME`, `OXIDGENE_SMTP_PASSWORD` | `mail.smtp.credentialsSecret` | From a Kubernetes Secret, both or neither; the password may instead be read from the file `OXIDGENE_SMTP_PASSWORD_FILE` names, and never reaches a log |
+| `OXIDGENE_MAIL_FROM` | `mail.from` | The sender address, such as `OxidGene <no-reply@genealogy.example.invalid>`; required with a relay |
 
 SPF, DKIM and DMARC for the sender's domain, and bounce handling, are the
-operator's; OxidGene neither signs mail nor processes bounces.
+operator's; OxidGene neither signs mail nor processes bounces. The relay's
+certificate is checked by the platform's verifier, as the identity
+provider's is, and the greeting names the public URL's host.
+
+The relay is read in `oidc` mode only: with `OXIDGENE_AUTH_MODE=none` these
+settings are ignored, nothing is mailed and no relay is needed. The process
+that sends — the worker, or the server's embedded worker under SQLite or
+filesystem media — also reads `OXIDGENE_PUBLIC_URL`, which its links start
+with, and `OXIDGENE_SESSION_KEYS`, which sign the unsubscribe tokens; a
+worker without a relay needs neither. An invalid setting stops the process
+with its category (`mail_config_missing`, `mail_config_invalid`) and its
+variable, never its value.
 
 ### 3.3 Outbox
 
@@ -118,6 +154,38 @@ them. The daily digest is one outbox row per user per day, assembled when the
 worker sends it. Logs record the kind, the outcome and the attempt, never an
 address.
 
+- **Ids only.** A row holds the recipient's address and language and the ids
+  it is rendered from: the invitation, the notification, or the time a
+  digest starts from. It is rendered when it is sent, under the recipient's
+  access then, so a renamed tree goes out under its new name and a tree the
+  recipient no longer sees under none.
+- **What no longer applies is dropped**, status `dropped` with its reason: an
+  invitation revoked, answered or expired before its mail left, a
+  notification read meanwhile, a kind turned off since, a recipient
+  deactivated or erased, a digest with nothing unread left.
+- **Who is mailed.** A notification is mailed to an active account with a
+  verified address, as its preferences say; a user whose provider did not
+  verify the address gets notifications in the application only.
+- **Lease and refusals.** A claimed row is leased for five minutes; a worker
+  that stops while sending leaves it to another once the lease runs out. A
+  permanent refusal of the relay (an SMTP `5xx` reply, a message that cannot
+  be built) is failed at once, `rejected` or `message`; a transient one
+  (`deferred`, `timeout`, `tls`, `connection`) follows the retries.
+- **The digest's hour.** A notification whose kind is wanted daily opens the
+  user's digest row if none is pending, due at the next 06:00 UTC — users
+  keep no time zone — and joins the pending one otherwise; the digest lists
+  the unread notifications of the kinds the user still wants daily since it
+  opened.
+- **No polling.** The sender wakes as the job worker does
+  ([Architecture §6.5](architecture.md#65-waking-the-worker)): a row queued
+  in its process wakes it in memory once its transaction commits, one queued
+  elsewhere through PostgreSQL's `pg_notify('oxidgene_mail', '')`, sent in
+  the inserting transaction; idle, it reads when the earliest pending row
+  falls due — a retry, a digest, a lease run out — and a minute after it
+  went to sleep at the latest: three statements a minute while idle.
+- **Retention.** The worker's maintenance pass deletes the rows ended more
+  than seven days ago, and the notifications older than 90 days.
+
 ### 3.4 Templates
 
 Each kind has a plain-text and a simple HTML template, its strings in the
@@ -127,6 +195,14 @@ instance's default, English — and contains the actor's display name, the
 tree's name where relevant, and a link to the application; a messages
 digest says only *You have N new messages in M conversations*.
 
+The tables are `assets/mail/<language>.json`, apart from the interface's,
+which the frontend embeds and a mail never needs; a test keeps them at key
+parity with the same `{placeholders}`. Names and tree names are escaped in
+the HTML and stripped of control characters in the subject. An invitation
+goes out in the instance's default, its address having no account; it says
+who invites, to which tree and as what, until when it waits, how to accept
+it, and to ignore it when the sender is unknown.
+
 ### 3.5 Without SMTP
 
 With no relay configured, nothing is mailed: invitations give the owner a
@@ -134,7 +210,9 @@ link to copy ([Authorization §6.2](authorization.md#62-invitations-by-email)),
 notifications stay in the application, and the email preferences are hidden.
 
 The development Compose stack runs Mailpit as its relay, which keeps every
-mail for inspection and delivers none.
+mail for inspection and delivers none: Rauthy's own and OxidGene's, which the
+stack's worker sends to `mailpit:1025` with `OXIDGENE_SMTP_TLS=danger-insecure`
+([Authentication §8.5](authentication.md#85-development-stack)).
 
 ---
 
@@ -316,10 +394,26 @@ newer than the cursor exist, otherwise holds the request until one arrives or
 cursor — the same wait-until-changed long poll used to follow a job's
 progress. Events are typed and carry ids, ciphertext for MLS messages, and
 nothing else: `notification`, `mls_message`, `welcome`, `commit`,
-`device_added`, `read_cursor`, `conversation_changed`. With several backend
-replicas the wake-up goes through Redis publish/subscribe; one process wakes
-its own waiters. The frontend keeps one such request open while it is shown,
-and backs off after an error.
+`device_added`, `read_cursor`, `conversation_changed`. One process wakes its
+own waiters; with several backend replicas, or a worker in a process of its
+own, the wake-up goes through PostgreSQL's notifications, as the job status
+reads' does ([Architecture §6.5](architecture.md#65-waking-the-worker)):
+the transaction writing a notification sends
+`pg_notify('oxidgene_updates', user_id)`, which leaves when it commits, and
+each server listens on that channel with one connection of its own, waking
+every waiter after a lost connection. A deployment with several replicas runs
+on PostgreSQL in any case — SQLite forces one — so Redis is not needed for
+it. The frontend keeps one such request open while it is shown, and backs
+off after an error.
+
+The cursor is opaque — today the newest notification's id — and `notification`
+is the only event until the conversations bring theirs. A waiting request
+reads nothing: it sleeps on a channel of its user and reads once more only
+when woken, so an idle page costs two statements per 25 seconds — its
+session's user and one read of what is new, when the request starts — and
+none while it waits, as a test measures. At most 10,000 requests wait at once in one process;
+past them a request answers at once without events, and the page pauses a
+second before asking again, as it does after every answer without events.
 
 ---
 
@@ -376,9 +470,10 @@ Past a limit, `429 rate_limited`
 
 ## 10. Data model
 
-Planned tables, added to the single initial migration until the first
-release ([Data Model §6](data-model.md#6-accounts-and-access)). Every
-key is a UUID v7.
+The tables, added to the single initial migration until the first
+release ([Data Model §6.11](data-model.md#611-notifications-mail-and-messaging)).
+Every key is a UUID v7. `notification`, `notification_preference` and
+`mail_outbox` exist; the others are planned.
 
 | Table | Columns |
 |---|---|
@@ -403,7 +498,8 @@ key is a UUID v7.
 
 All under `/api/v1`, mirrored in GraphQL; ciphertext is base64 on both
 surfaces. Each operation moves into [API Contract §2](api.md#2-rest-api) and
-the parity table when implemented.
+the parity table when implemented: the first six, the notifications', are
+there ([API Contract](api.md#notifications)).
 
 | Method | Path | GraphQL |
 |---|---|---|
@@ -482,8 +578,8 @@ in the web build only.
 | Passphrase derivation | `argon2` (RustCrypto) | Same feature | Small |
 | Sealing to a device | HPKE as OpenMLS already provides it | Same feature | None more |
 | MLS framing on the server | The public header (group, epoch, content type) parsed with `tls_codec`, which OpenMLS uses; no decryption code | `oxidgene-api` `auth` feature | Small |
-| Mail | `lettre` with its Tokio and `rustls` features, no native TLS | `oxidgene-api` `auth` feature, worker | A handful of crates |
-| Long-poll wake-up across replicas | The `redis` crate already added for sessions | Server | None more |
+| Mail | `lettre` 0.11 without its defaults: `smtp-transport`, `tokio1-rustls`, `builder`, `aws-lc-rs` (the provider rustls already builds) and `rustls-platform-verifier` (the verifier reqwest already uses); no native TLS, no connection pool, no `hostname` | `oxidgene-api` `auth` feature: server and worker | Measured at its landing: `lettre` and three small crates of its message builder (`email-encoding`, `email_address`, `quoted_printable`), the rest — `mime`, `httpdate`, `fastrand`, `socket2`, `url`, `rustls`, `tokio-rustls`, `rustls-platform-verifier` — already in the graph; no duplicate |
+| Long-poll wake-up across replicas | PostgreSQL's `LISTEN`/`NOTIFY` through the `sqlx` pool SeaORM already holds, as the job status reads do | Server | None more |
 
 Each crate is weighed against AGENTS.md's dependency discipline when it
 lands: `cargo tree` with the duplicate-crate budget, the binary budgets of
@@ -505,9 +601,14 @@ non-`messaging` build. Message encryption adds nothing to the desktop.
   retention.
 - **Notifications and mail** against the outbox: transactional creation,
   retries with a fake relay that fails, digests, unsubscribe tokens,
-  templates at key parity in every language, no address in logs.
+  templates at key parity in every language, no address in logs
+  (`tests/notification_test.rs`), and the SMTP relay itself against a fake
+  SMTP server on the loopback, its permanent and transient refusals
+  included. End to end, an invitation mailed through the Compose stack's
+  Mailpit, accepted, and the owner's bell and mail saying so
+  (`e2e/auth/invitation-mail.spec.ts`, `just e2e-auth`).
 - **Long poll**: answers at once, on change, and at timeout; across two
-  server processes through Redis (opt-in).
+  processes through PostgreSQL's notifications (`just test-postgres`).
 - **REST and GraphQL** parity for every operation of §11, with
   [Authorization §12](authorization.md#12-tests)'s viewer matrix.
 - **Leaks.** A record link to an excluded or hidden person resolves to

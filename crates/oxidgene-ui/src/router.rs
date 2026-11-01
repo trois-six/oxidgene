@@ -24,6 +24,7 @@ use crate::pages::{
     search_results::SearchResults,
     settings::Settings,
     tree_detail::TreeDetail,
+    unsubscribe::Unsubscribe,
 };
 
 /// All application routes.
@@ -157,6 +158,11 @@ pub enum Route {
     #[route("/profile")]
     Profile {},
 
+    /// Where a mail's unsubscribe link leads (docs/messaging.md §2.3): the
+    /// web build's accounts only, without signing in.
+    #[route("/unsubscribe?:token")]
+    Unsubscribe { token: String },
+
     /// Catch-all 404 page.
     #[end_layout]
     #[route("/:..segments")]
@@ -193,6 +199,7 @@ impl Route {
             | Route::Invitations {}
             | Route::AppSettings {}
             | Route::Profile {}
+            | Route::Unsubscribe { .. }
             | Route::NotFound { .. } => None,
         }
     }
@@ -222,6 +229,7 @@ impl Route {
             Route::Settings { .. } => "settings.breadcrumb",
             Route::AppSettings {} => "app_settings.title",
             Route::Profile {} => "profile.title",
+            Route::Unsubscribe { .. } => "unsubscribe.title",
             Route::NotFound { .. } => "not_found.title",
         }
     }
@@ -231,7 +239,11 @@ impl Route {
     pub fn shows_navbar(&self) -> bool {
         matches!(
             self,
-            Route::Home {} | Route::Invitations {} | Route::AppSettings {} | Route::Profile {}
+            Route::Home {}
+                | Route::Invitations {}
+                | Route::AppSettings {}
+                | Route::Profile {}
+                | Route::Unsubscribe { .. }
         )
     }
 }

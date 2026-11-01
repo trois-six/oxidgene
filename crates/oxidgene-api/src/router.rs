@@ -68,6 +68,8 @@ use crate::rest::media_link;
 #[cfg(feature = "auth")]
 use crate::rest::member;
 use crate::rest::note;
+#[cfg(feature = "auth")]
+use crate::rest::notification;
 use crate::rest::openapi;
 use crate::rest::person;
 use crate::rest::person_name;
@@ -668,6 +670,15 @@ pub fn build_router(state: AppState) -> Router {
             "/me/invitations/{invitation_id}/decline",
             post(sharing::decline_invitation),
         )
+        // Notifications and their delivery (docs/messaging.md §2, §6).
+        .route("/me/notifications", get(notification::list_notifications))
+        .route("/me/notifications/read", post(notification::mark_read))
+        .route(
+            "/me/notification-preferences",
+            get(notification::preferences).put(notification::update_preferences),
+        )
+        .route("/me/updates", get(notification::updates))
+        .route("/mail/unsubscribe", post(notification::unsubscribe))
         .route("/users/{user_id}", get(user::get_user_profile))
         .route("/users/{user_id}/avatar", get(user::get_user_avatar))
         .route("/admin/users", get(admin_user::list_users))

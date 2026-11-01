@@ -16,6 +16,7 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::empty_state::EmptyState;
+use crate::components::notification_bell::NotificationBell;
 use crate::components::user_avatar::UserAvatar;
 use crate::i18n::{Language, use_i18n};
 use crate::router::Route;
@@ -79,6 +80,7 @@ pub fn AccountNav() -> Element {
 
     rsx! {
         div { class: "nav-end",
+            NotificationBell { reader: signed_in.id }
             MenuButton {
                 name: name.clone(),
                 label: i18n.t("account.menu"),

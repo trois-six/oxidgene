@@ -35,6 +35,7 @@ const ABSENT_WITHOUT_ACCOUNTS: &[&str] = &[
     "/api/v1/trees/{tree_id}/access-log",
     "/api/v1/trees/{tree_id}/invitations",
     "/api/v1/trees/{tree_id}/share-links",
+    "/api/v1/me/notifications",
 ];
 #[cfg(feature = "graphql")]
 const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &[
@@ -45,6 +46,7 @@ const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &[
     "treeAccessEvents",
     "treeInvitations",
     "shareLinks",
+    "notifications",
 ];
 
 /// The whole lists only a build with the `auth` feature serves.

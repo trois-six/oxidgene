@@ -111,8 +111,9 @@ pub async fn accept_invitation(
     viewer: Viewer,
     Path(invitation_id): Path<Uuid>,
 ) -> Result<Json<AcceptedInvitation>, ApiError> {
-    state.auth.sharing_env()?;
-    let member = sharing::accept_invitation(&viewer, &state.db, invitation_id).await?;
+    let env = state.auth.sharing_env()?;
+    let member =
+        sharing::accept_invitation(&viewer, &state.db, env.mailing(), invitation_id).await?;
     Ok(Json(AcceptedInvitation { member }))
 }
 

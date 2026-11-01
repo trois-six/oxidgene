@@ -229,6 +229,9 @@ pub fn use_init_account() {
     let prompt = use_context_provider(|| Signal::new(None::<AccountPrompt>));
     let refusals = use_context_provider(|| AnonymousRefusals(Signal::new(0)));
     use_context_provider(|| AvatarImages(Signal::new(HashMap::new())));
+    let notifications = use_context_provider(|| {
+        crate::notifications::NotificationsState(Signal::new(Default::default()))
+    });
     use_hook(move || {
         if let Some(accounts) = accounts {
             // Read before the router takes over the address, which drops
@@ -238,6 +241,7 @@ pub fn use_init_account() {
                 state,
                 prompt,
                 refusals,
+                notifications: notifications.0,
             };
             spawn(follow_account(api, failed, watch, language));
         }
@@ -249,6 +253,8 @@ struct AccountWatch {
     state: Signal<AccountState>,
     prompt: Signal<Option<AccountPrompt>>,
     refusals: AnonymousRefusals,
+    /// The bell's, kept current once someone is signed in.
+    notifications: Signal<crate::notifications::Notifications>,
 }
 
 /// Learns who is signed in, then turns every `401` of a signed-in page into
@@ -264,6 +270,7 @@ async fn follow_account(
         mut state,
         mut prompt,
         refusals: AnonymousRefusals(mut refusals),
+        notifications,
     } = watch;
     let session = match api.auth_session().await {
         Ok(session) if session.signs_in() => session,
@@ -292,6 +299,8 @@ async fn follow_account(
         me,
         account_url: session.account_url,
     })));
+    // The bell's notifications, by long poll (docs/messaging.md §6).
+    spawn(crate::notifications::follow(api.clone(), notifications));
     while unauthorized.next().await.is_some() {
         if prompt.peek().is_none() {
             prompt.set(Some(AccountPrompt::SessionEnded));

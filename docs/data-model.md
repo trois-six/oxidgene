@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 
@@ -1398,8 +1398,9 @@ The tables of EPIC G, specified in [Authentication](authentication.md),
 [Messaging and Notifications](messaging.md). `app_user` (§6.1),
 `tree_membership` (§6.2), the invitations (§6.3), the share links (§6.4),
 the access scopes (§6.5), `access_event` (§6.7), `person_visibility`
-(§6.8), the exclusions (§6.9) and the authors, actors and tree visibility
-of §6.10 exist; the others are planned and arrive with their phase. Until the first
+(§6.8), the exclusions (§6.9), the authors, actors and tree visibility
+of §6.10, and the notifications, their preferences and the mail outbox of
+§6.11 exist; the others are planned and arrive with their phase. Until the first
 release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the
@@ -1538,3 +1539,23 @@ build only.
 `conversation`, `conversation_member`, `mls_message`, `mls_delivery`,
 `message_archive`, `user_block` and `message_report`, whose columns are
 listed in [Messaging and Notifications §10](messaging.md#10-data-model).
+The first three exist:
+
+- `notification` — `user_id` cascades with the user; `tree_id`,
+  `actor_user_id` and `subject_id` have no foreign key, a notification
+  outliving what it names until its 90 days end. Indexed by
+  `(user_id, id)` for a user's list and the long poll's cursor, and by
+  `created_at` for the retention sweep.
+- `notification_preference` — keyed by `(user_id, kind)`; `kind` `all` is
+  the switch of all email, `on` or `off`.
+- `mail_outbox` — `user_id` cascades with the user (an invitation's mail has
+  none); `params` holds JSON ids; `status` `pending`, `sent`, `failed` or
+  `dropped` (no longer applying: a revoked invitation, a notification read
+  meanwhile); `next_attempt_at` holds when a finished row ended. Indexed by
+  `(status, next_attempt_at)` for the claim and the retention sweep, and by
+  `(user_id, kind)` for a user's pending digest.
+
+Erasure deletes a user's notifications, preferences and mail, and the mail
+to their address ([Authentication §6.6](authentication.md#66-erasure-and-account-data)).
+A tree's purge leaves its notifications, which name it by id only and read
+*no longer shared* from then on.

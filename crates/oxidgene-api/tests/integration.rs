@@ -40,6 +40,8 @@ mod leak_test;
 mod mcp_test;
 mod media_test;
 mod media_validation_test;
+#[cfg(all(feature = "auth", feature = "graphql"))]
+mod notification_test;
 mod page_bundles_test;
 mod profile_service_test;
 mod query_scaling_test;

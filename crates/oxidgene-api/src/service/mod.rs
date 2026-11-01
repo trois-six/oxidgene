@@ -40,6 +40,8 @@ pub mod media_viewer;
 #[cfg(feature = "auth")]
 pub mod membership;
 pub mod note;
+#[cfg(feature = "auth")]
+pub mod notification;
 pub mod occupations;
 pub(crate) mod patch;
 pub mod pedigrees;
@@ -65,4 +67,6 @@ pub mod surname_descent;
 pub mod tag;
 pub mod tag_bulk;
 pub mod tree;
+#[cfg(feature = "auth")]
+pub mod updates;
 pub mod vignette;

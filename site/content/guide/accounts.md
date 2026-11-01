@@ -1,6 +1,6 @@
 +++
 title = "Accounts and profile"
-description = "Sign in to the web version of OxidGene, manage your profile, avatar, language and sessions, download or delete your account, and, as an administrator, manage the instance's users."
+description = "Sign in to the web version of OxidGene, follow your notifications, manage your profile, avatar, language, notification emails and sessions, download or delete your account, and, as an administrator, manage the instance's users."
 weight = 155
 +++
 
@@ -30,9 +30,19 @@ Once signed in, your avatar replaces **Sign in** at the top right of the home pa
 
 A session ends after a while without activity, after a maximum lifetime, when you sign out on another device with **Sign out everywhere**, or when an administrator deactivates your account. If it ends while a page is open, the dialog **Your session has ended** appears at your next action. **Sign in again** brings you back to the same page; **Close** leaves the page as it is, so you can copy what you were typing before signing in again.
 
+## Notifications
+
+OxidGene tells you what happens to you and your trees: a tree shared with you, your access to a tree changed or ended, someone accepting your invitation, a member leaving your tree, a tree changing owner, an import or export you started finishing.
+
+- **The bell**, left of your avatar, shows how many notifications you have not read. Click it for the latest ones, newest first, the unread in bold. Click one to open what it is about — the tree, or its settings for an accepted invitation and a member who left — and it counts as read. **Mark all as read** clears the count.
+- **New notifications arrive by themselves** while the page is open: there is nothing to reload. A tab in the background asks nothing until you come back to it.
+- A notification about a tree you no longer see reads *A tree is no longer shared with you*, without its name. Notifications are kept 90 days.
+
+When the instance sends email, some notifications also reach you by email, as you choose in your profile (below). Each email ends with **Stop these emails**: the link opens a page that asks before it turns that kind of email off, and your mail application's own *Unsubscribe* button does the same at once. The instance's sign-in emails — address check, password reset — come from the identity provider, not from OxidGene, and these settings do not change them.
+
 ## Your profile
 
-Open **Profile** from the account menu. Its left menu has four sections.
+Open **Profile** from the account menu. Its left menu has five sections.
 
 ### Profile
 
@@ -43,7 +53,16 @@ Open **Profile** from the account menu. Its left menu has four sections.
 
 ### Language
 
-Choose the interface language for your account. It applies at once on this device, and on any device where no language has been chosen in the [application settings](@/guide/settings.md).
+Choose the interface language for your account. It applies at once on this device, and on any device where no language has been chosen in the [application settings](@/guide/settings.md). OxidGene's emails to you are written in this language too.
+
+### Notifications
+
+Notifications always appear under the bell. This section chooses which ones also reach you by email:
+
+- **Send me emails**: off, no notification reaches you by email, whatever the choices below.
+- For each kind of notification: **Not by email**, **By email, at once**, or **In a daily email summary** — one email a day, early in the morning (6:00 UTC), listing what you have not read yet. By default, a tree shared with you and an accepted invitation are emailed at once, the rest not at all.
+
+OxidGene emails only the address your identity provider has verified. When the instance sends no email, the section says so, and offers no choice.
 
 ### Sessions
 
@@ -57,8 +76,8 @@ End any session you do not recognise, then change your password at your identity
 ### Account
 
 - **Password and two-step verification**: **Open** goes to your identity provider's account page, where you change them.
-- **Download my account data**: a JSON file holding everything OxidGene stores about your account.
-- **Delete my account**: after a confirmation, your account, sessions and avatar are erased for good and you are signed out. The genealogy you entered stays in its trees. The history shows your changes as those of a former member.
+- **Download my account data**: a JSON file holding everything OxidGene stores about your account, your notification settings included.
+- **Delete my account**: after a confirmation, your account, sessions, avatar, notifications and pending emails are erased for good and you are signed out. The genealogy you entered stays in its trees. The history shows your changes as those of a former member.
 
 ## Manage the instance's users
 

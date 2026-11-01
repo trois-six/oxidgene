@@ -1,8 +1,8 @@
 //! The signed-in user's profile (`/profile`, docs/authentication.md §10):
-//! web build only, in `oidc` mode. Its sections are those of phase 1 —
-//! the display name and avatar, the account's language, the sessions, and
-//! the account's data and deletion; notifications, API clients, messaging
-//! security and blocked users join it with their phases.
+//! web build only, in `oidc` mode. Its sections:
+//! the display name and avatar, the account's language, the notification
+//! preferences, the sessions, and the account's data and deletion; API
+//! clients, messaging security and blocked users join it with their phases.
 //!
 //! On the desktop and in `none` mode there is no account, and the address
 //! is not found.
@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 
 use crate::account::{AccountState, set_me, sign_out, use_account, use_accounts};
 use crate::api::account::{AvatarCrop, Me, ProfilePatch, SessionEntry};
+use crate::api::notification::{KindPreference, NotificationPreferences, PreferencesPatch};
 use crate::api::{ApiClient, ApiError};
 use crate::components::avatar_cropper::AvatarCropper;
 use crate::components::breadcrumb::TreeBreadcrumb;
@@ -30,17 +31,25 @@ const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
 enum Section {
     Profile,
     Language,
+    Notifications,
     Sessions,
     Account,
 }
 
 impl Section {
-    const ALL: [Self; 4] = [Self::Profile, Self::Language, Self::Sessions, Self::Account];
+    const ALL: [Self; 5] = [
+        Self::Profile,
+        Self::Language,
+        Self::Notifications,
+        Self::Sessions,
+        Self::Account,
+    ];
 
     fn label_key(self) -> &'static str {
         match self {
             Self::Profile => "profile.section_profile",
             Self::Language => "profile.section_language",
+            Self::Notifications => "profile.section_notifications",
             Self::Sessions => "profile.section_sessions",
             Self::Account => "profile.section_account",
         }
@@ -94,6 +103,7 @@ pub fn Profile() -> Element {
                         match active() {
                             Section::Profile => rsx! { ProfileSection { me } },
                             Section::Language => rsx! { AccountLanguageSection { me } },
+                            Section::Notifications => rsx! { NotificationsSection {} },
                             Section::Sessions => rsx! { SessionsSection {} },
                             Section::Account => rsx! { AccountSection { account_url } },
                         }
@@ -481,6 +491,126 @@ fn AccountLanguageSection(me: Me) -> Element {
                             }
                         }
                     }
+                }
+                if let Some(error) = error() {
+                    div { class: "error-msg", role: "alert", "{error}" }
+                }
+            }
+        }
+    }
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+
+/// The kinds of notification, in the order the section lists them.
+const NOTIFICATION_KINDS: [&str; 7] = [
+    "tree_shared",
+    "membership_changed",
+    "membership_ended",
+    "invitation_accepted",
+    "ownership_transferred",
+    "member_left",
+    "job_finished",
+];
+
+/// The preferences of docs/messaging.md §2.3: in the application always;
+/// by email off, at once or in a daily summary, per kind, with one switch
+/// for all email. A server that sends no mail hides the email choices.
+#[component]
+fn NotificationsSection() -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut error = use_signal(|| None::<String>);
+    let mut current = use_signal(|| None::<NotificationPreferences>);
+    let loaded = use_ui_resource("notification_preferences", {
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            async move { api.notification_preferences().await }
+        }
+    });
+    if current.peek().is_none()
+        && let Some(Ok(preferences)) = &*loaded.read()
+    {
+        current.set(Some(preferences.clone()));
+    }
+    let save = move |patch: PreferencesPatch| {
+        let api = api.clone();
+        spawn(async move {
+            error.set(None);
+            match api.update_notification_preferences(&patch).await {
+                Ok(preferences) => current.set(Some(preferences)),
+                Err(_) => error.set(Some(i18n.t("profile.save_failed"))),
+            }
+        });
+    };
+
+    rsx! {
+        div { class: "settings-section",
+            SectionHeader {
+                eyebrow: i18n.t("profile.section_notifications"),
+                title: i18n.t("notifications.settings_title"),
+                subtitle: i18n.t("notifications.settings_desc"),
+            }
+            div { class: "app-settings-card",
+                match (current(), &*loaded.read()) {
+                    (Some(preferences), _) if !preferences.email_available => rsx! {
+                        p { class: "app-settings-option-hint",
+                            {i18n.t("notifications.settings_no_email")}
+                        }
+                    },
+                    (Some(preferences), _) => rsx! {
+                        label { class: "settings-check settings-check-first",
+                            input {
+                                r#type: "checkbox",
+                                checked: preferences.email_enabled,
+                                onchange: {
+                                    let save = save.clone();
+                                    move |e: Event<FormData>| save(PreferencesPatch {
+                                        email_enabled: Some(e.checked()),
+                                        kinds: Vec::new(),
+                                    })
+                                },
+                            }
+                            div {
+                                div { class: "settings-check-label", {i18n.t("notifications.settings_email")} }
+                                p { class: "settings-check-desc", {i18n.t("notifications.settings_email_desc")} }
+                            }
+                        }
+                        for kind in NOTIFICATION_KINDS {
+                            div { key: "{kind}", class: "app-settings-option",
+                                div { class: "app-settings-option-info",
+                                    span { class: "app-settings-option-label",
+                                        {i18n.t(&format!("notifications.kind.{kind}"))}
+                                    }
+                                }
+                                select {
+                                    class: "settings-date-select",
+                                    aria_label: i18n.t(&format!("notifications.kind.{kind}")),
+                                    disabled: !preferences.email_enabled,
+                                    onchange: {
+                                        let save = save.clone();
+                                        move |e: Event<FormData>| save(PreferencesPatch {
+                                            email_enabled: None,
+                                            kinds: vec![KindPreference { kind: kind.to_string(), email: e.value() }],
+                                        })
+                                    },
+                                    for email in ["off", "immediate", "daily"] {
+                                        option {
+                                            key: "{email}",
+                                            value: email,
+                                            selected: preferences.kinds.iter().any(|p| p.kind == kind && p.email == email),
+                                            {i18n.t(&format!("notifications.email.{email}"))}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    (None, Some(Err(_))) => rsx! {
+                        div { class: "error-msg", role: "alert", {i18n.t("notifications.settings_failed")} }
+                    },
+                    (None, _) => rsx! { p { class: "loading", {i18n.t("common.loading")} } },
                 }
                 if let Some(error) = error() {
                     div { class: "error-msg", role: "alert", "{error}" }

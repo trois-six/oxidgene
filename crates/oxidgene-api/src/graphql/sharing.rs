@@ -497,10 +497,11 @@ impl SharingMutation {
         invitation_id: ID,
     ) -> Result<GqlTreeMember> {
         boxed(async move {
-            auth_from_ctx(ctx).sharing_env()?;
+            let env = auth_from_ctx(ctx).sharing_env()?;
             let member = sharing::accept_invitation(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                env.mailing(),
                 uuid(&invitation_id)?,
             )
             .await?;

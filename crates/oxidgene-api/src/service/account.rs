@@ -451,8 +451,8 @@ impl From<&AppUser> for ManagedUser {
 }
 
 /// Everything OxidGene holds about the user, as JSON (GDPR Art. 15 and 20):
-/// `GET /me/export`. Invitations, API clients, notification preferences
-/// and conversations join it as the phases that store them ship.
+/// `GET /me/export`. API clients and conversations join it as the phases
+/// that store them ship.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AccountData {
     pub exported_at: DateTime<Utc>,
@@ -466,8 +466,18 @@ pub struct AccountData {
     /// The invitations addressed to the user's address, whatever their
     /// state.
     pub invitations: Vec<AccountInvitation>,
+    /// The notification preferences the user changed: a kind, or `all` for
+    /// the switch of all email, and `off`, `immediate`, `daily`, `on`.
+    pub notification_preferences: Vec<AccountPreference>,
     /// The access log's events about the user, oldest first.
     pub access_events: Vec<oxidgene_db::repo::AccessEvent>,
+}
+
+/// A notification preference the user changed, in their account data.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AccountPreference {
+    pub kind: String,
+    pub email: String,
 }
 
 /// An invitation addressed to the user, in their account data.
@@ -666,6 +676,11 @@ pub async fn account_data(
         updated_at: user.updated_at,
         memberships,
         invitations,
+        notification_preferences: oxidgene_db::repo::NotificationRepo::preferences(db, user.id)
+            .await?
+            .into_iter()
+            .map(|(kind, email)| AccountPreference { kind, email })
+            .collect(),
         access_events: oxidgene_db::repo::AccessEventRepo::of_user(db, user.id).await?,
     })
 }
@@ -956,6 +971,10 @@ async fn tombstone(
     let email = email.map(|email| email.trim().to_lowercase());
     oxidgene_db::repo::InvitationRepo::forget_user(&txn, id, email.as_deref()).await?;
     oxidgene_db::repo::ShareLinkRepo::forget_user(&txn, id).await?;
+    // Their notifications, preferences and queued mail (docs/messaging.md
+    // §9), the invitations' mail to their address with them.
+    oxidgene_db::repo::NotificationRepo::delete_of_user(&txn, id).await?;
+    oxidgene_db::repo::MailOutboxRepo::delete_of_user(&txn, id, email.as_deref()).await?;
     AppUserRepo::erase(&txn, id).await?;
     txn.commit().await.map_err(db_err)
 }
@@ -964,8 +983,7 @@ async fn tombstone(
 /// tree, which they transfer or delete first; then their sessions end,
 /// their memberships and the tombstone are written in one transaction, and
 /// their avatar's files go once that commits. What later phases store about
-/// a user — notifications, API clients, messages — is deleted here as each
-/// ships.
+/// a user — API clients, messages — is deleted here as each ships.
 async fn erase(
     db: &DatabaseConnection,
     auth: &Auth,

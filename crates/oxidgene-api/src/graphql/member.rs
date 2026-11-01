@@ -300,6 +300,7 @@ impl MemberMutation {
             let member = membership::update_member(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,
                 input.into_patch()?,
@@ -322,6 +323,7 @@ impl MemberMutation {
             membership::remove_member(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,
             )
@@ -343,6 +345,7 @@ impl MemberMutation {
             let owner = membership::transfer_ownership(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,
             )
@@ -363,6 +366,7 @@ impl MemberMutation {
             let owner = membership::assign_owner(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                super::account::auth_from_ctx(ctx).mailing(),
                 uuid(&tree_id)?,
                 uuid(&user_id)?,
             )

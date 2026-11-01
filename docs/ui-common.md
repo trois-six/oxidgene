@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -64,8 +64,19 @@ the contextual topbar.
   the account menu: their name and email, **Profile**, **Sign out**
   ([Authentication §10](authentication.md#10-user-interface)). The desktop and
   the web build's `none` mode render no right zone at all.
-- Future notification and global navigation controls must not be documented
-  as current behavior until implemented.
+- Before the avatar, the signed-in user's notification bell
+  (`components/notification_bell.rs`, [Messaging §2.2](messaging.md#22-delivery-in-the-application)):
+  the shared menu trigger ([§4.8](#48-contextmenu)) drawing a bell with a red
+  badge of the unread count (`99+` past 99), named *Notifications, unread: N*;
+  its panel lists the latest ten notifications, newest first, the unread in
+  bold, each with its time, opening what it is about — the tree, or the
+  tree's settings for an accepted invitation and a member who left, the home
+  page for a tree no longer shared — and marking it read; **Mark all as
+  read** heads it while any is unread, and *No notifications yet.* stands for
+  an empty list. The long poll keeps it current while the page is shown
+  ([Messaging §6](messaging.md#6-delivery-without-polling)).
+- Future global navigation controls, such as the messages icon, must not be
+  documented as current behavior until implemented.
 
 ### 2.2 Contextual topbar
 

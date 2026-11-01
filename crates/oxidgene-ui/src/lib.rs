@@ -19,6 +19,7 @@ pub mod i18n;
 pub mod image_host;
 pub mod listeners;
 pub mod nav_history;
+pub mod notifications;
 pub mod pages;
 pub mod prefs;
 pub mod router;

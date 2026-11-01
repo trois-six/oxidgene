@@ -274,7 +274,7 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `GET` | `/me` | The signed-in user: `{ id, display_name, provider_name, avatar, email, email_verified, locale, instance_role, can_create_trees }`; `display_name` is the user's own, else the provider's. GraphQL: `me` |
 | `PUT` | `/me` | `{ display_name?, locale? }`: a display name of 1 to 80 characters without control characters, trimmed; a locale among the interface languages (`en`, `fr`, `de`, `es`, `it`, `nl`, `pl`, `pt`); `null` returns to the provider's value. Answers the user as `GET /me`. GraphQL: `updateMe(input)` |
 | `DELETE` | `/me` | Erase the account ([Authentication §6.6](authentication.md#66-erasure-and-account-data)): every session ends, the row becomes a tombstone, the avatar's files go; `204`, the session cookie cleared. GraphQL: `deleteMyAccount` |
-| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at, memberships, invitations, access_events }`, `user` as `GET /admin/users/{user_id}` answers it, `memberships` `[{ tree_id, role, self_person_id, expires_at, created_at }]`, `invitations` the invitations addressed to the user's address `[{ tree_id, role, created_at, expires_at, accepted_at, declined_at, revoked_at }]`, `access_events` the user's events as `GET /admin/access-log` lists them, oldest first. GraphQL: `myAccountData` |
+| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at, memberships, invitations, notification_preferences, access_events }`, `user` as `GET /admin/users/{user_id}` answers it, `memberships` `[{ tree_id, role, self_person_id, expires_at, created_at }]`, `invitations` the invitations addressed to the user's address `[{ tree_id, role, created_at, expires_at, accepted_at, declined_at, revoked_at }]`, `notification_preferences` the preferences the user changed `[{ kind, email }]` (`kind` `all` being the switch of all email, `on` or `off`), `access_events` the user's events as `GET /admin/access-log` lists them, oldest first. GraphQL: `myAccountData` |
 | `PUT` | `/me/avatar` | Multipart: `file`, a JPEG, PNG or WebP image of at most 5 MiB and 40 megapixels, and the crop square `x`, `y`, `size` in pixels of the upright image (all three or none: the centred largest square). Answers the user as `GET /me`. GraphQL: `uploadMyAvatar(input)`, the image base64-encoded within the GraphQL body limit |
 | `DELETE` | `/me/avatar` | Back to the generated avatar; `204`. GraphQL: `deleteMyAvatar` |
 | `GET` | `/me/sessions` | The user's sessions, newest first: `[{ id, created_at, last_used_at, client_id, browser, current }]`, `browser` being `firefox`, `chrome`, `edge`, `safari`, `opera` or `other`. GraphQL: `mySessions` |
@@ -374,6 +374,36 @@ outside `/api/v1`: the link's grant joins the browser's
 `__Host-oxidgene-share` cookie, signed in or not, and the browser is sent to
 `/trees/{tree_id}`; a link that opens nothing lands on
 `/?auth_error=share_link_invalid`.
+
+### Notifications
+
+The signed-in user's notifications, their email preferences and the long
+poll that delivers them ([Messaging and Notifications §2, §6](messaging.md#2-notifications)),
+served only by a server built with the `auth` feature and absent,
+`404 not_found`, from the desktop and the `none` mode. They need a signed-in
+user (`401 unauthenticated`), and are the user's own: there is no
+notification of anyone else to name.
+
+A notification is `{ id, kind, tree_id, tree_name, tree_unavailable,
+actor_id, actor_name, subject_id, subject_name, outcome, count, created_at,
+read_at }`: `kind` `tree_shared`, `membership_changed`, `membership_ended`,
+`invitation_accepted`, `ownership_transferred`, `member_left` or
+`job_finished`; the tree and the people resolved under the reader's access
+now — `tree_id` and `tree_name` `null` and `tree_unavailable` `true` for a
+tree the reader no longer sees, which `membership_ended` always is;
+`subject_name` the new owner of `ownership_transferred`, `subject_id` the
+job of `job_finished` and `outcome` how it ended (`import_completed`,
+`import_failed`, `export_completed`, `export_failed`, or `ended` once the
+job's row is gone). GraphQL spells the kinds `TREE_SHARED`… .
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/me/notifications?first=&after=` | The user's notifications, newest first, cursor-paginated (20 by default), with `unread_count` beside the connection's fields. GraphQL: `notifications(first, after)`, `unreadCount` on the connection |
+| `POST` | `/me/notifications/read` | `{ ids? }`: mark those notifications read, every one without `ids`; answers `{ unread_count }`. GraphQL: `markNotificationsRead(ids)`, answering the count |
+| `GET` | `/me/notification-preferences` | `{ email_available, email_enabled, kinds: [{ kind, email }] }`: whether the server mails at all (an SMTP relay is configured; without, the email choices are hidden), the switch turning all email off, and each kind's `email` — `off`, `immediate` or `daily` — the defaults being `tree_shared` and `invitation_accepted` `immediate`, the rest `off`. GraphQL: `notificationPreferences` |
+| `PUT` | `/me/notification-preferences` | `{ email_enabled?, kinds? }`, the kinds named changed and the others kept; an unknown kind or value is refused. Answers the preferences. GraphQL: `updateNotificationPreferences(input)` |
+| `GET` | `/me/updates?after=&wait=` | The long poll ([Messaging §6](messaging.md#6-delivery-without-polling)): `{ events: [{ type, id }], cursor }`. Without `after`, the current cursor at once; with it, at once when events newer than the cursor exist, otherwise once one arrives or after `wait` seconds (25 by default, at most 30) with no event and the same cursor. `type` is `notification`. An invalid cursor is a `validation_error`. GraphQL: `updates(after, wait)` |
+| `POST` | `/mail/unsubscribe?token=` | The one-click unsubscribe of a mail (RFC 8058), without a session: the signed `token` of the mail's link turns its kind's email off, or every kind the user had in a daily digest for a digest's token; the body (`List-Unsubscribe=One-Click`) is not read. Answers `{ kind }`, the kind or `digest`; a token no key signed, or one of an erased user, is a `validation_error`. GraphQL: `unsubscribe(token)`, answering the kind |
 
 ### Persons
 
@@ -1938,7 +1968,8 @@ omitting them leaves them alone, and `null` is rejected.
 
 The collection endpoints — trees, persons, families, events, places, sources,
 repositories, citations, notes, media, audit entries and their changes, record
-versions, and the users of the instance — page by cursor. They accept:
+versions, the users of the instance and a user's notifications — page by
+cursor. They accept:
 - `first` (i32): number of items to return (default 25, clamped to 1–100).
 - `after` (String): cursor for forward pagination.
 
