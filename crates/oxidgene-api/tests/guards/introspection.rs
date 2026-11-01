@@ -159,6 +159,18 @@ impl Schema {
         tree_id: &str,
         records: &Populated,
     ) -> Result<Option<String>, String> {
+        let (rendered, names_record) = self.all_arguments(field, tree_id, records)?;
+        Ok(names_record.then_some(rendered))
+    }
+
+    /// The literal arguments of `field` against `tree_id`, whether or not
+    /// one names a record, and whether one does.
+    pub fn all_arguments(
+        &self,
+        field: &Value,
+        tree_id: &str,
+        records: &Populated,
+    ) -> Result<(String, bool), String> {
         let name = field["name"].as_str().unwrap();
         let mut rendered = Vec::new();
         let mut names_record = false;
@@ -185,7 +197,7 @@ impl Schema {
                 None => {}
             }
         }
-        Ok(names_record.then(|| rendered.join(", ")))
+        Ok((rendered.join(", "), names_record))
     }
 
     /// A selection for a field of type `ty`: its typename and, two levels

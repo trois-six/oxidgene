@@ -68,6 +68,24 @@ fn privacy_of(text: &str) -> Privacy {
     }
 }
 
+/// A stored row, by person.
+fn row_of(row: &sea_orm::QueryResult) -> Result<(Uuid, PersonVisibility), OxidGeneError> {
+    let privacy: String = row.try_get("", "privacy").map_err(db_err)?;
+    let descent: String = row.try_get("", "descent").map_err(db_err)?;
+    Ok((
+        row.try_get("", "person_id").map_err(db_err)?,
+        PersonVisibility {
+            privacy: privacy_of(&privacy),
+            deceased: row.try_get("", "deceased").map_err(db_err)?,
+            latest_birth_year: row.try_get("", "latest_birth_year").map_err(db_err)?,
+            earliest_birth_year: row.try_get("", "earliest_birth_year").map_err(db_err)?,
+            recorded_birth_year: row.try_get("", "recorded_birth_year").map_err(db_err)?,
+            kin_birth_year: row.try_get("", "kin_birth_year").map_err(db_err)?,
+            descent: Descent::decode(&descent).unwrap_or_default(),
+        },
+    ))
+}
+
 impl PersonVisibilityRepo {
     /// Whether the rows of `tree_id` exist and were all derived by the
     /// current rule: a tree without any, or holding one from an earlier
@@ -99,6 +117,29 @@ impl PersonVisibilityRepo {
         Ok(true)
     }
 
+    /// Every stored row of `tree_id`, by person: what a viewer without
+    /// `read_private` is redacted from.
+    pub async fn list_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<HashMap<Uuid, PersonVisibility>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                backend,
+                format!(
+                    "SELECT person_id, privacy, deceased, latest_birth_year, earliest_birth_year, \
+                     recorded_birth_year, kin_birth_year, descent \
+                     FROM person_visibility WHERE tree_id = {}",
+                    placeholders(backend, 1, 1)
+                ),
+                [Value::from(tree_id)],
+            ))
+            .await
+            .map_err(db_err)?;
+        rows.iter().map(row_of).collect()
+    }
+
     /// The stored rows of `person_ids`, by person; a person without one is
     /// absent.
     pub async fn get_many(
@@ -122,28 +163,7 @@ impl PersonVisibilityRepo {
             .map_err(db_err)
         })
         .await?;
-        rows.iter()
-            .map(|row| {
-                let privacy: String = row.try_get("", "privacy").map_err(db_err)?;
-                let descent: String = row.try_get("", "descent").map_err(db_err)?;
-                Ok((
-                    row.try_get("", "person_id").map_err(db_err)?,
-                    PersonVisibility {
-                        privacy: privacy_of(&privacy),
-                        deceased: row.try_get("", "deceased").map_err(db_err)?,
-                        latest_birth_year: row.try_get("", "latest_birth_year").map_err(db_err)?,
-                        earliest_birth_year: row
-                            .try_get("", "earliest_birth_year")
-                            .map_err(db_err)?,
-                        recorded_birth_year: row
-                            .try_get("", "recorded_birth_year")
-                            .map_err(db_err)?,
-                        kin_birth_year: row.try_get("", "kin_birth_year").map_err(db_err)?,
-                        descent: Descent::decode(&descent).unwrap_or_default(),
-                    },
-                ))
-            })
-            .collect()
+        rows.iter().map(row_of).collect()
     }
 
     /// Write `rows` of `tree_id`, replacing those the persons had.

@@ -206,6 +206,18 @@ impl ProfileService {
         PersonVisibilityRepo::get_many(&self.reader, person_ids).await
     }
 
+    /// Every stored row of `tree_id`, rebuilt first as
+    /// [`Self::visibility`] does.
+    #[cfg(feature = "auth")]
+    pub async fn tree_visibility(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<HashMap<Uuid, oxidgene_core::privacy::PersonVisibility>, OxidGeneError> {
+        use oxidgene_db::repo::PersonVisibilityRepo;
+        self.visibility(tree_id, &[]).await?;
+        PersonVisibilityRepo::list_tree(&self.reader, tree_id).await
+    }
+
     // ── Person projections ───────────────────────────────────────────────
 
     /// Read a person's projection, building it on the writer if absent.

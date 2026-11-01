@@ -15,6 +15,7 @@
 
 pub mod log;
 pub mod operations;
+pub mod redaction;
 #[cfg(feature = "auth")]
 pub mod scoped;
 

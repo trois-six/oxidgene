@@ -11,6 +11,7 @@ pub mod error;
 pub mod history;
 pub mod privacy;
 pub mod projection;
+pub mod redaction;
 pub mod resources;
 pub mod search;
 pub mod sharing;

@@ -494,6 +494,9 @@ pub struct ViewerContext {
     /// its holder a Visitor of its tree while it is live.
     share_links: Vec<Uuid>,
     trees: Mutex<HashMap<Uuid, TreeAccess>>,
+    /// What the viewer sees of each tree the request read (Privacy §5),
+    /// built once by the first read that redacts.
+    redactions: Mutex<HashMap<Uuid, std::sync::Arc<crate::redaction::Redaction>>>,
 }
 
 impl ViewerContext {
@@ -502,6 +505,7 @@ impl ViewerContext {
             principal,
             share_links: Vec::new(),
             trees: Mutex::default(),
+            redactions: Mutex::default(),
         }
     }
 
@@ -616,6 +620,35 @@ impl ViewerContext {
     /// request changed the viewer's role on it.
     pub fn forget(&self, tree_id: Uuid) {
         self.lock().remove(&tree_id);
+        self.redactions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&tree_id);
+    }
+
+    /// What the viewer sees of tree `tree_id`, as this request built it.
+    pub fn cached_redaction(
+        &self,
+        tree_id: Uuid,
+    ) -> Option<std::sync::Arc<crate::redaction::Redaction>> {
+        self.redactions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&tree_id)
+            .cloned()
+    }
+
+    /// Keep what the viewer sees of tree `tree_id` for the rest of the
+    /// request.
+    pub fn remember_redaction(
+        &self,
+        tree_id: Uuid,
+        redaction: std::sync::Arc<crate::redaction::Redaction>,
+    ) {
+        self.redactions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(tree_id, redaction);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, TreeAccess>> {

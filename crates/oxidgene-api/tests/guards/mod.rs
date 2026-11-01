@@ -8,10 +8,10 @@ mod api_contract;
 mod cross_tree;
 mod history;
 #[cfg(feature = "graphql")]
-mod introspection;
+pub(crate) mod introspection;
 mod log_privacy;
 mod pagination;
 mod purge;
 mod sql_plans;
 mod stack;
-mod surface;
+pub(crate) mod surface;
