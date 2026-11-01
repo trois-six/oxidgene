@@ -17,10 +17,13 @@ use crate::account::AccountState;
 /// Whether this build offers the surfaces for a tree's other viewers: the
 /// server signs users in, whether or not someone is signed in yet.
 pub fn use_sharing_surfaces() -> bool {
-    try_use_context::<Signal<AccountState>>().is_some_and(|state| {
-        matches!(
-            *state.read(),
-            AccountState::Anonymous | AccountState::SignedIn(_)
-        )
-    })
+    try_use_context::<Signal<AccountState>>().is_some_and(|state| offered(&state.read()))
+}
+
+/// Whether the account state `state` offers the surfaces. A resource reads
+/// the state inside its future's closure and asks this, so that it runs
+/// again once the server has answered, which a full page load learns after
+/// its first render.
+pub fn offered(state: &AccountState) -> bool {
+    matches!(state, AccountState::Anonymous | AccountState::SignedIn(_))
 }

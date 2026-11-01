@@ -167,7 +167,6 @@ pub fn SignInRequired() -> Element {
 /// only: the desktop and the `none` mode show none.
 #[component]
 pub fn VisitorBanner(tree_id: String) -> Element {
-    let sharing = crate::sharing::use_sharing_surfaces();
     let accounts = use_accounts();
     let api = use_context::<ApiClient>();
     let language = use_context::<Signal<Language>>();
@@ -178,6 +177,7 @@ pub fn VisitorBanner(tree_id: String) -> Element {
     let api_access = api.clone();
     let access = use_ui_resource("viewer_access", move || {
         let api = api_access.clone();
+        let sharing = crate::sharing::offered(&account.read());
         async move {
             match tree.filter(|_| sharing) {
                 Some(tree) => api.tree_access(tree).await.ok(),

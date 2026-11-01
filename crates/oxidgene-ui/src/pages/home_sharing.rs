@@ -102,16 +102,17 @@ pub fn HomeInvitations(on_accepted: EventHandler<()>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let account = use_account();
-    let sharing = use_sharing_surfaces();
-    let signed_in = account.read().me().is_some();
     let mut refresh = use_signal(|| 0u32);
     let mut error = use_signal(|| None::<String>);
     let api_list = api.clone();
     let invitations = use_ui_resource("my_invitations", move || {
         let api = api_list.clone();
         let _tick = refresh();
+        // Read here, so the list is asked once the server has answered who
+        // is signed in and that it shares.
+        let ready = matches!(*account.read(), crate::account::AccountState::SignedIn(_));
         async move {
-            if sharing && signed_in {
+            if ready {
                 api.my_invitations().await.unwrap_or_default()
             } else {
                 Vec::new()

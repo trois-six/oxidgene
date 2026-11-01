@@ -257,9 +257,9 @@ three more checkboxes in the same card, each with a line beneath it:
 | **Show photos of contemporary persons** | `contemporary_photos` |
 | **Guests may export** | `guests_may_export` |
 
-These web-only controls appear when the web entry point injects the sharing
-capability, once `/auth/session` answers `mode: "oidc"`; the desktop injects
-none, so its card shows the first three controls only. A saved change is
+These web-only controls appear when the server signs users in, once
+`/auth/session` answers `mode: "oidc"`; the desktop, and a web server whose
+authentication mode is `none`, show the first three controls only. A saved change is
 versioned with the tree's other settings and shown in the
 [History](#9-section-history), each setting that changed with its former and
 its new value.

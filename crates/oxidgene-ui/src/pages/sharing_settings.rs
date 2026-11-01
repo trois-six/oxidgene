@@ -7,7 +7,7 @@
 //! [`ScopeEditor`], which counts what a scope reaches as it changes.
 //!
 //! The sections exist in the web build only, for the tree's owner: the
-//! settings page offers them when the sharing surfaces are injected and the
+//! settings page offers them when the server signs users in and the
 //! viewer holds `members_manage` ([`crate::sharing`]).
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -932,10 +932,10 @@ pub struct TreeSharing {
 /// viewer's access to the tree.
 pub fn use_tree_sharing(tree_id: Option<Uuid>) -> TreeSharing {
     let api = use_context::<ApiClient>();
-    let surfaces = crate::sharing::use_sharing_surfaces();
     let account = crate::account::use_account();
     let access = use_ui_resource("viewer_access", move || {
         let api = api.clone();
+        let surfaces = crate::sharing::offered(&account.read());
         async move {
             match tree_id.filter(|_| surfaces) {
                 Some(tree) => api.tree_access(tree).await.ok(),
