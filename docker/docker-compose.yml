@@ -70,8 +70,11 @@ services:
       retries: 10
       start_period: 20s
 
+  # Creates the media bucket with one signed S3 request: `minio/mc`, which
+  # did this, can no longer be pulled from Docker Hub. A bucket that exists
+  # already (409) is fine.
   rustfs-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: curlimages/curl:8.23.0
     restart: "no"
     depends_on:
       rustfs:
@@ -82,8 +85,14 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mc alias set rustfs http://rustfs:9000 "$${RUSTFS_ACCESS_KEY}" "$${RUSTFS_SECRET_KEY}"
-        mc mb --ignore-existing rustfs/oxidgene-media
+        status=$$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+          --aws-sigv4 "aws:amz:us-east-1:s3" \
+          --user "$${RUSTFS_ACCESS_KEY}:$${RUSTFS_SECRET_KEY}" \
+          http://rustfs:9000/oxidgene-media)
+        case "$$status" in
+          200|409) echo "media bucket ready" ;;
+          *) echo "creating the media bucket failed: HTTP $$status" >&2; exit 1 ;;
+        esac
 
   # ── Identity provider ───────────────────────────────────────────────
   # Rauthy on its embedded Hiqlite database, which lives in the container:
