@@ -19,6 +19,9 @@ mod consistency_test;
 mod dictionary_bulk_test;
 mod dictionary_exact_title_test;
 mod entry_lookup_test;
+#[cfg(feature = "auth")]
+mod exclusion_test;
+mod export_privacy_test;
 mod export_scope_test;
 mod family_name_descent_test;
 mod family_name_test;

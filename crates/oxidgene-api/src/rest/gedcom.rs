@@ -46,7 +46,9 @@ pub async fn export_gedcom_handler(
     let choices = query.choices()?;
     let scope = query.scope()?;
     if query.format.as_deref() != Some("gedzip") {
-        let data = gedcom::export_gedcom(&state.db, tree_id, choices, scope.as_ref()).await?;
+        let data =
+            gedcom::export_gedcom(&state.db, tree_id, choices, scope.as_ref(), query.privacy())
+                .await?;
         return Ok(Json(ExportGedcomResponse {
             gedcom: data.gedcom,
             warnings: data.warnings,
@@ -60,7 +62,15 @@ pub async fn export_gedcom_handler(
         )));
     }
 
-    let data = gedcom::load_and_export(&state.db, tree_id, choices, scope.as_ref(), true).await?;
+    let data = gedcom::load_and_export(
+        &state.db,
+        tree_id,
+        choices,
+        scope.as_ref(),
+        true,
+        query.privacy(),
+    )
+    .await?;
     // Staged on disk, never whole in memory: an archive of scans is
     // gigabytes. The file goes when the response has been streamed.
     let staged = state
@@ -75,6 +85,7 @@ pub async fn export_gedcom_handler(
         "gedzip",
         None,
         gedcom::scope_details(scope.as_ref())?,
+        query.privacy().details(),
     )
     .await?;
 

@@ -977,6 +977,13 @@ pub fn entry_details(i18n: &I18n, entry: &AuditEntry) -> Option<String> {
     if let Some(new_name) = &details.new_label {
         parts.push(i18n.t_args("history.renamed_to", &[("name", new_name)]));
     }
+    // The privacy options an export applied.
+    for option in details.privacy.iter().flat_map(|names| names.split(',')) {
+        parts.push(
+            i18n.try_t(&format!("history.export_privacy.{option}"))
+                .unwrap_or_else(|| option.to_string()),
+        );
+    }
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 

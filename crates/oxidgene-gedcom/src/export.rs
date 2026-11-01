@@ -65,6 +65,11 @@ pub struct ExportRecords<'a> {
     /// "Kept GEDCOM"): put back beneath the records written, the rows of the
     /// notes, sources, repositories or media left out with them dropped.
     pub gedcom_kept: &'a [GedcomKept],
+    /// The persons written as placeholders for privacy (`docs/privacy.md`
+    /// §8): their `INDI` carries `RESN privacy` in GEDCOM 5.5.1, `RESN
+    /// CONFIDENTIAL` in GEDCOM 7, which discourages `PRIVACY`. What they
+    /// hold is the caller's to strip.
+    pub withheld_persons: &'a [Uuid],
 }
 
 impl ExportRecords<'_> {
@@ -267,6 +272,7 @@ pub fn export_gedcom(
         vignettes,
         notes,
         gedcom_kept,
+        withheld_persons,
     } = records.chosen(choices);
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
@@ -315,6 +321,8 @@ pub fn export_gedcom(
         .collect();
     let witnessed = associations(events, event_witnesses, &ordinances, under_events, &xrefs);
     let mut index = ExportIndex {
+        withheld: withheld_persons.iter().copied().collect(),
+        withheld_resn: withheld_restriction(under_events),
         place_map: places.iter().map(|p| (p.id, p)).collect(),
         media_by_id,
         pages_of: pages_of(media),
@@ -950,6 +958,10 @@ fn is_web_address(path: &str) -> bool {
 /// Every lookup the export reads, built once from the rows it writes.
 struct ExportIndex<'a> {
     xrefs: Xrefs,
+    /// The persons written as placeholders for privacy.
+    withheld: HashSet<Uuid>,
+    /// The `RESN` a placeholder carries in the version written.
+    withheld_resn: Restriction,
     sex_by_person: HashMap<Uuid, Sex>,
     place_map: HashMap<Uuid, &'a Place>,
     media_by_id: HashMap<Uuid, &'a Media>,
@@ -1298,7 +1310,11 @@ impl ExportIndex<'_> {
             extra: tag_nodes(self.tag_tag, &person.tags).into(),
             ..Default::default()
         };
-        let restriction = restriction(person.privacy);
+        let restriction = if self.withheld.contains(&person.id) {
+            Some(EnumList(vec![self.withheld_resn.clone()]))
+        } else {
+            restriction(person.privacy)
+        };
         let associations = self
             .assoc_by_person
             .get(&person.id)
@@ -1720,6 +1736,17 @@ fn to_ged_address(text: &str) -> Option<GedAddress> {
         value: Text::from(non_blank(Some(text))?.trim()),
         ..Default::default()
     })
+}
+
+/// The `RESN` a placeholder written for privacy carries: `privacy` in
+/// GEDCOM 5.5.1, information withheld for privacy; `CONFIDENTIAL` in GEDCOM
+/// 7, which discourages `PRIVACY` for its ambiguity (`docs/privacy.md` §8).
+fn withheld_restriction(v7: bool) -> Restriction {
+    if v7 {
+        Restriction::Confidential
+    } else {
+        Restriction::Privacy
+    }
 }
 
 /// The `RESN` of a person or a family: `confidential` for a private record,

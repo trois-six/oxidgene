@@ -5,9 +5,12 @@
 //! half — `persist_import_result_in` — is format-agnostic: it takes the
 //! output of the GEDCOM, GEDZIP and GeneWeb readers alike.
 
+mod export_privacy;
 mod export_scope;
 
 use crate::service::background_job::{parse_off_thread, reader_failure};
+pub use export_privacy::ExportPrivacy;
+
 use crate::service::tag_bulk::{self, TagTargetSpec};
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
@@ -1029,14 +1032,22 @@ pub async fn export_gedcom(
     tree_id: Uuid,
     choices: ExportChoices,
     scope: Option<&TagTargetSpec>,
+    privacy: ExportPrivacy,
 ) -> Result<ExportData, OxidGeneError> {
     let choices = ExportChoices {
         include_media: true,
         ..choices
     };
-    let data = load_and_export(db, tree_id, choices, scope, false).await?;
-    crate::service::history::record_export(db, tree_id, "gedcom", None, scope_details(scope)?)
-        .await?;
+    let data = load_and_export(db, tree_id, choices, scope, false, privacy).await?;
+    crate::service::history::record_export(
+        db,
+        tree_id,
+        "gedcom",
+        None,
+        scope_details(scope)?,
+        privacy.details(),
+    )
+    .await?;
     Ok(data)
 }
 
@@ -1061,7 +1072,8 @@ pub fn scope_details(scope: Option<&TagTargetSpec>) -> Result<Option<String>, Ox
 /// `oxidgene_gedcom::export::export_gedcom`). An archive without its media
 /// packs no file. A `scope` keeps the persons it names and the records they
 /// reach, and no record pointing at one left out (`export_scope`); the media
-/// of a GEDZIP are those kept.
+/// of a GEDZIP are those kept. `privacy` leaves out the persons the tree's
+/// privacy rules hide, or those excluded from sharing (`export_privacy`).
 #[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
 pub async fn load_and_export(
     db: &DatabaseConnection,
@@ -1069,6 +1081,7 @@ pub async fn load_and_export(
     choices: ExportChoices,
     scope: Option<&TagTargetSpec>,
     for_archive: bool,
+    privacy: ExportPrivacy,
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists; its "Who am I?" person names the submitter.
     let tree = TreeRepo::get(db, tree_id).await?;
@@ -1077,6 +1090,8 @@ pub async fn load_and_export(
         let persons = tag_bulk::export_persons(db, tree_id, spec).await?;
         export_scope::cut_to(&mut records, &persons, tree.self_person_id);
     }
+    let excluded = excluded_persons(db, tree_id, privacy).await?;
+    export_privacy::apply(&mut records, &tree, privacy, &excluded);
 
     // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
     // archive rather than the paths whatever produced the record used. Media
@@ -1188,6 +1203,25 @@ pub async fn write_gedzip_file(
         .map_err(OxidGeneError::from)
 }
 
+/// The persons of `tree_id` excluded from sharing, when `privacy` leaves
+/// them out; a build without accounts has none.
+async fn excluded_persons(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    privacy: ExportPrivacy,
+) -> Result<HashSet<Uuid>, OxidGeneError> {
+    if !privacy.leave_out_excluded {
+        return Ok(HashSet::new());
+    }
+    #[cfg(feature = "auth")]
+    return crate::service::exclusion::excluded_persons(db, tree_id).await;
+    #[cfg(not(feature = "auth"))]
+    {
+        let _ = (db, tree_id);
+        Ok(HashSet::new())
+    }
+}
+
 /// Every record of a tree an export writes.
 #[derive(Default)]
 struct TreeRecords {
@@ -1208,6 +1242,8 @@ struct TreeRecords {
     vignettes: Vec<oxidgene_core::types::Vignette>,
     notes: Vec<oxidgene_core::types::Note>,
     gedcom_kept: Vec<oxidgene_core::types::GedcomKept>,
+    /// The persons written as placeholders for privacy.
+    withheld_persons: Vec<Uuid>,
 }
 
 impl TreeRecords {
@@ -1231,6 +1267,7 @@ impl TreeRecords {
             vignettes: &self.vignettes,
             notes: &self.notes,
             gedcom_kept: &self.gedcom_kept,
+            withheld_persons: &self.withheld_persons,
         }
     }
 

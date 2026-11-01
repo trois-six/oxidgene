@@ -1,6 +1,7 @@
 //! What the integration tests share: a fresh database, a router over it, and
 //! a JSON request against that router.
 
+pub mod canary;
 pub mod capture;
 #[cfg(feature = "auth")]
 pub mod oidc;

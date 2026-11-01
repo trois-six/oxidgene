@@ -19,7 +19,7 @@ use common::{
     worker_on,
 };
 use http_body_util::BodyExt;
-use oxidgene_api::service::gedcom::{ExportChoices, load_and_export};
+use oxidgene_api::service::gedcom::{ExportChoices, ExportPrivacy, load_and_export};
 use oxidgene_api::service::tag;
 use oxidgene_api::service::tag_bulk::TagTargetSpec;
 use oxidgene_db::entities::tag as tag_entity;
@@ -666,6 +666,7 @@ async fn a_gedzip_packs_only_the_media_of_the_scope() {
         ExportChoices::default(),
         Some(&spec),
         true,
+        ExportPrivacy::default(),
     )
     .await
     .expect("exports the archive's records");

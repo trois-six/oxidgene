@@ -778,6 +778,7 @@ pub async fn record_export(
     format: &str,
     file_name: Option<String>,
     scope: Option<String>,
+    privacy: Option<String>,
 ) -> Result<AuditEntry, OxidGeneError> {
     Change::new(tree_id, AuditAction::Export, AuditEntity::Tree, tree_id)
         .about_tree()
@@ -785,6 +786,7 @@ pub async fn record_export(
             format: Some(format.to_string()),
             file_name,
             scope,
+            privacy,
             ..AuditDetails::default()
         })
         .record_unversioned(db)

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::api::{
     ApiClient, ApiError, ArchiveChoices, DestinationReport, DownloadableExport, ExportChoices,
-    ExportDestination, TagSummary, UpdateTreeBody, follow_job,
+    ExportDestination, ExportPrivacy, TagSummary, UpdateTreeBody, follow_job,
 };
 use crate::components::audit_log::AuditLogSection;
 use crate::components::cancel_job::{CancelJobButton, JobKind, can_cancel};
@@ -511,6 +511,7 @@ pub fn Settings(tree_id: String) -> Element {
     let mut export_report = use_signal(|| None::<DestinationReport>);
     let export_notes_and_sources = use_signal(|| true);
     let export_media = use_signal(|| true);
+    let export_privacy = use_signal(ExportPrivacy::default);
     let export_scope = use_signal(ExportScope::default);
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
     let mut last_export = use_kept_export(&api, tree_id_parsed, active_section);
@@ -544,11 +545,13 @@ pub fn Settings(tree_id: String) -> Element {
             destination: export_destination(),
             include_notes_and_sources: export_notes_and_sources(),
             scope: scope.clone(),
+            privacy: export_privacy(),
         };
         let archive_choices = ArchiveChoices {
             include_notes_and_sources: export_notes_and_sources(),
             include_media: export_media(),
             scope,
+            privacy: export_privacy(),
         };
         let extension = if is_gedzip { "gdz" } else { "ged" };
         let file_name = format!("{base_name}.{extension}");
@@ -678,6 +681,7 @@ pub fn Settings(tree_id: String) -> Element {
                             report: export_report(),
                             notes_and_sources: export_notes_and_sources,
                             media: export_media,
+                            privacy: export_privacy,
                             scope: export_scope,
                         }
                     },
@@ -1210,6 +1214,8 @@ fn ExportSection(
     report: Option<DestinationReport>,
     notes_and_sources: Signal<bool>,
     media: Signal<bool>,
+    /// The persons left out for privacy.
+    privacy: Signal<ExportPrivacy>,
     /// What the export is limited to.
     scope: Signal<ExportScope>,
 ) -> Element {
@@ -1289,6 +1295,7 @@ fn ExportSection(
                         on_change: move |checked: bool| media.set(checked),
                     }
                 }
+                ExportPrivacyChecks { privacy }
                 if let Some(description) = &downloadable {
                     div { class: "settings-export-row settings-feedback",
                         p { class: "settings-card-desc settings-export-info",
@@ -1789,6 +1796,36 @@ fn ExportReport(report: DestinationReport, destinations: Vec<ExportDestination>)
                         li { {loss(&item.kind, item.record.as_deref(), &item.detail)} }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// The export's privacy options (`docs/ui-settings.md` §10): leaving out
+/// the contemporary and private persons, on both builds, and the persons
+/// excluded from sharing, where the tree has other viewers.
+#[component]
+fn ExportPrivacyChecks(privacy: Signal<ExportPrivacy>) -> Element {
+    let i18n = use_i18n();
+    let sharing = crate::sharing::use_sharing_surfaces();
+    let current = privacy();
+    rsx! {
+        SettingsCheck {
+            checked: current.leave_out_private,
+            label: i18n.t("settings.export_leave_out_private"),
+            description: Some(i18n.t("settings.export_leave_out_private_desc")),
+            on_change: move |checked: bool| {
+                privacy.set(ExportPrivacy { leave_out_private: checked, ..privacy() });
+            },
+        }
+        if sharing {
+            SettingsCheck {
+                checked: current.leave_out_excluded,
+                label: i18n.t("settings.export_leave_out_excluded"),
+                description: Some(i18n.t("settings.export_leave_out_excluded_desc")),
+                on_change: move |checked: bool| {
+                    privacy.set(ExportPrivacy { leave_out_excluded: checked, ..privacy() });
+                },
             }
         }
     }

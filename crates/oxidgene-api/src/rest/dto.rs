@@ -531,6 +531,10 @@ pub struct StartExportJobQuery {
     /// The target the export is limited to, as JSON (see
     /// [`ExportGedcomQuery::scope`]).
     pub scope: Option<String>,
+    /// See [`ExportGedcomQuery::leave_out_private`].
+    pub leave_out_private: Option<bool>,
+    /// See [`ExportGedcomQuery::leave_out_excluded`].
+    pub leave_out_excluded: Option<bool>,
 }
 
 impl StartExportJobQuery {
@@ -540,6 +544,7 @@ impl StartExportJobQuery {
         crate::service::background_job::ArchiveChoices::from_options(
             self.include_notes_and_sources,
             self.include_media,
+            export_privacy(self.leave_out_private, self.leave_out_excluded),
         )
     }
 
@@ -595,9 +600,34 @@ pub struct ExportGedcomQuery {
     /// `include_self`, `include_spouses` and the search filters). Absent,
     /// the whole tree is exported.
     pub scope: Option<String>,
+    /// Leave out the persons the default privacy, their own privacy and the
+    /// contemporary rule hide, as the tree's display of hidden persons says
+    /// (docs/privacy.md §8). Defaults to `false`.
+    pub leave_out_private: Option<bool>,
+    /// Leave out the persons excluded from sharing (docs/privacy.md §6); a
+    /// build without accounts has none. Defaults to `false`.
+    pub leave_out_excluded: Option<bool>,
+}
+
+/// The privacy options a request's flags make, REST's and GraphQL's alike:
+/// a flag left out leaves nobody out.
+#[must_use]
+pub fn export_privacy(
+    leave_out_private: Option<bool>,
+    leave_out_excluded: Option<bool>,
+) -> crate::service::gedcom::ExportPrivacy {
+    crate::service::gedcom::ExportPrivacy {
+        leave_out_private: leave_out_private.unwrap_or(false),
+        leave_out_excluded: leave_out_excluded.unwrap_or(false),
+    }
 }
 
 impl ExportGedcomQuery {
+    /// The privacy options the query names.
+    pub fn privacy(&self) -> crate::service::gedcom::ExportPrivacy {
+        export_privacy(self.leave_out_private, self.leave_out_excluded)
+    }
+
     /// The scope the query names, `None` for the whole tree.
     ///
     /// # Errors

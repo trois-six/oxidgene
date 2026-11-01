@@ -1038,7 +1038,12 @@ impl BackgroundJobWorker {
         }
         let scratch = self.scratch(job.id)?;
         self.progress(job.id, "loading", 0, 0).await?;
-        let scope = scope_of(job)?;
+        let payload = export_payload_of(job)?;
+        let scope = payload.scope;
+        let privacy = gedcom::ExportPrivacy {
+            leave_out_private: payload.leave_out_private,
+            leave_out_excluded: payload.leave_out_excluded,
+        };
         let data = self
             .with_heartbeat(
                 job.id,
@@ -1049,6 +1054,7 @@ impl BackgroundJobWorker {
                     choices_of(job),
                     scope.as_ref(),
                     true,
+                    privacy,
                 ),
             )
             .await?;
@@ -1068,7 +1074,7 @@ impl BackgroundJobWorker {
             warnings: data.warnings,
             size_bytes: Some(size),
         };
-        self.complete_export(job, artifact_key, &receipt, scope.as_ref())
+        self.complete_export(job, artifact_key, &receipt, scope.as_ref(), privacy)
             .await
     }
 
@@ -1110,6 +1116,7 @@ impl BackgroundJobWorker {
         artifact_key: String,
         receipt: &ExportReceipt,
         scope: Option<&TagTargetSpec>,
+        privacy: gedcom::ExportPrivacy,
     ) -> Result<(), OxidGeneError> {
         let result = serde_json::to_string(receipt)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
@@ -1120,6 +1127,7 @@ impl BackgroundJobWorker {
             &job.format,
             None,
             gedcom::scope_details(scope)?,
+            privacy.details(),
         )
         .await?;
         if !BackgroundJobRepo::complete(
@@ -2622,6 +2630,8 @@ pub struct ArchiveChoices {
     pub include_notes_and_sources: bool,
     /// Pack the media, and write their records, links and identifications.
     pub include_media: bool,
+    /// The persons left out for privacy (docs/privacy.md §8).
+    pub privacy: gedcom::ExportPrivacy,
 }
 
 impl ArchiveChoices {
@@ -2631,12 +2641,26 @@ impl ArchiveChoices {
     pub fn from_options(
         include_notes_and_sources: Option<bool>,
         include_media: Option<bool>,
+        privacy: gedcom::ExportPrivacy,
     ) -> Self {
         Self {
             include_notes_and_sources: include_notes_and_sources.unwrap_or(true),
             include_media: include_media.unwrap_or(true),
+            privacy,
         }
     }
+}
+
+/// What an export job keeps in its payload until its worker runs it: the
+/// scope, and the privacy options.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct ExportJobPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<TagTargetSpec>,
+    #[serde(default)]
+    leave_out_private: bool,
+    #[serde(default)]
+    leave_out_excluded: bool,
 }
 
 /// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
@@ -2659,7 +2683,13 @@ pub async fn start_export_job(
     let ArchiveChoices {
         include_notes_and_sources,
         include_media,
+        privacy,
     } = choices;
+    let payload = ExportJobPayload {
+        scope: scope.cloned(),
+        leave_out_private: privacy.leave_out_private,
+        leave_out_excluded: privacy.leave_out_excluded,
+    };
     enqueue(
         db,
         NewBackgroundJob {
@@ -2668,10 +2698,10 @@ pub async fn start_export_job(
             kind: BackgroundJobKind::Export,
             format: "gedzip".into(),
             source_key: None,
-            payload_json: scope
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
+            payload_json: Some(
+                serde_json::to_string(&payload)
+                    .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
+            ),
             original_filename: None,
             include_notes_and_sources,
             include_media,
@@ -2681,14 +2711,16 @@ pub async fn start_export_job(
     Ok(job_id)
 }
 
-/// The scope export job `job` was queued with, `None` for the whole tree.
-fn scope_of(job: &BackgroundJob) -> Result<Option<TagTargetSpec>, OxidGeneError> {
+/// What export job `job` was queued with: its scope, `None` for the whole
+/// tree, and its privacy options.
+fn export_payload_of(job: &BackgroundJob) -> Result<ExportJobPayload, OxidGeneError> {
     job.payload_json
         .as_deref()
         .map(|text| {
             serde_json::from_str(text).map_err(|error| OxidGeneError::Internal(error.to_string()))
         })
         .transpose()
+        .map(Option::unwrap_or_default)
 }
 
 /// The choices export job `job` was queued with.

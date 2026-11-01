@@ -4290,9 +4290,10 @@ type MutationRoot {
 	`includeNotesAndSources: false` to leave the notes and the sources
 	out, and `includeMedia: false` to pack no media and write no `OBJE`.
 	A GEDZIP is always lossless: `exportGedcom`'s merges are a plain
-	GEDCOM's.
+	GEDCOM's. `leaveOutPrivate` and `leaveOutExcluded` are
+	`exportGedcom`'s.
 	"""
-	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean, scope: TagTargetInput): GqlBackgroundJobStarted!
+	startExportJob(treeId: ID!, includeNotesAndSources: Boolean, includeMedia: Boolean, scope: TagTargetInput, leaveOutPrivate: Boolean, leaveOutExcluded: Boolean): GqlBackgroundJobStarted!
 	"""
 	Cancel an import job: a queued one ends at once, a running one stops
 	at its next batch of rows or medium and rolls back everything it
@@ -4870,9 +4871,12 @@ type QueryRoot {
 	export in the tree's audit log. Pass `include_notes_and_sources:
 	false` to leave the notes and the sources out. A plain GEDCOM always
 	writes its media's references: only a GEDZIP (`startExportJob`),
-	standard GEDCOM 7.0, leaves the media out.
+	standard GEDCOM 7.0, leaves the media out. `leaveOutPrivate` and
+	`leaveOutExcluded` leave out, as the tree's display of hidden persons
+	says, the persons its privacy rules hide and those excluded from
+	sharing (docs/privacy.md §8).
 	"""
-	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean, scope: TagTargetInput): GqlExportGedcomResult!
+	exportGedcom(treeId: ID!, destination: String, includeNotesAndSources: Boolean, scope: TagTargetInput, leaveOutPrivate: Boolean, leaveOutExcluded: Boolean): GqlExportGedcomResult!
 	"""
 	Poll a durable GEDZIP export created by `startExportJob`. With
 	`since`, the `version` last read, and `wait`, in seconds (at most

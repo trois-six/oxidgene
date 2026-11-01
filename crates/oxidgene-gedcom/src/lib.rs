@@ -124,6 +124,7 @@ impl ImportResult {
             vignettes: &self.vignettes,
             notes: &self.notes,
             gedcom_kept: &self.kept,
+            withheld_persons: &[],
         }
     }
 }

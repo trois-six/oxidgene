@@ -1757,7 +1757,14 @@ impl TreeQuery {
     /// export in the tree's audit log. Pass `include_notes_and_sources:
     /// false` to leave the notes and the sources out. A plain GEDCOM always
     /// writes its media's references: only a GEDZIP (`startExportJob`),
-    /// standard GEDCOM 7.0, leaves the media out.
+    /// standard GEDCOM 7.0, leaves the media out. `leaveOutPrivate` and
+    /// `leaveOutExcluded` leave out, as the tree's display of hidden persons
+    /// says, the persons its privacy rules hide and those excluded from
+    /// sharing (docs/privacy.md §8).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn export_gedcom(
         &self,
         ctx: &Context<'_>,
@@ -1765,6 +1772,8 @@ impl TreeQuery {
         destination: Option<String>,
         include_notes_and_sources: Option<bool>,
         scope: Option<TagTargetInput>,
+        leave_out_private: Option<bool>,
+        leave_out_excluded: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -1780,6 +1789,7 @@ impl TreeQuery {
                 tree_id,
                 choices,
                 scope.as_ref(),
+                crate::rest::dto::export_privacy(leave_out_private, leave_out_excluded),
             )
             .await?;
             Ok(GqlExportGedcomResult {

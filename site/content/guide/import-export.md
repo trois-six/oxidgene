@@ -99,6 +99,8 @@ The choice of destination applies to that export only; it is not saved. A GEDZIP
 
 - **Include notes and sources**, on by default. When off, the file contains no notes, no sources with their citations, and no repositories.
 - **Include media**, GEDZIP only, on by default. When off, the archive contains the genealogy alone, without any reference to photos or documents.
+- **Leave out contemporary and private persons**, off by default. When on, the persons the tree's privacy settings hide — living persons, by the contemporary-person rule, and those marked private — are written as **Display of hidden persons** says in the Privacy settings: a placeholder keeping the shape of the tree, without name, dates, events, notes, sources or media, marked as withheld for privacy; the same with initials; or not at all. Their photos and the couples they belong to lose their details too. See [Settings](@/guide/settings.md#contemporary-persons).
+- **Leave out excluded persons**, on a web server shared with other people only: the persons you excluded from sharing are written as plain placeholders, or not at all.
 
 These options apply to the next export only, and come back to their defaults when you reload the page.
 

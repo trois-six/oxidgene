@@ -246,6 +246,10 @@ pub struct AuditDetails {
     /// for the whole tree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// The privacy options an export applied, comma-separated
+    /// (`leave_out_private`, `leave_out_excluded`); absent for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<String>,
 }
 
 impl AuditDetails {

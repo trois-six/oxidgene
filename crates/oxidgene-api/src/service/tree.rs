@@ -260,6 +260,7 @@ pub async fn duplicate_tree(
         gedcom::ExportChoices::default(),
         None,
         false,
+        gedcom::ExportPrivacy::default(),
     )
     .await?;
     let new_tree_id = Uuid::now_v7();
@@ -286,6 +287,7 @@ pub async fn duplicate_tree(
         source_tree_id,
         history::DUPLICATE_FORMAT,
         Some(tree.name),
+        None,
         None,
     )
     .await?;

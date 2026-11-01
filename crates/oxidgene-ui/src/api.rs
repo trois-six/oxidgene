@@ -2449,6 +2449,22 @@ pub struct ExportChoices {
     /// whole tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// The persons left out for privacy.
+    #[serde(flatten)]
+    pub privacy: ExportPrivacy,
+}
+
+/// The persons an export leaves out for privacy (`docs/privacy.md` §8),
+/// sent as its query options; an option off is not sent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ExportPrivacy {
+    /// The persons the tree's privacy settings and the contemporary rule
+    /// hide.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub leave_out_private: bool,
+    /// The persons excluded from sharing (web build only).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub leave_out_excluded: bool,
 }
 
 /// A program a GEDCOM export can be written for.
@@ -2514,6 +2530,9 @@ pub struct ArchiveChoices {
     /// whole tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// The persons left out for privacy.
+    #[serde(flatten)]
+    pub privacy: ExportPrivacy,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -7049,6 +7068,7 @@ mod tests {
             destination: "generic-551".to_string(),
             include_notes_and_sources: true,
             scope: None,
+            privacy: ExportPrivacy::default(),
         };
         let (result, requests) = tokio::join!(
             api.export_gedcom(tree, &choices),
