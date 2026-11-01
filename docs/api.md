@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T22:30:00Z }
 ---
 
 
@@ -131,6 +131,14 @@ Server defaults, container publication, CORS, and UI media rendering follow
 The standalone server's CORS policy lets the browser keep a preflight answer
 for two hours, so the `POST` reads (pedigree batches, a page's pictures) are
 not preceded by a preflight on every page.
+
+**HTTP caching.** The web build answers every JSON response of the API —
+REST's and GraphQL's — that sets no caching of its own with
+`Cache-Control: no-store`, since it holds what one viewer may see of a tree;
+a medium's bytes and crops keep `Cache-Control: private` and their `ETag`
+(a matching `If-None-Match` is `304`) and add `Vary: Cookie, Authorization`
+([Authentication §9.1](authentication.md#91-origin-headers-and-caching)). The
+desktop's headers are unchanged.
 
 Direct HTTP media representations remain API-client transports, not browser
 navigation destinations. Frontends fetch their bytes through the typed client

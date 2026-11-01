@@ -175,6 +175,42 @@ impl Fixture {
         )
     }
 
+    /// `GET uri` as `who` with the request header `extra`.
+    async fn raw_with(
+        &self,
+        who: Who,
+        uri: &str,
+        (name, value): (header::HeaderName, &str),
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let mut request = Request::builder()
+            .uri(uri)
+            .header(header::HOST, "genealogy.example.invalid")
+            .header(name, value);
+        let app = match who {
+            Who::Owner => &self.local,
+            _ => {
+                request = request.header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", self.tokens[&who]),
+                );
+                &self.app
+            }
+        };
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            headers,
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
+    }
+
     /// `method` on `uri` as `who`: the status and the JSON body.
     async fn rest(
         &self,
@@ -861,5 +897,66 @@ async fn an_editors_export_job_applies_the_visitors_rules_on_both_surfaces() {
             "apply_visitor_rules,leave_out_private,leave_out_excluded,leave_out_confidential",
             "{audit}"
         );
+    }
+}
+
+#[tokio::test]
+async fn nothing_a_viewer_reads_is_cached_for_another() {
+    let f = Fixture::new().await;
+    let document = ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/media/document"),
+        Some(json!({ "title": "Wrenfield portrait" })),
+    )
+    .await;
+    let page = crate::common::populated::upload_page(
+        &f.local,
+        f.tree(),
+        document["id"].as_str().unwrap(),
+        &crate::common::populated::png(4, 4),
+    )
+    .await;
+    let file = f.uri(&format!("/media/{}/file", page["id"].as_str().unwrap()));
+
+    for who in [Who::Owner, Who::Editor, Who::Guest] {
+        // Tree JSON, REST's and GraphQL's: never stored.
+        let (_, headers, _) = f
+            .raw(who, Method::GET, &f.uri("/dictionary/family-names"), None)
+            .await;
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store", "{who:?}");
+        let query = format!(
+            r#"{{ dictionaryFamilyNames(treeId: "{}") {{ value }} }}"#,
+            f.tree()
+        );
+        let (_, headers, _) = f
+            .raw(
+                who,
+                Method::POST,
+                "/graphql",
+                Some(json!({ "query": query })),
+            )
+            .await;
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store", "{who:?}");
+
+        // Media bytes: private, varying on the credential, still validated.
+        let (status, headers, _) = f.raw(who, Method::GET, &file, None).await;
+        assert_eq!(status, StatusCode::OK, "{who:?}");
+        assert!(
+            headers[header::CACHE_CONTROL]
+                .to_str()
+                .unwrap()
+                .starts_with("private"),
+            "{who:?}"
+        );
+        let vary: Vec<&str> = headers
+            .get_all(header::VARY)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect();
+        assert!(vary.contains(&"Cookie, Authorization"), "{who:?} {vary:?}");
+        let etag = headers[header::ETAG].to_str().unwrap().to_owned();
+        let (status, _, _) = f.raw_with(who, &file, (header::IF_NONE_MATCH, &etag)).await;
+        assert_eq!(status, StatusCode::NOT_MODIFIED, "{who:?}");
     }
 }

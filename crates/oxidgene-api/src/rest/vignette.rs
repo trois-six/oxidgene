@@ -200,6 +200,8 @@ async fn cropped_image(
         CACHE_CONTROL,
         super::media::header_value("private, max-age=300"),
     );
+    #[cfg(feature = "auth")]
+    super::caching::vary_on_credentials(&mut headers);
     Ok((headers, Body::from(cropped)).into_response())
 }
 

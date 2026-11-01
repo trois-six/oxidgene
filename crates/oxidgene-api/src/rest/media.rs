@@ -692,6 +692,8 @@ async fn serve(
     // becomes visible without anyone clearing a cache. `private` because a
     // family archive is not something a shared proxy should hold.
     headers.insert(CACHE_CONTROL, header_value("private, max-age=3600"));
+    #[cfg(feature = "auth")]
+    super::caching::vary_on_credentials(&mut headers);
     if let Some(etag) = etag {
         headers.insert(ETAG, header_value(&etag));
     }

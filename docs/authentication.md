@@ -892,7 +892,12 @@ provider, its mail relay and the session store beside the application:
   `Vary: Cookie, Authorization`, keeping their `ETag`. No response is cached
   across viewers, by OxidGene or by an intermediary
   ([Privacy §7](privacy.md#7-enforcement-points)). The frontend's in-memory
-  caches are dropped when the session's user changes or ends.
+  caches are dropped when the session's user changes or ends. Built: the web
+  build marks every JSON answer of the API, REST's and GraphQL's, that sets
+  no caching of its own `no-store`, and sends `Vary: Cookie, Authorization`
+  beside the `private` caching and the `ETag` of a medium's bytes and crops.
+  The desktop keeps its headers: it has one viewer, and its per-launch token
+  would make every launch miss the pictures the previous one cached.
 
 ### 9.2 Rate limits and brute force
 

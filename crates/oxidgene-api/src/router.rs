@@ -819,6 +819,12 @@ pub fn build_router(state: AppState) -> Router {
     ));
     #[cfg(feature = "auth")]
     let rest_router = rest_router.merge(crate::auth::bff::routes(auth_state));
+    // Nothing a viewer reads is kept for another (docs/authentication.md
+    // §9.1); the desktop, with its one viewer, keeps its headers.
+    #[cfg(feature = "auth")]
+    let rest_router = rest_router.layer(axum::middleware::from_fn(
+        crate::rest::caching::no_store_json,
+    ));
 
     // Outermost, so GraphQL answers are compressed exactly like REST ones.
     rest_router
