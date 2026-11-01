@@ -286,6 +286,7 @@ mod tests {
 
     fn person(given: &str, sex: Sex) -> PersonProfile {
         PersonProfile {
+            placeholder: None,
             tags: Vec::new(),
             person_id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
@@ -321,6 +322,8 @@ mod tests {
         mother: Option<Uuid>,
     ) {
         child.family_as_child = Some(ProfileChildLink {
+            father_placeholder: None,
+            mother_placeholder: None,
             family_id,
             child_type: ChildType::Biological,
             father_id: father,
@@ -341,6 +344,7 @@ mod tests {
         events: Vec<ProfileEvent>,
     ) {
         person.families_as_spouse.push(ProfileFamilyLink {
+            spouse_placeholder: None,
             family_id,
             role,
             spouse_id: None,

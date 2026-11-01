@@ -22,6 +22,7 @@ pub mod nav_history;
 pub mod notifications;
 pub mod pages;
 pub mod permissions;
+pub mod placeholder;
 pub mod prefs;
 pub mod router;
 pub mod shared;

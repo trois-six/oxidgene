@@ -1558,6 +1558,7 @@ mod tests {
         died: Option<&str>,
     ) -> PersonProfile {
         PersonProfile {
+            placeholder: None,
             tags: Vec::new(),
             person_id: Uuid::now_v7(),
             tree_id: Uuid::nil(),
@@ -1593,6 +1594,7 @@ mod tests {
         children: &[Uuid],
     ) -> ProfileFamilyLink {
         ProfileFamilyLink {
+            spouse_placeholder: None,
             family_id: family,
             role,
             spouse_id: None,
@@ -1627,6 +1629,8 @@ mod tests {
         let mut second = person(Sex::Female, "Marie", "BRANCH_A", Some("15 JAN 1854"), None);
         for child in [&mut first, &mut second] {
             child.family_as_child = Some(ProfileChildLink {
+                father_placeholder: None,
+                mother_placeholder: None,
                 family_id: family,
                 child_type: ChildType::Biological,
                 father_id: Some(father.person_id),
@@ -2029,6 +2033,8 @@ mod tests {
         let parent = people[2].person_id;
         let mut grandchild = person(Sex::Female, "Lise", "BRANCH_A", Some("2 MAY 1880"), None);
         grandchild.family_as_child = Some(ProfileChildLink {
+            father_placeholder: None,
+            mother_placeholder: None,
             family_id,
             child_type: ChildType::Biological,
             father_id: Some(parent),

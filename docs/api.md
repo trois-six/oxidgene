@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 
@@ -163,6 +163,14 @@ place only hidden events and media use. A family stays, its links to the
 persons who appear kept: an absent spouse or child is left out of
 `/families/{id}/spouses` and `/children`, a placeholder keeps the identifier
 the viewer may know it by, and the family's tags go with its content. A
+placeholder says why it is one in `placeholder`: `private` for a person the
+privacy rules hide, `not_shared` for a relative outside the viewer's access
+scope, which is never navigated through. It is carried by a placeholder's
+person record and profile, a profile's family links (`spouse_placeholder`)
+and child link (`father_placeholder`, `mother_placeholder`), a pedigree's
+nodes and family members, and the persons of a kinship (search rows); a
+person shown in full carries none, and the frontend labels the two
+*Private* and *Not shared*. A
 viewer without `read_tags` gets an empty `GET /tags` (`tags`), no tags on
 any record and in no media facet, and `404` from a tag's records. In
 `gallery-bundle` and `image-data` a hidden medium, vignette or picture is

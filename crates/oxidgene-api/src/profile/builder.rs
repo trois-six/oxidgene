@@ -383,6 +383,7 @@ fn build_one_person(
         .map_or(&[], Vec::as_slice);
 
     PersonProfile {
+        placeholder: None,
         person_id: pid,
         tree_id,
         sex: person.sex,
@@ -480,6 +481,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         .map(|c| c.person_id)
         .collect();
     ProfileFamilyLink {
+        spouse_placeholder: None,
         family_id,
         role: fs.role,
         spouse_id,
@@ -496,6 +498,8 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
 fn child_link(idx: &IndexedData, fc: &FamilyChild) -> ProfileChildLink {
     let (father_id, mother_id) = father_and_mother(idx, fc.family_id);
     ProfileChildLink {
+        father_placeholder: None,
+        mother_placeholder: None,
         family_id: fc.family_id,
         child_type: fc.child_type,
         father_id,
@@ -642,6 +646,7 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
         date_sort: birth.and_then(|e| e.date_sort),
         portrait: None,
         tags: person.tags.clone(),
+        placeholder: person.placeholder,
     }
 }
 
@@ -711,6 +716,7 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
         _ => Sex::Unknown,
     };
     SearchEntry {
+        placeholder: None,
         person_id: row.person_id,
         sex,
         surname_normalized: row.surname,
@@ -774,6 +780,7 @@ pub fn build_pedigree_node(
     sosa_number: Option<u64>,
 ) -> PedigreeNode {
     PedigreeNode {
+        placeholder: None,
         person_id: person.person_id,
         sex: person.sex,
         display_name: person
@@ -846,6 +853,7 @@ mod tests {
     #[test]
     fn test_search_entry_db_roundtrip() {
         let entry = SearchEntry {
+            placeholder: None,
             person_id: Uuid::now_v7(),
             sex: Sex::Female,
             surname_normalized: "smith".to_string(),
@@ -946,6 +954,7 @@ mod tests {
             color: 2,
         };
         let person = PersonProfile {
+            placeholder: None,
             tags: vec![tag.clone()],
             person_id: Uuid::now_v7(),
             tree_id: Uuid::nil(),

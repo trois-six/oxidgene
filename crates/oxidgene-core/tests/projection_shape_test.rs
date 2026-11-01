@@ -21,8 +21,8 @@ use oxidgene_core::enums::{
     Calendar, ChildType, DateQualifier, EventType, NameType, Sex, SpouseRole,
 };
 use oxidgene_core::projection::{
-    PROJECTION_SCHEMA_VERSION, PersonProfile, ProfileChildLink, ProfileEvent, ProfileFamilyLink,
-    ProfileMediaRef, ProfileName,
+    PROJECTION_SCHEMA_VERSION, PersonProfile, Placeholder, ProfileChildLink, ProfileEvent,
+    ProfileFamilyLink, ProfileMediaRef, ProfileName,
 };
 use oxidgene_core::types::TagRef;
 use serde_json::{Map, Value, json};
@@ -73,6 +73,7 @@ fn event() -> ProfileEvent {
 fn full_profile() -> PersonProfile {
     let at = Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap();
     PersonProfile {
+        placeholder: Some(Placeholder::Private),
         person_id: id(4),
         tree_id: id(5),
         sex: Sex::Female,
@@ -84,6 +85,7 @@ fn full_profile() -> PersonProfile {
         burial: Some(event()),
         other_events: vec![event()],
         families_as_spouse: vec![ProfileFamilyLink {
+            spouse_placeholder: Some(Placeholder::NotShared),
             family_id: id(6),
             role: SpouseRole::Wife,
             spouse_id: Some(id(7)),
@@ -95,6 +97,8 @@ fn full_profile() -> PersonProfile {
             children_ids: vec![id(8)],
         }],
         family_as_child: Some(ProfileChildLink {
+            father_placeholder: Some(Placeholder::Private),
+            mother_placeholder: Some(Placeholder::NotShared),
             family_id: id(9),
             child_type: ChildType::Adopted,
             father_id: Some(id(10)),

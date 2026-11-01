@@ -260,7 +260,7 @@ A person hidden from a Visitor appears according to the tree's display mode:
 
 | Mode | A hidden person is |
 |---|---|
-| `stub` (default) | A placeholder keeping the tree's shape: sex, family links, and — with navigation allowed — an identifier; labelled *Private* by the frontend in the reader's language |
+| `stub` (default) | A placeholder keeping the tree's shape: sex, family links, and — with navigation allowed — an identifier; marked `placeholder: private` and labelled *Private* by the frontend in the reader's language |
 | `initials` | The stub plus initials of their first given name and surname (`J. D.`), computed on the server |
 | `hidden` | Absent: in no list, chart, count or link. A child whose parent is hidden shows one parent; a family with a hidden spouse shows the other alone |
 

@@ -1793,6 +1793,7 @@ fn test_export_long_utf8_note_does_not_panic() {
     let person_id = Uuid::now_v7();
     let now = Utc::now();
     let person = Person {
+        placeholder: None,
         id: person_id,
         tree_id,
         sex: Sex::Unknown,

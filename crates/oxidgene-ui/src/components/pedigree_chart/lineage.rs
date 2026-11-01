@@ -605,8 +605,16 @@ pub(super) fn LineageFamilyMenu(
     on_close: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let spouses = data.spouses_of(root_person_id);
-    let children = children_of(root_person_id, &data);
+    // Only the relatives that may be opened: never one outside the share.
+    let spouses: Vec<Uuid> = data
+        .spouses_of(root_person_id)
+        .into_iter()
+        .filter(|id| data.navigable(*id))
+        .collect();
+    let children: Vec<ChildLink> = children_of(root_person_id, &data)
+        .into_iter()
+        .filter(|child| data.navigable(child.id))
+        .collect();
     let label = |id: Uuid| {
         let name = data.display_name(id, &i18n);
         let dates = format_lifespan(

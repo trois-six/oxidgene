@@ -57,7 +57,12 @@ use crate::types::{PortraitRef, TagRef};
 /// children's count out of `children_ids`, and the profile no longer copies
 /// the occupation out of `other_events`; and the stored row no longer repeats
 /// its own `person_id`, `tree_id` and build time (see [`PersonProfile`]).
-pub const PROJECTION_SCHEMA_VERSION: i32 = 10;
+///
+/// 11: a placeholder says why it is one (`Placeholder`): the profile, its
+/// spouse and parent links, the pedigree's nodes and family members and the
+/// search rows carry `placeholder`, which a restricted viewer's redaction
+/// sets and a stored payload leaves out.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 11;
 
 /// Whether `value` is its type's default, for `skip_serializing_if`: a field
 /// left at its default is left out of a payload, and `#[serde(default)]`
@@ -67,6 +72,20 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 }
 
 // ─── Person profile ─────────────────────────────────────────────────────────
+
+/// Why a person appears to a viewer as a placeholder — sex and family
+/// links, no name, no date — rather than in full (docs/privacy.md §5,
+/// docs/authorization.md §6.5). The frontend labels it in the reader's
+/// language; a person shown in full carries none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placeholder {
+    /// Hidden by the privacy rules: private, or contemporary (*Private*).
+    Private,
+    /// Outside the access scope the viewer is limited to, a relative of a
+    /// person inside it (*Not shared*): never navigated through.
+    NotShared,
+}
 
 /// A fully denormalized person profile, containing everything needed
 /// to display a person card, detail page, or edit modal in a single read.
@@ -130,6 +149,10 @@ pub struct PersonProfile {
     /// Tags put on the person, sorted by folded label.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<TagRef>,
+    /// Why the person is a placeholder rather than shown in full: set by
+    /// a restricted viewer's redaction, never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<Placeholder>,
 
     // Metadata
     pub updated_at: DateTime<Utc>,
@@ -265,6 +288,9 @@ pub struct ProfileFamilyLink {
     pub spouse_given_names: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spouse_sex: Option<Sex>,
+    /// Why the spouse is a placeholder, if they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spouse_placeholder: Option<Placeholder>,
     /// All family events (marriage, divorce, annulment, etc.)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<ProfileEvent>,
@@ -297,6 +323,9 @@ pub struct ProfileChildLink {
     pub father_surname: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub father_given_names: Option<String>,
+    /// Why the father is a placeholder, if he is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub father_placeholder: Option<Placeholder>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,6 +334,9 @@ pub struct ProfileChildLink {
     pub mother_surname: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mother_given_names: Option<String>,
+    /// Why the mother is a placeholder, if she is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mother_placeholder: Option<Placeholder>,
 }
 
 /// A reference to a media item (portrait / primary photo).
@@ -386,6 +418,9 @@ pub struct PedigreeNode {
     /// The tags put on the person, in the vocabulary's order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<TagRef>,
+    /// Why the card is a placeholder, if it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<Placeholder>,
 }
 
 /// A parent-child edge in the pedigree.
@@ -434,6 +469,9 @@ pub struct PedigreeFamilyMember {
     /// The death, else the burial, as [`PersonProfile::death_or_burial`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub death: Option<PedigreeMemberEvent>,
+    /// Why the member is a placeholder, if they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<Placeholder>,
 }
 
 impl PedigreeFamilyMember {
@@ -441,6 +479,7 @@ impl PedigreeFamilyMember {
     pub fn of(person: &PersonProfile) -> Self {
         let name = person.primary_name.as_ref();
         Self {
+            placeholder: None,
             person_id: person.person_id,
             sex: person.sex,
             given_names: name.and_then(|n| n.given_names.clone()),
@@ -562,6 +601,10 @@ pub struct SearchEntry {
     /// index does not hold.
     #[serde(default)]
     pub tags: Vec<TagRef>,
+    /// Why the row is a placeholder, if it is: a person a kinship path
+    /// names whom the viewer may not see in full.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<Placeholder>,
 }
 
 /// Paginated search results.
@@ -615,6 +658,7 @@ mod tests {
     fn a_union_finds_its_marriage_among_its_events() {
         let marriage = event(EventType::Marriage, None);
         let link = ProfileFamilyLink {
+            spouse_placeholder: None,
             family_id: Uuid::now_v7(),
             role: SpouseRole::Wife,
             spouse_id: None,
@@ -638,6 +682,7 @@ mod tests {
             event(EventType::Occupation, Some("Miller")),
         ];
         let profile = |other_events: Vec<ProfileEvent>| PersonProfile {
+            placeholder: None,
             person_id: Uuid::now_v7(),
             tree_id: Uuid::now_v7(),
             sex: Sex::Unknown,

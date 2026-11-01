@@ -68,6 +68,8 @@ A branch follows the tree: a child you add under a shared ancestor is shared at 
 
 An editor limited to a branch changes only the persons in it, and the persons they add to it. Places, sources, repositories and tags are shared by the whole tree: they use them but do not change them.
 
+Whoever sees a branch sees the parents, spouses and children of its persons who are outside it as **Not shared**: the tree keeps its shape, but these relatives have no name, no dates and cannot be opened. A person hidden by the privacy rules shows as **Private**, or by their initials.
+
 ## What visitors see
 
 OxidGene shows each person only what their role lets them do. A guest or a visitor finds no button or menu entry that would change the tree: no **Edit**, **Delete**, **Merge with…** or **Add**, no tags to put on, no upload, and in the settings only the preferences of their device — plus **Leave this tree** for a guest. A visitor sees no tags at all. An editor limited to a branch keeps the person actions, but finds no entry to edit, merge or delete a place, a source, a repository or a tag, to rename a family name or an occupation, to tag in bulk, or to restore a version.

@@ -45,6 +45,8 @@ mod media_validation_test;
 #[cfg(all(feature = "auth", feature = "graphql"))]
 mod notification_test;
 mod page_bundles_test;
+#[cfg(feature = "auth")]
+mod placeholder_test;
 mod profile_service_test;
 mod query_scaling_test;
 mod real_import_test;

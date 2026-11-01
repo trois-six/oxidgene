@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-30T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 
@@ -167,7 +167,10 @@ at every width, each named by its tooltip and accessible label, in this order:
 
 ## 5. Family Connections
 
-Displayed as a card below the media gallery.
+Displayed as a card below the media gallery. A relative the viewer may not
+see in full is listed by its label — *Not shared*, without a link, or
+*Private* — rather than by name ([Common UI §1](ui-common.md#1-scope-and-rules));
+a couple's page offers no link to the profile of a spouse who is not shared.
 
 ### Parents
 

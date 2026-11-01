@@ -149,6 +149,7 @@ pub fn seen_person(
         return Some(person);
     }
     Some(oxidgene_core::types::Person {
+        placeholder: redaction.placeholder(person.id),
         id,
         portrait_media_id: None,
         portrait_vignette_id: None,
@@ -283,6 +284,32 @@ impl ProfileService {
         if redaction.withholds_tags() {
             for entry in &mut entries {
                 entry.tags.clear();
+            }
+        }
+        Ok(entries)
+    }
+
+    /// The rows of the placeholders among `ids` — the persons who appear
+    /// to the viewer but are not shown in full — each under the identifier
+    /// the viewer may know it by, with its sex and why it is one, no name:
+    /// what a kinship path names besides the persons shown.
+    pub async fn placeholder_entries_as(
+        &self,
+        redaction: &Redaction,
+        tree_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<Vec<SearchEntry>, OxidGeneError> {
+        let stubs: Vec<Uuid> = ids
+            .iter()
+            .copied()
+            .filter(|id| !redaction.shows(*id) && redaction.appears(*id))
+            .collect();
+        let mut entries = Vec::with_capacity(stubs.len());
+        for chunk in stubs.chunks(1_000) {
+            for profile in PersonDenormRepo::get_many(self.reader(), tree_id, chunk).await? {
+                if let Some(profile) = redaction.profile(&profile) {
+                    entries.push(builder::build_search_entry(&profile));
+                }
             }
         }
         Ok(entries)

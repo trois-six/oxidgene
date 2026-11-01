@@ -725,6 +725,7 @@ fn use_card_pedigrees(
     search: Resource<Result<Option<Searched>, ApiError>>,
     view: Signal<ViewMode>,
 ) -> (Memo<HashMap<Uuid, SharedPedigree>>, bool) {
+    let i18n = use_i18n();
     let api = api.clone();
     let pedigrees = use_traced_resource(load_trace, "result_pedigrees", move || {
         let api = api.clone();
@@ -756,7 +757,7 @@ fn use_card_pedigrees(
                 .map(|(root, pedigree)| {
                     (
                         *root,
-                        SharedPedigree::new(PedigreeData::from_pedigree(pedigree)),
+                        SharedPedigree::new(PedigreeData::from_pedigree(pedigree, &i18n)),
                     )
                 })
                 .collect::<HashMap<_, _>>()

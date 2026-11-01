@@ -4031,6 +4031,7 @@ async fn a_stored_projection_leaves_its_columns_and_empty_fields_out() {
     let person_id = create_person(&db, tree_id).await;
     let built_at = Utc.with_ymd_and_hms(2026, 3, 4, 5, 6, 7).unwrap();
     let profile = PersonProfile {
+        placeholder: None,
         person_id,
         tree_id,
         sex: oxidgene_core::Sex::Female,

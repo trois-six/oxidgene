@@ -20,6 +20,7 @@ use crate::components::cropped_image::CroppedImage;
 use crate::components::event_icon::EventIcon;
 use crate::components::pedigree_chart::lifespan_tooltip;
 use crate::i18n::{I18n, use_i18n};
+use crate::placeholder::Placeholder;
 use crate::ui_observability::use_ui_resource;
 use oxidgene_core::enums::EventType;
 
@@ -40,11 +41,19 @@ pub(crate) struct PersonSearchSummary {
     mother_name: Option<String>,
     children_count: u32,
     portrait: Portrait,
+    /// Why the person is a placeholder, if they are (see
+    /// [`crate::placeholder`]).
+    stub: Option<Placeholder>,
 }
 
 impl PersonSearchSummary {
     pub(crate) fn person_id(&self) -> Uuid {
         self.person_id
+    }
+
+    /// Whether the row may lead to the person's page.
+    pub(crate) fn navigable(&self) -> bool {
+        crate::placeholder::navigable(self.stub)
     }
 
     pub(crate) fn sex(&self) -> Sex {
@@ -65,6 +74,7 @@ impl PersonSearchSummary {
             mother_name: None,
             children_count: 0,
             portrait: Portrait::Unknown,
+            stub: None,
         }
     }
 }
@@ -128,6 +138,7 @@ impl From<&SearchEntry> for PersonSearchSummary {
                 .portrait
                 .clone()
                 .map_or(Portrait::None, Portrait::Known),
+            stub: entry.placeholder,
         }
     }
 }
@@ -167,6 +178,7 @@ impl From<PersonProfile> for PersonSearchSummary {
                 .sum(),
             // A profile does not say where its portrait is drawn from.
             portrait: Portrait::Unknown,
+            stub: profile.placeholder,
         }
     }
 }
@@ -394,8 +406,16 @@ pub(crate) fn render_person_search_summary(
     portrait: Option<CroppedSource>,
     i18n: &I18n,
 ) -> Element {
-    let given = &summary.given_names;
-    let surname = &summary.surname;
+    // A placeholder's label stands for the name it has not.
+    let label = crate::placeholder::label(
+        summary.stub,
+        !(summary.given_names.is_empty() && summary.surname.is_empty()),
+        i18n,
+    );
+    let (given, surname) = match label {
+        Some(label) => (label, String::new()),
+        None => (summary.given_names.clone(), summary.surname.clone()),
+    };
     let relation = relation_label(summary, i18n);
     let portrait = portrait.unwrap_or_else(|| CroppedSource::silhouette(summary.sex));
 
@@ -466,6 +486,7 @@ mod relation_tests {
             mother_name: None,
             children_count: 0,
             portrait: Portrait::None,
+            stub: None,
         }
     }
 

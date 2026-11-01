@@ -477,7 +477,11 @@ identifier, no navigation — so a chart keeps its shape; anyone further out
 does not appear (open decision 8). The stub carries a pseudonym drawn for
 the request, never the person's identifier, as an excluded person's would,
 and the exclusions win over it: an excluded relative at the boundary is
-absent. Lists, search and counts filter on the scope in SQL, joining
+absent. The stub is marked `placeholder: not_shared`
+([API Contract §1](api.md#1-contract-conventions)), so the frontend labels it
+*Not shared* — on pedigree cards, in family lists and in kinship — where
+a person hidden by the privacy rules (`private`) is labelled *Private*,
+and never links it. Lists, search and counts filter on the scope in SQL, joining
 `access_scope_person`; an export by a scoped viewer keeps their scope's
 persons alone.
 

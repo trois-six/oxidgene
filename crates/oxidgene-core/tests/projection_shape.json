@@ -114,6 +114,7 @@
         "spouse_display_name": "string",
         "spouse_given_names": "string",
         "spouse_id": "string",
+        "spouse_placeholder": "string",
         "spouse_sex": "string",
         "spouse_surname": "string"
       }
@@ -124,10 +125,12 @@
       "father_display_name": "string",
       "father_given_names": "string",
       "father_id": "string",
+      "father_placeholder": "string",
       "father_surname": "string",
       "mother_display_name": "string",
       "mother_given_names": "string",
       "mother_id": "string",
+      "mother_placeholder": "string",
       "mother_surname": "string"
     },
     "media_count": "number",
@@ -164,6 +167,7 @@
       }
     ],
     "person_id": "string",
+    "placeholder": "string",
     "primary_media": {
       "file_path": "string",
       "media_id": "string",
@@ -189,5 +193,5 @@
     "tree_id": "string",
     "updated_at": "string"
   },
-  "schema_version": 10
+  "schema_version": 11
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::*;
 use crate::enums::{ChildType, Sex, SpouseRole};
-use crate::projection::{PedigreeEdge, PedigreeFamily};
+use crate::projection::{PedigreeEdge, PedigreeFamily, Placeholder};
 
 const OWNER: Viewing = Viewing {
     read_private: true,
@@ -133,6 +133,11 @@ fn visitors_see_hidden_persons_as_the_display_says() {
         let r = redaction(VISITOR, display, &t);
         assert_eq!(r.person(t.private), appearance, "{display}");
         assert_eq!(r.person(t.living), appearance, "{display}");
+        // A placeholder is labelled Private; an absent person carries no label.
+        let label = (appearance != Appearance::Absent).then_some(Placeholder::Private);
+        assert_eq!(r.placeholder(t.private), label, "{display}");
+        assert_eq!(r.placeholder(t.excluded), None);
+        assert_eq!(r.placeholder(t.public), None);
         // Excluded persons are absent whatever the mode.
         assert_eq!(r.person(t.excluded), Appearance::Absent);
         assert!(r.shows(t.public));
@@ -208,6 +213,7 @@ fn profile(id: Uuid, spouse: Uuid, child: Uuid) -> PersonProfile {
         surname: Some("Wrenfield".to_string()),
     };
     PersonProfile {
+        placeholder: None,
         person_id: id,
         tree_id: Uuid::nil(),
         sex: Sex::Male,
@@ -219,6 +225,7 @@ fn profile(id: Uuid, spouse: Uuid, child: Uuid) -> PersonProfile {
         burial: None,
         other_events: Vec::new(),
         families_as_spouse: vec![ProfileFamilyLink {
+            spouse_placeholder: None,
             family_id: Uuid::now_v7(),
             role: SpouseRole::Husband,
             spouse_id: Some(spouse),
@@ -265,6 +272,7 @@ fn a_profile_names_no_hidden_relative() {
 fn a_pedigree_loses_absent_persons_and_their_links() {
     let t = tree();
     let node = |id: Uuid| PedigreeNode {
+        placeholder: None,
         person_id: id,
         sex: Sex::Female,
         display_name: "Thistle Canaryexcluded".to_string(),
@@ -346,6 +354,9 @@ fn a_scope_shows_its_persons_and_stubs_its_boundary() {
     assert_eq!(r.person(t.excluded), Appearance::Absent);
     // The boundary is a stub nobody navigates through; further out, nothing.
     assert_eq!(r.person(t.living), Appearance::Stub);
+    // The boundary is labelled Not shared, further out nothing.
+    assert_eq!(r.placeholder(t.living), Some(Placeholder::NotShared));
+    assert_eq!(r.placeholder(t.private), None);
     let stub = r.public_id(t.living).expect("a stub keeps a pseudonym");
     assert_ne!(stub, t.living);
     assert_eq!(r.person(t.private), Appearance::Absent);

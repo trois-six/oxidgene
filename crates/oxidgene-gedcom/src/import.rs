@@ -1403,6 +1403,7 @@ fn import_individual(
     let person_id = ctx.indi_map[xref];
 
     result.persons.push(Person {
+        placeholder: None,
         tags: Vec::new(),
         id: person_id,
         tree_id: ctx.tree_id,

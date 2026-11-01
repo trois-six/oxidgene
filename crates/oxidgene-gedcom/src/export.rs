@@ -2966,6 +2966,7 @@ mod tests {
 
     fn person_row() -> Person {
         Person {
+            placeholder: None,
             id: Uuid::now_v7(),
             tree_id: Uuid::now_v7(),
             sex: Sex::Unknown,

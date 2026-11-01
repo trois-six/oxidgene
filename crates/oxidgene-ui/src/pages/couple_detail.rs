@@ -447,7 +447,7 @@ fn use_side(
     let mini = use_memo(move || {
         let pedigree = pedigree.read().clone()?;
         let data = crate::ui_observability::measure_ui("pedigree_data", || {
-            crate::components::pedigree_chart::PedigreeData::from_pedigree(&pedigree)
+            crate::components::pedigree_chart::PedigreeData::from_pedigree(&pedigree, &i18n)
         });
         Some((pedigree.root_person_id, SharedPedigree::new(data)))
     });
@@ -612,7 +612,7 @@ impl CoupleView<'_> {
                     .as_ref()
                     .map(|person| person.tags.clone())
                     .unwrap_or_default(),
-                self.open_profile(profile.person_id),
+                self.open_profile(profile),
             ),
             (Some(_), None) => rsx! {
                 div { class: "card page-header loading", {i18n.t("couple.loading")} }
@@ -625,7 +625,13 @@ impl CoupleView<'_> {
         }
     }
 
-    fn open_profile(&self, person_id: Uuid) -> Element {
+    /// The spouse's link to their own page: none for a relative outside the
+    /// viewer's share (see [`crate::placeholder`]).
+    fn open_profile(&self, profile: &Profile) -> Element {
+        let person_id = profile.person_id;
+        if !profile.navigable(person_id) {
+            return rsx! {};
+        }
         let open = push_tree_route(self.tree_id, person_route);
         open_profile_button(&self.ctx.i18n, move || open.call(person_id))
     }

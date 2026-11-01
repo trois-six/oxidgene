@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Kinship"
 description: "Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none."
 tags: [oxidgene, specification, ui, ux, kinship]
-generated: { by: human:maintainer, at: 2026-10-20T18:02:52Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 # Visual & Functional Specifications — Kinship
@@ -105,7 +105,9 @@ The body is a grid, one row per generation:
 - below it, the first person's line on the left and the second person's on the
   right, each person linked to their profile, with a short connector from the
   generation above. When one person is the other's direct ancestor, the grid
-  has a single line.
+  has a single line. A person of the path outside the viewer's share reads
+  *Not shared* and is not linked; one hidden by the privacy rules reads
+  *Private* ([Common UI §1](ui-common.md#1-scope-and-rules)).
 
 A relationship through only one of the two parents at the top — half-siblings,
 half-cousins — is noted beside the title.

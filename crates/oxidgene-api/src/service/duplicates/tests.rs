@@ -25,6 +25,7 @@ fn birth(value: &str, sort: (i32, u32, u32), place: Option<&str>) -> ProfileEven
 
 fn person(given: &str, surname: &str, sex: Sex) -> PersonProfile {
     PersonProfile {
+        placeholder: None,
         tags: Vec::new(),
         person_id: Uuid::now_v7(),
         tree_id: Uuid::nil(),
@@ -60,6 +61,8 @@ fn born(mut p: PersonProfile, event: ProfileEvent) -> PersonProfile {
 
 fn child_of(p: &mut PersonProfile, family_id: Uuid) {
     p.family_as_child = Some(ProfileChildLink {
+        father_placeholder: None,
+        mother_placeholder: None,
         family_id,
         child_type: ChildType::Biological,
         father_id: None,
@@ -176,6 +179,7 @@ fn what_rules_a_pair_out() {
         birth("1850", (1850, 1, 1), None),
     );
     a.families_as_spouse.push(ProfileFamilyLink {
+        spouse_placeholder: None,
         family_id: Uuid::now_v7(),
         role: SpouseRole::Partner,
         spouse_id: Some(b.person_id),

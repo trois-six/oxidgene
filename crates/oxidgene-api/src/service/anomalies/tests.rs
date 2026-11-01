@@ -43,6 +43,7 @@ fn day(event_type: EventType, y: i32, m: u32, d: u32) -> ProfileEvent {
 
 fn person(given: &str, sex: Sex) -> PersonProfile {
     PersonProfile {
+        placeholder: None,
         tags: Vec::new(),
         person_id: Uuid::now_v7(),
         tree_id: Uuid::nil(),
@@ -97,6 +98,7 @@ fn family(
         (&mut *wife, husband_id, SpouseRole::Wife),
     ] {
         me.families_as_spouse.push(ProfileFamilyLink {
+            spouse_placeholder: None,
             family_id,
             role,
             spouse_id: Some(other),
@@ -110,6 +112,8 @@ fn family(
     }
     for child in children.iter_mut() {
         child.family_as_child = Some(ProfileChildLink {
+            father_placeholder: None,
+            mother_placeholder: None,
             family_id,
             child_type: ChildType::Biological,
             father_id: Some(husband_id),

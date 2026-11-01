@@ -99,9 +99,15 @@ pub async fn find_kinship(
             }
         }
     }
-    let persons = profiles
+    let mut persons = profiles
         .search_entries_as(redaction, tree_id, &named)
         .await?;
+    // The placeholders a path goes through, labelled for what they are.
+    persons.extend(
+        profiles
+            .placeholder_entries_as(redaction, tree_id, &named)
+            .await?,
+    );
     let mut paths = paths;
     name_publicly(redaction, &mut paths);
 

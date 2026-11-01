@@ -38,6 +38,7 @@ use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::tags::{MenuTarget, RecordMenu, RecordMenuButton, TagBadges};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
+use crate::placeholder::{Placeholder, Placeholders as _};
 use crate::router::{Route, push_tree_route};
 use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, use_traced_resource};
@@ -137,8 +138,11 @@ pub(crate) struct Profile {
     pub family: FamilyNarrative,
     /// Chronological: individual, conjugal, child and parental events.
     pub events: Vec<EnrichedEvent>,
-    /// Every name in the bundle, keyed by person.
+    /// Every name in the bundle, keyed by person: a placeholder's is its
+    /// label (see [`crate::placeholder`]).
     pub names: HashMap<Uuid, Vec<PersonName>>,
+    /// The persons of the bundle and of its ancestry shown as placeholders.
+    pub placeholders: HashMap<Uuid, Placeholder>,
     pub places: HashMap<Uuid, String>,
     pub sexes: HashMap<Uuid, Sex>,
     /// "birth-death" suffixes, matching the pedigree cards.
@@ -161,6 +165,11 @@ pub(crate) struct EventCitation {
 impl Profile {
     pub fn name_of(&self, person_id: Uuid, i18n: &I18n) -> String {
         resolve_name(person_id, &self.names, i18n)
+    }
+
+    /// Whether `person_id`'s own page may be opened from this one.
+    pub fn navigable(&self, person_id: Uuid) -> bool {
+        self.placeholders.navigable(person_id)
     }
 
     pub fn place_name(&self, place_id: Uuid) -> String {
@@ -342,6 +351,20 @@ pub(crate) fn build_profile(
     for pn in &detail.names {
         names.entry(pn.person_id).or_default().push(pn.clone());
     }
+    // The persons shown as placeholders, from the bundle and from the
+    // ancestry the parents may come from; each is named by its label.
+    let placeholders: HashMap<Uuid, Placeholder> = detail
+        .persons
+        .iter()
+        .filter_map(|person| Some((person.id, person.placeholder?)))
+        .chain(pedigree.into_iter().flat_map(|pedigree| {
+            pedigree
+                .persons
+                .values()
+                .filter_map(|node| Some((node.person_id, node.placeholder?)))
+        }))
+        .collect();
+    crate::placeholder::label_names(&mut names, placeholders.clone(), i18n);
     let places: HashMap<Uuid, String> = detail
         .places
         .iter()
@@ -402,6 +425,7 @@ pub(crate) fn build_profile(
         },
         events,
         names,
+        placeholders,
         places,
         sexes,
         lifespans,
@@ -1208,13 +1232,14 @@ pub(crate) fn use_ancestor_pedigree(
 pub(crate) fn use_mini_pedigree(
     pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
 ) -> Memo<Option<(Uuid, SharedPedigree)>> {
+    let i18n = crate::i18n::use_i18n();
     use_memo(move || {
         let cached = pedigree.read();
         let Some(Ok(Some(cached))) = &*cached else {
             return None;
         };
         let data = crate::ui_observability::measure_ui("pedigree_data", || {
-            crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
+            crate::components::pedigree_chart::PedigreeData::from_pedigree(cached, &i18n)
         });
         Some((cached.root_person_id, SharedPedigree::new(data)))
     })
@@ -1306,10 +1331,15 @@ pub(crate) fn person_chip(ctx: &SectionContext, profile: &Profile, pid: Uuid) ->
                     {sosa_ring()}
                 }
                 {sex_mark(sex)}
-                Link {
-                    to: Route::PersonDetail { tree_id, person_id: pid.to_string() },
-                    class: "pd-person-link",
-                    "{name}"
+                // A relative outside the viewer's share is named, not linked.
+                if profile.navigable(pid) {
+                    Link {
+                        to: Route::PersonDetail { tree_id, person_id: pid.to_string() },
+                        class: "pd-person-link",
+                        "{name}"
+                    }
+                } else {
+                    span { class: "pd-person-link", "{name}" }
                 }
             }
             if !lifespan.is_empty() {

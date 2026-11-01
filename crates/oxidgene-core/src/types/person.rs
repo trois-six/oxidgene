@@ -27,6 +27,10 @@ pub struct Person {
     /// The tags the person carries, sorted by folded label (docs/data-model.md, Tag).
     #[serde(default)]
     pub tags: Vec<TagRef>,
+    /// Why the record is a placeholder rather than the person in full: set
+    /// by a restricted viewer's redaction, never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<crate::projection::Placeholder>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

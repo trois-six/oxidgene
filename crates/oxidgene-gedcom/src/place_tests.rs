@@ -133,6 +133,7 @@ fn birth_at(tree_id: Uuid, person: &Person, place_id: Uuid) -> Event {
 fn person(tree_id: Uuid) -> Person {
     let now = Utc::now();
     Person {
+        placeholder: None,
         id: Uuid::now_v7(),
         tree_id,
         sex: Sex::Unknown,

@@ -57,6 +57,25 @@ impl From<GqlSex> for oxidgene_core::Sex {
     }
 }
 
+/// Why a person appears as a placeholder rather than in full
+/// (docs/privacy.md §5, docs/authorization.md §6.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlPlaceholder {
+    /// Hidden by the privacy rules (*Private*).
+    Private,
+    /// Outside the viewer's access scope (*Not shared*).
+    NotShared,
+}
+
+impl From<oxidgene_core::projection::Placeholder> for GqlPlaceholder {
+    fn from(p: oxidgene_core::projection::Placeholder) -> Self {
+        match p {
+            oxidgene_core::projection::Placeholder::Private => Self::Private,
+            oxidgene_core::projection::Placeholder::NotShared => Self::NotShared,
+        }
+    }
+}
+
 /// Per-person privacy override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlPrivacy {
@@ -1114,6 +1133,8 @@ connection!(
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct GqlPerson {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub placeholder: Option<GqlPlaceholder>,
     pub id: ID,
     pub tree_id: ID,
     pub sex: GqlSex,
@@ -1195,6 +1216,7 @@ impl GqlPerson {
 impl From<oxidgene_core::types::Person> for GqlPerson {
     fn from(p: oxidgene_core::types::Person) -> Self {
         Self {
+            placeholder: p.placeholder.map(Into::into),
             id: ID(p.id.to_string()),
             tree_id: ID(p.tree_id.to_string()),
             sex: p.sex.into(),
@@ -2890,6 +2912,8 @@ connection!(
 /// display in a single object.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPersonProfile {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub placeholder: Option<GqlPlaceholder>,
     pub person_id: ID,
     pub tree_id: ID,
     pub sex: GqlSex,
@@ -2948,6 +2972,8 @@ pub struct GqlProfileEvent {
 /// A family link (spouse relationship).
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlProfileFamilyLink {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub spouse_placeholder: Option<GqlPlaceholder>,
     pub family_id: ID,
     pub role: GqlSpouseRole,
     pub spouse_id: Option<ID>,
@@ -2964,6 +2990,10 @@ pub struct GqlProfileFamilyLink {
 /// A child link (child's relationship to parents).
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlProfileChildLink {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub father_placeholder: Option<GqlPlaceholder>,
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub mother_placeholder: Option<GqlPlaceholder>,
     pub family_id: ID,
     pub child_type: GqlChildType,
     pub father_id: Option<ID>,
@@ -2990,6 +3020,8 @@ pub struct GqlProfileMediaRef {
 /// A single search result entry.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlSearchEntry {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub placeholder: Option<GqlPlaceholder>,
     pub person_id: ID,
     pub sex: GqlSex,
     pub display_name: String,
@@ -4165,6 +4197,7 @@ impl From<oxidgene_db::repo::OccupationRename> for GqlOccupationRename {
 impl From<oxidgene_core::projection::PersonProfile> for GqlPersonProfile {
     fn from(p: oxidgene_core::projection::PersonProfile) -> Self {
         Self {
+            placeholder: p.placeholder.map(Into::into),
             person_id: ID(p.person_id.to_string()),
             tree_id: ID(p.tree_id.to_string()),
             sex: p.sex.into(),
@@ -4222,6 +4255,7 @@ impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
 impl From<oxidgene_core::projection::ProfileFamilyLink> for GqlProfileFamilyLink {
     fn from(f: oxidgene_core::projection::ProfileFamilyLink) -> Self {
         Self {
+            spouse_placeholder: f.spouse_placeholder.map(Into::into),
             family_id: ID(f.family_id.to_string()),
             role: f.role.into(),
             spouse_id: f.spouse_id.map(|id| ID(id.to_string())),
@@ -4242,6 +4276,8 @@ impl From<oxidgene_core::projection::ProfileFamilyLink> for GqlProfileFamilyLink
 impl From<oxidgene_core::projection::ProfileChildLink> for GqlProfileChildLink {
     fn from(c: oxidgene_core::projection::ProfileChildLink) -> Self {
         Self {
+            father_placeholder: c.father_placeholder.map(Into::into),
+            mother_placeholder: c.mother_placeholder.map(Into::into),
             family_id: ID(c.family_id.to_string()),
             child_type: c.child_type.into(),
             father_id: c.father_id.map(|id| ID(id.to_string())),
@@ -4271,6 +4307,7 @@ impl From<oxidgene_core::projection::ProfileMediaRef> for GqlProfileMediaRef {
 impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
     fn from(e: oxidgene_core::projection::SearchEntry) -> Self {
         Self {
+            placeholder: e.placeholder.map(Into::into),
             person_id: ID(e.person_id.to_string()),
             sex: e.sex.into(),
             display_name: e.display_name,
@@ -4353,6 +4390,8 @@ impl From<GqlPedigreeDirection> for oxidgene_core::projection::PedigreeDirection
 /// A single node in the pedigree tree (minimal data for card display).
 #[derive(SimpleObject, Debug, Clone)]
 pub struct GqlPedigreeNode {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub placeholder: Option<GqlPlaceholder>,
     pub person_id: ID,
     pub sex: GqlSex,
     pub display_name: String,
@@ -4402,6 +4441,8 @@ pub struct GqlPedigreeFamily {
 /// draws for them, and no more.
 #[derive(SimpleObject, Debug, Clone)]
 pub struct GqlPedigreeFamilyMember {
+    /// Why it is a placeholder rather than shown in full, if it is.
+    pub placeholder: Option<GqlPlaceholder>,
     pub person_id: ID,
     pub sex: GqlSex,
     pub given_names: Option<String>,
@@ -4449,6 +4490,7 @@ impl From<oxidgene_core::projection::PedigreeFamily> for GqlPedigreeFamily {
 impl From<oxidgene_core::projection::PedigreeFamilyMember> for GqlPedigreeFamilyMember {
     fn from(m: oxidgene_core::projection::PedigreeFamilyMember) -> Self {
         Self {
+            placeholder: m.placeholder.map(Into::into),
             person_id: ID(m.person_id.to_string()),
             sex: m.sex.into(),
             given_names: m.given_names,
@@ -4519,6 +4561,7 @@ pub struct GqlPedigreeDelta {
 impl From<oxidgene_core::projection::PedigreeNode> for GqlPedigreeNode {
     fn from(n: oxidgene_core::projection::PedigreeNode) -> Self {
         Self {
+            placeholder: n.placeholder.map(Into::into),
             person_id: ID(n.person_id.to_string()),
             sex: n.sex.into(),
             display_name: n.display_name,

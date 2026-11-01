@@ -624,6 +624,7 @@ async fn hydrate_all_tags(
 
 fn into_domain(m: person::Model) -> Person {
     Person {
+        placeholder: None,
         id: m.id,
         tree_id: m.tree_id,
         sex: m.sex.into(),

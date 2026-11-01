@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T18:07:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 
@@ -278,6 +278,15 @@ a spouse a couple does not name.
 - **Dashed border**, very subtle background
 - Centered `+` icon, clickable to open the add-parent form
 - Connected to the level below using the same connection rules as real cards
+
+### Placeholder Persons (Shared Trees)
+
+A person the viewer may not see in full keeps their card, which says why
+instead of a name: *Not shared* for a relative outside their share, which no
+click, right click or menu reaches, and *Private*, or the initials, for a
+person hidden by the privacy rules ([Common UI §1](ui-common.md#1-scope-and-rules)).
+The chart's *Go to…* entries and the lineage view's list of spouses and
+children leave out the relatives that are not shared.
 
 ### Selected State
 

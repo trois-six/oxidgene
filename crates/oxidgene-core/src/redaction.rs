@@ -27,7 +27,7 @@ use uuid::Uuid;
 use crate::enums::{HiddenDisplay, Privacy, TreeDefaultPrivacy};
 use crate::privacy::{PersonVisibility, Withheld, withheld};
 use crate::projection::{
-    Pedigree, PedigreeFamilyMember, PedigreeNode, PersonProfile, ProfileChildLink,
+    Pedigree, PedigreeFamilyMember, PedigreeNode, PersonProfile, Placeholder, ProfileChildLink,
     ProfileFamilyLink, ProfileName,
 };
 use crate::types::PrivacySettings;
@@ -316,6 +316,19 @@ impl Redaction {
         self.persons.get(&id).copied()
     }
 
+    /// Why person `id` appears as a placeholder: *Not shared* outside the
+    /// viewer's access scope, *Private* when the privacy rules hide them;
+    /// none when shown in full or absent.
+    #[must_use]
+    pub fn placeholder(&self, id: Uuid) -> Option<Placeholder> {
+        let hidden = self.hidden(id)?;
+        match (hidden.appearance, hidden.reason) {
+            (Appearance::Absent, _) => None,
+            (_, Withheld::OutOfScope) => Some(Placeholder::NotShared),
+            _ => Some(Placeholder::Private),
+        }
+    }
+
     /// Whether person `id` is shown in full.
     #[must_use]
     pub fn shows(&self, id: Uuid) -> bool {
@@ -503,6 +516,7 @@ impl Redaction {
                 citation_count: 0,
                 note_count: 0,
                 tags: Vec::new(),
+                placeholder: self.placeholder(profile.person_id),
                 updated_at: profile.updated_at,
                 built_at: profile.built_at,
             }
@@ -532,6 +546,7 @@ impl Redaction {
         if let Some(spouse) = link.spouse_id {
             let appearance = self.person(spouse);
             out.spouse_id = self.public_id(spouse);
+            out.spouse_placeholder = self.placeholder(spouse);
             if appearance != Appearance::Shown {
                 let shown = (appearance == Appearance::Initials).then(|| {
                     initials_parts(
@@ -577,6 +592,8 @@ impl Redaction {
             }
             self.public_id(id)
         };
+        out.father_placeholder = link.father_id.and_then(|id| self.placeholder(id));
+        out.mother_placeholder = link.mother_id.and_then(|id| self.placeholder(id));
         out.father_id = parent(
             link.father_id,
             &mut out.father_display_name,
@@ -686,6 +703,7 @@ impl Redaction {
             portrait: None,
             sosa_ancestor: false,
             tags: Vec::new(),
+            placeholder: self.placeholder(node.person_id),
         })
     }
 
@@ -693,6 +711,7 @@ impl Redaction {
         let appearance = self.person(member.person_id);
         let person_id = self.public_id(member.person_id)?;
         let mut member = member;
+        member.placeholder = self.placeholder(member.person_id);
         member.person_id = person_id;
         if appearance == Appearance::Shown {
             if self.withhold_tags {

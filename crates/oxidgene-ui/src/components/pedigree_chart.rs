@@ -34,6 +34,7 @@ use crate::components::tree_cache::{
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::permissions::{IfCan, Permission};
+use crate::placeholder::Placeholders as _;
 use highlight::{
     CardMark, HighlightTool, TagHighlight, card_mark, dim_class, highlight_marks, mark_dot,
     mark_stroke, use_carriers, use_chart_highlight,
@@ -455,6 +456,8 @@ struct PersonSummary<'a> {
     /// Their birth and death, already in the domain shape.
     events: Vec<DomainEvent>,
     tags: Vec<TagRef>,
+    /// Why they are a placeholder, if they are.
+    placeholder: Option<crate::placeholder::Placeholder>,
 }
 
 /// The synthetic domain records built from [`PersonSummary`]s: a person, one
@@ -484,6 +487,7 @@ impl SummarisedPeople {
         self.persons.insert(
             person_id,
             Person {
+                placeholder: summary.placeholder,
                 id: person_id,
                 tree_id,
                 sex: summary.sex,
@@ -623,8 +627,10 @@ impl PedigreeData {
     /// Build chart data from a [`Pedigree`] returned by the projection API.
     ///
     /// Creates synthetic domain objects (Person, PersonName, Event) from the
-    /// denormalized pedigree nodes for layout and rendering.
-    pub fn from_pedigree(pedigree: &Pedigree) -> Self {
+    /// denormalized pedigree nodes for layout and rendering. A placeholder's
+    /// name is its label in the reader's language (`i18n`), and the person
+    /// record keeps its mark (see [`crate::placeholder`]).
+    pub fn from_pedigree(pedigree: &Pedigree, i18n: &I18n) -> Self {
         use chrono::Utc;
 
         let tree_id = pedigree.tree_id;
@@ -649,6 +655,7 @@ impl PedigreeData {
                 surname: &node.surname,
                 events,
                 tags: node.tags.clone(),
+                placeholder: node.placeholder,
             });
         }
 
@@ -693,8 +700,15 @@ impl PedigreeData {
                 surname: &member.surname,
                 events,
                 tags: Vec::new(),
+                placeholder: member.placeholder,
             });
         }
+        let marked: Vec<_> = people
+            .persons
+            .values()
+            .filter_map(|person| Some((person.id, person.placeholder?)))
+            .collect();
+        crate::placeholder::label_names(&mut people.names, marked, i18n);
 
         Self {
             persons: people.persons,
@@ -838,6 +852,21 @@ impl PedigreeData {
     /// itself a translated string.
     pub fn display_name(&self, person_id: Uuid, i18n: &I18n) -> String {
         crate::utils::resolve_name(person_id, &self.names, i18n)
+    }
+
+    /// Whether `person_id` may be opened or chosen as the focus: never a
+    /// relative outside the viewer's share (see [`crate::placeholder`]).
+    pub fn navigable(&self, person_id: Uuid) -> bool {
+        self.persons.navigable(person_id)
+    }
+
+    /// The persons that may not be opened.
+    fn sealed(&self) -> HashSet<Uuid> {
+        self.persons
+            .keys()
+            .copied()
+            .filter(|id| !self.navigable(*id))
+            .collect()
     }
 
     /// The year to date this person's life *from*, with its precision.
@@ -3489,6 +3518,13 @@ fn connector_paths<'a>(
     }
 }
 
+/// The persons of `data` no chart action reaches, worked out once per
+/// pedigree.
+fn use_sealed(data: &SharedPedigree) -> Memo<HashSet<Uuid>> {
+    let data = crate::utils::use_synced(data.clone());
+    use_memo(move || data.read().sealed())
+}
+
 /// A small static pedigree fragment (e.g. "parents & grandparents"), always
 /// centered on `root_person_id` and fitted to its viewport. Reuses the same
 /// layout engine and card renderer as the full interactive [`PedigreeChart`].
@@ -3502,6 +3538,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         on_person_click: EventHandler::new(|_: (Uuid, f64, f64)| {}),
         on_empty_slot: EventHandler::new(|_: (Uuid, bool)| {}),
         menu: false,
+        sealed: use_sealed(&props.data),
         adds: false,
         menu_open: None,
         press: use_signal(|| 0),
@@ -3945,6 +3982,9 @@ struct ChartActions {
     /// Whether the chart opens the person menu from a selected card. A mini
     /// fragment has no menu, so its cards show no trigger.
     menu: bool,
+    /// The persons no action reaches: relatives outside the viewer's share,
+    /// never selected, focused or offered a menu.
+    sealed: Memo<HashSet<Uuid>>,
     /// Whether an empty slot offers to add the person missing there: on the
     /// interactive chart, to a viewer who may create persons
     /// (docs/authorization.md §11).
@@ -3957,8 +3997,16 @@ struct ChartActions {
 }
 
 impl ChartActions {
+    /// Whether an action may reach `pid` (see [`ChartActions::sealed`]).
+    fn reaches(self, pid: Uuid) -> bool {
+        !self.sealed.read().contains(&pid)
+    }
+
     /// Selects `pid` and makes them the focus.
     fn navigate(mut self, pid: Uuid) {
+        if !self.reaches(pid) {
+            return;
+        }
         self.selected_person_id.set(pid);
         self.on_person_navigate.call(pid);
     }
@@ -3966,7 +4014,9 @@ impl ChartActions {
     /// Selects `pid` without moving the focus or the page's history, for an
     /// element that is already the focus.
     fn select(mut self, pid: Uuid) {
-        self.selected_person_id.set(pid);
+        if self.reaches(pid) {
+            self.selected_person_id.set(pid);
+        }
     }
 
     /// Selects `pid` and opens the action picker where `evt` happened.
@@ -3980,6 +4030,9 @@ impl ChartActions {
     /// Selects `pid` and opens the action picker at a point of the page: what
     /// a right click and a long press both do.
     fn open_menu_at(mut self, pid: Uuid, x: f64, y: f64) {
+        if !self.reaches(pid) {
+            return;
+        }
         self.selected_person_id.set(pid);
         self.on_person_click.call((pid, x, y));
     }
@@ -4005,6 +4058,9 @@ impl ChartActions {
     /// Selects `pid` and opens the same action picker beside the "⋮" trigger
     /// that asked for it, once the trigger has its place on screen.
     fn open_menu_from(mut self, pid: Uuid, trigger: Rc<MountedData>) {
+        if !self.reaches(pid) {
+            return;
+        }
         self.selected_person_id.set(pid);
         spawn(async move {
             if let Some((x, y)) = trigger_point(&trigger).await {
@@ -5026,6 +5082,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         on_person_click: props.on_person_click,
         on_empty_slot: props.on_empty_slot,
         menu: true,
+        sealed: use_sealed(&props.data),
         adds: crate::permissions::use_can(Permission::Create),
         menu_open: props.menu_person_id,
         press,
@@ -6558,6 +6615,7 @@ mod geometry_golden_tests {
             self.persons.insert(
                 pid,
                 Person {
+                    placeholder: None,
                     id: pid,
                     tree_id: id(0),
                     sex,
@@ -7806,6 +7864,7 @@ mod member_tests {
         let (tree_id, family_id) = (Uuid::now_v7(), Uuid::now_v7());
         let (root, sister) = (Uuid::now_v7(), Uuid::now_v7());
         let node = PedigreeNode {
+            placeholder: None,
             person_id: root,
             sex: Sex::Male,
             display_name: "Root Ashdown".into(),
@@ -7834,6 +7893,7 @@ mod member_tests {
                     spouse_ids: Vec::new(),
                     children_ids: vec![root, sister],
                     members: vec![PedigreeFamilyMember {
+                        placeholder: None,
                         person_id: sister,
                         sex: Sex::Female,
                         given_names: Some("Sister".into()),
@@ -7848,7 +7908,8 @@ mod member_tests {
             built_at: chrono::Utc::now(),
         };
 
-        let data = PedigreeData::from_pedigree(&pedigree);
+        let data =
+            PedigreeData::from_pedigree(&pedigree, &I18n::new(crate::i18n::Language::english()));
 
         assert_eq!(data.persons[&sister].sex, Sex::Female);
         assert_eq!(
@@ -7871,5 +7932,72 @@ mod member_tests {
             data.qualified_birth_year(sister).map(|year| year.year),
             Some(1702)
         );
+    }
+
+    /// A relative outside the share is labelled and sealed; a private person
+    /// without initials is labelled and still reached.
+    #[test]
+    fn placeholders_are_labelled_and_only_those_not_shared_are_sealed() {
+        use crate::placeholder::Placeholder;
+        let (tree_id, family_id) = (Uuid::now_v7(), Uuid::now_v7());
+        let (root, outside, private) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let member = |person_id, placeholder| PedigreeFamilyMember {
+            placeholder: Some(placeholder),
+            person_id,
+            sex: Sex::Unknown,
+            given_names: None,
+            surname: None,
+            birth: None,
+            death: None,
+        };
+        let node = PedigreeNode {
+            placeholder: None,
+            person_id: root,
+            sex: Sex::Male,
+            display_name: "Root Ashdown".into(),
+            given_names: Some("Root".into()),
+            surname: Some("Ashdown".into()),
+            birth: None,
+            death: None,
+            occupation: None,
+            primary_media_path: None,
+            generation: 0,
+            sosa_number: Some(1),
+            portrait: None,
+            sosa_ancestor: false,
+            tags: Vec::new(),
+        };
+        let pedigree = Pedigree {
+            tree_id,
+            root_person_id: root,
+            persons: HashMap::from([(root, node)]),
+            edges: Vec::new(),
+            family_events: HashMap::new(),
+            families: HashMap::from([(
+                family_id,
+                PedigreeFamily {
+                    family_id,
+                    spouse_ids: vec![outside],
+                    children_ids: vec![root, private],
+                    members: vec![
+                        member(outside, Placeholder::NotShared),
+                        member(private, Placeholder::Private),
+                    ],
+                },
+            )]),
+            ancestor_depth_loaded: 1,
+            descendant_depth_loaded: 0,
+            built_at: chrono::Utc::now(),
+        };
+        let i18n = I18n::new(crate::i18n::Language::english());
+
+        let data = PedigreeData::from_pedigree(&pedigree, &i18n);
+
+        assert_eq!(data.display_name(outside, &i18n), "Not shared");
+        assert_eq!(data.display_name(private, &i18n), "Private");
+        assert_eq!(data.display_name(root, &i18n), "Root Ashdown");
+        assert!(!data.navigable(outside));
+        assert!(data.navigable(private) && data.navigable(root));
+        assert_eq!(data.sealed(), HashSet::from([outside]));
     }
 }

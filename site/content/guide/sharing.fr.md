@@ -68,6 +68,8 @@ Une branche suit l’arbre : un enfant que vous ajoutez sous un ancêtre partag�
 
 Un éditeur limité à une branche ne modifie que les personnes qu’elle contient, et celles qu’il y ajoute. Les lieux, sources, dépôts et étiquettes sont communs à tout l’arbre : il les utilise sans les modifier.
 
+Qui voit une branche voit les parents, conjoints et enfants de ses personnes qui sont en dehors d’elle comme **Non partagé** : l’arbre garde sa forme, mais ces proches n’ont ni nom ni dates et ne s’ouvrent pas. Une personne masquée par les règles de confidentialité apparaît comme **Privé**, ou par ses initiales.
+
 ## Ce que voient les visiteurs
 
 OxidGene ne montre à chacun que ce que son rôle lui permet. Un invité ou un visiteur ne trouve aucun bouton ni aucune entrée de menu qui modifierait l’arbre : ni **Modifier**, ni **Supprimer**, ni **Fusionner avec…**, ni **Ajouter**, aucune étiquette à poser, aucun envoi de fichier, et dans les réglages seulement les préférences de son appareil — plus **Quitter cet arbre** pour un invité. Un visiteur ne voit aucune étiquette. Un éditeur limité à une branche garde les actions sur les personnes, mais ne trouve aucune entrée pour modifier, fusionner ou supprimer un lieu, une source, un dépôt ou une étiquette, renommer un nom de famille ou une profession, étiqueter en masse ou restaurer une version.

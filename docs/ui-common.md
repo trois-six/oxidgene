@@ -48,6 +48,14 @@ reference these rules instead of redefining them.
   they always drew, and so does the web build until the server says it
   signs users in; then nothing editable is drawn until the viewer's access
   is known. The server checks every operation regardless.
+- A person the server sends as a placeholder ([Privacy §5](privacy.md#5-what-a-redacted-viewer-sees),
+  [Authorization §6.5](authorization.md#65-access-scopes)) is named and
+  opened by one rule (`placeholder`), which every view asks from the data it
+  loaded — pedigree nodes and members, page bundles, kinship rows: a
+  relative outside the viewer's share (`not_shared`) reads *Not shared* and
+  is never linked, chosen as a chart's focus or offered a menu; a person
+  hidden by the privacy rules (`private`) reads its initials when the server
+  sent them, else *Private*, and keeps the navigation the tree allows.
 
 ## 2. Shared page layout
 

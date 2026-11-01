@@ -968,13 +968,14 @@ fn use_pedigree_view(
     // dozen handlers below read it; rebuilt inline it was rebuilt — and deep
     // copied once per handler — on every render, including the render that
     // merely opened a context menu.
+    let i18n = use_i18n();
     use_memo(move || {
         load_trace.measure("pedigree_data", || {
             let ped_data = pedigree_resource.read();
             let Some(Ok(pedigree)) = &*ped_data else {
                 return (None, selected_root());
             };
-            let mut pd = PedigreeData::from_pedigree(pedigree);
+            let mut pd = PedigreeData::from_pedigree(pedigree, &i18n);
             pd.self_person_id = match &*tree_resource.read() {
                 Some(Ok(tree)) => tree.self_person_id,
                 _ => None,
@@ -1183,7 +1184,10 @@ fn go_to_relatives(
                 Relatives::Spouses => data.spouses_of(pid),
                 Relatives::Children => data.children_of(pid),
             };
-            let people: Vec<Uuid> = people.into_iter().filter(|id| Some(*id) != focus).collect();
+            let people: Vec<Uuid> = people
+                .into_iter()
+                .filter(|id| Some(*id) != focus && data.navigable(*id))
+                .collect();
             (!people.is_empty()).then(|| {
                 (
                     i18n.t(kind.heading_key()),

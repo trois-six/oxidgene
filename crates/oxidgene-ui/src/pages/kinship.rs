@@ -296,9 +296,16 @@ fn person_link(
         Sex::Female => "female",
         Sex::Unknown => "",
     };
+    let class = format!("search-person-result kin-person {sex_class} {extra_class}");
+    // A relative outside the viewer's share is shown, never linked.
+    if !summary.navigable() {
+        return rsx! {
+            div { class: "{class}", {render_person_search_summary(summary, portrait, i18n)} }
+        };
+    }
     rsx! {
         Link {
-            class: "search-person-result kin-person {sex_class} {extra_class}",
+            class: "{class}",
             to: Route::PersonDetail {
                 tree_id: tree_id.to_string(),
                 person_id: summary.person_id().to_string(),
@@ -415,7 +422,13 @@ impl PathView<'_> {
     fn name(&self, id: Uuid) -> String {
         self.persons
             .get(&id)
-            .map(|person| person.display_name.clone())
+            .map(|person| {
+                crate::placeholder::shown_name(
+                    person.placeholder,
+                    person.display_name.clone(),
+                    self.i18n,
+                )
+            })
             .unwrap_or_default()
     }
 

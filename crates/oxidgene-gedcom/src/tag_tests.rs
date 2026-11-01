@@ -106,6 +106,7 @@ fn sample() -> Sample {
     let tree_id = Uuid::now_v7();
     let now = Utc::now();
     let person = Person {
+        placeholder: None,
         id: Uuid::now_v7(),
         tree_id,
         sex: Sex::Unknown,
@@ -392,6 +393,7 @@ fn event_sample() -> EventSample {
     let tree_id = Uuid::now_v7();
     let now = Utc::now();
     let person = Person {
+        placeholder: None,
         id: Uuid::now_v7(),
         tree_id,
         sex: Sex::Unknown,
@@ -698,6 +700,7 @@ fn place_sample() -> PlaceSample {
     let tree_id = Uuid::now_v7();
     let now = Utc::now();
     let person = Person {
+        placeholder: None,
         tags: Vec::new(),
         id: Uuid::now_v7(),
         tree_id,

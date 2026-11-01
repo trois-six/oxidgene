@@ -2695,6 +2695,10 @@ A child of a pedigree family who has no node of their own: what a chart
 draws for them, and no more.
 """
 type GqlPedigreeFamilyMember {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	placeholder: GqlPlaceholder
 	personId: ID!
 	sex: GqlSex!
 	givenNames: String
@@ -2733,6 +2737,10 @@ type GqlPedigreeMemberEvent {
 A single node in the pedigree tree (minimal data for card display).
 """
 type GqlPedigreeNode {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	placeholder: GqlPlaceholder
 	personId: ID!
 	sex: GqlSex!
 	displayName: String!
@@ -2774,6 +2782,10 @@ type GqlPedigreeNode {
 A person in a genealogical tree.
 """
 type GqlPerson {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	placeholder: GqlPlaceholder
 	id: ID!
 	treeId: ID!
 	sex: GqlSex!
@@ -2900,6 +2912,10 @@ A denormalized person profile — everything needed for card/detail
 display in a single object.
 """
 type GqlPersonProfile {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	placeholder: GqlPlaceholder
 	personId: ID!
 	treeId: ID!
 	sex: GqlSex!
@@ -3064,6 +3080,21 @@ type GqlPlaceSuggestion {
 }
 
 """
+Why a person appears as a placeholder rather than in full
+(docs/privacy.md §5, docs/authorization.md §6.5).
+"""
+enum GqlPlaceholder {
+	"""
+	Hidden by the privacy rules (*Private*).
+	"""
+	PRIVATE
+	"""
+	Outside the viewer's access scope (*Not shared*).
+	"""
+	NOT_SHARED
+}
+
+"""
 The media or vignette selected to represent one person.
 """
 type GqlPortrait {
@@ -3119,6 +3150,14 @@ enum GqlPrivacy {
 A child link (child's relationship to parents).
 """
 type GqlProfileChildLink {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	fatherPlaceholder: GqlPlaceholder
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	motherPlaceholder: GqlPlaceholder
 	familyId: ID!
 	childType: GqlChildType!
 	fatherId: ID
@@ -3169,6 +3208,10 @@ type GqlProfileEvent {
 A family link (spouse relationship).
 """
 type GqlProfileFamilyLink {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	spousePlaceholder: GqlPlaceholder
 	familyId: ID!
 	role: GqlSpouseRole!
 	spouseId: ID
@@ -3403,6 +3446,10 @@ type GqlScopePreview {
 A single search result entry.
 """
 type GqlSearchEntry {
+	"""
+	Why it is a placeholder rather than shown in full, if it is.
+	"""
+	placeholder: GqlPlaceholder
 	personId: ID!
 	sex: GqlSex!
 	displayName: String!

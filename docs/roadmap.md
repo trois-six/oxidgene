@@ -370,6 +370,9 @@ string in every language, and the user guide. In order:
      ([Authorization §3.3, §6.5](authorization.md#65-access-scopes)).
    - [x] Every read limited to the viewer's scope, with the *Not shared*
      boundary, through phase 3's redaction; exports too.
+   - [x] Placeholders marked `not_shared` or `private`, labelled *Not shared*
+     (never navigated) and *Private* on pedigree cards, in family lists and
+     in kinship ([Authorization §6.5](authorization.md#65-access-scopes)).
    - [x] The homepage's roles and invitations, and the owner's Members and
      Sharing sections, the visitor banner and **Leave this tree**.
    - [x] Edit controls hidden throughout the tree pages where
