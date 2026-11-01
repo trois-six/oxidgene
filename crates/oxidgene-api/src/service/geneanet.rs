@@ -2402,6 +2402,7 @@ async fn import_transcript(
         Uuid::now_v7(),
         tree_id,
         content.to_string(),
+        false,
         &NoteFilter {
             media_id: Some(media_id),
             ..NoteFilter::default()

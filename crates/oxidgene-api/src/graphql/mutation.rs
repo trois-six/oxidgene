@@ -1417,6 +1417,7 @@ impl TreeMutation {
                 source_id: opt_uuid(input.source_id)?,
                 media_id: opt_uuid(input.media_id)?,
                 repository_id: opt_uuid(input.repository_id)?,
+                confidential: input.confidential.unwrap_or(false),
             };
             let note = note::create_note(
                 viewer_from_ctx(ctx),
@@ -1448,7 +1449,10 @@ impl TreeMutation {
                 profiles_from_ctx(ctx),
                 tid,
                 id,
-                NotePatch { text: input.text },
+                NotePatch {
+                    text: input.text,
+                    confidential: input.confidential,
+                },
             )
             .await?;
             Ok(note.into())

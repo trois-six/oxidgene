@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -65,8 +65,9 @@ Each viewer is further limited to their scope
 
 `Person`, `Family` and `Media` carry `privacy` (`default`, `public`,
 `private`) and the tree `default_privacy` (`public` or `private`)
-([Data Model](data-model.md#media), "Privacy"). `Note` gains `confidential`
-([Data Model §6.10](data-model.md#610-changes-to-existing-tables)).
+([Data Model](data-model.md#media), "Privacy"). A `Note` carries
+`confidential` ([Data Model](data-model.md#note)), set in the note's editor
+where the tree has other viewers and changed with `privacy_edit`.
 
 ### 3.1 Precedence
 

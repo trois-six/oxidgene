@@ -1161,12 +1161,17 @@ pub struct CreateNoteBody {
     pub media_id: Option<uuid::Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<Uuid>,
+    /// Withheld from viewers without `read_confidential`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub confidential: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct UpdateNoteBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidential: Option<bool>,
 }
 
 // ── MediaLink DTOs ───────────────────────────────────────────────────

@@ -403,6 +403,11 @@ input CreateNoteInput {
 	The repository this note is about.
 	"""
 	repositoryId: String
+	"""
+	Withhold the note from viewers without `read_confidential`; `false`
+	when omitted. Setting it takes `privacy_edit`.
+	"""
+	confidential: Boolean
 }
 
 """
@@ -2448,6 +2453,10 @@ type GqlNote {
 	"""
 	sharedGroup: ID
 	"""
+	Withheld from viewers without `read_confidential`.
+	"""
+	confidential: Boolean!
+	"""
 	The tags the note carries, sorted by label.
 	"""
 	tags: [GqlTagRef!]!
@@ -2470,6 +2479,7 @@ type GqlNoteSnapshot {
 	id: ID!
 	text: String!
 	sharedGroup: ID
+	confidential: Boolean!
 }
 
 """
@@ -5998,6 +6008,10 @@ Input for updating a note.
 """
 input UpdateNoteInput {
 	text: String
+	"""
+	Changing it takes `privacy_edit`.
+	"""
+	confidential: Boolean
 }
 
 """

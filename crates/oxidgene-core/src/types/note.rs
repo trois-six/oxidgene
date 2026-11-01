@@ -27,6 +27,10 @@ pub struct Note {
     /// as one shared record again.
     #[serde(default)]
     pub shared_group: Option<Uuid>,
+    /// Withheld from every viewer without `read_confidential`: Guests and
+    /// Visitors (docs/privacy.md §3.2).
+    #[serde(default)]
+    pub confidential: bool,
     /// The tags the note carries, sorted by folded label (docs/data-model.md, RecordTag).
     #[serde(default)]
     pub tags: Vec<TagRef>,

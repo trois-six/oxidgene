@@ -50,7 +50,7 @@ The section also offers the lists below. On a person you are creating, their add
 
 - **Profession(s)**: click **Add Profession**, type the trade as the record names it, add a date if you have one, then **Create Profession**. Each profession is stored as an occupation event, so it appears in the timeline and travels with GEDCOM exports.
 - **More information**: click **Add Information** to record another name: a married name, a maiden name, an alias, a byname or sobriquet, a religious name, a prefix or a suffix, among others.
-- **Notes**: click **Add Note**, write the note, then **Create Note**. Each note can be edited or deleted on its own.
+- **Notes**: click **Add Note**, write the note, then **Create Note**. Each note can be edited or deleted on its own. On a server with accounts, tick **Confidential** to keep a note for the tree's owner and editors: guests never read it, and neither do exports made without it.
 
 ## Birth and death
 

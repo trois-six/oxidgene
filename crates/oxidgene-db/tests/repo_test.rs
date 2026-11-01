@@ -671,6 +671,7 @@ async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
         Uuid::now_v7(),
         tree_id,
         "Closed on Mondays".into(),
+        false,
         &NoteFilter {
             repository_id: Some(repository_id),
             ..NoteFilter::default()
@@ -1342,6 +1343,7 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
         note_id,
         tree_id,
         "transcription".into(),
+        false,
         &NoteFilter {
             source_id: Some(noted),
             ..NoteFilter::default()
@@ -1992,6 +1994,7 @@ async fn note_crud() {
         note_id,
         tree_id,
         "Some important note".into(),
+        false,
         &NoteFilter {
             person_id: Some(person_id),
             ..NoteFilter::default()
@@ -2000,6 +2003,7 @@ async fn note_crud() {
     .await
     .unwrap();
     assert_eq!(note.text, "Some important note");
+    assert!(!note.confidential);
     assert_eq!(note.person_id, Some(person_id));
 
     // Get
@@ -2019,10 +2023,11 @@ async fn note_crud() {
     assert_eq!(notes_all.len(), 1);
 
     // Update text
-    let updated = NoteRepo::update(&db, note_id, Some("Updated note".into()))
+    let updated = NoteRepo::update(&db, note_id, Some("Updated note".into()), Some(true))
         .await
         .unwrap();
     assert_eq!(updated.text, "Updated note");
+    assert!(updated.confidential);
 
     // Soft-delete
     NoteRepo::delete(&db, note_id).await.unwrap();
@@ -3895,6 +3900,7 @@ async fn restoring_a_version_sanitizes_its_notes() {
             id: note_id,
             text: r#"<p onclick="steal()">kept</p><script>alert(1)</script>"#.into(),
             shared_group: None,
+            confidential: false,
         }],
     };
 

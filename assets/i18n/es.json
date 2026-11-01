@@ -8147,6 +8147,8 @@
     "person_form.no_notes": "No hay notas registradas.",
     "person_form.no_other_events": "No hay otros eventos registrados.",
     "person_form.no_professions": "No hay ninguna profesión registrada.",
+    "person_form.note_confidential": "Confidencial",
+    "person_form.note_confidential_desc": "Solo el propietario y los editores del árbol leen esta nota: los invitados y los visitantes nunca la ven, ni tampoco las exportaciones hechas para ellos.",
     "person_form.note_placeholder": "Escriba el texto de la nota...",
     "person_form.note_required": "El texto de la nota es obligatorio",
     "person_form.notes": "Notas",

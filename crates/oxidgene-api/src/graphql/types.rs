@@ -2379,6 +2379,8 @@ pub struct GqlNote {
     /// The shared GEDCOM note record this note was read from; set by imports
     /// only, so it is never an input.
     pub shared_group: Option<ID>,
+    /// Withheld from viewers without `read_confidential`.
+    pub confidential: bool,
     /// The tags the note carries, sorted by label.
     pub tags: Vec<GqlTagRef>,
     pub created_at: DateTime<Utc>,
@@ -2397,6 +2399,7 @@ impl From<oxidgene_core::types::Note> for GqlNote {
             source_id: n.source_id.map(|id| ID(id.to_string())),
             media_id: n.media_id.map(|id| ID(id.to_string())),
             shared_group: n.shared_group.map(|id| ID(id.to_string())),
+            confidential: n.confidential,
             tags: n.tags.into_iter().map(Into::into).collect(),
             created_at: n.created_at,
             updated_at: n.updated_at,

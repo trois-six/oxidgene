@@ -1831,6 +1831,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         media_id: None,
         repository_id: None,
         shared_group: None,
+        confidential: false,
         created_at: now,
         updated_at: now,
         deleted_at: None,

@@ -508,6 +508,9 @@ pub struct NoteSnapshot {
     /// The shared note record the note was read from, if any.
     #[serde(default)]
     pub shared_group: Option<Uuid>,
+    /// Withheld from viewers without `read_confidential`.
+    #[serde(default)]
+    pub confidential: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -693,6 +696,7 @@ mod tests {
             id: Uuid::from_u128(n),
             text: text.to_string(),
             shared_group: None,
+            confidential: false,
         }
     }
 

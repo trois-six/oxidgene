@@ -50,7 +50,7 @@ La section propose aussi les listes ci-dessous. Pour une personne en cours de cr
 
 - **Profession(s)** : cliquez sur **Ajouter une profession**, tapez le métier tel que l’acte le nomme, ajoutez une date si vous en avez une, puis **Créer la profession**. Chaque profession est enregistrée comme un événement, elle apparaît donc dans la chronologie et suit les exports GEDCOM.
 - **Autres informations** : cliquez sur **Ajouter une information** pour enregistrer un autre nom : nom marital, nom de jeune fille, alias, surnom ou sobriquet, nom religieux, préfixe ou suffixe, entre autres.
-- **Notes** : cliquez sur **Ajouter une note**, rédigez-la, puis **Créer la note**. Chaque note se modifie ou se supprime séparément.
+- **Notes** : cliquez sur **Ajouter une note**, rédigez-la, puis **Créer la note**. Chaque note se modifie ou se supprime séparément. Sur un serveur avec comptes, cochez **Confidentielle** pour réserver une note au propriétaire et aux éditeurs de l’arbre : les invités ne la lisent jamais, pas plus que les exports faits sans elle.
 
 ## Naissance et décès
 

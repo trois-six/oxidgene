@@ -1951,6 +1951,7 @@ pub(crate) async fn save_notes_source(
                     nid,
                     &UpdateNoteBody {
                         text: Some(notes.to_string()),
+                        ..UpdateNoteBody::default()
                     },
                 )
                 .await?;
@@ -1968,6 +1969,7 @@ pub(crate) async fn save_notes_source(
                     event_id,
                     family_id: None,
                     source_id: None,
+                    confidential: false,
                 },
             )
             .await?

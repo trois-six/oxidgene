@@ -1108,12 +1108,17 @@ pub struct CreateNoteInput {
     pub media_id: Option<String>,
     /// The repository this note is about.
     pub repository_id: Option<String>,
+    /// Withhold the note from viewers without `read_confidential`; `false`
+    /// when omitted. Setting it takes `privacy_edit`.
+    pub confidential: Option<bool>,
 }
 
 /// Input for updating a note.
 #[derive(Debug, InputObject)]
 pub struct UpdateNoteInput {
     pub text: Option<String>,
+    /// Changing it takes `privacy_edit`.
+    pub confidential: Option<bool>,
 }
 
 // ── Import Inputs ────────────────────────────────────────────────────

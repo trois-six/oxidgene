@@ -1007,6 +1007,15 @@ source, repository or media has none there.
 A note is created with some text: a blank `text` is a validation error on
 both surfaces (`400` in REST, `VALIDATION_ERROR` from `createNote`).
 
+A note may be **confidential** (`confidential`, `false` by default; GraphQL
+`Note.confidential`, `CreateNoteInput.confidential`,
+`UpdateNoteInput.confidential`): it is withheld from every viewer without
+`read_confidential` — Guests and Visitors — and from an export made for
+them ([Privacy §3.2, §8](privacy.md#32-records)). `POST` takes it, `PUT`
+changes it and keeps it when omitted, as a text edit does. Setting it on
+creation, or changing it, takes `privacy_edit` (`403 forbidden` /
+`FORBIDDEN` without). The note's history snapshot records it.
+
 ### Dictionary
 
 Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints return distinct values + usage counts; usage endpoints return the persons behind one value, resolved server-side into `PersonUsageEntry` (id, name parts, birth/death years) in one bulk query.

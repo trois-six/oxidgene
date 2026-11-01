@@ -8147,6 +8147,8 @@
     "person_form.no_notes": "Keine Notizen erfasst.",
     "person_form.no_other_events": "Keine weiteren Ereignisse erfasst.",
     "person_form.no_professions": "Kein Beruf erfasst.",
+    "person_form.note_confidential": "Vertraulich",
+    "person_form.note_confidential_desc": "Nur der Eigentümer und die Bearbeiter des Stammbaums lesen diese Notiz: Gäste und Besucher sehen sie nie, ebenso wenig die für sie erstellten Exporte.",
     "person_form.note_placeholder": "Notiztext eingeben…",
     "person_form.note_required": "Der Notiztext ist erforderlich",
     "person_form.notes": "Notizen",

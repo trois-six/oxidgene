@@ -8147,6 +8147,8 @@
     "person_form.no_notes": "Geen notities vastgelegd.",
     "person_form.no_other_events": "Geen andere gebeurtenissen vastgelegd.",
     "person_form.no_professions": "Geen beroep vastgelegd.",
+    "person_form.note_confidential": "Vertrouwelijk",
+    "person_form.note_confidential_desc": "Alleen de eigenaar en de redacteuren van de stamboom lezen deze notitie: gasten en bezoekers zien haar nooit, en ook de exports die voor hen gemaakt worden niet.",
     "person_form.note_placeholder": "Voer de notitietekst in…",
     "person_form.note_required": "Notitietekst is verplicht",
     "person_form.notes": "Notities",

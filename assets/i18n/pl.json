@@ -8262,6 +8262,8 @@
     "person_form.no_notes": "Brak zapisanych notatek.",
     "person_form.no_other_events": "Brak innych zapisanych wydarzeń.",
     "person_form.no_professions": "Brak zapisanego zawodu.",
+    "person_form.note_confidential": "Poufna",
+    "person_form.note_confidential_desc": "Tę notatkę czytają tylko właściciel i redaktorzy drzewa: goście i odwiedzający nigdy jej nie widzą, podobnie jak eksporty wykonane dla nich.",
     "person_form.note_placeholder": "Wpisz treść notatki…",
     "person_form.note_required": "Treść notatki jest wymagana",
     "person_form.notes": "Notatki",

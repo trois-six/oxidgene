@@ -767,14 +767,17 @@ pub(super) fn PersonNotesBlock(
     children: Element,
 ) -> Element {
     let api = use_context::<ApiClient>();
-    let FormScope { i18n, tid, pid, .. } = scope;
+    let FormScope { i18n, tid, .. } = scope;
     let mut save_error = scope.save_error;
-    let mut show = use_signal(|| open);
-    let mut form_text = use_signal(String::new);
-    let mut form_error = use_signal(|| None::<String>);
+    let show = use_signal(|| open);
     let mut editing = use_signal(|| None::<Uuid>);
     let mut edit_text = use_signal(String::new);
+    let mut edit_confidential = use_signal(|| false);
     let mut edit_error = use_signal(|| None::<String>);
+    // Confidentiality only means something where the tree has other
+    // viewers (docs/privacy.md §3.2): the desktop and the `none` mode have
+    // one, who reads every note.
+    let sharing = crate::sharing::use_sharing_surfaces();
 
     // Person-scoped notes only: a note stamped with an event belongs to that
     // event's own panel, not to the person's list. (Older rows carry both
@@ -788,38 +791,6 @@ pub(super) fn PersonNotesBlock(
         _ => Vec::new(),
     };
 
-    let on_create = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            let text = form_text().trim().to_string();
-            spawn(async move {
-                if text.is_empty() {
-                    form_error.set(Some(i18n.t("person_form.note_required")));
-                    return;
-                }
-                let body = CreateNoteBody {
-                    media_id: None,
-                    repository_id: None,
-                    text,
-                    person_id: Some(pid),
-                    event_id: None,
-                    family_id: None,
-                    source_id: None,
-                };
-                match api.create_note(tid, &body).await {
-                    Ok(_) => {
-                        show.set(false);
-                        form_text.set(String::new());
-                        form_error.set(None);
-                        scope.landed();
-                    }
-                    Err(e) => form_error.set(Some(e.message(&i18n))),
-                }
-            });
-        }
-    };
-
     rsx! {
         div { class: "pf-subblock",
             div { class: "pf-block-label",
@@ -828,25 +799,7 @@ pub(super) fn PersonNotesBlock(
             }
 
             if show() {
-                div { class: "pf-subform",
-                    if let Some(err) = form_error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                    div { class: "form-group",
-                        textarea {
-                            rows: 4,
-                            placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
-                            value: "{form_text}",
-                            oninput: move |e: Event<FormData>| form_text.set(e.value()),
-                        }
-                    }
-                    button {
-                        class: "pf-confirm-btn",
-                        r#type: "button",
-                        onclick: on_create,
-                        {i18n.t("person.create_note")}
-                    }
-                }
+                NewPersonNote { scope, show }
             }
 
             if list.is_empty() {
@@ -856,6 +809,7 @@ pub(super) fn PersonNotesBlock(
                     {
                         let nid = note.id;
                         let text = note.text.clone();
+                        let confidential = note.confidential;
                         let preview = crate::utils::html_to_preview(&note.text, 120);
                         if editing() == Some(nid) {
                             rsx! {
@@ -870,6 +824,9 @@ pub(super) fn PersonNotesBlock(
                                             oninput: move |e: Event<FormData>| edit_text.set(e.value()),
                                         }
                                     }
+                                    if sharing {
+                                        ConfidentialCheck { checked: edit_confidential }
+                                    }
                                     div { class: "inline-row",
                                         button {
                                             class: "pf-confirm-btn",
@@ -879,12 +836,16 @@ pub(super) fn PersonNotesBlock(
                                                 move |_| {
                                                     let api = api.clone();
                                                     let text = edit_text().trim().to_string();
+                                                    let body = UpdateNoteBody {
+                                                        text: Some(text.clone()),
+                                                        confidential: sharing.then_some(edit_confidential()),
+                                                    };
                                                     spawn(async move {
                                                         if text.is_empty() {
                                                             edit_error.set(Some(i18n.t("person_form.note_required")));
                                                             return;
                                                         }
-                                                        match api.update_note(tid, nid, &UpdateNoteBody { text: Some(text) }).await {
+                                                        match api.update_note(tid, nid, &body).await {
                                                             Ok(_) => {
                                                                 editing.set(None);
                                                                 edit_error.set(None);
@@ -909,7 +870,12 @@ pub(super) fn PersonNotesBlock(
                         } else {
                             rsx! {
                                 div { class: "person-form-item pf-compact-item",
-                                    div { class: "person-form-item-info", span { "{preview}" } }
+                                    div { class: "person-form-item-info",
+                                        if sharing && confidential {
+                                            span { class: "badge", {i18n.t("person_form.note_confidential")} }
+                                        }
+                                        span { "{preview}" }
+                                    }
                                     div { class: "person-form-item-actions",
                                         button {
                                             class: "pf-row-btn",
@@ -919,6 +885,7 @@ pub(super) fn PersonNotesBlock(
                                                 // form (breaks folded to \n), so it
                                                 // goes straight back in the textarea.
                                                 edit_text.set(text.clone());
+                                                edit_confidential.set(confidential);
                                                 editing.set(Some(nid));
                                                 edit_error.set(None);
                                             },
@@ -950,6 +917,95 @@ pub(super) fn PersonNotesBlock(
             }
 
             {children}
+        }
+    }
+}
+
+/// The form adding a note to the person: its text and, where the tree has
+/// other viewers, whether it is confidential.
+#[component]
+fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
+    let api = use_context::<ApiClient>();
+    let FormScope { i18n, tid, pid, .. } = scope;
+    let mut show = show;
+    let mut form_text = use_signal(String::new);
+    let mut form_confidential = use_signal(|| false);
+    let mut form_error = use_signal(|| None::<String>);
+    let sharing = crate::sharing::use_sharing_surfaces();
+
+    let on_create = {
+        let api = api.clone();
+        move |_| {
+            let api = api.clone();
+            let text = form_text().trim().to_string();
+            let confidential = form_confidential();
+            spawn(async move {
+                if text.is_empty() {
+                    form_error.set(Some(i18n.t("person_form.note_required")));
+                    return;
+                }
+                let body = CreateNoteBody {
+                    media_id: None,
+                    repository_id: None,
+                    text,
+                    person_id: Some(pid),
+                    event_id: None,
+                    family_id: None,
+                    source_id: None,
+                    confidential,
+                };
+                match api.create_note(tid, &body).await {
+                    Ok(_) => {
+                        show.set(false);
+                        form_text.set(String::new());
+                        form_confidential.set(false);
+                        form_error.set(None);
+                        scope.landed();
+                    }
+                    Err(e) => form_error.set(Some(e.message(&i18n))),
+                }
+            });
+        }
+    };
+
+    rsx! {
+        div { class: "pf-subform",
+            if let Some(err) = form_error() {
+                div { class: "error-msg", "{err}" }
+            }
+            div { class: "form-group",
+                textarea {
+                    rows: 4,
+                    placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
+                    value: "{form_text}",
+                    oninput: move |e: Event<FormData>| form_text.set(e.value()),
+                }
+            }
+            if sharing {
+                ConfidentialCheck { checked: form_confidential }
+            }
+            button {
+                class: "pf-confirm-btn",
+                r#type: "button",
+                onclick: on_create,
+                {i18n.t("person.create_note")}
+            }
+        }
+    }
+}
+
+/// Whether a note is confidential: withheld from the tree's viewers who
+/// may not read confidential notes (`docs/privacy.md` §3.2).
+#[component]
+fn ConfidentialCheck(checked: Signal<bool>) -> Element {
+    let i18n = crate::i18n::use_i18n();
+    let mut checked = checked;
+    rsx! {
+        crate::pages::settings::SettingsCheck {
+            checked: checked(),
+            label: i18n.t("person_form.note_confidential"),
+            description: Some(i18n.t("person_form.note_confidential_desc")),
+            on_change: move |value: bool| checked.set(value),
         }
     }
 }

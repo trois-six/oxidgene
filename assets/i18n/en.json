@@ -8147,6 +8147,8 @@
     "person_form.no_notes": "No notes recorded.",
     "person_form.no_other_events": "No other events recorded.",
     "person_form.no_professions": "No profession recorded.",
+    "person_form.note_confidential": "Confidential",
+    "person_form.note_confidential_desc": "Only the owner and the editors of the tree read this note: guests and visitors never see it, nor do exports made for them.",
     "person_form.note_placeholder": "Enter note text...",
     "person_form.note_required": "Note text is required",
     "person_form.notes": "Notes",

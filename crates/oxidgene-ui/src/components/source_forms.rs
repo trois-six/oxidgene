@@ -555,6 +555,7 @@ async fn save_note(
                 id,
                 &UpdateNoteBody {
                     text: Some(note.to_string()),
+                    ..UpdateNoteBody::default()
                 },
             )
             .await?;
@@ -570,6 +571,7 @@ async fn save_note(
                     source_id: None,
                     media_id: None,
                     repository_id: Some(repository_id),
+                    confidential: false,
                 },
             )
             .await?;

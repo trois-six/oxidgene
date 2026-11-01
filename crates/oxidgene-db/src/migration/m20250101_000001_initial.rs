@@ -476,6 +476,7 @@ enum Note {
     MediaId,
     RepositoryId,
     SharedGroup,
+    Confidential,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1568,6 +1569,7 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .col(uuid_null(Note::MediaId))
                 .col(uuid_null(Note::RepositoryId))
                 .col(uuid_null(Note::SharedGroup))
+                .col(boolean(Note::Confidential).default(false))
                 .col(timestamp_with_time_zone(Note::CreatedAt))
                 .col(timestamp_with_time_zone(Note::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Note::DeletedAt))

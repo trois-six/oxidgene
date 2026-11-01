@@ -1735,6 +1735,7 @@ async fn save_media_note(
                     source_id: None,
                     media_id: Some(media_id),
                     repository_id: None,
+                    confidential: false,
                 },
             )
             .await
@@ -1744,7 +1745,14 @@ async fn save_media_note(
             Ok(None)
         }
         (Some(id), false) => api
-            .update_note(tree_id, id, &UpdateNoteBody { text: Some(text) })
+            .update_note(
+                tree_id,
+                id,
+                &UpdateNoteBody {
+                    text: Some(text),
+                    ..UpdateNoteBody::default()
+                },
+            )
             .await
             .map(|_| Some(id)),
     }

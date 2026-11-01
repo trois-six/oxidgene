@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-24T09:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
 ---
 
 
@@ -233,6 +233,15 @@ Dynamic list of text inputs. Represents known alternate first names (e.g. a comm
 ### Notes on this person
 
 A list of notes rather than a single field: each row is a `Note` carrying `person_id`, added through **"+ Add a note"** (multi-line textarea), then editable in place (**Edit** expands the row into a textarea with Save / Cancel, writing through `PUT /notes/{id}`) or removable. Notes attached to an event are *not* listed here — they belong to that event's own panel (§5, §9).
+
+Where the tree has other viewers — the web build with accounts
+([Privacy](privacy.md)) — the add form and the edit form carry a
+**Confidential** checkbox, described as read only by the owner and the
+editors, and a confidential note's row carries a *Confidential* badge: the
+note is withheld from Guests, Visitors and the exports made for them
+([Privacy §3.2](privacy.md#32-records)). Editing the text keeps it. The
+desktop and the web build without authentication, which have one viewer,
+show neither.
 
 The block sits at the end of Civil Status, after Additional Information. Its heading uses the same weight and colour as a field label such as "Gender", not a section title: these blocks are peers of the fields around them.
 

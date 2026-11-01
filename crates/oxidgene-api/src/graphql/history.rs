@@ -226,6 +226,7 @@ pub struct GqlNoteSnapshot {
     pub id: ID,
     pub text: String,
     pub shared_group: Option<ID>,
+    pub confidential: bool,
 }
 
 impl From<NoteSnapshot> for GqlNoteSnapshot {
@@ -234,6 +235,7 @@ impl From<NoteSnapshot> for GqlNoteSnapshot {
             id: id(n.id),
             text: n.text,
             shared_group: n.shared_group.map(id),
+            confidential: n.confidential,
         }
     }
 }

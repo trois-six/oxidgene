@@ -235,6 +235,7 @@ impl NoteRepo {
         id: Uuid,
         tree_id: Uuid,
         text: String,
+        confidential: bool,
         owner: &NoteFilter,
     ) -> Result<Note, OxidGeneError> {
         let now = Utc::now();
@@ -249,6 +250,7 @@ impl NoteRepo {
             media_id: Set(owner.media_id),
             repository_id: Set(owner.repository_id),
             shared_group: Set(None),
+            confidential: Set(confidential),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -262,12 +264,16 @@ impl NoteRepo {
         db: &impl ConnectionTrait,
         id: Uuid,
         text: Option<String>,
+        confidential: Option<bool>,
     ) -> Result<Note, OxidGeneError> {
         let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(text) = text {
             active.text = Set(sanitize_note_html(&text));
+        }
+        if let Some(confidential) = confidential {
+            active.confidential = Set(confidential);
         }
         active.updated_at = Set(Utc::now());
 
@@ -298,6 +304,7 @@ fn into_domain(m: note::Model) -> Note {
         media_id: m.media_id,
         repository_id: m.repository_id,
         shared_group: m.shared_group,
+        confidential: m.confidential,
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,

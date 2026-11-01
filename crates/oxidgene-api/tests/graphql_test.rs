@@ -2882,6 +2882,90 @@ async fn test_note_crud() {
 }
 
 #[tokio::test]
+async fn a_note_is_made_confidential_and_back() {
+    let app = setup_app().await;
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "N" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&resp)["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createNote(treeId: "{tree_id}", input: {{ text: "A sealed remark", personId: "{person_id}", confidential: true }}) {{ id confidential }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let note = &data(&resp)["createNote"];
+    assert_eq!(note["confidential"], true);
+    let note_id = note["id"].as_str().unwrap().to_string();
+
+    // A text edit keeps the confidentiality.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateNote(treeId: "{tree_id}", id: "{note_id}", input: {{ text: "A sealed remark, amended" }}) {{ confidential }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["updateNote"]["confidential"], true);
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ recordVersions(treeId: "{tree_id}", recordType: PERSON, recordId: "{person_id}") {{ edges {{ node {{ snapshot {{ person {{ notes {{ confidential }} }} }} }} }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["recordVersions"]["edges"][0]["node"]["snapshot"]["person"]["notes"][0]["confidential"],
+        true,
+        "{resp}"
+    );
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateNote(treeId: "{tree_id}", id: "{note_id}", input: {{ confidential: false }}) {{ text confidential }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["updateNote"]["confidential"], false);
+    assert_eq!(
+        data(&resp)["updateNote"]["text"],
+        "A sealed remark, amended"
+    );
+    let resp = graphql(
+        app,
+        &format!(r#"{{ note(treeId: "{tree_id}", id: "{note_id}") {{ confidential }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["note"]["confidential"], false);
+}
+
+#[tokio::test]
 async fn notes_and_citations_use_cursor_pagination() {
     let app = setup_app().await;
 

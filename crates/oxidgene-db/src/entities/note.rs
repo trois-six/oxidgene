@@ -17,6 +17,9 @@ pub struct Model {
     pub media_id: Option<Uuid>,
     pub repository_id: Option<Uuid>,
     pub shared_group: Option<Uuid>,
+    /// Withheld from viewers without `read_confidential`
+    /// (docs/privacy.md §3.2).
+    pub confidential: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

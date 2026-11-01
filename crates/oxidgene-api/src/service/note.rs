@@ -5,7 +5,7 @@
 //! one transaction.
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::access::ViewerContext;
+use oxidgene_core::access::{Permission, ViewerContext};
 use oxidgene_core::history::AuditAction;
 use oxidgene_core::types::Note;
 use oxidgene_db::repo::{NoteFilter, NoteRepo};
@@ -32,13 +32,22 @@ pub struct NewNote {
     /// The repository this note is about.
     #[serde(default)]
     pub repository_id: Option<Uuid>,
+    /// Withhold the note from viewers without `read_confidential`
+    /// (docs/privacy.md §3.2). Defaults to `false`; setting it takes
+    /// `privacy_edit`.
+    #[serde(default)]
+    pub confidential: bool,
 }
 
-/// What a note update changes: `None` keeps the text.
+/// What a note update changes: `None` keeps the text, and the
+/// confidentiality.
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct NotePatch {
     pub text: Option<String>,
+    /// Changing it takes `privacy_edit`.
+    #[serde(default)]
+    pub confidential: Option<bool>,
 }
 
 /// Note `id` of `tree_id`.
@@ -63,6 +72,9 @@ pub async fn create_note(
         return Err(OxidGeneError::Validation(
             "text must not be empty".to_string(),
         ));
+    }
+    if new.confidential {
+        crate::authz::authorize(db, viewer, tree_id, Permission::PrivacyEdit).await?;
     }
     let txn = begin_tx(db).await?;
     for (resource, id) in [
@@ -94,6 +106,7 @@ pub async fn create_note(
         id,
         tree_id,
         new.text,
+        new.confidential,
         &NoteFilter {
             person_id: new.person_id,
             event_id: new.event_id,
@@ -126,11 +139,17 @@ pub async fn update_note(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let previous = NoteRepo::get(&txn, id).await?;
+    if patch
+        .confidential
+        .is_some_and(|confidential| confidential != previous.confidential)
+    {
+        crate::authz::authorize(&txn, viewer, tree_id, Permission::PrivacyEdit).await?;
+    }
     let pending =
         history::note_change(viewer, tree_id, AuditAction::Update, id, (&previous).into())
             .prepare(&txn)
             .await?;
-    let note = NoteRepo::update(&txn, id, patch.text).await?;
+    let note = NoteRepo::update(&txn, id, patch.text, patch.confidential).await?;
     if let Some(person_id) = previous.person_id {
         profiles
             .invalidate_for_mutation(&txn, tree_id, &[person_id])

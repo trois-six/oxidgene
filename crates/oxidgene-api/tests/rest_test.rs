@@ -2662,6 +2662,75 @@ async fn test_note_crud() {
 }
 
 #[tokio::test]
+async fn a_note_is_made_confidential_and_back() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_person_via_api(&app, &tree_id).await;
+    let notes = format!("/api/v1/trees/{tree_id}/notes");
+
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &notes,
+        Some(serde_json::json!({
+            "text": "A sealed remark",
+            "person_id": person_id,
+            "confidential": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["confidential"], true);
+    let note_id = body["id"].as_str().unwrap().to_string();
+    let note = format!("{notes}/{note_id}");
+
+    // A text edit keeps the confidentiality.
+    let (_, body) = send(
+        &app,
+        Method::PUT,
+        &note,
+        Some(serde_json::json!({ "text": "A sealed remark, amended" })),
+    )
+    .await;
+    assert_eq!(body["confidential"], true);
+    // The person's current version shows it in the note's snapshot.
+    let (_, versions) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/history/person/{person_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        versions["edges"][0]["node"]["snapshot"]["notes"][0]["confidential"], true,
+        "{versions}"
+    );
+
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &note,
+        Some(serde_json::json!({ "confidential": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["confidential"], false);
+    assert_eq!(body["text"], "A sealed remark, amended");
+    let (_, body) = send(&app, Method::GET, &note, None).await;
+    assert_eq!(body["confidential"], false);
+
+    // A note says nothing of it unless asked.
+    let (_, body) = send(
+        &app,
+        Method::POST,
+        &notes,
+        Some(serde_json::json!({ "text": "An open remark", "person_id": person_id })),
+    )
+    .await;
+    assert_eq!(body["confidential"], false);
+}
+
+#[tokio::test]
 async fn test_note_create_validation() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;

@@ -626,6 +626,7 @@ page number of its own: the page it belongs to is the media it points at.
 | `media_id` | UUID v7? | FK → Media — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
 | `repository_id` | UUID v7? | FK → Repository (cascade) — a note about a repository |
 | `shared_group` | UUID v7? | The shared GEDCOM note record (`NOTE` in 5.5.1, `SNOTE` in 7.x) this note was read from; the same for every note read from that record, `null` for a note of its own. Set by a GEDCOM import only: no write API accepts it, and a history restore writes back the stored value. An export writes the notes of one group that say the same thing as one shared record again (see [Round-trip fidelity](api.md#round-trip-fidelity)). Indexed (`idx_note_shared_group`) |
+| `confidential` | Boolean | Default `false`. Withheld from every viewer without `read_confidential` — Guests and Visitors — and from the exports made for them ([Privacy §3.2](privacy.md#32-records)); recorded in the note's history snapshot |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -1525,7 +1526,7 @@ build only.
 | Table | Added |
 |---|---|
 | `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. `visibility` (`private`, `site`, `public`; default `private`) and `visitor_scope_id?` (no foreign key: `access_scope` is created after `tree` and references it), written by the web build only and recorded in the history under `access`, unversioned |
-| `note` | `confidential` (default `false`) |
+| `note` | Done: `confidential` (default `false`), see [Note](#note) |
 | `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
 | `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |
 | `person_search_fts` | Nothing: visibility is joined from `person_visibility` ([Privacy §7](privacy.md#7-enforcement-points)) |
