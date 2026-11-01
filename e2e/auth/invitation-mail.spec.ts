@@ -124,6 +124,9 @@ test("an invitation arrives in Mailpit and is accepted", async ({ browser, playw
         const invitation = visitor.locator(".home-invitation", { hasText: name });
         await expect(invitation).toBeVisible();
         await invitation.getByRole("button", { name: "Accept" }).click();
+        // Accepted once it leaves the list: navigating before then would
+        // abort the request in flight.
+        await expect(invitation).toBeHidden();
     }
     await visitor.goto("/");
     await expect(visitor.locator(".tree-card", { hasText: name })).toBeVisible();
