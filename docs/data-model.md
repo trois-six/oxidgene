@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-10-31T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
 ---
 
 
@@ -446,28 +446,24 @@ the union that names them. A document needs one for the same reason a photograph
 of living children does.
 
 `Default` means "follow the tree", and the tree says which: `tree.default_privacy`
-is `public` | `private`, defaulting to **private**. It is deliberately *not* a
+is `public` | `private`, defaulting to **public**. It is deliberately *not* a
 `Privacy` — that enum's own `Default` variant would make a tree follow itself —
 so it has two variants and the circular state cannot be written down.
 `TreeDefaultPrivacy::resolve(privacy)` is the one place the pair is combined: a
 record saying `Default` takes the tree's answer, and `Public` / `Private` on the
 record override it.
 
-The default default withholds. A genealogy holds living people, and a tree
-nobody has classified has not been cleared for publication, so the value that
-applies before anyone has thought about it is the one that hides. Publishing is
-the deliberate act.
+The default publishes. A record nobody classified is public, and the living are
+protected by the contemporary rule instead, which hides from visitors a person
+who cannot be shown to have died or to be born long enough ago, whatever their
+own privacy; an explicit `Private` or an exclusion hides more
+([Privacy §3.1](privacy.md#31-precedence)). A tree set to `private` limits
+visitors to what was published explicitly.
 
-**Nothing enforces it yet.** Privacy is meaningful only against a viewer, and
-there are no viewers until authentication lands. What the column buys now is
-that the *intent* is recorded: a user classifying their tree today does not have
-to do it again later, and enforcement becomes a read-path change rather than a
-schema change plus a data-entry campaign. Every picker that sets it says so.
-How the web build will enforce it — with contemporary persons and the owner's
-exclusions — is specified in [Privacy](privacy.md). That specification
-reverses the default: with EPIC G a record nobody classified is public, the
-contemporary rule protecting the living, and `tree.default_privacy` defaults
-to `public` ([Privacy §3.1](privacy.md#31-precedence)).
+**Not enforced for viewers yet.** Privacy is meaningful only against a viewer,
+and viewers arrive with the web build's roles and sharing; until then every
+picker that sets it says so. How the web build enforces it — with contemporary
+persons and the owner's exclusions — is specified in [Privacy](privacy.md).
 
 ### Tag
 

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
 ---
 
 
@@ -207,13 +207,15 @@ that specification and are not built yet.
 
 ### Default privacy
 
-Two buttons, Private and Public, saying what "follows the tree" means for every
+Two buttons, Public and Private, saying what "follows the tree" means for every
 person, couple and document in it. Each of those can still say otherwise — the
 tree answers only for the records that have not chosen.
 
-Private leads, and is the default for a new tree: a genealogy holds living
-people, and a tree nobody has classified has not been cleared for publication.
-Publishing is the deliberate act.
+Public leads, and is the default for a new tree: a record nobody classified is
+public, while the contemporary rule hides living persons from visitors and an
+explicit Private or an exclusion hides more
+([Privacy §3.1](privacy.md#31-precedence)). Private limits visitors to what
+was published explicitly.
 
 Saving is immediate — one click, one write — with a local override so the control
 answers the click rather than the refetch. It carries the same line every other

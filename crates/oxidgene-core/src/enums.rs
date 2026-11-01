@@ -243,15 +243,16 @@ impl std::fmt::Display for Calendar {
 /// "follow the tree", and a tree whose default followed the tree would be
 /// circular. Two variants, so the nonsensical state cannot be written down.
 ///
-/// `Private` is the default. A genealogy holds living people, and a tree
-/// nobody has classified has not been cleared for publication — the value that
-/// applies before anyone has thought about it should be the one that
-/// withholds. Publishing is the deliberate act.
+/// `Public` is the default (`docs/privacy.md` §3.1): a record nobody
+/// classified is public, while the contemporary rule hides living persons
+/// from visitors whatever their own privacy, and an explicit `Private` or an
+/// exclusion hides more. A tree set to `Private` limits visitors to what was
+/// published explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TreeDefaultPrivacy {
-    Public,
     #[default]
+    Public,
     Private,
 }
 
@@ -1098,9 +1099,10 @@ mod tree_privacy_tests {
     }
 
     #[test]
-    fn an_unclassified_tree_withholds() {
-        // A genealogy holds living people; publishing is the deliberate act.
-        assert_eq!(TreeDefaultPrivacy::default(), TreeDefaultPrivacy::Private);
+    fn an_unclassified_tree_is_public() {
+        // The contemporary rule, not the default privacy, protects the
+        // living (docs/privacy.md §3.1).
+        assert_eq!(TreeDefaultPrivacy::default(), TreeDefaultPrivacy::Public);
     }
 
     #[test]

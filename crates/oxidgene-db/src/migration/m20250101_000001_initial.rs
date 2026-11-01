@@ -541,7 +541,7 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                     ColumnDef::new(Tree::DefaultPrivacy)
                         .string_len(10)
                         .not_null()
-                        .default("private"),
+                        .default("public"),
                 )
                 // Who the tree's GEDCOM exports say they are from (`SUBM`).
                 .col(string_null(Tree::SubmitterName))

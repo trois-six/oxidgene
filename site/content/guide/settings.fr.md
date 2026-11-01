@@ -25,9 +25,9 @@ Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramè
 
 ## Confidentialité
 
-La **Confidentialité par défaut** dit ce que signifie « suit l’arbre » pour chaque personne, couple et document de l’arbre : **Privé** ou **Public**. Chaque personne, couple ou document peut toujours en décider autrement dans son propre formulaire ; l’arbre ne tranche que pour ceux qui n’ont rien choisi.
+La **Confidentialité par défaut** dit ce que signifie « suit l’arbre » pour chaque personne, couple et document de l’arbre : **Public** ou **Privé**. Chaque personne, couple ou document peut toujours en décider autrement dans son propre formulaire ; l’arbre ne tranche que pour ceux qui n’ont rien choisi.
 
-Un nouvel arbre est Privé : une généalogie contient des personnes vivantes, et la publication doit être un choix délibéré.
+Un nouvel arbre est Public : un enregistrement que personne n’a classé est public, tandis que les personnes vivantes restent protégées par la règle des contemporains, qui les cache aux visiteurs quelle que soit leur propre confidentialité. Choisissez Privé pour limiter les visiteurs à ce que vous publiez explicitement.
 
 La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore rien. Comme l’indique la section : **Enregistré dès maintenant. Rien n’est encore masqué — cela prendra effet avec les comptes et la publication.**
 

@@ -25,9 +25,9 @@ The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **
 
 ## Privacy
 
-**Default privacy** says what “follows the tree” means for every person, couple and document of the tree: **Private** or **Public**. Each person, couple or document can still choose otherwise in its own form; the tree answers only for those that have not.
+**Default privacy** says what “follows the tree” means for every person, couple and document of the tree: **Public** or **Private**. Each person, couple or document can still choose otherwise in its own form; the tree answers only for those that have not.
 
-A new tree starts as Private: a genealogy holds living people, and publishing should be a deliberate choice.
+A new tree starts as Public: a record nobody classified is public, while living persons stay protected by the contemporary-person rule, which hides them from visitors whatever their own privacy. Choose Private to limit visitors to what you publish explicitly.
 
 Privacy is recorded today but does not hide anything yet. As the section says: **Recorded now. Nothing is hidden yet — this takes effect when accounts and publishing arrive.**
 

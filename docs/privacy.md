@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-10-31T11:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -66,10 +66,10 @@ Each viewer is further limited to their scope
 
 ### 3.1 Precedence
 
-**A record with no explicit privacy is public.** With EPIC G the tree's
-`default_privacy` defaults to `public` (today's default, `private`, is
-replaced), so a person, family or medium whose `privacy` is `default` is
-public unless the owner sets the whole tree to `private`. For any viewer but
+**A record with no explicit privacy is public.** The tree's
+`default_privacy` defaults to `public`, so a person, family or medium whose
+`privacy` is `default` is public unless the owner sets the whole tree to
+`private`. For any viewer but
 the owner, the first rule that applies decides:
 
 1. **Exclusion** ([§6](#6-exclusions-from-sharing)): not shared, with any
@@ -349,7 +349,7 @@ through the existing tree update on both surfaces:
 
 | Setting | Values | Default | Build |
 |---|---|---|---|
-| `default_privacy` | `public`, `private` | `public` (today `private`, §3.1) | Both (exists) |
+| `default_privacy` | `public`, `private` | `public` (§3.1) | Both |
 | `contemporary_rule` | on, off | on | Both: exports on the desktop, viewers too on the web |
 | `contemporary_years` | 50–150 | 100 | Both |
 | `hidden_display` | `stub`, `initials`, `hidden` | `stub` | Both: exports on the desktop |

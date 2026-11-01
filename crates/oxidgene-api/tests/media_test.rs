@@ -3310,24 +3310,24 @@ async fn a_couple_defaults_to_following_the_tree() {
 }
 
 #[tokio::test]
-async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
+async fn a_tree_says_what_default_privacy_means_and_starts_public() {
     let h = setup().await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    // A genealogy holds living people, and a tree nobody has classified has
-    // not been cleared for publication. Publishing is the deliberate act.
+    // A record nobody classified is public: the contemporary rule, not the
+    // default privacy, protects the living (docs/privacy.md §3.1).
     let (_, tree) = send(&h.app, Method::GET, &base, None).await;
-    assert_eq!(tree["default_privacy"], "private");
+    assert_eq!(tree["default_privacy"], "public");
 
     let (status, updated) = send(
         &h.app,
         Method::PUT,
         &base,
-        Some(json!({"default_privacy": "public"})),
+        Some(json!({"default_privacy": "private"})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["default_privacy"], "public");
+    assert_eq!(updated["default_privacy"], "private");
 
     // The tree's own setting is not a record's: one that has chosen keeps its
     // choice, which is the whole reason both fields exist.
