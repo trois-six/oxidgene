@@ -1219,6 +1219,24 @@ recorded, when a state is stored and what a version holds. An export is recorded
 it: `GET /gedcom/export` and GraphQL `exportGedcom` alike, a GEDZIP job when
 its archive is complete.
 
+**What a restricted viewer's history leaves out** ([Privacy §6.4](privacy.md#64-effects)).
+For a viewer holding `history_read` whom the owner's redaction does not
+show everything — an Editor, who does not see the owner's excluded persons —
+the log, REST's and GraphQL's alike, leaves out every entry about a person
+the redaction hides (its subject, or a person whose state it stored), about
+a family whose content it withholds, or about a place, a source, a
+repository or a medium only hidden records reach; `total_count` counts the
+entries left. Such an entry read directly, and its changes, are `404`
+(`NOT_FOUND`), as are the versions of such a person, place, source or
+repository and restoring one. The versions left are redacted: a hidden
+relative, spouse, child or witness is named by the identifier the
+redaction gives them (a pseudonym for an excluded person), or not at all
+when absent, and has no label, which the frontend shows as an unknown
+record; a withheld family's events, notes and citations are left out with
+the labels only they needed; confidential notes are left out for a viewer
+without `read_confidential`; a version produced by an entry the log leaves
+out carries no `entry`. The owner's history is unchanged.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`, `access`; `subject_id` keeps only the writes about one record |

@@ -1437,6 +1437,8 @@ fn into_place(m: place::Model) -> Place {
 #[path = "dictionary_seen.rs"]
 mod seen;
 
+pub use seen::HiddenRecords;
+
 #[cfg(test)]
 mod tests {
     use super::*;

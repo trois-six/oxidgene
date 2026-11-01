@@ -11,8 +11,10 @@
 //! `read_tags`.
 
 use oxidgene_core::enums::Privacy;
+use oxidgene_core::history::AuditSubject;
 
 use super::*;
+use crate::entities::source_repository;
 
 /// Who an event, a citation or a media link belongs to: a person, a family,
 /// or an event of either.
@@ -261,8 +263,101 @@ impl SeenSources {
     }
 }
 
+/// The records of a tree other than persons that a restricted viewer does
+/// not see (§3.2): the places only hidden events and media use, the sources
+/// only hidden records cite, the repositories only such sources are held
+/// by, and the media the redaction withholds.
+#[derive(Debug, Default)]
+pub struct HiddenRecords {
+    pub places: HashSet<Uuid>,
+    pub sources: HashSet<Uuid>,
+    pub repositories: HashSet<Uuid>,
+    pub media: HashSet<Uuid>,
+}
+
+impl HiddenRecords {
+    /// Whether an audit entry's subject is one of them.
+    #[must_use]
+    pub fn contains_subject(
+        &self,
+        subject: Option<AuditSubject>,
+        subject_id: Option<Uuid>,
+    ) -> bool {
+        let Some(id) = subject_id else {
+            return false;
+        };
+        match subject {
+            Some(AuditSubject::Place) => self.places.contains(&id),
+            Some(AuditSubject::Source) => self.sources.contains(&id),
+            Some(AuditSubject::Repository) => self.repositories.contains(&id),
+            Some(AuditSubject::Media) => self.media.contains(&id),
+            _ => false,
+        }
+    }
+
+    /// Whether record `id` is one of them, whatever its kind.
+    #[must_use]
+    pub fn contains(&self, id: Uuid) -> bool {
+        self.places.contains(&id)
+            || self.sources.contains(&id)
+            || self.repositories.contains(&id)
+            || self.media.contains(&id)
+    }
+}
+
 impl DictionaryRepo {
     /// [`Self::source_titles_with_usage`] as `redaction`'s viewer sees them.
+    /// The places, sources, repositories and media of tree `tree_id` that
+    /// `redaction`'s viewer does not see; none for the owner, without a
+    /// statement.
+    pub async fn hidden_records(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        redaction: &Redaction,
+    ) -> Result<HiddenRecords, OxidGeneError> {
+        if redaction.is_unrestricted() {
+            return Ok(HiddenRecords::default());
+        }
+        let sight = Sight::load(db, tree_id, redaction).await?;
+        let (visible, used) = sight.place_uses();
+        let (counts, cited) = sight.citation_counts(db, tree_id).await?;
+        let sources: HashSet<Uuid> = cited
+            .into_iter()
+            .filter(|source| !counts.contains_key(source))
+            .collect();
+        let held: Vec<(Uuid, Uuid)> = source_repository::Entity::find()
+            .select_only()
+            .column(source_repository::Column::RepositoryId)
+            .column(source_repository::Column::SourceId)
+            .join(
+                JoinType::InnerJoin,
+                source_repository::Relation::Source.def(),
+            )
+            .filter(source::Column::TreeId.eq(tree_id))
+            .filter(source::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        let mut shown_repositories = HashSet::new();
+        let mut holding = HashSet::new();
+        for (repository, source) in held {
+            holding.insert(repository);
+            if !sources.contains(&source) {
+                shown_repositories.insert(repository);
+            }
+        }
+        Ok(HiddenRecords {
+            places: used
+                .into_iter()
+                .filter(|place| !visible.contains_key(place))
+                .collect(),
+            sources,
+            repositories: holding.difference(&shown_repositories).copied().collect(),
+            media: sight.withheld_media,
+        })
+    }
+
     pub async fn source_titles_with_usage_for(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

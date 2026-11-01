@@ -175,11 +175,36 @@ impl Fixture {
         )
     }
 
+    /// `method` on `uri` as `who`: the status and the JSON body.
+    async fn rest(
+        &self,
+        who: Who,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let (status, _, text) = self.raw(who, method, uri, body).await;
+        (status, serde_json::from_str(&text).unwrap_or(Value::Null))
+    }
+
     /// A successful `GET uri` as `who`, as text.
     async fn get(&self, who: Who, uri: &str) -> String {
         let (status, _, text) = self.raw(who, Method::GET, uri, None).await;
         assert!(status.is_success(), "{who:?} {uri}: {status} {text}");
         text
+    }
+
+    /// GraphQL `query` as `who`: the whole response.
+    async fn gql_raw(&self, who: Who, query: &str) -> Value {
+        let (_, _, text) = self
+            .raw(
+                who,
+                Method::POST,
+                "/graphql",
+                Some(json!({ "query": query })),
+            )
+            .await;
+        serde_json::from_str(&text).unwrap()
     }
 
     /// GraphQL `query` as `who`: its `data`, which must hold no error.
@@ -406,4 +431,156 @@ async fn suggestions_offer_only_what_visible_records_carry() {
     for who in RESTRICTED {
         assert!(!f.get(who, &scoped).await.contains("Thistle"), "{who:?}");
     }
+}
+
+/// The ids and labels of the audit log `who` reads, through REST and
+/// GraphQL, which must agree.
+async fn audit_log(f: &Fixture, who: Who) -> (u64, String) {
+    let rest = f.get(who, &f.uri("/audit?first=200")).await;
+    let page: Value = serde_json::from_str(&rest).unwrap();
+    let total = page["total_count"].as_u64().unwrap();
+    let gql = f
+        .gql(
+            who,
+            &format!(
+                r#"{{ auditEntries(treeId: "{}", first: 200) {{ totalCount edges {{ node {{ id label subjectId }} }} }} }}"#,
+                f.tree()
+            ),
+        )
+        .await;
+    assert_eq!(gql["auditEntries"]["totalCount"], total, "{who:?}");
+    assert_eq!(
+        gql["auditEntries"]["edges"].as_array().unwrap().len(),
+        page["edges"].as_array().unwrap().len(),
+        "{who:?}"
+    );
+    (total, format!("{rest}{gql}"))
+}
+
+#[tokio::test]
+async fn the_history_leaves_out_what_is_about_hidden_persons() {
+    let f = Fixture::new().await;
+    let thistle = f.canaries.person("Thistle").to_owned();
+    let quillon = f.canaries.person("Quillon").to_owned();
+    let harlan = f.canaries.person("Harlan").to_owned();
+
+    // The owner's log holds the exclusions and the citation of the hidden
+    // canaries, and the creation of the source only they are cited by.
+    let (all, owner) = audit_log(&f, Who::Owner).await;
+    assert!(
+        owner.contains(&thistle) && owner.contains(HIDDEN_SOURCE),
+        "{owner}"
+    );
+    let (seen, editor) = audit_log(&f, Who::Editor).await;
+    assert!(seen < all, "{seen} of {all}");
+    for hidden in [&thistle, &quillon] {
+        assert!(!editor.contains(hidden.as_str()), "{editor}");
+    }
+    assert!(!names_hidden(&editor), "{editor}");
+
+    // An entry about the excluded canary, with its changes, is not found.
+    let log: Value =
+        serde_json::from_str(&f.get(Who::Owner, &f.uri("/audit?first=200")).await).unwrap();
+    let about_thistle = log["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|edge| edge["node"]["subject_id"] == thistle.as_str())
+        .expect("the exclusion's entry")["node"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for path in [
+        format!("/audit/{about_thistle}"),
+        format!("/audit/{about_thistle}/changes"),
+        format!("/history/person/{quillon}"),
+        format!("/history/person/{quillon}/1"),
+    ] {
+        let (status, _) = f.rest(Who::Editor, Method::GET, &f.uri(&path), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        let (status, _) = f.rest(Who::Owner, Method::GET, &f.uri(&path), None).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+    }
+    for query in [
+        format!(
+            r#"{{ auditEntry(treeId: "{}", id: "{about_thistle}") {{ id }} }}"#,
+            f.tree()
+        ),
+        format!(
+            r#"{{ auditEntryChanges(treeId: "{}", entryId: "{about_thistle}") {{ totalCount }} }}"#,
+            f.tree()
+        ),
+        format!(
+            r#"{{ recordVersions(treeId: "{}", recordType: PERSON, recordId: "{quillon}") {{ totalCount }} }}"#,
+            f.tree()
+        ),
+        format!(
+            r#"{{ recordVersion(treeId: "{}", recordType: PERSON, recordId: "{quillon}", version: 1) {{ id }} }}"#,
+            f.tree()
+        ),
+    ] {
+        let response = f.gql_raw(Who::Editor, &query).await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["code"], "NOT_FOUND",
+            "{query}: {response}"
+        );
+        assert!(
+            f.gql_raw(Who::Owner, &query).await.get("errors").is_none(),
+            "{query}"
+        );
+    }
+    // Restoring a hidden person's version is not found either.
+    let (status, _) = f
+        .rest(
+            Who::Editor,
+            Method::POST,
+            &f.uri(&format!("/history/person/{quillon}/revert")),
+            Some(json!({ "version": 1 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = f
+        .gql_raw(
+            Who::Editor,
+            &format!(
+                r#"mutation {{ revertRecord(treeId: "{}", recordType: PERSON, recordId: "{quillon}", version: 1) {{ id }} }}"#,
+                f.tree()
+            ),
+        )
+        .await;
+    assert_eq!(
+        response["errors"][0]["extensions"]["code"], "NOT_FOUND",
+        "{response}"
+    );
+
+    // A visible person's version names their hidden wife and son by no
+    // identifier of theirs and no label.
+    let path = f.uri(&format!("/history/person/{harlan}"));
+    let owner = f.get(Who::Owner, &path).await;
+    assert!(
+        owner.contains(&thistle) && owner.contains(&quillon),
+        "{owner}"
+    );
+    let editor = f.get(Who::Editor, &path).await;
+    assert!(
+        !editor.contains(&thistle) && !editor.contains(&quillon),
+        "{editor}"
+    );
+    assert!(!names_hidden(&editor), "{editor}");
+    let query = format!(
+        r#"{{ recordVersions(treeId: "{}", recordType: PERSON, recordId: "{harlan}") {{ edges {{ node {{ labels {{ id label }} snapshot {{ person {{ unions {{ spouses {{ personId }} children {{ personId }} }} }} }} }} }} }} }}"#,
+        f.tree()
+    );
+    assert!(
+        f.gql(Who::Owner, &query)
+            .await
+            .to_string()
+            .contains(&thistle)
+    );
+    let seen = f.gql(Who::Editor, &query).await.to_string();
+    assert!(
+        !seen.contains(&thistle) && !seen.contains(&quillon),
+        "{seen}"
+    );
+    assert!(!names_hidden(&seen), "{seen}");
 }

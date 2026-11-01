@@ -1995,6 +1995,21 @@ impl TreeMutation {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let rid = uuid(&record_id)?;
+            let seen = crate::authz::redaction::redaction(
+                reader_from_ctx(ctx),
+                profiles,
+                viewer_from_ctx(ctx),
+                tid,
+            )
+            .await?;
+            crate::service::history_reads::require_restorable(
+                reader_from_ctx(ctx),
+                &seen,
+                tid,
+                record_type.into(),
+                rid,
+            )
+            .await?;
             let entry = history::restore(
                 viewer_from_ctx(ctx),
                 db,

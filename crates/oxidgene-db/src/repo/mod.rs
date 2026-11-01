@@ -66,7 +66,7 @@ pub use connection::{
 pub use descent::DescentRows;
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
-    OccupationRename, PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
+    HiddenRecords, OccupationRename, PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
 pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
 pub use event_spouse_age::EventSpouseAgeRepo;

@@ -21,7 +21,7 @@ use crate::service::surname_descent::{self, DescentRequest};
 use crate::service::tag_bulk;
 
 use oxidgene_db::repo::{
-    AuditFilter, CitationFilter, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
+    AuditFilter, CitationFilter, EventFilter, EventRepo, FamilyRepo, MediaLinkRepo,
     MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, PlaceRepo, RepositoryRepo, SourceRepo, TreeRepo, VignetteRepo,
 };
@@ -269,9 +269,12 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(HistoryRepo::list_entries(db, tid, filter, &params)
-                .await?
-                .into())
+            let seen = seen(ctx, tid).await?;
+            Ok(
+                crate::service::history_reads::list_entries(db, &seen, tid, filter, &params)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -282,7 +285,12 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let entry_id = uuid(&id)?;
-            Ok(HistoryRepo::get_entry(db, tid, entry_id).await?.into())
+            let seen = seen(ctx, tid).await?;
+            Ok(
+                crate::service::history_reads::get_entry(db, &seen, tid, entry_id)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -301,14 +309,18 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let entry_id = uuid(&entry_id)?;
-            HistoryRepo::get_entry(db, tid, entry_id).await?;
+            let seen = seen(ctx, tid).await?;
             let params = PaginationParams {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(HistoryRepo::list_entry_changes(db, tid, entry_id, &params)
+            Ok(
+                crate::service::history_reads::list_entry_changes(
+                    db, &seen, tid, entry_id, &params,
+                )
                 .await?
-                .into())
+                .into(),
+            )
         })
         .await
     }
@@ -332,11 +344,17 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(
-                HistoryRepo::list_versions(db, tid, record_type.into(), rid, &params)
-                    .await?
-                    .into(),
+            let seen = seen(ctx, tid).await?;
+            Ok(crate::service::history_reads::list_versions(
+                db,
+                &seen,
+                tid,
+                record_type.into(),
+                rid,
+                &params,
             )
+            .await?
+            .into())
         })
         .await
     }
@@ -355,11 +373,17 @@ impl TreeQuery {
             let db = reader_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let rid = uuid(&record_id)?;
-            Ok(
-                HistoryRepo::get_version(db, tid, record_type.into(), rid, version)
-                    .await?
-                    .into(),
+            let seen = seen(ctx, tid).await?;
+            Ok(crate::service::history_reads::get_version(
+                db,
+                &seen,
+                tid,
+                record_type.into(),
+                rid,
+                version,
             )
+            .await?
+            .into())
         })
         .await
     }

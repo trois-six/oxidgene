@@ -27,6 +27,7 @@ pub mod gallery;
 pub mod gedcom;
 pub mod geneanet;
 pub mod history;
+pub mod history_reads;
 pub mod image_bytes;
 pub(crate) mod intake;
 pub mod job_queue;

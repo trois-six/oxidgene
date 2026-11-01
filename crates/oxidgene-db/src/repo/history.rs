@@ -29,8 +29,8 @@ use oxidgene_core::access::AuthorKind;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
-    AuditAction, AuditAuthor, AuditCategory, AuditDetails, AuditEntity, AuditEntry, RecordLabel,
-    RecordSnapshot, RecordType, RecordVersion, VersionChange,
+    AuditAction, AuditAuthor, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
+    RecordLabel, RecordSnapshot, RecordType, RecordVersion, VersionChange,
 };
 use oxidgene_core::types::{Connection, Edge, PageInfo};
 use sea_orm::entity::prelude::*;
@@ -416,6 +416,116 @@ impl HistoryRepo {
             has_next_page,
             total_count,
         ))
+    }
+
+    /// The heads of a tree's audit log the filter keeps, newest first: each
+    /// entry's id and subject, what a restricted viewer's log is chosen
+    /// from without reading every row whole.
+    pub async fn entry_subjects(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: AuditFilter,
+    ) -> Result<Vec<(Uuid, Option<AuditSubject>, Option<Uuid>)>, OxidGeneError> {
+        let mut query = audit_entry::Entity::find()
+            .select_only()
+            .column(audit_entry::Column::Id)
+            .column(audit_entry::Column::Subject)
+            .column(audit_entry::Column::SubjectId)
+            .filter(audit_entry::Column::TreeId.eq(tree_id));
+        if let Some(category) = filter.category {
+            query = query.filter(audit_entry::Column::Category.eq(category.as_str()));
+        }
+        if let Some(subject_id) = filter.subject_id {
+            query = query.filter(audit_entry::Column::SubjectId.eq(subject_id));
+        }
+        let rows: Vec<(Uuid, Option<String>, Option<Uuid>)> = query
+            .order_by(audit_entry::Column::Id, Order::Desc)
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, subject, subject_id)| {
+                (id, subject.and_then(|kind| kind.parse().ok()), subject_id)
+            })
+            .collect())
+    }
+
+    /// The entries of tree `tree_id` that stored a state of one of
+    /// `persons`.
+    pub async fn entries_versioning_persons(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        persons: &[Uuid],
+    ) -> Result<HashSet<Uuid>, OxidGeneError> {
+        Ok(in_chunks(persons, |chunk| async move {
+            record_version::Entity::find()
+                .select_only()
+                .column(record_version::Column::AuditEntryId)
+                .filter(record_version::Column::TreeId.eq(tree_id))
+                .filter(record_version::Column::RecordType.eq(RecordType::Person.as_str()))
+                .filter(record_version::Column::RecordId.is_in(chunk))
+                .distinct()
+                .into_tuple::<Uuid>()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?
+        .into_iter()
+        .collect())
+    }
+
+    /// A page of the entries `ids` of tree `tree_id` names, newest first as
+    /// `ids` lists them: a restricted viewer's audit log, chosen by the
+    /// caller. `total_count` counts `ids`.
+    pub async fn list_entries_among(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        ids: &[Uuid],
+        params: &PaginationParams,
+    ) -> Result<Connection<AuditEntry>, OxidGeneError> {
+        let limit = params.clamped_first() as usize;
+        let start = match params.decode_cursor()? {
+            None => 0,
+            Some(after) => ids.partition_point(|id| *id >= after),
+        };
+        let page: Vec<Uuid> = ids.iter().skip(start).take(limit + 1).copied().collect();
+        let has_next_page = page.len() > limit;
+        let page = &page[..page.len().min(limit)];
+        let mut rows = audit_entry::Entity::find()
+            .filter(audit_entry::Column::TreeId.eq(tree_id))
+            .filter(audit_entry::Column::Id.is_in(page.to_vec()))
+            .order_by(audit_entry::Column::Id, Order::Desc)
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        rows.retain(|row| page.contains(&row.id));
+        let entries = with_counts(db, rows).await?;
+        Ok(connection(
+            entries.into_iter().map(|e| (e.id, e)).collect(),
+            has_next_page,
+            ids.len() as u64,
+        ))
+    }
+
+    /// The persons entry `entry_id` of tree `tree_id` stored a state of.
+    pub async fn persons_versioned_by(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        entry_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        record_version::Entity::find()
+            .select_only()
+            .column(record_version::Column::RecordId)
+            .filter(record_version::Column::TreeId.eq(tree_id))
+            .filter(record_version::Column::AuditEntryId.eq(entry_id))
+            .filter(record_version::Column::RecordType.eq(RecordType::Person.as_str()))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
     }
 
     /// A record's versions, latest — its live state — first.

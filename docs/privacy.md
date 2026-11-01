@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -343,7 +343,11 @@ any display mode, carries no value, so it adds nothing to a count, a usage
 list or a descent, and a descent through a hidden person stops there. A
 source is hidden when it is cited and none of its citations is visible; a
 place when it is used and none of its events and media is visible; a source
-or a place nobody uses stays shown, since no hidden record reaches it.
+or a place nobody uses stays shown, since no hidden record reaches it. In
+the history, a snapshot label naming a hidden person is left out rather
+than replaced: the frontend renders an unlabelled record as its unknown
+placeholder, and the hidden person's identifier is the redaction's
+pseudonym, or absent, so nothing else names them.
 
 ---
 
