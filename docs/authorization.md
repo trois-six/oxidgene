@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -22,9 +22,9 @@ surfaces, the authors of the history, the jobs' actors and the access log.
 Sharing is in place (phase 5): Visitors from the tree's visibility and from
 share links, sharing with users of the instance, invitations by email,
 access scopes materialized and kept current, and a scoped Editor's write
-rules. The redaction a Visitor reads through, which also shows a scope's
-*Not shared* boundary, is phase 3's
-([Privacy §7](privacy.md#7-enforcement-points)); API clients and MCP over
+rules. Every read goes through the redaction of
+[Privacy §7](privacy.md#7-enforcement-points), which limits a scoped
+viewer to their scope and draws its *Not shared* boundary; API clients and MCP over
 HTTP are planned; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
 tracks the phases. Like everything of EPIC G, this is compiled and active
 only in the web build — server, worker and web frontend; the desktop keeps
@@ -474,7 +474,12 @@ sources and repositories through the records citing or using them.
 **The boundary.** A person outside the scope who is a parent, spouse or child
 of a person inside appears as a *Not shared* stub — no name, no dates, no
 identifier, no navigation — so a chart keeps its shape; anyone further out
-does not appear (open decision 8).
+does not appear (open decision 8). The stub carries a pseudonym drawn for
+the request, never the person's identifier, as an excluded person's would,
+and the exclusions win over it: an excluded relative at the boundary is
+absent. Lists, search and counts filter on the scope in SQL, joining
+`access_scope_person`; an export by a scoped viewer keeps their scope's
+persons alone.
 
 ---
 

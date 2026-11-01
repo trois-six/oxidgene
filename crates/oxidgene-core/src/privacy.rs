@@ -787,6 +787,9 @@ pub enum Withheld {
     Private,
     /// Rule 3: a contemporary person, whatever their own privacy.
     Contemporary,
+    /// Outside the access scope the viewer is limited to (Authorization
+    /// §6.5): never chosen by [`withheld`], which knows no scope.
+    OutOfScope,
 }
 
 /// The first rule of §3.1 hiding a record from a Visitor, or none when it is

@@ -39,7 +39,9 @@ pub async fn redaction(
     let redaction = if viewing.is_unrestricted() {
         Arc::new(Redaction::unrestricted())
     } else {
-        Arc::new(restricted(db, profiles, viewing, tree_id).await?)
+        // On the heap: the build reads several tables, and every resolver
+        // awaits it, on small stacks too.
+        Arc::new(Box::pin(restricted(db, profiles, viewing, access.scope_id, tree_id)).await?)
     };
     viewer.remember_redaction(tree_id, Arc::clone(&redaction));
     Ok(redaction)
@@ -52,13 +54,14 @@ async fn restricted(
     db: &DatabaseConnection,
     profiles: &ProfileService,
     viewing: Viewing,
+    scope_id: Option<Uuid>,
     tree_id: Uuid,
 ) -> Result<Redaction, OxidGeneError> {
     use std::collections::HashSet;
 
     use chrono::Datelike;
     use oxidgene_core::enums::Privacy;
-    use oxidgene_core::redaction::RedactionInputs;
+    use oxidgene_core::redaction::{RedactionInputs, ScopeInputs};
     use oxidgene_db::repo::{FamilyRepo, MembershipsOf, PersonVisibilityRepo, TreeRepo};
 
     let tree = TreeRepo::get(db, tree_id).await?;
@@ -72,9 +75,20 @@ async fn restricted(
     } else {
         Some(profiles.tree_visibility(tree_id).await?)
     };
+    // The persons a scoped viewer sees, the boundary they see as stubs and
+    // the tree's live persons, outside of which nobody is (Authorization
+    // §6.5); the scope is rebuilt first on the writer when it is stale.
+    let scope = match scope_id {
+        Some(scope_id) => Some((
+            scope_id,
+            crate::service::access_scope::scoped_tree(profiles.writer(), tree_id, scope_id).await?,
+        )),
+        None => None,
+    };
     // The families whose spouses may be hidden: those of the excluded
-    // persons, or every family for a viewer the privacy rules redact.
-    let families: Vec<(Uuid, Privacy, Vec<Uuid>)> = if visibility.is_some() {
+    // persons, or every family for a viewer the privacy rules or a scope
+    // redact.
+    let families: Vec<(Uuid, Privacy, Vec<Uuid>)> = if visibility.is_some() || scope.is_some() {
         let all = FamilyRepo::list_all(db, tree_id).await?;
         let ids: Vec<Uuid> = all.iter().map(|f| f.id).collect();
         let spouses = spouses_of(db, &ids).await?;
@@ -108,6 +122,12 @@ async fn restricted(
             excluded: Some(&excluded),
             visibility: visibility.as_ref(),
             families: &families,
+            scope: scope.as_ref().map(|(id, scope)| ScopeInputs {
+                id: *id,
+                live: &scope.live,
+                inside: &scope.inside,
+                boundary: &scope.boundary,
+            }),
         },
         chrono::Utc::now().year(),
     ))
@@ -138,6 +158,7 @@ async fn restricted(
     _db: &DatabaseConnection,
     _profiles: &ProfileService,
     _viewing: Viewing,
+    _scope_id: Option<Uuid>,
     _tree_id: Uuid,
 ) -> Result<Redaction, OxidGeneError> {
     Ok(Redaction::unrestricted())

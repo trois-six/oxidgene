@@ -86,16 +86,22 @@ pub async fn default_root(
         first: 1,
         after: None,
     };
-    let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
-    PersonRepo::list_filtered(db, tree_id, None, &first, &hidden)
-        .await?
-        .edges
-        .first()
-        .map(|edge| edge.node.id)
-        .ok_or(OxidGeneError::NotFound {
-            entity: "Person",
-            id: tree_id,
-        })
+    let (ids, scope) = redaction.unseen_persons();
+    PersonRepo::list_filtered(
+        db,
+        tree_id,
+        None,
+        &first,
+        oxidgene_db::repo::Unseen { ids: &ids, scope },
+    )
+    .await?
+    .edges
+    .first()
+    .map(|edge| edge.node.id)
+    .ok_or(OxidGeneError::NotFound {
+        entity: "Person",
+        id: tree_id,
+    })
 }
 
 /// A pedigree expansion: in `direction`, from `from_depth` to `to_depth`

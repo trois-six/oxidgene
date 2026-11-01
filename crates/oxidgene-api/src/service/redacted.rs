@@ -156,6 +156,7 @@ mod tests {
                 excluded: Some(&excluded_set),
                 visibility: None,
                 families: &families,
+                scope: None,
             },
             2026,
         );

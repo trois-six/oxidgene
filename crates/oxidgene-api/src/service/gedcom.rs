@@ -1113,6 +1113,15 @@ pub async fn load_and_export(
         let persons = tag_bulk::export_persons(db, tree_id, spec).await?;
         export_scope::cut_to(&mut records, &persons, tree.self_person_id);
     }
+    // Only the web build has access scopes.
+    #[cfg(feature = "auth")]
+    if let Some(scope) = privacy.access_scope {
+        let persons: Vec<Uuid> = crate::service::access_scope::scope_persons(db, scope)
+            .await?
+            .into_iter()
+            .collect();
+        export_scope::cut_to(&mut records, &persons, tree.self_person_id);
+    }
     let excluded = excluded_persons(db, tree_id, privacy).await?;
     export_privacy::apply(&mut records, &tree, privacy, &excluded);
 

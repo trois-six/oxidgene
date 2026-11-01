@@ -158,6 +158,11 @@ pub struct PersonSearchFilters {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub hidden: Vec<Uuid>,
+    /// The access scope the viewer is limited to: persons outside it are
+    /// left out too (docs/authorization.md §6.5). Set by the server.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub scope: Option<Uuid>,
 }
 
 /// Stable server-side ordering for person search.
@@ -1172,6 +1177,14 @@ fn filtered_conditions(
     push_relative_filters(values, &mut conditions, backend, tree_id, filters);
     push_tag_filters(values, &mut conditions, backend, tree_id, filters);
     push_hidden(values, &mut conditions, backend, &filters.hidden);
+    if let Some(scope) = filters.scope {
+        let scope = push_value(values, backend, scope.into());
+        let person_id = uuid_as_text(backend, "asp.person_id");
+        conditions.push(format!(
+            "person_search_fts.person_id IN (SELECT {person_id} FROM access_scope_person asp \
+             WHERE asp.scope_id = {scope})"
+        ));
+    }
     conditions.join(" AND ")
 }
 
@@ -1303,6 +1316,7 @@ mod tests {
             has_media: true,
             tags: vec![Uuid::from_u128(5)],
             hidden: Vec::new(),
+            scope: None,
         }
     }
 

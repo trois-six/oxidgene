@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
 ---
 
 
@@ -109,8 +109,10 @@ The account, membership and access-log operations are listed under
 [Accounts](#accounts), sharing under [Sharing](#sharing): a `site` or
 `public` tree, or one a share link the browser opened shows, has Visitors
 who read it with `read` alone. Every read redacts what the viewer may not
-see ([Privacy §7](privacy.md#7-enforcement-points)): an Editor or a Guest
-never reads a person the owner excluded, nor a Guest a confidential note.
+see ([Privacy §7](privacy.md#7-enforcement-points)): nobody but the owner
+reads a person the owner excluded, a Guest or a Visitor no confidential
+note, a Visitor no private or contemporary person, and a scoped viewer
+nobody outside their scope but its *Not shared* boundary.
 
 The planned contract, for the web build only, is specified in
 [Authentication](authentication.md), [Authorization](authorization.md),

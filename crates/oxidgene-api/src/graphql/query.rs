@@ -444,9 +444,10 @@ impl TreeQuery {
                 after,
             };
             let redaction = seen(ctx, tid).await?;
-            let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+            let (ids, scope) = redaction.unseen_persons();
+            let unseen = oxidgene_db::repo::Unseen { ids: &ids, scope };
             let mut conn =
-                PersonRepo::list_filtered(db, tid, search.as_deref(), &params, &hidden).await?;
+                PersonRepo::list_filtered(db, tid, search.as_deref(), &params, unseen).await?;
             if redaction.withholds_tags() {
                 for edge in &mut conn.edges {
                     edge.node.tags.clear();
@@ -2233,6 +2234,7 @@ impl TreeQuery {
                 event_to,
                 has_media,
                 hidden: Vec::new(),
+                scope: None,
             };
             let redaction = seen(ctx, tid).await?;
             let result = profiles

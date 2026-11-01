@@ -87,6 +87,7 @@ fn redaction(viewing: Viewing, display: HiddenDisplay, t: &Tree) -> Redaction {
             excluded: Some(&t.excluded_set),
             visibility: Some(&t.visibility),
             families: &t.families,
+            scope: None,
         },
         2026,
     )
@@ -156,6 +157,7 @@ fn a_placeholder_that_may_not_be_navigated_has_a_pseudonym() {
             excluded: Some(&t.excluded_set),
             visibility: Some(&t.visibility),
             families: &t.families,
+            scope: None,
         },
         2026,
     );
@@ -188,6 +190,7 @@ fn a_contemporarys_photo_shows_only_when_the_tree_says_so() {
             excluded: Some(&t.excluded_set),
             visibility: Some(&t.visibility),
             families: &[],
+            scope: None,
         },
         2026,
     );
@@ -308,4 +311,47 @@ fn a_pedigree_loses_absent_persons_and_their_links() {
     assert!(pedigree.families[&family].spouse_ids.is_empty());
     let text = serde_json::to_string(&pedigree).unwrap();
     assert!(!text.contains(&t.excluded.to_string()), "{text}");
+}
+
+#[test]
+fn a_scope_shows_its_persons_and_stubs_its_boundary() {
+    let t = tree();
+    let live: HashSet<Uuid> = [t.excluded, t.private, t.living, t.public].into();
+    let inside: HashSet<Uuid> = [t.public, t.excluded].into();
+    let boundary: HashSet<Uuid> = [t.living].into();
+    let scope_id = Uuid::now_v7();
+    let settings = PrivacySettings {
+        hidden_navigation: true,
+        ..PrivacySettings::default()
+    };
+    let r = Redaction::build(
+        EDITOR,
+        TreeDefaultPrivacy::Public,
+        &settings,
+        &RedactionInputs {
+            excluded: Some(&t.excluded_set),
+            visibility: None,
+            families: &t.families,
+            scope: Some(ScopeInputs {
+                id: scope_id,
+                live: &live,
+                inside: &inside,
+                boundary: &boundary,
+            }),
+        },
+        2026,
+    );
+    assert!(r.shows(t.public));
+    // An exclusion wins over the scope.
+    assert_eq!(r.person(t.excluded), Appearance::Absent);
+    // The boundary is a stub nobody navigates through; further out, nothing.
+    assert_eq!(r.person(t.living), Appearance::Stub);
+    let stub = r.public_id(t.living).expect("a stub keeps a pseudonym");
+    assert_ne!(stub, t.living);
+    assert_eq!(r.person(t.private), Appearance::Absent);
+    assert_eq!(r.public_id(t.private), None);
+    // Lists filter on the scope in SQL, leaving out the hidden inside it.
+    assert_eq!(r.unseen_persons(), (vec![t.excluded], Some(scope_id)));
+    // A family with a spouse outside the scope has its content withheld.
+    assert!(r.family_withheld(t.families[0].0));
 }

@@ -24,6 +24,35 @@ pub fn none_of<C: sea_orm::ColumnTrait>(column: C, ids: &[Uuid]) -> sea_orm::Con
         })
 }
 
+/// The persons a list leaves out for a restricted viewer (docs/privacy.md
+/// §7): `ids`, and with a `scope` everyone outside the access scope, read
+/// from `access_scope_person` (docs/authorization.md §6.5).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Unseen<'a> {
+    pub ids: &'a [Uuid],
+    pub scope: Option<Uuid>,
+}
+
+impl Unseen<'_> {
+    /// The condition that person `column` names someone the viewer sees.
+    pub fn condition<C: sea_orm::ColumnTrait>(&self, column: C) -> sea_orm::Condition {
+        use sea_orm::sea_query::{Alias, Expr, ExprTrait, Query};
+        let condition = none_of(column, self.ids);
+        match self.scope {
+            Some(scope) => condition.add(
+                column.in_subquery(
+                    Query::select()
+                        .column(Alias::new("person_id"))
+                        .from(Alias::new("access_scope_person"))
+                        .and_where(ExprTrait::eq(Expr::col(Alias::new("scope_id")), scope))
+                        .to_owned(),
+                ),
+            ),
+            None => condition,
+        }
+    }
+}
+
 /// Run `query` over `ids` one bounded slice at a time and concatenate the rows.
 ///
 /// An empty `ids` runs no query at all.

@@ -402,7 +402,13 @@ impl ProfileService {
         params: &oxidgene_db::repo::PaginationParams,
     ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
         self.ensure_materialized(tree_id).await?;
-        PersonDenormRepo::list_page(&self.reader, tree_id, params, &[]).await
+        PersonDenormRepo::list_page(
+            &self.reader,
+            tree_id,
+            params,
+            oxidgene_db::repo::Unseen::default(),
+        )
+        .await
     }
 
     // ── Pedigree ─────────────────────────────────────────────────────────

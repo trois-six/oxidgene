@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -17,12 +17,12 @@ generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
 contemporary rule (§4) is derived and, in the web build, materialized in
 `person_visibility`; the exclusions (§6) are stored and materialized in the
 web build; the tree settings (§9) and the export options (§8) work. Every
-enforcement point of §7 redacts what Editors and Guests may not see — the
-owner's exclusions, confidential notes for Guests, and tags without
-`read_tags` — through one policy built from the viewer's permissions; the
-same policy hides private and contemporary persons from Visitors once they
-exist ([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment),
-phase 5). Viewer redaction and exclusions are compiled and active only in the
+enforcement point of §7 redacts what the viewer may not see — the owner's
+exclusions, confidential notes and tags without the permission, private and
+contemporary persons for Visitors and share links' holders, and what lies
+outside a viewer's access scope
+([Authorization §6.5](authorization.md#65-access-scopes)) — through one
+policy built from the viewer's access. Viewer redaction and exclusions are compiled and active only in the
 web build; the desktop has one user who sees everything, and keeps today's
 behaviour ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
 The export option that leaves out contemporary and private persons (§8) is
@@ -399,6 +399,11 @@ pseudonym, or absent, so nothing else names them.
   portrait or tags.
 - Statistics count the persons shown in full, and the growth chart adds or
   removes none of the hidden ones on any day.
+- An access scope is one more input of the same policy: a person outside it
+  is absent, or a *Not shared* stub when a parent, spouse or child of a
+  person inside, with a request's pseudonym and no navigation. The
+  exclusions win over the scope, the scope over the privacy rules, so a
+  boundary person never shows more than that stub.
 
 ---
 

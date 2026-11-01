@@ -119,13 +119,13 @@ impl PersonDenormRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &crate::repo::PaginationParams,
-        hidden: &[Uuid],
+        unseen: crate::repo::Unseen<'_>,
     ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
         let page = crate::repo::pagination::paginate(
             db,
             Entity::find()
                 .filter(Column::TreeId.eq(tree_id))
-                .filter(crate::repo::none_of(Column::PersonId, hidden)),
+                .filter(unseen.condition(Column::PersonId)),
             Column::PersonId,
             params,
             |model: Model| (model.person_id, model),

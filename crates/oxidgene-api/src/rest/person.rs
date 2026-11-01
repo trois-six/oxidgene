@@ -38,13 +38,13 @@ pub async fn list_persons(
         after: query.after,
     };
     let redaction = viewer.redaction(&state, tree_id).await?;
-    let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
+    let (ids, scope) = redaction.unseen_persons();
     let mut persons = PersonRepo::list_filtered(
         &state.reader,
         tree_id,
         query.search.as_deref(),
         &params,
-        &hidden,
+        oxidgene_db::repo::Unseen { ids: &ids, scope },
     )
     .await?;
     if redaction.withholds_tags() {

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -334,9 +334,8 @@ string in every language, and the user guide. In order:
    - [x] Redaction in every enforcement point and display mode, confidential
      notes, media privacy, cache headers
      ([Privacy §5, §7](privacy.md#7-enforcement-points)), and the export's
-     *Apply visitors' privacy rules*: enforced for Editors and Guests, and
-     ready for Visitors, who read through the same policy once phase 5
-     gives them a tree access.
+     *Apply visitors' privacy rules*: for Editors, Guests, Visitors and
+     share links' holders alike, through one policy.
    - [x] Exclusions of persons and subtrees, materialized and kept current,
      from the person menu and the privacy settings
      ([Privacy §6](privacy.md#6-exclusions-from-sharing)), and the owner's
@@ -344,7 +343,7 @@ string in every language, and the user guide. In order:
    - [x] The tree's privacy settings in [Settings §8](ui-settings.md#8-section-privacy),
      and the canary persons of the privacy tests.
    - [x] The leak suite over the canary persons, over every REST and GraphQL
-     read, for Editors and Guests; Visitors join it with phase 5.
+     read, for Editors, Guests, a scoped Guest and Visitors.
 4. **Notifications and email.**
    - [ ] In-app notifications, preferences and the long poll
      ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)).
@@ -360,8 +359,8 @@ string in every language, and the user guide. In order:
    - [x] Access scopes, materialized and kept current, with their preview,
      and a scoped Editor's write rules
      ([Authorization §3.3, §6.5](authorization.md#65-access-scopes)).
-   - [ ] Every read limited to the viewer's scope, with the *Not shared*
-     boundary, through phase 3's redaction.
+   - [x] Every read limited to the viewer's scope, with the *Not shared*
+     boundary, through phase 3's redaction; exports too.
    - [x] The homepage's roles and invitations, and the owner's Members and
      Sharing sections, the visitor banner and **Leave this tree**.
    - [ ] Edit controls hidden throughout the tree pages where
@@ -437,9 +436,8 @@ Releases:
   macOS, WebView2): whether it raises `beforeprint`, and whether it honours
   the pedigree's landscape page.
 
-Privacy fields hide nothing yet from the members of a tree, who all hold
-`read_private`: they take effect for Visitors (phase 5). The UI must state
-this clearly until then.
+Privacy fields hide nothing from the members of a tree, who all hold
+`read_private`: they take effect for Visitors and share links' holders.
 
 ## 9. Planned: assistant access (MCP)
 

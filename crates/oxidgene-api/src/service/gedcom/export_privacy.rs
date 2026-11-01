@@ -45,13 +45,20 @@ pub struct ExportPrivacy {
     /// *Apply visitors' privacy rules* (§8): write the tree as a viewer
     /// without `read_private` sees it.
     pub apply_visitor_rules: bool,
+    /// The access scope the exporter is limited to: the export keeps its
+    /// persons alone (Authorization §6.5). Set from the access, never asked
+    /// for.
+    pub access_scope: Option<Uuid>,
 }
 
 impl ExportPrivacy {
     /// Whether the export leaves anything out.
     #[must_use]
     pub fn applies(self) -> bool {
-        self.leave_out_private || self.leave_out_excluded || self.leave_out_confidential
+        self.leave_out_private
+            || self.leave_out_excluded
+            || self.leave_out_confidential
+            || self.access_scope.is_some()
     }
 
     /// The options `access`'s viewer exports with, asked for or not
@@ -59,8 +66,7 @@ impl ExportPrivacy {
     /// exporter without `read_private` never a private or contemporary one,
     /// one without `read_confidential` never a confidential note; and
     /// *Apply visitors' privacy rules* writes the tree as a viewer holding
-    /// neither sees it. A Visitor's scope will narrow it further when
-    /// sharing ships (phase 5): the seam is here, from `access`.
+    /// neither sees it; a scoped exporter's export keeps their scope alone.
     #[must_use]
     pub fn for_access(self, access: &oxidgene_core::access::TreeAccess) -> Self {
         use oxidgene_core::access::Permission;
@@ -74,6 +80,7 @@ impl ExportPrivacy {
                 || visitor
                 || !access.allows(Permission::ReadConfidential),
             apply_visitor_rules: visitor,
+            access_scope: self.access_scope.or(access.scope_id),
         }
     }
 
@@ -86,6 +93,7 @@ impl ExportPrivacy {
             (self.leave_out_private, "leave_out_private"),
             (self.leave_out_excluded, "leave_out_excluded"),
             (self.leave_out_confidential, "leave_out_confidential"),
+            (self.access_scope.is_some(), "access_scope"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))

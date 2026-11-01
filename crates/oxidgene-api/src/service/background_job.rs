@@ -1085,6 +1085,7 @@ impl BackgroundJobWorker {
                 leave_out_excluded: payload.leave_out_excluded,
                 leave_out_confidential: false,
                 apply_visitor_rules: payload.apply_visitor_rules,
+                access_scope: None,
             },
         )
         .await?;

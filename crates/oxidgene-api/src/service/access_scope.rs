@@ -297,6 +297,8 @@ pub async fn visitor_scope(
 pub struct ScopedTree {
     pub inside: HashSet<Uuid>,
     pub boundary: HashSet<Uuid>,
+    /// The tree's live persons.
+    pub live: HashSet<Uuid>,
 }
 
 /// The persons scope `scope_id` of `tree_id` shows and stubs, the scope
@@ -307,9 +309,13 @@ pub async fn scoped_tree(
     scope_id: Uuid,
 ) -> Result<ScopedTree, OxidGeneError> {
     let inside = scope_persons(db, scope_id).await?;
-    let (kin, _) = kinship(db, tree_id).await?;
+    let (kin, live) = kinship(db, tree_id).await?;
     let boundary = oxidgene_core::sharing::boundary(&inside, &kin);
-    Ok(ScopedTree { inside, boundary })
+    Ok(ScopedTree {
+        inside,
+        boundary,
+        live,
+    })
 }
 
 /// The scope an update asks for, created in the caller's transaction:

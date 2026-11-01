@@ -634,6 +634,7 @@ pub fn export_privacy(
         leave_out_excluded: leave_out_excluded.unwrap_or(false),
         leave_out_confidential: false,
         apply_visitor_rules: apply_visitor_rules.unwrap_or(false),
+        access_scope: None,
     }
 }
 

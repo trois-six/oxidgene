@@ -121,18 +121,18 @@ impl PersonRepo {
     }
 
     /// List persons in a tree, optionally matching any stored name, less the
-    /// persons of `hidden`, which the count leaves out too.
+    /// persons `unseen` leaves out, which the count leaves out too.
     pub async fn list_filtered(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         search: Option<&str>,
         params: &PaginationParams,
-        hidden: &[Uuid],
+        unseen: super::Unseen<'_>,
     ) -> Result<Connection<Person>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
-            .filter(crate::repo::none_of(Column::Id, hidden));
+            .filter(unseen.condition(Column::Id));
         if let Some(search) = search.map(str::trim).filter(|value| !value.is_empty()) {
             query = query
                 .join(JoinType::InnerJoin, person::Relation::PersonName.def())
@@ -367,14 +367,14 @@ impl PersonRepo {
     pub async fn count_by_creation(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        hidden: &[Uuid],
+        unseen: super::Unseen<'_>,
     ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
         Entity::find()
             .select_only()
             .column(Column::CreatedAt)
             .column_as(Column::Id.count(), "count")
             .filter(Column::TreeId.eq(tree_id))
-            .filter(super::none_of(Column::Id, hidden))
+            .filter(unseen.condition(Column::Id))
             .group_by(Column::CreatedAt)
             .into_tuple()
             .all(db)
@@ -387,14 +387,14 @@ impl PersonRepo {
     pub async fn count_by_deletion(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        hidden: &[Uuid],
+        unseen: super::Unseen<'_>,
     ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
         Entity::find()
             .select_only()
             .column(Column::DeletedAt)
             .column_as(Column::Id.count(), "count")
             .filter(Column::TreeId.eq(tree_id))
-            .filter(super::none_of(Column::Id, hidden))
+            .filter(unseen.condition(Column::Id))
             .filter(Column::DeletedAt.is_not_null())
             .group_by(Column::DeletedAt)
             .into_tuple()

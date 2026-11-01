@@ -100,6 +100,22 @@ pub struct RedactionInputs<'a> {
     /// withheld. Only the families of hidden persons are needed for a viewer
     /// with `read_private`.
     pub families: &'a [(Uuid, Privacy, Vec<Uuid>)],
+    /// The access scope the viewer is limited to, none for the whole tree.
+    pub scope: Option<ScopeInputs<'a>>,
+}
+
+/// An access scope as the redaction reads it (Authorization §6.5).
+#[derive(Debug, Clone, Copy)]
+pub struct ScopeInputs<'a> {
+    /// The scope's identifier, which lists filter on in SQL.
+    pub id: Uuid,
+    /// The tree's live persons.
+    pub live: &'a HashSet<Uuid>,
+    /// The persons the scope reaches.
+    pub inside: &'a HashSet<Uuid>,
+    /// The persons outside it who are a parent, a spouse or a child of a
+    /// person inside: *Not shared* stubs.
+    pub boundary: &'a HashSet<Uuid>,
 }
 
 /// What one viewer sees of one tree, for one request.
@@ -114,6 +130,8 @@ pub struct Redaction {
     navigation: bool,
     contemporary_photos: bool,
     default_privacy: TreeDefaultPrivacy,
+    /// The access scope the viewer is limited to.
+    scope: Option<Uuid>,
     pseudonyms: Mutex<HashMap<Uuid, Uuid>>,
 }
 
@@ -150,6 +168,18 @@ impl Redaction {
                         reason: Withheld::Excluded,
                     },
                 );
+            }
+        }
+        if let Some(scope) = inputs.scope {
+            for &id in scope.live.difference(scope.inside) {
+                persons.entry(id).or_insert(HiddenPerson {
+                    appearance: if scope.boundary.contains(&id) {
+                        Appearance::Stub
+                    } else {
+                        Appearance::Absent
+                    },
+                    reason: Withheld::OutOfScope,
+                });
             }
         }
         if !viewing.read_private {
@@ -195,6 +225,7 @@ impl Redaction {
             navigation: settings.hidden_navigation,
             contemporary_photos: settings.contemporary_photos,
             default_privacy,
+            scope: inputs.scope.map(|scope| scope.id),
             pseudonyms: Mutex::default(),
         }
     }
@@ -242,6 +273,20 @@ impl Redaction {
     /// Every hidden person, absent or a placeholder.
     pub fn hidden_persons(&self) -> impl Iterator<Item = Uuid> + '_ {
         self.persons.keys().copied()
+    }
+
+    /// What a list leaves out, as SQL can say it: the hidden persons inside
+    /// the access scope, and the scope, outside of which nobody is shown.
+    /// Without a scope, every hidden person.
+    #[must_use]
+    pub fn unseen_persons(&self) -> (Vec<Uuid>, Option<Uuid>) {
+        let ids = self
+            .persons
+            .iter()
+            .filter(|(_, hidden)| hidden.reason != Withheld::OutOfScope)
+            .map(|(id, _)| *id)
+            .collect();
+        (ids, self.scope)
     }
 
     /// Whether the content of family `id` — its events, notes, citations
@@ -328,7 +373,11 @@ impl Redaction {
             None => Some(id),
             Some(hidden) => match hidden.appearance {
                 Appearance::Absent => None,
-                _ if self.navigation && hidden.reason != Withheld::Excluded => Some(id),
+                _ if self.navigation
+                    && !matches!(hidden.reason, Withheld::Excluded | Withheld::OutOfScope) =>
+                {
+                    Some(id)
+                }
                 _ => Some(self.pseudonym(id)),
             },
         }
