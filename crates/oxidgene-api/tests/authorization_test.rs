@@ -1001,15 +1001,25 @@ async fn every_write_names_its_author_and_a_refusal_is_logged() {
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let log = format!("/api/v1/trees/{tree}/access-log");
+    // The log is written off the request path, and the fixture's sharing
+    // steps log events of their own: wait for the refusal itself.
+    let refusal = |events: &Value| {
+        events["edges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|edge| edge["node"].clone())
+            .find(|node| node["kind"] == "request_refused")
+    };
     let mut events = Value::Null;
-    for _ in 0..50 {
+    for _ in 0..250 {
         events = fixture.rest(Who::Owner, Method::GET, &log, None).await.1;
-        if events["total_count"].as_i64().unwrap_or(0) > 0 {
+        if refusal(&events).is_some() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
-    let event = &events["edges"][0]["node"];
+    let event = &refusal(&events).unwrap_or_else(|| panic!("no refusal logged: {events}"));
     assert_eq!(event["kind"], "request_refused", "{events}");
     assert_eq!(event["outcome"], "forbidden");
     assert_eq!(event["permission"], "create");
