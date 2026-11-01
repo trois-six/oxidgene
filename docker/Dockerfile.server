@@ -18,6 +18,8 @@ COPY assets/reference/ assets/reference/
 # script embeds.
 COPY assets/archives/ assets/archives/
 COPY assets/citations/ assets/citations/
+# The mail templates the API embeds (docs/messaging.md §3).
+COPY assets/mail/ assets/mail/
 
 RUN cargo build --locked --release --package oxidgene-server
 

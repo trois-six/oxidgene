@@ -7,6 +7,7 @@
 
 mod continuous_listeners;
 mod dead_css;
+mod docker_assets;
 mod html_injection;
 mod layering;
 mod lint_discipline;

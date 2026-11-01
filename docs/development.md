@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -612,6 +612,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
+| Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage |
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` is one release of pdf.js's legacy build, the one its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
