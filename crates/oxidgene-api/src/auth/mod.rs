@@ -41,6 +41,7 @@ use provider::Provider;
 use token::{IntrospectionCache, Validator};
 
 use crate::service::account::SignupPolicy;
+use crate::service::notification::Mailing;
 use crate::service::sharing::{InvitationOutbox, NoOutbox, SharingEnv};
 
 /// The authentication of one server: its mode and, in `oidc`, the provider,
@@ -48,8 +49,8 @@ use crate::service::sharing::{InvitationOutbox, NoOutbox, SharingEnv};
 #[derive(Debug)]
 pub struct Auth {
     mode: Mode,
-    /// Where invitations are mailed: nowhere until notifications and email
-    /// (roadmap phase 4) give the server an outbox.
+    /// Where invitations are mailed: nowhere until the server, given an
+    /// SMTP relay, sets the mail outbox.
     outbox: Arc<dyn InvitationOutbox>,
 }
 
@@ -119,12 +120,30 @@ impl Auth {
         }
     }
 
-    /// This authentication mailing invitations through `outbox`: the seam
-    /// notifications and email (roadmap phase 4) implement.
+    /// This authentication mailing invitations through `outbox`
+    /// ([`crate::mail::MailOutbox`]); whether it delivers decides whether
+    /// notifications are mailed too.
     #[must_use]
     pub fn with_invitation_outbox(mut self, outbox: Arc<dyn InvitationOutbox>) -> Self {
         self.outbox = outbox;
         self
+    }
+
+    /// Whether the deployment mails (docs/messaging.md §3.5): an SMTP relay
+    /// is configured, in `oidc`. The `none` mode never mails.
+    pub(crate) fn mailing(&self) -> Mailing {
+        Mailing(self.oidc().is_some() && self.outbox.delivers())
+    }
+
+    /// The keys of the unsubscribe tokens, in `oidc`: derived from the
+    /// session keys.
+    pub(crate) fn unsubscribe_keys(&self) -> Result<crate::mail::UnsubscribeKeys, OxidGeneError> {
+        self.oidc()
+            .map(|oidc| crate::mail::UnsubscribeKeys::from_session_keys(&oidc.config.session_keys))
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Notification",
+                id: Uuid::nil(),
+            })
     }
 
     /// What sharing needs of the deployment, in `oidc`: the `none` mode has

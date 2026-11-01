@@ -39,6 +39,7 @@ use crate::authz;
 use crate::service::access_scope::{self, ScopeView};
 use crate::service::history::Change;
 use crate::service::membership::{MemberView, member_view};
+use crate::service::notification::{About, Mailing, Notices, NotificationKind};
 use crate::service::scope::{begin_tx, commit_tx};
 
 /// How long an invitation waits for an answer by default.
@@ -52,20 +53,17 @@ pub const MAX_SHARE_CANDIDATES: u64 = 50;
 
 // ── The mail seam ───────────────────────────────────────────────────────
 
-/// An invitation to mail (docs/messaging.md §3.4): who, to what, in which
-/// language, and the link to the application. Never logged.
+/// An invitation to mail (docs/messaging.md §3.3): the ids it is rendered
+/// from when the worker sends it — the tree's name, the inviter's, the role
+/// and the link are read then — and the address. Never logged.
 #[derive(Clone, PartialEq, Eq)]
 pub struct InvitationMail {
     pub invitation_id: Uuid,
     pub tree_id: Uuid,
     /// The invited address.
     pub email: String,
-    pub tree_name: String,
-    /// The display name of the owner who invited.
-    pub inviter_name: Option<String>,
-    pub role: TreeRole,
-    /// `{public_url}/invitations`, which carries no secret.
-    pub link: String,
+    /// The owner who invited.
+    pub inviter_id: Option<Uuid>,
 }
 
 impl std::fmt::Debug for InvitationMail {
@@ -79,8 +77,8 @@ impl std::fmt::Debug for InvitationMail {
 
 /// Where an invitation's mail goes: the outbox of docs/messaging.md §3.3,
 /// written in the transaction of the invitation so that a rolled-back
-/// write sends nothing. Notifications and email (roadmap phase 4) implement
-/// it; until then [`NoOutbox`] mails nothing.
+/// write sends nothing. [`crate::mail::MailOutbox`] implements it; a
+/// deployment without a relay mails nothing.
 #[async_trait::async_trait]
 pub trait InvitationOutbox: Send + Sync + std::fmt::Debug {
     /// Whether invitations are mailed at all: SMTP is configured.
@@ -92,6 +90,9 @@ pub trait InvitationOutbox: Send + Sync + std::fmt::Debug {
         txn: &DatabaseTransaction,
         mail: InvitationMail,
     ) -> Result<(), OxidGeneError>;
+
+    /// The transaction that queued a mail committed: wake whoever sends it.
+    fn committed(&self) {}
 }
 
 /// No mail relay: nothing is mailed, and the owner shares the invitation
@@ -127,6 +128,11 @@ impl SharingEnv {
     /// The invitation link: `{public_url}/invitations`.
     pub fn invitation_link(&self) -> String {
         format!("{}/invitations", self.public_url)
+    }
+
+    /// Whether the deployment mails: invitations and notifications alike.
+    pub fn mailing(&self) -> Mailing {
+        Mailing(self.outbox.delivers())
     }
 
     /// How invitations reach their address.
@@ -381,7 +387,7 @@ async fn answer(
             if lookup {
                 log_lookup(db, viewer, tree_id, "member");
             }
-            let member = add_member(viewer, db, tree_id, user.id, role, request).await?;
+            let member = add_member(viewer, (db, env), tree_id, user.id, role, request).await?;
             Ok(ShareOutcome {
                 member: Some(member),
                 invitation: None,
@@ -441,10 +447,11 @@ async fn find(
     Ok(user.filter(|user| user.status == UserStatus::Active))
 }
 
-/// Make `user_id` a member of `tree_id` as `request` says.
+/// Make `user_id` a member of `tree_id` as `request` says, and tell them
+/// (`tree_shared`).
 async fn add_member(
     viewer: &ViewerContext,
-    db: &DatabaseConnection,
+    (db, env): (&DatabaseConnection, &SharingEnv),
     tree_id: Uuid,
     user_id: Uuid,
     role: TreeRole,
@@ -478,7 +485,17 @@ async fn add_member(
         membership.id,
     )
     .await?;
+    let mut notices = Notices::new(env.mailing());
+    notices
+        .add(
+            &txn,
+            NotificationKind::TreeShared,
+            user_id,
+            About::tree(tree_id, viewer),
+        )
+        .await?;
     commit_tx(txn).await?;
+    notices.publish();
     let views = member_views(db, vec![membership]).await?;
     views.into_iter().next().ok_or(OxidGeneError::NotFound {
         entity: "Membership",
@@ -547,6 +564,7 @@ async fn invite(
     )
     .await?;
     commit_tx(txn).await?;
+    env.outbox.committed();
     invitation_views(db, env, vec![invitation])
         .await
         .map(|mut views| views.remove(0))
@@ -578,14 +596,6 @@ async fn mail(
     if !env.outbox.delivers() {
         return Ok(());
     }
-    let tree = TreeRepo::get(txn, invitation.tree_id).await?;
-    let inviter = match viewer.user() {
-        Some(identity) => AppUserRepo::shown_names(txn, &[identity.user_id])
-            .await?
-            .remove(&identity.user_id)
-            .flatten(),
-        None => None,
-    };
     env.outbox
         .enqueue(
             txn,
@@ -593,10 +603,7 @@ async fn mail(
                 invitation_id: invitation.id,
                 tree_id: invitation.tree_id,
                 email: invitation.email.clone(),
-                tree_name: tree.name,
-                inviter_name: inviter,
-                role: invitation.role,
-                link: env.invitation_link(),
+                inviter_id: viewer.user().map(|identity| identity.user_id),
             },
         )
         .await
@@ -724,6 +731,7 @@ pub async fn resend_invitation(
     )
     .await?;
     commit_tx(txn).await?;
+    env.outbox.committed();
     invitation_views(db, env, vec![invitation])
         .await
         .map(|mut views| views.remove(0))
@@ -829,11 +837,12 @@ async fn my_pending(
 }
 
 /// Accept invitation `invitation_id`: it becomes the signed-in user's
-/// membership, with its role, scope and expiry. Someone already a member is
-/// a `conflict`.
+/// membership, with its role, scope and expiry, and the tree's owner is
+/// told (`invitation_accepted`). Someone already a member is a `conflict`.
 pub async fn accept_invitation(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    mailing: Mailing,
     invitation_id: Uuid,
 ) -> Result<MemberView, OxidGeneError> {
     let txn = begin_tx(db).await?;
@@ -874,7 +883,19 @@ pub async fn accept_invitation(
         membership.id,
     )
     .await?;
+    let mut notices = Notices::new(mailing);
+    if let Some(owner) = MembershipRepo::owner(&txn, invitation.tree_id).await? {
+        notices
+            .add(
+                &txn,
+                NotificationKind::InvitationAccepted,
+                owner.user_id,
+                About::tree(invitation.tree_id, viewer),
+            )
+            .await?;
+    }
     commit_tx(txn).await?;
+    notices.publish();
     viewer.forget(invitation.tree_id);
     let mut event = authz::log::event(viewer, "invitation_accepted", "ok");
     event.tree_id = Some(invitation.tree_id);

@@ -462,7 +462,11 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
             }
             if let Some(invitation) = invited() {
                 div { class: "sharing-invited",
-                    p { {i18n.t_args("sharing.share.invited", &[("email", &invitation.email)])} }
+                    if invitation.manual() {
+                        p { {i18n.t_args("sharing.share.invited", &[("email", &invitation.email)])} }
+                    } else {
+                        p { {i18n.t_args("sharing.share.invited_mailed", &[("email", &invitation.email)])} }
+                    }
                     if invitation.manual() {
                         p { class: "settings-check-desc", {i18n.t("sharing.invitations.manual")} }
                         CopyField { label: i18n.t("sharing.invitations.link"), value: invitation.link.clone(), multiline: false }

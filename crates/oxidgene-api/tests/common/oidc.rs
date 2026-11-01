@@ -295,10 +295,25 @@ impl MockProvider {
 
     /// The application over `db`, authenticating against this provider.
     pub fn app(&self, db: &DatabaseConnection, extra: &[(&str, &str)]) -> (Router, Arc<Auth>) {
+        self.app_mailing(db, extra, false)
+    }
+
+    /// The application over `db`, as a deployment with an SMTP relay
+    /// (`mailing`) or without: its mail is queued in the outbox, which the
+    /// tests send themselves.
+    pub fn app_mailing(
+        &self,
+        db: &DatabaseConnection,
+        extra: &[(&str, &str)],
+        mailing: bool,
+    ) -> (Router, Arc<Auth>) {
         let AuthConfig::Oidc(config) = self.settings(extra).resolve().expect("valid") else {
             panic!("oidc expected");
         };
-        let auth = Arc::new(Auth::with_store(*config, Arc::new(MemoryStore::default())));
+        let auth = Arc::new(
+            Auth::with_store(*config, Arc::new(MemoryStore::default()))
+                .with_invitation_outbox(Arc::new(oxidgene_api::mail::MailOutbox::new(mailing))),
+        );
         let state =
             offline(AppState::new(db.clone(), test_media_root())).with_auth(Arc::clone(&auth));
         (oxidgene_api::build_router(state), auth)
