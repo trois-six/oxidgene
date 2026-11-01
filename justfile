@@ -202,12 +202,11 @@ archives-live *archives:
 # Every `#[ignore]`d test names the recipe below that runs it; the
 # `lint_discipline` guard fails on a reason naming no existing recipe.
 
-# Run the opt-in benchmarks of the profile service, the person search and
-# the person visibility, in
-# release mode, one at a time. They print timings and assert nothing a shared
+# Run the opt-in benchmarks of the profile service, the person search, the
+# person visibility and the access scopes, in release mode, one at a time. They print timings and assert nothing a shared
 # machine could fail by being slow.
 bench:
-    cargo nextest run --release -p oxidgene-api -p oxidgene-db --features oxidgene-api/auth --test integration --run-ignored only --no-capture -E 'test(/^(profile_service_test|person_search_test|visibility_test)::/)'
+    cargo nextest run --release -p oxidgene-api -p oxidgene-db --features oxidgene-api/auth,oxidgene-api/graphql --test integration --run-ignored only --no-capture -E 'test(/^(profile_service_test|person_search_test|visibility_test|sharing_test)::/)'
 
 # Migrate an empty, disposable PostgreSQL database up and down, run the
 # repository and API functional tests on it, each test in a schema of its

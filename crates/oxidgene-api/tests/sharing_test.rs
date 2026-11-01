@@ -973,3 +973,106 @@ async fn a_scoped_editor_writes_inside_the_scope_only() {
         gql.json
     );
 }
+
+/// What keeping scopes current costs on a generated tree of 10 000
+/// persons, printed: building a scope (one read of the persons, one of the
+/// links, the walk, the rows), rebuilding it once a link moved, the
+/// whole-tree preview, and writing and reading 10 000 materialized rows.
+/// Timing wants an optimised build: `just bench` runs it in release mode.
+#[tokio::test]
+#[ignore = "benchmark: run by `just bench` in release mode"]
+async fn scope_cost_on_ten_thousand_persons() {
+    use std::time::Instant;
+
+    use oxidgene_api::service::access_scope;
+    use oxidgene_core::sharing::{ScopeDefinition, ScopeKind};
+
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let (tree, anchor) = crate::common::family_blocks_tree(&app, &db, 1_000).await;
+    let tree_id: Uuid = tree.parse().unwrap();
+    let live = oxidgene_db::repo::PersonRepo::live_ids(&db, tree_id)
+        .await
+        .unwrap();
+    assert_eq!(live.len(), 10_000);
+    let definition = ScopeDefinition {
+        kind: ScopeKind::AncestorsAndDescendantsOf,
+        person_id: anchor.parse().unwrap(),
+        depth: None,
+        include_self: true,
+        include_spouses: true,
+        collateral: true,
+    };
+
+    let started = Instant::now();
+    let scope = access_scope::create(&db, tree_id, &definition)
+        .await
+        .unwrap();
+    let built = started.elapsed();
+
+    // A link moves the tree's ancestry generation: the next read rebuilds.
+    let child = crate::common::new_person(&app, &tree).await;
+    let family = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/families"),
+        Some(json!({})),
+    )
+    .await;
+    let family = family["id"].as_str().unwrap();
+    for (path, body) in [
+        (
+            format!("/api/v1/trees/{tree}/families/{family}/spouses"),
+            json!({ "person_id": anchor, "role": "husband", "sort_order": 0 }),
+        ),
+        (
+            format!("/api/v1/trees/{tree}/families/{family}/children"),
+            json!({ "person_id": child, "child_type": "biological", "sort_order": 0 }),
+        ),
+    ] {
+        ok(&app, Method::POST, &path, Some(body)).await;
+    }
+    let started = Instant::now();
+    let persons = access_scope::scope_persons(&db, scope.id).await.unwrap();
+    let rebuilt = started.elapsed();
+    assert!(persons.contains(&child.parse().unwrap()));
+    let started = Instant::now();
+    access_scope::scope_persons(&db, scope.id).await.unwrap();
+    let current = started.elapsed();
+
+    let profiles = std::sync::Arc::new(oxidgene_api::profile::ProfileService::new(db.clone()));
+    let started = Instant::now();
+    let preview = access_scope::preview(&db, &profiles, tree_id, &Default::default())
+        .await
+        .unwrap();
+    let previewed = started.elapsed();
+    assert_eq!(preview.person_count, 10_001);
+
+    // The rows of a scope reaching the whole tree.
+    let all: std::collections::HashSet<Uuid> =
+        oxidgene_db::repo::PersonRepo::live_ids(&db, tree_id)
+            .await
+            .unwrap();
+    let (generation, _) = AccessScopeRepo::generations(&db, scope.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let started = Instant::now();
+    AccessScopeRepo::replace_persons(&db, scope.id, &all, generation)
+        .await
+        .unwrap();
+    let written = started.elapsed();
+    let started = Instant::now();
+    assert_eq!(
+        AccessScopeRepo::persons(&db, scope.id).await.unwrap().len(),
+        10_001
+    );
+    let read = started.elapsed();
+
+    eprintln!(
+        "scope on 10 000 persons: built {built:?} ({} persons), rebuilt after a link {rebuilt:?}, \
+         read while current {current:?}, whole-tree preview {previewed:?}, \
+         10 001 rows written {written:?}, read {read:?}",
+        persons.len()
+    );
+}
