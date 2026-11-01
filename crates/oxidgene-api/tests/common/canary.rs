@@ -17,12 +17,15 @@
 //! occupation at a place, a note — that must go with them:
 //! [`CONTEMPORARY_PLACE`], [`CONTEMPORARY_NOTE`].
 
+#[cfg(feature = "auth")]
 use std::collections::HashMap;
 
 use axum::Router;
 use oxidgene_db::sea_orm::DatabaseConnection;
 
-use super::{all_profiles, import_gedcom, new_tree};
+#[cfg(feature = "auth")]
+use super::all_profiles;
+use super::{import_gedcom, new_tree};
 
 /// The contemporary canary's surname.
 pub const CONTEMPORARY: &str = "Canarycontemporary";
@@ -143,9 +146,11 @@ const GEDCOM: &str = "0 HEAD\n\
 1 CHIL @I2@\n\
 0 TRLR\n";
 
-/// A tree holding the canaries, and each person's id by given name.
+/// A tree holding the canaries, and each person's id by given name (read
+/// by the exclusion tests, which only the `auth` build has).
 pub struct Canaries {
     pub tree: String,
+    #[cfg(feature = "auth")]
     pub persons: HashMap<String, String>,
 }
 
@@ -154,6 +159,7 @@ impl Canaries {
     pub async fn new(app: &Router, db: &DatabaseConnection) -> Self {
         let tree = new_tree(app, "Wrenfield").await;
         import_gedcom(app, db, &tree, GEDCOM).await;
+        #[cfg(feature = "auth")]
         let persons = all_profiles(app, &tree)
             .await
             .iter()
@@ -167,10 +173,15 @@ impl Canaries {
                 )
             })
             .collect();
-        Self { tree, persons }
+        Self {
+            tree,
+            #[cfg(feature = "auth")]
+            persons,
+        }
     }
 
     /// The id of the person whose given name is `given`.
+    #[cfg(feature = "auth")]
     pub fn person(&self, given: &str) -> &str {
         &self.persons[given]
     }

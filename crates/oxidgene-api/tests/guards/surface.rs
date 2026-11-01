@@ -33,6 +33,7 @@ pub fn absent_without_accounts(path: &str) -> bool {
 
 /// The GraphQL root fields of the memberships, which name users; see
 /// [`absent_without_accounts`].
+#[cfg(feature = "graphql")]
 pub const MEMBERSHIP_FIELDS: &[&str] = &[
     "treeMembers",
     "updateTreeMember",
