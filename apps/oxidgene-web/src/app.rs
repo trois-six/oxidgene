@@ -6,7 +6,6 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use oxidgene_ui::account::{AccountHost, Accounts};
 use oxidgene_ui::api::ApiClient;
-use oxidgene_ui::sharing::SharingSurfaces;
 use wasm_bindgen::JsCast as _;
 
 const API_URL: &str = match option_env!("OXIDGENE_API_URL") {
@@ -95,21 +94,9 @@ impl AccountHost for BrowserAccounts {
 
 #[component]
 fn WebApp() -> Element {
-    let api = use_context_provider(|| ApiClient::new(&api_base_url()));
+    use_context_provider(|| ApiClient::new(&api_base_url()));
     // Accounts are the web build's: the desktop provides no such capability.
     use_context_provider(|| Accounts::new(Arc::new(BrowserAccounts)));
-    // The surfaces for a tree's other viewers appear once the server says it
-    // authenticates them; without authentication the interface is the
-    // desktop's (docs/authentication.md §2, §7).
-    let mut sharing = use_context_provider(|| Signal::new(None::<SharingSurfaces>));
-    use_future(move || {
-        let api = api.clone();
-        async move {
-            if api.auth_mode().await.is_ok_and(|mode| mode == "oidc") {
-                sharing.set(Some(SharingSurfaces));
-            }
-        }
-    });
     // No `CustomThemeSource` is provided: the browser build has no folder to
     // read themes from, so only the built-in ones are offered.
     rsx! { oxidgene_ui::App {} }

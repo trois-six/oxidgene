@@ -3529,18 +3529,6 @@ impl ApiClient {
         Ok(())
     }
 
-    /// The authentication mode the server reports on `/auth/session`:
-    /// `oidc` or `none` (`docs/authentication.md` §2). Only the web entry
-    /// point asks; the desktop's embedded server has no such route.
-    pub async fn auth_mode(&self) -> Result<String, ApiError> {
-        #[derive(Deserialize)]
-        struct Session {
-            mode: String,
-        }
-        let session: Session = self.get("/auth/session").await?;
-        Ok(session.mode)
-    }
-
     /// Helper: send a cached GET request and deserialize JSON response.
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         let url = self.url(path);

@@ -1,29 +1,26 @@
-//! The seam between the web entry point and the surfaces that only matter
-//! for the other viewers of a tree: the privacy settings visitors see the
-//! tree through, and the exclusions from sharing (`docs/privacy.md` §9,
-//! `docs/authentication.md` §7).
+//! Whether to offer the surfaces that only matter for the other viewers of
+//! a tree: the privacy settings visitors see the tree through, and the
+//! exclusions from sharing (`docs/privacy.md` §9, `docs/authentication.md`
+//! §7).
 //!
 //! The desktop has one local user who sees everything, and so does the web
 //! build run without authentication (`OXIDGENE_AUTH_MODE=none`): both render
-//! exactly what they rendered before these surfaces existed. So, like the
-//! desktop-only capabilities ([`crate::assistant`], [`crate::geneanet`]) in
-//! the other direction, the capability is a value the web entry point puts
-//! into the Dioxus context once the server says it authenticates its
-//! viewers (`mode: "oidc"` on `/auth/session`); pages read it back with
-//! [`use_sharing_surfaces`]. The desktop provides none.
+//! exactly what they rendered before these surfaces existed. The account
+//! state already knows which is the case — it asked `/auth/session` once,
+//! and is [`AccountState::Absent`] on the desktop and in `none` mode — so
+//! the surfaces follow it rather than asking the server again.
 
 use dioxus::prelude::*;
 
-/// Web-only capability: the tree has viewers other than its owner, so the
-/// surfaces for them are offered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SharingSurfaces;
+use crate::account::AccountState;
 
-/// What the web entry point provides: `None` until, and unless, the server
-/// reports that it authenticates its viewers.
-pub type SharingSurfacesSlot = Signal<Option<SharingSurfaces>>;
-
-/// Whether this build offers the surfaces for a tree's other viewers.
+/// Whether this build offers the surfaces for a tree's other viewers: the
+/// server signs users in, whether or not someone is signed in yet.
 pub fn use_sharing_surfaces() -> bool {
-    try_use_context::<SharingSurfacesSlot>().is_some_and(|slot| slot().is_some())
+    try_use_context::<Signal<AccountState>>().is_some_and(|state| {
+        matches!(
+            *state.read(),
+            AccountState::Anonymous | AccountState::SignedIn(_)
+        )
+    })
 }
