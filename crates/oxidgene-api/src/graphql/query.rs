@@ -8,10 +8,12 @@ use std::collections::HashMap;
 use async_graphql::{Context, ID, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_geneanet::archive::LocalOriginals;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use crate::service::dictionary;
 use crate::service::person::Lineage;
 use crate::service::repository;
 use crate::service::scope::{TreeResource, require_tree_resource};
@@ -19,10 +21,9 @@ use crate::service::surname_descent::{self, DescentRequest};
 use crate::service::tag_bulk;
 
 use oxidgene_db::repo::{
-    AuditFilter, CitationFilter, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
-    MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
-    PersonSearchFilters, PlaceRepo, RepositoryRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo,
-    VignetteRepo,
+    AuditFilter, CitationFilter, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
+    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
+    PersonSearchFilters, PlaceRepo, RepositoryRepo, SourceRepo, TreeRepo, VignetteRepo,
 };
 
 use super::history::{
@@ -124,6 +125,27 @@ async fn lineage(
                 })
         })
         .collect())
+}
+
+/// What the request's viewer sees of tree `tree_id` (docs/privacy.md §5),
+/// once the root field has checked the tree.
+async fn seen(ctx: &Context<'_>, tree_id: Uuid) -> Result<std::sync::Arc<Redaction>> {
+    Ok(crate::service::dictionary::seen_by(
+        reader_from_ctx(ctx),
+        profiles_from_ctx(ctx),
+        viewer_from_ctx(ctx),
+        tree_id,
+    )
+    .await?)
+}
+
+/// A source of the dictionary as GraphQL serves it.
+fn source_entry(entry: crate::service::source::SourceDictionaryEntry) -> GqlSourceDictionaryEntry {
+    GqlSourceDictionaryEntry {
+        source: entry.source.into(),
+        count: entry.count,
+        repositories: entry.repositories,
+    }
 }
 
 /// The tree queries.
@@ -857,9 +879,10 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<Vec<GqlDictionaryEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
             Ok(
-                DictionaryRepo::family_names(db, live_tree(ctx, &tree_id).await?)
+                dictionary::family_names(reader_from_ctx(ctx), &seen, tree_id)
                     .await?
                     .into_iter()
                     .map(Into::into)
@@ -876,9 +899,10 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<Vec<GqlDictionaryEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
             Ok(
-                DictionaryRepo::occupations(db, live_tree(ctx, &tree_id).await?)
+                dictionary::occupations(reader_from_ctx(ctx), &seen, tree_id)
                     .await?
                     .into_iter()
                     .map(Into::into)
@@ -902,22 +926,17 @@ impl TreeQuery {
         exact: Option<bool>,
     ) -> Result<Vec<GqlSourceDictionaryEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
             let entries = crate::service::source::dictionary_sources(
-                db,
-                live_tree(ctx, &tree_id).await?,
+                reader_from_ctx(ctx),
+                &seen,
+                tree_id,
                 prefix.as_deref().unwrap_or_default(),
                 exact.unwrap_or(false),
             )
             .await?;
-            Ok(entries
-                .into_iter()
-                .map(|entry| GqlSourceDictionaryEntry {
-                    source: entry.source.into(),
-                    count: entry.count,
-                    repositories: entry.repositories,
-                })
-                .collect())
+            Ok(entries.into_iter().map(source_entry).collect())
         })
         .await
     }
@@ -930,39 +949,26 @@ impl TreeQuery {
         prefix: Option<String>,
     ) -> Result<GqlSourceDictionaryDrill> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
             let tree_id = live_tree(ctx, &tree_id).await?;
-            let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(
-                db,
+            let seen = seen(ctx, tree_id).await?;
+            let drill = dictionary::source_drill(
+                reader_from_ctx(ctx),
+                &seen,
                 tree_id,
                 prefix.as_deref().unwrap_or_default(),
-                SOURCE_DRILL_THRESHOLD,
             )
             .await?;
-            let sources = if groups.is_empty() {
-                let entries =
-                    crate::service::source::dictionary_sources(db, tree_id, &prefix, false).await?;
-                Some(
-                    entries
-                        .into_iter()
-                        .map(|entry| GqlSourceDictionaryEntry {
-                            source: entry.source.into(),
-                            count: entry.count,
-                            repositories: entry.repositories,
-                        })
-                        .collect(),
-                )
-            } else {
-                None
-            };
             Ok(GqlSourceDictionaryDrill {
-                prefix,
-                total,
-                groups: groups
+                prefix: drill.prefix,
+                total: drill.total,
+                groups: drill
+                    .groups
                     .into_iter()
                     .map(|(label, count)| GqlSourceDictionaryGroup { label, count })
                     .collect(),
-                sources,
+                sources: drill
+                    .sources
+                    .map(|entries| entries.into_iter().map(source_entry).collect()),
             })
         })
         .await
@@ -1107,9 +1113,9 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<Vec<GqlPlaceDictionaryEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
-            let entries =
-                DictionaryRepo::places_with_usage(db, live_tree(ctx, &tree_id).await?).await?;
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
+            let entries = dictionary::places(reader_from_ctx(ctx), &seen, tree_id).await?;
             Ok(entries
                 .into_iter()
                 .map(|(place, count)| GqlPlaceDictionaryEntry {
@@ -1129,18 +1135,15 @@ impl TreeQuery {
         value: String,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
-            let ids = DictionaryRepo::family_name_usage_person_ids(
-                db,
-                live_tree(ctx, &tree_id).await?,
-                &value,
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
+            Ok(
+                dictionary::family_name_usage(reader_from_ctx(ctx), &seen, tree_id, &value)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             )
-            .await?;
-            Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect())
         })
         .await
     }
@@ -1162,9 +1165,11 @@ impl TreeQuery {
                 person_id: opt_uuid(person_id)?,
             };
             let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
             let descent = surname_descent::descent(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),
+                &seen,
                 tree_id,
                 request,
             )
@@ -1182,18 +1187,15 @@ impl TreeQuery {
         value: String,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
-            let ids = DictionaryRepo::occupation_usage_person_ids(
-                db,
-                live_tree(ctx, &tree_id).await?,
-                &value,
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
+            Ok(
+                dictionary::occupation_usage(reader_from_ctx(ctx), &seen, tree_id, &value)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             )
-            .await?;
-            Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect())
         })
         .await
     }
@@ -1206,21 +1208,16 @@ impl TreeQuery {
         source_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
             let source_id = uuid(&source_id)?;
-            require_tree_resource(
-                db,
-                live_tree(ctx, &tree_id).await?,
-                TreeResource::Source,
-                source_id,
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
+            Ok(
+                dictionary::source_usage(reader_from_ctx(ctx), &seen, tree_id, source_id)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             )
-            .await?;
-            let ids = DictionaryRepo::source_usage_person_ids(db, source_id).await?;
-            Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect())
         })
         .await
     }
@@ -1233,21 +1230,16 @@ impl TreeQuery {
         place_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
             let place_id = uuid(&place_id)?;
-            require_tree_resource(
-                db,
-                live_tree(ctx, &tree_id).await?,
-                TreeResource::Place,
-                place_id,
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
+            Ok(
+                dictionary::place_usage(reader_from_ctx(ctx), &seen, tree_id, place_id)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             )
-            .await?;
-            let ids = DictionaryRepo::place_usage_person_ids(db, place_id).await?;
-            Ok(DictionaryRepo::resolve_person_usage_entries(db, &ids)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect())
         })
         .await
     }
@@ -1358,10 +1350,12 @@ impl TreeQuery {
         given_names: Option<String>,
     ) -> Result<Vec<GqlValueSuggestion>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let seen = seen(ctx, tree_id).await?;
             Ok(crate::service::suggestions::suggest(
-                db,
-                live_tree(ctx, &tree_id).await?,
+                reader_from_ctx(ctx),
+                &seen,
+                tree_id,
                 field.into(),
                 &language,
                 &query,

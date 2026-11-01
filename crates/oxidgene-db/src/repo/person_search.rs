@@ -482,15 +482,16 @@ impl PersonSearchRepo {
             .collect()
     }
 
-    /// The primary `(surname, given names)` of each person the `surname` and
-    /// `given_names` filters of [`Self::search_filtered`] find, as written:
-    /// one pair per person, matched exactly as those filters match.
+    /// The primary `(person, surname, given names)` of each person the
+    /// `surname` and `given_names` filters of [`Self::search_filtered`]
+    /// find, as written: one per person, matched exactly as those filters
+    /// match.
     pub async fn primary_names(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         surname: Option<&str>,
         given_names: Option<&str>,
-    ) -> Result<Vec<(String, String)>, OxidGeneError> {
+    ) -> Result<Vec<(Uuid, String, String)>, OxidGeneError> {
         let backend = db.get_database_backend();
         let mut values = Vec::new();
         let mut conditions = vec![format!(
@@ -499,7 +500,7 @@ impl PersonSearchRepo {
         )];
         push_name_filters(&mut values, &mut conditions, backend, surname, given_names);
         let sql = format!(
-            "SELECT surname_display, given_names_display FROM person_search_fts WHERE {}",
+            "SELECT person_id, surname_display, given_names_display FROM person_search_fts WHERE {}",
             conditions.join(" AND ")
         );
         db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
@@ -508,7 +509,9 @@ impl PersonSearchRepo {
             .iter()
             .map(|row| {
                 let get = |column: &str| row.try_get::<String>("", column).map_err(db_err);
-                Ok((get("surname_display")?, get("given_names_display")?))
+                let person = Uuid::parse_str(&get("person_id")?)
+                    .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+                Ok((person, get("surname_display")?, get("given_names_display")?))
             })
             .collect()
     }

@@ -2,13 +2,13 @@
 //! (family names, sources, places, occupations) and usage drill-downs.
 
 use super::authorize::Viewer;
+use crate::service::dictionary;
 use crate::service::family_names::{self, FamilyNameChange, ParticleChange};
 use crate::service::occupations::{self, OccupationChange};
 use crate::service::surname_descent::{self, DescentRequest};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_core::types::SurnameDescent;
-use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
 use uuid::Uuid;
 
 use super::dto::{
@@ -19,23 +19,26 @@ use super::dto::{
 };
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names
 pub async fn family_names(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::family_names(&state.reader, tree_id).await?;
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::family_names(&state.reader, &seen, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/occupations
 pub async fn occupations(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::occupations(&state.reader, tree_id).await?;
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::occupations(&state.reader, &seen, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
@@ -49,13 +52,16 @@ pub async fn occupations(
 /// ui-dictionary.md §8) once a prefix's count drops to <= 250.
 pub async fn sources(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionarySourcesQuery>,
 ) -> Result<Json<Vec<SourceDictionaryEntry>>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
     Ok(Json(
         crate::service::source::dictionary_sources(
             &state.reader,
+            &seen,
             tree_id,
             &prefix,
             query.exact.unwrap_or(false),
@@ -76,47 +82,33 @@ pub async fn sources(
 /// ui-dictionary.md §8.10.
 pub async fn source_groups(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<SourcePrefixQuery>,
 ) -> Result<Json<SourceDrillResponse>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
-    let (resolved_prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(
-        &state.reader,
-        tree_id,
-        &prefix,
-        SOURCE_DRILL_THRESHOLD,
-    )
-    .await?;
-    let sources = if groups.is_empty() {
-        Some(
-            crate::service::source::dictionary_sources(
-                &state.reader,
-                tree_id,
-                &resolved_prefix,
-                false,
-            )
-            .await?,
-        )
-    } else {
-        None
-    };
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let drill = dictionary::source_drill(&state.reader, &seen, tree_id, &prefix).await?;
     Ok(Json(SourceDrillResponse {
-        prefix: resolved_prefix,
-        total,
-        groups: groups
+        prefix: drill.prefix,
+        total: drill.total,
+        groups: drill
+            .groups
             .into_iter()
             .map(|(label, count)| SourceGroupDto { label, count })
             .collect(),
-        sources,
+        sources: drill.sources,
     }))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/places
 pub async fn places(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PlaceDictionaryEntry>>, ApiError> {
-    let entries = DictionaryRepo::places_with_usage(&state.reader, tree_id).await?;
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::places(&state.reader, &seen, tree_id).await?;
     Ok(Json(
         entries
             .into_iter()
@@ -128,43 +120,48 @@ pub async fn places(
 /// GET /api/v1/trees/:tree_id/dictionary/sources/:source_id/usage
 pub async fn source_usage(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    require_tree_resource(&state.reader, tree_id, TreeResource::Source, source_id).await?;
-    let ids = DictionaryRepo::source_usage_person_ids(&state.reader, source_id).await?;
-    resolve_usage(&state, &ids).await
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::source_usage(&state.reader, &seen, tree_id, source_id).await?;
+    Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/places/:place_id/usage
 pub async fn place_usage(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    require_tree_resource(&state.reader, tree_id, TreeResource::Place, place_id).await?;
-    let ids = DictionaryRepo::place_usage_person_ids(&state.reader, place_id).await?;
-    resolve_usage(&state, &ids).await
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::place_usage(&state.reader, &seen, tree_id, place_id).await?;
+    Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/occupations/usage?value=...
 pub async fn occupation_usage(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let ids =
-        DictionaryRepo::occupation_usage_person_ids(&state.reader, tree_id, &query.value).await?;
-    resolve_usage(&state, &ids).await
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries = dictionary::occupation_usage(&state.reader, &seen, tree_id, &query.value).await?;
+    Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names/usage?value=...
 pub async fn family_name_usage(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let ids =
-        DictionaryRepo::family_name_usage_person_ids(&state.reader, tree_id, &query.value).await?;
-    resolve_usage(&state, &ids).await
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
+    let entries =
+        dictionary::family_name_usage(&state.reader, &seen, tree_id, &query.value).await?;
+    Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names/descent?value=...&offset=...&person_id=...
@@ -173,6 +170,7 @@ pub async fn family_name_usage(
 /// descent of one of its bearers. See ui-dictionary.md §7.2.
 pub async fn family_name_descent(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<FamilyNameDescentQuery>,
 ) -> Result<Json<SurnameDescent>, ApiError> {
@@ -181,8 +179,9 @@ pub async fn family_name_descent(
         offset: query.offset,
         person_id: query.person_id,
     };
+    let seen = dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id).await?;
     Ok(Json(
-        surname_descent::descent(&state.reader, &state.profiles, tree_id, request).await?,
+        surname_descent::descent(&state.reader, &state.profiles, &seen, tree_id, request).await?,
     ))
 }
 
@@ -227,14 +226,4 @@ pub async fn rename_occupation(
 ) -> Result<Json<OccupationRenameDto>, ApiError> {
     let renamed = occupations::rename(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(renamed.into()))
-}
-
-/// Shared tail of the four usage handlers: resolve raw person IDs into
-/// name + birth/death year entries in one bulk query.
-async fn resolve_usage(
-    state: &AppState,
-    person_ids: &[Uuid],
-) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::resolve_person_usage_entries(&state.reader, person_ids).await?;
-    Ok(Json(entries.into_iter().map(Into::into).collect()))
 }

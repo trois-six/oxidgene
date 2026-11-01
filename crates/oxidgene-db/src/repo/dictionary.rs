@@ -15,6 +15,7 @@
 use chrono::Utc;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::{
     enums::{DateQualifier, EventType},
     types::{
@@ -163,6 +164,17 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
+        Self::family_names_for(db, tree_id, &Redaction::unrestricted()).await
+    }
+
+    /// [`Self::family_names`] as `redaction`'s viewer sees them: only the
+    /// persons it shows in full count, so a surname only hidden persons
+    /// bear is not listed (docs/privacy.md §7).
+    pub async fn family_names_for(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        redaction: &Redaction,
+    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
         // Only the columns the count needs: this reads one row per name in
         // the tree.
         let names: Vec<(Uuid, Option<String>, Option<String>, bool)> = person_name::Entity::find()
@@ -192,6 +204,9 @@ impl DictionaryRepo {
         let mut primary: HashMap<String, HashSet<Uuid>> = HashMap::new();
         let mut roots: HashMap<String, BTreeMap<String, usize>> = HashMap::new();
         for (person_id, surname, surname_prefix, is_primary) in names {
+            if !redaction.shows(person_id) {
+                continue;
+            }
             let Some((full, root)) = full_surname(surname_prefix.as_deref(), surname.as_deref())
             else {
                 continue;
@@ -227,6 +242,15 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
+        Self::given_names_for(db, tree_id, &Redaction::unrestricted()).await
+    }
+
+    /// [`Self::given_names`] of the persons `redaction` shows in full.
+    pub async fn given_names_for(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        redaction: &Redaction,
+    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
         let names: Vec<(Uuid, Option<String>)> = person_name::Entity::find()
             .select_only()
             .column(person_name::Column::PersonId)
@@ -242,6 +266,9 @@ impl DictionaryRepo {
 
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
         for (person_id, given_names) in names {
+            if !redaction.shows(person_id) {
+                continue;
+            }
             for word in given_names
                 .as_deref()
                 .unwrap_or_default()
@@ -262,6 +289,15 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
+        Self::occupations_for(db, tree_id, &Redaction::unrestricted()).await
+    }
+
+    /// [`Self::occupations`] of the persons `redaction` shows in full.
+    pub async fn occupations_for(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        redaction: &Redaction,
+    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
         let labels: Vec<(Option<String>, Option<Uuid>)> = event::Entity::find()
             .select_only()
             .column(event::Column::Description)
@@ -279,7 +315,9 @@ impl DictionaryRepo {
         // for one person (e.g. at different life stages) must count once.
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
         for (description, person_id) in labels {
-            if let (Some(label), Some(pid)) = (trimmed(description.as_deref()), person_id) {
+            if let (Some(label), Some(pid)) = (trimmed(description.as_deref()), person_id)
+                && redaction.shows(pid)
+            {
                 per_value.entry(label).or_default().insert(pid);
             }
         }
@@ -430,29 +468,46 @@ impl DictionaryRepo {
     ) -> Result<(String, i64, Vec<(String, i64)>), OxidGeneError> {
         // The titles are read once: a level can skip dozens of forced
         // characters, each of which read every source again before.
-        let mut titles = upper_titles(db, tree_id).await?;
+        Ok(drill_down(
+            upper_titles(db, tree_id).await?,
+            prefix,
+            threshold,
+        ))
+    }
+}
+
+/// The drill-down of [`DictionaryRepo::resolve_source_drill_down`] over the
+/// uppercased `titles`.
+fn drill_down(
+    mut titles: Vec<String>,
+    prefix: &str,
+    threshold: i64,
+) -> (String, i64, Vec<(String, i64)>) {
+    {
         let mut current = prefix.to_uppercase();
         loop {
             titles.retain(|title| title.starts_with(&current));
             let groups = group_counts(&titles, &current);
             let total: i64 = groups.iter().map(|(_, c)| *c).sum();
             if total <= threshold {
-                return Ok((current, total, Vec::new()));
+                return (current, total, Vec::new());
             }
             if groups.len() != 1 {
-                return Ok((current, total, groups));
+                return (current, total, groups);
             }
             let (only_label, _) = &groups[0];
             if only_label == &current {
                 // Every remaining source's title is exactly `current`: no
                 // further character splits them, so the level is the final
                 // list even though `total` is still above the threshold.
-                return Ok((current, total, Vec::new()));
+                return (current, total, Vec::new());
             }
             current = only_label.clone();
         }
     }
+}
 
+impl DictionaryRepo {
     /// All places in a tree paired with their usage count (events + media
     /// referencing them).
     pub async fn places_with_usage(
@@ -1378,6 +1433,9 @@ fn into_place(m: place::Model) -> Place {
         updated_at: m.updated_at,
     }
 }
+
+#[path = "dictionary_seen.rs"]
+mod seen;
 
 #[cfg(test)]
 mod tests {

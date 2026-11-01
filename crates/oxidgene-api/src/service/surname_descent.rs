@@ -33,6 +33,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use chrono::NaiveDate;
 use oxidgene_core::enums::{EventType, NameType, Sex, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::{
     DESCENT_BRANCH_PAGE, DESCENT_LINE_BUDGET, DescentBranch, DescentLine, DescentLineKind,
     DescentPerson, Event, PersonName, QualifiedYear, SurnameDescent, join_surname_particle,
@@ -55,7 +56,11 @@ pub struct DescentRequest {
 }
 
 /// The descent of a family name of `tree_id`: a page of its branches, or the
-/// descent of one of its bearers.
+/// descent of one of its bearers, as `redaction`'s viewer sees the tree.
+///
+/// A person the redaction does not show in full is not in it: not a
+/// bearer, a spouse or a child line, and a descent through them stops
+/// there (docs/privacy.md §7); a withheld family's marriage dates nothing.
 ///
 /// # Errors
 ///
@@ -64,6 +69,7 @@ pub struct DescentRequest {
 pub async fn descent(
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
+    redaction: &Redaction,
     tree_id: Uuid,
     request: DescentRequest,
 ) -> Result<SurnameDescent, OxidGeneError> {
@@ -73,7 +79,8 @@ pub async fn descent(
             "a family name is required".to_string(),
         ));
     }
-    let rows = DictionaryRepo::load_family_name_descent(db, tree_id, value).await?;
+    let mut rows = DictionaryRepo::load_family_name_descent(db, tree_id, value).await?;
+    seen(&mut rows, redaction);
     let graph = Graph::new(rows);
     let shown: Vec<Uuid> = graph.shown().collect();
     let sosa = profiles.sosa_ancestors_among(tree_id, &shown).await?;
@@ -83,6 +90,25 @@ pub async fn descent(
         sosa: &sosa,
     };
     forest.answer(&people, value, &request)
+}
+
+/// Leave out of `rows` what `redaction` hides: the persons it does not show
+/// in full, with their names, links and events, and the events of the
+/// families it withholds. Nothing for the owner.
+fn seen(rows: &mut DescentRows, redaction: &Redaction) {
+    if redaction.is_unrestricted() {
+        return;
+    }
+    let shows = |id: &Uuid| redaction.shows(*id);
+    rows.carrier_names.retain(|n| shows(&n.person_id));
+    rows.names.retain(|n| shows(&n.person_id));
+    rows.spouses.retain(|s| shows(&s.person_id));
+    rows.children.retain(|c| shows(&c.person_id));
+    rows.sexes.retain(|id, _| shows(id));
+    rows.events.retain(|e| {
+        e.person_id.is_none_or(|p| shows(&p))
+            && e.family_id.is_none_or(|f| !redaction.family_withheld(f))
+    });
 }
 
 // ── The rows, indexed ───────────────────────────────────────────────────

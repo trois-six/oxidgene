@@ -26,9 +26,9 @@ use futures_util::future::BoxFuture;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::EventType;
 use oxidgene_db::repo::{
-    CitationFilter, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, NoteFilter,
-    NoteRepo, PaginationParams, PersonSearchFilters, PersonSearchSort, PlaceRepo, RepositoryRepo,
-    SourceRepo, SourceRepositoryRepo, TreeRepo,
+    CitationFilter, CitationRepo, EventFilter, EventRepo, FamilyRepo, NoteFilter, NoteRepo,
+    PaginationParams, PersonSearchFilters, PersonSearchSort, PlaceRepo, RepositoryRepo, SourceRepo,
+    SourceRepositoryRepo, TreeRepo,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -51,6 +51,7 @@ use crate::rest::dto::{
 };
 use crate::rest::error::ErrorBody;
 use crate::rest::tag::TagView;
+use crate::service::dictionary;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
 use oxidgene_core::access::ViewerContext;
@@ -653,23 +654,26 @@ impl OxidGeneMcp {
         respond("list_dictionary", async {
             self.tree(p.tree_id).await?;
             let db = &self.db;
+            // As the tool's viewer sees the tree (docs/privacy.md §7): the
+            // stdio server's local owner sees it whole.
+            let seen = self.seen(p.tree_id).await?;
             let entries = match p.kind {
                 DictionaryKind::FamilyNames => to_value(
-                    DictionaryRepo::family_names(db, p.tree_id)
+                    dictionary::family_names(db, &seen, p.tree_id)
                         .await?
                         .into_iter()
                         .map(DictionaryEntryDto::from)
                         .collect::<Vec<_>>(),
                 )?,
                 DictionaryKind::Occupations => to_value(
-                    DictionaryRepo::occupations(db, p.tree_id)
+                    dictionary::occupations(db, &seen, p.tree_id)
                         .await?
                         .into_iter()
                         .map(DictionaryEntryDto::from)
                         .collect::<Vec<_>>(),
                 )?,
                 DictionaryKind::Places => to_value(
-                    DictionaryRepo::places_with_usage(db, p.tree_id)
+                    dictionary::places(db, &seen, p.tree_id)
                         .await?
                         .into_iter()
                         .map(|(place, count)| PlaceDictionaryEntry { place, count })
@@ -678,6 +682,7 @@ impl OxidGeneMcp {
                 DictionaryKind::Sources => to_value(
                     crate::service::source::dictionary_sources(
                         db,
+                        &seen,
                         p.tree_id,
                         p.prefix.as_deref().unwrap_or_default(),
                         false,
@@ -697,26 +702,24 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("dictionary_usage", async {
             self.tree(p.tree_id).await?;
-            let db = &self.db;
-            let person_ids = usage_person_ids(db, &p).await?;
-            Ok(
-                DictionaryRepo::resolve_person_usage_entries(db, &person_ids)
-                    .await?
-                    .into_iter()
-                    .map(PersonUsageEntryDto::from)
-                    .collect::<Vec<_>>(),
-            )
+            let seen = self.seen(p.tree_id).await?;
+            Ok(usage_entries(&self.db, &seen, &p)
+                .await?
+                .into_iter()
+                .map(PersonUsageEntryDto::from)
+                .collect::<Vec<_>>())
         })
         .await
     }
 }
 
-/// The persons behind the dictionary entry `p` names, checking that a
-/// place or a source belongs to its tree.
-async fn usage_person_ids(
+/// The persons behind the dictionary entry `p` names, as `seen` shows them,
+/// checking that a place or a source belongs to its tree.
+async fn usage_entries(
     db: &DatabaseConnection,
+    seen: &oxidgene_core::redaction::Redaction,
     p: &DictionaryUsageParams,
-) -> Result<Vec<Uuid>, OxidGeneError> {
+) -> Result<Vec<oxidgene_db::repo::PersonUsageEntry>, OxidGeneError> {
     let required_value = || {
         p.value.as_deref().ok_or_else(|| {
             OxidGeneError::Validation("`value` is required for this kind".to_string())
@@ -727,20 +730,16 @@ async fn usage_person_ids(
     };
     match p.kind {
         DictionaryKind::FamilyNames => {
-            DictionaryRepo::family_name_usage_person_ids(db, p.tree_id, required_value()?).await
+            dictionary::family_name_usage(db, seen, p.tree_id, required_value()?).await
         }
         DictionaryKind::Occupations => {
-            DictionaryRepo::occupation_usage_person_ids(db, p.tree_id, required_value()?).await
+            dictionary::occupation_usage(db, seen, p.tree_id, required_value()?).await
         }
         DictionaryKind::Places => {
-            let place_id = required_id()?;
-            require_tree_resource(db, p.tree_id, TreeResource::Place, place_id).await?;
-            DictionaryRepo::place_usage_person_ids(db, place_id).await
+            dictionary::place_usage(db, seen, p.tree_id, required_id()?).await
         }
         DictionaryKind::Sources => {
-            let source_id = required_id()?;
-            require_tree_resource(db, p.tree_id, TreeResource::Source, source_id).await?;
-            DictionaryRepo::source_usage_person_ids(db, source_id).await
+            dictionary::source_usage(db, seen, p.tree_id, required_id()?).await
         }
     }
 }
@@ -750,6 +749,14 @@ impl OxidGeneMcp {
     /// `not_found`, as the REST tree guard reports it.
     async fn tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
         TreeRepo::get(&self.db, tree_id).await.map(|_| ())
+    }
+
+    /// What the tool's viewer sees of tree `tree_id`.
+    async fn seen(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Arc<oxidgene_core::redaction::Redaction>, OxidGeneError> {
+        dictionary::seen_by(&self.db, &self.profiles, &self.viewer, tree_id).await
     }
 }
 

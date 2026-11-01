@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_db::repo::{DictionaryRepo, PersonSearchRepo};
 use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
@@ -78,8 +79,17 @@ pub const SCOPE_NAMES_ONLY: &str = "surname and given_names only scope name sugg
 /// with the query, then the most used — then the reference terms the tree
 /// does not hold yet. A `scope` counts and lists only the values of the
 /// persons it finds, and adds no reference term.
+///
+/// The tree's values are those `redaction`'s viewer sees, counted over the
+/// records it shows (docs/privacy.md §7): a surname only hidden persons bear
+/// is suggested only as the reference term it may also be.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "REST's and GraphQL's arguments, with the viewer's redaction"
+)]
 pub async fn suggest(
     db: &impl ConnectionTrait,
+    redaction: &Redaction,
     tree_id: Uuid,
     field: SuggestionField,
     language: &str,
@@ -99,11 +109,15 @@ pub async fn suggest(
             scope.surname.as_deref(),
             scope.given_names.as_deref(),
         )
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|(person, ..)| redaction.shows(*person))
+        .map(|(_, surname, given)| (surname, given))
+        .collect();
         let values = scoped_values(names, field);
         return Ok(rank(values, field.reference(), false, lang, &key, limit));
     }
-    let values = tree_values(db, tree_id, field).await?;
+    let values = tree_values(db, redaction, tree_id, field).await?;
     Ok(rank(values, field.reference(), true, lang, &key, limit))
 }
 
@@ -135,20 +149,27 @@ fn validated(
 /// The tree's values of `field`, each with its number of uses.
 async fn tree_values(
     db: &impl ConnectionTrait,
+    redaction: &Redaction,
     tree_id: Uuid,
     field: SuggestionField,
 ) -> Result<Vec<(String, i64)>, OxidGeneError> {
     Ok(match field {
-        SuggestionField::FamilyNames => entries(DictionaryRepo::family_names(db, tree_id).await?),
-        SuggestionField::GivenNames => entries(DictionaryRepo::given_names(db, tree_id).await?),
-        SuggestionField::Occupations => entries(DictionaryRepo::occupations(db, tree_id).await?),
+        SuggestionField::FamilyNames => {
+            entries(DictionaryRepo::family_names_for(db, tree_id, redaction).await?)
+        }
+        SuggestionField::GivenNames => {
+            entries(DictionaryRepo::given_names_for(db, tree_id, redaction).await?)
+        }
+        SuggestionField::Occupations => {
+            entries(DictionaryRepo::occupations_for(db, tree_id, redaction).await?)
+        }
         SuggestionField::Sources => once_each(
-            DictionaryRepo::source_titles_with_usage(db, tree_id)
+            DictionaryRepo::source_titles_with_usage_for(db, tree_id, redaction)
                 .await?
                 .into_iter(),
         ),
         SuggestionField::Places => once_each(
-            DictionaryRepo::places_with_usage(db, tree_id)
+            DictionaryRepo::places_with_usage_for(db, tree_id, redaction)
                 .await?
                 .into_iter()
                 .map(|(place, count)| (place.name, count)),

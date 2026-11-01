@@ -15,6 +15,7 @@ pub mod background_job;
 pub(crate) mod blocking;
 pub mod citation;
 pub mod couple_detail;
+pub mod dictionary;
 pub mod duplicates;
 pub mod event;
 pub mod event_date;

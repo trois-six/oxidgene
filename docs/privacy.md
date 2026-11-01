@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T20:30:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -336,6 +336,14 @@ if it is restored.
 | Messaging | Record links resolve under the reader's own access (§6.4) |
 | HTTP caching | `no-store` on tree JSON, `private` and `Vary: Cookie, Authorization` on media; nothing cached across viewers ([Authentication §9.1](authentication.md#91-origin-headers-and-caching)) |
 | Logs and traces | Counts and categories only, never which person was redacted ([Cross-cutting Rules §5.3](cross-cutting.md#53-sensitive-data)) |
+
+**Decisions for the tree-wide reads.** The dictionary, the suggestions and
+the tools count and list the persons shown in full only: a placeholder, in
+any display mode, carries no value, so it adds nothing to a count, a usage
+list or a descent, and a descent through a hidden person stops there. A
+source is hidden when it is cited and none of its citations is visible; a
+place when it is used and none of its events and media is visible; a source
+or a place nobody uses stays shown, since no hidden record reaches it.
 
 ---
 

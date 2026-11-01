@@ -1020,6 +1020,25 @@ creation, or changing it, takes `privacy_edit` (`403 forbidden` /
 
 Aggregations backing the [Dictionary](ui-dictionary.md) page. Value endpoints return distinct values + usage counts; usage endpoints return the persons behind one value, resolved server-side into `PersonUsageEntry` (id, name parts, birth/death years) in one bulk query.
 
+**What a restricted viewer's dictionary leaves out** ([Privacy §7](privacy.md#7-enforcement-points)).
+For anyone the owner's redaction does not show everything — an Editor or a
+Guest, who do not see the owner's excluded persons; a Visitor, who does not
+see private or contemporary persons either — every read below, REST's,
+GraphQL's and the MCP `list_dictionary` and `dictionary_usage` tools' alike,
+counts only what the viewer sees: a family name, a given name or an
+occupation counts the persons shown in full, never a hidden person's
+placeholder, so a value only hidden persons carry is not listed; a source
+counts its citations of visible persons, families and events, and a source
+cited only by hidden records is left out with the repositories it names; a
+place counts its visible events and media, and a place only hidden ones use
+is left out; the Sources tab's groups and totals are computed over the
+visible sources. Usage lists leave hidden persons out, and are read through
+visible records only (a source's citations of a withheld family list
+nobody). The descent of a family name leaves hidden persons out as if they
+were not in the tree: a branch through one stops there. A viewer without
+`read_tags` gets sources and places without their tags. The owner's reads
+are unchanged and cost no statement more.
+
 Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can hedge the same way a pedigree card does (`ca 1849`, `< 1917`). The qualifier sits **beside** the year rather than being folded into it: `birth_year` stays an integer the client can sort on, and a `"ca 1849"` in that field would break both that and the search grid.
 
 | Method | Path | Description |
@@ -1180,6 +1199,12 @@ once the value is picked — and no reference term fills the list.
 GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 `givenNames`), its `SuggestionField` being `FAMILY_NAMES`, `GIVEN_NAMES`,
 `OCCUPATIONS`, `SOURCES` or `PLACES`.
+
+**A restricted viewer's suggestions** hold only the tree's values the
+viewer sees, counted as the [Dictionary](#dictionary) counts them for that
+viewer; a scope keeps only the persons the viewer sees. A value only hidden
+persons carry may still come back as the reference term it also is, with a
+`count` of 0.
 
 ### Audit log and versions
 

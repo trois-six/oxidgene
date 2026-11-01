@@ -42,6 +42,8 @@ mod page_bundles_test;
 mod profile_service_test;
 mod query_scaling_test;
 mod real_import_test;
+#[cfg(all(feature = "auth", feature = "graphql"))]
+mod redacted_reads_test;
 mod rest_test;
 #[cfg(all(feature = "auth", feature = "graphql"))]
 mod sharing_test;

@@ -6,6 +6,7 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::Source;
 use oxidgene_db::repo::{DictionaryRepo, SourceRepo, SourceRepositoryRepo};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
@@ -142,22 +143,24 @@ pub async fn delete_source(
 /// `exact`, whose title is `prefix` itself (ignoring case). Each comes with
 /// its citation count and the names of the repositories holding it. An exact
 /// lookup needs a prefix: a blank title is no source's title.
+///
+/// Only the sources `redaction`'s viewer sees are listed, each with the
+/// citations they see (docs/privacy.md §3.2): a source only hidden records
+/// cite is left out, and with it the repositories it alone names.
 pub async fn dictionary_sources(
     db: &impl ConnectionTrait,
+    redaction: &Redaction,
     tree_id: Uuid,
     prefix: &str,
     exact: bool,
 ) -> Result<Vec<SourceDictionaryEntry>, OxidGeneError> {
-    let entries = if exact {
-        if prefix.trim().is_empty() {
-            return Err(OxidGeneError::Validation(
-                "an exact title needs a non-empty prefix".into(),
-            ));
-        }
-        DictionaryRepo::sources_with_usage_by_exact_title(db, tree_id, prefix).await?
-    } else {
-        DictionaryRepo::sources_with_usage_by_prefix(db, tree_id, prefix).await?
-    };
+    if exact && prefix.trim().is_empty() {
+        return Err(OxidGeneError::Validation(
+            "an exact title needs a non-empty prefix".into(),
+        ));
+    }
+    let entries =
+        DictionaryRepo::sources_with_usage_for(db, tree_id, prefix, exact, redaction).await?;
     let ids: Vec<Uuid> = entries.iter().map(|(s, _)| s.id).collect();
     let mut names = SourceRepositoryRepo::repository_names(db, &ids).await?;
     Ok(entries

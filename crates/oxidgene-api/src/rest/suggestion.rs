@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::service::suggestions::{self, NameScope, SuggestionField, ValueSuggestion};
 
+use super::authorize::Viewer;
 use super::error::ApiError;
 use super::state::AppState;
 
@@ -22,12 +23,17 @@ pub struct ValueSuggestionQuery {
 /// GET /api/v1/trees/:tree_id/suggestions/:field?q=...&lang=...&limit=...&surname=...&given_names=...
 pub async fn suggest(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, field)): Path<(Uuid, SuggestionField)>,
     Query(query): Query<ValueSuggestionQuery>,
 ) -> Result<Json<Vec<ValueSuggestion>>, ApiError> {
+    let seen =
+        crate::service::dictionary::seen_by(&state.reader, &state.profiles, &viewer, tree_id)
+            .await?;
     Ok(Json(
         suggestions::suggest(
             &state.reader,
+            &seen,
             tree_id,
             field,
             &query.lang,
