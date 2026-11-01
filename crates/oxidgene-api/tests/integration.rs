@@ -35,6 +35,8 @@ mod guards;
 mod history_test;
 mod import_memory_test;
 mod kinship_test;
+#[cfg(feature = "auth")]
+mod leak_test;
 mod mcp_test;
 mod media_test;
 mod media_validation_test;
