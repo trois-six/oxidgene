@@ -19,6 +19,8 @@ use crate::error_contract::classify;
 pub fn principal_kind(viewer: &ViewerContext) -> &'static str {
     match viewer.principal() {
         Principal::Local => "local",
+        // A browser holding share links' grants (docs/authorization.md §2).
+        Principal::Anonymous if !viewer.share_links().is_empty() => "link",
         Principal::Anonymous => "anonymous",
         Principal::User(identity) if identity.api_client_id.is_some() => "api_client",
         Principal::User(_) => "user",
@@ -71,4 +73,17 @@ pub fn refusal(
     event.route = Some(route.to_string());
     event.permission = Some(requirement.name());
     record(db, event);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_browser_holding_share_links_is_logged_as_a_link_holder() {
+        let holder = ViewerContext::anonymous().with_share_links(vec![Uuid::nil()]);
+        assert_eq!(principal_kind(&holder), "link");
+        assert_eq!(principal_kind(&ViewerContext::anonymous()), "anonymous");
+        assert_eq!(principal_kind(&ViewerContext::local()), "local");
+    }
 }
