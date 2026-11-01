@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-01T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -67,7 +67,7 @@ the repository root.
 | `just site-serve` | Build the documentation site and preview it with live reload (§7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
-| `just clippy` | Run Clippy for all workspace targets and deny warnings, then for `oxidgene-archives` with its `live` checks, a feature no workspace member enables. |
+| `just clippy` | Run Clippy for all workspace targets and deny warnings, then for `oxidgene-archives` with its `live` checks, a feature no workspace member enables, then for `oxidgene-api` alone, without the `graphql` and `auth` features the workspace run unifies into it, so code only those features use is not hidden from the dead-code lints. |
 | `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Not part of `just check`; the CI Clippy matrix runs it. |
 | `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows (§2.8). |
 | `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). |
@@ -619,7 +619,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
 | api.md and schema | 1 | `just test` (`guards` of `oxidgene-api`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
-| Clippy matrix | 1 | `just clippy`, `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features`, of `-p oxidgene-api` and of `-p oxidgene-archives --features native,live` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
+| Clippy matrix | 1 | `just clippy` (with `-p oxidgene-api` and `-p oxidgene-archives --features native,live`), `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
 | Unused dependencies | 1 | `cargo machete` (in `just deps`) | Unused dependencies | No dependency declared and unused |
 | Stack depth | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |

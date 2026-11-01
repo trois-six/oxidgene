@@ -92,10 +92,15 @@ test-verbose:
     cargo nextest run --workspace --no-capture
 
 # Run clippy linter. The second run covers the live checks of
-# `oxidgene-archives`, a feature no workspace member enables.
+# `oxidgene-archives`, a feature no workspace member enables. The third
+# lints the API alone, as the desktop links it: the workspace run unifies
+# the server's `graphql` and `auth` features into it, so code only those
+# features use looks used there and dead here (the CI Clippy matrix's
+# "api without graphql").
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy -p oxidgene-archives --features native,live --all-targets -- -D warnings
+    cargo clippy -p oxidgene-api --all-targets -- -D warnings
 
 # Check that the shared UI still compiles to WASM.
 #
