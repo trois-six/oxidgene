@@ -327,7 +327,10 @@ impl Redaction {
             .pseudonyms
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *map.entry(id).or_insert_with(Uuid::new_v4)
+        // Random but for its time prefix, which says when the request ran,
+        // nothing of the person. The workspace's `uuid` has no `v4` on
+        // WASM, which builds this crate too.
+        *map.entry(id).or_insert_with(Uuid::now_v7)
     }
 
     // ── Projections ─────────────────────────────────────────────────────
