@@ -310,6 +310,41 @@ def run() -> None:
             expect(line in config, f"the configuration lacks {line}")
         expect(not find(docs, "Cluster", f"{RELEASE}-postgresql"), "OxidGene's database became a Cluster")
 
+    @check("mail: the backend queues and the worker sends through the relay")
+    def _mail() -> None:
+        relay = [
+            "--set", "mail.smtp.host=smtp.example.invalid",
+            "--set", "mail.from=OxidGene <no-reply@genealogy.example.invalid>",
+        ]
+        shared = ["--set", "database.mode=existing", "--set", "s3.mode=existing"]
+        # Without a host, nothing of mail.
+        env = backend_env(render(*values("external")))
+        expect(not [k for k in env if k.startswith(("OXIDGENE_SMTP_", "OXIDGENE_MAIL_"))], "mail without a host")
+        docs = render(*values("external"), *shared, *relay,
+                      "--set", "mail.smtp.credentialsSecret.secret=oxidgene-smtp")
+        env = backend_env(docs)
+        expect_eq(env.get("OXIDGENE_SMTP_HOST"), "smtp.example.invalid", "OXIDGENE_SMTP_HOST")
+        expect_eq(env.get("OXIDGENE_SMTP_PORT"), "587", "OXIDGENE_SMTP_PORT")
+        expect_eq(env.get("OXIDGENE_SMTP_TLS"), "starttls", "OXIDGENE_SMTP_TLS")
+        expect_eq(env.get("OXIDGENE_MAIL_FROM"), "OxidGene <no-reply@genealogy.example.invalid>", "OXIDGENE_MAIL_FROM")
+        expect_eq(env.get("OXIDGENE_SMTP_USERNAME"), ("oxidgene-smtp", "username"), "the relay account's Secret")
+        expect_eq(env.get("OXIDGENE_SMTP_PASSWORD"), ("oxidgene-smtp", "password"), "the relay password's Secret")
+        worker = find(docs, "Deployment", f"{RELEASE}-worker")
+        expect(len(worker) == 1, "no worker with shared database and media")
+        worker_env = env_of(worker[0]["spec"]["template"]["spec"]["containers"][0])
+        expect_eq(worker_env.get("OXIDGENE_SMTP_HOST"), "smtp.example.invalid", "the worker's relay")
+        expect_eq(worker_env.get("OXIDGENE_PUBLIC_URL"), "https://genealogy.example.invalid", "the worker's links")
+        expect_eq(worker_env.get("OXIDGENE_SESSION_KEYS"), ("oxidgene-session", "keys"), "the worker's signing keys")
+        expect("OXIDGENE_OIDC_CLIENT_SECRET" not in worker_env, "the worker received the sign-in secret")
+        # A relay without a sender, or with an unknown TLS mode, is refused.
+        error = refused(*values("external"), "--set", "mail.smtp.host=smtp.example.invalid")
+        expect("mail.from" in error, error.strip())
+        error = refused(*values("external"), *relay, "--set", "mail.smtp.tls=ssl")
+        expect("mail.smtp.tls" in error, error.strip())
+        # The `none` mode mails nothing, whatever the values.
+        env = backend_env(render(*values("none"), *relay))
+        expect(not [k for k in env if k.startswith(("OXIDGENE_SMTP_", "OXIDGENE_MAIL_"))], "mail in none mode")
+
     @check("the shipped Rauthy setup and the development one agree")
     def _drift() -> None:
         docs = render(*values("rauthy"), "--set", "auth.publicUrl=http://localhost:8081", "--set", "ingress.enabled=false")

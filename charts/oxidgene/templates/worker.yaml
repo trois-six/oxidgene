@@ -78,6 +78,10 @@ spec:
             # container's /tmp.
             - name: OXIDGENE_WORK_DIR
               value: /var/cache/oxidgene
+            # It sends OxidGene's mail (docs/messaging.md §3.3).
+            {{- with include "oxidgene.workerMailEnv" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- with .Values.worker.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

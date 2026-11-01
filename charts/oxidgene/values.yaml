@@ -412,6 +412,29 @@ auth:
     idleTimeout: 2h
     absoluteLifetime: 7d
 
+# OxidGene's own mail (docs/messaging.md §3): invitations and the
+# notifications users want by email, which the worker hands to the
+# operator's SMTP relay. An empty host mails nothing, and the `none`
+# authentication mode never mails. Separate from Rauthy's own mail
+# (auth.idp.rauthy.smtp).
+mail:
+  # The sender, such as "OxidGene <no-reply@genealogy.example.invalid>":
+  # required with a host.
+  from: ""
+  smtp:
+    host: ""
+    port: 587
+    # starttls, implicit (port 465), none (a relay on the pod's loopback
+    # only), or danger-insecure (plain SMTP towards any relay: development
+    # only).
+    tls: starttls
+    # Existing Secret holding the relay account; an empty name: no
+    # authentication.
+    credentialsSecret:
+      secret: ""
+      usernameKey: username
+      passwordKey: password
+
 ingress:
   enabled: false
   # With auth.idp.mode=none the backend has no authentication: whoever

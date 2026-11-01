@@ -8,6 +8,7 @@
 {{- fail "redis.mode must be disabled, existing, or operator" }}
 {{- end }}
 {{- include "oxidgene.authValidate" . }}
+{{- include "oxidgene.mailValidate" . }}
 {{- $usesLocalState := or (eq .Values.database.mode "disabled") (eq .Values.s3.mode "disabled") }}
 {{- if and $usesLocalState .Values.autoscaling.backend.enabled }}
 {{- fail "backend autoscaling requires PostgreSQL and S3; disable autoscaling when database.mode or s3.mode is disabled" }}
@@ -96,6 +97,9 @@ spec:
                   key: {{ required "Redis URL key is required" (include "oxidgene.redisUrlKey" .) }}
             {{- end }}
             {{- include "oxidgene.authEnv" . | nindent 12 }}
+            {{- with include "oxidgene.mailEnv" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- if eq .Values.s3.mode "disabled" }}
             - name: OXIDGENE_MEDIA_BACKEND
               value: filesystem

@@ -143,8 +143,8 @@ services:
   # ── Mail relay ──────────────────────────────────────────────────────
   # Keeps every mail for inspection at http://127.0.0.1:8025 and delivers
   # none: Rauthy's own (address verification, password reset, new-login
-  # notices) today, and
-  # OxidGene's once it sends any (docs/messaging.md §3.5).
+  # notices), and OxidGene's — invitations and notifications, which the
+  # worker sends (docs/messaging.md §3.5).
   mailpit:
     image: axllent/mailpit:v1.33.0
     restart: unless-stopped
@@ -204,6 +204,11 @@ services:
       OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
       OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_SERVER_OTLP_ENDPOINT-http://otel-collector:4317}"
+      # OxidGene's mail goes to the Mailpit below, over plain SMTP on the
+      # Compose network (docs/messaging.md §3.5): the server queues it, the
+      # worker sends it.
+      OXIDGENE_SMTP_HOST: "mailpit"
+      OXIDGENE_SMTP_TLS: "danger-insecure"
     env_file:
       - ./rauthy/oxidgene-dev-auth.env
     ports:
@@ -240,11 +245,20 @@ services:
       OXIDGENE_S3_ACCESS_KEY_ID: "oxidgene-admin"
       OXIDGENE_S3_SECRET_ACCESS_KEY: "oxidgene-development-secret"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OXIDGENE_WORKER_OTLP_ENDPOINT-http://otel-collector:4317}"
+      # It sends OxidGene's mail to the Mailpit below; its links start with
+      # the public URL and its unsubscribe tokens are signed with the session
+      # keys of the shared settings file.
+      OXIDGENE_SMTP_HOST: "mailpit"
+      OXIDGENE_SMTP_TLS: "danger-insecure"
+    env_file:
+      - ./rauthy/oxidgene-dev-auth.env
     depends_on:
       postgres:
         condition: service_healthy
       rustfs-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
 
   # ── OxidGene browser frontend ────────────────────────────────────────
   # The bundle calls the API on its own origin (an empty OXIDGENE_API_URL),
