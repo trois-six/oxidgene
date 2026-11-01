@@ -11,7 +11,7 @@
 //! settings — and is recorded in two steps around the write:
 //!
 //! ```text
-//! let pending = Change::update(tree_id, AuditEntity::Person, id)
+//! let pending = Change::update(viewer, tree_id, AuditEntity::Person, id)
 //!     .person(id)
 //!     .prepare(&txn)
 //!     .await?;
@@ -31,6 +31,11 @@
 //! Writes that touch no versioned record — media, imports, exports — record
 //! their entry alone with [`Change::record_unversioned`].
 //!
+//! A change names its author, the viewer the write acts for: the user and
+//! the client the request came through, or the local owner
+//! (docs/authorization.md §9.1). A job's changes name the actor recorded
+//! when it was submitted.
+//!
 //! See `docs/data-model.md` §5 and the audit and history routes of
 //! `docs/api.md`.
 
@@ -38,6 +43,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::Utc;
 use futures_util::future::BoxFuture;
+use oxidgene_core::access::{Author, ViewerContext};
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
@@ -74,6 +80,7 @@ const RECORD_TYPES: [RecordType; 5] = [
 #[derive(Debug, Clone)]
 #[must_use = "a change is only recorded by `prepare` then `record`, or `record_unversioned`"]
 pub struct Change {
+    author: Author,
     tree_id: Uuid,
     action: AuditAction,
     entity: AuditEntity,
@@ -92,14 +99,16 @@ pub struct Change {
 }
 
 impl Change {
-    /// A write of `action` on a row of kind `entity`.
+    /// A write of `action` on a row of kind `entity`, by `viewer`.
     pub fn new(
+        viewer: &ViewerContext,
         tree_id: Uuid,
         action: AuditAction,
         entity: AuditEntity,
         entity_id: impl Into<Option<Uuid>>,
     ) -> Self {
         Self {
+            author: viewer.author(),
             tree_id,
             action,
             entity,
@@ -118,16 +127,16 @@ impl Change {
         }
     }
 
-    pub fn create(tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
-        Self::new(tree_id, AuditAction::Create, entity, id)
+    pub fn create(viewer: &ViewerContext, tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
+        Self::new(viewer, tree_id, AuditAction::Create, entity, id)
     }
 
-    pub fn update(tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
-        Self::new(tree_id, AuditAction::Update, entity, id)
+    pub fn update(viewer: &ViewerContext, tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
+        Self::new(viewer, tree_id, AuditAction::Update, entity, id)
     }
 
-    pub fn delete(tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
-        Self::new(tree_id, AuditAction::Delete, entity, id)
+    pub fn delete(viewer: &ViewerContext, tree_id: Uuid, entity: AuditEntity, id: Uuid) -> Self {
+        Self::new(viewer, tree_id, AuditAction::Delete, entity, id)
     }
 
     /// Version a person, and make them the subject if none is set yet.
@@ -395,6 +404,7 @@ impl Change {
             label,
             details: self.details,
             version_count: 0,
+            author: self.author.into(),
         };
         HistoryRepo::insert_entry(db, &entry).await?;
         Ok(entry)
@@ -654,12 +664,13 @@ impl From<&Note> for NoteTarget {
 /// The change a note write makes: it versions what the note hangs off, and a
 /// note about a media — a page's transcript — is media work.
 pub fn note_change(
+    viewer: &ViewerContext,
     tree_id: Uuid,
     action: AuditAction,
     note_id: Uuid,
     target: NoteTarget,
 ) -> Change {
-    let mut change = Change::new(tree_id, action, AuditEntity::Note, note_id).owner(
+    let mut change = Change::new(viewer, tree_id, action, AuditEntity::Note, note_id).owner(
         target.person_id,
         target.event_id,
         target.family_id,
@@ -676,10 +687,21 @@ pub fn note_change(
 
 /// The change a surname re-cut makes: every person bearing the name, filed
 /// under the name itself. The count is the write's, given once it is done.
-pub fn family_name_change(tree_id: Uuid, value: &str, person_ids: &[Uuid]) -> Change {
-    Change::new(tree_id, AuditAction::Update, AuditEntity::FamilyName, None)
-        .persons(person_ids.iter().copied())
-        .label(value)
+pub fn family_name_change(
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    value: &str,
+    person_ids: &[Uuid],
+) -> Change {
+    Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Update,
+        AuditEntity::FamilyName,
+        None,
+    )
+    .persons(person_ids.iter().copied())
+    .label(value)
 }
 
 /// What a surname re-cut tells its audit entry.
@@ -703,10 +725,21 @@ pub fn family_name_rename_details(rename: &FamilyNameRename) -> AuditDetails {
 /// The change an occupation rename makes: every person holding the label,
 /// filed under the label itself. The count is the write's, given once it is
 /// done.
-pub fn occupation_change(tree_id: Uuid, value: &str, person_ids: &[Uuid]) -> Change {
-    Change::new(tree_id, AuditAction::Update, AuditEntity::Occupation, None)
-        .persons(person_ids.iter().copied())
-        .label(value)
+pub fn occupation_change(
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    value: &str,
+    person_ids: &[Uuid],
+) -> Change {
+    Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Update,
+        AuditEntity::Occupation,
+        None,
+    )
+    .persons(person_ids.iter().copied())
+    .label(value)
 }
 
 /// What an occupation rename tells its audit entry: how many persons, and
@@ -752,27 +785,35 @@ pub const DUPLICATE_FORMAT: &str = "duplicate";
 /// `file_name` is the imported file's, or the other tree's name for a
 /// duplication.
 pub async fn record_import(
+    viewer: &ViewerContext,
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     format: &str,
     file_name: Option<String>,
     persons: usize,
 ) -> Result<AuditEntry, OxidGeneError> {
-    Change::new(tree_id, AuditAction::Import, AuditEntity::Tree, tree_id)
-        .about_tree()
-        .details(AuditDetails {
-            format: Some(format.to_string()),
-            file_name,
-            count: Some(persons as u64),
-            ..AuditDetails::default()
-        })
-        .record_unversioned(db)
-        .await
+    Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Import,
+        AuditEntity::Tree,
+        tree_id,
+    )
+    .about_tree()
+    .details(AuditDetails {
+        format: Some(format.to_string()),
+        file_name,
+        count: Some(persons as u64),
+        ..AuditDetails::default()
+    })
+    .record_unversioned(db)
+    .await
 }
 
 /// Record a completed export. An export writes nothing to the tree, but what
 /// left it, and when, belongs in its audit log.
 pub async fn record_export(
+    viewer: &ViewerContext,
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     format: &str,
@@ -780,17 +821,23 @@ pub async fn record_export(
     scope: Option<String>,
     privacy: Option<String>,
 ) -> Result<AuditEntry, OxidGeneError> {
-    Change::new(tree_id, AuditAction::Export, AuditEntity::Tree, tree_id)
-        .about_tree()
-        .details(AuditDetails {
-            format: Some(format.to_string()),
-            file_name,
-            scope,
-            privacy,
-            ..AuditDetails::default()
-        })
-        .record_unversioned(db)
-        .await
+    Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Export,
+        AuditEntity::Tree,
+        tree_id,
+    )
+    .about_tree()
+    .details(AuditDetails {
+        format: Some(format.to_string()),
+        file_name,
+        scope,
+        privacy,
+        ..AuditDetails::default()
+    })
+    .record_unversioned(db)
+    .await
 }
 
 /// How many recently modified persons a read returns when not told.
@@ -862,6 +909,7 @@ pub async fn recently_modified_persons_of_trees(
 /// [`revert`] in a transaction of its own: what the REST and GraphQL restore
 /// operations run.
 pub async fn restore(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -870,7 +918,16 @@ pub async fn restore(
     version: i32,
 ) -> Result<AuditEntry, OxidGeneError> {
     let txn = begin_tx(db).await?;
-    let entry = revert(&txn, profiles, tree_id, record_type, record_id, version).await?;
+    let entry = revert(
+        viewer,
+        &txn,
+        profiles,
+        tree_id,
+        record_type,
+        record_id,
+        version,
+    )
+    .await?;
     commit_tx(txn).await?;
     Ok(entry)
 }
@@ -882,6 +939,7 @@ pub async fn restore(
 /// stored, so a restore can be undone like any other write. Restoring the
 /// state a deletion replaced undeletes the record.
 pub fn revert<'a, C>(
+    viewer: &'a ViewerContext,
     db: &'a C,
     profiles: &'a ProfileService,
     tree_id: Uuid,
@@ -893,6 +951,7 @@ where
     C: ConnectionTrait,
 {
     Box::pin(revert_inner(
+        viewer,
         db,
         profiles,
         tree_id,
@@ -903,6 +962,7 @@ where
 }
 
 async fn revert_inner(
+    viewer: &ViewerContext,
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -917,6 +977,7 @@ async fn revert_inner(
         ));
     };
     let change = Change::new(
+        viewer,
         tree_id,
         AuditAction::Revert,
         entity_of(record_type),

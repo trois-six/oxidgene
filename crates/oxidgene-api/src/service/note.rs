@@ -5,6 +5,7 @@
 //! one transaction.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditAction;
 use oxidgene_core::types::Note;
 use oxidgene_db::repo::{NoteFilter, NoteRepo};
@@ -52,6 +53,7 @@ pub async fn get_note(
 
 /// Create a note in `tree_id`. A note with no text is refused.
 pub async fn create_note(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -84,7 +86,7 @@ pub async fn create_note(
         media_id: new.media_id,
         repository_id: new.repository_id,
     };
-    let pending = history::note_change(tree_id, AuditAction::Create, id, target)
+    let pending = history::note_change(viewer, tree_id, AuditAction::Create, id, target)
         .prepare(&txn)
         .await?;
     let note = NoteRepo::create(
@@ -114,6 +116,7 @@ pub async fn create_note(
 
 /// Update note `id` of `tree_id`.
 pub async fn update_note(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -123,9 +126,10 @@ pub async fn update_note(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let previous = NoteRepo::get(&txn, id).await?;
-    let pending = history::note_change(tree_id, AuditAction::Update, id, (&previous).into())
-        .prepare(&txn)
-        .await?;
+    let pending =
+        history::note_change(viewer, tree_id, AuditAction::Update, id, (&previous).into())
+            .prepare(&txn)
+            .await?;
     let note = NoteRepo::update(&txn, id, patch.text).await?;
     if let Some(person_id) = previous.person_id {
         profiles
@@ -139,6 +143,7 @@ pub async fn update_note(
 
 /// Delete note `id` of `tree_id` (a soft delete).
 pub async fn delete_note(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -147,7 +152,7 @@ pub async fn delete_note(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let note = NoteRepo::get(&txn, id).await?;
-    let pending = history::note_change(tree_id, AuditAction::Delete, id, (&note).into())
+    let pending = history::note_change(viewer, tree_id, AuditAction::Delete, id, (&note).into())
         .prepare(&txn)
         .await?;
     NoteRepo::delete(&txn, id).await?;

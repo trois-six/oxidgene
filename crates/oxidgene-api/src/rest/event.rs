@@ -1,5 +1,6 @@
 //! REST handlers for Event CRUD operations and event witnesses.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -36,10 +37,11 @@ pub async fn list_events(
 /// POST /api/v1/trees/:tree_id/events
 pub async fn create_event(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewEvent>,
 ) -> Result<(StatusCode, Json<Event>), ApiError> {
-    let event = event::create_event(&state.db, &state.profiles, tree_id, body).await?;
+    let event = event::create_event(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(event)))
 }
 
@@ -55,19 +57,22 @@ pub async fn get_event(
 /// PUT /api/v1/trees/:tree_id/events/:event_id
 pub async fn update_event(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<EventPatch>,
 ) -> Result<Json<Event>, ApiError> {
-    let event = event::update_event(&state.db, &state.profiles, tree_id, event_id, body).await?;
+    let event =
+        event::update_event(&viewer, &state.db, &state.profiles, tree_id, event_id, body).await?;
     Ok(Json(event))
 }
 
 /// DELETE /api/v1/trees/:tree_id/events/:event_id
 pub async fn delete_event(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    event::delete_event(&state.db, &state.profiles, tree_id, event_id).await?;
+    event::delete_event(&viewer, &state.db, &state.profiles, tree_id, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -84,18 +89,20 @@ pub async fn list_witnesses(
 /// POST /api/v1/trees/:tree_id/events/:event_id/witnesses
 pub async fn add_witness(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewWitness>,
 ) -> Result<(StatusCode, Json<EventWitness>), ApiError> {
-    let witness = event::add_witness(&state.db, tree_id, event_id, body).await?;
+    let witness = event::add_witness(&viewer, &state.db, tree_id, event_id, body).await?;
     Ok((StatusCode::CREATED, Json(witness)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/events/:event_id/witnesses/:witness_id
 pub async fn remove_witness(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, event_id, witness_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    event::remove_witness(&state.db, tree_id, Some(event_id), witness_id).await?;
+    event::remove_witness(&viewer, &state.db, tree_id, Some(event_id), witness_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

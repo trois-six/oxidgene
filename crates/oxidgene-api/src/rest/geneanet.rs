@@ -9,6 +9,7 @@
 //! capability enabled only by the desktop application, where the server runs
 //! in-process and reads the very files the user picked.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
@@ -256,6 +257,7 @@ pub async fn plan_handler(
 /// Copy every local input to durable storage and queue the import.
 pub async fn import_handler(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<GeneanetImportRequest>,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
@@ -263,6 +265,7 @@ pub async fn import_handler(
     let gw = decode_gw(&body.gw_base64)?;
     let _intake = crate::service::intake::slot().await?;
     let job_id = crate::service::background_job::stage_geneanet_import(
+        &viewer,
         &state.db,
         &*state.media,
         &state.work_dir,

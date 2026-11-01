@@ -50,8 +50,21 @@ async fn main() {
     info!("Starting OxidGene background worker");
     // Its maintenance passes, the first at start, sweep what a crashed run
     // left in the working directory.
-    let worker =
-        BackgroundJobWorker::new(db, profiles, media, worker_id).with_work_dir(config.work_dir());
+    // Its maintenance also deletes the access events past their retention.
+    let retention = ServerConfig::load_auth()
+        .ok()
+        .and_then(|settings| settings.access_log_retention().ok())
+        .unwrap_or_else(|| {
+            error!(
+                error = "auth_config_invalid",
+                variable = "OXIDGENE_ACCESS_LOG_RETENTION",
+                "Invalid access log retention"
+            );
+            std::process::exit(1)
+        });
+    let worker = BackgroundJobWorker::new(db, profiles, media, worker_id)
+        .with_work_dir(config.work_dir())
+        .with_access_log_retention(retention);
     tokio::select! {
         () = worker.run() => {}
         () = shutdown_signal() => {}

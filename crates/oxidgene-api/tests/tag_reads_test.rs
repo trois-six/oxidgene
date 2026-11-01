@@ -52,12 +52,18 @@ impl Fixture {
     }
 
     async fn create_tag(&self, label: &str) -> Uuid {
-        tag::create(&self.db, self.tree_id(), label, None)
-            .await
-            .unwrap()
-            .0
-            .tag
-            .id
+        tag::create(
+            &oxidgene_core::access::ViewerContext::local(),
+            &self.db,
+            self.tree_id(),
+            label,
+            None,
+        )
+        .await
+        .unwrap()
+        .0
+        .tag
+        .id
     }
 
     /// Put `tag` on a record over REST, expecting success.
@@ -240,6 +246,7 @@ async fn a_family_event_tag_refreshes_both_spouse_profiles_over_rest() {
     }
 
     tag::update(
+        &oxidgene_core::access::ViewerContext::local(),
         &f.db,
         &f.profiles,
         f.tree_id(),

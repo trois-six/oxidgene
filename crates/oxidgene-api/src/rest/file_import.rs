@@ -1,5 +1,6 @@
 //! Streamed uploads and asynchronous genealogy file imports.
 
+use super::authorize::Viewer;
 use std::path::Path as FilePath;
 
 use axum::Json;
@@ -40,6 +41,7 @@ impl TemporaryUpload {
 /// POST /api/v1/trees/:tree_id/import-jobs
 pub async fn start(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<StartFileImportQuery>,
     body: Body,
@@ -49,13 +51,12 @@ pub async fn start(
     // spool file. The slot is held until the source is in job storage.
     let _intake = crate::service::intake::slot().await?;
 
-    let job_id = Uuid::now_v7();
     let upload = TemporaryUpload::new(&state.work_dir).map_err(OxidGeneError::Io)?;
     stream_to_file(body, upload.reopen().map_err(OxidGeneError::Io)?).await?;
-    background_job::stage_import(
+    let job_id = background_job::stage_import(
+        &viewer,
         &state.db,
         &*state.media,
-        job_id,
         tree_id,
         query.format.as_str(),
         query.filename,

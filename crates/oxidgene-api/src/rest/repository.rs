@@ -1,5 +1,6 @@
 //! REST handlers for repositories and a source's links to them.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -33,10 +34,11 @@ pub async fn list_repositories(
 /// POST /api/v1/trees/:tree_id/repositories
 pub async fn create_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewRepository>,
 ) -> Result<(StatusCode, Json<Repository>), ApiError> {
-    let created = repository::create_repository(&state.db, tree_id, body).await?;
+    let created = repository::create_repository(&viewer, &state.db, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -53,11 +55,12 @@ pub async fn get_repository(
 /// PUT /api/v1/trees/:tree_id/repositories/:repository_id
 pub async fn update_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<RepositoryPatch>,
 ) -> Result<Json<Repository>, ApiError> {
     Ok(Json(
-        repository::update_repository(&state.db, tree_id, repository_id, body).await?,
+        repository::update_repository(&viewer, &state.db, tree_id, repository_id, body).await?,
     ))
 }
 
@@ -68,11 +71,12 @@ pub async fn update_repository(
 /// given.
 pub async fn merge_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<RepositoryMerge>,
 ) -> Result<Json<Repository>, ApiError> {
     Ok(Json(
-        repository::merge_repository(&state.db, tree_id, repository_id, body).await?,
+        repository::merge_repository(&viewer, &state.db, tree_id, repository_id, body).await?,
     ))
 }
 
@@ -83,12 +87,18 @@ pub async fn merge_repository(
 /// 200/204 split reports back.
 pub async fn delete_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, repository_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteRepositoryQuery>,
 ) -> Result<StatusCode, ApiError> {
-    let deleted =
-        repository::delete_repository(&state.db, tree_id, repository_id, query.only_if_unused)
-            .await?;
+    let deleted = repository::delete_repository(
+        &viewer,
+        &state.db,
+        tree_id,
+        repository_id,
+        query.only_if_unused,
+    )
+    .await?;
     Ok(if deleted {
         StatusCode::NO_CONTENT
     } else {
@@ -125,29 +135,34 @@ pub async fn list_source_repositories(
 /// POST /api/v1/trees/:tree_id/sources/:source_id/repositories
 pub async fn add_source_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewSourceRepository>,
 ) -> Result<(StatusCode, Json<SourceRepository>), ApiError> {
-    let link = repository::add_source_repository(&state.db, tree_id, source_id, body).await?;
+    let link =
+        repository::add_source_repository(&viewer, &state.db, tree_id, source_id, body).await?;
     Ok((StatusCode::CREATED, Json(link)))
 }
 
 /// PUT /api/v1/trees/:tree_id/sources/:source_id/repositories/:link_id
 pub async fn update_source_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id, link_id)): Path<(Uuid, Uuid, Uuid)>,
     Json(body): Json<SourceRepositoryPatch>,
 ) -> Result<Json<SourceRepository>, ApiError> {
     Ok(Json(
-        repository::update_source_repository(&state.db, tree_id, source_id, link_id, body).await?,
+        repository::update_source_repository(&viewer, &state.db, tree_id, source_id, link_id, body)
+            .await?,
     ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/sources/:source_id/repositories/:link_id
 pub async fn remove_source_repository(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id, link_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    repository::remove_source_repository(&state.db, tree_id, source_id, link_id).await?;
+    repository::remove_source_repository(&viewer, &state.db, tree_id, source_id, link_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

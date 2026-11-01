@@ -5,6 +5,7 @@
 //! - A generic cursor-based pagination helper
 //! - Repository implementations for all entities
 
+mod access_event;
 mod ancestry;
 mod app_user;
 mod background_job;
@@ -25,6 +26,7 @@ mod history;
 mod media;
 mod media_library;
 mod media_link;
+mod membership;
 mod note;
 mod pagination;
 mod person;
@@ -45,11 +47,12 @@ mod tag;
 mod tree;
 mod vignette;
 
+pub use access_event::{AccessEvent, AccessEventRepo, NewAccessEvent};
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use app_user::{AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, UserStatus};
 pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, JOB_CHANNEL,
-    NewBackgroundJob, QUEUE_CHANNEL,
+    NewBackgroundJob, QUEUE_CHANNEL, job_actor,
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{
@@ -73,8 +76,9 @@ pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
 pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
+pub use membership::{MembershipChanges, MembershipRepo, TreeMembership};
 pub use note::{NoteFilter, NoteRepo};
-pub use pagination::PaginationParams;
+pub use pagination::{PaginationParams, encode_cursor};
 pub use person::{PersonRepo, PortraitRow};
 
 pub use person_denorm::{EncodedProfiles, PersonDenormRepo};

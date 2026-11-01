@@ -1,0 +1,258 @@
+//! Authorization (docs/authorization.md): the one module that decides what
+//! a request's viewer may do, for REST, GraphQL and MCP alike.
+//!
+//! - Every operation declares a [`Requirement`] in [`operations`]: the REST
+//!   routes by method and template, the GraphQL root fields by name. A guard
+//!   keeps both tables complete and the two surfaces' declarations equal.
+//! - [`tree_access`] resolves the viewer's [`TreeAccess`] to a tree once per
+//!   request, and [`authorize`] checks a permission against it.
+//! - Refusals are answered `401`, `403` or `404` as §4.3 says and recorded
+//!   in the access log ([`log`]).
+//!
+//! Every build compiles it: without the `auth` feature, the viewer is always
+//! the local owner, who passes every requirement on every live tree, as the
+//! desktop always did.
+
+pub mod log;
+pub mod operations;
+
+use chrono::Utc;
+use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::{Identity, JobActor};
+use oxidgene_core::access::{Permission, Principal, TreeAccess, TreeRole, ViewerContext};
+use oxidgene_db::repo::MembershipRepo;
+use oxidgene_db::repo::{AppUserRepo, UserStatus};
+use sea_orm::{ConnectionTrait, DatabaseConnection};
+use uuid::Uuid;
+
+use crate::service::scope::require_live_tree;
+
+/// What an operation needs of its viewer (docs/authorization.md §3.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requirement {
+    /// Nothing: operations that need no tree data — the API description, the
+    /// reference content, the export destinations.
+    Open,
+    /// A signed-in user, or the local owner.
+    SignedIn,
+    /// The instance's tree creation right.
+    TreeCreation,
+    /// An instance administrator. The local owner passes, and the account
+    /// operations answer it `404` as having no account.
+    Administrator,
+    /// `permission` on the tree the operation names.
+    Tree(Permission),
+    /// `permission` on each of the trees the operation lists: a tree the
+    /// viewer may not read is left out, as a missing one is.
+    Trees(Permission),
+}
+
+impl Requirement {
+    /// The part of the requirement the viewer alone decides, before any
+    /// tree is read.
+    pub fn check_viewer(self, viewer: &ViewerContext) -> Result<(), OxidGeneError> {
+        let principal = viewer.principal();
+        match self {
+            Self::Open => Ok(()),
+            _ if matches!(principal, Principal::Anonymous) => {
+                // No tree is public before sharing ships (§6.4): an
+                // anonymous viewer may do nothing but the open operations.
+                Err(OxidGeneError::Unauthenticated)
+            }
+            Self::TreeCreation if !viewer.may_create_trees() => Err(OxidGeneError::Forbidden),
+            Self::Administrator if !viewer.is_local() && !viewer.is_admin() => {
+                Err(OxidGeneError::Forbidden)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The permission refused when this requirement fails, for the access
+    /// log.
+    pub fn permission(self) -> Option<Permission> {
+        match self {
+            Self::Tree(permission) | Self::Trees(permission) => Some(permission),
+            _ => None,
+        }
+    }
+
+    /// Its stable name, for the access log and the specification.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::SignedIn => "signed_in",
+            Self::TreeCreation => "tree_creation",
+            Self::Administrator => "administrator",
+            Self::Tree(permission) | Self::Trees(permission) => permission.as_str(),
+        }
+    }
+}
+
+/// The viewer's access to tree `tree_id`, resolved once per request
+/// (§4.1): the local owner's on any live tree, a member's role otherwise.
+///
+/// A viewer who cannot see the tree at all — missing, deleted, or not
+/// theirs — is answered as if it did not exist (`not_found`); an anonymous
+/// one is asked to sign in (`unauthenticated`), whether the tree exists or
+/// not.
+///
+/// The seams of the later phases are here: a share link's grant and the
+/// tree's visibility make a Visitor (§6.3, §6.4), and a membership's scope
+/// narrows what it reaches (§6.5).
+pub async fn tree_access(
+    db: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+) -> Result<TreeAccess, OxidGeneError> {
+    if let Some(access) = viewer.cached(tree_id) {
+        return Ok(access);
+    }
+    let access = match viewer.principal() {
+        Principal::Local => {
+            require_live_tree(db, tree_id).await?;
+            TreeAccess::of_role(TreeRole::Owner)
+        }
+        Principal::Anonymous => return Err(OxidGeneError::Unauthenticated),
+        Principal::User(identity) => {
+            match MembershipRepo::live_role(db, tree_id, identity.user_id, Utc::now()).await? {
+                Some(role) => TreeAccess::of_role(role),
+                None => return Err(not_found(tree_id)),
+            }
+        }
+    };
+    viewer.remember(tree_id, access);
+    Ok(access)
+}
+
+/// Check that the viewer holds `permission` on tree `tree_id`: `403
+/// forbidden` for a viewer who sees the tree without it.
+///
+/// Duplicating a tree also takes the instance's tree creation right.
+pub async fn authorize(
+    db: &impl ConnectionTrait,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    permission: Permission,
+) -> Result<TreeAccess, OxidGeneError> {
+    let access = tree_access(db, viewer, tree_id).await?;
+    if !access.allows(permission)
+        || (permission == Permission::TreeDuplicate && !viewer.may_create_trees())
+    {
+        return Err(OxidGeneError::Forbidden);
+    }
+    Ok(access)
+}
+
+/// The trees of `tree_ids` the viewer holds `permission` on, in the order
+/// given; the others are left out, as missing trees are. The local owner
+/// holds every permission on every tree: the operation leaves out the
+/// missing ones itself. A user's roles are read in one query.
+pub async fn permitted_trees(
+    db: &DatabaseConnection,
+    viewer: &ViewerContext,
+    tree_ids: &[Uuid],
+    permission: Permission,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    match viewer.principal() {
+        Principal::Local => Ok(tree_ids.to_vec()),
+        Principal::Anonymous => Err(OxidGeneError::Unauthenticated),
+        Principal::User(identity) => {
+            let roles =
+                MembershipRepo::live_roles(db, identity.user_id, tree_ids, Utc::now()).await?;
+            Ok(tree_ids
+                .iter()
+                .copied()
+                .filter(|tree_id| {
+                    roles
+                        .get(tree_id)
+                        .is_some_and(|role| role.permissions().contains(permission))
+                })
+                .collect())
+        }
+    }
+}
+
+/// Check `requirement` for the viewer, on tree `tree_id` when it names one.
+pub async fn check(
+    db: &DatabaseConnection,
+    viewer: &ViewerContext,
+    requirement: Requirement,
+    tree_id: Option<Uuid>,
+) -> Result<(), OxidGeneError> {
+    requirement.check_viewer(viewer)?;
+    if let (Requirement::Tree(permission), Some(tree_id)) = (requirement, tree_id) {
+        authorize(db, viewer, tree_id, permission).await?;
+    }
+    Ok(())
+}
+
+/// The viewer a background job acts for: the actor recorded when it was
+/// submitted (docs/authentication.md §5.5), read again from the user row
+/// so that a deactivated or erased user acts no more.
+///
+/// # Errors
+///
+/// `actor_revoked` ([`OxidGeneError::Forbidden`]) for a user who may no
+/// longer act.
+pub async fn job_viewer(
+    db: &impl ConnectionTrait,
+    actor: &JobActor,
+) -> Result<ViewerContext, OxidGeneError> {
+    let Some(user_id) = actor.user_id else {
+        return Ok(ViewerContext::local());
+    };
+    let user = match AppUserRepo::get(db, user_id).await {
+        Ok(user) => user,
+        Err(OxidGeneError::NotFound { .. }) => return Err(OxidGeneError::Forbidden),
+        Err(error) => return Err(error),
+    };
+    if user.status != UserStatus::Active {
+        return Err(OxidGeneError::Forbidden);
+    }
+    Ok(ViewerContext::new(Principal::User(Identity {
+        issuer: actor.issuer.clone().unwrap_or_default(),
+        subject: actor.subject.clone().unwrap_or_default(),
+        user_id,
+        client_id: actor.client_id.clone(),
+        scopes: actor.scopes.clone(),
+        session_id: actor.session.clone(),
+        api_client_id: actor.api_client_id,
+        instance_role: user.instance_role,
+        can_create_trees: user.can_create_trees,
+    })))
+}
+
+/// Check, before a job starts and again before it commits, that its actor
+/// still holds `permission` on its tree: the role is read afresh, whatever
+/// the request resolved earlier. A lost membership or permission is
+/// `actor_revoked` ([`OxidGeneError::Forbidden`]), and so is a deleted tree
+/// for a user, who may not tell it from a lost membership.
+pub async fn recheck_job(
+    db: &impl ConnectionTrait,
+    actor: &JobActor,
+    tree_id: Uuid,
+    permission: Permission,
+) -> Result<ViewerContext, OxidGeneError> {
+    let viewer = job_viewer(db, actor).await?;
+    match authorize(db, &viewer, tree_id, permission).await {
+        Ok(_) => Ok(viewer),
+        Err(OxidGeneError::NotFound { .. }) if !viewer.is_local() => Err(OxidGeneError::Forbidden),
+        Err(error) => Err(error),
+    }
+}
+
+/// The answer to a tree the viewer may not see.
+pub fn not_found(tree_id: Uuid) -> OxidGeneError {
+    OxidGeneError::NotFound {
+        entity: "Tree",
+        id: tree_id,
+    }
+}
+
+/// Whether `error` is a refusal of the policy rather than a failure.
+pub fn is_refusal(error: &OxidGeneError) -> bool {
+    matches!(
+        error,
+        OxidGeneError::Unauthenticated | OxidGeneError::Forbidden | OxidGeneError::NotFound { .. }
+    )
+}

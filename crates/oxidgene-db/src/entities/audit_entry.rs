@@ -20,6 +20,12 @@ pub struct Model {
     pub subject_id: Option<Uuid>,
     pub label: Option<String>,
     pub details: Option<String>,
+    /// `user`, `api_client` or `local` (docs/authorization.md §9.1).
+    pub author_kind: String,
+    pub author_user_id: Option<Uuid>,
+    pub author_api_client_id: Option<Uuid>,
+    /// The OAuth client the write came through.
+    pub author_client_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

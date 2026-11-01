@@ -17,31 +17,7 @@ use crate::entities::app_user::{self, ActiveModel, Column, Entity};
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
-/// What a user may do on the instance as a whole.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstanceRole {
-    /// Manages users; reads no tree's content by virtue of the role.
-    Admin,
-    User,
-}
-
-impl InstanceRole {
-    /// The stored and serialized value.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::User => "user",
-        }
-    }
-
-    fn parse(value: &str) -> Self {
-        if value == "admin" {
-            Self::Admin
-        } else {
-            Self::User
-        }
-    }
-}
+pub use oxidgene_core::access::InstanceRole;
 
 /// Whether an account may be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,6 +182,33 @@ impl AppUserRepo {
             (model.id, into_domain(model))
         })
         .await
+    }
+
+    /// The names of `ids` as their entries' readers see them: the user's
+    /// own, else the provider's; none for an erased user, whom readers see
+    /// as a former member (docs/authentication.md §6.6). Users not found
+    /// are left out.
+    pub async fn shown_names(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, Option<String>>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        Ok(Entity::find()
+            .filter(Column::Id.is_in(ids.iter().copied()))
+            .all(db)
+            .await
+            .map_err(db_err)?
+            .into_iter()
+            .map(into_domain)
+            .map(|user| {
+                let name = (user.status != UserStatus::Erased)
+                    .then(|| user.shown_name().map(str::to_owned))
+                    .flatten();
+                (user.id, name)
+            })
+            .collect())
     }
 
     /// Whether an active instance administrator exists.

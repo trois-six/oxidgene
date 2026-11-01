@@ -112,6 +112,9 @@ pub struct AuthSettings {
     pub session_idle_timeout: String,
     #[serde(default = "default_absolute_lifetime")]
     pub session_absolute_lifetime: String,
+    /// How long access events are kept (docs/authorization.md §9.2).
+    #[serde(default = "default_access_log_retention")]
+    pub access_log_retention: String,
 }
 
 impl std::fmt::Debug for AuthSettings {
@@ -152,6 +155,9 @@ fn default_idle_timeout() -> String {
 }
 fn default_absolute_lifetime() -> String {
     "7d".into()
+}
+fn default_access_log_retention() -> String {
+    "180d".into()
 }
 
 /// The checked configuration.
@@ -248,6 +254,16 @@ impl OidcConfig {
 }
 
 impl AuthSettings {
+    /// How long the worker keeps access events
+    /// (`OXIDGENE_ACCESS_LOG_RETENTION`), whatever the mode.
+    ///
+    /// # Errors
+    ///
+    /// When the value is no duration of at least a minute.
+    pub fn access_log_retention(&self) -> Result<Duration, AuthConfigError> {
+        lifetime(&self.access_log_retention, "OXIDGENE_ACCESS_LOG_RETENTION")
+    }
+
     /// Check the settings.
     ///
     /// # Errors

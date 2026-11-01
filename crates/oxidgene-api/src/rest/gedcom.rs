@@ -3,6 +3,7 @@
 //! Imports have no handler here: a genealogy file is imported only as a job
 //! (see [`super::file_import`]).
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
@@ -40,15 +41,22 @@ pub async fn export_destinations() -> Json<Vec<gedcom::ExportDestination>> {
 /// recorded in the tree's audit log, as GraphQL's `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
     let choices = query.choices()?;
     let scope = query.scope()?;
     if query.format.as_deref() != Some("gedzip") {
-        let data =
-            gedcom::export_gedcom(&state.db, tree_id, choices, scope.as_ref(), query.privacy())
-                .await?;
+        let data = gedcom::export_gedcom(
+            &viewer,
+            &state.db,
+            tree_id,
+            choices,
+            scope.as_ref(),
+            query.privacy(),
+        )
+        .await?;
         return Ok(Json(ExportGedcomResponse {
             gedcom: data.gedcom,
             warnings: data.warnings,
@@ -80,6 +88,7 @@ pub async fn export_gedcom_handler(
         .into_temp_path();
     gedcom::write_gedzip_file(&*state.media, &staged, data.gedcom, data.media_files).await?;
     history::record_export(
+        &viewer,
         &state.db,
         tree_id,
         "gedzip",

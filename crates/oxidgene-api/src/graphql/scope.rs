@@ -1,16 +1,18 @@
 //! What every resolver does with the identifiers it receives: parse them, and
-//! check that the tree they are scoped to is live; and how a root resolver
-//! runs its body, from the heap.
+//! check that the viewer may do what the root field declares on the tree
+//! they are scoped to; and how a root resolver runs its body, from the heap.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use async_graphql::{Context, ID, Result};
 use futures_util::future::BoxFuture;
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::{Permission, ViewerContext};
 use uuid::Uuid;
 
-use super::types::reader_from_ctx;
-use crate::service::scope::require_live_tree;
+use super::types::{db_from_ctx, reader_from_ctx};
+use crate::authz::{self, Requirement, operations};
 
 /// Parse an identifier. A malformed one is a validation error, as it is on
 /// REST.
@@ -29,17 +31,82 @@ pub(crate) fn uuids(ids: &[impl AsRef<str>]) -> Result<Vec<Uuid>> {
     ids.iter().map(uuid).collect()
 }
 
-/// The tree `id` names, which must exist and not be deleted.
+/// The request's viewer, which the handler put in the request's data:
+/// anonymous when there is none.
+pub(crate) fn viewer_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a Arc<ViewerContext> {
+    static ANONYMOUS: std::sync::LazyLock<Arc<ViewerContext>> =
+        std::sync::LazyLock::new(|| Arc::new(ViewerContext::anonymous()));
+    ctx.data_opt::<Arc<ViewerContext>>().unwrap_or(&ANONYMOUS)
+}
+
+/// The tree `id` names, once the viewer is checked to hold what the root
+/// field being resolved declares on it (docs/authorization.md §4).
 ///
-/// GraphQL's counterpart of REST's tree guard (`rest::tree_guard`): a tree is
-/// purged in the background a few seconds after it is deleted, and until then
-/// its rows are still there. Every tree-scoped resolver starts here, so a
-/// deleted or unknown tree answers `NOT_FOUND` — never its data, never a write
-/// into it.
+/// GraphQL's counterpart of REST's authorization middleware
+/// (`rest::authorize`): every tree-scoped root resolver starts here, so a
+/// deleted or unknown tree, or one the viewer cannot see, answers
+/// `NOT_FOUND` — never its data, never a write into it — and a permission
+/// the viewer lacks answers `FORBIDDEN`. The requirement is the one the
+/// field declares in [`operations`], looked up by the field's name, never
+/// its alias.
 pub(crate) async fn live_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
     let tree_id = uuid(id)?;
-    require_live_tree(reader_from_ctx(ctx), tree_id).await?;
+    authorized(ctx, tree_id).await?;
     Ok(tree_id)
+}
+
+/// The tree `id` names as [`live_tree`] checks it, `None` where that answers
+/// `NOT_FOUND`: a singular query's `null`.
+pub(crate) async fn visible_tree(ctx: &Context<'_>, id: &ID) -> Result<Option<Uuid>> {
+    let tree_id = uuid(id)?;
+    match authorized(ctx, tree_id).await {
+        Ok(()) => Ok(Some(tree_id)),
+        Err(OxidGeneError::NotFound { .. }) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+async fn authorized(ctx: &Context<'_>, tree_id: Uuid) -> Result<(), OxidGeneError> {
+    let field = ctx.field().name();
+    let permission = match operations::graphql(field) {
+        Some(Requirement::Tree(permission) | Requirement::Trees(permission)) => permission,
+        Some(_) => Permission::Read,
+        // Fail closed: the API contract guard keeps every field declared.
+        None => {
+            tracing::error!(
+                graphql.field = field,
+                "field without a declared requirement refused"
+            );
+            return Err(OxidGeneError::Forbidden);
+        }
+    };
+    let viewer = viewer_from_ctx(ctx);
+    let requirement = Requirement::Tree(permission);
+    if let Err(error) = authz::check(reader_from_ctx(ctx), viewer, requirement, Some(tree_id)).await
+    {
+        authz::log::refusal(
+            db_from_ctx(ctx),
+            viewer,
+            Some(tree_id),
+            field,
+            requirement,
+            &error,
+        );
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// The tree a job's status or cancellation names. The local owner's is not
+/// read: a running job answers from memory, without the database, and the
+/// service checks the tree when it has to read. Anyone else's goes through
+/// [`live_tree`].
+pub(crate) async fn job_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
+    if viewer_from_ctx(ctx).is_local() {
+        uuid(id)
+    } else {
+        live_tree(ctx, id).await
+    }
 }
 
 /// Run a root resolver's body from the heap: every resolver of

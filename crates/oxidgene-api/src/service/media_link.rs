@@ -6,6 +6,7 @@
 //! projection, in the transaction that records the change.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::MediaLink;
 use oxidgene_db::repo::MediaLinkRepo;
@@ -31,6 +32,7 @@ pub struct NewMediaLink {
 
 /// Link a media of `tree_id` to records of the same tree.
 pub async fn create_media_link(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -63,7 +65,7 @@ pub async fn create_media_link(
     if let Some(person_id) = link.person_id {
         profiles.rebuild_person(&txn, tree_id, person_id).await?;
     }
-    Change::create(tree_id, AuditEntity::MediaLink, id)
+    Change::create(viewer, tree_id, AuditEntity::MediaLink, id)
         .media(link.media_id)
         .record_unversioned(&txn)
         .await?;
@@ -73,6 +75,7 @@ pub async fn create_media_link(
 
 /// Delete media link `id` of `tree_id`; the media stays.
 pub async fn delete_media_link(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -86,7 +89,7 @@ pub async fn delete_media_link(
     if let Some(person_id) = link.person_id {
         profiles.rebuild_person(&txn, tree_id, person_id).await?;
     }
-    Change::delete(tree_id, AuditEntity::MediaLink, id)
+    Change::delete(viewer, tree_id, AuditEntity::MediaLink, id)
         .media(link.media_id)
         .record_unversioned(&txn)
         .await?;

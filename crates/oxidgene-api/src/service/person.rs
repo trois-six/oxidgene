@@ -5,6 +5,7 @@
 //! projections it touches, and records the change, in one transaction.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::{ChildType, Privacy, Sex, SpouseRole};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{AncestryLink, Person};
@@ -49,6 +50,7 @@ pub enum Lineage {
 /// Create a person in `tree_id`, with the projection a new, unlinked person
 /// has.
 pub async fn create_person(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -56,7 +58,7 @@ pub async fn create_person(
 ) -> Result<Person, OxidGeneError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(tree_id, AuditEntity::Person, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
         .prepare(&txn)
         .await?;
@@ -70,6 +72,7 @@ pub async fn create_person(
 /// Update person `id` of `tree_id`, and the projections of everyone whose
 /// own shows them: spouses, children, parents.
 pub async fn update_person(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -78,7 +81,7 @@ pub async fn update_person(
 ) -> Result<Person, OxidGeneError> {
     let txn = begin_tx(db).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
-    let pending = Change::update(tree_id, AuditEntity::Person, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
         .prepare(&txn)
         .await?;
@@ -95,6 +98,7 @@ pub async fn update_person(
 /// Delete person `id` of `tree_id` (a soft delete): their projection and
 /// search row go, and the relatives that showed them are rewritten.
 pub async fn delete_person(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -102,7 +106,7 @@ pub async fn delete_person(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::Person, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
         .prepare(&txn)
         .await?;

@@ -184,6 +184,7 @@ async fn background_job_persists_the_current_trace_context() {
     BackgroundJobRepo::create(
         &db,
         NewBackgroundJob {
+            actor: Default::default(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Import,
@@ -212,6 +213,7 @@ async fn background_jobs_are_exclusive_and_expired_leases_are_reclaimed() {
     let tree_id = create_tree(&db).await;
     let job_id = Uuid::now_v7();
     let new_job = || NewBackgroundJob {
+        actor: Default::default(),
         id: job_id,
         tree_id,
         kind: BackgroundJobKind::Import,
@@ -272,6 +274,7 @@ async fn ended_jobs_drop_their_payload_and_can_be_pruned() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let job = |id, kind| NewBackgroundJob {
+        actor: Default::default(),
         id,
         tree_id,
         kind,
@@ -385,6 +388,7 @@ async fn queue_import(db: &DatabaseConnection, tree_id: Uuid) -> Uuid {
     BackgroundJobRepo::create(
         db,
         NewBackgroundJob {
+            actor: Default::default(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Import,

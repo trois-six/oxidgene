@@ -25,11 +25,12 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
+use oxidgene_core::access::AuthorKind;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
-    AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, RecordLabel, RecordSnapshot,
-    RecordType, RecordVersion, VersionChange,
+    AuditAction, AuditAuthor, AuditCategory, AuditDetails, AuditEntity, AuditEntry, RecordLabel,
+    RecordSnapshot, RecordType, RecordVersion, VersionChange,
 };
 use oxidgene_core::types::{Connection, Edge, PageInfo};
 use sea_orm::entity::prelude::*;
@@ -44,7 +45,7 @@ use super::batch::in_chunks;
 use super::pagination::{PaginationParams, encode_cursor};
 use super::{BuiltSnapshot, SnapshotRepo};
 use crate::entities::{audit_entry, person, place, record_version, repository, source, tree};
-use crate::repo::db_err;
+use crate::repo::{AppUserRepo, db_err};
 
 /// Filters of the audit log.
 #[derive(Debug, Clone, Copy, Default)]
@@ -111,6 +112,10 @@ impl HistoryRepo {
             subject_id: Set(entry.subject_id),
             label: Set(entry.label.clone()),
             details: Set(details),
+            author_kind: Set(entry.author.kind.as_str().to_string()),
+            author_user_id: Set(entry.author.user_id),
+            author_api_client_id: Set(entry.author.api_client_id),
+            author_client_id: Set(entry.author.client_id.clone()),
         }
         .insert(db)
         .await
@@ -1077,12 +1082,18 @@ async fn with_counts(
     .into_iter()
     .map(|row| (row.audit_entry_id, row.count))
     .collect();
+    // The authors' names as they read now: an erased author has none.
+    let authors: Vec<Uuid> = sorted_unique(rows.iter().filter_map(|row| row.author_user_id));
+    let names = AppUserRepo::shown_names(db, &authors).await?;
     let mut seen = HashSet::new();
     rows.into_iter()
         .filter(|row| seen.insert(row.id))
         .map(|row| {
             let count = counts.get(&row.id).copied().unwrap_or(0);
-            entry_from_row(row, count)
+            let name = row
+                .author_user_id
+                .and_then(|id| names.get(&id).cloned().flatten());
+            entry_from_row(row, count, name)
         })
         .collect()
 }
@@ -1090,8 +1101,16 @@ async fn with_counts(
 fn entry_from_row(
     row: audit_entry::Model,
     version_count: i64,
+    author_name: Option<String>,
 ) -> Result<AuditEntry, OxidGeneError> {
     Ok(AuditEntry {
+        author: AuditAuthor {
+            kind: AuthorKind::parse(&row.author_kind),
+            user_id: row.author_user_id,
+            display_name: author_name,
+            client_id: row.author_client_id,
+            api_client_id: row.author_api_client_id,
+        },
         id: row.id,
         tree_id: row.tree_id,
         occurred_at: row.occurred_at,

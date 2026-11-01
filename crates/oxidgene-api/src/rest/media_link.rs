@@ -1,5 +1,6 @@
 //! REST handlers for MediaLink create/delete operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -86,18 +87,21 @@ pub async fn list_media_links(
 /// POST /api/v1/trees/:tree_id/media-links
 pub async fn create_media_link(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewMediaLink>,
 ) -> Result<(StatusCode, Json<MediaLink>), ApiError> {
-    let link = media_link::create_media_link(&state.db, &state.profiles, tree_id, body).await?;
+    let link =
+        media_link::create_media_link(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(link)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/media-links/:link_id
 pub async fn delete_media_link(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    media_link::delete_media_link(&state.db, &state.profiles, tree_id, link_id).await?;
+    media_link::delete_media_link(&viewer, &state.db, &state.profiles, tree_id, link_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

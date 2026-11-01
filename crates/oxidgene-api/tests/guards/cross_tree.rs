@@ -34,6 +34,12 @@ const BATCH_READS: &[&str] = &[
     "/api/v1/trees/{tree_id}/relation-labels",
 ];
 
+/// Whether the guard calls `path`: a tree-scoped route its application
+/// serves.
+fn checked_route(path: &str) -> bool {
+    path.contains("{tree_id}") && !super::surface::absent_without_accounts(path)
+}
+
 #[tokio::test]
 async fn no_rest_route_reaches_another_trees_record() {
     let db = setup_db().await;
@@ -47,7 +53,7 @@ async fn no_rest_route_reaches_another_trees_record() {
     let mut leaks = Vec::new();
     let paths = spec.0["paths"].as_object().unwrap().clone();
     for (path, operations) in &paths {
-        if !path.contains("{tree_id}") {
+        if !checked_route(path) {
             continue;
         }
         for (method, operation) in operations.as_object().unwrap() {
@@ -125,7 +131,9 @@ async fn no_graphql_field_reaches_another_trees_record() {
         for field in schema.root_fields(root) {
             let name = field["name"].as_str().unwrap();
             let args = field["args"].as_array().unwrap();
-            if !args.iter().any(|a| a["name"] == "treeId") {
+            if !args.iter().any(|a| a["name"] == "treeId")
+                || super::surface::MEMBERSHIP_FIELDS.contains(&name)
+            {
                 continue;
             }
             let rendered = match schema.arguments(&field, &tree_a, &b) {

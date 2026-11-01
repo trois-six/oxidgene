@@ -5,6 +5,7 @@
 //! the projections of the persons whose profiles show it, in the transaction
 //! that makes the change.
 
+use oxidgene_core::access::ViewerContext;
 use std::collections::HashMap;
 
 use oxidgene_core::collections::sorted_unique;
@@ -49,6 +50,7 @@ pub fn parse_kind(value: &str) -> Result<RecordKind, OxidGeneError> {
 /// The flag tells whether this call created it. `color`, when given, is the
 /// colour of a new tag; an existing tag keeps its own.
 pub async fn create(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     label: &str,
@@ -64,7 +66,7 @@ pub async fn create(
         if let Some(color) = color {
             TagRepo::update(&txn, tree_id, tag.id, None, Some(color)).await?;
         }
-        Change::create(tree_id, AuditEntity::Tag, tag.id)
+        Change::create(viewer, tree_id, AuditEntity::Tag, tag.id)
             .label(tag.label.clone())
             .record_unversioned(&txn)
             .await?;
@@ -77,6 +79,7 @@ pub async fn create(
 /// Rename and/or recolour tag `id` of `tree_id`. A label folding to another
 /// tag's is a conflict. Persons showing the tag are refreshed when it changed.
 pub async fn update(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -94,7 +97,7 @@ pub async fn update(
         if after.label != before.label {
             details.new_label = Some(after.label.clone());
         }
-        Change::update(tree_id, AuditEntity::Tag, id)
+        Change::update(viewer, tree_id, AuditEntity::Tag, id)
             .label(before.label.clone())
             .details(details)
             .record_unversioned(&txn)
@@ -108,6 +111,7 @@ pub async fn update(
 /// Move every link of tag `from` onto tag `into` and delete `from`. Returns the
 /// merged `into` with its counts.
 pub async fn merge(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -120,7 +124,7 @@ pub async fn merge(
     let target = TagRepo::get(&txn, tree_id, into).await?;
     let moved = TagRepo::merge(&txn, tree_id, from, into).await?;
     refresh_carriers(&txn, profiles, tree_id, into).await?;
-    Change::delete(tree_id, AuditEntity::Tag, from)
+    Change::delete(viewer, tree_id, AuditEntity::Tag, from)
         .label(source.label)
         .details(AuditDetails {
             count: Some(moved),
@@ -137,6 +141,7 @@ pub async fn merge(
 /// Delete tag `id` of `tree_id` and every link to it. Returns the number of
 /// links removed.
 pub async fn delete(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -151,7 +156,7 @@ pub async fn delete(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &carriers)
         .await?;
-    Change::delete(tree_id, AuditEntity::Tag, id)
+    Change::delete(viewer, tree_id, AuditEntity::Tag, id)
         .label(tag.label)
         .details(AuditDetails {
             count: Some(removed),
@@ -166,6 +171,7 @@ pub async fn delete(
 /// Put tag `tag_id` on record `record_id` of `kind`. Idempotent. A page of a
 /// document is tagged on the document.
 pub async fn tag_record(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -173,11 +179,21 @@ pub async fn tag_record(
     kind: RecordKind,
     record_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    set_record_tag(db, profiles, tree_id, tag_id, kind, record_id, true).await
+    set_record_tag(
+        viewer,
+        db,
+        profiles,
+        tree_id,
+        tag_id,
+        (kind, record_id),
+        true,
+    )
+    .await
 }
 
 /// Take tag `tag_id` off record `record_id` of `kind`. Idempotent.
 pub async fn untag_record(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -185,7 +201,16 @@ pub async fn untag_record(
     kind: RecordKind,
     record_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    set_record_tag(db, profiles, tree_id, tag_id, kind, record_id, false).await
+    set_record_tag(
+        viewer,
+        db,
+        profiles,
+        tree_id,
+        tag_id,
+        (kind, record_id),
+        false,
+    )
+    .await
 }
 
 /// A live record carrying a tag, as the tag's list shows it: its id, its kind,
@@ -614,13 +639,15 @@ async fn citation_details(
         .collect())
 }
 
+/// Put tag `tag_id` on `record`, a kind and an id, when `present`, else take
+/// it off.
 async fn set_record_tag(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
     tag_id: Uuid,
-    kind: RecordKind,
-    record_id: Uuid,
+    (kind, record_id): (RecordKind, Uuid),
     present: bool,
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
@@ -639,7 +666,7 @@ async fn set_record_tag(
         } else {
             AuditAction::Delete
         };
-        let mut change = Change::new(tree_id, action, AuditEntity::RecordTag, tag.id)
+        let mut change = Change::new(viewer, tree_id, action, AuditEntity::RecordTag, tag.id)
             .category(AuditCategory::of_record_tag(kind));
         if let Some((subject, id)) = subject_of(&txn, kind, record_id).await? {
             change = change.about(subject, id);

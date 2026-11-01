@@ -553,7 +553,22 @@ async fn an_anonymous_request_is_refused_alike_on_both_surfaces() {
         assert_eq!(answer.status, StatusCode::UNAUTHORIZED, "{uri}");
         assert_eq!(answer.json["error"], "unauthenticated");
     }
+    // A GraphQL request without a credential executes as an anonymous
+    // viewer, and each field it may not use answers `UNAUTHENTICATED`
+    // (docs/authentication.md §4.8); an open field still answers.
     let graphql = anonymous.gql("{ me { id } }", json!({})).await;
-    assert_eq!(graphql.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(graphql.json["error"], "unauthenticated");
+    assert_eq!(graphql.status, StatusCode::OK);
+    assert_eq!(
+        graphql.json["errors"][0]["extensions"]["code"],
+        "UNAUTHENTICATED"
+    );
+    assert_eq!(graphql.json["errors"][0]["path"][0], "me");
+    let open = anonymous
+        .gql("{ exportDestinations { id } }", json!({}))
+        .await;
+    assert!(
+        open.json["data"]["exportDestinations"].is_array(),
+        "{}",
+        open.json
+    );
 }

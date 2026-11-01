@@ -1,5 +1,6 @@
 //! REST handlers for Media CRUD, upload and file serving.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Multipart, Path, Query, State};
@@ -109,10 +110,12 @@ pub async fn list_media_facets(
 /// `POST /media/upload`; both add a page to an existing document.
 pub async fn create_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewPage>,
 ) -> Result<(StatusCode, Json<Media>), ApiError> {
-    let page = media_service::create_page(&state.db, &state.profiles, tree_id, body).await?;
+    let page =
+        media_service::create_page(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(page)))
 }
 
@@ -128,11 +131,13 @@ pub async fn get_media(
 /// PUT /api/v1/trees/:tree_id/media/:media_id
 pub async fn update_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MediaUpdate>,
 ) -> Result<Json<Media>, ApiError> {
     let media =
-        media_service::update_media(&state.db, &state.profiles, tree_id, media_id, body).await?;
+        media_service::update_media(&viewer, &state.db, &state.profiles, tree_id, media_id, body)
+            .await?;
     Ok(Json(media))
 }
 
@@ -142,10 +147,11 @@ pub async fn update_media(
 /// with a `document_id` part.
 pub async fn create_document(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateDocumentRequest>,
 ) -> Result<(StatusCode, Json<Media>), ApiError> {
-    let document = media_service::create_document(&state.db, tree_id, body.title).await?;
+    let document = media_service::create_document(&viewer, &state.db, tree_id, body.title).await?;
     Ok((StatusCode::CREATED, Json(document)))
 }
 
@@ -187,10 +193,12 @@ pub async fn get_media_viewer_bundle(
 /// each — a partial list is refused rather than guessed at.
 pub async fn reorder_pages(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ReorderPagesRequest>,
 ) -> Result<Json<Vec<Media>>, ApiError> {
     let pages = media_service::reorder_pages(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,
@@ -209,9 +217,11 @@ pub async fn reorder_pages(
 /// a separate act.
 pub async fn delete_page(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     media_service::delete_page(
+        &viewer,
         &state.db,
         &state.profiles,
         &*state.media,
@@ -232,6 +242,7 @@ pub async fn delete_page(
 /// the media. A `204` means deleted; `200` means it is still referenced.
 pub async fn delete_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteMediaQuery>,
 ) -> Result<StatusCode, ApiError> {
@@ -245,6 +256,7 @@ pub async fn delete_media(
         }
     };
     let deleted = media_service::delete_media(
+        &viewer,
         &state.db,
         &state.profiles,
         &*state.media,
@@ -284,6 +296,7 @@ pub async fn media_deletion_status(
 /// a GEDCOM-imported page that names a photo nobody had.
 pub async fn upload_media(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     multipart: Multipart,
 ) -> Result<(StatusCode, Json<Media>), ApiError> {
@@ -306,6 +319,7 @@ pub async fn upload_media(
         }
     };
     let (page, created) = media_service::upload(
+        &viewer,
         &state.db,
         &state.profiles,
         &*state.media,

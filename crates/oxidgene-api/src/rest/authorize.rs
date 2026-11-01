@@ -1,84 +1,169 @@
-//! Middleware rejecting requests scoped to a tree that no longer exists.
+//! The authorization of every REST request (docs/authorization.md §4): one
+//! middleware on every route, after routing, that
 //!
-//! Tree deletion is asynchronous: the request flags `deleted_at` and a
-//! background worker removes the rows a few seconds later (see
-//! [`crate::service::purge`]). Without this guard the tree's children stay
-//! readable for that window — `GET /api/v1/trees/{id}/persons` would still
-//! answer for a tree the client was just told was deleted.
+//! - builds the request's [`ViewerContext`] from the principal the
+//!   authentication layer resolved — the local owner on the desktop and in
+//!   the `none` mode;
+//! - finds the route's declared [`Requirement`]
+//!   ([`crate::authz::operations`]) and checks it, the tree the path names
+//!   included, answering `401`, `403` or `404` before any handler runs;
+//! - hands the viewer to the handler ([`Viewer`]).
 //!
-//! It also closes a gap that predates that change: the tree-scoped handlers
-//! take `tree_id` from the path but most never check it, so a request naming a
-//! tree that never existed got a `200` with empty results rather than a `404`.
+//! The tree the path names must also exist and not be deleted: tree
+//! deletion is asynchronous, and a deleted tree's rows remain until the
+//! background purge removes them, so without this check its children would
+//! stay readable meanwhile, and a request naming a tree that never existed
+//! would get a `200` with empty results rather than a `404`. One indexed
+//! read per request: the membership's, the tree's liveness joined in, or
+//! the tree's own for the local owner.
 //!
-//! One indexed primary-key lookup per tree-scoped request, applied in one
-//! place instead of repeated across fifteen handlers.
-//!
-//! Two requests skip it: polling the status of a job this process knows in
-//! memory — it runs it, or holds a cancellation for it — and cancelling such
-//! a job. The job holds the SQLite writer for its whole write transaction,
-//! which on an in-memory database is the only connection, readers included;
-//! the status and cancel handlers answer from memory precisely so that they
-//! do not wait for it, and a lookup here would make them wait anyway.
-//! Elsewhere the lookup goes to the read pool. That answer carries only the
-//! job's own phase and counters; once the job ends, the poll goes through
-//! the lookup again, and a tree deleted meanwhile answers `404`.
+//! Two requests of the local owner skip that read: polling the status of a
+//! job this process knows in memory — it runs it, or holds a cancellation
+//! for it — and cancelling such a job. The job holds the SQLite writer for
+//! its whole write transaction, which on an in-memory database is the only
+//! connection, readers included; the status and cancel handlers answer from
+//! memory precisely so that they do not wait for it. That answer carries
+//! only the job's own phase and counters; once the job ends, the poll goes
+//! through the read again, and a tree deleted meanwhile answers `404`. A
+//! signed-in user's poll always reads their membership.
 
-use axum::extract::{Request, State};
+use std::sync::Arc;
+
+use axum::extract::{FromRequestParts, MatchedPath, Request, State};
 use axum::http::Method;
+use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_db::repo::BackgroundJobKind;
 use uuid::Uuid;
 
-use crate::service::background_job::live_state;
-
 use super::error::ApiError;
 use super::state::AppState;
+use crate::authz::{self, Requirement, operations};
+use crate::service::background_job::live_state;
 
-/// Reject the request when its path names a tree that is missing or deleted.
-///
-/// Runs inside the `/api/v1/trees` nest, so the path it sees is either `/`
-/// (list and create, which name no tree) or `/{tree_id}/...`. Anything whose
-/// first segment is not a UUID is passed through untouched — routing will
-/// produce its own `404`.
-pub async fn require_live_tree(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
-    let mut segments = req.uri().path().trim_start_matches('/').split('/');
-    let first_segment = segments.next().unwrap_or_default();
+/// The viewer of a REST request, which the authorization middleware hands
+/// every handler. A request it did not see is anonymous: absent means no
+/// credential, never full access.
+#[derive(Debug, Clone)]
+pub struct Viewer(pub Arc<ViewerContext>);
 
-    if let Ok(tree_id) = Uuid::parse_str(first_segment) {
-        if is_live_job_request(req.method(), tree_id, segments) {
-            return next.run(req).await;
-        }
-        // `get` already filters on `deleted_at`, so a soft-deleted tree is a
-        // NotFound here just as it is in the tree list. Reusing `ApiError`
-        // keeps the body identical to the one the handlers produce.
-        match crate::service::scope::require_live_tree(&state.reader, tree_id).await {
-            Ok(()) => {}
-            Err(e @ oxidgene_core::OxidGeneError::NotFound { .. }) => {
-                return ApiError(e).into_response();
-            }
-            // A database failure is not the client's fault — let the handler
-            // run and report the real error rather than masking it as a 404.
-            Err(_) => {}
-        }
+impl std::ops::Deref for Viewer {
+    type Target = ViewerContext;
+
+    fn deref(&self) -> &ViewerContext {
+        &self.0
     }
-
-    next.run(req).await
 }
 
-/// Whether `method` on the path after the tree id, `rest`, reads the status
-/// of a job of that tree this process knows in memory, `GET
-/// import-jobs/{id}` or `GET export-jobs/{id}`, or cancels it, the same
-/// paths followed by `/cancel` with `POST`.
-fn is_live_job_request<'a>(
-    method: &Method,
-    tree_id: Uuid,
-    mut rest: impl Iterator<Item = &'a str>,
-) -> bool {
+impl<S: Send + Sync> FromRequestParts<S> for Viewer {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(parts
+            .extensions
+            .get::<Self>()
+            .cloned()
+            .unwrap_or_else(|| Self(Arc::new(ViewerContext::anonymous()))))
+    }
+}
+
+/// The viewer of the request whose extensions are `extensions`: the
+/// principal the authentication layer left there, anonymous without one;
+/// the local owner in a build without authentication.
+pub fn viewer_of(extensions: &axum::http::Extensions) -> Arc<ViewerContext> {
+    #[cfg(feature = "auth")]
+    {
+        let principal = extensions
+            .get::<oxidgene_core::access::Principal>()
+            .cloned()
+            .unwrap_or(oxidgene_core::access::Principal::Anonymous);
+        Arc::new(ViewerContext::new(principal))
+    }
+    #[cfg(not(feature = "auth"))]
+    {
+        let _ = extensions;
+        Arc::new(ViewerContext::local())
+    }
+}
+
+/// Check the route's requirement for the request's viewer, then run the
+/// handler with the viewer in hand.
+pub async fn authorize(
+    State(state): State<AppState>,
+    matched: Option<MatchedPath>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let viewer = viewer_of(request.extensions());
+    let route = matched.as_ref().map_or("", MatchedPath::as_str);
+    let Some(requirement) = operations::rest(request.method().as_str(), route) else {
+        // Fail closed: the API contract guard keeps every route declared.
+        tracing::error!(
+            http.route = route,
+            "route without a declared requirement refused"
+        );
+        return ApiError(OxidGeneError::Forbidden).into_response();
+    };
+    let tree_id = match tree_in_path(route, request.uri().path()) {
+        Ok(tree_id) => tree_id,
+        Err(error) => return ApiError(error).into_response(),
+    };
+    let skips_read = viewer.is_local()
+        && tree_id.is_some_and(|tree_id| {
+            is_live_job_request(request.method(), tree_id, request.uri().path())
+        });
+    if !skips_read && let Err(error) = check(&state, &viewer, requirement, tree_id).await {
+        authz::log::refusal(&state.db, &viewer, tree_id, route, requirement, &error);
+        return ApiError(error).into_response();
+    }
+    request.extensions_mut().insert(Viewer(viewer));
+    next.run(request).await
+}
+
+async fn check(
+    state: &AppState,
+    viewer: &ViewerContext,
+    requirement: Requirement,
+    tree_id: Option<Uuid>,
+) -> Result<(), OxidGeneError> {
+    match authz::check(&state.reader, viewer, requirement, tree_id).await {
+        // A database failure is not the client's fault: let the handler run
+        // and report the real error rather than masking it, as a refusal
+        // would, provided the viewer is the local owner, who may do
+        // anything. Anyone else is refused.
+        Err(OxidGeneError::Database(_)) if viewer.is_local() => Ok(()),
+        result => result,
+    }
+}
+
+/// The tree id in `path`, where route template `route` has `{tree_id}`.
+fn tree_in_path(route: &str, path: &str) -> Result<Option<Uuid>, OxidGeneError> {
+    let Some(index) = route.split('/').position(|segment| segment == "{tree_id}") else {
+        return Ok(None);
+    };
+    path.split('/')
+        .nth(index)
+        .and_then(|segment| Uuid::parse_str(segment).ok())
+        .map(Some)
+        .ok_or_else(|| OxidGeneError::Validation("malformed identifier".to_string()))
+}
+
+/// Whether `method` on `path` reads the status of a job of tree `tree_id`
+/// this process knows in memory, `GET …/import-jobs/{id}` or
+/// `GET …/export-jobs/{id}`, or cancels it, the same paths followed by
+/// `/cancel` with `POST`.
+fn is_live_job_request(method: &Method, tree_id: Uuid, path: &str) -> bool {
+    let tree = tree_id.to_string();
+    let Some(rest) = path
+        .split_once(&format!("/trees/{tree}/"))
+        .map(|(_, rest)| rest)
+    else {
+        return false;
+    };
+    let mut rest = rest.split('/');
     let kind = match rest.next() {
         Some("import-jobs") => BackgroundJobKind::Import,
         Some("export-jobs") => BackgroundJobKind::Export,
@@ -106,8 +191,27 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
+    use super::tree_in_path;
     use crate::service::background_job::LiveJobGuard;
     use crate::{AppState, build_router};
+
+    #[test]
+    fn the_tree_is_read_where_the_template_names_it() {
+        let tree = Uuid::now_v7();
+        assert_eq!(
+            tree_in_path(
+                "/api/v1/trees/{tree_id}/persons",
+                &format!("/api/v1/trees/{tree}/persons")
+            )
+            .unwrap(),
+            Some(tree)
+        );
+        assert_eq!(
+            tree_in_path("/api/v1/trees", "/api/v1/trees").unwrap(),
+            None
+        );
+        assert!(tree_in_path("/api/v1/trees/{tree_id}", "/api/v1/trees/not-a-uuid").is_err());
+    }
 
     #[tokio::test]
     async fn a_running_job_status_does_not_wait_for_the_database() {

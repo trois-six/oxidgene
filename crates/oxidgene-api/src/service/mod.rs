@@ -1,6 +1,8 @@
 //! Service layer: shared business logic used by both REST and GraphQL handlers.
 
 #[cfg(feature = "auth")]
+pub mod access_log;
+#[cfg(feature = "auth")]
 pub mod account;
 pub mod ancestry;
 pub mod anomalies;
@@ -31,6 +33,8 @@ pub mod media;
 pub mod media_library;
 pub mod media_link;
 pub mod media_viewer;
+#[cfg(feature = "auth")]
+pub mod membership;
 pub mod note;
 pub mod occupations;
 pub(crate) mod patch;

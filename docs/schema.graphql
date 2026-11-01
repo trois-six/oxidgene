@@ -569,6 +569,37 @@ input GeneanetSessionEncodeInput {
 }
 
 """
+One event of the access log: REST `GET /trees/{tree_id}/access-log`
+and `GET /admin/access-log`.
+"""
+type GqlAccessEvent {
+	id: ID!
+	occurredAt: DateTime!
+	kind: String!
+	principalKind: String!
+	userId: ID
+	apiClientId: ID
+	shareLinkId: ID
+	clientId: String
+	treeId: ID
+	route: String
+	permission: String
+	outcome: String!
+	requestId: String
+}
+
+type GqlAccessEventConnection {
+	edges: [GqlAccessEventEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlAccessEventEdge {
+	cursor: String!
+	node: GqlAccessEvent!
+}
+
+"""
 The account data export: REST `GET /me/export`.
 """
 type GqlAccountData {
@@ -578,6 +609,46 @@ type GqlAccountData {
 	providerName: String
 	locale: String
 	updatedAt: DateTime!
+	memberships: [GqlAccountMembership!]!
+	accessEvents: [GqlAccessEvent!]!
+}
+
+"""
+One of the user's memberships, in their account data.
+"""
+type GqlAccountMembership {
+	treeId: ID!
+	"""
+	`owner`, `editor` or `guest`.
+	"""
+	role: String!
+	selfPersonId: ID
+	expiresAt: DateTime
+	createdAt: DateTime!
+}
+
+"""
+A tree as an administrator sees it: REST `GET /admin/trees`.
+"""
+type GqlAdminTree {
+	id: ID!
+	name: String!
+	ownerId: ID
+	ownerName: String
+	personCount: Int!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlAdminTreeConnection {
+	edges: [GqlAdminTreeEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlAdminTreeEdge {
+	cursor: String!
+	node: GqlAdminTree!
 }
 
 """
@@ -709,6 +780,23 @@ enum GqlAuditAction {
 }
 
 """
+The author of a write (docs/authorization.md §9.1).
+"""
+type GqlAuditAuthor {
+	kind: GqlAuthorKind!
+	userId: ID
+	"""
+	The user's name as the log is read; `null` for an erased user.
+	"""
+	displayName: String
+	"""
+	The OAuth client the write came through.
+	"""
+	clientId: String
+	apiClientId: ID
+}
+
+"""
 Which part of a tree a write touched.
 """
 enum GqlAuditCategory {
@@ -768,6 +856,7 @@ enum GqlAuditEntity {
 	TAG
 	RECORD_TAG
 	PRIVACY_EXCLUSION
+	MEMBERSHIP
 }
 
 """
@@ -786,6 +875,10 @@ type GqlAuditEntry {
 	label: String
 	details: GqlAuditDetails!
 	versionCount: Int!
+	"""
+	Who made the write, and through which client.
+	"""
+	author: GqlAuditAuthor!
 }
 
 type GqlAuditEntryConnection {
@@ -810,6 +903,16 @@ enum GqlAuditSubject {
 	SOURCE
 	REPOSITORY
 	MEDIA
+}
+
+"""
+Who an audit entry names as its author: a user, an API client, or
+the local owner of the desktop and of the `none` mode.
+"""
+enum GqlAuthorKind {
+	USER
+	API_CLIENT
+	LOCAL
 }
 
 """
@@ -3579,6 +3682,10 @@ type GqlTree {
 	"""
 	importCancelling: Boolean!
 	"""
+	What the viewer may do with the tree.
+	"""
+	viewerAccess: GqlViewerAccess!
+	"""
 	Count of persons in this tree.
 	"""
 	personCount: Int!
@@ -3619,6 +3726,33 @@ type GqlTreeMediaLink {
 	fileName: String!
 	mimeType: String!
 	hasThumbnail: Boolean!
+}
+
+"""
+A member of a tree: REST `GET /trees/{tree_id}/members`.
+"""
+type GqlTreeMember {
+	userId: ID!
+	displayName: String
+	"""
+	`owner`, `editor` or `guest`.
+	"""
+	role: String!
+	selfPersonId: ID
+	expiresAt: DateTime
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlTreeMemberConnection {
+	edges: [GqlTreeMemberEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlTreeMemberEdge {
+	cursor: String!
+	node: GqlTreeMember!
 }
 
 """
@@ -3778,6 +3912,25 @@ type GqlVersionChangeConnection {
 type GqlVersionChangeEdge {
 	cursor: String!
 	node: GqlVersionChange!
+}
+
+"""
+What the viewer may do with a tree (docs/authorization.md §4.1): REST's
+`viewer_access`, so the frontend offers only what the server allows.
+"""
+type GqlViewerAccess {
+	"""
+	`owner`, `editor`, `guest` or `visitor`.
+	"""
+	role: String!
+	"""
+	The stable identifiers of the permissions held.
+	"""
+	permissions: [String!]!
+	"""
+	The viewer sees a share's scope rather than the whole tree.
+	"""
+	scoped: Boolean!
 }
 
 """
@@ -4389,6 +4542,23 @@ type MutationRoot {
 	Remove an exclusion from sharing; true once removed.
 	"""
 	deleteExclusion(treeId: ID!, exclusionId: ID!): Boolean!
+	"""
+	Change a member's role or expiry (the owner), or one's own "Who am
+	I?" person.
+	"""
+	updateTreeMember(treeId: ID!, userId: ID!, input: UpdateTreeMemberInput!): GqlTreeMember!
+	"""
+	End a membership: the owner removes a member, a member leaves.
+	"""
+	removeTreeMember(treeId: ID!, userId: ID!): Boolean!
+	"""
+	Hand the tree to one of its members, the owner becoming an editor.
+	"""
+	transferTreeOwnership(treeId: ID!, userId: ID!): GqlTreeMember!
+	"""
+	Give an ownerless tree an owner: an administrator's act.
+	"""
+	assignTreeOwner(treeId: ID!, userId: ID!): GqlTreeMember!
 }
 
 """
@@ -5008,6 +5178,24 @@ type QueryRoot {
 	The exclusions from sharing of a tree, oldest first.
 	"""
 	exclusions(treeId: ID!): [GqlExclusion!]!
+	"""
+	The members of a tree: all of them for its owner, the viewer's own
+	membership for anyone else.
+	"""
+	treeMembers(treeId: ID!, first: Int, after: String): GqlTreeMemberConnection!
+	"""
+	The access events of a tree, newest first, for its owner.
+	"""
+	treeAccessEvents(treeId: ID!, first: Int, after: String): GqlAccessEventConnection!
+	"""
+	Every tree of the instance with its owner and size, for an
+	administrator: metadata only.
+	"""
+	adminTrees(first: Int, after: String): GqlAdminTreeConnection!
+	"""
+	The instance's access events, newest first, for an administrator.
+	"""
+	accessEvents(first: Int, after: String): GqlAccessEventConnection!
 }
 
 """
@@ -5659,6 +5847,19 @@ input UpdateTreeInput {
 	The thresholds of the anomaly rules.
 	"""
 	anomalyThresholds: AnomalyThresholdsInput
+}
+
+"""
+REST `PUT /trees/{tree_id}/members/{user_id}`: `null` clears an optional
+field, an absent one is kept.
+"""
+input UpdateTreeMemberInput {
+	"""
+	`editor` or `guest`.
+	"""
+	role: String
+	expiresAt: DateTime
+	selfPersonId: ID
 }
 
 """

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use chrono::{Duration, Utc};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::JobActor;
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveValue::Set, Condition, ExprTrait, FromQueryResult, QueryOrder, QuerySelect,
@@ -65,9 +66,29 @@ pub struct NewBackgroundJob {
     pub original_filename: Option<String>,
     pub include_notes_and_sources: bool,
     pub include_media: bool,
+    /// Who submits it: the worker acts for them (docs/authentication.md
+    /// §5.5).
+    pub actor: JobActor,
 }
 
 pub type BackgroundJob = background_job::Model;
+
+/// The actor job `job` recorded at submission.
+pub fn job_actor(job: &BackgroundJob) -> JobActor {
+    JobActor {
+        issuer: job.actor_issuer.clone(),
+        subject: job.actor_subject.clone(),
+        user_id: job.actor_user_id,
+        client_id: job.actor_client_id.clone(),
+        api_client_id: job.actor_api_client_id,
+        scopes: job
+            .actor_scopes
+            .as_deref()
+            .map(|scopes| scopes.split_whitespace().map(str::to_owned).collect())
+            .unwrap_or_default(),
+        session: job.actor_session.clone(),
+    }
+}
 
 /// The PostgreSQL notification channel a write to a job is announced on, the
 /// job's id as payload: what wakes the status reads waiting on it in every
@@ -161,6 +182,15 @@ impl BackgroundJobRepo {
             error_code: Set(None),
             trace_parent: Set(trace_parent),
             trace_state: Set(trace_state),
+            actor_issuer: Set(input.actor.issuer),
+            actor_subject: Set(input.actor.subject),
+            actor_user_id: Set(input.actor.user_id),
+            actor_client_id: Set(input.actor.client_id),
+            actor_api_client_id: Set(input.actor.api_client_id),
+            actor_scopes: Set(
+                (!input.actor.scopes.is_empty()).then(|| input.actor.scopes.join(" "))
+            ),
+            actor_session: Set(input.actor.session),
             created_at: Set(now),
             updated_at: Set(now),
             started_at: Set(None),

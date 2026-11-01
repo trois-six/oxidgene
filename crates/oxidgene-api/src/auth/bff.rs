@@ -185,11 +185,18 @@ async fn callback(
 ) -> Response {
     let oidc = oidc(&state);
     match complete(&state, oidc, &query, &headers).await {
-        Ok((cookie_value, return_to)) => {
+        Ok((cookie_value, return_to, user_id)) => {
             tracing::info!(
                 auth = "login_succeeded",
                 client_id = %oidc.config.client_id,
                 "A user signed in"
+            );
+            access_event(
+                &state,
+                "login_succeeded",
+                "ok",
+                Some(user_id),
+                &oidc.config.client_id,
             );
             redirect(
                 &return_to,
@@ -201,9 +208,42 @@ async fn callback(
         }
         Err(failure) => {
             log_failure(failure.reason, &oidc.config.client_id);
+            access_event(
+                &state,
+                "login_failed",
+                failure.reason,
+                None,
+                &oidc.config.client_id,
+            );
             failed(failure.code)
         }
     }
+}
+
+/// Record a sign-in or sign-out in the access log (docs/authorization.md
+/// §9.2): the user's id and the client, never an identity or an address.
+fn access_event(
+    state: &AppState,
+    kind: &'static str,
+    outcome: &str,
+    user_id: Option<uuid::Uuid>,
+    client_id: &str,
+) {
+    crate::authz::log::record(
+        &state.db,
+        oxidgene_db::repo::NewAccessEvent {
+            kind,
+            principal_kind: if user_id.is_some() {
+                "user"
+            } else {
+                "anonymous"
+            },
+            user_id,
+            client_id: Some(client_id.to_string()),
+            outcome: outcome.to_string(),
+            ..oxidgene_db::repo::NewAccessEvent::default()
+        },
+    );
 }
 
 fn log_failure(reason: &'static str, client_id: &str) {
@@ -227,7 +267,7 @@ async fn complete(
     oidc: &Oidc,
     query: &CallbackQuery,
     headers: &HeaderMap,
-) -> Result<(String, String), Failure> {
+) -> Result<(String, String, uuid::Uuid), Failure> {
     let transaction = bound_transaction(oidc, query, headers).await?;
     let signed = exchange(oidc, query, &transaction).await?;
     let claims = oidc.identity_claims(&signed.id_claims, Some(&signed.access.claims));
@@ -239,7 +279,7 @@ async fn complete(
             reason: refusal.code(),
         })?;
     let cookie_value = open_session(oidc, &admission, &signed, headers).await?;
-    Ok((cookie_value, transaction.return_to))
+    Ok((cookie_value, transaction.return_to, admission.user.id))
 }
 
 /// The sign-in transaction the callback's `state` names, consumed whatever
@@ -530,6 +570,17 @@ async fn sign_out(state: &AppState, headers: &HeaderMap, everywhere: bool) -> Re
         if ended.is_err() {
             return super::session::Refusal::unavailable().into_response();
         }
+        access_event(
+            state,
+            if everywhere {
+                "logout_everywhere"
+            } else {
+                "logout"
+            },
+            "ok",
+            Some(session.user_id),
+            &session.client_id,
+        );
         if let Ok(metadata) = oidc.provider.metadata().await {
             logout_url = oidc.logout_url(&metadata, &session);
         }
@@ -567,6 +618,17 @@ async fn backchannel_logout(
         Ok(()) => StatusCode::OK,
         Err(status) => status,
     };
+    access_event(
+        &state,
+        "backchannel_logout",
+        if status == StatusCode::OK {
+            "ended"
+        } else {
+            "refused"
+        },
+        None,
+        &oidc.config.client_id,
+    );
     tracing::info!(
         auth = "backchannel_logout",
         outcome = if status == StatusCode::OK { "ended" } else { "refused" },

@@ -6,6 +6,7 @@
 //! changed, and one refresh of their projections. A person already carrying
 //! the tag, or lacking it on removal, is not changed and not counted.
 
+use oxidgene_core::access::ViewerContext;
 use std::collections::HashSet;
 use std::str::FromStr;
 
@@ -114,6 +115,7 @@ pub struct TargetCounts {
 /// Put tag `tag_id` on, or take it off, every person of the target. Returns
 /// the number of persons changed. Writes one audit entry when any changed.
 pub async fn bulk_tag(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -140,14 +142,20 @@ pub async fn bulk_tag(
         profiles
             .invalidate_for_mutation(&txn, tree_id, &changed)
             .await?;
-        Change::new(tree_id, audit_action, AuditEntity::RecordTag, tag.id)
-            .category(AuditCategory::of_record_tag(RecordKind::Person))
-            .details(AuditDetails {
-                count: Some(changed.len() as u64),
-                ..AuditDetails::default()
-            })
-            .record_unversioned(&txn)
-            .await?;
+        Change::new(
+            viewer,
+            tree_id,
+            audit_action,
+            AuditEntity::RecordTag,
+            tag.id,
+        )
+        .category(AuditCategory::of_record_tag(RecordKind::Person))
+        .details(AuditDetails {
+            count: Some(changed.len() as u64),
+            ..AuditDetails::default()
+        })
+        .record_unversioned(&txn)
+        .await?;
     }
     commit_tx(txn).await?;
     Ok(changed.len() as u64)

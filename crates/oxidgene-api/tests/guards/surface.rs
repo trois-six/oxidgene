@@ -18,6 +18,30 @@ pub const NOT_RECORDS: &[&str] = &[
     "number",
 ];
 
+/// Whether REST `path` is an operation of the accounts and memberships,
+/// which the guards' application, in the `none` mode, does not serve: it
+/// answers them `404`, as the desktop does (docs/api.md, Accounts). They
+/// name users, not records of a tree; `authorization_test` covers them.
+pub fn absent_without_accounts(path: &str) -> bool {
+    ["/api/v1/me", "/api/v1/users/", "/api/v1/admin/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+        || ["/members", "/ownership", "/access-log"]
+            .iter()
+            .any(|segment| path.contains(segment))
+}
+
+/// The GraphQL root fields of the memberships, which name users; see
+/// [`absent_without_accounts`].
+pub const MEMBERSHIP_FIELDS: &[&str] = &[
+    "treeMembers",
+    "updateTreeMember",
+    "removeTreeMember",
+    "transferTreeOwnership",
+    "treeAccessEvents",
+    "assignTreeOwner",
+];
+
 /// The fixture record a parameter names, by its snake_case name; `link_id`
 /// and `job_id` depend on the route.
 pub fn record_key(name: &str, path: &str) -> Option<&'static str> {

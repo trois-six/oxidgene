@@ -8,6 +8,7 @@
 //! neither cache one nor skip one that never scrolled into view.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{ImageCrop, ImageSource, Person, Portrait, PortraitRef, is_remote_url};
 use oxidgene_db::repo::{MediaRepo, PersonRepo, PortraitRow};
@@ -52,6 +53,7 @@ impl PortraitChoice {
 /// region of one, or nothing. Every record named must belong to the tree,
 /// and a PDF is refused: it is a record, not a picture of somebody.
 pub async fn set_person_portrait(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -73,7 +75,7 @@ pub async fn set_person_portrait(
         refuse_a_pdf(&txn, media_id).await?;
     }
     // A portrait is media, never versioned; the person is the subject.
-    let pending = Change::update(tree_id, AuditEntity::Portrait, person_id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Portrait, person_id)
         .person(person_id)
         .prepare(&txn)
         .await?;

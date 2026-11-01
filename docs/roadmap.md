@@ -311,16 +311,16 @@ string in every language, and the user guide. In order:
      `/auth/session` in `oidc` mode, and covers the web interface's sign-in,
      account menu, ended session, profile page and user list.
 2. **Roles and enforcement.**
-   - [ ] Memberships with the Owner, Editor and Guest roles, tree creation
+   - [x] Memberships with the Owner, Editor and Guest roles, tree creation
      rights, ownership transfer, ownerless trees
      ([Authorization §3, §5](authorization.md#5-memberships-and-ownership)).
-   - [ ] The `ViewerContext` resolved per request from the validated token,
+   - [x] The `ViewerContext` resolved per request from the validated token,
      with its client id, taken by every service, projection read, GraphQL
      resolver and MCP tool ([Authorization §4](authorization.md#4-viewercontext)).
-   - [ ] The permission of every operation in the parity table, the
+   - [x] The permission of every operation in the parity table, the
      401/403/404 contract, and the role × operation matrix test on both
      surfaces.
-   - [ ] The author and client of every audit entry, the job's recorded
+   - [x] The author and client of every audit entry, the job's recorded
      actor re-checked by the worker, and the access log with its retention
      ([Authorization §9](authorization.md#9-audit),
      [Authentication §5.5](authentication.md#55-background-jobs)).
@@ -428,7 +428,7 @@ Releases:
   the pedigree's landscape page.
 
 Privacy fields currently record intent but do not hide data. The UI must state
-this clearly until authorization is enforced.
+this clearly until privacy is enforced for other viewers (phase 3).
 
 ## 9. Planned: assistant access (MCP)
 

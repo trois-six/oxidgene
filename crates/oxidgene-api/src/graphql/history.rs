@@ -3,8 +3,9 @@
 
 use async_graphql::{Enum, ID, SimpleObject};
 use chrono::{DateTime, NaiveDate, Utc};
+use oxidgene_core::access::AuthorKind;
 use oxidgene_core::history::{
-    AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
+    AuditAction, AuditAuthor, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
     PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RecordVersion, RepositorySnapshot,
     SourceRepositorySnapshot, SourceSnapshot, SpouseAgeSnapshot, SpouseLinkSnapshot, TreeSnapshot,
@@ -59,6 +60,7 @@ mirror_enum!(
         EventWitness, Place, Source, SourceRepository, Repository, Citation, Note, FamilyName,
         Occupation,
         Media, MediaPage, MediaLink, Vignette, Portrait, Tag, RecordTag, PrivacyExclusion,
+        Membership,
     }
 );
 mirror_enum!(
@@ -119,6 +121,38 @@ pub struct GqlAuditEntry {
     pub label: Option<String>,
     pub details: GqlAuditDetails,
     pub version_count: i64,
+    /// Who made the write, and through which client.
+    pub author: GqlAuditAuthor,
+}
+
+mirror_enum!(
+    /// Who an audit entry names as its author: a user, an API client, or
+    /// the local owner of the desktop and of the `none` mode.
+    GqlAuthorKind => AuthorKind { User, ApiClient, Local }
+);
+
+/// The author of a write (docs/authorization.md §9.1).
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlAuditAuthor {
+    pub kind: GqlAuthorKind,
+    pub user_id: Option<ID>,
+    /// The user's name as the log is read; `null` for an erased user.
+    pub display_name: Option<String>,
+    /// The OAuth client the write came through.
+    pub client_id: Option<String>,
+    pub api_client_id: Option<ID>,
+}
+
+impl From<AuditAuthor> for GqlAuditAuthor {
+    fn from(a: AuditAuthor) -> Self {
+        Self {
+            kind: a.kind.into(),
+            user_id: a.user_id.map(id),
+            display_name: a.display_name,
+            client_id: a.client_id,
+            api_client_id: a.api_client_id.map(id),
+        }
+    }
 }
 
 impl From<AuditEntry> for GqlAuditEntry {
@@ -136,6 +170,7 @@ impl From<AuditEntry> for GqlAuditEntry {
             label: e.label,
             details: e.details.into(),
             version_count: e.version_count,
+            author: e.author.into(),
         }
     }
 }

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 
@@ -90,16 +90,26 @@ desktop session handoffs rather than genealogy import or export artifacts.
 
 ### Authentication and privacy
 
-The web build authenticates its requests (EPIC G phase 1): with
-`OXIDGENE_AUTH_MODE=oidc` a request carries the session cookie of the
-Backend-for-Frontend or a bearer token of a trusted client, and an
-anonymous request to the API is refused (`401 unauthenticated`); the account
-operations are listed under [Accounts](#accounts). Per-tree authorization is
-not implemented: every signed-in user has full access, and privacy values
-are stored but not enforced, so clients must not claim that private records
-are hidden. Until that work is complete, the API is local or private
-infrastructure only and must not be published directly to an untrusted
-network.
+The web build authenticates its requests (EPIC G phase 1) and authorizes
+them per tree (phase 2): with `OXIDGENE_AUTH_MODE=oidc` a request carries the
+session cookie of the Backend-for-Frontend or a bearer token of a trusted
+client, and every operation declares its requirement — open, signed in, the
+tree creation right, the administrator role, or a permission on the tree it
+names ([Authorization §3.2](authorization.md#32-permission-matrix)). A
+request without a credential reaches the open operations only (the API
+description, the reference content, the export destinations) and is
+otherwise refused `401 unauthenticated`; a signed-in user acts on the trees
+they are a member of, as owner, editor or guest; a tree they cannot see
+answers `404 not_found` whether it exists or not, and an operation their role
+does not allow `403 forbidden`, alike on both surfaces. Every tree read
+carries `viewer_access: { role, permissions, scoped }` (GraphQL
+`viewerAccess`), so a client offers only what the server allows. The
+desktop and `OXIDGENE_AUTH_MODE=none` act as the local owner of every tree.
+The account, membership and access-log operations are listed under
+[Accounts](#accounts). Privacy values are stored but not enforced for other
+viewers yet (phase 3), so clients must not claim that private records are
+hidden; until then the API is local or private infrastructure only and must
+not be published directly to an untrusted network.
 
 The planned contract, for the web build only, is specified in
 [Authentication](authentication.md), [Authorization](authorization.md),
@@ -196,13 +206,13 @@ Base path: `/api/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees` | List trees (cursor-paginated). List nodes add transient `import_in_progress: bool`, `import_job_id: UUID?` and `import_cancelling: bool` fields from the job queue (GraphQL: `importInProgress`, `importJobId` and `importCancelling` on every `Tree`); these are not persisted tree fields and disappear once the job completes, fails or is cancelled. `import_cancelling` is true while the import was asked to stop and is undoing what it wrote |
-| `POST` | `/trees` | Create a tree; a blank `name` is a `validation_error` |
-| `GET` | `/trees/{tree_id}` | Get a tree |
+| `GET` | `/trees` | List the viewer's trees (cursor-paginated): every tree for the local owner, the trees a user is a member of otherwise, each with `viewer_access`. List nodes add transient `import_in_progress: bool`, `import_job_id: UUID?` and `import_cancelling: bool` fields from the job queue (GraphQL: `importInProgress`, `importJobId` and `importCancelling` on every `Tree`); these are not persisted tree fields and disappear once the job completes, fails or is cancelled. `import_cancelling` is true while the import was asked to stop and is undoing what it wrote |
+| `POST` | `/trees` | Create a tree; a blank `name` is a `validation_error`. A signed-in creator becomes its owner |
+| `GET` | `/trees/{tree_id}` | Get a tree, with `viewer_access` |
 | `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy); the copy, its projections and both trees' audit entries are written in one transaction, so a copy that fails leaves no tree |
-| `GET` | `/trees/recent-persons?tree_ids=ID,ID&limit=N` | The persons modified most recently in each of up to 100 trees (a page of the tree list), more being a `validation_error`, `[{tree_id, persons}]` in the order asked, `persons` being `SearchEntry` rows as for one tree's `recently-modified`; a missing or deleted tree is left out, an id that is not a UUID is a `validation_error`. GraphQL: `recentPersonsOfTrees(treeIds, limit)` |
+| `GET` | `/trees/recent-persons?tree_ids=ID,ID&limit=N` | The persons modified most recently in each of up to 100 trees (a page of the tree list), more being a `validation_error`, `[{tree_id, persons}]` in the order asked, `persons` being `SearchEntry` rows as for one tree's `recently-modified`; a missing or deleted tree, or one the viewer may not read, is left out, an id that is not a UUID is a `validation_error`. GraphQL: `recentPersonsOfTrees(treeIds, limit)` |
 
 Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete, each
 card's recent persons in one request)
@@ -210,6 +220,8 @@ card's recent persons in one request)
 ### Accounts
 
 The accounts of the web build ([Authentication §6](authentication.md#6-users)),
+and the memberships, ownership and access log of its trees
+([Authorization §5, §9.2](authorization.md#5-memberships-and-ownership)),
 served only by a server built with the `auth` feature — the desktop answers
 `404 not_found`. They need a signed-in user: `401 unauthenticated` without
 one. In `OXIDGENE_AUTH_MODE=none`, a personal install whose local owner has
@@ -221,7 +233,7 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `GET` | `/me` | The signed-in user: `{ id, display_name, provider_name, avatar, email, email_verified, locale, instance_role, can_create_trees }`; `display_name` is the user's own, else the provider's. GraphQL: `me` |
 | `PUT` | `/me` | `{ display_name?, locale? }`: a display name of 1 to 80 characters without control characters, trimmed; a locale among the interface languages (`en`, `fr`, `de`, `es`, `it`, `nl`, `pl`, `pt`); `null` returns to the provider's value. Answers the user as `GET /me`. GraphQL: `updateMe(input)` |
 | `DELETE` | `/me` | Erase the account ([Authentication §6.6](authentication.md#66-erasure-and-account-data)): every session ends, the row becomes a tombstone, the avatar's files go; `204`, the session cookie cleared. GraphQL: `deleteMyAccount` |
-| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at }`, `user` as `GET /admin/users/{user_id}` answers it. GraphQL: `myAccountData` |
+| `GET` | `/me/export` | The account data as a JSON download (`oxidgene-account.json`): `{ exported_at, user, display_name_set, provider_name, locale, updated_at, memberships, access_events }`, `user` as `GET /admin/users/{user_id}` answers it, `memberships` `[{ tree_id, role, self_person_id, expires_at, created_at }]`, `access_events` the user's events as `GET /admin/access-log` lists them, oldest first. GraphQL: `myAccountData` |
 | `PUT` | `/me/avatar` | Multipart: `file`, a JPEG, PNG or WebP image of at most 5 MiB and 40 megapixels, and the crop square `x`, `y`, `size` in pixels of the upright image (all three or none: the centred largest square). Answers the user as `GET /me`. GraphQL: `uploadMyAvatar(input)`, the image base64-encoded within the GraphQL body limit |
 | `DELETE` | `/me/avatar` | Back to the generated avatar; `204`. GraphQL: `deleteMyAvatar` |
 | `GET` | `/me/sessions` | The user's sessions, newest first: `[{ id, created_at, last_used_at, client_id, browser, current }]`, `browser` being `firefox`, `chrome`, `edge`, `safari`, `opera` or `other`. GraphQL: `mySessions` |
@@ -233,6 +245,14 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `PUT` | `/admin/users/{user_id}` | `{ instance_role?, can_create_trees?, status? }`: `admin` or `user`; `active` or `deactivated`. A field the roles claim decides (`OXIDGENE_OIDC_ROLES_CLAIM`, `OXIDGENE_AUTH_TREE_CREATION=claim`) is a `validation_error`; an erased user is a `conflict`. Deactivating, or changing the role, ends the user's sessions. GraphQL: `updateUser(userId, input)` |
 | `PUT` | `/admin/users/{user_id}/identity` | `{ issuer, subject }`: bind the user to another identity ([Authentication §6.4](authentication.md#64-account-linking)); an identity another user holds, or an erased user, is a `conflict`. The user's sessions end. GraphQL: `rebindUserIdentity(userId, input)` |
 | `DELETE` | `/admin/users/{user_id}` | Erase the user, as `DELETE /me`; `204`. GraphQL: `eraseUser(userId)` |
+| `GET` | `/admin/trees` | Every live tree, metadata only, cursor-paginated: `{ id, name, owner_id, owner_name, person_count, created_at, updated_at }`, `owner_id` `null` for an ownerless tree. Administrators only. GraphQL: `adminTrees(first, after)` |
+| `PUT` | `/admin/trees/{tree_id}/owner` | `{ user_id }`: give an ownerless tree an owner, a member promoted or anyone else made one; answers the owner as a member. A tree with an owner, or a deactivated user, is a `conflict`; an unknown or erased user `not_found`. GraphQL: `assignTreeOwner(treeId, userId)` |
+| `GET` | `/admin/access-log` | The instance's access events, newest first, cursor-paginated: `{ id, occurred_at, kind, principal_kind, user_id, api_client_id, share_link_id, client_id, tree_id, route, permission, outcome, request_id }`. Administrators only. GraphQL: `accessEvents(first, after)` |
+| `GET` | `/trees/{tree_id}/members` | The tree's members, cursor-paginated: `{ user_id, display_name, role, self_person_id, expires_at, created_at, updated_at }` — every member for the owner, the viewer's own row for another member. GraphQL: `treeMembers(treeId, first, after)` |
+| `PUT` | `/trees/{tree_id}/members/{user_id}` | `{ role?, expires_at?, self_person_id? }`, `null` clearing an optional field: the owner changes a member's role (`editor` or `guest`) and expiry; a member sets their own "Who am I?" person, a person of the tree. Another's field is `forbidden`; the owner's role changes by transfer (`validation_error`). Answers the member. GraphQL: `updateTreeMember(treeId, userId, input)` |
+| `DELETE` | `/trees/{tree_id}/members/{user_id}` | End a membership: the owner removes a member, a member leaves (`204`); the owner leaving is a `conflict`. GraphQL: `removeTreeMember(treeId, userId)` |
+| `POST` | `/trees/{tree_id}/ownership` | `{ user_id }`: hand the tree to one of its members, the owner becoming an editor, in one transaction; answers the new owner as a member. Owner only. GraphQL: `transferTreeOwnership(treeId, userId)` |
+| `GET` | `/trees/{tree_id}/access-log` | The tree's access events, as `/admin/access-log`. Owner only. GraphQL: `treeAccessEvents(treeId, first, after)` |
 
 Used by: the web frontend's profile page and its Instance section
 ([Authentication §10](authentication.md#10-user-interface)).
@@ -247,7 +267,9 @@ created_by, created_at, person_name, person_deleted, person_count }`:
 `person_name` is the root's display name, `person_deleted` says the root is
 deleted, and `person_count` the number of persons it covers now. Creating
 and removing one is recorded in the tree's history, category `access`,
-entity `privacy_exclusion`, about the root.
+entity `privacy_exclusion`, about the root, with the viewer as author and
+`created_by`. Every exclusion operation takes `exclusions_manage`: the
+owner's alone.
 
 | Method | Path | Description |
 |---|---|---|
@@ -1100,8 +1122,8 @@ GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 
 ### Audit log and versions
 
-Every write to a tree leaves an audit entry (with its author and client once
-EPIC G ships, [Authorization §9.1](authorization.md#91-authors-in-the-change-history)),
+Every write to a tree leaves an audit entry, with its author and client
+([Authorization §9.1](authorization.md#91-authors-in-the-change-history)),
 and every write that changes a
 person, a place, a source or the tree's settings also stores the state it
 replaced as a numbered version; the live record is the current version, never
@@ -1113,7 +1135,7 @@ its archive is complete.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`; `subject_id` keeps only the writes about one record |
+| `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`, `access`; `subject_id` keeps only the writes about one record |
 | `GET` | `/trees/{tree_id}/audit/{entry_id}` | One `AuditEntry` |
 | `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The states the write replaced, in the order it stored them, each as `{ previous, version }` — `previous` the state replaced, `version` the one that follows it: the state the write produced, or a later one when the record changed since |
 | `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**: its live state (`current: true`), then its stored ones. `record_type` is `person`, `place`, `source`, `repository` or `tree` (whose `record_id` is the tree's own ID). A record that does not exist and has no stored state has none |
@@ -1121,7 +1143,11 @@ its archive is complete.
 | `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it — restoring the state a deletion replaced undeletes it — and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
 
 An `AuditEntry` is `{ id, tree_id, occurred_at, category, action, entity,
-entity_id, subject, subject_id, label, details, version_count }`. `action` is
+entity_id, subject, subject_id, label, details, version_count, author }`,
+`author` being `{ kind, user_id, display_name, client_id, api_client_id }`:
+`kind` `user`, `api_client` or `local` (the desktop and the `none` mode),
+`display_name` the user's name as the log is read, `null` for an erased
+user. `action` is
 `create`, `update`, `delete`, `merge`, `import`, `export` or `revert`;
 `version_count` is the number of states the write stored; `entity` names the
 kind of row written (`person_name`, `event`,

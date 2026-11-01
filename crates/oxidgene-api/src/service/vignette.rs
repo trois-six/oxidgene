@@ -9,6 +9,7 @@
 //! their projection.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::Vignette;
 use oxidgene_db::repo::{MediaRepo, PersonRepo, VignetteInput, VignettePatch, VignetteRepo};
@@ -48,6 +49,7 @@ pub struct VignetteUpdate {
 
 /// Cut a vignette out of media `media_id` of `tree_id`.
 pub async fn create_vignette(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     media_id: Uuid,
@@ -72,7 +74,7 @@ pub async fn create_vignette(
         },
     )
     .await?;
-    Change::create(tree_id, AuditEntity::Vignette, vignette.id)
+    Change::create(viewer, tree_id, AuditEntity::Vignette, vignette.id)
         .media(media_id)
         .record_unversioned(&txn)
         .await?;
@@ -82,6 +84,7 @@ pub async fn create_vignette(
 
 /// Move or re-attribute vignette `id` of `tree_id`.
 pub async fn update_vignette(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -122,7 +125,7 @@ pub async fn update_vignette(
         },
     )
     .await?;
-    Change::update(tree_id, AuditEntity::Vignette, id)
+    Change::update(viewer, tree_id, AuditEntity::Vignette, id)
         .media(existing.media_id)
         .record_unversioned(&txn)
         .await?;
@@ -133,6 +136,7 @@ pub async fn update_vignette(
 /// Delete vignette `id` of `tree_id`; the media it cropped is untouched. A
 /// person using it as their portrait falls back to their other pictures.
 pub async fn delete_vignette(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -147,7 +151,7 @@ pub async fn delete_vignette(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::Vignette, id)
+    Change::delete(viewer, tree_id, AuditEntity::Vignette, id)
         .media(media_id)
         .record_unversioned(&txn)
         .await?;

@@ -3,6 +3,7 @@
 //! See `docs/ui-dictionary.md` §10.1 and the occupation routes of
 //! `docs/api.md`.
 
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{DictionaryRepo, OccupationRename};
 use oxidgene_db::sea_orm::DatabaseConnection;
@@ -29,6 +30,7 @@ pub struct OccupationChange {
 /// An occupation shows on its holder's own profile and nowhere else, so only
 /// those persons are refreshed.
 pub async fn rename(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -37,7 +39,7 @@ pub async fn rename(
     let txn = begin_tx(db).await?;
     let holders =
         DictionaryRepo::persons_holding_occupations(&txn, tree_id, &[&change.value]).await?;
-    let pending = history::occupation_change(tree_id, change.value.trim(), &holders)
+    let pending = history::occupation_change(viewer, tree_id, change.value.trim(), &holders)
         .prepare(&txn)
         .await?;
     let renamed =

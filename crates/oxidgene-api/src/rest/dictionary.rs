@@ -1,6 +1,7 @@
 //! REST handlers for the Dictionary page: distinct-value aggregations
 //! (family names, sources, places, occupations) and usage drill-downs.
 
+use super::authorize::Viewer;
 use crate::service::family_names::{self, FamilyNameChange, ParticleChange};
 use crate::service::occupations::{self, OccupationChange};
 use crate::service::surname_descent::{self, DescentRequest};
@@ -191,10 +192,12 @@ pub async fn family_name_descent(
 /// repair for an import that guessed wrong across a whole family.
 pub async fn set_family_name_particle(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<ParticleChange>,
 ) -> Result<Json<FamilyNameParticleUpdateDto>, ApiError> {
-    let update = family_names::set_particle(&state.db, &state.profiles, tree_id, body).await?;
+    let update =
+        family_names::set_particle(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(update.into()))
 }
 
@@ -204,10 +207,11 @@ pub async fn set_family_name_particle(
 /// merging into that name when it is already listed.
 pub async fn rename_family_name(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<FamilyNameChange>,
 ) -> Result<Json<FamilyNameRenameDto>, ApiError> {
-    let renamed = family_names::rename(&state.db, &state.profiles, tree_id, body).await?;
+    let renamed = family_names::rename(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(renamed.into()))
 }
 
@@ -217,10 +221,11 @@ pub async fn rename_family_name(
 /// merging into that occupation when it is already listed.
 pub async fn rename_occupation(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<OccupationChange>,
 ) -> Result<Json<OccupationRenameDto>, ApiError> {
-    let renamed = occupations::rename(&state.db, &state.profiles, tree_id, body).await?;
+    let renamed = occupations::rename(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(renamed.into()))
 }
 

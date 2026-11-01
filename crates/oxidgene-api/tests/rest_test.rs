@@ -3263,6 +3263,7 @@ async fn an_interrupted_geneanet_import_runs_again_whole() {
         .parse::<uuid::Uuid>()
         .expect("valid tree id");
     let job_id = oxidgene_api::service::background_job::stage_geneanet_import(
+        &oxidgene_core::access::ViewerContext::local(),
         &state.db,
         &*state.media,
         &state.work_dir,
@@ -3621,6 +3622,7 @@ async fn tree_list_marks_only_running_file_imports() {
     BackgroundJobRepo::create(
         &state.db,
         NewBackgroundJob {
+            actor: Default::default(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Import,

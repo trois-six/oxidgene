@@ -1,5 +1,6 @@
 //! REST handlers for Place CRUD operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -40,10 +41,11 @@ pub async fn list_places(
 /// POST /api/v1/trees/:tree_id/places
 pub async fn create_place(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewPlace>,
 ) -> Result<(StatusCode, Json<Place>), ApiError> {
-    let place = place::create_place(&state.db, tree_id, body).await?;
+    let place = place::create_place(&viewer, &state.db, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(place)))
 }
 
@@ -59,10 +61,12 @@ pub async fn get_place(
 /// PUT /api/v1/trees/:tree_id/places/:place_id
 pub async fn update_place(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PlacePatch>,
 ) -> Result<Json<Place>, ApiError> {
-    let place = place::update_place(&state.db, &state.profiles, tree_id, place_id, body).await?;
+    let place =
+        place::update_place(&viewer, &state.db, &state.profiles, tree_id, place_id, body).await?;
     Ok(Json(place))
 }
 
@@ -72,18 +76,21 @@ pub async fn update_place(
 /// join, and it is deleted; the kept place takes the fields given.
 pub async fn merge_place(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PlaceMerge>,
 ) -> Result<Json<Place>, ApiError> {
-    let place = place::merge_place(&state.db, &state.profiles, tree_id, place_id, body).await?;
+    let place =
+        place::merge_place(&viewer, &state.db, &state.profiles, tree_id, place_id, body).await?;
     Ok(Json(place))
 }
 
 /// DELETE /api/v1/trees/:tree_id/places/:place_id
 pub async fn delete_place(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    place::delete_place(&state.db, &state.profiles, tree_id, place_id).await?;
+    place::delete_place(&viewer, &state.db, &state.profiles, tree_id, place_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

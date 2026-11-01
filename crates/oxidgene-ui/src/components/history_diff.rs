@@ -1129,6 +1129,7 @@ mod tests {
                 ..AuditDetails::default()
             },
             version_count: 1,
+            author: oxidgene_core::history::AuditAuthor::default(),
         }
     }
 

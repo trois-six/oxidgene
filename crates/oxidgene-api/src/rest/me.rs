@@ -9,9 +9,9 @@ use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use uuid::Uuid;
 
+use super::authorize::Viewer;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::auth::Principal;
 use crate::service::account::{self, Me, ProfilePatch, SessionView};
 use crate::service::avatar::{self, Crop, MAX_AVATAR_BYTES};
 
@@ -32,21 +32,18 @@ fn signed_out(mut response: Response) -> Response {
 }
 
 /// GET /api/v1/me
-pub async fn get_me(
-    State(state): State<AppState>,
-    principal: Principal,
-) -> Result<Json<Me>, ApiError> {
-    let user = account::me(&state.reader, &principal).await?;
+pub async fn get_me(State(state): State<AppState>, viewer: Viewer) -> Result<Json<Me>, ApiError> {
+    let user = account::me(&state.reader, viewer.principal()).await?;
     Ok(Json(Me::from(&user)))
 }
 
 /// PUT /api/v1/me
 pub async fn update_me(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
     Json(body): Json<ProfilePatch>,
 ) -> Result<Json<Me>, ApiError> {
-    let user = account::update_profile(&state.db, &principal, body).await?;
+    let user = account::update_profile(&state.db, viewer.principal(), body).await?;
     Ok(Json(Me::from(&user)))
 }
 
@@ -55,9 +52,9 @@ pub async fn update_me(
 /// Erase the account; the browser is signed out.
 pub async fn delete_me(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
 ) -> Result<Response, ApiError> {
-    account::delete_my_account(&state.db, &state.auth, &state.media, &principal).await?;
+    account::delete_my_account(&state.db, &state.auth, &state.media, viewer.principal()).await?;
     Ok(signed_out(StatusCode::NO_CONTENT.into_response()))
 }
 
@@ -66,9 +63,9 @@ pub async fn delete_me(
 /// The account data as a JSON download.
 pub async fn export_me(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
 ) -> Result<Response, ApiError> {
-    let data = account::account_data(&state.reader, &principal).await?;
+    let data = account::account_data(&state.reader, viewer.principal()).await?;
     let mut response = Json(data).into_response();
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
@@ -84,29 +81,31 @@ pub async fn export_me(
 /// largest square.
 pub async fn upload_avatar(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
     multipart: Multipart,
 ) -> Result<Json<Me>, ApiError> {
     let (bytes, crop) = read_avatar_form(multipart).await?;
-    let user = avatar::set_avatar(&state.db, &state.media, &principal, bytes, crop).await?;
+    let user = avatar::set_avatar(&state.db, &state.media, viewer.principal(), bytes, crop).await?;
     Ok(Json(Me::from(&user)))
 }
 
 /// DELETE /api/v1/me/avatar
 pub async fn delete_avatar(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
 ) -> Result<StatusCode, ApiError> {
-    avatar::delete_avatar(&state.db, &state.media, &principal).await?;
+    avatar::delete_avatar(&state.db, &state.media, viewer.principal()).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /api/v1/me/sessions
 pub async fn list_sessions(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
 ) -> Result<Json<Vec<SessionView>>, ApiError> {
-    Ok(Json(account::my_sessions(&state.auth, &principal).await?))
+    Ok(Json(
+        account::my_sessions(&state.auth, viewer.principal()).await?,
+    ))
 }
 
 /// DELETE /api/v1/me/sessions/{session_id}
@@ -114,10 +113,10 @@ pub async fn list_sessions(
 /// Ending the request's own session signs the browser out.
 pub async fn end_session(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
     Path(session_id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
-    let current = account::end_my_session(&state.auth, &principal, session_id).await?;
+    let current = account::end_my_session(&state.auth, viewer.principal(), session_id).await?;
     let response = StatusCode::NO_CONTENT.into_response();
     Ok(if current {
         signed_out(response)

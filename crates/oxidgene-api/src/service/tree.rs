@@ -8,10 +8,13 @@
 use std::collections::HashMap;
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::{Principal, TreeAccess, TreeRole, ViewerAccess, ViewerContext};
 use oxidgene_core::enums::{HiddenDisplay, TreeDefaultPrivacy};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{AnomalyThresholds, Connection, Tree, check_contemporary_years};
-use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
+use oxidgene_db::repo::{
+    BackgroundJobRepo, MembershipRepo, PaginationParams, TreeChanges, TreeRepo,
+};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -39,6 +42,16 @@ pub struct TreeListItem {
     pub import_job_id: Option<Uuid>,
     /// Whether that import was asked to stop and is undoing what it wrote.
     pub import_cancelling: bool,
+    /// What the viewer may do with the tree (docs/authorization.md §4.1).
+    pub viewer_access: ViewerAccess,
+}
+
+/// A tree as a read returns it: with what the viewer may do with it.
+#[derive(Debug, Clone, Serialize)]
+pub struct TreeView {
+    #[serde(flatten)]
+    pub tree: Tree,
+    pub viewer_access: ViewerAccess,
 }
 
 /// The import queued or running into a tree.
@@ -116,22 +129,74 @@ pub struct TreePatch {
     pub anomaly_thresholds: Option<AnomalyThresholds>,
 }
 
-/// Every tree, a page at a time, each with the import running into it.
+/// The viewer's trees, a page at a time, each with the import running into
+/// it: every tree for the local owner, a user's memberships otherwise
+/// (docs/authorization.md §6.4).
 pub async fn list_trees(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     params: &PaginationParams,
 ) -> Result<Connection<TreeListItem>, OxidGeneError> {
-    let trees = TreeRepo::list(db, params).await?;
+    let now = chrono::Utc::now();
+    let (trees, roles) = match viewer.principal() {
+        Principal::Local => (TreeRepo::list(db, params).await?, None),
+        Principal::User(identity) => {
+            let trees = TreeRepo::list_of_member(db, identity.user_id, now, params).await?;
+            let ids: Vec<Uuid> = trees.edges.iter().map(|edge| edge.node.id).collect();
+            let roles = MembershipRepo::live_roles(db, identity.user_id, &ids, now).await?;
+            (trees, Some(roles))
+        }
+        Principal::Anonymous => return Err(OxidGeneError::Unauthenticated),
+    };
     let active = active_imports(db).await?;
     Ok(trees.map(|tree| {
         let import = active.get(&tree.id).copied();
+        let role = match &roles {
+            None => TreeRole::Owner,
+            Some(roles) => roles.get(&tree.id).copied().unwrap_or(TreeRole::Visitor),
+        };
         TreeListItem {
             tree,
             import_in_progress: import.is_some(),
             import_job_id: import.map(|import| import.job_id),
             import_cancelling: import.is_some_and(|import| import.cancelling),
+            viewer_access: TreeAccess::of_role(role).viewer_access(),
         }
     }))
+}
+
+/// Tree `tree_id` as the viewer reads it, with what they may do with it.
+/// The viewer's access was resolved when the request was authorized.
+pub async fn get_tree(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+) -> Result<TreeView, OxidGeneError> {
+    let access = crate::authz::tree_access(db, viewer, tree_id).await?;
+    Ok(TreeView {
+        tree: TreeRepo::get(db, tree_id).await?,
+        viewer_access: access.viewer_access(),
+    })
+}
+
+/// Make a signed-in viewer the owner of tree `tree_id` they just created;
+/// a tree the local owner creates has none (docs/authorization.md §2).
+async fn make_owner(
+    viewer: &ViewerContext,
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    if let Some(identity) = viewer.user() {
+        MembershipRepo::create(
+            db,
+            tree_id,
+            identity.user_id,
+            TreeRole::Owner,
+            Some(identity.user_id),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// The import queued or running into tree `tree_id`, if any.
@@ -143,15 +208,20 @@ pub async fn active_import(
 }
 
 /// Create a tree. A blank name is refused.
-pub async fn create_tree(db: &DatabaseConnection, new: NewTree) -> Result<Tree, OxidGeneError> {
+pub async fn create_tree(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    new: NewTree,
+) -> Result<Tree, OxidGeneError> {
     require_name(&new.name)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(id, AuditEntity::Tree, id)
+    let pending = Change::create(viewer, id, AuditEntity::Tree, id)
         .tree_settings()
         .prepare(&txn)
         .await?;
     let tree = TreeRepo::create(&txn, id, new.name, new.description).await?;
+    make_owner(viewer, &txn, id).await?;
     pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(tree)
@@ -161,6 +231,7 @@ pub async fn create_tree(db: &DatabaseConnection, new: NewTree) -> Result<Tree, 
 /// and a contemporary threshold out of their ranges, and a SOSA root or own record from another tree is
 /// not found.
 pub async fn update_tree(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     patch: TreePatch,
@@ -182,7 +253,7 @@ pub async fn update_tree(
     {
         require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
     }
-    let pending = Change::update(tree_id, AuditEntity::Tree, tree_id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Tree, tree_id)
         .tree_settings()
         .prepare(&txn)
         .await?;
@@ -220,12 +291,13 @@ pub async fn update_tree(
 /// the tree and the worker does the rest. The purge is queued once the flag
 /// is committed, so it can never outrun it.
 pub async fn delete_tree(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     purge: &PurgeQueue,
     tree_id: Uuid,
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
-    let pending = Change::delete(tree_id, AuditEntity::Tree, tree_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Tree, tree_id)
         .tree_settings()
         .prepare(&txn)
         .await?;
@@ -247,6 +319,7 @@ pub async fn delete_tree(
 /// written in one transaction: a copy that fails at any step leaves no
 /// tree behind. The file is parsed before it opens, off the async workers.
 pub async fn duplicate_tree(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     source_tree_id: Uuid,
@@ -272,9 +345,11 @@ pub async fn duplicate_tree(
 
     let txn = begin_tx(db).await?;
     let tree = TreeRepo::create(&txn, new_tree_id, name, None).await?;
+    make_owner(viewer, &txn, new_tree_id).await?;
     let summary = gedcom::persist_import_result_in(&txn, parsed, &mut |_| Ok(())).await?;
     profiles.rebuild_tree_full(&txn, new_tree_id).await?;
     history::record_import(
+        viewer,
         &txn,
         new_tree_id,
         history::DUPLICATE_FORMAT,
@@ -283,6 +358,7 @@ pub async fn duplicate_tree(
     )
     .await?;
     history::record_export(
+        viewer,
         &txn,
         source_tree_id,
         history::DUPLICATE_FORMAT,

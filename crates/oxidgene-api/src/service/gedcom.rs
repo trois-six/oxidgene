@@ -14,6 +14,7 @@ pub use export_privacy::ExportPrivacy;
 use crate::service::tag_bulk::{self, TagTargetSpec};
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::types::TagRef;
 use oxidgene_db::entities::{
     citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, media,
@@ -1028,6 +1029,7 @@ pub fn export_destinations() -> Vec<ExportDestination> {
 /// `choices.include_media` is not read. See [`load_and_export`] for the
 /// other choices.
 pub async fn export_gedcom(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     choices: ExportChoices,
@@ -1040,6 +1042,7 @@ pub async fn export_gedcom(
     };
     let data = load_and_export(db, tree_id, choices, scope, false, privacy).await?;
     crate::service::history::record_export(
+        viewer,
         db,
         tree_id,
         "gedcom",

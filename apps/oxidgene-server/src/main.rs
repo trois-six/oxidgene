@@ -62,7 +62,7 @@ async fn main() {
     );
 
     // ── Authentication ───────────────────────────────────────────────
-    let auth = start_auth().await;
+    let (auth, access_log_retention) = start_auth().await;
 
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
@@ -87,7 +87,8 @@ async fn main() {
     let state = AppState::with_media_store(db, media)
         .with_work_dir(work_dir)
         .with_cache(cfg.cache())
-        .with_auth(Arc::clone(&auth));
+        .with_auth(Arc::clone(&auth))
+        .with_access_log_retention(access_log_retention);
     if embedded_worker {
         // SQLite has no separate worker: this process was the only one
         // running the jobs a previous run left marked as running.
@@ -135,10 +136,12 @@ async fn main() {
     telemetry.shutdown();
 }
 
-/// The authentication `OXIDGENE_AUTH_MODE` and its settings describe. An
-/// invalid setting ends the process with its category and variable, never
-/// its value.
-async fn start_auth() -> Arc<Auth> {
+/// The authentication `OXIDGENE_AUTH_MODE` and its settings describe, and
+/// how long the access log keeps its events
+/// (`OXIDGENE_ACCESS_LOG_RETENTION`), which the embedded worker enforces.
+/// An invalid setting ends the process with its category and variable,
+/// never its value.
+async fn start_auth() -> (Arc<Auth>, std::time::Duration) {
     let settings = or_exit(
         // Its text may quote a value, and is not logged.
         ServerConfig::load_auth().map_err(|error| error.to_string()),
@@ -148,13 +151,16 @@ async fn start_auth() -> Arc<Auth> {
     let config = settings
         .resolve()
         .unwrap_or_else(|failure| invalid_auth(failure));
+    let retention = settings
+        .access_log_retention()
+        .unwrap_or_else(|failure| invalid_auth(failure));
     let auth = Arc::new(or_exit(
         Auth::start(config).await,
         "session_store_unavailable",
         "Failed to connect to the session store",
     ));
     announce(&auth);
-    auth
+    (auth, retention)
 }
 
 /// End the process over an invalid authentication setting, named by its

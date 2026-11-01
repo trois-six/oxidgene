@@ -7,14 +7,15 @@
 //! surfaces call these functions with the request's [`Principal`]; nothing
 //! here reads a token or a cookie.
 
+use oxidgene_core::access::ViewerContext;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Connection;
 use oxidgene_db::repo::{
-    AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, PaginationParams, UserStatus,
-    db_err,
+    AppUser, AppUserChanges, AppUserRepo, InstanceRole, MembershipRepo, NewAppUser,
+    PaginationParams, UserStatus, db_err,
 };
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::{Deserialize, Serialize};
@@ -411,9 +412,8 @@ impl From<&AppUser> for ManagedUser {
 }
 
 /// Everything OxidGene holds about the user, as JSON (GDPR Art. 15 and 20):
-/// `GET /me/export`. Memberships, invitations, API clients, notification
-/// preferences, conversations and access events join it as the phases that
-/// store them ship.
+/// `GET /me/export`. Invitations, API clients, notification preferences
+/// and conversations join it as the phases that store them ship.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AccountData {
     pub exported_at: DateTime<Utc>,
@@ -422,6 +422,20 @@ pub struct AccountData {
     pub provider_name: Option<String>,
     pub locale: Option<String>,
     pub updated_at: DateTime<Utc>,
+    /// The trees the user holds a role on.
+    pub memberships: Vec<AccountMembership>,
+    /// The access log's events about the user, oldest first.
+    pub access_events: Vec<oxidgene_db::repo::AccessEvent>,
+}
+
+/// One of the user's memberships, in their account data.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AccountMembership {
+    pub tree_id: Uuid,
+    pub role: oxidgene_core::access::TreeRole,
+    pub self_person_id: Option<Uuid>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 // ── Who may see whom ───────────────────────────────────────────────────
@@ -560,6 +574,17 @@ pub async fn account_data(
     principal: &Principal,
 ) -> Result<AccountData, OxidGeneError> {
     let user = me(db, principal).await?;
+    let memberships = MembershipRepo::of_user(db, user.id)
+        .await?
+        .into_iter()
+        .map(|membership| AccountMembership {
+            tree_id: membership.tree_id,
+            role: membership.role,
+            self_person_id: membership.self_person_id,
+            expires_at: membership.expires_at,
+            created_at: membership.created_at,
+        })
+        .collect();
     Ok(AccountData {
         exported_at: Utc::now(),
         user: ManagedUser::from(&user),
@@ -567,6 +592,8 @@ pub async fn account_data(
         provider_name: user.provider_name.clone(),
         locale: user.locale.clone(),
         updated_at: user.updated_at,
+        memberships,
+        access_events: oxidgene_db::repo::AccessEventRepo::of_user(db, user.id).await?,
     })
 }
 
@@ -697,7 +724,20 @@ pub async fn update_user(
         };
         auth.end_user_sessions(id, cause).await?;
     }
+    let kind = match (current.status, updated.status) {
+        (UserStatus::Active, UserStatus::Deactivated) => "user_deactivated",
+        (UserStatus::Deactivated, UserStatus::Active) => "user_reactivated",
+        _ => "user_updated",
+    };
+    access_event(db, principal, kind);
     Ok(updated)
+}
+
+/// Record an account act in the access log (docs/authorization.md §9.2):
+/// who acted and through which client, never whom it named by name.
+fn access_event(db: &DatabaseConnection, principal: &Principal, kind: &'static str) {
+    let viewer = ViewerContext::new(principal.clone());
+    crate::authz::log::record(db, crate::authz::log::event(&viewer, kind, "ok"));
 }
 
 /// The changes `patch` asks for, refusing those the roles claim decides.
@@ -783,6 +823,7 @@ pub async fn rebind_identity(
     .await?;
     txn.commit().await.map_err(db_err)?;
     auth.end_user_sessions(id, "identity_rebound").await?;
+    access_event(db, principal, "user_identity_rebound");
     Ok(updated)
 }
 
@@ -794,7 +835,9 @@ pub async fn delete_my_account(
     principal: &Principal,
 ) -> Result<(), OxidGeneError> {
     let identity = require_user(principal)?;
-    erase(db, auth, media, identity.user_id).await
+    erase(db, auth, media, identity.user_id).await?;
+    access_event(db, principal, "account_erased");
+    Ok(())
 }
 
 /// Erase a user, as an administrator.
@@ -806,26 +849,50 @@ pub async fn erase_user(
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
     require_admin(principal)?;
-    erase(db, auth, media, id).await
+    erase(db, auth, media, id).await?;
+    access_event(db, principal, "user_erased");
+    Ok(())
 }
 
-/// Turn the user into a tombstone (§6.6): their sessions end, nothing that
-/// identifies them stays, and their avatar's files go once that commits.
-/// What other phases store about a user — memberships, invitations,
-/// notifications, API clients, messages — is deleted here as each ships;
-/// owning a tree will refuse the erasure (`409`) once trees have owners.
+/// The user `id`, unless they cannot be erased: erased already (`404`), or
+/// owning a tree (`409`), which they transfer or delete first.
+async fn erasable(db: &DatabaseConnection, id: Uuid) -> Result<AppUser, OxidGeneError> {
+    let user = AppUserRepo::get(db, id).await?;
+    if user.status == UserStatus::Erased {
+        return Err(user_not_found(id));
+    }
+    if !MembershipRepo::owned_trees(db, id).await?.is_empty() {
+        return Err(OxidGeneError::Conflict(
+            "the user owns a tree: transfer or delete it first".into(),
+        ));
+    }
+    Ok(user)
+}
+
+/// End the user's memberships and clear what identifies them, in one
+/// transaction.
+async fn tombstone(db: &DatabaseConnection, id: Uuid) -> Result<(), OxidGeneError> {
+    let txn = db.begin().await.map_err(db_err)?;
+    MembershipRepo::delete_of_user(&txn, id).await?;
+    AppUserRepo::erase(&txn, id).await?;
+    txn.commit().await.map_err(db_err)
+}
+
+/// Turn the user into a tombstone (§6.6): refused (`409`) while they own a
+/// tree, which they transfer or delete first; then their sessions end,
+/// their memberships and the tombstone are written in one transaction, and
+/// their avatar's files go once that commits. What later phases store about
+/// a user — invitations, notifications, API clients, messages — is deleted
+/// here as each ships.
 async fn erase(
     db: &DatabaseConnection,
     auth: &Auth,
     media: &Arc<dyn MediaStore>,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let user = AppUserRepo::get(db, id).await?;
-    if user.status == UserStatus::Erased {
-        return Err(user_not_found(id));
-    }
+    let user = erasable(db, id).await?;
     auth.end_user_sessions(id, "erased").await?;
-    AppUserRepo::erase(db, id).await?;
+    tombstone(db, id).await?;
     if let Some(sha256) = user.avatar_sha256 {
         super::avatar::delete_files(media.as_ref(), id, &sha256).await;
     }

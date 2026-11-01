@@ -1,5 +1,6 @@
 //! REST handlers for Family CRUD operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -32,9 +33,10 @@ pub async fn list_families(
 /// POST /api/v1/trees/:tree_id/families
 pub async fn create_family(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<Family>), ApiError> {
-    let family = family::create_family(&state.db, tree_id).await?;
+    let family = family::create_family(&viewer, &state.db, tree_id).await?;
     Ok((StatusCode::CREATED, Json(family)))
 }
 
@@ -54,6 +56,7 @@ pub async fn get_family(
 /// JSON would refuse. A body that is there must be a valid update.
 pub async fn update_family(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
     body: axum::body::Bytes,
 ) -> Result<Json<Family>, ApiError> {
@@ -64,16 +67,17 @@ pub async fn update_family(
             .map_err(|_| OxidGeneError::Validation("malformed family update".to_string()))?
     };
     Ok(Json(
-        family::update_family(&state.db, tree_id, family_id, patch).await?,
+        family::update_family(&viewer, &state.db, tree_id, family_id, patch).await?,
     ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/families/:family_id
 pub async fn delete_family(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    family::delete_family(&state.db, &state.profiles, tree_id, family_id).await?;
+    family::delete_family(&viewer, &state.db, &state.profiles, tree_id, family_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

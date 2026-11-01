@@ -1,5 +1,6 @@
 //! REST handlers for FamilySpouse and FamilyChild membership operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -25,19 +26,37 @@ pub async fn list_spouses(
 /// POST /api/v1/trees/:tree_id/families/:family_id/spouses
 pub async fn add_spouse(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewSpouse>,
 ) -> Result<(StatusCode, Json<FamilySpouse>), ApiError> {
-    let spouse = family::add_spouse(&state.db, &state.profiles, tree_id, family_id, body).await?;
+    let spouse = family::add_spouse(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        family_id,
+        body,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(spouse)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/families/:family_id/spouses/:spouse_id
 pub async fn remove_spouse(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id, spouse_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    family::remove_spouse(&state.db, &state.profiles, tree_id, family_id, spouse_id).await?;
+    family::remove_spouse(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        family_id,
+        spouse_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -56,18 +75,36 @@ pub async fn list_children(
 /// POST /api/v1/trees/:tree_id/families/:family_id/children
 pub async fn add_child(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewChild>,
 ) -> Result<(StatusCode, Json<FamilyChild>), ApiError> {
-    let child = family::add_child(&state.db, &state.profiles, tree_id, family_id, body).await?;
+    let child = family::add_child(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        family_id,
+        body,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(child)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/families/:family_id/children/:child_id
 pub async fn remove_child(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, family_id, child_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    family::remove_child(&state.db, &state.profiles, tree_id, family_id, child_id).await?;
+    family::remove_child(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        family_id,
+        child_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

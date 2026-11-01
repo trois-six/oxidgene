@@ -4,6 +4,7 @@
 //! See `docs/ui-dictionary.md` §7.1 and the family-name routes of
 //! `docs/api.md`.
 
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{DictionaryRepo, FamilyNameParticleUpdate, FamilyNameRename};
 use oxidgene_db::sea_orm::DatabaseConnection;
@@ -43,6 +44,7 @@ pub struct FamilyNameChange {
 /// import does, rather than holding a write lock over every row of a large
 /// tree. Nothing is rebuilt, or recorded, when nothing changed.
 pub async fn set_particle(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -51,7 +53,7 @@ pub async fn set_particle(
     let txn = begin_tx(db).await?;
     let bearers =
         DictionaryRepo::persons_bearing_family_names(&txn, tree_id, &[&change.value]).await?;
-    let pending = history::family_name_change(tree_id, change.value.trim(), &bearers)
+    let pending = history::family_name_change(viewer, tree_id, change.value.trim(), &bearers)
         .prepare(&txn)
         .await?;
     let update =
@@ -79,6 +81,7 @@ pub async fn set_particle(
 /// father and mother filters name it. Those persons are refreshed, and nobody
 /// else, so the cost follows the name's family rather than the tree.
 pub async fn rename(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -92,7 +95,7 @@ pub async fn rename(
         &[&change.value, &change.new_value],
     )
     .await?;
-    let pending = history::family_name_change(tree_id, change.value.trim(), &bearers)
+    let pending = history::family_name_change(viewer, tree_id, change.value.trim(), &bearers)
         .prepare(&txn)
         .await?;
     let renamed = DictionaryRepo::rename_family_name(

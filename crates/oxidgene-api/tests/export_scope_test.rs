@@ -348,12 +348,18 @@ async fn a_scope_holding_no_person_is_refused() {
     let (status, body) = f.export_rest(Some(&json!({ "persons": [] }))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
-    let unused = tag::create(&f.db, f.tree_id(), "Unused", None)
-        .await
-        .unwrap()
-        .0
-        .tag
-        .id;
+    let unused = tag::create(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        f.tree_id(),
+        "Unused",
+        None,
+    )
+    .await
+    .unwrap()
+    .0
+    .tag
+    .id;
     let (status, body) = f.export_rest(Some(&json!({ "tag": unused }))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     let response = f.export_gql(Some(&json!({ "tag": unused }))).await;

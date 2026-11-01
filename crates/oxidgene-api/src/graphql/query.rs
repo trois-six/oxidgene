@@ -33,7 +33,9 @@ use super::inputs::{
     GeneanetPreviewInput, ImageSourceInput, MediaListFilterInput, TagTargetInput,
     geneanet_deposit_sizes, tag_target_spec,
 };
-use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
+use super::scope::{
+    boxed, job_tree, live_tree, opt_uuid, uuid, uuids, viewer_from_ctx, visible_tree,
+};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlDownloadableExport, GqlEvent, GqlEventConnection,
     GqlEventType, GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
@@ -211,7 +213,11 @@ impl TreeQuery {
                 first: first.unwrap_or(25),
                 after,
             };
-            Ok(crate::service::tree::list_trees(db, &params).await?.into())
+            Ok(
+                crate::service::tree::list_trees(viewer_from_ctx(ctx), db, &params)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -339,9 +345,15 @@ impl TreeQuery {
     /// Get a single tree by ID.
     async fn tree(&self, ctx: &Context<'_>, id: ID) -> Result<Option<GqlTree>> {
         boxed(async move {
-            let db = reader_from_ctx(ctx);
-            let id = uuid(&id)?;
-            found(TreeRepo::get(db, id).await)
+            let Some(id) = visible_tree(ctx, &id).await? else {
+                return Ok(None);
+            };
+            let view =
+                crate::service::tree::get_tree(viewer_from_ctx(ctx), reader_from_ctx(ctx), id)
+                    .await?;
+            let mut tree = GqlTree::from(view.tree);
+            tree.access = Some(view.viewer_access);
+            Ok(Some(tree))
         })
         .await
     }
@@ -1784,6 +1796,7 @@ impl TreeQuery {
             )?;
             let scope = scope.map(tag_target_spec).transpose()?;
             let data = crate::service::gedcom::export_gedcom(
+                viewer_from_ctx(ctx),
                 // Writes the export's audit entry.
                 db_from_ctx(ctx),
                 tree_id,
@@ -1814,9 +1827,10 @@ impl TreeQuery {
         wait: Option<i32>,
     ) -> Result<GqlExportJobStatus> {
         boxed(async move {
-            // Not `live_tree`: a running job answers from memory, without the
-            // database; the service checks the tree when it has to read.
-            let tree_id = uuid(&tree_id)?;
+            // `job_tree`: the local owner's running job answers from memory,
+            // without the database; the service checks the tree when it has
+            // to read. Anyone else's request is authorized first.
+            let tree_id = job_tree(ctx, &tree_id).await?;
             let status = crate::service::background_job::wait_export_job_status(
                 reader_from_ctx(ctx),
                 tree_id,
@@ -1837,10 +1851,11 @@ impl TreeQuery {
         tree_id: ID,
     ) -> Result<Option<GqlDownloadableExport>> {
         boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
             let export = crate::service::background_job::downloadable_export(
                 reader_from_ctx(ctx),
                 &**media_from_ctx(ctx),
-                uuid(&tree_id)?,
+                tree_id,
             )
             .await?;
             Ok(export.map(Into::into))
@@ -1861,9 +1876,10 @@ impl TreeQuery {
         wait: Option<i32>,
     ) -> Result<GqlImportJobStatus> {
         boxed(async move {
-            // Not `live_tree`: a running job answers from memory, without the
-            // database; the service checks the tree when it has to read.
-            let tree_id = uuid(&tree_id)?;
+            // `job_tree`: the local owner's running job answers from memory,
+            // without the database; the service checks the tree when it has
+            // to read. Anyone else's request is authorized first.
+            let tree_id = job_tree(ctx, &tree_id).await?;
             let status = crate::service::background_job::wait_import_job_status(
                 reader_from_ctx(ctx),
                 tree_id,
@@ -2158,7 +2174,13 @@ impl TreeQuery {
         limit: usize,
     ) -> Result<Vec<super::types::GqlTreeRecentPersons>> {
         boxed(async move {
-            let tree_ids = uuids(&tree_ids)?;
+            let tree_ids = crate::authz::permitted_trees(
+                reader_from_ctx(ctx),
+                viewer_from_ctx(ctx),
+                &uuids(&tree_ids)?,
+                oxidgene_core::access::Permission::Read,
+            )
+            .await?;
             let trees = crate::service::history::recently_modified_persons_of_trees(
                 reader_from_ctx(ctx),
                 profiles_from_ctx(ctx),

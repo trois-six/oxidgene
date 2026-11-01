@@ -49,6 +49,9 @@ pub struct AppState {
     /// The archive resolution every request shares, with its session cache.
     pub archives: Arc<ArchivePortals>,
     pub(crate) local_file_access: LocalFileAccess,
+    /// How long the embedded worker keeps access events
+    /// (docs/authorization.md §9.2).
+    pub access_log_retention: std::time::Duration,
     /// The web build's authentication: the `none` mode until the server
     /// configures it.
     #[cfg(feature = "auth")]
@@ -94,6 +97,7 @@ impl AppState {
             work_dir: WorkDir::temporary(),
             archives: Arc::new(ArchivePortals::native()),
             local_file_access: LocalFileAccess(false),
+            access_log_retention: crate::service::background_job::DEFAULT_ACCESS_LOG_RETENTION,
             #[cfg(feature = "auth")]
             auth: Arc::new(crate::auth::Auth::none()),
         }
@@ -104,6 +108,13 @@ impl AppState {
     #[must_use]
     pub fn with_auth(mut self, auth: Arc<crate::auth::Auth>) -> Self {
         self.auth = auth;
+        self
+    }
+
+    /// Keep access events for `retention` (`OXIDGENE_ACCESS_LOG_RETENTION`).
+    #[must_use]
+    pub fn with_access_log_retention(mut self, retention: std::time::Duration) -> Self {
+        self.access_log_retention = retention;
         self
     }
 

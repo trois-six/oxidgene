@@ -5,6 +5,7 @@
 //! records the change in the transaction that makes it: a repository is a
 //! versioned record of its own, and a link is part of its source's state.
 
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
 use oxidgene_core::types::KeptEntityKind;
@@ -117,6 +118,7 @@ pub async fn get_repository(
 
 /// Create a repository in `tree_id`. A blank name is refused.
 pub async fn create_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     new: NewRepository,
@@ -124,7 +126,7 @@ pub async fn create_repository(
     let name = required_name(&new.name)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(tree_id, AuditEntity::Repository, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Repository, id)
         .repository(id)
         .prepare(&txn)
         .await?;
@@ -148,6 +150,7 @@ pub async fn create_repository(
 
 /// Update repository `id` of `tree_id`. A blank name is refused.
 pub async fn update_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -156,7 +159,7 @@ pub async fn update_repository(
     let name = patch.name.as_deref().map(required_name).transpose()?;
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Repository, id).await?;
-    let pending = Change::update(tree_id, AuditEntity::Repository, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Repository, id)
         .repository(id)
         .prepare(&txn)
         .await?;
@@ -184,6 +187,7 @@ pub async fn update_repository(
 /// a live source, or still the subject of a note, is kept, and `false` says
 /// so.
 pub async fn delete_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -195,7 +199,7 @@ pub async fn delete_repository(
         commit_tx(txn).await?;
         return Ok(false);
     }
-    let pending = Change::delete(tree_id, AuditEntity::Repository, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Repository, id)
         .repository(id)
         .prepare(&txn)
         .await?;
@@ -210,6 +214,7 @@ pub async fn delete_repository(
 /// `id` is deleted; `into` takes the fields chosen. A blank name, or a
 /// repository merged into itself, is refused.
 pub async fn merge_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -229,6 +234,7 @@ pub async fn merge_repository(
     let sources = RepositoryRepo::linked_sources(&txn, id).await?;
     let absorbed = RepositoryRepo::get(&txn, id).await?;
     let mut change = Change::new(
+        viewer,
         tree_id,
         AuditAction::Merge,
         AuditEntity::Repository,
@@ -302,6 +308,7 @@ pub async fn held_sources(
 /// Record that source `source_id` of `tree_id` is held at a repository of
 /// the same tree.
 pub async fn add_source_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     source_id: Uuid,
@@ -315,7 +322,7 @@ pub async fn add_source_repository(
         None => next_sort_order(&txn, source_id).await?,
     };
     let id = Uuid::now_v7();
-    let pending = Change::create(tree_id, AuditEntity::SourceRepository, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::SourceRepository, id)
         .source(source_id)
         .prepare(&txn)
         .await?;
@@ -339,6 +346,7 @@ pub async fn add_source_repository(
 /// Update link `id` of source `source_id` of `tree_id`. A link of another
 /// source, or a repository of another tree, is not found.
 pub async fn update_source_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     source_id: Uuid,
@@ -350,7 +358,7 @@ pub async fn update_source_repository(
     if let Some(repository_id) = patch.repository_id {
         require_tree_resource(&txn, tree_id, TreeResource::Repository, repository_id).await?;
     }
-    let pending = Change::update(tree_id, AuditEntity::SourceRepository, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::SourceRepository, id)
         .source(source_id)
         .prepare(&txn)
         .await?;
@@ -372,6 +380,7 @@ pub async fn update_source_repository(
 
 /// Remove link `id` of source `source_id` of `tree_id`.
 pub async fn remove_source_repository(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     source_id: Uuid,
@@ -379,7 +388,7 @@ pub async fn remove_source_repository(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_link(&txn, tree_id, source_id, id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::SourceRepository, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::SourceRepository, id)
         .source(source_id)
         .prepare(&txn)
         .await?;

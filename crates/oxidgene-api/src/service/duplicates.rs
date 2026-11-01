@@ -7,6 +7,7 @@
 //! are computed here from the person projections. The two answers a user
 //! can give about either, shared by REST and GraphQL, live here too.
 
+use oxidgene_core::access::ViewerContext;
 use std::collections::{HashMap, HashSet};
 
 use chrono::Datelike;
@@ -43,17 +44,19 @@ use crate::service::scope::{begin_tx, commit_tx};
 /// `person_id` is among `others`, or `others` is empty or longer than
 /// [`SEARCH_MAX_LIMIT`] — the most homonyms a single answer can concern.
 pub async fn mark_distinct(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     person_id: Uuid,
     others: &[Uuid],
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
-    mark_distinct_in(&txn, tree_id, person_id, others).await?;
+    mark_distinct_in(viewer, &txn, tree_id, person_id, others).await?;
     commit_tx(txn).await
 }
 
 async fn mark_distinct_in(
+    viewer: &ViewerContext,
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
     person_id: Uuid,
@@ -74,6 +77,7 @@ async fn mark_distinct_in(
         PersonRepo::get_in_tree(conn, tree_id, *other).await?;
     }
     let pending = Change::new(
+        viewer,
         tree_id,
         AuditAction::Create,
         AuditEntity::PersonDistinct,
@@ -124,6 +128,7 @@ pub struct MergeChoices {
 /// from, themselves; and if `choices` leaves out an event that is neither
 /// person's own, or a media link that is not the duplicate's own.
 pub async fn merge_persons(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -133,7 +138,7 @@ pub async fn merge_persons(
 ) -> Result<Person, OxidGeneError> {
     let txn = begin_tx(db).await?;
     let person = Box::pin(merge_persons_in(
-        &txn, profiles, tree_id, kept, duplicate, choices,
+        viewer, &txn, profiles, tree_id, kept, duplicate, choices,
     ))
     .await?;
     commit_tx(txn).await?;
@@ -141,6 +146,7 @@ pub async fn merge_persons(
 }
 
 async fn merge_persons_in(
+    viewer: &ViewerContext,
     conn: &impl ConnectionTrait,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -174,14 +180,20 @@ async fn merge_persons_in(
     );
     // Everyone the merge re-links, and the owners of the events whose
     // witnesses it re-points, read before it does.
-    let mut change = Change::new(tree_id, AuditAction::Merge, AuditEntity::Person, kept)
-        .person(kept)
-        .persons([duplicate])
-        .persons(affected.iter().copied())
-        .details(AuditDetails {
-            other_label: duplicate_label,
-            ..AuditDetails::default()
-        });
+    let mut change = Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Merge,
+        AuditEntity::Person,
+        kept,
+    )
+    .person(kept)
+    .persons([duplicate])
+    .persons(affected.iter().copied())
+    .details(AuditDetails {
+        other_label: duplicate_label,
+        ..AuditDetails::default()
+    });
     for event_id in witnessed
         .into_iter()
         .chain(choices.left_out_events.iter().copied())

@@ -1,9 +1,9 @@
 ---
 type: "Security Specification"
 title: "Authorization and Sharing"
-description: "Planned authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
+description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -14,7 +14,13 @@ generated: { by: human:maintainer, at: 2026-11-01T12:00:00Z }
 > [Data Model](data-model.md) · [Assistant Access](mcp.md) ·
 > [Roadmap](roadmap.md)
 
-**Status: planned, nothing is implemented.** [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
+**Status: in progress.** The roles and their enforcement are in place
+(phase 2): memberships with the Owner, Editor and Guest roles, ownership and
+its transfer, ownerless trees, the `ViewerContext` of every request, the
+requirement of every operation with the 401, 403 and 404 contract on both
+surfaces, the authors of the history, the jobs' actors and the access log.
+Visitors, sharing, scopes, exclusions, API clients and MCP over HTTP are
+planned; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
 tracks the phases. Like everything of EPIC G, this is compiled and active
 only in the web build — server, worker and web frontend; the desktop keeps
 its single local user with full access and changes nothing
@@ -120,10 +126,27 @@ regardless.
 | `leave` — end one's own membership | — | ✓ | ✓ | — |
 
 Operations that need no tree data — the date converter, the reference
-bundles, the export destinations, the API description — need no permission.
-Creating a tree needs the instance's `can_create_trees`; its creator becomes
-its owner. Every route and GraphQL root field declares its permission in the
-parity table, so the declaration is reviewed with the operation (§12).
+bundles, the export destinations, the API description — need no permission,
+and are open to an anonymous request. The Geneanet wizard's first steps,
+which read what the user sends before a tree is chosen, and the tree list
+need a signed-in user. Creating a tree needs the instance's
+`can_create_trees`; its creator becomes its owner.
+
+Every route and GraphQL root field declares its requirement — open, signed
+in, tree creation, administrator, or a permission on the tree it names — in
+`oxidgene-api`'s `authz::operations`, where the declaration is reviewed with
+the operation; the API contract guard fails on a route or root field
+without one and on a REST route whose GraphQL twin declares another (§12).
+An undeclared operation is refused. Where the matrix leaves an operation's
+permission open, the declaration settles it:
+
+| Operation | Permission |
+|---|---|
+| The bulk target's preview (`tags/target`, `tagTarget`), which only bulk tagging uses | `merge` |
+| Marking persons distinct, putting a tag on a record and taking it off | `edit` |
+| Dropping and rebuilding the projections (`profiles`, `profiles/rebuild`) | `settings_manage` |
+| An import or export job's status, cancellation and download | The job's `import` or `export` |
+| A tree's members, a member's update and removal | `read`, which the service narrows (§10) |
 
 ### 3.3 Scoped members
 
@@ -184,6 +207,12 @@ same tree — a GraphQL document reading several trees resolves each once:
 4. for an API client, its own role or its owner's, intersected with its
    scopes and the token's (§7.1).
 
+The local owner of the desktop and of the `none` mode holds the owner's
+access to every live tree, without a membership. In phase 2 an anonymous
+viewer may read no tree (`401`) and a signed-in one the trees they are a
+member of; share links, visibility and API clients join the resolution with
+their phases.
+
 The result, `TreeAccess`, holds the role, the permission set, the scope id,
 whether exclusions apply (always, unless the viewer is the owner or acts for
 the owner), and the redaction policy for a Visitor. It never outlives the
@@ -194,7 +223,17 @@ every tree read as `viewer_access: { role, permissions, scoped }` (GraphQL
 ### 4.2 Propagation
 
 `ViewerContext` lives in `oxidgene-core` (types) and is resolved in
-`oxidgene-api` (middleware); every service function takes it first.
+`oxidgene-api`: REST's authorization middleware, after routing, builds it
+from the principal the authentication layer resolved, checks the route's
+requirement and hands it to the handler; the GraphQL handler puts it in the
+request's data, an extension checks each root field's requirement and the
+resolver of a tree-scoped field checks the tree it names; the stdio MCP
+server and the desktop act for the local owner; a job acts for the actor it
+recorded. Every service that writes takes it first and attributes its audit
+entry to it. In phase 2 a viewer's access depends on the tree alone, so it is
+decided once, before the operation runs, and the read services stay
+viewer-independent; they take the context with the filters that narrow a
+read — scopes, exclusions, redaction — in phases 3 and 5.
 
 - **Writes** call `require(permission)` before opening their transaction,
   check every person they name against the scope and the exclusions, and
@@ -238,13 +277,24 @@ refused. The envelope and codes are those of
 
 A membership ([Data Model §6.2](data-model.md#62-tree_membership)) holds a
 role (`owner`, `editor` or `guest`), an optional scope, an optional expiry
-and the member's own "Who am I?" person.
+and the member's own "Who am I?" person. A tree a signed-in user creates or
+duplicates gets them as its owner; one the local owner creates has none.
 
 - **One owner.** A unique index keeps one `owner` membership per tree.
   `POST /trees/{tree_id}/ownership` hands it to another member, who becomes
-  owner while the former owner becomes an Editor, in one transaction.
-- **Leaving.** An Editor or Guest may leave. The owner cannot: they transfer
-  the tree or delete it.
+  owner while the former owner becomes an Editor, in one transaction; the
+  new owner's membership loses any expiry. A user who is no member is
+  `404`, a deactivated one `409`.
+- **Ownerless trees.** An administrator lists every tree with its owner and
+  size (`GET /admin/trees`) and gives an ownerless one an owner
+  (`PUT /admin/trees/{tree_id}/owner`): a member is promoted, anyone else
+  becomes its owner; a tree that has an owner is `409`.
+- **Members.** The owner lists the members and changes a member's role,
+  between Editor and Guest, and expiry; a member lists their own row and
+  sets their own "Who am I?" person; another field is `403`.
+- **Leaving.** An Editor or Guest may leave. The owner cannot (`409`): they
+  transfer the tree or delete it. Erasing an account that owns a tree is
+  refused alike ([Authentication §6.6](authentication.md#66-erasure-and-account-data)).
 - **Expiry.** A membership past its expiry grants nothing and is deleted by
   the worker's maintenance pass, with a `membership_expired` access event.
 - **"Who am I?"** becomes per member: each member marks the person they are
@@ -540,7 +590,10 @@ shows as *Former member* ([Authentication §6.6](authentication.md#66-erasure-an
 
 The history gains the `access` category: memberships, invitations, share
 links, visibility, exclusions and API clients, created, changed or removed.
-These writes store no version.
+These writes store no version. A membership change is entity `membership`,
+about the tree, an exclusion `privacy_exclusion`, about its root; like every
+write they name their author, and the desktop and the `none` mode record
+author `local`.
 
 ### 9.2 Access log
 
@@ -555,6 +608,13 @@ GraphQL root fields, the permission refused, the outcome code and the request
 id — never an email, a name, a token, a search term or an address.
 Administrators read the instance's log, owners their tree's. Rows older than
 `OXIDGENE_ACCESS_LOG_RETENTION` are deleted by the worker's maintenance pass.
+An event is written in a task of its own, so a refusal is answered without
+waiting for the database. Phase 2 records refusals (`request_refused`, with
+the requirement refused), sign-ins (`login_succeeded`, `login_failed` with
+its reason), sign-outs (`logout`, `logout_everywhere`), back-channel
+logouts, expired memberships (`membership_expired`) and administrator
+actions (`tree_owner_assigned`); the local owner, never refused, records
+none.
 
 ---
 

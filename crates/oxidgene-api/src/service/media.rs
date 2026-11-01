@@ -11,6 +11,7 @@
 //! gone from a page the database still lists.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::{AuditAction, AuditEntity};
 use oxidgene_core::types::{Media, normalize_mime};
 use oxidgene_core::{Calendar, DateQualifier};
@@ -125,6 +126,7 @@ pub struct MediaUpdate {
 
 /// Add a page naming a file we do not hold to a document of `tree_id`.
 pub async fn create_page(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -177,7 +179,7 @@ pub async fn create_page(
         .await?;
     }
     refresh_showing(&txn, profiles, tree_id, new.document_id).await?;
-    Change::create(tree_id, AuditEntity::MediaPage, id)
+    Change::create(viewer, tree_id, AuditEntity::MediaPage, id)
         .media(new.document_id)
         .record_unversioned(&txn)
         .await?;
@@ -194,6 +196,7 @@ pub async fn create_page(
 /// When the transaction fails, the objects this upload wrote that no row
 /// names are deleted again. Returns the page, and whether it was created.
 pub async fn upload(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     store: &dyn MediaStore,
@@ -220,7 +223,7 @@ pub async fn upload(
         .collect()
     };
     let uploaded = ingested.into_upload(upload.title, upload.description);
-    let outcome = write_upload(db, profiles, tree_id, upload.target, uploaded).await;
+    let outcome = write_upload(viewer, db, profiles, tree_id, upload.target, uploaded).await;
     if outcome.is_err() && !written.is_empty() {
         discard_unnamed(db, store, tree_id, &written).await;
     }
@@ -255,6 +258,7 @@ fn cleanup_failed(message: &'static str) {
 /// The rows of an upload whose bytes are stored as `uploaded`, into
 /// `target`, in one transaction with their audit entry.
 async fn write_upload(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -266,7 +270,7 @@ async fn write_upload(
         UploadTarget::Attach { media_id } => {
             require_tree_resource(&txn, tree_id, TreeResource::Media, media_id).await?;
             let page = MediaRepo::attach_file(&txn, media_id, uploaded).await?;
-            let change = Change::update(tree_id, AuditEntity::Media, page.id);
+            let change = Change::update(viewer, tree_id, AuditEntity::Media, page.id);
             (page, change)
         }
         UploadTarget::NewPage { document_id } => {
@@ -282,7 +286,7 @@ async fn write_upload(
                 uploaded,
             )
             .await?;
-            let change = Change::create(tree_id, AuditEntity::MediaPage, page.id);
+            let change = Change::create(viewer, tree_id, AuditEntity::MediaPage, page.id);
             (page, change)
         }
     };
@@ -295,6 +299,7 @@ async fn write_upload(
 
 /// Create an empty multi-page document in `tree_id`.
 pub async fn create_document(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     title: Option<String>,
@@ -303,7 +308,7 @@ pub async fn create_document(
     let document =
         MediaRepo::create_document(&txn, Uuid::now_v7(), tree_id, title, chrono::Utc::now())
             .await?;
-    Change::create(tree_id, AuditEntity::Media, document.id)
+    Change::create(viewer, tree_id, AuditEntity::Media, document.id)
         .media(document.id)
         .record_unversioned(&txn)
         .await?;
@@ -313,6 +318,7 @@ pub async fn create_document(
 
 /// Update the metadata of media `id` of `tree_id`.
 pub async fn update_media(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -329,7 +335,7 @@ pub async fn update_media(
     let updated = MediaRepo::update(&txn, id, patch).await?;
     // The title, path and type are what a card draws from.
     refresh_showing(&txn, profiles, tree_id, id).await?;
-    Change::update(tree_id, AuditEntity::Media, id)
+    Change::update(viewer, tree_id, AuditEntity::Media, id)
         .media(id)
         .record_unversioned(&txn)
         .await?;
@@ -515,6 +521,7 @@ fn dimensions(
 /// Set the page order of document `document_id` of `tree_id`. The list must
 /// name exactly its pages, once each.
 pub async fn reorder_pages(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -529,10 +536,16 @@ pub async fn reorder_pages(
     let pages = MediaRepo::reorder_pages(&txn, document_id, page_ids).await?;
     // The first page is what a card draws for the document.
     refresh_showing(&txn, profiles, tree_id, document_id).await?;
-    Change::new(tree_id, AuditAction::Update, AuditEntity::MediaPage, None)
-        .media(document_id)
-        .record_unversioned(&txn)
-        .await?;
+    Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Update,
+        AuditEntity::MediaPage,
+        None,
+    )
+    .media(document_id)
+    .record_unversioned(&txn)
+    .await?;
     commit_tx(txn).await?;
     Ok(pages)
 }
@@ -541,6 +554,7 @@ pub async fn reorder_pages(
 /// permanently, with its bytes, transcript, links, crops and portraits.
 /// Removing the last page leaves the document standing and empty.
 pub async fn delete_page(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     store: &dyn MediaStore,
@@ -557,7 +571,7 @@ pub async fn delete_page(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::MediaPage, page_id)
+    Change::delete(viewer, tree_id, AuditEntity::MediaPage, page_id)
         .media(document_id)
         .record_unversioned(&txn)
         .await?;
@@ -575,6 +589,7 @@ pub async fn delete_page(
 /// allowed, but any other link, crop or portrait keeps the media, and `false`
 /// says so.
 pub async fn delete_media(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     store: &dyn MediaStore,
@@ -600,7 +615,7 @@ pub async fn delete_media(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::Media, id)
+    Change::delete(viewer, tree_id, AuditEntity::Media, id)
         .media(id)
         .label(label)
         .record_unversioned(&txn)

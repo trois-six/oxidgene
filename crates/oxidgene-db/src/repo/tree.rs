@@ -105,6 +105,21 @@ impl TreeRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// The live trees user `user_id` is a member of at `now`, by cursor
+    /// (docs/authorization.md §6.4: a viewer's tree list is their
+    /// memberships).
+    pub async fn list_of_member(
+        db: &impl ConnectionTrait,
+        user_id: Uuid,
+        now: chrono::DateTime<Utc>,
+        params: &PaginationParams,
+    ) -> Result<Connection<Tree>, OxidGeneError> {
+        let query = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(crate::repo::MembershipRepo::trees_of(user_id, now));
+        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+    }
+
     /// Get a single tree by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Tree, OxidGeneError> {
         find_live(db, id).await.map(into_domain)

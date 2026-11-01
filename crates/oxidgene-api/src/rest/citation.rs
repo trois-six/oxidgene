@@ -1,5 +1,6 @@
 //! REST handlers for Citation CRUD operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -36,29 +37,40 @@ pub async fn list_citations(
 /// POST /api/v1/trees/:tree_id/citations
 pub async fn create_citation(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewCitation>,
 ) -> Result<(StatusCode, Json<Citation>), ApiError> {
-    let citation = citation::create_citation(&state.db, &state.profiles, tree_id, body).await?;
+    let citation =
+        citation::create_citation(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(citation)))
 }
 
 /// PUT /api/v1/trees/:tree_id/citations/:citation_id
 pub async fn update_citation(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, citation_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<CitationPatch>,
 ) -> Result<Json<Citation>, ApiError> {
-    let citation =
-        citation::update_citation(&state.db, &state.profiles, tree_id, citation_id, body).await?;
+    let citation = citation::update_citation(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        citation_id,
+        body,
+    )
+    .await?;
     Ok(Json(citation))
 }
 
 /// DELETE /api/v1/trees/:tree_id/citations/:citation_id
 pub async fn delete_citation(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, citation_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    citation::delete_citation(&state.db, &state.profiles, tree_id, citation_id).await?;
+    citation::delete_citation(&viewer, &state.db, &state.profiles, tree_id, citation_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

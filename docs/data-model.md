@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-01T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 ---
 
 
@@ -1233,7 +1233,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `id` | UUID v7 | PK — its time order is the log's order |
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
 | `occurred_at` | DateTime | |
-| `category` | String | `data`, `settings`, `media`, `import`, `export`, `history` |
+| `category` | String | `data`, `settings`, `media`, `import`, `export`, `history`, `access` |
 | `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert` |
 | `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `record_tag`, `tag`, `vignette`, `portrait`, `family_name`, `occupation`, … |
 | `entity_id` | UUID? | The row written, when there is a single one |
@@ -1241,6 +1241,9 @@ leaves no entry, and no entry describes a write that did not happen.
 | `subject_id` | UUID? | That record |
 | `label` | String? | The subject's display name at the time — it outlives a later rename or deletion |
 | `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label`, `new_label` (the name a family-name rename gave), `scope` (the target JSON text an export was limited to) — only what applies |
+| `author_kind` | String | `user`, `api_client`, or `local` — the desktop's user and the `none` mode's ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
+| `author_user_id`, `author_api_client_id` | UUID? | The user and the API client; no foreign key, an erased user stays a tombstone |
+| `author_client_id` | String? | The OAuth client the write came through |
 
 What is recorded:
 
@@ -1252,14 +1255,17 @@ What is recorded:
 | `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |
 | `export` | Completed GEDCOM and GEDZIP exports, and the tree a duplication copies |
 | `history` | Restores |
+| `access` | Who may see and do what with the tree, web build only: memberships granted, changed or ended and the ownership handed over (entity `membership`, about the tree), exclusions from sharing created or removed (entity `privacy_exclusion`, about the root); no version |
 
 Projection maintenance (rebuilding or dropping `person_denorm`) derives data and
-changes none, so it is not recorded. Authentication is not part of the current
-MVP, so an entry records no author, nor the surface a write came through: a
-write by an assistant through the MCP write tools is recorded exactly as the
-same write made in the application or over REST or GraphQL
-([Assistant Access §7.5](mcp.md)); the author columns EPIC G adds are listed in
-§6.10.
+changes none, so it is not recorded. Every entry names its author, the viewer
+the write acted for, and the OAuth client it came through; a job's entries
+name the actor recorded at submission. The desktop and the web build's `none`
+mode record author `local`, so a write by an assistant through the stdio MCP
+write tools is recorded exactly as the same write made in the application or
+over REST or GraphQL ([Assistant Access §7.5](mcp.md)). Reading the log
+fills the author's `display_name` from the user row, `null` for an erased
+user.
 
 A bulk tag change writes one entry for the whole change, in its transaction:
 `entity` `record_tag`, `entity_id` the tag, `action` `create` when it adds the
@@ -1389,13 +1395,15 @@ restored: the version before it is the state to go back to.
 The tables of EPIC G, specified in [Authentication](authentication.md),
 [Authorization](authorization.md), [Privacy](privacy.md) and
 [Messaging and Notifications](messaging.md). `app_user` (§6.1),
-`person_visibility` (§6.8) and the exclusions (§6.9) exist; the others are
-planned and arrive with their phase. Until the first
+`tree_membership` (§6.2), `access_event` (§6.7), `person_visibility`
+(§6.8), the exclusions (§6.9) and the authors and actors of §6.10 exist;
+the others are planned and arrive with their phase. Until the first
 release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the
 desktop ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
-Every key is a UUID v7. A tree's purge deletes its rows of §6.2 to §6.9, and
+Every key is a UUID v7. A tree's purge deletes its rows of §6.2 to §6.9 —
+but its access events, which outlive it until their retention (§6.7) — and
 deprovisions its API clients at the provider.
 
 ### 6.1 `app_user`
@@ -1427,9 +1435,9 @@ Sessions are not stored here: they live in the session store
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
 | `user_id` | UUID v7 | FK → `app_user`; unique with `tree_id` |
 | `role` | String | `owner`, `editor`, `guest`; a unique partial index allows one `owner` per tree |
-| `scope_id` | UUID v7? | FK → `access_scope` |
+| `scope_id` | UUID v7? | FK → `access_scope`; added with the access scopes (sharing, phase 5) |
 | `self_person_id` | UUID v7? | The member's "Who am I?" person |
-| `expires_at` | DateTime? | |
+| `expires_at` | DateTime? | Past it the membership grants nothing; the worker's maintenance pass deletes it |
 | `created_by` | UUID v7? | The user who shared |
 | `created_at`, `updated_at` | DateTime | |
 
@@ -1474,7 +1482,7 @@ provider's, unique), `provisioning` (`keycloak_admin`, `dcr`, `manual`),
 trees until their retention), `route?` (template or GraphQL root fields),
 `permission?`, `outcome`, `request_id?`. Indexed by `(tree_id, id)`,
 `(user_id, id)` and `occurred_at` for the retention sweep. No address, email,
-name or token.
+name or token. `share_link_id` stays empty until share links ship.
 
 ### 6.8 `person_visibility`
 

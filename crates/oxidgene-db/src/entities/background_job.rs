@@ -29,6 +29,16 @@ pub struct Model {
     pub error_code: Option<String>,
     pub trace_parent: Option<String>,
     pub trace_state: Option<String>,
+    /// The actor recorded at submission (docs/authentication.md §5.5).
+    pub actor_issuer: Option<String>,
+    pub actor_subject: Option<String>,
+    pub actor_user_id: Option<Uuid>,
+    pub actor_client_id: Option<String>,
+    pub actor_api_client_id: Option<Uuid>,
+    /// The token's scopes, space-separated.
+    pub actor_scopes: Option<String>,
+    /// The digest of the submitting session's id.
+    pub actor_session: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub started_at: Option<DateTimeUtc>,

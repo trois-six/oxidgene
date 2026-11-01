@@ -10,9 +10,9 @@
 //! - Otherwise the request is anonymous.
 //!
 //! An invalid, expired or revoked credential is refused here, before any
-//! handler (`401`). Until per-tree permissions resolve each operation
-//! (Authorization §3), an anonymous request is refused too: the API has no
-//! public tree yet. The API description stays open.
+//! handler (`401`). A request without one goes on as anonymous: each
+//! operation's requirement decides what it may do (docs/authorization.md
+//! §4.3), REST's in `rest::authorize`, GraphQL's per root field.
 
 use std::sync::Arc;
 
@@ -26,9 +26,6 @@ use super::cookie;
 use super::identity::Principal;
 use super::session::Refusal;
 use crate::AppState;
-
-/// Paths an anonymous request may reach in the `oidc` mode.
-const PUBLIC_PATHS: &[&str] = &["/api/v1/openapi.json"];
 
 /// Resolve the request's principal and hand it on, or refuse it.
 pub(crate) async fn authenticate(
@@ -46,9 +43,6 @@ pub(crate) async fn authenticate(
         Ok(principal) => principal,
         Err(refusal) => return refusal.into_response(),
     };
-    if matches!(principal, Principal::Anonymous) && !PUBLIC_PATHS.contains(&request.uri().path()) {
-        return Refusal::unauthenticated().into_response();
-    }
     if let Some(client_id) = principal.client_id() {
         tracing::Span::current().record("oxidgene.client_id", client_id);
     }

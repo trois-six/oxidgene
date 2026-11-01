@@ -280,15 +280,31 @@ async fn a_tag_on_many_events_costs_what_it_does_on_few() {
     let large_id = Uuid::parse_str(&large).unwrap();
 
     let rename_small = statements(&counter, || async {
-        tag::update(&db, &profiles, small_id, small_tag, Some("Renamed"), None)
-            .await
-            .unwrap();
+        tag::update(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            small_id,
+            small_tag,
+            Some("Renamed"),
+            None,
+        )
+        .await
+        .unwrap();
     })
     .await;
     let rename_large = statements(&counter, || async {
-        tag::update(&db, &profiles, large_id, large_tag, Some("Renamed"), None)
-            .await
-            .unwrap();
+        tag::update(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            large_id,
+            large_tag,
+            Some("Renamed"),
+            None,
+        )
+        .await
+        .unwrap();
     })
     .await;
     assert!(rename_small > 0, "no statement counted");
@@ -299,15 +315,31 @@ async fn a_tag_on_many_events_costs_what_it_does_on_few() {
     );
 
     let recolour_small = statements(&counter, || async {
-        tag::update(&db, &profiles, small_id, small_tag, None, Some(3))
-            .await
-            .unwrap();
+        tag::update(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            small_id,
+            small_tag,
+            None,
+            Some(3),
+        )
+        .await
+        .unwrap();
     })
     .await;
     let recolour_large = statements(&counter, || async {
-        tag::update(&db, &profiles, large_id, large_tag, None, Some(3))
-            .await
-            .unwrap();
+        tag::update(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            large_id,
+            large_tag,
+            None,
+            Some(3),
+        )
+        .await
+        .unwrap();
     })
     .await;
     assert_eq!(
@@ -317,15 +349,29 @@ async fn a_tag_on_many_events_costs_what_it_does_on_few() {
     );
 
     let merge_small = statements(&counter, || async {
-        tag::merge(&db, &profiles, small_id, small_journal, small_tag)
-            .await
-            .unwrap();
+        tag::merge(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            small_id,
+            small_journal,
+            small_tag,
+        )
+        .await
+        .unwrap();
     })
     .await;
     let merge_large = statements(&counter, || async {
-        tag::merge(&db, &profiles, large_id, large_journal, large_tag)
-            .await
-            .unwrap();
+        tag::merge(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            large_id,
+            large_journal,
+            large_tag,
+        )
+        .await
+        .unwrap();
     })
     .await;
     assert_eq!(
@@ -335,15 +381,27 @@ async fn a_tag_on_many_events_costs_what_it_does_on_few() {
     );
 
     let delete_small = statements(&counter, || async {
-        tag::delete(&db, &profiles, small_id, small_tag)
-            .await
-            .unwrap();
+        tag::delete(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            small_id,
+            small_tag,
+        )
+        .await
+        .unwrap();
     })
     .await;
     let delete_large = statements(&counter, || async {
-        tag::delete(&db, &profiles, large_id, large_tag)
-            .await
-            .unwrap();
+        tag::delete(
+            &oxidgene_core::access::ViewerContext::local(),
+            &db,
+            &profiles,
+            large_id,
+            large_tag,
+        )
+        .await
+        .unwrap();
     })
     .await;
     assert_eq!(

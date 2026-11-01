@@ -16,12 +16,14 @@ generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 
 **Status: in progress.** The deployment of §8 — the development stack, the
 Helm chart's modes and the Rauthy they bundle — the end-to-end sign-in suite
-of §12, and phase 1 — identity, sessions, accounts and the profile, on the
-server and in the web frontend (§10) — are in place. This document
+of §12, phase 1 — identity, sessions, accounts and the profile, on the
+server and in the web frontend (§10) — and the per-tree roles of phase 2
+([Authorization](authorization.md)) are in place. This document
 fixes the contract EPIC G follows;
 [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment) tracks its
-phases. Until per-tree permissions ship, the backend is never exposed to an
-untrusted network ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
+phases. Until privacy is enforced for other viewers (phase 3), the backend
+is never exposed to an untrusted network
+([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 
 ---
 
@@ -338,14 +340,14 @@ viewer, and a field it may not read answers `UNAUTHENTICATED`
 `/mcp` takes bearer tokens only, never the cookie
 ([Authorization §8](authorization.md#8-assistant-access-over-http-mcp)).
 
-Until the permissions of phase 2 decide each operation
-([Authorization §3](authorization.md#3-tree-roles-and-permissions)), there is
-no tree an anonymous viewer may read, so the `oidc` mode answers
-`401 unauthenticated` to every `/api/v1` and `/graphql` request without a
-signed-in user — GraphQL included, at the transport — but
-`/api/v1/openapi.json`; and a signed-in user has the full access the `none`
-mode gives. A session records its last use at most once a minute, so the
-idle limit holds to the minute without a store write per request.
+Each operation's requirement decides what a request without a credential
+may do ([Authorization §3.2](authorization.md#32-permission-matrix)): the
+open operations — the API description, the reference content, the export
+destinations — answer it, every other answers `401 unauthenticated`, REST
+before its handler and GraphQL per root field. A signed-in user has the
+access their memberships give. A session records its last use at most once
+a minute, so the idle limit holds to the minute without a store write per
+request.
 
 ---
 
@@ -418,11 +420,13 @@ comes from a token validated for that request:
 | `session_id` | The hash of the session id, for a cookie session |
 | `api_client_id` | The API client the `client_id` names, if any |
 
-Until the `ViewerContext` of phase 2, the authentication layer gives every
-request this identity as `oxidgene_api::auth::Principal` — `Local` in `none`
-mode, `Anonymous`, or `User` with the fields above — in the request's
-extensions and in the GraphQL context; `api_client_id` stays empty until API
-clients ship.
+The authentication layer gives every request this identity as an
+`oxidgene_core::access::Principal` — `Local` in `none` mode, `Anonymous`, or
+`User` with the fields above, the user's instance role and tree creation
+right read with the user row — in the request's extensions; the
+authorization builds the request's `ViewerContext` on it, which REST
+handlers and GraphQL resolvers receive. `api_client_id` stays empty until
+API clients ship.
 
 The client id is also recorded in the change history's author
 ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)),
@@ -440,8 +444,11 @@ It never records an access or refresh token.
 
 - Before it starts and again before each commit, the worker re-checks that
   the actor still holds the permission the job needs on its tree
-  ([Authorization §3.2](authorization.md#32-permission-matrix)), and attributes
-  every write and its audit entry to that actor and client.
+  ([Authorization §3.2](authorization.md#32-permission-matrix)) — `import`
+  or `export` — reading the user row and the membership afresh, and
+  attributes every write and its audit entry to that actor and client. The
+  re-check before the commit runs on the job's own transaction. A job the
+  local owner submitted acts for the local owner.
 - A worker that must call OxidGene's API or another service on the user's
   behalf obtains a short-lived delegated token through OAuth 2.0 Token
   Exchange (RFC 8693): it authenticates as its own confidential client
@@ -551,7 +558,8 @@ lifetime (§4.6) and keeps their row.
   export, and a conversation's text is exported from one of the user's devices
   ([Messaging §5](messaging.md#5-end-to-end-encryption)). Each section joins
   the export with the phase that stores it; today it holds the user row and
-  profile ([API Contract §2](api.md#accounts)).
+  profile, the memberships and the access events
+  ([API Contract §2](api.md#accounts)).
 
 ### 6.7 Profile and avatar
 
@@ -632,7 +640,10 @@ describe is compiled and active only in the web build — `oxidgene-server`,
   services receive the full-access viewer the desktop has today, the routes
   of these specifications are not mounted (`404 not_found`), and none of
   their dependencies is linked. The tables exist in the one schema both
-  backends share, and stay empty on the desktop.
+  backends share, and stay empty on the desktop. The authorization itself
+  (`oxidgene-api`'s `authz`) is compiled everywhere: without the feature the
+  viewer is always the local owner, who passes every requirement on every
+  live tree.
 - **Frontend.** `oxidgene-ui` stays platform-independent: the sign-in,
   account, members, sharing, exclusion, notification and messaging surfaces
   appear only when the web entry point injects their capability, as desktop-

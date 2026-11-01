@@ -1,5 +1,6 @@
 //! REST handlers for a tree's audit log and its records' versions.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_core::history::{AuditEntry, RecordType, RecordVersion, VersionChange};
@@ -95,10 +96,12 @@ pub async fn get_version(
 /// it returns its own audit entry, and stores the state it replaces.
 pub async fn revert_record(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, record_type, record_id)): Path<(Uuid, RecordType, Uuid)>,
     Json(body): Json<RevertRecordRequest>,
 ) -> Result<Json<AuditEntry>, ApiError> {
     let entry = history::restore(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,

@@ -1,6 +1,7 @@
 //! REST handlers for vignettes — named rectangles cut out of a stored media
 //! file, and the cropped images they stand for.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -59,10 +60,11 @@ pub async fn list_vignettes(
 /// POST /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn create_vignette(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewVignette>,
 ) -> Result<(StatusCode, Json<Vignette>), ApiError> {
-    let vignette = vignette::create_vignette(&state.db, tree_id, media_id, body).await?;
+    let vignette = vignette::create_vignette(&viewer, &state.db, tree_id, media_id, body).await?;
     Ok((StatusCode::CREATED, Json(vignette)))
 }
 
@@ -79,20 +81,22 @@ pub async fn get_vignette(
 /// PUT /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn update_vignette(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<VignetteUpdate>,
 ) -> Result<Json<Vignette>, ApiError> {
     Ok(Json(
-        vignette::update_vignette(&state.db, tree_id, vignette_id, body).await?,
+        vignette::update_vignette(&viewer, &state.db, tree_id, vignette_id, body).await?,
     ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/vignettes/:vignette_id
 pub async fn delete_vignette(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    vignette::delete_vignette(&state.db, &state.profiles, tree_id, vignette_id).await?;
+    vignette::delete_vignette(&viewer, &state.db, &state.profiles, tree_id, vignette_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

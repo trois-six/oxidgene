@@ -7,9 +7,10 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::{Permission, ViewerContext};
 use oxidgene_db::repo::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
-    TreeRepo, db_err,
+    TreeRepo, db_err, job_actor,
 };
 use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbBackend, TransactionTrait};
@@ -427,6 +428,8 @@ pub struct BackgroundJobWorker {
     worker_id: String,
     lease_duration: Duration,
     work_dir: WorkDir,
+    /// How long the maintenance keeps access events.
+    access_log_retention: Duration,
 }
 
 impl std::fmt::Debug for BackgroundJobWorker {
@@ -459,7 +462,16 @@ impl BackgroundJobWorker {
             worker_id: worker_id.into(),
             lease_duration,
             work_dir: WorkDir::temporary(),
+            access_log_retention: DEFAULT_ACCESS_LOG_RETENTION,
         }
+    }
+
+    /// Keep access events for `retention` (`OXIDGENE_ACCESS_LOG_RETENTION`,
+    /// docs/authorization.md §9.2) rather than the default 180 days.
+    #[must_use]
+    pub fn with_access_log_retention(mut self, retention: Duration) -> Self {
+        self.access_log_retention = retention;
+        self
     }
 
     /// Keep job scratch under `work_dir` (see [`crate::workdir`]).
@@ -524,6 +536,8 @@ impl BackgroundJobWorker {
             }
             let code = match error {
                 OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
+                // Its actor may no longer act on the tree (§5.5).
+                OxidGeneError::Forbidden | OxidGeneError::Unauthenticated => "actor_revoked",
                 _ => "job_failed",
             };
             // Console logs carry no span context, so the job's bounded
@@ -740,6 +754,11 @@ impl BackgroundJobWorker {
             "job_object_sweep",
             sweep_orphaned_job_objects(&self.db, media, now).await,
         );
+        log_maintenance_failure("membership_expiry", expire_memberships(&self.db, now).await);
+        log_maintenance_failure(
+            "access_log_retention",
+            prune_access_log(&self.db, now, self.access_log_retention).await,
+        );
     }
 
     #[tracing::instrument(
@@ -752,6 +771,11 @@ impl BackgroundJobWorker {
         job: &BackgroundJob,
         cancel: &CancelToken,
     ) -> Result<(), OxidGeneError> {
+        // The job acts for whoever submitted it, if they still may
+        // (docs/authentication.md §5.5); `complete_*` checks again before
+        // the commit.
+        crate::authz::recheck_job(&self.db, &job_actor(job), job.tree_id, job_permission(job))
+            .await?;
         match job.kind.as_str() {
             "import" => Box::pin(self.execute_import(job, cancel)).await,
             "export" => Box::pin(self.execute_export(job, cancel)).await,
@@ -993,7 +1017,15 @@ impl BackgroundJobWorker {
         persons_count: usize,
         summary: &impl Serialize,
     ) -> Result<(), OxidGeneError> {
+        let viewer = crate::authz::recheck_job(
+            &transaction,
+            &job_actor(job),
+            job.tree_id,
+            Permission::Import,
+        )
+        .await?;
         history::record_import(
+            &viewer,
             &transaction,
             job.tree_id,
             &job.format,
@@ -1121,7 +1153,15 @@ impl BackgroundJobWorker {
         let result = serde_json::to_string(receipt)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         let transaction = self.db.begin().await.map_err(db_err)?;
+        let viewer = crate::authz::recheck_job(
+            &transaction,
+            &job_actor(job),
+            job.tree_id,
+            Permission::Export,
+        )
+        .await?;
         history::record_export(
+            &viewer,
             &transaction,
             job.tree_id,
             &job.format,
@@ -1416,6 +1456,55 @@ fn progress_period(period: Duration, lease_duration: Duration) -> Duration {
     period.min(lease_duration / 3)
 }
 
+/// The permission job `job` needs on its tree for its whole run.
+fn job_permission(job: &BackgroundJob) -> Permission {
+    if job.kind == BackgroundJobKind::Import.as_str() {
+        Permission::Import
+    } else {
+        Permission::Export
+    }
+}
+
+/// How long access events are kept unless the deployment says otherwise.
+pub const DEFAULT_ACCESS_LOG_RETENTION: Duration = Duration::from_secs(180 * 24 * 60 * 60);
+
+/// Delete the memberships past their expiry, each with a
+/// `membership_expired` access event (docs/authorization.md §5). They
+/// granted nothing since they expired; this only removes the rows. Empty on
+/// the desktop, which has no memberships.
+async fn expire_memberships(
+    db: &DatabaseConnection,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), OxidGeneError> {
+    for membership in oxidgene_db::repo::MembershipRepo::delete_expired(db, now).await? {
+        oxidgene_db::repo::AccessEventRepo::insert(
+            db,
+            oxidgene_db::repo::NewAccessEvent {
+                kind: "membership_expired",
+                principal_kind: "user",
+                user_id: Some(membership.user_id),
+                tree_id: Some(membership.tree_id),
+                outcome: membership.role.as_str().to_string(),
+                ..oxidgene_db::repo::NewAccessEvent::default()
+            },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Delete the access events older than `retention`.
+async fn prune_access_log(
+    db: &DatabaseConnection,
+    now: chrono::DateTime<chrono::Utc>,
+    retention: Duration,
+) -> Result<(), OxidGeneError> {
+    let retention = chrono::Duration::from_std(retention)
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+    oxidgene_db::repo::AccessEventRepo::delete_before(db, now - retention).await?;
+    Ok(())
+}
+
 /// Log a failed maintenance pass under `code`; it is retried by the next.
 fn log_maintenance_failure(code: &'static str, result: Result<(), OxidGeneError>) {
     if result.is_err() {
@@ -1585,6 +1674,7 @@ mod tests {
         BackgroundJobRepo::create(
             db,
             NewBackgroundJob {
+                actor: Default::default(),
                 id: job_id,
                 tree_id,
                 kind: BackgroundJobKind::Import,
@@ -1743,6 +1833,13 @@ mod tests {
             error_code: None,
             trace_parent: None,
             trace_state: None,
+            actor_issuer: None,
+            actor_subject: None,
+            actor_user_id: None,
+            actor_client_id: None,
+            actor_api_client_id: None,
+            actor_scopes: None,
+            actor_session: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             started_at: Some(chrono::Utc::now()),
@@ -1782,6 +1879,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs an empty disposable PostgreSQL database: run by `just test-postgres`"]
     async fn on_postgres_cancellation_and_progress_cross_processes() {
+        let viewer = &ViewerContext::local();
         let url = std::env::var("OXIDGENE_TEST_DATABASE_URL")
             .expect("set OXIDGENE_TEST_DATABASE_URL to an empty disposable PostgreSQL database");
         let db = oxidgene_db::repo::connect(&url).await.expect("connects");
@@ -1791,7 +1889,7 @@ mod tests {
         let listener = tokio::spawn(job_watch::listen(db.clone()));
         let root = tempfile::tempdir().expect("creates media root");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(1)).await;
         // Another process's worker claims it.
         let lease = chrono::Duration::minutes(5);
         BackgroundJobRepo::claim_next(&db, "elsewhere", lease)
@@ -1885,6 +1983,7 @@ mod tests {
     /// A new tree of `db`, and an import of GEDCOM `text` queued into it,
     /// its source in `media`: the tree's id and the job's.
     async fn queued_gedcom(
+        viewer: &ViewerContext,
         db: &DatabaseConnection,
         media: &dyn MediaStore,
         text: &str,
@@ -1895,8 +1994,7 @@ mod tests {
             .expect("creates tree");
         let source = tempfile::NamedTempFile::new().expect("creates source");
         std::fs::write(source.path(), text).expect("writes source");
-        let job_id = Uuid::now_v7();
-        stage_import(db, media, job_id, tree_id, "gedcom", None, source.path())
+        let job_id = stage_import(viewer, db, media, tree_id, "gedcom", None, source.path())
             .await
             .expect("queues the import");
         (tree_id, job_id)
@@ -1951,10 +2049,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_queued_job_is_cancelled_at_once_and_never_runs() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(2)).await;
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(2)).await;
 
         let status = cancel_import_job(&db, &db, &*media, tree_id, job_id)
             .await
@@ -1993,11 +2092,12 @@ mod tests {
 
     #[tokio::test]
     async fn an_import_cancelled_between_two_batches_of_persons_leaves_the_tree_as_it_was() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
         // Three batches of persons.
-        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(400)).await;
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(400)).await;
         plan_stop(job_id, "Database", 2, false);
 
         assert!(worker_over(&db, &media).run_once().await.expect("runs"));
@@ -2015,7 +2115,7 @@ mod tests {
         assert!(files_under(root.path()).is_empty());
 
         // The same file imports whole when nobody stops it.
-        let (tree_id, _) = queued_gedcom(&db, &*media, &families_gedcom(400)).await;
+        let (tree_id, _) = queued_gedcom(viewer, &db, &*media, &families_gedcom(400)).await;
         assert!(worker_over(&db, &media).run_once().await.expect("runs"));
         assert_eq!(tree_rows(&db, tree_id).await, [1200, 0, 1200, 1]);
     }
@@ -2024,6 +2124,7 @@ mod tests {
     /// document of two pages naming one of them, its pages fetched into
     /// `scratch`. The tree's id and the job's.
     async fn queued_geneanet(
+        viewer: &ViewerContext,
         db: &DatabaseConnection,
         media: &dyn MediaStore,
         scratch: &Path,
@@ -2061,6 +2162,7 @@ mod tests {
         })
         .to_string();
         let job_id = stage_geneanet_import(
+            viewer,
             db,
             media,
             &WorkDir::temporary(),
@@ -2080,11 +2182,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_geneanet_import_cancelled_in_its_media_takes_back_what_it_stored() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let scratch = tempfile::tempdir().expect("creates scratch");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+        let (tree_id, job_id) = queued_geneanet(viewer, &db, &*media, scratch.path()).await;
         // Past the document's first page, stored and written; at its second,
         // stored too.
         plan_stop(job_id, "Media", 3, false);
@@ -2102,11 +2205,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_geneanet_import_failing_in_its_media_rolls_back_whole() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let scratch = tempfile::tempdir().expect("creates scratch");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+        let (tree_id, job_id) = queued_geneanet(viewer, &db, &*media, scratch.path()).await;
         plan_stop(job_id, "Media", 3, true);
 
         assert!(worker_over(&db, &media).run_once().await.expect("runs"));
@@ -2126,11 +2230,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_completed_geneanet_import_keeps_its_media_and_no_records() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let scratch = tempfile::tempdir().expect("creates scratch");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_geneanet(&db, &*media, scratch.path()).await;
+        let (tree_id, job_id) = queued_geneanet(viewer, &db, &*media, scratch.path()).await;
 
         assert!(worker_over(&db, &media).run_once().await.expect("runs"));
 
@@ -2175,10 +2280,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_earlier_attempts_media_go_before_the_import_runs_again() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
-        let (tree_id, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(1)).await;
         // A file an attempt stored and recorded before its process stopped.
         let recording = RecordingStore::new(&*media, job_id);
         let orphan = recording
@@ -2287,6 +2393,7 @@ mod tests {
         BackgroundJobRepo::create(
             db,
             NewBackgroundJob {
+                actor: Default::default(),
                 id: job_id,
                 tree_id,
                 kind: BackgroundJobKind::Import,
@@ -2309,12 +2416,13 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_worker_runs_a_job_queued_in_this_process_at_once() {
+        let viewer = &ViewerContext::local();
         let db = migrated_db().await;
         let root = tempfile::tempdir().expect("creates media root");
         let media = fs_store(&root);
         let _worker = idle_worker(&db, &media).await;
 
-        let (_, job_id) = queued_gedcom(&db, &*media, &families_gedcom(1)).await;
+        let (_, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(1)).await;
         assert_eq!(ends(&db, job_id).await, "completed");
     }
 
@@ -2433,24 +2541,27 @@ async fn enqueue(db: &DatabaseConnection, job: NewBackgroundJob) -> Result<(), O
     Ok(())
 }
 
-/// Put an uploaded genealogy file into job storage and queue its import job.
+/// Put an uploaded genealogy file into job storage and queue its import job,
+/// whose id it answers.
 ///
 /// The staged source is deleted again when the job row cannot be written, so
 /// a failed start leaves nothing behind.
 pub async fn stage_import(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     media: &dyn MediaStore,
-    job_id: Uuid,
     tree_id: Uuid,
     format: &str,
     filename: Option<String>,
     path: &Path,
-) -> Result<(), OxidGeneError> {
+) -> Result<Uuid, OxidGeneError> {
+    let job_id = Uuid::now_v7();
     let source_key = job_blob_key(job_id, "source", format)?;
     media.put_file(&source_key, path).await?;
     let created = enqueue(
         db,
         NewBackgroundJob {
+            actor: viewer.job_actor(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Import,
@@ -2467,7 +2578,7 @@ pub async fn stage_import(
         let _ = media.delete(&source_key).await;
         return Err(error);
     }
-    Ok(())
+    Ok(job_id)
 }
 
 #[expect(
@@ -2475,6 +2586,7 @@ pub async fn stage_import(
     reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
 )]
 pub async fn stage_geneanet_import(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     media: &dyn MediaStore,
     work_dir: &WorkDir,
@@ -2545,6 +2657,7 @@ pub async fn stage_geneanet_import(
         enqueue(
             db,
             NewBackgroundJob {
+                actor: viewer.job_actor(),
                 id: job_id,
                 tree_id,
                 kind: BackgroundJobKind::Import,
@@ -2669,6 +2782,7 @@ struct ExportJobPayload {
 /// A tree runs one job at a time: while another is queued or running, this
 /// is a [`OxidGeneError::Conflict`].
 pub async fn start_export_job(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     choices: ArchiveChoices,
@@ -2693,6 +2807,7 @@ pub async fn start_export_job(
     enqueue(
         db,
         NewBackgroundJob {
+            actor: viewer.job_actor(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Export,

@@ -7,6 +7,7 @@
 //! transaction.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::NameType;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::PersonName;
@@ -77,6 +78,7 @@ pub async fn list_person_names(
 
 /// Give person `person_id` of `tree_id` a name.
 pub async fn create_person_name(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -86,7 +88,7 @@ pub async fn create_person_name(
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
-    let pending = Change::create(tree_id, AuditEntity::PersonName, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::PersonName, id)
         .person(person_id)
         .prepare(&txn)
         .await?;
@@ -115,6 +117,7 @@ pub async fn create_person_name(
 
 /// Update name `name_id` of person `person_id` of `tree_id`.
 pub async fn update_person_name(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -124,7 +127,7 @@ pub async fn update_person_name(
 ) -> Result<PersonName, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
-    let pending = Change::update(tree_id, AuditEntity::PersonName, name_id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::PersonName, name_id)
         .person(person_id)
         .prepare(&txn)
         .await?;
@@ -152,6 +155,7 @@ pub async fn update_person_name(
 
 /// Delete name `name_id` of person `person_id` of `tree_id`.
 pub async fn delete_person_name(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -160,7 +164,7 @@ pub async fn delete_person_name(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::PersonName, name_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::PersonName, name_id)
         .person(person_id)
         .prepare(&txn)
         .await?;

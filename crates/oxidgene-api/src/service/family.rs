@@ -7,6 +7,7 @@
 //! changes, and records the change against that family, in one transaction.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::{ChildType, Privacy, SpouseRole};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Family, FamilyChild, FamilySpouse};
@@ -49,12 +50,13 @@ pub struct NewChild {
 
 /// Create an empty family in `tree_id`. Nobody's projection shows it yet.
 pub async fn create_family(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
 ) -> Result<Family, OxidGeneError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(tree_id, AuditEntity::Family, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Family, id)
         .family(id)
         .prepare(&txn)
         .await?;
@@ -66,6 +68,7 @@ pub async fn create_family(
 
 /// Update family `family_id` of `tree_id`.
 pub async fn update_family(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     family_id: Uuid,
@@ -73,7 +76,7 @@ pub async fn update_family(
 ) -> Result<Family, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
-    let pending = Change::update(tree_id, AuditEntity::Family, family_id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Family, family_id)
         .family(family_id)
         .prepare(&txn)
         .await?;
@@ -86,6 +89,7 @@ pub async fn update_family(
 /// Delete family `family_id` of `tree_id` (a soft delete), rewriting the
 /// projections of its members.
 pub async fn delete_family(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -95,7 +99,7 @@ pub async fn delete_family(
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     // Read while the links still exist.
     let affected = invalidation::affected_persons_for_family_delete(&txn, family_id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::Family, family_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Family, family_id)
         .family(family_id)
         .persons(affected.iter().copied())
         .prepare(&txn)
@@ -130,6 +134,7 @@ pub async fn list_children(
 
 /// Add a spouse to family `family_id` of `tree_id`.
 pub async fn add_spouse(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -141,7 +146,7 @@ pub async fn add_spouse(
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     // The new spouse is named: the family's spouses are read before the link.
-    let pending = Change::create(tree_id, AuditEntity::FamilySpouse, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::FamilySpouse, id)
         .person(new.person_id)
         .family(family_id)
         .prepare(&txn)
@@ -162,6 +167,7 @@ pub async fn add_spouse(
 
 /// Remove spouse link `link_id` from family `family_id` of `tree_id`.
 pub async fn remove_spouse(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -181,7 +187,7 @@ pub async fn remove_spouse(
     let affected =
         invalidation::affected_persons_for_family_spouse_change(&txn, family_id, link.person_id)
             .await?;
-    let pending = Change::delete(tree_id, AuditEntity::FamilySpouse, link_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::FamilySpouse, link_id)
         .person(link.person_id)
         .family(family_id)
         .prepare(&txn)
@@ -196,6 +202,7 @@ pub async fn remove_spouse(
 
 /// Add a child to family `family_id` of `tree_id`.
 pub async fn add_child(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -206,7 +213,7 @@ pub async fn add_child(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
-    let pending = Change::create(tree_id, AuditEntity::FamilyChild, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::FamilyChild, id)
         .person(new.person_id)
         .family(family_id)
         .prepare(&txn)
@@ -233,6 +240,7 @@ pub async fn add_child(
 
 /// Remove child link `link_id` from family `family_id` of `tree_id`.
 pub async fn remove_child(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -252,7 +260,7 @@ pub async fn remove_child(
     let affected =
         invalidation::affected_persons_for_family_child_change(&txn, family_id, link.person_id)
             .await?;
-    let pending = Change::delete(tree_id, AuditEntity::FamilyChild, link_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::FamilyChild, link_id)
         .person(link.person_id)
         .family(family_id)
         .prepare(&txn)

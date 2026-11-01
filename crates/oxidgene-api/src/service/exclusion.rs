@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::ExclusionKind;
 use oxidgene_core::history::{AuditEntity, AuditSubject};
 use oxidgene_core::privacy::{ExclusionScope, Kinship, families_of};
@@ -196,13 +197,13 @@ pub async fn list_exclusions(
 }
 
 /// Exclude what `new` names from sharing in `tree_id`, recorded in the
-/// tree's history. A root that is not a live person of the tree is not
-/// found; a depth out of 1 to 30 is a validation error.
+/// tree's history as the viewer's. A root that is not a live person of the
+/// tree is not found; a depth out of 1 to 30 is a validation error.
 pub async fn create_exclusion(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     new: NewExclusion,
-    created_by: Option<Uuid>,
 ) -> Result<ExclusionView, OxidGeneError> {
     if let Some(depth) = new.depth
         && !(MIN_DEPTH..=MAX_DEPTH).contains(&i64::from(depth))
@@ -224,14 +225,14 @@ pub async fn create_exclusion(
         },
         include_spouses: new.kind == ExclusionKind::Descendants
             && new.include_spouses.unwrap_or(true),
-        created_by,
+        created_by: viewer.user().map(|identity| identity.user_id),
         created_at: Utc::now(),
     };
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     ExclusionRepo::create(&txn, &exclusion).await?;
     rebuild(&txn, tree_id, true).await?;
-    Change::create(tree_id, AuditEntity::PrivacyExclusion, exclusion.id)
+    Change::create(viewer, tree_id, AuditEntity::PrivacyExclusion, exclusion.id)
         .about(AuditSubject::Person, exclusion.person_id)
         .record_unversioned(&txn)
         .await?;
@@ -247,8 +248,9 @@ pub async fn create_exclusion(
 }
 
 /// Remove exclusion `exclusion_id` of `tree_id`, recorded in the tree's
-/// history.
+/// history as the viewer's.
 pub async fn delete_exclusion(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     exclusion_id: Uuid,
@@ -257,7 +259,7 @@ pub async fn delete_exclusion(
     let exclusion = ExclusionRepo::get(&txn, tree_id, exclusion_id).await?;
     ExclusionRepo::delete(&txn, tree_id, exclusion_id).await?;
     rebuild(&txn, tree_id, true).await?;
-    Change::delete(tree_id, AuditEntity::PrivacyExclusion, exclusion_id)
+    Change::delete(viewer, tree_id, AuditEntity::PrivacyExclusion, exclusion_id)
         .about(AuditSubject::Person, exclusion.person_id)
         .record_unversioned(&txn)
         .await?;

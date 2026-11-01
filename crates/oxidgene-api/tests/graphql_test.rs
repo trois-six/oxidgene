@@ -5697,11 +5697,10 @@ async fn a_job_is_cancelled_and_waited_on_over_graphql() {
         "0 HEAD\n0 @I1@ INDI\n1 NAME Ada /SAMPLE/\n0 TRLR\n",
     )
     .unwrap();
-    let job_id = uuid::Uuid::now_v7();
-    oxidgene_api::service::background_job::stage_import(
+    let job_id = oxidgene_api::service::background_job::stage_import(
+        &oxidgene_core::access::ViewerContext::local(),
         &state.db,
         &*state.media,
-        job_id,
         tree_id.parse().unwrap(),
         "gedcom",
         None,

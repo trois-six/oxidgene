@@ -31,7 +31,7 @@ use super::inputs::{
     UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
     geneanet_media_paths, tag_target_spec,
 };
-use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
+use super::scope::{boxed, job_tree, live_tree, opt_uuid, uuid, uuids, viewer_from_ctx};
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
@@ -103,9 +103,11 @@ impl TreeMutation {
     /// Create a new tree. A blank name is refused.
     async fn create_tree(&self, ctx: &Context<'_>, input: CreateTreeInput) -> Result<GqlTree> {
         boxed(async move {
-            Ok(tree::create_tree(db_from_ctx(ctx), input.into())
-                .await?
-                .into())
+            Ok(
+                tree::create_tree(viewer_from_ctx(ctx), db_from_ctx(ctx), input.into())
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -124,6 +126,7 @@ impl TreeMutation {
         boxed(async move {
             let source_tree_id = live_tree(ctx, &tree_id).await?;
             let tree = tree::duplicate_tree(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 source_tree_id,
@@ -145,7 +148,13 @@ impl TreeMutation {
     ) -> Result<GqlTree> {
         boxed(async move {
             let id = live_tree(ctx, &id).await?;
-            let tree = tree::update_tree(db_from_ctx(ctx), id, input.try_into()?).await?;
+            let tree = tree::update_tree(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                id,
+                input.try_into()?,
+            )
+            .await?;
             Ok(tree.into())
         })
         .await
@@ -158,8 +167,14 @@ impl TreeMutation {
     /// [`crate::service::purge`].
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
         boxed(async move {
-            let id = uuid(&id)?;
-            tree::delete_tree(db_from_ctx(ctx), purge_from_ctx(ctx), id).await?;
+            let id = live_tree(ctx, &id).await?;
+            tree::delete_tree(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                purge_from_ctx(ctx),
+                id,
+            )
+            .await?;
             Ok(true)
         })
         .await
@@ -177,6 +192,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let person = person::create_person(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -199,6 +215,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let person = person::update_person(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -216,6 +233,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             person::delete_person(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -241,7 +259,7 @@ impl TreeMutation {
             let tid = live_tree(ctx, &tree_id).await?;
             let pid = uuid(&person_id)?;
             let others = uuids(&other_person_ids)?;
-            duplicates::mark_distinct(db, tid, pid, &others).await?;
+            duplicates::mark_distinct(viewer_from_ctx(ctx), db, tid, pid, &others).await?;
             Ok(true)
         })
         .await
@@ -265,8 +283,16 @@ impl TreeMutation {
             let kept = uuid(&person_id)?;
             let duplicate = uuid(&duplicate_id)?;
             let choices = choices.into_choices()?;
-            let person =
-                duplicates::merge_persons(db, profiles, tid, kept, duplicate, &choices).await?;
+            let person = duplicates::merge_persons(
+                viewer_from_ctx(ctx),
+                db,
+                profiles,
+                tid,
+                kept,
+                duplicate,
+                &choices,
+            )
+            .await?;
             Ok(person.into())
         })
         .await
@@ -285,6 +311,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let name = person_name::create_person_name(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -309,6 +336,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let name = person_name::update_person_name(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -334,6 +362,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             person_name::delete_person_name(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -352,9 +381,11 @@ impl TreeMutation {
     async fn create_family(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlFamily> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(family::create_family(db_from_ctx(ctx), tree_id)
-                .await?
-                .into())
+            Ok(
+                family::create_family(viewer_from_ctx(ctx), db_from_ctx(ctx), tree_id)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -369,8 +400,14 @@ impl TreeMutation {
     ) -> Result<GqlFamily> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            let family =
-                family::update_family(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
+            let family = family::update_family(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.into(),
+            )
+            .await?;
             Ok(family.into())
         })
         .await
@@ -381,6 +418,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             family::delete_family(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -403,6 +441,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let spouse = family::add_spouse(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -427,6 +466,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             family::remove_spouse(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -450,6 +490,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let child = family::add_child(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -474,6 +515,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             family::remove_child(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -498,6 +540,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let event = event::create_event(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -520,6 +563,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let event = event::update_event(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -537,6 +581,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             event::delete_event(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -559,6 +604,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let witness = event::add_witness(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 uuid(&event_id)?,
@@ -581,8 +627,14 @@ impl TreeMutation {
     ) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            event::remove_witness(db_from_ctx(ctx), tree_id, opt_uuid(event_id)?, uuid(&id)?)
-                .await?;
+            event::remove_witness(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                opt_uuid(event_id)?,
+                uuid(&id)?,
+            )
+            .await?;
             Ok(true)
         })
         .await
@@ -599,9 +651,14 @@ impl TreeMutation {
     ) -> Result<GqlPlace> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(place::create_place(db_from_ctx(ctx), tree_id, input.into())
-                .await?
-                .into())
+            Ok(place::create_place(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                input.into(),
+            )
+            .await?
+            .into())
         })
         .await
     }
@@ -617,6 +674,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let place = place::update_place(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -643,6 +701,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let place = place::merge_place(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -660,6 +719,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             place::delete_place(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -682,11 +742,14 @@ impl TreeMutation {
     ) -> Result<GqlSource> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(
-                source::create_source(db_from_ctx(ctx), tree_id, input.into())
-                    .await?
-                    .into(),
+            Ok(source::create_source(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                input.into(),
             )
+            .await?
+            .into())
         })
         .await
     }
@@ -701,8 +764,14 @@ impl TreeMutation {
     ) -> Result<GqlSource> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            let source =
-                source::update_source(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
+            let source = source::update_source(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.into(),
+            )
+            .await?;
             Ok(source.into())
         })
         .await
@@ -720,10 +789,14 @@ impl TreeMutation {
     ) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(
-                source::delete_source(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused)
-                    .await?,
+            Ok(source::delete_source(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                only_if_unused,
             )
+            .await?)
         })
         .await
     }
@@ -739,11 +812,14 @@ impl TreeMutation {
     ) -> Result<GqlRepository> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(
-                repository::create_repository(db_from_ctx(ctx), tree_id, input.into())
-                    .await?
-                    .into(),
+            Ok(repository::create_repository(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                input.into(),
             )
+            .await?
+            .into())
         })
         .await
     }
@@ -758,11 +834,15 @@ impl TreeMutation {
     ) -> Result<GqlRepository> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(
-                repository::update_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into())
-                    .await?
-                    .into(),
+            Ok(repository::update_repository(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.into(),
             )
+            .await?
+            .into())
         })
         .await
     }
@@ -781,6 +861,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             Ok(repository::merge_repository(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 uuid(&id)?,
@@ -804,15 +885,14 @@ impl TreeMutation {
     ) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(
-                repository::delete_repository(
-                    db_from_ctx(ctx),
-                    tree_id,
-                    uuid(&id)?,
-                    only_if_unused,
-                )
-                .await?,
+            Ok(repository::delete_repository(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                only_if_unused,
             )
+            .await?)
         })
         .await
     }
@@ -828,6 +908,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let link = repository::add_source_repository(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 uuid(&source_id)?,
@@ -852,6 +933,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let link = repository::update_source_repository(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 uuid(&source_id)?,
@@ -876,6 +958,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             repository::remove_source_repository(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 uuid(&source_id)?,
@@ -907,9 +990,14 @@ impl TreeMutation {
                 confidence: input.confidence.map(Into::into),
                 text: input.text,
             };
-            let citation =
-                citation::create_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new)
-                    .await?;
+            let citation = citation::create_citation(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                new,
+            )
+            .await?;
             Ok(citation.into())
         })
         .await
@@ -932,9 +1020,15 @@ impl TreeMutation {
                 confidence: patch(input.confidence).map(|c| c.map(Into::into)),
                 text: patch(input.text),
             };
-            let citation =
-                citation::update_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id, patch)
-                    .await?;
+            let citation = citation::update_citation(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+                patch,
+            )
+            .await?;
             Ok(citation.into())
         })
         .await
@@ -945,7 +1039,14 @@ impl TreeMutation {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            citation::delete_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            citation::delete_citation(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+            )
+            .await?;
             Ok(true)
         })
         .await
@@ -964,6 +1065,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let page = media::create_page(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1006,6 +1108,7 @@ impl TreeMutation {
                 }
             };
             let (page, _) = media::upload(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 &**media_from_ctx(ctx),
@@ -1035,6 +1138,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let media = media::update_media(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1075,6 +1179,7 @@ impl TreeMutation {
                 }
             };
             Ok(media::delete_media(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 &**media_from_ctx(ctx),
@@ -1106,6 +1211,7 @@ impl TreeMutation {
                 vignette_id: opt_uuid(vignette_id)?,
             };
             let person = crate::service::portrait::set_person_portrait(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 live_tree(ctx, &tree_id).await?,
@@ -1127,9 +1233,11 @@ impl TreeMutation {
     ) -> Result<GqlMedia> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(media::create_document(db_from_ctx(ctx), tree_id, title)
-                .await?
-                .into())
+            Ok(
+                media::create_document(viewer_from_ctx(ctx), db_from_ctx(ctx), tree_id, title)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -1145,6 +1253,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let pages = media::reorder_pages(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1171,6 +1280,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             media::delete_page(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 &**media_from_ctx(ctx),
@@ -1196,9 +1306,14 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let media_id = uuid(&input.media_id)?;
-            let vignette =
-                vignette::create_vignette(db_from_ctx(ctx), tree_id, media_id, input.try_into()?)
-                    .await?;
+            let vignette = vignette::create_vignette(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                media_id,
+                input.try_into()?,
+            )
+            .await?;
             Ok(vignette.into())
         })
         .await
@@ -1214,9 +1329,14 @@ impl TreeMutation {
     ) -> Result<GqlVignette> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            let vignette =
-                vignette::update_vignette(db_from_ctx(ctx), tree_id, uuid(&id)?, input.try_into()?)
-                    .await?;
+            let vignette = vignette::update_vignette(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?;
             Ok(vignette.into())
         })
         .await
@@ -1227,6 +1347,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             vignette::delete_vignette(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1248,6 +1369,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let link = media_link::create_media_link(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1264,6 +1386,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             media_link::delete_media_link(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1295,8 +1418,14 @@ impl TreeMutation {
                 media_id: opt_uuid(input.media_id)?,
                 repository_id: opt_uuid(input.repository_id)?,
             };
-            let note =
-                note::create_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
+            let note = note::create_note(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                new,
+            )
+            .await?;
             Ok(note.into())
         })
         .await
@@ -1314,6 +1443,7 @@ impl TreeMutation {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
             let note = note::update_note(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tid,
@@ -1331,7 +1461,14 @@ impl TreeMutation {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            note::delete_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            note::delete_note(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+            )
+            .await?;
             Ok(true)
         })
         .await
@@ -1349,7 +1486,14 @@ impl TreeMutation {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let color = color_input(input.color)?;
-            let (usage, _) = tag::create(db_from_ctx(ctx), tid, &input.label, color).await?;
+            let (usage, _) = tag::create(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tid,
+                &input.label,
+                color,
+            )
+            .await?;
             Ok(usage.into())
         })
         .await
@@ -1369,6 +1513,7 @@ impl TreeMutation {
             let id = uuid(&id)?;
             let color = color_input(input.color)?;
             let usage = tag::update(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tid,
@@ -1389,7 +1534,15 @@ impl TreeMutation {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
             let into = uuid(&into)?;
-            let usage = tag::merge(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id, into).await?;
+            let usage = tag::merge(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+                into,
+            )
+            .await?;
             Ok(usage.into())
         })
         .await
@@ -1400,7 +1553,14 @@ impl TreeMutation {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;
             let id = uuid(&id)?;
-            tag::delete(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            tag::delete(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+            )
+            .await?;
             Ok(true)
         })
         .await
@@ -1425,6 +1585,7 @@ impl TreeMutation {
                 GqlBulkTagAction::Remove => BulkAction::Remove,
             };
             let count = tag_bulk::bulk_tag(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tid,
@@ -1456,6 +1617,7 @@ impl TreeMutation {
             let kind = tag::parse_kind(&kind)?;
             let record_id = uuid(&record_id)?;
             tag::tag_record(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tid,
@@ -1484,6 +1646,7 @@ impl TreeMutation {
             let kind = tag::parse_kind(&kind)?;
             let record_id = uuid(&record_id)?;
             tag::untag_record(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tid,
@@ -1511,6 +1674,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let update = family_names::set_particle(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1534,6 +1698,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let renamed = family_names::rename(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1557,6 +1722,7 @@ impl TreeMutation {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let renamed = occupations::rename(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
                 tree_id,
@@ -1595,6 +1761,7 @@ impl TreeMutation {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let scope = scope.map(tag_target_spec).transpose()?;
             let job_id = crate::service::background_job::start_export_job(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 tree_id,
                 crate::service::background_job::ArchiveChoices::from_options(
@@ -1624,13 +1791,14 @@ impl TreeMutation {
         job_id: ID,
     ) -> Result<GqlImportJobStatus> {
         boxed(async move {
-            // Not `live_tree`: a running job is cancelled in memory, without
-            // the database; the service checks the tree when it has to read.
+            // `job_tree`: the local owner's running job answers from memory,
+            // without the database; the service checks the tree when it has
+            // to read. Anyone else's request is authorized first.
             let status = crate::service::background_job::cancel_import_job(
                 db_from_ctx(ctx),
                 reader_from_ctx(ctx),
                 &**media_from_ctx(ctx),
-                uuid(&tree_id)?,
+                job_tree(ctx, &tree_id).await?,
                 uuid(&job_id)?,
             )
             .await?;
@@ -1650,12 +1818,12 @@ impl TreeMutation {
         job_id: ID,
     ) -> Result<GqlExportJobStatus> {
         boxed(async move {
-            // Not `live_tree`, as for `cancelImportJob`.
+            // `job_tree`, as for `cancelImportJob`.
             let status = crate::service::background_job::cancel_export_job(
                 db_from_ctx(ctx),
                 reader_from_ctx(ctx),
                 &**media_from_ctx(ctx),
-                uuid(&tree_id)?,
+                job_tree(ctx, &tree_id).await?,
                 uuid(&job_id)?,
             )
             .await?;
@@ -1772,10 +1940,11 @@ impl TreeMutation {
         input: GeneanetImportInput,
     ) -> Result<GqlBackgroundJobStarted> {
         boxed(async move {
+            // The tree first, as REST authorizes before its handler runs.
+            let tree_id = live_tree(ctx, &tree_id).await?;
             require_local_file_access(ctx)?;
             let db = db_from_ctx(ctx);
             let media = media_from_ctx(ctx);
-            let tree_id = live_tree(ctx, &tree_id).await?;
             let gw = base64::engine::general_purpose::STANDARD
                 .decode(&input.gw_base64)
                 .map_err(|error| {
@@ -1783,6 +1952,7 @@ impl TreeMutation {
                 })?;
             let _intake = crate::service::intake::slot().await?;
             let job_id = crate::service::background_job::stage_geneanet_import(
+                viewer_from_ctx(ctx),
                 db,
                 &**media,
                 super::types::work_dir_from_ctx(ctx),
@@ -1821,8 +1991,16 @@ impl TreeMutation {
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
             let rid = uuid(&record_id)?;
-            let entry =
-                history::restore(db, profiles, tid, record_type.into(), rid, version).await?;
+            let entry = history::restore(
+                viewer_from_ctx(ctx),
+                db,
+                profiles,
+                tid,
+                record_type.into(),
+                rid,
+                version,
+            )
+            .await?;
             Ok(entry.into())
         })
         .await

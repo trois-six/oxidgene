@@ -22,6 +22,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::access::{Author, AuthorKind};
 use crate::enums::{
     Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
     SourceMediaType, SpouseRole, TreeDefaultPrivacy,
@@ -90,8 +91,9 @@ string_enum! {
         Export => "export",
         /// A restored version.
         History => "history",
-        /// Who may see what: the exclusions from sharing (web build only,
-        /// docs/authorization.md §9.1).
+        /// Who may see and do what with the tree: memberships and their owner,
+        /// the exclusions from sharing (web build only, docs/authorization.md
+        /// §9.1). Stores no version.
         Access => "access",
     }
 }
@@ -147,6 +149,9 @@ string_enum! {
         Portrait => "portrait",
         /// An exclusion from sharing (docs/privacy.md §6).
         PrivacyExclusion => "privacy_exclusion",
+        /// A user's role on the tree: granted, changed, ended, or the
+        /// ownership handed over.
+        Membership => "membership",
     }
 }
 
@@ -195,6 +200,7 @@ impl AuditCategory {
         match entity {
             AuditEntity::Tree => Self::Settings,
             AuditEntity::PrivacyExclusion => Self::Access,
+            AuditEntity::Membership => Self::Access,
             AuditEntity::Tag | AuditEntity::RecordTag => Self::Data,
             AuditEntity::Media
             | AuditEntity::MediaPage
@@ -281,6 +287,37 @@ pub struct AuditEntry {
     /// Number of record states the write replaced, and so stored.
     #[serde(default)]
     pub version_count: i64,
+    /// Who made the write, and through which client.
+    #[serde(default)]
+    pub author: AuditAuthor,
+}
+
+/// The author of a write (docs/authorization.md §9.1).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AuditAuthor {
+    /// `user`, `api_client`, or `local`: the desktop's user, or the web
+    /// build's without authentication.
+    pub kind: AuthorKind,
+    pub user_id: Option<Uuid>,
+    /// The user's name as the log is read: `None` for an erased user, shown
+    /// as a former member.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// The OAuth client the write came through.
+    pub client_id: Option<String>,
+    pub api_client_id: Option<Uuid>,
+}
+
+impl From<Author> for AuditAuthor {
+    fn from(author: Author) -> Self {
+        Self {
+            kind: author.kind,
+            user_id: author.user_id,
+            display_name: None,
+            client_id: author.client_id,
+            api_client_id: author.api_client_id,
+        }
+    }
 }
 
 /// The display label of a record a snapshot refers to by ID.

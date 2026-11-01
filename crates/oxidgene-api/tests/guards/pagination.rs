@@ -25,10 +25,23 @@ use crate::common::{app_on, ok, send, setup_db};
 
 /// Collections the guard's application does not serve: it runs in the
 /// `none` mode, which has no accounts (`404`, as on the desktop). Their
-/// paging is checked by `account_test` against the mock provider.
-const ABSENT_WITHOUT_ACCOUNTS: &[&str] = &["/api/v1/admin/users"];
+/// paging is checked by `account_test` and `authorization_test` against the
+/// mock provider.
+const ABSENT_WITHOUT_ACCOUNTS: &[&str] = &[
+    "/api/v1/admin/users",
+    "/api/v1/admin/trees",
+    "/api/v1/admin/access-log",
+    "/api/v1/trees/{tree_id}/members",
+    "/api/v1/trees/{tree_id}/access-log",
+];
 #[cfg(feature = "graphql")]
-const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &["users"];
+const ABSENT_WITHOUT_ACCOUNTS_GRAPHQL: &[&str] = &[
+    "users",
+    "adminTrees",
+    "accessEvents",
+    "treeMembers",
+    "treeAccessEvents",
+];
 
 /// The whole lists only a build with the `auth` feature serves.
 #[cfg(feature = "auth")]

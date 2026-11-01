@@ -44,6 +44,10 @@ fn compressible() -> impl Predicate {
 #[cfg(feature = "graphql")]
 use crate::graphql::{graphql_handler, graphql_playground};
 #[cfg(feature = "auth")]
+use crate::rest::access_log;
+#[cfg(feature = "auth")]
+use crate::rest::admin_tree;
+#[cfg(feature = "auth")]
 use crate::rest::admin_user;
 use crate::rest::citation;
 use crate::rest::dictionary;
@@ -61,6 +65,8 @@ use crate::rest::history;
 use crate::rest::me;
 use crate::rest::media;
 use crate::rest::media_link;
+#[cfg(feature = "auth")]
+use crate::rest::member;
 use crate::rest::note;
 use crate::rest::openapi;
 use crate::rest::person;
@@ -73,7 +79,6 @@ use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tag;
 use crate::rest::tree;
-use crate::rest::tree_guard;
 #[cfg(feature = "auth")]
 use crate::rest::user;
 use crate::rest::vignette;
@@ -664,7 +669,25 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/admin/users/{user_id}/identity",
             put(admin_user::rebind_identity),
-        );
+        )
+        .route("/admin/trees", get(admin_tree::list_trees))
+        .route(
+            "/admin/trees/{tree_id}/owner",
+            put(admin_tree::assign_owner),
+        )
+        .route("/admin/access-log", get(access_log::instance_events))
+        // A tree's members and its access log (docs/authorization.md §5,
+        // §9.2): web-only operations on a tree, beside the accounts.
+        .route("/trees/{tree_id}/members", get(member::list_members))
+        .route(
+            "/trees/{tree_id}/members/{user_id}",
+            put(member::update_member).delete(member::remove_member),
+        )
+        .route(
+            "/trees/{tree_id}/ownership",
+            post(member::transfer_ownership),
+        )
+        .route("/trees/{tree_id}/access-log", get(access_log::tree_events));
 
     let api_routes = Router::new()
         .nest(
@@ -686,13 +709,7 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(dictionary_routes)
                 .merge(profile_routes)
                 .merge(history_routes)
-                .merge(import_export_routes)
-                // Applied to the whole nest so every tree-scoped route gets
-                // the same check, including any added later.
-                .layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tree_guard::require_live_tree,
-                )),
+                .merge(import_export_routes),
         )
         .nest("/api/v1/geneanet", geneanet_routes)
         .nest("/api/v1/geneweb", geneweb_routes)
@@ -719,12 +736,16 @@ pub fn build_router(state: AppState) -> Router {
             .route(
                 "/{tree_id}/exclusions/{exclusion_id}",
                 delete(exclusion::delete_exclusion),
-            )
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                tree_guard::require_live_tree,
-            )),
+            ),
     );
+    // Every route checks the requirement it declares, after routing, so
+    // that the route template is known: one decision point for the whole
+    // REST surface, including any route added later
+    // (docs/authorization.md §4).
+    let api_routes = api_routes.route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::rest::authorize::authorize,
+    ));
     let rest_router = api_routes
         .fallback(crate::rest::error::unknown_route)
         // Inside the compression layer, so it reads the response as written.

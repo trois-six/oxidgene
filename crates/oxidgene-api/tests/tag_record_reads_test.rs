@@ -45,12 +45,18 @@ impl Fixture {
     }
 
     async fn create_tag(&self, label: &str) -> Uuid {
-        tag::create(&self.db, self.tree_id(), label, None)
-            .await
-            .unwrap()
-            .0
-            .tag
-            .id
+        tag::create(
+            &oxidgene_core::access::ViewerContext::local(),
+            &self.db,
+            self.tree_id(),
+            label,
+            None,
+        )
+        .await
+        .unwrap()
+        .0
+        .tag
+        .id
     }
 
     /// Put `tag` on a record over REST, expecting success.

@@ -53,6 +53,7 @@ use crate::rest::error::ErrorBody;
 use crate::rest::tag::TagView;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
+use oxidgene_core::access::ViewerContext;
 
 pub use crate::service::pedigrees::MAX_PEDIGREE_DEPTH;
 
@@ -100,6 +101,10 @@ pub enum Access {
 pub struct OxidGeneMcp {
     db: DatabaseConnection,
     profiles: Arc<ProfileService>,
+    /// Whom every tool acts for: the desktop's local owner, whose writes
+    /// the history records as `local` (docs/authorization.md §8: the stdio
+    /// server is unchanged).
+    viewer: Arc<ViewerContext>,
     access: Access,
     tool_router: ToolRouter<Self>,
 }
@@ -360,6 +365,7 @@ impl OxidGeneMcp {
         }
         Self {
             profiles: Arc::new(ProfileService::new(db.clone())),
+            viewer: Arc::new(ViewerContext::local()),
             db,
             access,
             tool_router,

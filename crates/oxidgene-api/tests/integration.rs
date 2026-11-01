@@ -14,6 +14,8 @@ mod algorithm_scaling_test;
 mod archive_target_test;
 #[cfg(feature = "auth")]
 mod auth_test;
+#[cfg(all(feature = "auth", feature = "graphql"))]
+mod authorization_test;
 mod common;
 mod consistency_test;
 mod dictionary_bulk_test;

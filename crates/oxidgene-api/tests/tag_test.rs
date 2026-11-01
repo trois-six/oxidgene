@@ -75,12 +75,18 @@ impl Fixture {
     }
 
     async fn create_tag(&self, label: &str) -> Uuid {
-        tag::create(&self.db, self.tree_id(), label, None)
-            .await
-            .unwrap()
-            .0
-            .tag
-            .id
+        tag::create(
+            &oxidgene_core::access::ViewerContext::local(),
+            &self.db,
+            self.tree_id(),
+            label,
+            None,
+        )
+        .await
+        .unwrap()
+        .0
+        .tag
+        .id
     }
 
     async fn tag_person(&self, tag_id: Uuid, person: &str) {
@@ -96,6 +102,7 @@ impl Fixture {
         id: &str,
     ) -> Result<(), OxidGeneError> {
         tag::tag_record(
+            &oxidgene_core::access::ViewerContext::local(),
             &self.db,
             &self.profiles,
             self.tree_id(),
@@ -143,16 +150,28 @@ fn labels(tags: &Value) -> Vec<String> {
 #[tokio::test]
 async fn create_folds_the_label_onto_the_existing_tag() {
     let f = Fixture::new("Tags Create").await;
-    let (first, created) = tag::create(&f.db, f.tree_id(), "Lanterne", Some(3))
-        .await
-        .unwrap();
+    let (first, created) = tag::create(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        f.tree_id(),
+        "Lanterne",
+        Some(3),
+    )
+    .await
+    .unwrap();
     assert!(created);
     assert_eq!(first.tag.color, 3);
 
     // Case and accents fold away; the existing tag keeps its own colour.
-    let (again, created) = tag::create(&f.db, f.tree_id(), "  LANTÈRNE ", Some(7))
-        .await
-        .unwrap();
+    let (again, created) = tag::create(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        f.tree_id(),
+        "  LANTÈRNE ",
+        Some(7),
+    )
+    .await
+    .unwrap();
     assert!(!created);
     assert_eq!(again.tag.id, first.tag.id);
     assert_eq!(again.tag.color, 3);
@@ -165,12 +184,21 @@ async fn rename_conflicts_with_another_tag_and_recolours() {
     let alpha = f.create_tag("Alpha").await;
     let bravo = f.create_tag("Bravo").await;
 
-    let err = tag::update(&f.db, &f.profiles, f.tree_id(), bravo, Some("ALPHA"), None)
-        .await
-        .unwrap_err();
+    let err = tag::update(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        &f.profiles,
+        f.tree_id(),
+        bravo,
+        Some("ALPHA"),
+        None,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, OxidGeneError::Conflict(_)), "{err:?}");
 
     let renamed = tag::update(
+        &oxidgene_core::access::ViewerContext::local(),
         &f.db,
         &f.profiles,
         f.tree_id(),
@@ -200,9 +228,16 @@ async fn merge_moves_links_once_and_refreshes_profiles() {
         .await
         .unwrap();
 
-    let merged = tag::merge(&f.db, &f.profiles, f.tree_id(), alpha, bravo)
-        .await
-        .unwrap();
+    let merged = tag::merge(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        &f.profiles,
+        f.tree_id(),
+        alpha,
+        bravo,
+    )
+    .await
+    .unwrap();
     assert_eq!(merged.tag.id, bravo);
     assert_eq!(merged.count(RecordKind::Person), 2);
     assert_eq!(merged.count(RecordKind::Family), 1);
@@ -217,9 +252,16 @@ async fn merge_moves_links_once_and_refreshes_profiles() {
         Err(OxidGeneError::NotFound { .. })
     ));
 
-    let err = tag::merge(&f.db, &f.profiles, f.tree_id(), bravo, bravo)
-        .await
-        .unwrap_err();
+    let err = tag::merge(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        &f.profiles,
+        f.tree_id(),
+        bravo,
+        bravo,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, OxidGeneError::Validation(_)), "{err:?}");
 }
 
@@ -237,9 +279,15 @@ async fn delete_counts_links_and_clears_profiles() {
         .unwrap();
     assert_eq!(f.profile_tags(&p1).await, ["Gamma"]);
 
-    let removed = tag::delete(&f.db, &f.profiles, f.tree_id(), gamma)
-        .await
-        .unwrap();
+    let removed = tag::delete(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        &f.profiles,
+        f.tree_id(),
+        gamma,
+    )
+    .await
+    .unwrap();
     assert_eq!(removed, 3);
     assert!(f.profile_tags(&p1).await.is_empty());
     assert!(f.profile_tags(&p2).await.is_empty());
@@ -264,6 +312,7 @@ async fn rename_refreshes_the_profiles_showing_the_tag() {
         .unwrap();
 
     tag::update(
+        &oxidgene_core::access::ViewerContext::local(),
         &f.db,
         &f.profiles,
         f.tree_id(),
@@ -342,6 +391,7 @@ async fn tag_and_untag_every_kind_of_record() {
         assert_eq!(usage[0].count(kind), 1, "{kind:?}");
 
         tag::untag_record(
+            &oxidgene_core::access::ViewerContext::local(),
             &f.db,
             &f.profiles,
             f.tree_id(),
@@ -352,6 +402,7 @@ async fn tag_and_untag_every_kind_of_record() {
         .await
         .unwrap();
         tag::untag_record(
+            &oxidgene_core::access::ViewerContext::local(),
             &f.db,
             &f.profiles,
             f.tree_id(),
@@ -392,12 +443,18 @@ async fn records_of_another_tree_and_purged_records_are_not_found() {
         .unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }), "{err:?}");
 
-    let foreign_tag = tag::create(&f.db, Uuid::parse_str(&other).unwrap(), "Theta", None)
-        .await
-        .unwrap()
-        .0
-        .tag
-        .id;
+    let foreign_tag = tag::create(
+        &oxidgene_core::access::ViewerContext::local(),
+        &f.db,
+        Uuid::parse_str(&other).unwrap(),
+        "Theta",
+        None,
+    )
+    .await
+    .unwrap()
+    .0
+    .tag
+    .id;
     let err = f
         .tag_record(foreign_tag, RecordKind::Person, &person)
         .await

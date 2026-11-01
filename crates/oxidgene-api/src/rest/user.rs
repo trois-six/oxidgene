@@ -11,19 +11,19 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use super::authorize::Viewer;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::auth::Principal;
 use crate::service::account::{self, UserProfile};
 use crate::service::avatar;
 
 /// GET /api/v1/users/{user_id}
 pub async fn get_user_profile(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<UserProfile>, ApiError> {
-    let user = account::visible_user(&state.reader, &principal, user_id).await?;
+    let user = account::visible_user(&state.reader, viewer.principal(), user_id).await?;
     Ok(Json(UserProfile::from(&user)))
 }
 
@@ -43,13 +43,13 @@ pub struct AvatarQuery {
 /// user with the generated avatar, which the frontend draws itself.
 pub async fn get_user_avatar(
     State(state): State<AppState>,
-    principal: Principal,
+    viewer: Viewer,
     Path(user_id): Path<Uuid>,
     Query(query): Query<AvatarQuery>,
     request_headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let size = query.size.unwrap_or(256);
-    let image = avatar::avatar_image(&state.reader, &principal, user_id, size).await?;
+    let image = avatar::avatar_image(&state.reader, viewer.principal(), user_id, size).await?;
     let etag = format!("\"{}\"", image.etag);
     let mut headers = HeaderMap::new();
     headers.insert(header::ETAG, value(&etag));

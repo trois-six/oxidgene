@@ -41,12 +41,15 @@ macro_rules! connection {
 
 #[cfg(feature = "auth")]
 pub mod account;
+mod authorize;
 mod error;
 #[cfg(feature = "auth")]
 pub mod exclusion;
 pub mod history;
 pub mod inputs;
 mod loaders;
+#[cfg(feature = "auth")]
+pub mod member;
 pub mod mutation;
 pub mod query;
 mod scope;
@@ -67,6 +70,7 @@ use std::sync::Arc;
 
 use crate::workdir::WorkDir;
 
+use self::authorize::Authorize;
 use self::error::SafeErrors;
 use self::tracing::Tracing;
 
@@ -82,6 +86,7 @@ pub struct QueryRoot(
     query::TreeQuery,
     #[cfg(feature = "auth")] account::AccountQuery,
     #[cfg(feature = "auth")] exclusion::ExclusionQuery,
+    #[cfg(feature = "auth")] member::MemberQuery,
 );
 
 /// The root mutation type: the tree mutations and, in the web build, the
@@ -92,6 +97,7 @@ pub struct MutationRoot(
     mutation::TreeMutation,
     #[cfg(feature = "auth")] account::AccountMutation,
     #[cfg(feature = "auth")] exclusion::ExclusionMutation,
+    #[cfg(feature = "auth")] member::MemberMutation,
 );
 
 /// The full GraphQL schema type.
@@ -141,6 +147,7 @@ pub(crate) fn build_schema_with_local_file_access(
     .limit_recursive_depth(MAX_RECURSIVE_DEPTH)
     .extension(Tracing)
     .extension(SafeErrors)
+    .extension(Authorize)
     .data(db.writer)
     .data(types::Reader(db.reader))
     .data(profiles)
@@ -155,21 +162,23 @@ pub(crate) fn build_schema_with_local_file_access(
 /// Axum handler for `POST /graphql`: the nested fields of the response
 /// are read in batches ([`loaders`]).
 ///
-/// In the web build the request's principal and the server's
-/// authentication, which the authentication layer left in the request's
-/// extensions, become data of the GraphQL request: resolvers act for the
-/// same viewer REST would.
+/// The request's viewer, built from the principal the authentication layer
+/// left in the request's extensions — the local owner in a build without
+/// authentication — and, in the web build, the server's authentication
+/// become data of the GraphQL request: resolvers act for the same viewer
+/// REST would.
 pub async fn graphql_handler(
     State(schema): State<OxidGeneSchema>,
-    #[cfg(feature = "auth")] principal: crate::auth::Principal,
     #[cfg(feature = "auth")] auth: Option<axum::Extension<Arc<crate::auth::Auth>>>,
+    extensions: axum::http::Extensions,
     req: GraphQLRequest,
 ) -> GraphQLResponse {
-    let request = req.into_inner();
+    let viewer = crate::rest::authorize::viewer_of(&extensions);
+    let request = req.into_inner().data(viewer);
     #[cfg(feature = "auth")]
     let request = match auth {
-        Some(axum::Extension(auth)) => request.data(principal).data(auth),
-        None => request.data(principal),
+        Some(axum::Extension(auth)) => request.data(auth),
+        None => request,
     };
     loaders::execute(&schema, request).await.into()
 }

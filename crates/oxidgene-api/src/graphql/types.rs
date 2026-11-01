@@ -927,6 +927,35 @@ pub struct GqlTree {
     /// the list reads every tree's at once rather than one query per tree.
     #[graphql(skip)]
     pub import_job: Option<Option<crate::service::tree::ActiveImport>>,
+    /// What the viewer may do with the tree, when the read already knows it.
+    #[graphql(skip)]
+    pub access: Option<oxidgene_core::access::ViewerAccess>,
+}
+
+/// What the viewer may do with a tree (docs/authorization.md §4.1): REST's
+/// `viewer_access`, so the frontend offers only what the server allows.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlViewerAccess {
+    /// `owner`, `editor`, `guest` or `visitor`.
+    pub role: String,
+    /// The stable identifiers of the permissions held.
+    pub permissions: Vec<String>,
+    /// The viewer sees a share's scope rather than the whole tree.
+    pub scoped: bool,
+}
+
+impl From<oxidgene_core::access::ViewerAccess> for GqlViewerAccess {
+    fn from(access: oxidgene_core::access::ViewerAccess) -> Self {
+        Self {
+            role: access.role.as_str().to_string(),
+            permissions: access
+                .permissions
+                .iter()
+                .map(|permission| permission.as_str().to_string())
+                .collect(),
+            scoped: access.scoped,
+        }
+    }
 }
 
 impl GqlTree {
@@ -969,6 +998,21 @@ impl GqlTree {
             .is_some_and(|import| import.cancelling))
     }
 
+    /// What the viewer may do with the tree.
+    async fn viewer_access(&self, ctx: &Context<'_>) -> Result<GqlViewerAccess> {
+        let access = match &self.access {
+            Some(access) => access.clone(),
+            None => crate::authz::tree_access(
+                reader_from_ctx(ctx),
+                super::scope::viewer_from_ctx(ctx),
+                uuid(&self.id)?,
+            )
+            .await?
+            .viewer_access(),
+        };
+        Ok(access.into())
+    }
+
     /// Count of persons in this tree.
     async fn person_count(&self, ctx: &Context<'_>) -> Result<i64> {
         let count = loaders::one(ctx, TreePersonCount(uuid(&self.id)?)).await?;
@@ -999,6 +1043,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             created_at: t.created_at,
             updated_at: t.updated_at,
             import_job: None,
+            access: None,
         }
     }
 }
@@ -1013,6 +1058,7 @@ impl From<crate::service::tree::TreeListItem> for GqlTree {
                         cancelling: item.import_cancelling,
                     }),
             ),
+            access: Some(item.viewer_access),
             ..item.tree.into()
         }
     }

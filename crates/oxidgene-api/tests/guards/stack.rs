@@ -120,6 +120,9 @@ fn every_rest_route_runs_on_a_small_stack() {
 
     let mut requests = Vec::new();
     for (path, operations) in spec.0["paths"].as_object().unwrap() {
+        if super::surface::absent_without_accounts(path) {
+            continue;
+        }
         for (method, operation) in operations.as_object().unwrap() {
             let Ok((uri, _)) = spec.fill(path, operation, &b.tree_id, &b) else {
                 continue;

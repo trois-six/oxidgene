@@ -5,6 +5,7 @@
 //! and records the change, in one transaction.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
 use oxidgene_core::types::Place;
@@ -53,6 +54,7 @@ pub struct PlaceMerge {
 
 /// Create a place in `tree_id`. A blank name is refused.
 pub async fn create_place(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     new: NewPlace,
@@ -60,7 +62,7 @@ pub async fn create_place(
     require_name(&new.name)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(tree_id, AuditEntity::Place, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Place, id)
         .place(id)
         .prepare(&txn)
         .await?;
@@ -72,6 +74,7 @@ pub async fn create_place(
 
 /// Update place `id` of `tree_id`. A blank name is refused.
 pub async fn update_place(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -84,7 +87,7 @@ pub async fn update_place(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
-    let pending = Change::update(tree_id, AuditEntity::Place, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Place, id)
         .place(id)
         .prepare(&txn)
         .await?;
@@ -99,6 +102,7 @@ pub async fn update_place(
 
 /// Delete place `id` of `tree_id`; the events there lose their place.
 pub async fn delete_place(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -108,7 +112,7 @@ pub async fn delete_place(
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
     // The deleted place's events lose their place: their owners change too.
-    let pending = Change::delete(tree_id, AuditEntity::Place, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Place, id)
         .place(id)
         .persons(affected.iter().copied())
         .prepare(&txn)
@@ -125,6 +129,7 @@ pub async fn delete_place(
 /// at `id` move there, its tags join, and `id` is deleted; `into` takes the
 /// fields chosen. A blank name, or a place merged into itself, is refused.
 pub async fn merge_place(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -146,16 +151,22 @@ pub async fn merge_place(
     affected.extend(invalidation::affected_persons_for_place(&txn, merge.into).await?);
     let affected = sorted_unique(affected);
     let absorbed = PlaceRepo::get(&txn, id).await?;
-    let pending = Change::new(tree_id, AuditAction::Merge, AuditEntity::Place, merge.into)
-        .place(merge.into)
-        .place(id)
-        .persons(affected.iter().copied())
-        .details(AuditDetails {
-            other_label: Some(absorbed.name),
-            ..AuditDetails::default()
-        })
-        .prepare(&txn)
-        .await?;
+    let pending = Change::new(
+        viewer,
+        tree_id,
+        AuditAction::Merge,
+        AuditEntity::Place,
+        merge.into,
+    )
+    .place(merge.into)
+    .place(id)
+    .persons(affected.iter().copied())
+    .details(AuditDetails {
+        other_label: Some(absorbed.name),
+        ..AuditDetails::default()
+    })
+    .prepare(&txn)
+    .await?;
     PlaceRepo::absorb(&txn, tree_id, merge.into, id).await?;
     let place = PlaceRepo::update(
         &txn,

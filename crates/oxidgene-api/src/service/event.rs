@@ -6,6 +6,7 @@
 //! through its event and must belong to it.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Connection, Event, EventWitness, SpouseAge};
 use oxidgene_core::{Calendar, DateQualifier, EventType};
@@ -126,6 +127,7 @@ pub async fn list_events(
 
 /// Create an event in `tree_id`.
 pub async fn create_event(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -147,7 +149,7 @@ pub async fn create_event(
     }
     let id = Uuid::now_v7();
     // The event does not exist yet: its owner is named directly.
-    let pending = Change::create(tree_id, AuditEntity::Event, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Event, id)
         .owner(new.person_id, None, new.family_id, None)
         .event(id)
         .prepare(&txn)
@@ -188,6 +190,7 @@ pub async fn create_event(
 
 /// Update event `id` of `tree_id`. A place of another tree is not found.
 pub async fn update_event(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -202,7 +205,7 @@ pub async fn update_event(
     let stored = EventRepo::get(&txn, id).await?;
     let individual = stored.person_id.is_some() && stored.family_id.is_none();
     let (details, spouse_ages) = patch_details(&mut patch, stored.family_id.is_some(), individual)?;
-    let pending = Change::update(tree_id, AuditEntity::Event, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Event, id)
         .event(id)
         .prepare(&txn)
         .await?;
@@ -255,6 +258,7 @@ async fn require_patched_records(
 
 /// Delete event `id` of `tree_id` (a soft delete).
 pub async fn delete_event(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -263,7 +267,7 @@ pub async fn delete_event(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
     let event = EventRepo::get(&txn, id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::Event, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Event, id)
         .event(id)
         .prepare(&txn)
         .await?;
@@ -414,6 +418,7 @@ pub async fn list_witnesses(
 
 /// Add a witness to event `event_id` of `tree_id`.
 pub async fn add_witness(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     event_id: Uuid,
@@ -423,7 +428,7 @@ pub async fn add_witness(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, event_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
-    let pending = Change::create(tree_id, AuditEntity::EventWitness, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::EventWitness, id)
         .event(event_id)
         .prepare(&txn)
         .await?;
@@ -446,6 +451,7 @@ pub async fn add_witness(
 /// `event_id`, when given, is the event the caller addresses the witness
 /// through; a witness of another event is then not found.
 pub async fn remove_witness(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     event_id: Option<Uuid>,
@@ -460,7 +466,7 @@ pub async fn remove_witness(
             id: witness_id,
         });
     }
-    let pending = Change::delete(tree_id, AuditEntity::EventWitness, witness_id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::EventWitness, witness_id)
         .event(witness.event_id)
         .prepare(&txn)
         .await?;

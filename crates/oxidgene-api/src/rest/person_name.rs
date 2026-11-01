@@ -1,5 +1,6 @@
 //! REST handlers for PersonName CRUD operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -35,22 +36,31 @@ pub async fn relation_labels(
 /// POST /api/v1/trees/:tree_id/persons/:person_id/names
 pub async fn create_person_name(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<NewPersonName>,
 ) -> Result<(StatusCode, Json<PersonName>), ApiError> {
-    let name =
-        person_name::create_person_name(&state.db, &state.profiles, tree_id, person_id, body)
-            .await?;
+    let name = person_name::create_person_name(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        body,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(name)))
 }
 
 /// PUT /api/v1/trees/:tree_id/persons/:person_id/names/:name_id
 pub async fn update_person_name(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id, name_id)): Path<(Uuid, Uuid, Uuid)>,
     Json(body): Json<PersonNamePatch>,
 ) -> Result<Json<PersonName>, ApiError> {
     let name = person_name::update_person_name(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,
@@ -65,9 +75,17 @@ pub async fn update_person_name(
 /// DELETE /api/v1/trees/:tree_id/persons/:person_id/names/:name_id
 pub async fn delete_person_name(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id, name_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    person_name::delete_person_name(&state.db, &state.profiles, tree_id, person_id, name_id)
-        .await?;
+    person_name::delete_person_name(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        name_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

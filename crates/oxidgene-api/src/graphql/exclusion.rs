@@ -5,7 +5,7 @@ use async_graphql::{Context, Enum, ID, InputObject, Object, Result, SimpleObject
 use chrono::{DateTime, Utc};
 use oxidgene_core::enums::ExclusionKind;
 
-use super::scope::{boxed, live_tree, uuid};
+use super::scope::{boxed, live_tree, uuid, viewer_from_ctx};
 use super::types::db_from_ctx;
 use crate::service::exclusion::{self, ExclusionView, NewExclusion};
 
@@ -121,7 +121,9 @@ impl ExclusionMutation {
                 include_root: input.include_root,
                 include_spouses: input.include_spouses,
             };
-            let created = exclusion::create_exclusion(db_from_ctx(ctx), tree_id, new, None).await?;
+            let created =
+                exclusion::create_exclusion(viewer_from_ctx(ctx), db_from_ctx(ctx), tree_id, new)
+                    .await?;
             Ok(created.into())
         })
         .await
@@ -136,7 +138,13 @@ impl ExclusionMutation {
     ) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
-            exclusion::delete_exclusion(db_from_ctx(ctx), tree_id, uuid(&exclusion_id)?).await?;
+            exclusion::delete_exclusion(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&exclusion_id)?,
+            )
+            .await?;
             Ok(true)
         })
         .await

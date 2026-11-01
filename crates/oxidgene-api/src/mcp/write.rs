@@ -373,7 +373,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_person", async {
             self.tree(p.tree_id).await?;
-            person::create_person(&self.db, &self.profiles, p.tree_id, p.person).await
+            person::create_person(&self.viewer, &self.db, &self.profiles, p.tree_id, p.person).await
         })
         .await
     }
@@ -389,7 +389,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_person", async {
             self.tree(p.tree_id).await?;
-            person::update_person(&self.db, &self.profiles, p.tree_id, p.person_id, p.patch).await
+            person::update_person(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.person_id,
+                p.patch,
+            )
+            .await
         })
         .await
     }
@@ -408,6 +416,7 @@ impl OxidGeneMcp {
         respond("add_person_name", async {
             self.tree(p.tree_id).await?;
             person_name::create_person_name(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -435,6 +444,7 @@ impl OxidGeneMcp {
         respond("update_person_name", async {
             self.tree(p.tree_id).await?;
             person_name::update_person_name(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -460,7 +470,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_event", async {
             self.tree(p.tree_id).await?;
-            event::create_event(&self.db, &self.profiles, p.tree_id, p.event).await
+            event::create_event(&self.viewer, &self.db, &self.profiles, p.tree_id, p.event).await
         })
         .await
     }
@@ -477,7 +487,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_event", async {
             self.tree(p.tree_id).await?;
-            event::update_event(&self.db, &self.profiles, p.tree_id, p.event_id, p.patch).await
+            event::update_event(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.event_id,
+                p.patch,
+            )
+            .await
         })
         .await
     }
@@ -494,7 +512,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("add_event_witness", async {
             self.tree(p.tree_id).await?;
-            event::add_witness(&self.db, p.tree_id, p.event_id, p.witness).await
+            event::add_witness(&self.viewer, &self.db, p.tree_id, p.event_id, p.witness).await
         })
         .await
     }
@@ -511,7 +529,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_family", async {
             self.tree(p.tree_id).await?;
-            family::create_family(&self.db, p.tree_id).await
+            family::create_family(&self.viewer, &self.db, p.tree_id).await
         })
         .await
     }
@@ -527,7 +545,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_family", async {
             self.tree(p.tree_id).await?;
-            family::update_family(&self.db, p.tree_id, p.family_id, p.patch).await
+            family::update_family(&self.viewer, &self.db, p.tree_id, p.family_id, p.patch).await
         })
         .await
     }
@@ -543,7 +561,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("add_spouse", async {
             self.tree(p.tree_id).await?;
-            family::add_spouse(&self.db, &self.profiles, p.tree_id, p.family_id, p.spouse).await
+            family::add_spouse(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.family_id,
+                p.spouse,
+            )
+            .await
         })
         .await
     }
@@ -560,7 +586,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("add_child", async {
             self.tree(p.tree_id).await?;
-            family::add_child(&self.db, &self.profiles, p.tree_id, p.family_id, p.child).await
+            family::add_child(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.family_id,
+                p.child,
+            )
+            .await
         })
         .await
     }
@@ -577,7 +611,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_place", async {
             self.tree(p.tree_id).await?;
-            place::create_place(&self.db, p.tree_id, p.place).await
+            place::create_place(&self.viewer, &self.db, p.tree_id, p.place).await
         })
         .await
     }
@@ -594,7 +628,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_place", async {
             self.tree(p.tree_id).await?;
-            place::update_place(&self.db, &self.profiles, p.tree_id, p.place_id, p.patch).await
+            place::update_place(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.place_id,
+                p.patch,
+            )
+            .await
         })
         .await
     }
@@ -611,7 +653,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_source", async {
             self.tree(p.tree_id).await?;
-            source::create_source(&self.db, p.tree_id, p.source).await
+            source::create_source(&self.viewer, &self.db, p.tree_id, p.source).await
         })
         .await
     }
@@ -627,7 +669,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_source", async {
             self.tree(p.tree_id).await?;
-            source::update_source(&self.db, p.tree_id, p.source_id, p.patch).await
+            source::update_source(&self.viewer, &self.db, p.tree_id, p.source_id, p.patch).await
         })
         .await
     }
@@ -645,7 +687,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_citation", async {
             self.tree(p.tree_id).await?;
-            citation::create_citation(&self.db, &self.profiles, p.tree_id, p.citation).await
+            citation::create_citation(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.citation,
+            )
+            .await
         })
         .await
     }
@@ -662,8 +711,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_citation", async {
             self.tree(p.tree_id).await?;
-            citation::update_citation(&self.db, &self.profiles, p.tree_id, p.citation_id, p.patch)
-                .await
+            citation::update_citation(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.citation_id,
+                p.patch,
+            )
+            .await
         })
         .await
     }
@@ -681,7 +737,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("create_note", async {
             self.tree(p.tree_id).await?;
-            note::create_note(&self.db, &self.profiles, p.tree_id, p.note).await
+            note::create_note(&self.viewer, &self.db, &self.profiles, p.tree_id, p.note).await
         })
         .await
     }
@@ -697,7 +753,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("update_note", async {
             self.tree(p.tree_id).await?;
-            note::update_note(&self.db, &self.profiles, p.tree_id, p.note_id, p.patch).await
+            note::update_note(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.note_id,
+                p.patch,
+            )
+            .await
         })
         .await
     }
@@ -715,7 +779,7 @@ impl OxidGeneMcp {
         respond("create_tag", async {
             self.tree(p.tree_id).await?;
             let (usage, created) =
-                tag::create(&self.db, p.tree_id, &p.tag.label, p.tag.color).await?;
+                tag::create(&self.viewer, &self.db, p.tree_id, &p.tag.label, p.tag.color).await?;
             Ok::<_, OxidGeneError>(CreatedTag {
                 tag: usage.into(),
                 created,
@@ -736,6 +800,7 @@ impl OxidGeneMcp {
         respond("tag_record", async {
             self.tree(p.tree_id).await?;
             tag::tag_record(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -764,6 +829,7 @@ impl OxidGeneMcp {
         respond("untag_record", async {
             self.tree(p.tree_id).await?;
             tag::untag_record(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -788,7 +854,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("remove_event_witness", async {
             self.tree(p.tree_id).await?;
-            event::remove_witness(&self.db, p.tree_id, Some(p.event_id), p.witness_id).await?;
+            event::remove_witness(
+                &self.viewer,
+                &self.db,
+                p.tree_id,
+                Some(p.event_id),
+                p.witness_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -806,6 +879,7 @@ impl OxidGeneMcp {
         respond("remove_spouse", async {
             self.tree(p.tree_id).await?;
             family::remove_spouse(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -829,8 +903,15 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("remove_child", async {
             self.tree(p.tree_id).await?;
-            family::remove_child(&self.db, &self.profiles, p.tree_id, p.family_id, p.child_id)
-                .await?;
+            family::remove_child(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.family_id,
+                p.child_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -848,6 +929,7 @@ impl OxidGeneMcp {
         respond("delete_person_name", async {
             self.tree(p.tree_id).await?;
             person_name::delete_person_name(
+                &self.viewer,
                 &self.db,
                 &self.profiles,
                 p.tree_id,
@@ -871,7 +953,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_event", async {
             self.tree(p.tree_id).await?;
-            event::delete_event(&self.db, &self.profiles, p.tree_id, p.event_id).await?;
+            event::delete_event(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.event_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -888,7 +977,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_citation", async {
             self.tree(p.tree_id).await?;
-            citation::delete_citation(&self.db, &self.profiles, p.tree_id, p.citation_id).await?;
+            citation::delete_citation(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.citation_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -905,7 +1001,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_note", async {
             self.tree(p.tree_id).await?;
-            note::delete_note(&self.db, &self.profiles, p.tree_id, p.note_id).await?;
+            note::delete_note(&self.viewer, &self.db, &self.profiles, p.tree_id, p.note_id).await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -922,7 +1018,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_tag", async {
             self.tree(p.tree_id).await?;
-            tag::delete(&self.db, &self.profiles, p.tree_id, p.tag_id).await?;
+            tag::delete(&self.viewer, &self.db, &self.profiles, p.tree_id, p.tag_id).await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -940,9 +1036,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_source", async {
             self.tree(p.tree_id).await?;
-            let deleted =
-                source::delete_source(&self.db, p.tree_id, p.source_id, p.query.only_if_unused)
-                    .await?;
+            let deleted = source::delete_source(
+                &self.viewer,
+                &self.db,
+                p.tree_id,
+                p.source_id,
+                p.query.only_if_unused,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(SourceDeletion { deleted })
         })
         .await
@@ -959,7 +1060,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_place", async {
             self.tree(p.tree_id).await?;
-            place::delete_place(&self.db, &self.profiles, p.tree_id, p.place_id).await?;
+            place::delete_place(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.place_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -976,7 +1084,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_family", async {
             self.tree(p.tree_id).await?;
-            family::delete_family(&self.db, &self.profiles, p.tree_id, p.family_id).await?;
+            family::delete_family(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.family_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await
@@ -993,7 +1108,14 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("delete_person", async {
             self.tree(p.tree_id).await?;
-            person::delete_person(&self.db, &self.profiles, p.tree_id, p.person_id).await?;
+            person::delete_person(
+                &self.viewer,
+                &self.db,
+                &self.profiles,
+                p.tree_id,
+                p.person_id,
+            )
+            .await?;
             Ok::<_, OxidGeneError>(no_content())
         })
         .await

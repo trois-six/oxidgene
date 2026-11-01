@@ -4,6 +4,7 @@
 //! records the change in the transaction that makes it.
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::Source;
 use oxidgene_db::repo::{DictionaryRepo, SourceRepo, SourceRepositoryRepo};
@@ -46,6 +47,7 @@ pub struct SourcePatch {
 
 /// Create a source in `tree_id`. A blank title is refused.
 pub async fn create_source(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     new: NewSource,
@@ -53,7 +55,7 @@ pub async fn create_source(
     require_title(&new.title)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let pending = Change::create(tree_id, AuditEntity::Source, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Source, id)
         .source(id)
         .prepare(&txn)
         .await?;
@@ -75,6 +77,7 @@ pub async fn create_source(
 
 /// Update source `id` of `tree_id`. A blank title is refused.
 pub async fn update_source(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -85,7 +88,7 @@ pub async fn update_source(
     }
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, id).await?;
-    let pending = Change::update(tree_id, AuditEntity::Source, id)
+    let pending = Change::update(viewer, tree_id, AuditEntity::Source, id)
         .source(id)
         .prepare(&txn)
         .await?;
@@ -109,6 +112,7 @@ pub async fn update_source(
 /// With `only_if_unused` the delete is a cleanup: a source still cited by a
 /// citation, note, media link or repository link is kept, and `false` says so.
 pub async fn delete_source(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     id: Uuid,
@@ -116,7 +120,7 @@ pub async fn delete_source(
 ) -> Result<bool, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, id).await?;
-    let pending = Change::delete(tree_id, AuditEntity::Source, id)
+    let pending = Change::delete(viewer, tree_id, AuditEntity::Source, id)
         .source(id)
         .prepare(&txn)
         .await?;

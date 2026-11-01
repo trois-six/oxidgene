@@ -162,7 +162,8 @@ pub async fn spawn_background_worker(state: &AppState, requeue_running: bool, wo
         Arc::clone(&state.media),
         worker_id,
     )
-    .with_work_dir(state.work_dir.clone());
+    .with_work_dir(state.work_dir.clone())
+    .with_access_log_retention(state.access_log_retention);
     tokio::spawn(worker.run());
 }
 

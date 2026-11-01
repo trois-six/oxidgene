@@ -1,5 +1,6 @@
 //! Asynchronous GEDZIP export jobs and artifact downloads.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -15,13 +16,19 @@ use crate::service::background_job::{self, DownloadableExport, ExportJobStatus};
 /// POST /api/v1/trees/:tree_id/export-jobs
 pub async fn start(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<StartExportJobQuery>,
 ) -> Result<(StatusCode, Json<ExportJobStartedResponse>), ApiError> {
     let scope = query.scope()?;
-    let job_id =
-        background_job::start_export_job(&state.db, tree_id, query.choices(), scope.as_ref())
-            .await?;
+    let job_id = background_job::start_export_job(
+        &viewer,
+        &state.db,
+        tree_id,
+        query.choices(),
+        scope.as_ref(),
+    )
+    .await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(ExportJobStartedResponse { job_id }),

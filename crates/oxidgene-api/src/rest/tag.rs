@@ -1,6 +1,7 @@
 //! REST handlers for the tag vocabulary and for tagging records (docs/api.md, Tags).
 //! Each one is a thin adapter over `service::tag`.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -104,10 +105,12 @@ pub async fn list_tags(
 /// Creates the tag, or returns the existing one its label folds to (`200`).
 pub async fn create_tag(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateTagRequest>,
 ) -> Result<(StatusCode, Json<TagView>), ApiError> {
-    let (usage, created) = tag::create(&state.db, tree_id, &body.label, body.color).await?;
+    let (usage, created) =
+        tag::create(&viewer, &state.db, tree_id, &body.label, body.color).await?;
     let status = if created {
         StatusCode::CREATED
     } else {
@@ -119,10 +122,12 @@ pub async fn create_tag(
 /// PUT /api/v1/trees/:tree_id/tags/:tag_id
 pub async fn update_tag(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateTagRequest>,
 ) -> Result<Json<TagView>, ApiError> {
     let usage = tag::update(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,
@@ -139,19 +144,29 @@ pub async fn update_tag(
 /// Moves every link of the tag to `into` and deletes it; returns `into`.
 pub async fn merge_tag(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MergeTagRequest>,
 ) -> Result<Json<TagView>, ApiError> {
-    let usage = tag::merge(&state.db, &state.profiles, tree_id, tag_id, body.into).await?;
+    let usage = tag::merge(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        tag_id,
+        body.into,
+    )
+    .await?;
     Ok(Json(usage.into()))
 }
 
 /// DELETE /api/v1/trees/:tree_id/tags/:tag_id
 pub async fn delete_tag(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    tag::delete(&state.db, &state.profiles, tree_id, tag_id).await?;
+    tag::delete(&viewer, &state.db, &state.profiles, tree_id, tag_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -175,10 +190,20 @@ pub async fn list_tagged_records(
 /// Idempotent: `204` whether or not the record already carried the tag.
 pub async fn tag_record(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id, kind, record_id)): Path<(Uuid, Uuid, String, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let kind = tag::parse_kind(&kind)?;
-    tag::tag_record(&state.db, &state.profiles, tree_id, tag_id, kind, record_id).await?;
+    tag::tag_record(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        tag_id,
+        kind,
+        record_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -187,10 +212,20 @@ pub async fn tag_record(
 /// Idempotent: `204` also when the record did not carry the tag.
 pub async fn untag_record(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id, kind, record_id)): Path<(Uuid, Uuid, String, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     let kind = tag::parse_kind(&kind)?;
-    tag::untag_record(&state.db, &state.profiles, tree_id, tag_id, kind, record_id).await?;
+    tag::untag_record(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        tag_id,
+        kind,
+        record_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -220,11 +255,13 @@ pub struct BulkTagCount {
 /// transaction and one audit entry (docs/api.md, Tags).
 pub async fn bulk_tag(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, tag_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<BulkTagRequest>,
 ) -> Result<Json<BulkTagCount>, ApiError> {
     let action = body.action.parse::<BulkAction>()?;
     let count = tag_bulk::bulk_tag(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,

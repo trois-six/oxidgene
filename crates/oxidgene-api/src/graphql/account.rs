@@ -17,7 +17,7 @@ use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use oxidgene_db::repo::PaginationParams;
 
-use super::scope::{boxed, uuid};
+use super::scope::{boxed, uuid, viewer_from_ctx};
 use super::types::{db_from_ctx, media_from_ctx, reader_from_ctx};
 use crate::auth::{Auth, Principal};
 use crate::service::account::{
@@ -28,8 +28,7 @@ use crate::service::avatar;
 
 /// The request's principal: anonymous when none was resolved.
 fn principal<'a>(ctx: &'a Context<'_>) -> &'a Principal {
-    static ANONYMOUS: Principal = Principal::Anonymous;
-    ctx.data_opt::<Principal>().unwrap_or(&ANONYMOUS)
+    viewer_from_ctx(ctx).principal()
 }
 
 /// The server's authentication; `none` when the request carries none.
@@ -207,6 +206,19 @@ pub struct GqlAccountData {
     pub provider_name: Option<String>,
     pub locale: Option<String>,
     pub updated_at: DateTime<Utc>,
+    pub memberships: Vec<GqlAccountMembership>,
+    pub access_events: Vec<super::member::GqlAccessEvent>,
+}
+
+/// One of the user's memberships, in their account data.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlAccountMembership {
+    pub tree_id: ID,
+    /// `owner`, `editor` or `guest`.
+    pub role: String,
+    pub self_person_id: Option<ID>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// REST `PUT /me`: an absent field is kept, `null` returns to the
@@ -285,6 +297,18 @@ impl AccountQuery {
                 provider_name: data.provider_name,
                 locale: data.locale,
                 updated_at: data.updated_at,
+                memberships: data
+                    .memberships
+                    .into_iter()
+                    .map(|membership| GqlAccountMembership {
+                        tree_id: ID(membership.tree_id.to_string()),
+                        role: membership.role.as_str().to_string(),
+                        self_person_id: membership.self_person_id.map(|id| ID(id.to_string())),
+                        expires_at: membership.expires_at,
+                        created_at: membership.created_at,
+                    })
+                    .collect(),
+                access_events: data.access_events.into_iter().map(Into::into).collect(),
             })
         })
         .await

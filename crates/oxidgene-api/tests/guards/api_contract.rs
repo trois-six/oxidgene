@@ -106,6 +106,42 @@ const ACCOUNT_PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/trees/{tree_id}/exclusions/{exclusion_id}",
         Gql(&["Mutation.deleteExclusion"]),
     ),
+    ("GET", "/api/v1/admin/trees", Gql(&["Query.adminTrees"])),
+    (
+        "PUT",
+        "/api/v1/admin/trees/{tree_id}/owner",
+        Gql(&["Mutation.assignTreeOwner"]),
+    ),
+    (
+        "GET",
+        "/api/v1/admin/access-log",
+        Gql(&["Query.accessEvents"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/members",
+        Gql(&["Query.treeMembers"]),
+    ),
+    (
+        "PUT",
+        "/api/v1/trees/{tree_id}/members/{user_id}",
+        Gql(&["Mutation.updateTreeMember"]),
+    ),
+    (
+        "DELETE",
+        "/api/v1/trees/{tree_id}/members/{user_id}",
+        Gql(&["Mutation.removeTreeMember"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/ownership",
+        Gql(&["Mutation.transferTreeOwnership"]),
+    ),
+    (
+        "GET",
+        "/api/v1/trees/{tree_id}/access-log",
+        Gql(&["Query.treeAccessEvents"]),
+    ),
 ];
 
 /// Every operation this build serves: [`PARITY`], and the account
@@ -1079,6 +1115,53 @@ async fn every_route_is_in_the_parity_table() {
     }
 }
 
+/// Every operation declares its requirement (docs/authorization.md §3.2),
+/// and a REST route and its GraphQL root twins declare the same one, so the
+/// two surfaces refuse alike; no declaration outlives its operation.
+#[test]
+fn every_operation_declares_the_same_requirement_on_both_surfaces() {
+    use oxidgene_api::authz::operations;
+    let mut problems = Vec::new();
+    for (method, path, twin) in parity() {
+        let Some(rest) = operations::rest(method, path) else {
+            problems.push(format!("{method} {path} declares no requirement"));
+            continue;
+        };
+        let Gql(twins) = twin else {
+            continue;
+        };
+        for twin in *twins {
+            let Some(field) = twin
+                .strip_prefix("Query.")
+                .or_else(|| twin.strip_prefix("Mutation."))
+            else {
+                // A nested field resolves under a root field that checked
+                // the tree.
+                continue;
+            };
+            match operations::graphql(field) {
+                Some(gql) if gql == rest => {}
+                Some(gql) => problems.push(format!(
+                    "{method} {path} declares {rest:?}, its twin {twin} {gql:?}"
+                )),
+                None => problems.push(format!("{twin} declares no requirement")),
+            }
+        }
+    }
+    let declared = declared_operations();
+    let accounts = ACCOUNT_PARITY
+        .iter()
+        .map(|(method, path, _)| (method.to_string(), path.to_string()))
+        .collect::<BTreeSet<_>>();
+    for (method, path, _) in operations::rest_operations() {
+        let operation = (method.to_string(), format!("/api/v1{path}"));
+        if !declared.contains(&operation) && !accounts.contains(&operation) {
+            problems.push(format!("{method} {path} is declared but routed nowhere"));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
 /// The `(METHOD, path)` rows of docs/api.md's REST tables, `/api/v1`
 /// prefixed and without their query strings.
 fn documented_operations() -> BTreeSet<(String, String)> {
@@ -1281,6 +1364,25 @@ mod graphql_side {
             "REST-only exceptions keep growing ({exceptions})"
         );
         assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    /// Every root field declares its requirement, which is checked before
+    /// it resolves: a field without one is refused at run time.
+    #[test]
+    fn every_root_field_declares_a_requirement() {
+        let types = fields(&sdl());
+        let undeclared: Vec<String> = ["Query", "Mutation"]
+            .iter()
+            .flat_map(|root| {
+                types
+                    .get(*root)
+                    .into_iter()
+                    .flatten()
+                    .filter(|field| oxidgene_api::authz::operations::graphql(field).is_none())
+                    .map(move |field| format!("{root}.{field}"))
+            })
+            .collect();
+        assert!(undeclared.is_empty(), "{undeclared:?}");
     }
 
     /// The SDL equals docs/schema.graphql; `OXIDGENE_BLESS=1` (or

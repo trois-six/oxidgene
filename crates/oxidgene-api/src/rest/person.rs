@@ -1,5 +1,6 @@
 //! REST handlers for Person CRUD operations.
 
+use super::authorize::Viewer;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::service::duplicates;
 use crate::service::history;
@@ -43,10 +44,11 @@ pub async fn list_persons(
 /// POST /api/v1/trees/:tree_id/persons
 pub async fn create_person(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewPerson>,
 ) -> Result<(StatusCode, Json<Person>), ApiError> {
-    let person = person::create_person(&state.db, &state.profiles, tree_id, body).await?;
+    let person = person::create_person(&viewer, &state.db, &state.profiles, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(person)))
 }
 
@@ -66,20 +68,29 @@ pub async fn get_person(
 /// PUT /api/v1/trees/:tree_id/persons/:person_id
 pub async fn update_person(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PersonPatch>,
 ) -> Result<Json<Person>, ApiError> {
-    let person =
-        person::update_person(&state.db, &state.profiles, tree_id, person_id, body).await?;
+    let person = person::update_person(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        body,
+    )
+    .await?;
     Ok(Json(person))
 }
 
 /// DELETE /api/v1/trees/:tree_id/persons/:person_id
 pub async fn delete_person(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    person::delete_person(&state.db, &state.profiles, tree_id, person_id).await?;
+    person::delete_person(&viewer, &state.db, &state.profiles, tree_id, person_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -102,10 +113,11 @@ pub async fn list_homonyms(
 /// stop being offered as homonyms.
 pub async fn mark_persons_distinct(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MarkPersonsDistinctRequest>,
 ) -> Result<StatusCode, ApiError> {
-    duplicates::mark_distinct(&state.db, tree_id, person_id, &body.person_ids).await?;
+    duplicates::mark_distinct(&viewer, &state.db, tree_id, person_id, &body.person_ids).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -115,10 +127,12 @@ pub async fn mark_persons_distinct(
 /// is soft-deleted. Returns the kept person.
 pub async fn merge_persons(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MergePersonRequest>,
 ) -> Result<Json<Person>, ApiError> {
     let person = duplicates::merge_persons(
+        &viewer,
         &state.db,
         &state.profiles,
         tree_id,
@@ -260,11 +274,19 @@ pub async fn get_person_by_sosa(
 /// a group photograph — or nothing.
 pub async fn set_person_portrait(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PortraitChoice>,
 ) -> Result<Json<Person>, ApiError> {
-    let person =
-        portrait::set_person_portrait(&state.db, &state.profiles, tree_id, person_id, body).await?;
+    let person = portrait::set_person_portrait(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        body,
+    )
+    .await?;
     Ok(Json(person))
 }
 

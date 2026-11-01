@@ -48,6 +48,8 @@ impl MigrationTrait for Migration {
         // `tree` — the history, `person_distinct`, the `person_denorm`
         // projection — before either of them.
         let tables = [
+            AccessEvent::Table.into_table_ref(),
+            TreeMembership::Table.into_table_ref(),
             AppUser::Table.into_table_ref(),
             RecordVersion::Table.into_table_ref(),
             AuditEntry::Table.into_table_ref(),
@@ -118,6 +120,38 @@ enum AppUser {
     LastSignInAt,
     DeactivatedAt,
     ErasedAt,
+}
+
+#[derive(DeriveIden)]
+enum TreeMembership {
+    Table,
+    Id,
+    TreeId,
+    UserId,
+    Role,
+    SelfPersonId,
+    ExpiresAt,
+    CreatedBy,
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AccessEvent {
+    Table,
+    Id,
+    OccurredAt,
+    Kind,
+    PrincipalKind,
+    UserId,
+    ApiClientId,
+    ShareLinkId,
+    ClientId,
+    TreeId,
+    Route,
+    Permission,
+    Outcome,
+    RequestId,
 }
 
 #[derive(DeriveIden)]
@@ -547,6 +581,13 @@ enum BackgroundJob {
     ErrorCode,
     TraceParent,
     TraceState,
+    ActorIssuer,
+    ActorSubject,
+    ActorUserId,
+    ActorClientId,
+    ActorApiClientId,
+    ActorScopes,
+    ActorSession,
     CreatedAt,
     UpdatedAt,
     StartedAt,
@@ -1856,6 +1897,15 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .col(string_null(BackgroundJob::ErrorCode))
                 .col(string_null(BackgroundJob::TraceParent))
                 .col(string_null(BackgroundJob::TraceState))
+                // Who submitted the job, which the worker acts for and
+                // re-checks before each commit: never a token.
+                .col(string_null(BackgroundJob::ActorIssuer))
+                .col(string_null(BackgroundJob::ActorSubject))
+                .col(uuid_null(BackgroundJob::ActorUserId))
+                .col(string_null(BackgroundJob::ActorClientId))
+                .col(uuid_null(BackgroundJob::ActorApiClientId))
+                .col(text_null(BackgroundJob::ActorScopes))
+                .col(string_len_null(BackgroundJob::ActorSession, 64))
                 .col(timestamp_with_time_zone(BackgroundJob::CreatedAt))
                 .col(timestamp_with_time_zone(BackgroundJob::UpdatedAt))
                 .col(timestamp_with_time_zone_null(BackgroundJob::StartedAt))
@@ -2762,6 +2812,11 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(AuditEntry::SubjectId))
                 .col(text_null(AuditEntry::Label))
                 .col(text_null(AuditEntry::Details))
+                // The author: `local` on the desktop and in the `none` mode.
+                .col(string_len(AuditEntry::AuthorKind, 16).default("local"))
+                .col(uuid_null(AuditEntry::AuthorUserId))
+                .col(uuid_null(AuditEntry::AuthorApiClientId))
+                .col(string_null(AuditEntry::AuthorClientId))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_audit_entry_tree")
@@ -2894,6 +2949,10 @@ enum AuditEntry {
     SubjectId,
     Label,
     Details,
+    AuthorKind,
+    AuthorUserId,
+    AuthorApiClientId,
+    AuthorClientId,
 }
 
 #[derive(DeriveIden)]
@@ -2954,5 +3013,129 @@ async fn create_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    create_memberships(manager).await?;
+    create_access_events(manager).await
+}
+
+/// Who may do what with each tree (docs/data-model.md §6.2): one row per
+/// member, one `owner` per tree.
+async fn create_memberships(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(TreeMembership::Table)
+                .if_not_exists()
+                .col(uuid(TreeMembership::Id).primary_key())
+                .col(uuid(TreeMembership::TreeId))
+                .col(uuid(TreeMembership::UserId))
+                .col(string_len(TreeMembership::Role, 8))
+                .col(uuid_null(TreeMembership::SelfPersonId))
+                .col(timestamp_with_time_zone_null(TreeMembership::ExpiresAt))
+                .col(uuid_null(TreeMembership::CreatedBy))
+                .col(timestamp_with_time_zone(TreeMembership::CreatedAt))
+                .col(timestamp_with_time_zone(TreeMembership::UpdatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_membership_tree")
+                        .from(TreeMembership::Table, TreeMembership::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_membership_user")
+                        .from(TreeMembership::Table, TreeMembership::UserId)
+                        .to(AppUser::Table, AppUser::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // One membership per user and tree; the access check reads it by both.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_tree_membership_tree_user")
+                .table(TreeMembership::Table)
+                .col(TreeMembership::TreeId)
+                .col(TreeMembership::UserId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    // A user's trees, for the tree list and erasure.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_tree_membership_user")
+                .table(TreeMembership::Table)
+                .col(TreeMembership::UserId)
+                .col(TreeMembership::TreeId)
+                .to_owned(),
+        )
+        .await?;
+    // Exactly one owner per tree: a partial unique index, which SQLite and
+    // PostgreSQL both support and sea-query does not express.
+    manager
+        .get_connection()
+        .execute_raw(Statement::from_string(
+            manager.get_database_backend(),
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tree_membership_owner \
+             ON tree_membership (tree_id) WHERE role = 'owner'",
+        ))
+        .await?;
+    Ok(())
+}
+
+/// The access log (docs/data-model.md §6.7): no foreign key, since events
+/// outlive the trees and users they name until their retention ends.
+async fn create_access_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AccessEvent::Table)
+                .if_not_exists()
+                .col(uuid(AccessEvent::Id).primary_key())
+                .col(timestamp_with_time_zone(AccessEvent::OccurredAt))
+                .col(string_len(AccessEvent::Kind, 32))
+                .col(string_len(AccessEvent::PrincipalKind, 16))
+                .col(uuid_null(AccessEvent::UserId))
+                .col(uuid_null(AccessEvent::ApiClientId))
+                .col(uuid_null(AccessEvent::ShareLinkId))
+                .col(string_null(AccessEvent::ClientId))
+                .col(uuid_null(AccessEvent::TreeId))
+                .col(string_null(AccessEvent::Route))
+                .col(string_len_null(AccessEvent::Permission, 32))
+                .col(string_len(AccessEvent::Outcome, 32))
+                .col(string_len_null(AccessEvent::RequestId, 64))
+                .to_owned(),
+        )
+        .await?;
+    // An owner reads their tree's events, a user's export their own, newest
+    // first; the retention sweep deletes by age.
+    for (name, first, second) in [
+        (
+            "idx_access_event_tree",
+            AccessEvent::TreeId,
+            Some(AccessEvent::Id),
+        ),
+        (
+            "idx_access_event_user",
+            AccessEvent::UserId,
+            Some(AccessEvent::Id),
+        ),
+        (
+            "idx_access_event_occurred_at",
+            AccessEvent::OccurredAt,
+            None,
+        ),
+    ] {
+        let mut index = Index::create();
+        index.name(name).table(AccessEvent::Table).col(first);
+        if let Some(second) = second {
+            index.col(second);
+        }
+        manager.create_index(index.to_owned()).await?;
+    }
     Ok(())
 }

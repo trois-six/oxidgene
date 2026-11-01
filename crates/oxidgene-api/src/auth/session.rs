@@ -207,6 +207,7 @@ impl Oidc {
             session_id: None,
             api_client_id: None,
             instance_role: user.instance_role,
+            can_create_trees: user.can_create_trees,
         }))
     }
 
@@ -250,6 +251,7 @@ impl Oidc {
             session_id: Some(session.id_hash.clone()),
             api_client_id: None,
             instance_role: user.instance_role,
+            can_create_trees: user.can_create_trees,
         });
         Ok(ResolvedSession {
             principal,

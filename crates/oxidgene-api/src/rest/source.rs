@@ -1,5 +1,6 @@
 //! REST handlers for Source CRUD operations.
 
+use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -42,10 +43,11 @@ pub async fn list_sources(
 /// POST /api/v1/trees/:tree_id/sources
 pub async fn create_source(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<NewSource>,
 ) -> Result<(StatusCode, Json<Source>), ApiError> {
-    let source = source::create_source(&state.db, tree_id, body).await?;
+    let source = source::create_source(&viewer, &state.db, tree_id, body).await?;
     Ok((StatusCode::CREATED, Json(source)))
 }
 
@@ -61,11 +63,12 @@ pub async fn get_source(
 /// PUT /api/v1/trees/:tree_id/sources/:source_id
 pub async fn update_source(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<SourcePatch>,
 ) -> Result<Json<Source>, ApiError> {
     Ok(Json(
-        source::update_source(&state.db, tree_id, source_id, body).await?,
+        source::update_source(&viewer, &state.db, tree_id, source_id, body).await?,
     ))
 }
 
@@ -75,11 +78,12 @@ pub async fn update_source(
 /// anywhere is kept, which the 200/204 split reports back.
 pub async fn delete_source(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteSourceQuery>,
 ) -> Result<StatusCode, ApiError> {
     let deleted =
-        source::delete_source(&state.db, tree_id, source_id, query.only_if_unused).await?;
+        source::delete_source(&viewer, &state.db, tree_id, source_id, query.only_if_unused).await?;
     Ok(if deleted {
         StatusCode::NO_CONTENT
     } else {

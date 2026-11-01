@@ -4,6 +4,7 @@
 //! the projection of the person the citation is attached to, and records the
 //! change, in one transaction.
 
+use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Citation, Connection};
 use oxidgene_core::{Confidence, OxidGeneError};
@@ -72,6 +73,7 @@ pub async fn list_citations(
 
 /// Create a citation in `tree_id`.
 pub async fn create_citation(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -89,7 +91,7 @@ pub async fn create_citation(
         }
     }
     let id = Uuid::now_v7();
-    let pending = Change::create(tree_id, AuditEntity::Citation, id)
+    let pending = Change::create(viewer, tree_id, AuditEntity::Citation, id)
         .owner(new.person_id, new.event_id, new.family_id, None)
         .prepare(&txn)
         .await?;
@@ -117,6 +119,7 @@ pub async fn create_citation(
 
 /// Update citation `id` of `tree_id`.
 pub async fn update_citation(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -130,7 +133,7 @@ pub async fn update_citation(
         require_tree_resource(&txn, tree_id, TreeResource::Source, source_id).await?;
     }
     let pending = change_of(
-        Change::update(tree_id, AuditEntity::Citation, id),
+        Change::update(viewer, tree_id, AuditEntity::Citation, id),
         &previous,
     )
     .prepare(&txn)
@@ -156,6 +159,7 @@ pub async fn update_citation(
 
 /// Delete citation `id` of `tree_id`.
 pub async fn delete_citation(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
@@ -165,7 +169,7 @@ pub async fn delete_citation(
     require_tree_resource(&txn, tree_id, TreeResource::Citation, id).await?;
     let citation = CitationRepo::get(&txn, id).await?;
     let pending = change_of(
-        Change::delete(tree_id, AuditEntity::Citation, id),
+        Change::delete(viewer, tree_id, AuditEntity::Citation, id),
         &citation,
     )
     .prepare(&txn)
