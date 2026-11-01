@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-02T01:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -381,6 +381,14 @@ pseudonym, or absent, so nothing else names them.
   placeholder appears where a person names it (a family member, a pedigree
   node, a kinship path), never as a list entry of its own. Paged lists
   leave hidden persons out in SQL, so pages and `total_count` agree.
+- A list, a count or a search leaving hidden persons or records out selects
+  them by subqueries over `excluded_person`, `access_scope_person` and
+  `person_visibility` (the contemporary rule's stored inputs, with the year
+  and the threshold bound as values) and over the records' own links, never
+  by a list of their identifiers: its bound parameters stay the same few
+  however many persons are hidden, under SQLite's 32,766 and PostgreSQL's
+  65,535. The person rules are the same as the projections' redaction
+  applies in memory.
 - A placeholder that may not be navigated through carries a pseudonym drawn
   afresh for each request: within one response it names the same
   placeholder everywhere; across requests it links nothing. Its only

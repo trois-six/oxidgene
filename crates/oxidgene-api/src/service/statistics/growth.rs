@@ -68,8 +68,7 @@ pub async fn load(
 ) -> Result<TreeGrowth, oxidgene_core::OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
     let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
-    let (ids, scope) = redaction.unseen_persons();
-    let unseen = oxidgene_db::repo::Unseen { ids: &ids, scope };
+    let unseen = oxidgene_db::repo::Unseen::new(tree_id, redaction.rules());
     let created = PersonRepo::count_by_creation(db, tree_id, unseen).await?;
     let deleted = PersonRepo::count_by_deletion(db, tree_id, unseen).await?;
     let restores = HistoryRepo::person_restores(db, tree_id, &hidden).await?;

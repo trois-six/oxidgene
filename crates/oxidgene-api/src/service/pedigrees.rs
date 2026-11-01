@@ -86,13 +86,12 @@ pub async fn default_root(
         first: 1,
         after: None,
     };
-    let (ids, scope) = redaction.unseen_persons();
     PersonRepo::list_filtered(
         db,
         tree_id,
         None,
         &first,
-        oxidgene_db::repo::Unseen { ids: &ids, scope },
+        oxidgene_db::repo::Unseen::new(tree_id, redaction.rules()),
     )
     .await?
     .edges

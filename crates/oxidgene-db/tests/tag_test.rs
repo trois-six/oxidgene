@@ -559,7 +559,9 @@ async fn media_tags_filter_and_count_live_documents() {
     assert_eq!(listed.edges[0].node.tags.len(), 1);
     assert_eq!(listed.edges[0].node.tags[0].label, "Documents");
 
-    let facets = MediaLibraryRepo::facets(&db, tree, &[], &[]).await.unwrap();
+    let facets = MediaLibraryRepo::facets(&db, tree, &[], oxidgene_db::repo::Unseen::default())
+        .await
+        .unwrap();
     assert_eq!(facets.tags.len(), 1);
     assert_eq!(facets.tags[0].tag.id, tag.id);
     assert_eq!(facets.tags[0].count, 1);

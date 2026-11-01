@@ -119,7 +119,7 @@ impl PersonDenormRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &crate::repo::PaginationParams,
-        unseen: crate::repo::Unseen<'_>,
+        unseen: crate::repo::Unseen,
     ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
         let page = crate::repo::pagination::paginate(
             db,

@@ -79,12 +79,12 @@ impl RepositoryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
-        leave_out: LeaveOut<'_>,
+        leave_out: LeaveOut,
     ) -> Result<Connection<Repository>, OxidGeneError> {
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
-            .filter(leave_out.keeping(Column::Id));
+            .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Repository, Column::Id));
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let repositories = page.edges.iter().map(|edge| edge.node.clone()).collect();
         for (edge, repository) in page.edges.iter_mut().zip(hydrate(db, repositories).await?) {

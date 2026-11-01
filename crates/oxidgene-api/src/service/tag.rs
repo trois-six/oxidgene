@@ -44,7 +44,7 @@ pub async fn list(
     if records.redaction().withholds_tags() {
         return Ok(Vec::new());
     }
-    TagRepo::list_visible(db, tree_id, |kind| records.tag_leave_out(kind)).await
+    TagRepo::list_visible(db, tree_id, |kind| records.leave_out(kind)).await
 }
 
 /// The record kind named by a request, spelled as `RecordKind::as_str` spells
@@ -295,7 +295,7 @@ pub async fn tagged_records(
         });
     }
     TagRepo::get(db, tree_id, tag_id).await?;
-    let leave_out = records.tag_leave_out(kind);
+    let leave_out = records.leave_out(kind);
     let page =
         RecordTagRepo::visible_records_of_tag(db, tree_id, tag_id, kind, params, leave_out).await?;
     let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node).collect();

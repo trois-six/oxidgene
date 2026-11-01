@@ -4,7 +4,7 @@ use super::authorize::Viewer;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::types::{Connection, Place, RecordKind};
+use oxidgene_core::types::{Connection, Place};
 use oxidgene_db::repo::{PaginationParams, PlaceFilter, PlaceRepo};
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ pub async fn list_places(
         search: query.search.as_deref(),
         name: query.name.as_deref(),
         ids: ids.as_deref(),
-        hidden: records.hidden(RecordKind::Place),
+        unseen: records.unseen(),
     };
     let places = PlaceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?;
     Ok(Json(records.page(places)))

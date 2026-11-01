@@ -49,10 +49,10 @@ impl TagRepo {
 
     /// [`Self::list`], counting only the records a viewer sees: of each
     /// kind, those `leave_out` does not name.
-    pub async fn list_visible<'a>(
+    pub async fn list_visible(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        leave_out: impl Fn(RecordKind) -> LeaveOut<'a>,
+        leave_out: impl Fn(RecordKind) -> LeaveOut,
     ) -> Result<Vec<TagUsage>, OxidGeneError> {
         let mut tags = tag::Entity::find()
             .filter(tag::Column::TreeId.eq(tree_id))

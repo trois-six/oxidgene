@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_archives::ArchiveTarget;
-use oxidgene_core::types::{Connection, RecordKind, Source};
+use oxidgene_core::types::{Connection, Source};
 use oxidgene_db::repo::{PaginationParams, SourceFilter, SourceRepo};
 use uuid::Uuid;
 
@@ -36,7 +36,7 @@ pub async fn list_sources(
     let filter = SourceFilter {
         title: query.title.as_deref(),
         ids: ids.as_deref(),
-        hidden: records.hidden(RecordKind::Source),
+        unseen: records.unseen(),
     };
     Ok(Json(records.page(
         SourceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?,

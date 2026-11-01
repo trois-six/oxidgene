@@ -127,7 +127,7 @@ impl PersonRepo {
         tree_id: Uuid,
         search: Option<&str>,
         params: &PaginationParams,
-        unseen: super::Unseen<'_>,
+        unseen: super::Unseen,
     ) -> Result<Connection<Person>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
@@ -367,7 +367,7 @@ impl PersonRepo {
     pub async fn count_by_creation(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        unseen: super::Unseen<'_>,
+        unseen: super::Unseen,
     ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
         Entity::find()
             .select_only()
@@ -387,7 +387,7 @@ impl PersonRepo {
     pub async fn count_by_deletion(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        unseen: super::Unseen<'_>,
+        unseen: super::Unseen,
     ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
         Entity::find()
             .select_only()

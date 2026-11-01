@@ -344,6 +344,9 @@ string in every language, and the user guide. In order:
      and the canary persons of the privacy tests.
    - [x] The leak suite over the canary persons, over every REST and GraphQL
      read, for Editors, Guests, a scoped Guest and Visitors.
+   - [x] Hidden persons and records left out of every list, count and search
+     by subqueries over the visibility, exclusion and scope tables, whatever
+     their number ([Privacy §7](privacy.md#7-enforcement-points)).
 4. **Notifications and email.**
    - [x] In-app notifications, preferences and the long poll
      ([Messaging and Notifications §2, §6](messaging.md#6-delivery-without-polling)):

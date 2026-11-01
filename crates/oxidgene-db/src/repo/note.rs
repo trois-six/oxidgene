@@ -52,12 +52,12 @@ impl NoteRepo {
         tree_id: Uuid,
         filter: &NoteFilter,
         params: &PaginationParams,
-        leave_out: LeaveOut<'_>,
+        leave_out: LeaveOut,
     ) -> Result<Connection<Note>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
-            .filter(leave_out.keeping(Column::Id));
+            .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Note, Column::Id));
         if leave_out.confidential {
             query = query.filter(Column::Confidential.eq(false));
         }

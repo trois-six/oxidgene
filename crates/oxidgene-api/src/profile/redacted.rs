@@ -203,8 +203,7 @@ impl ProfileService {
             return self.persons_page(tree_id, params).await;
         }
         self.ensure_materialized(tree_id).await?;
-        let (ids, scope) = redaction.unseen_persons();
-        let unseen = oxidgene_db::repo::Unseen { ids: &ids, scope };
+        let unseen = oxidgene_db::repo::Unseen::new(tree_id, redaction.rules());
         let mut page = PersonDenormRepo::list_page(self.reader(), tree_id, params, unseen).await?;
         for edge in &mut page.edges {
             if let Some(profile) = redaction.profile(&edge.node) {
@@ -337,7 +336,7 @@ impl ProfileService {
             });
         }
         let mut filters = filters.clone();
-        (filters.hidden, filters.scope) = redaction.unseen_persons();
+        filters.unseen = redaction.rules();
         if !has_relative_filter(&filters) {
             let page = self
                 .search_filtered(tree_id, query, &filters, sort, limit, offset)

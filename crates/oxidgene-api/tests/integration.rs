@@ -32,6 +32,8 @@ mod gedcom_tag_test;
 mod geneanet_session_test;
 mod graphql_test;
 mod guards;
+#[cfg(feature = "auth")]
+mod hidden_bounds_test;
 mod history_test;
 mod import_memory_test;
 mod kinship_test;

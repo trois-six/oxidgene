@@ -6,7 +6,7 @@ use chrono::NaiveDate;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::enums::{DocumentCategory, MediaFileKind};
-use oxidgene_core::types::{Connection, Edge, Media, RecordKind, TagRef};
+use oxidgene_core::types::{Connection, Edge, Media, TagRef};
 use oxidgene_db::repo::{MediaFilter, MediaLibraryRepo, PaginationParams};
 use sea_orm::ConnectionTrait;
 use serde::Serialize;
@@ -65,7 +65,7 @@ impl MediaListFilters {
             event_to: self.event_to,
             added_from: self.added_from,
             added_to: self.added_to,
-            hidden: Vec::new(),
+            unseen: oxidgene_db::repo::Unseen::default(),
         })
     }
 }
@@ -92,12 +92,11 @@ pub async fn list(
     offset: Option<u64>,
 ) -> Result<Connection<MediaListItem>, OxidGeneError> {
     let mut filter = filters.into_filter()?;
-    filter.hidden = records.hidden(RecordKind::Media).to_vec();
+    filter.unseen = records.unseen();
     let connection =
         records.page(MediaLibraryRepo::list(db, tree_id, &filter, params, offset).await?);
     let ids: Vec<Uuid> = connection.edges.iter().map(|edge| edge.node.id).collect();
-    let usage =
-        MediaLibraryRepo::visible_usage_counts(db, &ids, records.hidden_media_links()).await?;
+    let usage = MediaLibraryRepo::visible_usage_counts(db, &ids, records.unseen()).await?;
     Ok(Connection {
         edges: connection
             .edges
@@ -157,8 +156,8 @@ pub async fn facets(
     tree_id: Uuid,
     with_tags: Vec<Uuid>,
 ) -> Result<MediaFacets, OxidGeneError> {
-    let hidden = records.hidden(RecordKind::Media);
-    let facets = MediaLibraryRepo::facets(db, tree_id, &sorted_unique(with_tags), hidden).await?;
+    let facets =
+        MediaLibraryRepo::facets(db, tree_id, &sorted_unique(with_tags), records.unseen()).await?;
     let tags = if records.redaction().withholds_tags() {
         Vec::new()
     } else {

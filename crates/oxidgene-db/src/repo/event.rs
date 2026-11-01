@@ -89,12 +89,12 @@ impl EventRepo {
         tree_id: Uuid,
         filter: &EventFilter,
         params: &PaginationParams,
-        leave_out: LeaveOut<'_>,
+        leave_out: LeaveOut,
     ) -> Result<Connection<Event>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
-            .filter(leave_out.keeping(Column::Id));
+            .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Event, Column::Id));
 
         if let Some(ref et) = filter.event_type {
             query = query.filter(Column::EventType.eq(sea_enums::EventType::from(*et)));

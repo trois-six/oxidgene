@@ -28,7 +28,7 @@ pub struct SourceFilter<'a> {
     /// every source of the tree, an unknown id simply finding none.
     pub ids: Option<&'a [Uuid]>,
     /// The sources the viewer may not see, left out.
-    pub hidden: &'a [Uuid],
+    pub unseen: crate::repo::Unseen,
 }
 
 impl SourceRepo {
@@ -51,7 +51,11 @@ impl SourceRepo {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
-            .filter(crate::repo::redaction::not_in(Column::Id, filter.hidden));
+            .filter(
+                filter
+                    .unseen
+                    .keeping(oxidgene_core::types::RecordKind::Source, Column::Id),
+            );
         if let Some(title) = filter.title {
             query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
         }

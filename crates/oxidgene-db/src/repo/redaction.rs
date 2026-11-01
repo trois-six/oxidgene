@@ -17,40 +17,39 @@ use uuid::Uuid;
 use crate::entities::{
     citation, event, media, media_link, note, sea_enums, source_repository, vignette,
 };
-use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
+use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
-
-/// `column NOT IN ids`, one bounded list per slice of ids; always true for
-/// no ids. What a paged list adds to leave out the records a viewer may not
-/// see, so that its pages and its `total_count` agree.
-pub(crate) fn not_in<C: ColumnTrait>(column: C, ids: &[Uuid]) -> Condition {
-    ids.chunks(MAX_BOUND_IDS)
-        .fold(Condition::all(), |condition, chunk| {
-            condition.add(column.is_not_in(chunk.iter().copied()))
-        })
-}
+use crate::repo::hiding::Unseen;
+use oxidgene_core::types::RecordKind;
 
 /// What a paged list leaves out for a viewer who may not see everything,
 /// applied in SQL so that the list's pages and its `total_count` agree.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct LeaveOut<'a> {
-    /// The records of the list's kind the viewer may not see, sorted.
-    pub ids: &'a [Uuid],
+pub struct LeaveOut {
+    /// The persons and records the viewer may not see.
+    pub unseen: Unseen,
     /// For notes: leave out the confidential ones too.
     pub confidential: bool,
 }
 
-impl LeaveOut<'_> {
+impl LeaveOut {
     /// Nothing left out: the owner's lists.
-    pub const NONE: LeaveOut<'static> = LeaveOut {
-        ids: &[],
+    pub const NONE: LeaveOut = LeaveOut {
+        unseen: Unseen {
+            tree_id: Uuid::nil(),
+            rules: oxidgene_core::redaction::HidingRules {
+                exclusions: false,
+                scope: None,
+                privacy: None,
+            },
+        },
         confidential: false,
     };
 
-    /// The predicate keeping what the viewer may see of a list whose
-    /// records' id is `column`.
-    pub(crate) fn keeping<C: ColumnTrait>(&self, column: C) -> Condition {
-        not_in(column, self.ids)
+    /// The predicate keeping what the viewer may see of a list of records
+    /// of `kind` whose identifier is `column`.
+    pub(crate) fn keeping<C: ColumnTrait>(&self, kind: RecordKind, column: C) -> Condition {
+        self.unseen.keeping(kind, column)
     }
 }
 

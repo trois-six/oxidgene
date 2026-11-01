@@ -118,10 +118,77 @@ pub struct ScopeInputs<'a> {
     pub boundary: &'a HashSet<Uuid>,
 }
 
+/// The inputs of the person rules of a [`Redaction`], as a query applies
+/// them in the database (docs/privacy.md §7): a list, a count or a search
+/// reads `excluded_person`, `access_scope_person` and `person_visibility`
+/// through them, so that its bound parameters stay the same however many
+/// persons are hidden. The default hides nobody: the owner's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HidingRules {
+    /// The owner's exclusions hide the persons of `excluded_person`: set
+    /// only when the tree has some and the viewer is not the owner.
+    pub exclusions: bool,
+    /// Only the persons of this access scope are seen.
+    pub scope: Option<Uuid>,
+    /// The privacy rules of a viewer without `read_private`.
+    pub privacy: Option<PrivacyRules>,
+}
+
+impl HidingRules {
+    /// The rules `viewing` sees a tree with these settings and records
+    /// through, in `current_year`.
+    fn of(
+        viewing: Viewing,
+        default_privacy: TreeDefaultPrivacy,
+        settings: &PrivacySettings,
+        inputs: &RedactionInputs<'_>,
+        current_year: i32,
+    ) -> Self {
+        Self {
+            exclusions: viewing.exclusions_apply
+                && inputs.excluded.is_some_and(|excluded| !excluded.is_empty()),
+            scope: inputs.scope.map(|scope| scope.id),
+            privacy: (!viewing.read_private).then(|| {
+                let rule = settings.contemporary_rule();
+                PrivacyRules {
+                    default_private: default_privacy == TreeDefaultPrivacy::Private,
+                    contemporary_after: rule.enabled.then(|| current_year - rule.years),
+                    contemporary_photos: settings.contemporary_photos
+                        && settings.hidden_display != HiddenDisplay::Hidden,
+                }
+            }),
+        }
+    }
+
+    /// Whether the rules hide nobody.
+    #[must_use]
+    pub fn hide_nothing(&self) -> bool {
+        !self.exclusions && self.scope.is_none() && self.privacy.is_none()
+    }
+}
+
+/// The privacy rules of §3.1 that a viewer without `read_private` sees a
+/// tree through, as [`HidingRules`] carries them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrivacyRules {
+    /// The tree's `default_privacy` is `private`: a record of `default`
+    /// privacy is private.
+    pub default_private: bool,
+    /// A person with no death recorded is contemporary when their latest
+    /// possible birth year is unknown or after this year (§4.5); none when
+    /// the tree turned the contemporary rule off.
+    pub contemporary_after: Option<i32>,
+    /// A contemporary's photographs stay shown when that is the only reason
+    /// to hide them: the tree shows them, and its hidden persons appear.
+    pub contemporary_photos: bool,
+}
+
 /// What one viewer sees of one tree, for one request.
 #[derive(Debug, Default)]
 pub struct Redaction {
     restricted: bool,
+    /// The person rules, for the queries applying them in SQL.
+    rules: HidingRules,
     persons: HashMap<Uuid, HiddenPerson>,
     families: HashSet<Uuid>,
     withhold_private_records: bool,
@@ -130,8 +197,6 @@ pub struct Redaction {
     navigation: bool,
     contemporary_photos: bool,
     default_privacy: TreeDefaultPrivacy,
-    /// The access scope the viewer is limited to.
-    scope: Option<Uuid>,
     pseudonyms: Mutex<HashMap<Uuid, Uuid>>,
 }
 
@@ -215,8 +280,10 @@ impl Redaction {
             })
             .map(|(id, ..)| *id)
             .collect();
+        let rules = HidingRules::of(viewing, default_privacy, settings, inputs, current_year);
         Self {
             restricted: true,
+            rules,
             persons,
             families,
             withhold_private_records: !viewing.read_private,
@@ -225,7 +292,6 @@ impl Redaction {
             navigation: settings.hidden_navigation,
             contemporary_photos: settings.contemporary_photos,
             default_privacy,
-            scope: inputs.scope.map(|scope| scope.id),
             pseudonyms: Mutex::default(),
         }
     }
@@ -275,18 +341,11 @@ impl Redaction {
         self.persons.keys().copied()
     }
 
-    /// What a list leaves out, as SQL can say it: the hidden persons inside
-    /// the access scope, and the scope, outside of which nobody is shown.
-    /// Without a scope, every hidden person.
+    /// The person rules, as the queries that leave hidden persons and
+    /// their records out in SQL apply them.
     #[must_use]
-    pub fn unseen_persons(&self) -> (Vec<Uuid>, Option<Uuid>) {
-        let ids = self
-            .persons
-            .iter()
-            .filter(|(_, hidden)| hidden.reason != Withheld::OutOfScope)
-            .map(|(id, _)| *id)
-            .collect();
-        (ids, self.scope)
+    pub fn rules(&self) -> HidingRules {
+        self.rules
     }
 
     /// Whether the content of family `id` — its events, notes, citations

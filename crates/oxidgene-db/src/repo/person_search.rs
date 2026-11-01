@@ -152,17 +152,13 @@ pub struct PersonSearchFilters {
     pub has_media: bool,
     /// Only persons carrying every one of these tags, by id.
     pub tags: Vec<Uuid>,
-    /// Persons the viewer may not see, left out of the matches and the
-    /// count (docs/privacy.md §7). Set by the server, never read from a
-    /// request.
+    /// The rules hiding persons from the viewer — the owner's exclusions,
+    /// the access scope (docs/authorization.md §6.5) and the privacy rules —
+    /// whose persons are left out of the matches and the count
+    /// (docs/privacy.md §7). Set by the server, never read from a request.
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
-    pub hidden: Vec<Uuid>,
-    /// The access scope the viewer is limited to: persons outside it are
-    /// left out too (docs/authorization.md §6.5). Set by the server.
-    #[serde(skip)]
-    #[cfg_attr(feature = "schema", schemars(skip))]
-    pub scope: Option<Uuid>,
+    pub unseen: oxidgene_core::redaction::HidingRules,
 }
 
 /// Stable server-side ordering for person search.
@@ -1176,32 +1172,64 @@ fn filtered_conditions(
     push_event_filters(values, &mut conditions, backend, tree_id, filters);
     push_relative_filters(values, &mut conditions, backend, tree_id, filters);
     push_tag_filters(values, &mut conditions, backend, tree_id, filters);
-    push_hidden(values, &mut conditions, backend, &filters.hidden);
-    if let Some(scope) = filters.scope {
-        let scope = push_value(values, backend, scope.into());
-        let person_id = uuid_as_text(backend, "asp.person_id");
-        conditions.push(format!(
-            "person_search_fts.person_id IN (SELECT {person_id} FROM access_scope_person asp \
-             WHERE asp.scope_id = {scope})"
-        ));
+    if !filters.unseen.hide_nothing() {
+        conditions.push(seen_condition(values, backend, tree_id, filters.unseen));
     }
     conditions.join(" AND ")
 }
 
-/// Leave out the persons of `hidden`, a bounded slice of them per `NOT IN`.
-fn push_hidden(
+/// Keep the persons the viewer sees: a subquery over `excluded_person`,
+/// `access_scope_person` and `person_visibility` whose bound values are the
+/// same few however many persons are hidden.
+fn seen_condition(
     values: &mut Vec<Value>,
-    conditions: &mut Vec<String>,
     backend: DbBackend,
-    hidden: &[Uuid],
-) {
-    for chunk in hidden.chunks(MAX_BOUND_IDS) {
-        let params: Vec<String> = chunk
-            .iter()
-            .map(|id| push_value(values, backend, id.to_string().into()))
-            .collect();
-        conditions.push(format!("person_id NOT IN ({})", params.join(", ")));
+    tree_id: Uuid,
+    rules: oxidgene_core::redaction::HidingRules,
+) -> String {
+    use sea_orm::sea_query::{
+        Alias, Expr, ExprTrait, PostgresQueryBuilder, Query, SqliteQueryBuilder,
+    };
+    let seen = crate::repo::Unseen::new(tree_id, rules)
+        .condition_on(Expr::col((Alias::new("sp"), Alias::new("id"))));
+    let query = Query::select()
+        .expr(Expr::cust(uuid_as_text(backend, "sp.id")))
+        .from_as(Alias::new("person"), Alias::new("sp"))
+        .and_where(Expr::col((Alias::new("sp"), Alias::new("tree_id"))).eq(tree_id))
+        .cond_where(seen)
+        .to_owned();
+    let (sql, bound) = match backend {
+        // Its placeholders number from 1: after the statement's own.
+        DbBackend::Postgres => {
+            let (sql, bound) = query.build(PostgresQueryBuilder);
+            (renumber(&sql, values.len()), bound)
+        }
+        _ => query.build(SqliteQueryBuilder),
+    };
+    values.extend(bound.0);
+    format!("person_search_fts.person_id IN ({sql})")
+}
+
+/// `sql` with each PostgreSQL placeholder `$n` moved to `$(n + offset)`.
+fn renumber(sql: &str, offset: usize) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if c != '$' {
+            continue;
+        }
+        let mut digits = String::new();
+        while let Some(d) = chars.peek().filter(|d| d.is_ascii_digit()) {
+            digits.push(*d);
+            chars.next();
+        }
+        match digits.parse::<usize>() {
+            Ok(n) => out.push_str(&(n + offset).to_string()),
+            Err(_) => out.push_str(&digits),
+        }
     }
+    out
 }
 
 /// The `ORDER BY` clause of a sort.
@@ -1315,8 +1343,7 @@ mod tests {
             event_to: Some(1830),
             has_media: true,
             tags: vec![Uuid::from_u128(5)],
-            hidden: Vec::new(),
-            scope: None,
+            unseen: Default::default(),
         }
     }
 

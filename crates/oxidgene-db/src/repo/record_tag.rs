@@ -283,7 +283,7 @@ impl RecordTagRepo {
         tag_id: Uuid,
         kind: RecordKind,
         params: &PaginationParams,
-        leave_out: LeaveOut<'_>,
+        leave_out: LeaveOut,
     ) -> Result<Connection<Uuid>, OxidGeneError> {
         let column = column_of(kind);
         let limit = params.clamped_first();
@@ -341,9 +341,9 @@ impl RecordTagRepo {
 /// The condition keeping the `record_tag` rows of `kind` a viewer may see:
 /// not on a record `leave_out` names, nor on a confidential note when it
 /// leaves those out.
-pub(crate) fn visible(kind: RecordKind, leave_out: LeaveOut<'_>) -> sea_orm::Condition {
+pub(crate) fn visible(kind: RecordKind, leave_out: LeaveOut) -> sea_orm::Condition {
     let column = column_of(kind);
-    let mut condition = leave_out.keeping(column);
+    let mut condition = leave_out.keeping(kind, column);
     if kind == RecordKind::Note && leave_out.confidential {
         condition = condition.add(
             column.not_in_subquery(

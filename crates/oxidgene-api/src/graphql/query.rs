@@ -444,8 +444,7 @@ impl TreeQuery {
                 after,
             };
             let redaction = seen(ctx, tid).await?;
-            let (ids, scope) = redaction.unseen_persons();
-            let unseen = oxidgene_db::repo::Unseen { ids: &ids, scope };
+            let unseen = oxidgene_db::repo::Unseen::new(tid, redaction.rules());
             let mut conn =
                 PersonRepo::list_filtered(db, tid, search.as_deref(), &params, unseen).await?;
             if redaction.withholds_tags() {
@@ -760,7 +759,7 @@ impl TreeQuery {
                 search: search.as_deref(),
                 name: name.as_deref(),
                 ids: ids.as_deref(),
-                hidden: records.hidden(RecordKind::Place),
+                unseen: records.unseen(),
             };
             let conn = PlaceRepo::list_filtered(db, tid, &filter, &params).await?;
             Ok(records.page(conn).into())
@@ -807,7 +806,7 @@ impl TreeQuery {
             let filter = oxidgene_db::repo::SourceFilter {
                 title: title.as_deref(),
                 ids: ids.as_deref(),
-                hidden: records.hidden(RecordKind::Source),
+                unseen: records.unseen(),
             };
             let conn = SourceRepo::list_filtered(db, tid, &filter, &params).await?;
             Ok(records.page(conn).into())
@@ -2233,8 +2232,7 @@ impl TreeQuery {
                 event_from,
                 event_to,
                 has_media,
-                hidden: Vec::new(),
-                scope: None,
+                unseen: Default::default(),
             };
             let redaction = seen(ctx, tid).await?;
             let result = profiles

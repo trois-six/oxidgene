@@ -39,7 +39,7 @@ use oxidgene_core::types::{
     Citation, Event, Family, ImageSource, Media, MediaLink, Note, Place, RecordKind, Repository,
     Source, TagRef, Vignette,
 };
-use oxidgene_db::repo::{LeaveOut, NoteOwners, RedactionRepo};
+use oxidgene_db::repo::{LeaveOut, NoteOwners, RedactionRepo, Unseen};
 use sea_orm::DatabaseConnection;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -50,10 +50,6 @@ use crate::profile::ProfileService;
 /// sorted, for lookups and SQL predicates alike.
 #[derive(Debug, Default)]
 pub struct HiddenRecords {
-    /// The persons not shown in full.
-    persons: Vec<Uuid>,
-    /// The families whose content is withheld.
-    families: Vec<Uuid>,
     events: Vec<Uuid>,
     citations: Vec<Uuid>,
     /// Notes about hidden records; confidential ones are decided per note.
@@ -141,6 +137,8 @@ redactable!(
 pub struct Records {
     redaction: Arc<Redaction>,
     hidden: Arc<HiddenRecords>,
+    /// What the lists leave out in SQL.
+    unseen: Unseen,
 }
 
 impl Records {
@@ -156,10 +154,12 @@ impl Records {
         tree_id: Uuid,
     ) -> Result<Self, OxidGeneError> {
         let redaction = super::redaction::redaction(db, profiles, viewer, tree_id).await?;
+        let unseen = Unseen::new(tree_id, redaction.rules());
         if redaction.is_unrestricted() || nothing_hidden(&redaction) {
             return Ok(Self {
                 redaction,
                 hidden: Arc::default(),
+                unseen,
             });
         }
         let slot = viewer.derived::<Slot>(tree_id);
@@ -171,6 +171,7 @@ impl Records {
         Ok(Self {
             hidden: Arc::clone(hidden),
             redaction,
+            unseen,
         })
     }
 
@@ -181,6 +182,7 @@ impl Records {
         Self {
             redaction: Arc::new(Redaction::unrestricted()),
             hidden: Arc::default(),
+            unseen: Unseen::default(),
         }
     }
 
@@ -214,30 +216,23 @@ impl Records {
         }
     }
 
-    /// What a paged list of `kind` leaves out, in SQL.
+    /// What a list leaves out in SQL: the persons, families and records
+    /// the viewer may not see, selected by the rules that hide them rather
+    /// than listed, so that its bound values stay the same however many
+    /// are hidden.
     #[must_use]
-    pub fn leave_out(&self, kind: RecordKind) -> LeaveOut<'_> {
-        LeaveOut {
-            ids: self.hidden(kind),
-            confidential: kind == RecordKind::Note && self.redaction.withholds_confidential(),
-        }
+    pub fn unseen(&self) -> Unseen {
+        self.unseen
     }
 
-    /// What a tag's records and counts leave out of `kind`, in SQL: the
-    /// hidden records, the persons not shown in full and the families
-    /// whose content is withheld among them.
+    /// What a paged list of `kind` leaves out, in SQL: a tag's records and
+    /// counts as well, where a person not shown in full and a family whose
+    /// content is withheld are left out too.
     #[must_use]
-    pub fn tag_leave_out(&self, kind: RecordKind) -> LeaveOut<'_> {
-        match kind {
-            RecordKind::Person => LeaveOut {
-                ids: &self.hidden.persons,
-                confidential: false,
-            },
-            RecordKind::Family => LeaveOut {
-                ids: &self.hidden.families,
-                confidential: false,
-            },
-            _ => self.leave_out(kind),
+    pub fn leave_out(&self, kind: RecordKind) -> LeaveOut {
+        LeaveOut {
+            unseen: self.unseen,
+            confidential: kind == RecordKind::Note && self.redaction.withholds_confidential(),
         }
     }
 
@@ -510,8 +505,6 @@ async fn hidden_records(
     );
 
     Ok(HiddenRecords {
-        persons,
-        families,
         events,
         citations,
         notes: sorted(notes),

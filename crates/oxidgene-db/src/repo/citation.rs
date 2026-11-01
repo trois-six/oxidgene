@@ -49,13 +49,13 @@ impl CitationRepo {
         tree_id: Uuid,
         filter: &CitationFilter,
         params: &PaginationParams,
-        leave_out: LeaveOut<'_>,
+        leave_out: LeaveOut,
     ) -> Result<Connection<Citation>, OxidGeneError> {
         let mut query = Entity::find()
             .join(JoinType::InnerJoin, citation::Relation::Source.def())
             .filter(source::Column::TreeId.eq(tree_id))
             .filter(source::Column::DeletedAt.is_null())
-            .filter(leave_out.keeping(Column::Id));
+            .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Citation, Column::Id));
 
         if let Some(person_id) = filter.person_id {
             query = query.filter(Column::PersonId.eq(person_id));

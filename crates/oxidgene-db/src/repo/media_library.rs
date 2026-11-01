@@ -35,10 +35,11 @@ use uuid::Uuid;
 use crate::entities::media::{self, Column, Entity};
 use crate::entities::{event, family_spouse, media_link, record_tag, tag, vignette};
 use crate::repo::MediaRepo;
+use crate::repo::Unseen;
 use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, encode_cursor};
-use crate::repo::redaction::not_in;
 use crate::repo::{db_err, escape_like};
+use oxidgene_core::types::RecordKind;
 
 /// What a library listing is narrowed to. Every field is optional, and the
 /// set fields combine with AND; the default lists every document.
@@ -64,7 +65,7 @@ pub struct MediaFilter {
     /// Latest day, inclusive and in UTC, the document was added.
     pub added_to: Option<NaiveDate>,
     /// The documents the viewer may not see, left out.
-    pub hidden: Vec<Uuid>,
+    pub unseen: Unseen,
 }
 
 /// One tag of a tree and how many live documents carry it.
@@ -175,15 +176,15 @@ impl MediaLibraryRepo {
         db: &impl ConnectionTrait,
         document_ids: &[Uuid],
     ) -> Result<HashMap<Uuid, i64>, OxidGeneError> {
-        Self::visible_usage_counts(db, document_ids, &[]).await
+        Self::visible_usage_counts(db, document_ids, Unseen::default()).await
     }
 
-    /// [`Self::usage_counts`] without the links of `hidden_links`, which
+    /// [`Self::usage_counts`] without the links `unseen` hides, which
     /// attach a document to records the viewer may not see.
     pub async fn visible_usage_counts(
         db: &impl ConnectionTrait,
         document_ids: &[Uuid],
-        hidden_links: &[Uuid],
+        unseen: Unseen,
     ) -> Result<HashMap<Uuid, i64>, OxidGeneError> {
         // A link names exactly one target, so the first non-null id is it;
         // v7 ids are unique across tables, so counting them distinctly
@@ -203,7 +204,7 @@ impl MediaLibraryRepo {
                 .column_as(Expr::expr(target()), "uses")
                 .join(JoinType::InnerJoin, media_link::Relation::Media.def())
                 .filter(Column::DeletedAt.is_null())
-                .filter(not_in(media_link::Column::Id, hidden_links))
+                .filter(unseen.keeping_media_link(media_link::Column::Id))
                 .filter(
                     Condition::any()
                         .add(Column::Id.is_in(chunk.clone()))
@@ -226,18 +227,17 @@ impl MediaLibraryRepo {
     /// be added to a selection; the kinds and categories always count the
     /// whole library.
     ///
-    /// The documents of `hidden`, which the viewer may not see, count in
-    /// none of them.
+    /// The documents `unseen` hides from the viewer count in none of them.
     pub async fn facets(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         with_tags: &[Uuid],
-        hidden: &[Uuid],
+        unseen: Unseen,
     ) -> Result<MediaFacets, OxidGeneError> {
         Ok(MediaFacets {
-            tags: Self::tag_counts(db, tree_id, with_tags, hidden).await?,
-            kinds: Self::kind_counts(db, tree_id, hidden).await?,
-            categories: Self::category_counts(db, tree_id, hidden).await?,
+            tags: Self::tag_counts(db, tree_id, with_tags, unseen).await?,
+            kinds: Self::kind_counts(db, tree_id, unseen).await?,
+            categories: Self::category_counts(db, tree_id, unseen).await?,
         })
     }
 
@@ -248,7 +248,7 @@ impl MediaLibraryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         with_tags: &[Uuid],
-        hidden: &[Uuid],
+        unseen: Unseen,
     ) -> Result<Vec<MediaTagCount>, OxidGeneError> {
         let mut query = record_tag::Entity::find()
             .select_only()
@@ -260,7 +260,7 @@ impl MediaLibraryRepo {
             .filter(record_tag::Column::TreeId.eq(tree_id))
             .filter(record_tag::Column::MediaId.is_not_null())
             .filter(record_tag::Column::MediaId.in_subquery(live_documents(tree_id)))
-            .filter(not_in(record_tag::Column::MediaId, hidden));
+            .filter(unseen.keeping(RecordKind::Media, record_tag::Column::MediaId));
         for tag_id in with_tags {
             query = query.filter(record_tag::Column::MediaId.in_subquery(tagged(*tag_id)));
         }
@@ -287,7 +287,7 @@ impl MediaLibraryRepo {
     async fn kind_counts(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        hidden: &[Uuid],
+        unseen: Unseen,
     ) -> Result<Vec<(MediaFileKind, i64)>, OxidGeneError> {
         let rows: Vec<(String, i64)> = Entity::find()
             .select_only()
@@ -299,7 +299,7 @@ impl MediaLibraryRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null())
             .filter(Column::ParentMediaId.in_subquery(live_documents(tree_id)))
-            .filter(not_in(Column::ParentMediaId, hidden))
+            .filter(unseen.keeping(RecordKind::Media, Column::ParentMediaId))
             // By alias: both backends accept it, and repeating the CASE would
             // make PostgreSQL compare two expressions it cannot prove equal.
             .group_by(Expr::cust("kind"))
@@ -320,7 +320,7 @@ impl MediaLibraryRepo {
     async fn category_counts(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        hidden: &[Uuid],
+        unseen: Unseen,
     ) -> Result<Vec<(DocumentCategory, i64)>, OxidGeneError> {
         let rows: Vec<(String, i64)> = Entity::find()
             .select_only()
@@ -330,7 +330,7 @@ impl MediaLibraryRepo {
             .filter(Column::ParentMediaId.is_null())
             .filter(Column::DeletedAt.is_null())
             .filter(Column::DocumentCategory.is_not_null())
-            .filter(not_in(Column::Id, hidden))
+            .filter(unseen.keeping(RecordKind::Media, Column::Id))
             .group_by(Column::DocumentCategory)
             .into_tuple()
             .all(db)
@@ -359,7 +359,7 @@ impl MediaLibraryRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
             .filter(Column::DeletedAt.is_null())
-            .filter(not_in(Column::Id, &filter.hidden));
+            .filter(filter.unseen.keeping(RecordKind::Media, Column::Id));
         for tag_id in &filter.tags {
             query = query.filter(Column::Id.in_subquery(tagged(*tag_id)));
         }

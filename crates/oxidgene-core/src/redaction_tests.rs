@@ -350,8 +350,15 @@ fn a_scope_shows_its_persons_and_stubs_its_boundary() {
     assert_ne!(stub, t.living);
     assert_eq!(r.person(t.private), Appearance::Absent);
     assert_eq!(r.public_id(t.private), None);
-    // Lists filter on the scope in SQL, leaving out the hidden inside it.
-    assert_eq!(r.unseen_persons(), (vec![t.excluded], Some(scope_id)));
+    // Lists apply the exclusions and the scope in SQL.
+    assert_eq!(
+        r.rules(),
+        HidingRules {
+            exclusions: true,
+            scope: Some(scope_id),
+            privacy: None,
+        }
+    );
     // A family with a spouse outside the scope has its content withheld.
     assert!(r.family_withheld(t.families[0].0));
 }
