@@ -2906,6 +2906,19 @@ const RECENT_PERSONS_PATH: &str = "/api/v1/trees/recent-persons";
 
 // ── Picture cache ───────────────────────────────────────────────────
 
+/// A held picture as [`ApiClient::get_asset`] answers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetResponse {
+    /// The engine's copy is still current (`304`): no bytes.
+    pub not_modified: bool,
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+    /// The backend's validator, for the engine to revalidate with.
+    pub etag: Option<String>,
+    /// The backend's caching rule.
+    pub cache_control: Option<String>,
+}
+
 /// How many bytes of picture data the session keeps.
 const PICTURE_CACHE_MAX_BYTES: usize = 24 * 1024 * 1024;
 
@@ -5018,6 +5031,11 @@ impl ApiClient {
         let response = self
             .send_request("GET", self.client.get(self.url(path)))
             .await?;
+        Self::binary_body(response).await
+    }
+
+    /// A successful binary answer's bytes and content type.
+    async fn binary_body(response: reqwest::Response) -> Result<(Vec<u8>, String), ApiError> {
         let status = response.status();
         let path = route_template(response.url().path());
         let response = Self::require_success(response).await.inspect_err(|_| {
@@ -5032,6 +5050,49 @@ impl ApiClient {
         let bytes = Self::read_response_body(response).await?;
         tracing::debug!(method = "GET", path, %status, bytes = bytes.len(), "API binary request completed");
         Ok((bytes, content_type))
+    }
+
+    /// Fetch a held picture for a shell that serves it from its own origin,
+    /// as a conditional request when the engine holds a copy validated by
+    /// `if_none_match`: the backend's `304` comes back as such, and its
+    /// validator and caching rule travel with the answer, so the engine
+    /// revalidates exactly as it would against the backend itself.
+    pub async fn get_asset(
+        &self,
+        path: &str,
+        if_none_match: Option<&str>,
+    ) -> Result<AssetResponse, ApiError> {
+        let mut request = self.client.get(self.url(path));
+        if let Some(validator) = if_none_match {
+            request = request.header(reqwest::header::IF_NONE_MATCH, validator);
+        }
+        let response = self.send_request("GET", request).await?;
+        let header = |name: reqwest::header::HeaderName| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+        let etag = header(reqwest::header::ETAG);
+        let cache_control = header(reqwest::header::CACHE_CONTROL);
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(AssetResponse {
+                not_modified: true,
+                bytes: Vec::new(),
+                content_type: String::new(),
+                etag,
+                cache_control,
+            });
+        }
+        let (bytes, content_type) = Self::binary_body(response).await?;
+        Ok(AssetResponse {
+            not_modified: false,
+            bytes,
+            content_type,
+            etag,
+            cache_control,
+        })
     }
 
     async fn get_binary_data_url(&self, path: &str) -> Result<String, ApiError> {
@@ -6787,6 +6848,53 @@ mod tests {
             "DELETE /api/v1/trees/{tree}/media/{document}/pages/{page} "
         )));
         assert!(api.cache.get(&cache_key).is_none());
+    }
+
+    /// The desktop's picture handler revalidates through `get_asset`: the
+    /// engine's validator goes out, the backend's `304`, validator and
+    /// caching rule come back.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn an_asset_is_revalidated_with_the_engines_validator() {
+        let (listener, address) = test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let path = format!(
+            "/api/v1/trees/{}/vignettes/{}/card",
+            Uuid::now_v7(),
+            Uuid::now_v7()
+        );
+        let (answer, request) = tokio::join!(
+            api.get_asset(&path, Some("\"abc\"")),
+            test_server::serve_once(
+                &listener,
+                b"HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nCache-Control: private, no-cache\r\n\r\n"
+            )
+        );
+        let answer = answer.unwrap();
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("if-none-match: \"abc\""),
+            "{request}"
+        );
+        assert!(answer.not_modified);
+        assert!(answer.bytes.is_empty());
+        assert_eq!(answer.etag.as_deref(), Some("\"abc\""));
+        assert_eq!(answer.cache_control.as_deref(), Some("private, no-cache"));
+
+        let (answer, request) = tokio::join!(
+            api.get_asset(&path, None),
+            test_server::serve_once(
+                &listener,
+                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nETag: \"def\"\r\nContent-Length: 3\r\n\r\njpg"
+            )
+        );
+        let answer = answer.unwrap();
+        assert!(!request.to_ascii_lowercase().contains("if-none-match"));
+        assert!(!answer.not_modified);
+        assert_eq!(answer.bytes, b"jpg");
+        assert_eq!(answer.content_type, "image/jpeg");
+        assert_eq!(answer.etag.as_deref(), Some("\"def\""));
     }
 
     #[test]

@@ -199,20 +199,31 @@ async fn cropped_image(
         ))));
     }
 
-    // The crop is a function of the source bytes and the rectangle alone, so
-    // those make a strong validator: a reload answers 304 without reading or
-    // cutting the original again.
-    let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let etag = media
-        .sha256
-        .as_deref()
-        .map(|digest| crop_etag(digest, rect, rendition));
+    // The fingerprint names everything the crop depends on, hashed: a strong
+    // validator that reveals nothing. It is compared only once the viewer
+    // has been allowed to see the vignette, so one who lost access is
+    // answered 404, never 304.
+    let etag = crate::media::crops::fingerprint(&media, &vignette, rendition)
+        .map(|fingerprint| format!("\"{fingerprint}\""));
+    let mut headers = HeaderMap::new();
+    if let Some(etag) = &etag {
+        headers.insert(ETAG, super::media::header_value(etag));
+    }
+    // Revalidated on every use: the rectangle can move and the page's file
+    // be replaced under the same address, and the old picture must not be
+    // drawn meanwhile. A revalidation costs no cut and no read of the store.
+    headers.insert(
+        CACHE_CONTROL,
+        super::media::header_value("private, no-cache"),
+    );
+    #[cfg(feature = "auth")]
+    super::caching::vary_on_credentials(&mut headers);
     if let (Some(etag), Some(requested)) = (&etag, request_headers.get(IF_NONE_MATCH))
         && requested
             .to_str()
             .is_ok_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
     {
-        return Ok(StatusCode::NOT_MODIFIED.into_response());
+        return Ok((StatusCode::NOT_MODIFIED, headers).into_response());
     }
 
     let (cropped, written) =
@@ -221,40 +232,10 @@ async fn cropped_image(
         crate::media::crops::confirm(&state.reader, &*state.media, &[written]).await;
     }
 
-    let mut headers = HeaderMap::new();
-    if let Some(etag) = etag {
-        headers.insert(ETAG, super::media::header_value(&etag));
-    }
     headers.insert(CONTENT_TYPE, super::media::header_value("image/jpeg"));
     headers.insert(
         CONTENT_LENGTH,
         super::media::header_value(&cropped.len().to_string()),
     );
-    // The rectangle can move under the same address, so this caches for a
-    // short while rather than being treated as immutable.
-    headers.insert(
-        CACHE_CONTROL,
-        super::media::header_value("private, max-age=300"),
-    );
-    #[cfg(feature = "auth")]
-    super::caching::vary_on_credentials(&mut headers);
     Ok((headers, Body::from(cropped)).into_response())
-}
-
-/// The validator of a crop: the source's content digest, the rectangle, and
-/// the size the crop is sent at, which changes the bytes when it changes.
-fn crop_etag(
-    source_sha256: &str,
-    (x, y, width, height): (i32, i32, i32, i32),
-    rendition: Rendition,
-) -> String {
-    let size = match rendition {
-        Rendition::Thumbnail => crate::media::thumbnail::THUMBNAIL_MAX_EDGE,
-        Rendition::Card => crate::media::thumbnail::CARD_EDGE,
-    };
-    let fit = match rendition {
-        Rendition::Thumbnail => "fit",
-        Rendition::Card => "cover",
-    };
-    format!("\"{source_sha256}-{x}.{y}.{width}.{height}-{fit}{size}\"")
 }

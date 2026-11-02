@@ -263,6 +263,98 @@ fn fresh_cut(original: &[u8], rect: (i32, i32, i32, i32), rendition: Rendition) 
 
 const RECT: (i32, i32, i32, i32) = (100, 80, 240, 200);
 
+/// `GET uri`, conditional on `if_none_match` when given: the status, the
+/// headers and the body.
+async fn conditional(
+    app: &axum::Router,
+    uri: &str,
+    if_none_match: Option<&str>,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let mut request = Request::builder().method(Method::GET).uri(uri);
+    if let Some(validator) = if_none_match {
+        request = request.header(header::IF_NONE_MATCH, validator);
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, headers, bytes.to_vec())
+}
+
+/// A crop is revalidated on every use, never kept for a while: a moved
+/// rectangle or a replaced file shows at once. Its validator is the
+/// fingerprint, which names nothing; a vignette gone answers 404 whatever
+/// validator the client holds.
+#[tokio::test]
+async fn a_crop_is_revalidated_by_its_fingerprint_on_every_use() {
+    let h = Harness::new().await;
+    let vignette = h.vignette(RECT, None).await;
+    for size in ["card", "image"] {
+        let uri = format!("{}/vignettes/{vignette}/{size}", h.base());
+        let (status, headers, _) = conditional(&h.app, &uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+        let etag = headers[header::ETAG].to_str().unwrap().to_string();
+        let fingerprint = etag.trim_matches('"');
+        assert_eq!(fingerprint.len(), 64, "a SHA-256: {etag}");
+        assert!(
+            h.crops(&vignette)
+                .iter()
+                .any(|file| file.to_string_lossy().contains(fingerprint)),
+            "the validator is the stored crop's fingerprint"
+        );
+        assert!(!etag.contains(&h.page_id) && !etag.contains(&vignette));
+
+        let (status, headers, body) = conditional(&h.app, &uri, Some(&etag)).await;
+        assert_eq!(status, StatusCode::NOT_MODIFIED, "{size}");
+        assert!(body.is_empty());
+        assert_eq!(headers[header::ETAG].to_str().unwrap(), etag);
+        assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+    }
+
+    let uri = format!("{}/vignettes/{vignette}/card", h.base());
+    let (_, headers, _) = conditional(&h.app, &uri, None).await;
+    let before = headers[header::ETAG].to_str().unwrap().to_string();
+    let moved = (0, 0, 320, 320);
+    let (status, _) = send(
+        &h.app,
+        Method::PUT,
+        &format!("{}/vignettes/{vignette}", h.base()),
+        Some(json!({ "x": moved.0, "y": moved.1, "width": moved.2, "height": moved.3 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, headers, body) = conditional(&h.app, &uri, Some(&before)).await;
+    assert_eq!(status, StatusCode::OK, "a moved rectangle is no 304");
+    assert_ne!(headers[header::ETAG].to_str().unwrap(), before);
+    assert_eq!(body, fresh_cut(&h.original, moved, Rendition::Card));
+
+    let (_, headers, _) = conditional(&h.app, &uri, None).await;
+    let current = headers[header::ETAG].to_str().unwrap().to_string();
+    let replacement = photograph(640, 480, 33);
+    h.upload(&replacement, ("media_id", &h.page_id)).await;
+    let (status, headers, _) = conditional(&h.app, &uri, Some(&current)).await;
+    assert_eq!(status, StatusCode::OK, "a replaced file is no 304");
+    assert_ne!(headers[header::ETAG].to_str().unwrap(), current);
+
+    let (_, headers, _) = conditional(&h.app, &uri, None).await;
+    let last = headers[header::ETAG].to_str().unwrap().to_string();
+    let (status, _) = send(
+        &h.app,
+        Method::DELETE,
+        &format!("{}/vignettes/{vignette}", h.base()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _, _) = conditional(&h.app, &uri, Some(&last)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
 #[tokio::test]
 async fn a_stored_crop_is_a_fresh_cut_and_is_read_back_from_the_store() {
     let h = Harness::new().await;

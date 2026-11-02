@@ -66,22 +66,34 @@ fn size_name(rendition: Rendition) -> &'static str {
     }
 }
 
+/// The fingerprint of the crop of `vignette`, a region of page `medium`, at
+/// `rendition`, as both rows are now: the SHA-256 of everything the picture
+/// depends on, which reveals none of it. `None` for a page whose bytes have
+/// no digest, which is a page we do not hold.
+#[must_use]
+pub fn fingerprint(medium: &Media, vignette: &Vignette, rendition: Rendition) -> Option<String> {
+    let digest = medium.sha256.as_deref()?;
+    let identity = format!(
+        "oxidgene-crop/{CUT_VERSION}\n{}\n{digest}\n{},{},{},{}\n{}",
+        medium.id,
+        vignette.x,
+        vignette.y,
+        vignette.width,
+        vignette.height,
+        size_name(rendition)
+    );
+    Some(sha256_hex(identity.as_bytes()))
+}
+
 /// The key of the crop of `vignette`, a region of page `medium`, at
-/// `rendition`, as both rows are now; `None` for a page whose bytes have no
-/// digest, which is a page we do not hold.
+/// `rendition`, as both rows are now; `None` as for [`fingerprint`].
 #[must_use]
 pub fn current_key(medium: &Media, vignette: &Vignette, rendition: Rendition) -> Option<String> {
-    let digest = medium.sha256.as_deref()?;
-    let size = size_name(rendition);
-    let identity = format!(
-        "oxidgene-crop/{CUT_VERSION}\n{}\n{digest}\n{},{},{},{}\n{size}",
-        medium.id, vignette.x, vignette.y, vignette.width, vignette.height
-    );
     Some(crop_key(
         medium.tree_id,
         vignette.id,
-        &sha256_hex(identity.as_bytes()),
-        size,
+        &fingerprint(medium, vignette, rendition)?,
+        size_name(rendition),
     ))
 }
 

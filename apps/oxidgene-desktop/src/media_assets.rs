@@ -90,8 +90,15 @@ pub fn DesktopApp() -> Element {
             responder.respond(not_found());
             return;
         }
+        // The engine's validator travels on, so it revalidates its copy
+        // against the backend's own checks rather than this handler's.
+        let if_none_match = request
+            .headers()
+            .get("If-None-Match")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         spawn(async move {
-            responder.respond(match fetch(&api, &path).await {
+            responder.respond(match fetch(&api, &path, if_none_match.as_deref()).await {
                 Some(response) => response,
                 None => not_found(),
             });
@@ -106,20 +113,39 @@ pub fn DesktopApp() -> Element {
     }
 }
 
-async fn fetch(api: &ApiClient, path: &str) -> Option<Response<Vec<u8>>> {
-    let (bytes, content_type) = api.get_binary(path).await.ok()?;
-    Response::builder()
-        .status(200)
-        .header("Content-Type", content_type)
+/// The backend's answer for `path`, conditional on `if_none_match`: its
+/// `304`, or its bytes, each with its validator and caching rule — a crop
+/// is revalidated on every use, so a moved rectangle never shows its old
+/// picture (`docs/architecture.md` §4.2). Anything the backend refuses is
+/// not found here.
+async fn fetch(
+    api: &ApiClient,
+    path: &str,
+    if_none_match: Option<&str>,
+) -> Option<Response<Vec<u8>>> {
+    let asset = api.get_asset(path, if_none_match).await.ok()?;
+    let mut response = Response::builder()
+        .status(if asset.not_modified { 304 } else { 200 })
         // The file's type is whatever its upload declared, and this origin is
         // the application's own: an HTML or SVG file must never run here.
         .header("X-Content-Type-Options", "nosniff")
         .header("Content-Security-Policy", "sandbox")
-        // Same window, same process, same lifetime as the store it came from:
-        // the WebView may keep it for as long as it is open.
-        .header("Cache-Control", "private, max-age=3600")
-        .body(bytes)
-        .ok()
+        // The backend's rule, or, should it state none, the window's
+        // lifetime: same process, same store.
+        .header(
+            "Cache-Control",
+            asset
+                .cache_control
+                .as_deref()
+                .unwrap_or("private, max-age=3600"),
+        );
+    if let Some(etag) = &asset.etag {
+        response = response.header("ETag", etag.as_str());
+    }
+    if !asset.not_modified {
+        response = response.header("Content-Type", asset.content_type);
+    }
+    response.body(asset.bytes).ok()
 }
 
 fn silhouette(slug: &str) -> Option<Response<Vec<u8>>> {

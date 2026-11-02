@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -689,7 +689,10 @@ must never be exposed directly to an untrusted network:
   backend URL, and the picture cannot be reached by anyone the shell has not
   already let in. The handler forwards, with the launch token, only the paths
   its image host builds — a medium's thumbnail or file, a vignette's image —
-  and answers `404` to anything else, and note bodies keep no image and no
+  and answers `404` to anything else. It forwards the engine's
+  `If-None-Match` and relays the backend's status, `ETag` and
+  `Cache-Control`, so a picture revalidates as it would against the backend
+  itself. Note bodies keep no image and no
   relative URL that could point at it (§7). The PDF viewer's pdf.js fetches
   a PDF there too, a path of the same handler. A second handler,
   `/pdfjs/…`, serves pdf.js itself from the binary and nothing of the

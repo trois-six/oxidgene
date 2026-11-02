@@ -638,8 +638,20 @@ async fn a_stored_crop_of_a_hidden_vignette_is_never_served() {
         { "kind": "crop", "vignette_id": vignette },
         { "kind": "card_crop", "vignette_id": vignette },
     ] });
+    // The owner's validators: a viewer holding one, as one who lost access
+    // since may, still gets 404, never 304.
+    let mut validators = Vec::new();
+    for size in ["card", "image"] {
+        let request = Request::builder()
+            .uri(format!("{base}/vignettes/{vignette}/{size}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = local.clone().oneshot(request).await.unwrap();
+        let etag = response.headers()[header::ETAG].to_str().unwrap();
+        validators.push((size, etag.to_string()));
+    }
     for who in VIEWERS {
-        for size in ["card", "image"] {
+        for (size, etag) in &validators {
             let (status, _) = f
                 .rest(
                     who,
@@ -649,6 +661,16 @@ async fn a_stored_crop_of_a_hidden_vignette_is_never_served() {
                 )
                 .await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{who:?} {size}");
+            let request = Request::builder()
+                .method(Method::GET)
+                .uri(format!("{base}/vignettes/{vignette}/{size}"))
+                .header(header::IF_NONE_MATCH, etag.as_str());
+            let (status, _) = f.send(who, request, Body::empty()).await;
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "{who:?} {size} with the owner's validator"
+            );
         }
         let (status, slots) = f
             .rest(

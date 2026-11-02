@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
 ---
 
 
@@ -390,6 +390,17 @@ the tree, the page raster and held, and the viewer's access to the vignette
 store is not served, an S3 bucket is private and nothing is presigned, the
 server reads it. A hidden vignette's stored crop is never read, for any
 viewer or surface.
+
+**Revalidation.** The two routes send `Cache-Control: private, no-cache`
+and the crop's fingerprint as its `ETag`: a client keeps the picture but
+asks again on every use, so a moved rectangle or a replaced file shows at
+once, never after a cache lifetime. `If-None-Match` is answered `304` after
+the same checks as the picture, so a viewer who lost access gets `404`; a
+revalidation reads no object. The desktop shell's handler forwards the
+engine's `If-None-Match` and relays the backend's `304`, `ETag` and
+`Cache-Control` rather than a lifetime of its own. The web build draws crops
+as `data:` URLs from `image-data`, never cached by HTTP; its session keeps
+them ten minutes, and drops a tree's when it writes to that tree.
 
 **Deletion.** Each write deletes the crops it makes unreachable right after
 its transaction commits; a failure is logged and left to the sweep.
