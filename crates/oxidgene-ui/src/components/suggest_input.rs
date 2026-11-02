@@ -279,7 +279,8 @@ pub fn ValueInput(
     #[props(default)] on_change: Option<EventHandler<()>>,
 ) -> Element {
     let i18n = use_i18n();
-    let uppercase = surname && use_entry_options()().surname_uppercase;
+    let entry_options = use_entry_options();
+    let uppercase = surname && entry_options().surname_uppercase;
     let mut value = value;
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.

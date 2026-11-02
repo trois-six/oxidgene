@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-01T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -615,6 +615,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage |
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` is one release of pdf.js's legacy build, the one its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
+| Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |

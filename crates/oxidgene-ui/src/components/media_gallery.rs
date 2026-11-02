@@ -1450,7 +1450,10 @@ fn TileMenu(
     on_delete: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let can_delete = can_delete && use_can(Permission::Delete);
+    // The hook first, on every render: `&&` would skip it when the prop is
+    // false, and a hook's place in the order must not depend on a value.
+    let may_delete = use_can(Permission::Delete);
+    let can_delete = can_delete && may_delete;
     let profile_label = if is_portrait {
         "media.clear_profile_image"
     } else {
@@ -1566,7 +1569,8 @@ fn VignetteTile(
     // The right click and a long press are shortcuts to the ⋮ menu, which
     // exists only for a vignette that identifies a person, and only for a
     // viewer who may change it (docs/authorization.md §11).
-    let has_menu = person_id.is_some() && use_can(Permission::Edit);
+    let may_edit = use_can(Permission::Edit);
+    let has_menu = person_id.is_some() && may_edit;
     let press = use_signal(|| 0_u32);
     let mut open_at = move |point: (f64, f64)| {
         menu_trigger.set(None);

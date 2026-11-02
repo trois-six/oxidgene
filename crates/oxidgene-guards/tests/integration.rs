@@ -5,6 +5,7 @@
 //! again. The manifest turns that discovery off, so a file of `tests/` runs
 //! only once declared below; the `test_targets` guard keeps it so.
 
+mod conditional_hooks;
 mod continuous_listeners;
 mod dead_css;
 mod docker_assets;
