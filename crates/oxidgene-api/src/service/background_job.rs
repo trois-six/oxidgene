@@ -822,15 +822,21 @@ impl BackgroundJobWorker {
     /// Delete the memberships past their expiry, each with a
     /// `membership_expired` access event (docs/authorization.md §5), and
     /// tell each member (`membership_ended`). They granted nothing since
-    /// they expired; this only removes the rows. Empty on the desktop,
-    /// which has no memberships.
+    /// they expired; this only removes the rows. One transaction holds the
+    /// deletion, the events and the notices: a failed insert keeps the
+    /// rows for the next pass, and a concurrent pass deletes, and so
+    /// reports, none of the same rows. Empty on the desktop, which has no
+    /// memberships.
     async fn expire_memberships(
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), OxidGeneError> {
-        for membership in oxidgene_db::repo::MembershipRepo::delete_expired(&self.db, now).await? {
+        let txn = self.db.begin().await.map_err(db_err)?;
+        #[cfg(feature = "auth")]
+        let mut notices = crate::service::notification::Notices::new(self.mailing);
+        for membership in oxidgene_db::repo::MembershipRepo::delete_expired(&txn, now).await? {
             oxidgene_db::repo::AccessEventRepo::insert(
-                &self.db,
+                &txn,
                 oxidgene_db::repo::NewAccessEvent {
                     kind: "membership_expired",
                     principal_kind: "user",
@@ -843,11 +849,10 @@ impl BackgroundJobWorker {
             .await?;
             #[cfg(feature = "auth")]
             {
-                use crate::service::notification::{About, Notices, NotificationKind};
-                let mut notices = Notices::new(self.mailing);
+                use crate::service::notification::{About, NotificationKind};
                 notices
                     .add(
-                        &self.db,
+                        &txn,
                         NotificationKind::MembershipEnded,
                         membership.user_id,
                         About {
@@ -856,9 +861,11 @@ impl BackgroundJobWorker {
                         },
                     )
                     .await?;
-                notices.publish();
             }
         }
+        txn.commit().await.map_err(db_err)?;
+        #[cfg(feature = "auth")]
+        notices.publish();
         Ok(())
     }
 
@@ -1809,6 +1816,103 @@ mod tests {
             .await
             .expect("reads job")
             .expect("job exists")
+    }
+
+    /// An expired membership of a fictitious user on a new tree.
+    async fn expired_membership(db: &DatabaseConnection) -> Uuid {
+        use oxidgene_db::repo::{AppUserRepo, InstanceRole, NewAppUser, SharedMembership};
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(db, tree_id, "Shared".into(), None)
+            .await
+            .expect("creates tree");
+        let user = AppUserRepo::create(
+            db,
+            NewAppUser {
+                issuer: "https://idp.example.invalid/".into(),
+                subject: format!("subject-{}", Uuid::now_v7()),
+                email: None,
+                email_verified: false,
+                provider_name: Some("Fictive member".into()),
+                username: None,
+                locale: None,
+                instance_role: InstanceRole::User,
+                can_create_trees: false,
+            },
+        )
+        .await
+        .expect("creates the user");
+        oxidgene_db::repo::MembershipRepo::create_shared(
+            db,
+            SharedMembership {
+                tree_id,
+                user_id: user.id,
+                role: oxidgene_core::access::TreeRole::Guest,
+                scope_id: None,
+                expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+                created_by: None,
+            },
+        )
+        .await
+        .expect("shares the tree");
+        tree_id
+    }
+
+    #[tokio::test]
+    async fn a_failed_membership_expiry_keeps_the_memberships_for_the_next_pass() {
+        use sea_orm::ConnectionTrait as _;
+        let db = migrated_db().await;
+        let tree_id = expired_membership(&db).await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let worker = BackgroundJobWorker::new(
+            db.clone(),
+            Arc::new(ProfileService::new(db.clone())),
+            Arc::new(crate::media::store::FsStore::new(root.path())),
+            "test",
+        );
+        let members = |db: DatabaseConnection| async move {
+            oxidgene_db::repo::MembershipRepo::list(
+                &db,
+                tree_id,
+                &oxidgene_db::repo::PaginationParams::default(),
+            )
+            .await
+            .expect("lists members")
+            .total_count
+        };
+
+        // The access event cannot be written: the deletion rolls back.
+        db.execute_unprepared("ALTER TABLE access_event RENAME TO access_event_away")
+            .await
+            .expect("hides the access log");
+        let now = chrono::Utc::now();
+        assert!(worker.expire_memberships(now).await.is_err());
+        assert_eq!(members(db.clone()).await, 1, "the membership is kept");
+
+        // The next pass deletes it, with its event.
+        db.execute_unprepared("ALTER TABLE access_event_away RENAME TO access_event")
+            .await
+            .expect("restores the access log");
+        worker.expire_memberships(now).await.expect("expires");
+        assert_eq!(members(db.clone()).await, 0);
+        let events = oxidgene_db::repo::AccessEventRepo::list(
+            &db,
+            Some(tree_id),
+            &oxidgene_db::repo::PaginationParams::default(),
+        )
+        .await
+        .expect("lists events");
+        assert_eq!(events.total_count, 1);
+        assert_eq!(events.edges[0].node.kind, "membership_expired");
+        // A pass that finds it gone reports nothing again.
+        worker.expire_memberships(now).await.expect("expires");
+        let again = oxidgene_db::repo::AccessEventRepo::list(
+            &db,
+            Some(tree_id),
+            &oxidgene_db::repo::PaginationParams::default(),
+        )
+        .await
+        .expect("lists events");
+        assert_eq!(again.total_count, 1);
     }
 
     #[tokio::test]
