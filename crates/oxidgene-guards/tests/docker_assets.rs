@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use oxidgene_guards::{files, read, relative, root};
+use oxidgene_guards::{files, read, relative, root, without_test_modules};
 
 /// Each image: its Dockerfile and the workspace package it builds.
 const IMAGES: &[(&str, &str)] = &[
@@ -67,15 +67,13 @@ fn is_test(path: &Path) -> bool {
 
 /// The asset paths a source names in its string literals: what follows
 /// `assets/` up to the closing quote, `assets/mail/en.json` or
-/// `assets/reference`. Comments are skipped, and so is the rest of a file
-/// from its `#[cfg(test)]` module on.
+/// `assets/reference`. Comments are skipped, and so are the file's inline
+/// test modules ([`without_test_modules`]): production code after an
+/// out-of-line `#[cfg(test)] mod x;` or a test-only item is still read.
 fn assets_named(source: &str) -> BTreeSet<String> {
     let mut named = BTreeSet::new();
-    for line in source.lines() {
+    for line in without_test_modules(source).lines() {
         let code = line.trim_start();
-        if code.starts_with("#[cfg(test)]") {
-            break;
-        }
         if code.starts_with("//") {
             continue;
         }
@@ -137,6 +135,25 @@ fn every_embedded_asset_is_copied_into_its_image() {
     missing.sort();
     missing.dedup();
     assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+#[test]
+fn an_asset_after_a_test_only_item_is_still_read() {
+    let source = r#"
+#[cfg(test)]
+mod helpers;
+#[cfg(test)]
+use std::fmt;
+const MAIL: &str = include_str!("../../../assets/mail/en.json");
+#[cfg(test)]
+mod tests {
+    const FIXTURE: &str = "assets/fixtures/sample.ged";
+}
+"#;
+    assert_eq!(
+        assets_named(source),
+        BTreeSet::from(["assets/mail/en.json".to_string()])
+    );
 }
 
 #[test]
