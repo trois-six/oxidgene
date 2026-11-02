@@ -3533,7 +3533,11 @@ Cases the catalogue model must express:
   which answers a plain `http` request with a redirect to `https` and serves
   the host on neither: the live check ended in drift, its first request
   having left the portal's origin (§9.1), and the scheduled run grouped the
-  archive with the Ligeo portals (§9.2). CAOMEC2 has moved only once the
+  archive with the Ligeo portals (§9.2). It resolved there again from late
+  October 2026 (checked 2026-11-02): the `https` port refuses the host's
+  name, the Ligeo instance answers `/caomec2/` with a `404` behind its
+  Anubis check, and the archive's own pages still link the former address,
+  so the civil status answered nowhere. CAOMEC2 has moved only once the
   host resolves there for good and its search answers elsewhere; until
   then, the catalogue entry stands.
 
