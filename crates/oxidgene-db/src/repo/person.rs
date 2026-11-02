@@ -176,6 +176,23 @@ impl PersonRepo {
         .await
     }
 
+    /// How many live persons of `tree_id` remain once `unseen` leaves its
+    /// persons out: the count of a restricted viewer, which
+    /// [`Self::list_filtered`]'s `total_count` agrees with.
+    pub async fn count_seen(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        unseen: super::Unseen,
+    ) -> Result<u64, OxidGeneError> {
+        Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .filter(unseen.condition(Column::Id))
+            .count(db)
+            .await
+            .map_err(db_err)
+    }
+
     /// The ids of every live person of a tree: what a walk over its family
     /// links needs, without the persons themselves.
     pub async fn live_ids(

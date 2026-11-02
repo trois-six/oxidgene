@@ -683,3 +683,24 @@ async fn the_archive_target_of_a_hidden_source_or_citation_is_not_found() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_trees_person_count_leaves_hidden_persons_out() {
+    let f = fixture().await;
+    let query = format!(
+        r#"{{ tree(id: "{tree}") {{ personCount }} persons(treeId: "{tree}", first: 100) {{ totalCount }} }}"#,
+        tree = f.tree.tree_id,
+    );
+    let owner = gql_ok(&f.owner, &query, json!({})).await;
+    let everyone = owner["tree"]["personCount"].as_i64().unwrap();
+    assert_eq!(owner["persons"]["totalCount"].as_i64(), Some(everyone));
+    for who in VIEWERS {
+        let data = f.data(who, &query).await;
+        // The excluded anchor counts nowhere, as the list leaves them out.
+        assert!(
+            data["tree"]["personCount"].as_i64() < Some(everyone),
+            "{who:?}: {data}"
+        );
+        assert_eq!(data["persons"]["totalCount"], data["tree"]["personCount"]);
+    }
+}

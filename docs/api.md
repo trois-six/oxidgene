@@ -2082,7 +2082,9 @@ The schema mirrors §2 operation by operation, following these rules:
   whole page, or of a whole level of the document, are answered by one query
   per relation, so a request costs the same number of statements for ten
   records as for a hundred. `Tree.personCount` and
-  `Tree.familyCount` are counts, and `Tree.importInProgress` and
+  `Tree.familyCount` are counts — the persons counted those the viewer
+  sees, as `persons` lists them, in one statement of its own for a
+  restricted viewer —, and `Tree.importInProgress` and
   `Tree.importJobId` and `Tree.importCancelling` are the transient job fields
   the REST tree list adds.
 - **Absence.** A singular query answers `null` for a record that is absent,

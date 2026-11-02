@@ -3989,7 +3989,8 @@ type GqlTree {
 	"""
 	viewerAccess: GqlViewerAccess!
 	"""
-	Count of persons in this tree.
+	Count of persons in this tree the viewer sees: a hidden person
+	counts for nobody but the owner, as in the `persons` list.
 	"""
 	personCount: Int!
 	"""

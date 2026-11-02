@@ -1065,9 +1065,25 @@ impl GqlTree {
         Ok(access.into())
     }
 
-    /// Count of persons in this tree.
+    /// Count of persons in this tree the viewer sees: a hidden person
+    /// counts for nobody but the owner, as in the `persons` list.
     async fn person_count(&self, ctx: &Context<'_>) -> Result<i64> {
-        let count = loaders::one(ctx, TreePersonCount(uuid(&self.id)?)).await?;
+        let tree_id = uuid(&self.id)?;
+        let redaction = crate::authz::redaction::redaction(
+            reader_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            super::scope::viewer_from_ctx(ctx),
+            tree_id,
+        )
+        .await?;
+        if !redaction.is_unrestricted() {
+            let unseen = oxidgene_db::repo::Unseen::new(tree_id, redaction.rules());
+            let count =
+                oxidgene_db::repo::PersonRepo::count_seen(reader_from_ctx(ctx), tree_id, unseen)
+                    .await?;
+            return Ok(i64::try_from(count).unwrap_or(i64::MAX));
+        }
+        let count = loaders::one(ctx, TreePersonCount(tree_id)).await?;
         Ok(count.unwrap_or(0))
     }
 
