@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T15:00:00Z }
 ---
 
 
@@ -2242,7 +2242,10 @@ byte-order mark.
   included), and each link to it as an `_OXIDGENE_OBJE` pointer: the text
   stays conformant, other programs ignore the extension, and an OxidGene
   import restores the medium, unheld, with its links, as the `.ged` of the
-  same tree does.
+  same tree does. A held medium whose bytes the media store no longer has
+  is left out of the archive with a warning, its `FILE` still naming the
+  entry; any other failure to read one — an unreachable store, a refused
+  read, a full disk — fails the export, synchronous or job alike.
 - **Extensions.** The header declares OxidGene's extension tags in
   `HEAD.SCHMA`, each with the URI of its documentation below, which makes
   them documented extension tags.

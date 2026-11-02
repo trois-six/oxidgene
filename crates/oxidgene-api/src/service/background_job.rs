@@ -12,7 +12,6 @@ use oxidgene_db::repo::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
     TreeRepo, db_err, job_actor,
 };
-use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, DbBackend, TransactionTrait};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -1306,9 +1305,9 @@ impl BackgroundJobWorker {
         Ok(())
     }
 
-    /// Copies an export's media from the store into `scratch`; each staged
-    /// file's archive path and local path. A medium absent from
-    /// the store is left out with a warning.
+    /// Copies an export's media from the store into `scratch`
+    /// ([`gedcom::stage_gedzip_media`]), reporting the progress and
+    /// stopping at a cancellation between two media.
     async fn stage_export_media(
         &self,
         job_id: Uuid,
@@ -1316,37 +1315,24 @@ impl BackgroundJobWorker {
         media_files: &[(String, String)],
         cancel: &CancelToken,
     ) -> Result<Vec<(String, std::path::PathBuf)>, OxidGeneError> {
-        let media_root = scratch.join("media");
-        tokio::fs::create_dir_all(&media_root).await?;
         let total = as_i64(media_files.len());
         let media_span = tracing::info_span!(
             "export.media",
             export.format = "gedzip",
             export.media.count = total,
         );
-        let mut staged_media = Vec::with_capacity(media_files.len());
-        async {
-            for (index, (key, archive_path)) in media_files.iter().enumerate() {
+        cancel.check()?;
+        gedcom::stage_gedzip_media(
+            &*self.media,
+            &scratch.join("media"),
+            media_files,
+            |done| async move {
                 cancel.check()?;
-                let local_path = media_root.join(index.to_string());
-                match self.media.get_to_file(key, &local_path).await {
-                    Ok(()) => {
-                        staged_media.push((archive_path.clone(), local_path));
-                    }
-                    Err(error) => tracing::warn!(
-                        job_id = %job_id,
-                        error.kind = error_kind(&error),
-                        "media absent from the store; not packed"
-                    ),
-                }
-                self.progress(job_id, "media", as_i64(index + 1), total)
-                    .await?;
-            }
-            Ok::<(), OxidGeneError>(())
-        }
+                self.progress(job_id, "media", as_i64(done), total).await
+            },
+        )
         .instrument(media_span)
-        .await?;
-        Ok(staged_media)
+        .await
     }
 
     /// Writes the GEDZIP at `artifact_path` from `gedcom` and the staged
@@ -1365,13 +1351,7 @@ impl BackgroundJobWorker {
         // inside it rather than in a trace of its own.
         let package_span = tracing::info_span!("export.package", export.format = "gedzip");
         let archive_task = crate::service::blocking::spawn_in(package_span.clone(), move || {
-            let mut writer = GedzipFileWriter::create(&archive_path, &gedcom)?;
-            for (entry_path, local_path) in staged_media {
-                cancel.check()?;
-                let bytes = std::fs::read(local_path)?;
-                writer.add_media_file(&entry_path, &bytes)?;
-            }
-            Ok::<_, OxidGeneError>(writer.finish().map(drop)?)
+            gedcom::pack_gedzip(&archive_path, &gedcom, staged_media, || cancel.check())
         });
         self.with_heartbeat(job_id, "packaging", async {
             archive_task

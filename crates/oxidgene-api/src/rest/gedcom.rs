@@ -84,7 +84,14 @@ pub async fn export_gedcom_handler(
         .staged_file("export-")
         .map_err(OxidGeneError::Io)?
         .into_temp_path();
-    gedcom::write_gedzip_file(&*state.media, &staged, data.gedcom, data.media_files).await?;
+    gedcom::write_gedzip_file(
+        &*state.media,
+        &state.work_dir,
+        &staged,
+        data.gedcom,
+        data.media_files,
+    )
+    .await?;
     history::record_export(
         &viewer,
         &state.db,

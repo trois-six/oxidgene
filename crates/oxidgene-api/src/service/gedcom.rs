@@ -1188,61 +1188,96 @@ pub async fn load_and_export(
 }
 
 /// Write the GEDZIP of an export, `gedcom` with `media_files` as
-/// [`ExportData`] lists them, to the file at `path`.
-///
-/// One medium is held at a time: each is read from `store`, then added on
-/// the blocking pool, where the writer goes and comes back with it. A medium
-/// whose bytes have gone missing from the store is skipped rather than
-/// fatal: the rest of the archive is still a correct export, and refusing to
-/// produce one over a single absent file would be worse than producing one
-/// whose `FILE` names it.
+/// [`ExportData`] lists them, to the file at `path`: the media staged in a
+/// directory of `work_dir` by `stage_gedzip_media`, then packed by
+/// `pack_gedzip`, as an export job does.
 pub async fn write_gedzip_file(
     store: &dyn crate::media::MediaStore,
+    work_dir: &crate::workdir::WorkDir,
     path: &Path,
     gedcom: String,
     media_files: Vec<(String, String)>,
 ) -> Result<(), OxidGeneError> {
-    use oxidgene_gedcom::export::GedzipFileWriter;
-    let package_span = tracing::info_span!("export.package", export.format = "gedzip");
-    let archive_path = path.to_path_buf();
-    let writer = super::blocking::run(package_span.clone(), move || {
-        GedzipFileWriter::create(&archive_path, &gedcom)
-    })
-    .await?
-    .map_err(OxidGeneError::from)?;
+    let media_dir = work_dir
+        .staged_directory("export-media-")
+        .map_err(OxidGeneError::Io)?;
     let media_span = tracing::info_span!(
         "export.media",
         export.format = "gedzip",
         export.media.count = media_files.len(),
     );
-    let entry_span = package_span.clone();
-    let writer = async move {
-        let mut writer = writer;
-        for (key, entry_path) in media_files {
-            let bytes = match store.get(&key).await {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    tracing::warn!(
-                        error = "media_store_read",
-                        error.kind = crate::error_contract::error_kind(&error),
-                        "media absent from the store; not packed"
-                    );
-                    continue;
-                }
-            };
-            writer = super::blocking::run(entry_span.clone(), move || {
-                writer.add_media_file(&entry_path, &bytes).map(|()| writer)
-            })
-            .await?
-            .map_err(OxidGeneError::from)?;
+    let staged = stage_gedzip_media(store, media_dir.path(), &media_files, |_| async { Ok(()) })
+        .instrument(media_span)
+        .await?;
+    let package_span = tracing::info_span!("export.package", export.format = "gedzip");
+    let archive_path = path.to_path_buf();
+    super::blocking::run(package_span, move || {
+        pack_gedzip(&archive_path, &gedcom, staged, || Ok(()))
+    })
+    .await?
+}
+
+/// Copy the media of an export, `media_files` as [`ExportData`] lists
+/// them, from `store` into directory `dir`: the archive path and the local
+/// path of each copied. `done` runs after each medium with the number done
+/// so far — a job's progress and cancellation.
+///
+/// A medium whose bytes are absent from the store is left out with a
+/// warning: the rest of the archive is still a correct export, whose `FILE`
+/// names it, and refusing one over a single absent file would be worse.
+/// Any other failure — an unreachable store, a refused read, a full disk —
+/// fails the export, rather than complete it without media nobody is told
+/// about.
+pub(crate) async fn stage_gedzip_media<F, Fut>(
+    store: &dyn crate::media::MediaStore,
+    dir: &Path,
+    media_files: &[(String, String)],
+    mut done: F,
+) -> Result<Vec<(String, std::path::PathBuf)>, OxidGeneError>
+where
+    F: FnMut(usize) -> Fut,
+    Fut: std::future::Future<Output = Result<(), OxidGeneError>>,
+{
+    tokio::fs::create_dir_all(dir).await?;
+    let mut staged = Vec::with_capacity(media_files.len());
+    for (index, (key, archive_path)) in media_files.iter().enumerate() {
+        let local_path = dir.join(index.to_string());
+        match store.get_to_file(key, &local_path).await {
+            Ok(()) => staged.push((archive_path.clone(), local_path)),
+            // Both stores answer an absent object so; `dir` exists, so the
+            // local path is not the one missing.
+            Err(OxidGeneError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                tracing::warn!(
+                    error = "media_store_read",
+                    error.kind = "not_found",
+                    "media absent from the store; not packed"
+                );
+            }
+            Err(error) => return Err(error),
         }
-        Ok::<_, OxidGeneError>(writer)
+        done(index + 1).await?;
     }
-    .instrument(media_span)
-    .await?;
-    super::blocking::run(package_span, move || writer.finish().map(drop))
-        .await?
-        .map_err(OxidGeneError::from)
+    Ok(staged)
+}
+
+/// Write the GEDZIP at `path`: `gedcom` and the `staged` media
+/// [`stage_gedzip_media`] copied, read one at a time. `check` runs before
+/// each medium and stops the packing on an error (a job's cancellation).
+/// Blocking: run it on the blocking pool.
+pub(crate) fn pack_gedzip(
+    path: &Path,
+    gedcom: &str,
+    staged: Vec<(String, std::path::PathBuf)>,
+    check: impl Fn() -> Result<(), OxidGeneError>,
+) -> Result<(), OxidGeneError> {
+    let mut writer = oxidgene_gedcom::export::GedzipFileWriter::create(path, gedcom)?;
+    for (entry_path, local_path) in staged {
+        check()?;
+        let bytes = std::fs::read(local_path)?;
+        writer.add_media_file(&entry_path, &bytes)?;
+    }
+    writer.finish()?;
+    Ok(())
 }
 
 /// The persons of `tree_id` excluded from sharing, when `privacy` leaves
@@ -1369,5 +1404,61 @@ impl TreeRecords {
         self.vignettes = VignetteRepo::list_for_medias(db, &media_ids).await?;
         self.notes = NoteRepo::list_all(db, tree_id).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::MediaStore as _;
+
+    /// A content key of a fictitious tree.
+    fn key(digest_start: &str) -> String {
+        let digest = format!("{digest_start:0<64}");
+        format!(
+            "{}/{}/{}/{digest}.jpg",
+            Uuid::now_v7(),
+            &digest[0..2],
+            &digest[2..4]
+        )
+    }
+
+    #[tokio::test]
+    async fn an_absent_medium_is_left_out_and_an_unreadable_one_fails_the_export() {
+        let root = tempfile::tempdir().expect("creates media root");
+        let store = crate::media::store::FsStore::new(root.path());
+        let stored = key("ab");
+        let stored_file = tempfile::NamedTempFile::new().expect("creates medium");
+        std::fs::write(stored_file.path(), b"fictitious scan").expect("writes medium");
+        store
+            .put_file(&stored, stored_file.path())
+            .await
+            .expect("stores medium");
+        let scratch = tempfile::tempdir().expect("creates scratch");
+        let media = vec![
+            (stored, "media/kept.jpg".to_owned()),
+            (key("cd"), "media/absent.jpg".to_owned()),
+        ];
+        let mut progress = Vec::new();
+        let staged = stage_gedzip_media(&store, &scratch.path().join("a"), &media, |done| {
+            progress.push(done);
+            async { Ok(()) }
+        })
+        .await
+        .expect("an absent medium is no failure");
+        assert_eq!(progress, [1, 2]);
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].0, "media/kept.jpg");
+
+        // A store that cannot read a medium it holds: here a directory where
+        // its bytes should be, as an unreachable bucket or a refused read.
+        let unreadable = key("ef");
+        std::fs::create_dir_all(root.path().join(&unreadable)).expect("makes it unreadable");
+        let media = vec![(unreadable, "media/unreadable.jpg".to_owned())];
+        let failed = stage_gedzip_media(&store, &scratch.path().join("b"), &media, |_| async {
+            Ok(())
+        })
+        .await;
+        assert!(failed.is_err(), "{failed:?}");
     }
 }
