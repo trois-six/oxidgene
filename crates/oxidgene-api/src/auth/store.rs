@@ -117,9 +117,12 @@ pub trait SessionStore: Send + Sync + std::fmt::Debug {
         &self,
         state_hash: &str,
     ) -> Result<Option<LoginTransaction>, StoreUnavailable>;
-    /// Take the lock `name` for `ttl`; `false` when someone holds it.
-    async fn lock(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable>;
-    async fn unlock(&self, name: &str) -> Result<(), StoreUnavailable>;
+    /// Take the lock `name` for `ttl`: the holder's token, which alone
+    /// releases it; `None` when someone holds it.
+    async fn lock(&self, name: &str, ttl: Duration) -> Result<Option<String>, StoreUnavailable>;
+    /// Release the lock `name` if `holder` still holds it: a lock that
+    /// lapsed and was taken by another is theirs.
+    async fn unlock(&self, name: &str, holder: &str) -> Result<(), StoreUnavailable>;
     /// Whether `name` is seen for the first time within `ttl`: a logout
     /// token's `jti`.
     async fn first_seen(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable>;
@@ -156,8 +159,10 @@ struct Memory {
     sessions: HashMap<String, Session>,
     grants: HashMap<String, LinkGrants>,
     logins: HashMap<String, (LoginTransaction, Instant)>,
-    /// Locks and seen names, with when they lapse.
+    /// Seen names, with when they lapse.
     marks: HashMap<String, Instant>,
+    /// Locks, with their holder's token and when they lapse.
+    locks: HashMap<String, (String, Instant)>,
     last_sweep: Option<Instant>,
 }
 
@@ -178,6 +183,7 @@ impl Memory {
         self.grants.retain(|_, grants| grants.expires_at > wall);
         self.logins.retain(|_, (_, until)| *until > now);
         self.marks.retain(|_, until| *until > now);
+        self.locks.retain(|_, (_, until)| *until > now);
     }
 
     fn live(&self, id_hash: &str) -> Option<&Session> {
@@ -269,12 +275,34 @@ impl SessionStore for MemoryStore {
         }))
     }
 
-    async fn lock(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable> {
-        Ok(self.with(|memory| mark(&mut memory.marks, &format!("lock:{name}"), ttl)))
+    async fn lock(&self, name: &str, ttl: Duration) -> Result<Option<String>, StoreUnavailable> {
+        Ok(self.with(|memory| {
+            let now = Instant::now();
+            if memory
+                .locks
+                .get(name)
+                .is_some_and(|(_, until)| *until > now)
+            {
+                return None;
+            }
+            let holder = super::crypto::random_token();
+            memory
+                .locks
+                .insert(name.to_string(), (holder.clone(), now + ttl));
+            Some(holder)
+        }))
     }
 
-    async fn unlock(&self, name: &str) -> Result<(), StoreUnavailable> {
-        self.with(|memory| memory.marks.remove(&format!("lock:{name}")));
+    async fn unlock(&self, name: &str, holder: &str) -> Result<(), StoreUnavailable> {
+        self.with(|memory| {
+            if memory
+                .locks
+                .get(name)
+                .is_some_and(|(held, _)| held == holder)
+            {
+                memory.locks.remove(name);
+            }
+        });
         Ok(())
     }
 
@@ -403,11 +431,11 @@ fn extend(pipeline: &mut redis::Pipeline, key: &str, ttl: u64) {
 }
 
 /// `SET key value NX PX ttl`.
-fn set_nx(key: String, ttl: Duration) -> redis::Cmd {
+fn set_nx(key: String, value: &str, ttl: Duration) -> redis::Cmd {
     let mut command = redis::cmd("SET");
     command
         .arg(key)
-        .arg(1)
+        .arg(value)
         .arg("NX")
         .arg("PX")
         .arg(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX));
@@ -521,18 +549,34 @@ impl SessionStore for RedisStore {
         Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
     }
 
-    async fn lock(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable> {
-        let set: Option<String> = self.query(&set_nx(format!("{LOCK}{name}"), ttl)).await?;
-        Ok(set.is_some())
+    async fn lock(&self, name: &str, ttl: Duration) -> Result<Option<String>, StoreUnavailable> {
+        let holder = super::crypto::random_token();
+        let set: Option<String> = self
+            .query(&set_nx(format!("{LOCK}{name}"), &holder, ttl))
+            .await?;
+        Ok(set.map(|_| holder))
     }
 
-    async fn unlock(&self, name: &str) -> Result<(), StoreUnavailable> {
-        self.query::<()>(redis::cmd("DEL").arg(format!("{LOCK}{name}")))
-            .await
+    async fn unlock(&self, name: &str, holder: &str) -> Result<(), StoreUnavailable> {
+        // Compare and delete in one step: the lock may have lapsed and been
+        // taken by another since.
+        const RELEASE: &str = "if redis.call('GET', KEYS[1]) == ARGV[1] then \
+             return redis.call('DEL', KEYS[1]) else return 0 end";
+        self.query::<i64>(
+            redis::cmd("EVAL")
+                .arg(RELEASE)
+                .arg(1)
+                .arg(format!("{LOCK}{name}"))
+                .arg(holder),
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn first_seen(&self, name: &str, ttl: Duration) -> Result<bool, StoreUnavailable> {
-        let set: Option<String> = self.query(&set_nx(format!("{SEEN}{name}"), ttl)).await?;
+        let set: Option<String> = self
+            .query(&set_nx(format!("{SEEN}{name}"), "1", ttl))
+            .await?;
         Ok(set.is_some())
     }
 
@@ -660,10 +704,40 @@ mod tests {
 
     async fn exercise_marks(store: &dyn SessionStore) {
         let lock = super::super::crypto::random_token();
-        assert!(store.lock(&lock, Duration::from_secs(10)).await.unwrap());
-        assert!(!store.lock(&lock, Duration::from_secs(10)).await.unwrap());
-        store.unlock(&lock).await.unwrap();
-        assert!(store.lock(&lock, Duration::from_secs(10)).await.unwrap());
+        let holder = store.lock(&lock, Duration::from_secs(10)).await.unwrap();
+        let holder = holder.expect("takes the lock");
+        assert!(
+            store
+                .lock(&lock, Duration::from_secs(10))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // Only its holder releases it.
+        store.unlock(&lock, "another holder").await.unwrap();
+        assert!(
+            store
+                .lock(&lock, Duration::from_secs(10))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        store.unlock(&lock, &holder).await.unwrap();
+        let next = store.lock(&lock, Duration::from_millis(50)).await.unwrap();
+        let next = next.expect("takes the released lock");
+        // A lapsed lock taken by another is theirs: the late holder's
+        // release leaves it.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let third = store.lock(&lock, Duration::from_secs(10)).await.unwrap();
+        assert!(third.is_some(), "a lapsed lock is free");
+        store.unlock(&lock, &next).await.unwrap();
+        assert!(
+            store
+                .lock(&lock, Duration::from_secs(10))
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let jti = super::super::crypto::random_token();
         assert!(

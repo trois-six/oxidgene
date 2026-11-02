@@ -647,6 +647,40 @@ async fn instance_roles_and_admission_follow_the_roles_claim() {
     );
 }
 
+/// A database that does not answer while a session is resolved signs no
+/// one out: the request is `503`, the cookie kept, and the session serves
+/// again once the database answers.
+#[tokio::test]
+async fn a_database_failure_keeps_the_session() {
+    use oxidgene_db::sea_orm::ConnectionTrait;
+
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+    let mut browser = Browser::new(&app);
+    browser.sign_in(&provider, &MockUser::new("lark")).await;
+    assert_eq!(browser.get("/api/v1/me").await.status, StatusCode::OK);
+    db.execute_unprepared("ALTER TABLE app_user RENAME TO app_user_away")
+        .await
+        .expect("hides the users");
+    let failed = browser.get("/api/v1/me").await;
+    assert_eq!(
+        failed.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        failed.json
+    );
+    assert!(
+        failed.headers.get(header::SET_COOKIE).is_none(),
+        "{:?}",
+        failed.headers
+    );
+    db.execute_unprepared("ALTER TABLE app_user_away RENAME TO app_user")
+        .await
+        .expect("restores the users");
+    assert_eq!(browser.get("/api/v1/me").await.status, StatusCode::OK);
+}
+
 #[tokio::test]
 async fn deactivation_and_erasure_end_sessions() {
     let provider = MockProvider::start().await;

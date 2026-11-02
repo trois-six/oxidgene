@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use oxidgene_core::OxidGeneError;
 use oxidgene_db::repo::{AppUser, AppUserRepo, Connections, UserStatus};
 use sea_orm::DatabaseConnection;
 use serde_json::{Map, Value};
@@ -28,9 +29,13 @@ use crate::service::account::{self, IdentityClaims};
 /// How long before its expiry an access token is refreshed: within its last
 /// minute, and no earlier — some providers refuse a refresh token before.
 const REFRESH_MARGIN: i64 = 60;
-/// How long the refresh lock is held, and how long a request waits for
-/// another's refresh.
-const REFRESH_LOCK: Duration = Duration::from_secs(10);
+/// How long the refresh lock lasts at most: longer than the worst refresh —
+/// discovery, the token endpoint and the key set, each bounded by the
+/// provider's timeout — so that it never lapses while its holder still
+/// refreshes, letting another refresh with the same, rotated, token.
+const REFRESH_LOCK: Duration = Duration::from_secs(45);
+/// How long a request waits for another's refresh.
+const REFRESH_WAIT: Duration = Duration::from_secs(10);
 /// How often a session's last use is written back: the idle limit is kept
 /// to the minute without a store write per request.
 const TOUCH_EVERY: i64 = 60;
@@ -224,21 +229,30 @@ impl Oidc {
         if let Some(headers) = writes {
             self.check_write(headers, &session)?;
         }
-        let mut session = self.fresh(&db.writer, session).await?;
+        let session = self.fresh(&db.writer, session).await?;
         let identity = self.session_identity(&session).await?;
         let at = now();
-        let user = AppUserRepo::get(&db.reader, session.user_id)
-            .await
-            .map_err(|_| Refusal::ended())?;
+        // A user gone ends the session; a database that does not answer
+        // does not: the session is still good once it answers again.
+        let user = match AppUserRepo::get(&db.reader, session.user_id).await {
+            Ok(user) => user,
+            Err(OxidGeneError::NotFound { .. }) => return Err(Refusal::ended()),
+            Err(_) => return Err(Refusal::unavailable()),
+        };
         if user.status != UserStatus::Active {
             self.end_user_sessions(user.id, "deactivated").await?;
             return Err(Refusal::ended());
         }
         if at - session.last_used_at >= TOUCH_EVERY {
-            session.last_used_at = at;
-            session.idle_expires_at =
-                (at + seconds(self.config.idle_timeout)).min(session.absolute_expires_at);
-            self.store.put(&session).await?;
+            // Written back from a fresh read: the session read above may
+            // predate a parallel request's refresh, whose rotated tokens
+            // writing it back would undo.
+            if let Some(mut current) = self.store.get(&session.id_hash).await? {
+                current.last_used_at = at;
+                current.idle_expires_at =
+                    (at + seconds(self.config.idle_timeout)).min(current.absolute_expires_at);
+                self.store.put(&current).await?;
+            }
         }
         let principal = Principal::User(Identity {
             issuer: identity.issuer,
@@ -343,7 +357,7 @@ impl Oidc {
     /// provider answers by revoking the whole family.
     async fn fresh(&self, db: &DatabaseConnection, session: Session) -> Result<Session, Refusal> {
         let lock = format!("refresh:{}", session.id_hash);
-        let deadline = Instant::now() + REFRESH_LOCK;
+        let deadline = Instant::now() + REFRESH_WAIT;
         let mut session = session;
         loop {
             if session.access_expires_at - now() >= REFRESH_MARGIN {
@@ -352,9 +366,9 @@ impl Oidc {
             if session.refresh_token.is_none() {
                 return self.unrefreshed(session, "no_refresh_token").await;
             }
-            if self.store.lock(&lock, REFRESH_LOCK).await? {
+            if let Some(holder) = self.store.lock(&lock, REFRESH_LOCK).await? {
                 let result = self.refresh_locked(db, &session.id_hash).await;
-                self.store.unlock(&lock).await?;
+                self.store.unlock(&lock, &holder).await?;
                 return result;
             }
             if Instant::now() >= deadline {
