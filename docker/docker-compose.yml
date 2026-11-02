@@ -110,6 +110,11 @@ services:
     volumes:
       - ./rauthy/config.toml:/app/config.toml:ro
       - ./rauthy/bootstrap:/app/bootstrap:ro
+      # Kept as long as pgdata: a recreated container keeps its users'
+      # subjects, which the application's accounts are keyed by. Without
+      # it every user would sign in under a new subject beside an account
+      # the database still holds for the old one.
+      - rauthy_data:/app/data
     ports:
       - "127.0.0.1:8180:8080"
     depends_on:
@@ -292,5 +297,6 @@ services:
 
 volumes:
   pgdata:
+  rauthy_data:
   rustfs_data:
   redis_data:

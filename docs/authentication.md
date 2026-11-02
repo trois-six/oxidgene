@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T13:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -827,7 +827,9 @@ provider, its mail relay and the session store beside the application:
 - A `rauthy` service, `ghcr.io/sebadob/rauthy` pinned to a release, with
   `docker/rauthy/config.toml`: plain HTTP published on `127.0.0.1:8180`,
   public URL `localhost:8180`, its embedded Hiqlite database in the
-  container — a recreated container starts empty and bootstraps afresh —
+  `rauthy_data` volume, kept and removed with the application's `pgdata`:
+  a recreated container keeps its users' subjects, which the accounts are
+  keyed by, and bootstraps only into an empty volume —
   and Rauthy's administrator `idp-admin@example.invalid` /
   `idp-admin-development`, without the passkey requirement. The server sets
   `OXIDGENE_OIDC_ISSUER=http://localhost:8180/auth/v1/` and

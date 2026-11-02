@@ -1,8 +1,10 @@
 # Rauthy of the development Compose stack (docs/authentication.md §8.5).
 #
 # Development values only: every secret below is public, the stack is bound
-# to loopback, and the embedded Hiqlite database lives in the container, so
-# a recreated container starts empty and imports bootstrap/ afresh.
+# to loopback. The embedded Hiqlite database lives in the `rauthy_data`
+# volume beside the application's `pgdata`, so a recreated container keeps
+# its users; bootstrap/ is imported into an empty one, after
+# `docker compose down -v`.
 # Reference: https://sebadob.github.io/rauthy/config/config.html
 
 [server]
