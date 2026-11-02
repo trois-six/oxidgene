@@ -208,3 +208,25 @@ async fn access_columns_refuse_unknown_values() {
         );
     }
 }
+
+/// A deleted tree grants none of the roles its memberships held, as
+/// `live_access` already answers.
+#[tokio::test]
+async fn a_deleted_tree_grants_no_role() {
+    let db = setup_db().await;
+    let kept = tree(&db).await;
+    let deleted = tree(&db).await;
+    let member = user(&db, "member_1").await;
+    for tree_id in [kept, deleted] {
+        MembershipRepo::create(&db, tree_id, member, TreeRole::Guest, None)
+            .await
+            .unwrap();
+    }
+    TreeRepo::soft_delete(&db, deleted).await.unwrap();
+
+    let roles = MembershipRepo::live_roles(&db, member, &[kept, deleted], Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(roles.len(), 1);
+    assert_eq!(roles.get(&kept), Some(&(TreeRole::Guest, None)));
+}

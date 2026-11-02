@@ -118,7 +118,8 @@ impl MembershipRepo {
     }
 
     /// The roles user `user_id` holds at `now` on those of `tree_ids` they
-    /// are a member of, each with the access scope it is limited to.
+    /// are a member of, each with the access scope it is limited to: a
+    /// deleted tree, as in [`Self::live_access`], grants none.
     pub async fn live_roles(
         db: &impl ConnectionTrait,
         user_id: Uuid,
@@ -133,8 +134,10 @@ impl MembershipRepo {
             .column(Column::TreeId)
             .column(Column::Role)
             .column(Column::ScopeId)
+            .inner_join(tree::Entity)
             .filter(Column::UserId.eq(user_id))
             .filter(Column::TreeId.is_in(tree_ids.iter().copied()))
+            .filter(tree::Column::DeletedAt.is_null())
             .filter(live_at(now))
             .into_tuple()
             .all(db)
