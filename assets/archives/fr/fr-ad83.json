@@ -15,7 +15,7 @@
       "portal": {
         "origin": "https://archives.var.fr",
         "transport": "browser",
-        "search_path": "/rechercher-dans-les-archives-numerisees-et-les-inventaires-5/registres-paroissiaux-et-de-letat-civil",
+        "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/registres-paroissiaux-etat-civil",
         "engine": "arko_default_68638fc9de3cb",
         "display_mode": "arko_default_686392c1eea05",
         "fields": {
