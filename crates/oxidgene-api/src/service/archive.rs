@@ -23,7 +23,7 @@ use oxidgene_archives::{
     ResolveError, Resolver, SuppliedParts, Unrecognized,
 };
 use oxidgene_core::error::{ArchiveFailure, OxidGeneError};
-use oxidgene_core::types::{Citation, Source, is_remote_url};
+use oxidgene_core::types::{Citation, RecordKind, Source, is_remote_url};
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, MediaLinkRepo, MediaLinkTarget, MediaRepo, PersonNameRepo, PlaceRepo,
     RepositoryRepo, SourceRepo, SourceRepositoryRepo,
@@ -32,6 +32,7 @@ use sea_orm::ConnectionTrait;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::authz::records::Records;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// The process's archive resolution: the embedded catalogue's resolver and
@@ -160,14 +161,21 @@ impl PlaceLookup for DictionaryPlaces {
 /// portal address of the archive found in the records is the target as it
 /// is.
 ///
-/// A source or citation that is absent, deleted or of another tree, and a
-/// citation of another source, are `NotFound`. Records naming no archive
+/// A source or citation that is absent, deleted or of another tree, or
+/// hidden from the viewer `records` reads for, and a citation of another
+/// source, are `NotFound`: a hidden record's act, locality and year would
+/// otherwise come back in the address. Records naming no archive
 /// register, or a register no catalogued collection holds, and a failed
 /// resolution are [`OxidGeneError::Archive`]; a failure is logged with its
 /// code and the archive's identifier only, never the citation.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the records the viewer sees join the citation's coordinates and the reader's own parts, each an independent input of both surfaces"
+)]
 pub async fn archive_target(
     db: &impl ConnectionTrait,
     portals: &ArchivePortals,
+    records: &Records,
     tree_id: Uuid,
     source_id: Uuid,
     citation_id: Option<Uuid>,
@@ -175,6 +183,10 @@ pub async fn archive_target(
     supplied: Option<SuppliedParts>,
 ) -> Result<ArchiveTarget, OxidGeneError> {
     let (source, citation) = cited(db, tree_id, source_id, citation_id).await?;
+    records.require_id(RecordKind::Source, source_id)?;
+    if let Some(citation) = &citation {
+        records.require_id(RecordKind::Citation, citation.id)?;
+    }
     let evidence = load_evidence(db, &source, citation.as_ref()).await?;
 
     let registry = portals.resolver.registry();

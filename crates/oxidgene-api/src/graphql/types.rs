@@ -1715,9 +1715,11 @@ impl GqlSource {
                 )
             })
             .transpose()?;
+        let records = records_of(ctx, &self.tree_id).await?;
         let target = crate::service::archive::archive_target(
             reader_from_ctx(ctx),
             ctx.data_unchecked::<Arc<ArchivePortals>>(),
+            &records,
             uuid(&self.tree_id)?,
             uuid(&self.id)?,
             citation_id,

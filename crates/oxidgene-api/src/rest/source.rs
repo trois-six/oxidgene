@@ -105,6 +105,7 @@ pub async fn delete_source(
 /// the HTTP layer.
 pub async fn archive_target(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ArchiveTargetBody>,
 ) -> Result<Json<ArchiveTarget>, ApiError> {
@@ -114,10 +115,12 @@ pub async fn archive_target(
             archive::supplied_parts(parts.locality, parts.act.as_deref(), parts.year, parts.view)
         })
         .transpose()?;
+    let records = state.records(&viewer, tree_id).await?;
     Ok(Json(
         archive::archive_target(
             &state.reader,
             &state.archives,
+            &records,
             tree_id,
             source_id,
             body.citation_id,

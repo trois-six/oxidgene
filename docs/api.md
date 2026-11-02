@@ -647,7 +647,9 @@ color}]` sorted by folded label (GraphQL `Source.tags { id label color }`),
 put on and taken off through the tag endpoints of **Tags**.
 
 `archive-target` reads nothing it writes, but may query the archive's portal,
-once per call: it is a `POST` so that nothing caches or prefetches it. The
+once per call: it is a `POST` so that nothing caches or prefetches it. A
+source or a citation hidden from the viewer is `404 not_found` on both
+surfaces, as its direct read is ([Privacy §3.2](privacy.md#32-records)). The
 answer is `{"kind": "view", "url", "views", "view_count", "call_number",
 "attribution", "renumbering"}` — each view `{"view", "url", "ark", "image"}`,
 `image` being `{"picture", "thumbnail", "width", "height"}` or `null`, and

@@ -644,3 +644,42 @@ async fn a_withheld_medium_is_nobodys_portrait_and_is_not_counted() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_archive_target_of_a_hidden_source_or_citation_is_not_found() {
+    let f = fixture().await;
+    let t = &f.tree;
+    let target = format!("/sources/{}/archive-target", t.id("source_id"));
+    let missing = |(status, body): (StatusCode, Value)| {
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["error"], "not_found", "{body}");
+    };
+    // The source only the excluded anchor's citation draws on.
+    for who in VIEWERS {
+        missing(f.rest(who, Method::POST, &target, Some(json!({}))).await);
+    }
+    // A citation on a visible person shows the source; the anchor's
+    // citation of it stays hidden, on both surfaces.
+    ok(
+        &f.owner,
+        Method::POST,
+        &f.path("/citations"),
+        Some(json!({ "source_id": t.id("source_id"), "person_id": f.visible, "page": "f. 2" })),
+    )
+    .await;
+    let query = format!(
+        r#"{{ source(treeId: "{tree}", id: "{source}") {{ archiveTarget(citationId: "{citation}") {{ url }} }} }}"#,
+        tree = t.tree_id,
+        source = t.id("source_id"),
+        citation = t.id("citation_id"),
+    );
+    for who in VIEWERS {
+        let hidden = json!({ "citation_id": t.id("citation_id") });
+        missing(f.rest(who, Method::POST, &target, Some(hidden)).await);
+        let response = f.gql(who, &query).await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["code"], "NOT_FOUND",
+            "{who:?}: {response}"
+        );
+    }
+}
