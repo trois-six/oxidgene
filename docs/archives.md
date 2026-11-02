@@ -3243,7 +3243,7 @@ collections':
 |---|---|---|
 | `ok` | Every step passed. | Pass |
 | `drift` | The portal answered, but not as the adapter or its settings expect; the failing step and the expected and received shapes are reported. | Fail |
-| `unreachable` | Timeout, network error, a `5xx` answer, or a maintenance page served in place of the portal's. | Warning; an issue after two consecutive scheduled runs |
+| `unreachable` | Timeout, network error, a `5xx` answer, or a maintenance page served in place of the portal's. | Warning; an `archive-unreachable` issue after two consecutive scheduled runs |
 | `challenged` | An anti-bot challenge answered in place of the portal, to the headless browser or to the native client. | Warning, reported as unverified |
 
 A check never solves or works around a challenge. Reports name the archive,
@@ -3304,10 +3304,15 @@ spaces them the same way. The entry keeps its reports for 15 days — one
 directory per archive when it checks several — and its Playwright traces
 for 5.
 
-A `drift`, or an `unreachable` whose previous scheduled run, read from that
-run's report artifact, was `unreachable` too, opens an issue labelled
-`archive-drift` for that archive, titled `Archive portal drift: <archive
-id>`, or comments on the open one; an `ok` run closes it. The issue lists
+A `drift` opens an issue labelled `archive-drift` for that archive, titled
+`Archive portal drift: <archive id>`, or comments on the open one. An
+`unreachable` whose previous scheduled run, read from that run's report
+artifact, was `unreachable` too opens one labelled `archive-unreachable`
+instead, titled `Archive portal unreachable: <archive id>`: an outage, a
+block of the runners' datacentre addresses or a moved portal is not a
+change of the adapter's to follow, and is checked from another network and
+on the archive's own site first. An `ok` run closes both, and a `drift` the
+unreachable one, since the portal answered. The issue lists
 the failing collections with their step and shapes, and names the catalogue
 entry, the adapter and the viewer description to update. Fixing a drift
 updates the collection's `portal` settings, or the adapter and its recorded

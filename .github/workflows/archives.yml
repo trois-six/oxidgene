@@ -11,9 +11,10 @@ name: Archive portals
 # services hosted by one vendor, which rate-limits them together — are
 # checked in one job, one after another with a pause between them; the
 # others each in a job of their own. Requests are sequential and never
-# retried. A drift, or a portal unreachable on two scheduled runs in a row,
-# opens an issue labelled `archive-drift` for that archive or comments on
-# the open one; an `ok` run closes it.
+# retried. A drift opens an issue labelled `archive-drift` for that archive,
+# and a portal unreachable on two scheduled runs in a row one labelled
+# `archive-unreachable`, or comments on the open one; an `ok` run closes
+# them, and a drift the unreachable one.
 
 on:
   schedule:
@@ -173,8 +174,15 @@ jobs:
             fi
           }
 
+          # The open issue of the label and title given, if any.
+          open_issue() {
+            gh issue list --state open --label "$1" --limit 100 --json number,title \
+              --jq ".[] | select(.title == \"$2\") | .number" | head -n 1
+          }
+
           handle() {
-            local ARCHIVE="$1" report outcome title number previous catalogue
+            local ARCHIVE="$1" report outcome title label number previous catalogue
+            local drift unreachable
             report=target/archives-live/$ARCHIVE/report.json
             [ -f "$report" ] || report=target/archives-live/report.json
             outcome=$(outcome_in "$ARCHIVE" "$report")
@@ -182,20 +190,29 @@ jobs:
               echo "::warning::$ARCHIVE: the check ended without a report"
               return 0
             fi
-            title="Archive portal drift: $ARCHIVE"
-            number=$(gh issue list --state open --label archive-drift --limit 100 --json number,title \
-              --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+            # A drift and an outage are told apart: one is the adapter's to
+            # follow, the other the portal's to end.
+            drift=$(open_issue archive-drift "Archive portal drift: $ARCHIVE")
+            unreachable=$(open_issue archive-unreachable "Archive portal unreachable: $ARCHIVE")
 
             case "$outcome" in
               ok)
-                if [ -n "$number" ]; then
+                for number in $drift $unreachable; do
                   gh issue close "$number" --comment "The live check of \`$ARCHIVE\` passed: $RUN_URL"
-                fi
+                done
                 return 0
                 ;;
               challenged)
                 echo "::warning::$ARCHIVE: an anti-bot challenge blocked the headless browser; unverified"
                 return 0
+                ;;
+              drift)
+                if [ -n "$unreachable" ]; then
+                  gh issue close "$unreachable" --comment "The portal of \`$ARCHIVE\` answered again: $RUN_URL"
+                fi
+                title="Archive portal drift: $ARCHIVE"
+                label="archive-drift"
+                number=$drift
                 ;;
               unreachable)
                 previous_reports
@@ -208,6 +225,13 @@ jobs:
                   echo "::warning::$ARCHIVE: the portal could not be reached"
                   return 0
                 fi
+                title="Archive portal unreachable: $ARCHIVE"
+                label="archive-unreachable"
+                number=$unreachable
+                ;;
+              *)
+                echo "::warning::$ARCHIVE: unknown outcome $outcome"
+                return 0
                 ;;
             esac
 
@@ -227,15 +251,21 @@ jobs:
               jq -r --arg id "$ARCHIVE" '.archives[] | select(.archive == $id) | [.collections[].platform] | unique[]
                 | "Adapter: `crates/oxidgene-archives/src/platform/\(.)/`, viewer in `crates/oxidgene-archives/src/platform/viewers.json`."' "$report"
               echo
-              echo "A drift is fixed in the collection's \`portal\` settings, or in the adapter and its fixtures when the platform itself changed (docs/archives.md §9.2)."
+              if [ "$outcome" = drift ]; then
+                echo "A drift is fixed in the collection's \`portal\` settings, or in the adapter and its fixtures when the platform itself changed (docs/archives.md §9.2)."
+              else
+                echo "The portal did not answer on two scheduled runs in a row: an outage, a block of the runners' addresses, or a portal that moved. Check it from another network (\`just archives-live $ARCHIVE\`) and on the archive's own site before changing its settings (docs/archives.md §9.2)."
+              fi
             } > issue.md
 
             gh label create archive-drift --color D93F0B \
-              --description "A live check found an archive portal changed or unreachable" 2>/dev/null || true
+              --description "A live check found an archive portal changed" 2>/dev/null || true
+            gh label create archive-unreachable --color FBCA04 \
+              --description "A live check could not reach an archive portal on two runs in a row" 2>/dev/null || true
             if [ -n "$number" ]; then
               gh issue comment "$number" --body-file issue.md
             else
-              gh issue create --title "$title" --label archive-drift --body-file issue.md
+              gh issue create --title "$title" --label "$label" --body-file issue.md
             fi
           }
 
