@@ -20,7 +20,12 @@ type Role = "owner" | "visitor";
 test.beforeAll(async ({ playwright }) => {
     const request = await playwright.request.newContext();
     const session = await request.get(`${baseURL}/auth/session`).catch(() => undefined);
-    const body = session?.ok() ? ((await session.json()) as { mode?: string }) : undefined;
+    // A proxy error is a broken stack, not a build without sign-in: it
+    // fails rather than skips (see sign-in.spec.ts).
+    if (session && !session.ok()) {
+        throw new Error(`${baseURL}/auth/session answers ${session.status()}: the stack is not serving the API.`);
+    }
+    const body = session ? ((await session.json()) as { mode?: string }) : undefined;
     const mail = await request.get(`${mailpit}/api/v1/info`).catch(() => undefined);
     const mailOk = !!mail?.ok();
     await request.dispose();

@@ -17,7 +17,12 @@ type Role = "owner" | "guest";
 test.beforeAll(async ({ playwright }) => {
     const request = await playwright.request.newContext({ baseURL });
     const response = await request.get("/auth/session").catch(() => undefined);
-    const body = response?.ok() ? ((await response.json()) as { mode?: string }) : undefined;
+    // A proxy error is a broken stack, not a build without sign-in: it
+    // fails rather than skips (see sign-in.spec.ts).
+    if (response && !response.ok()) {
+        throw new Error(`${baseURL}/auth/session answers ${response.status()}: the stack is not serving the API.`);
+    }
+    const body = response ? ((await response.json()) as { mode?: string }) : undefined;
     await request.dispose();
     test.skip(body?.mode !== "oidc", "The server has no OpenID Connect sign-in.");
 });

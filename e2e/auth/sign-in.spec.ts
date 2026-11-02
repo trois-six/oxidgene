@@ -54,8 +54,13 @@ test.beforeAll(async ({ playwright }) => {
     } catch (error) {
         throw new Error(`Nothing answers at ${baseURL}: start the Compose stack (\`just e2e-auth\` does). ${error}`);
     }
+    // A proxy error (502 while the server restarts) is a broken stack, not
+    // a build without sign-in: it fails rather than skips every journey.
+    if (!response.ok()) {
+        throw new Error(`${baseURL}/auth/session answers ${response.status()}: the stack is not serving the API.`);
+    }
     const json = (response.headers()["content-type"] ?? "").includes("json");
-    const body = response.ok() && json ? ((await response.json()) as Session) : undefined;
+    const body = json ? ((await response.json()) as Session) : undefined;
     await request.dispose();
     test.skip(
         body?.mode !== "oidc",
