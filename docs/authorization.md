@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-02T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -118,7 +118,7 @@ regardless.
 | `privacy_edit` — a record's privacy and a note's confidentiality | ✓ | ✓ | ✗ | ✗ |
 | `delete` | ✓ | ✓ | ✗ | ✗ |
 | `merge` — person merges, dictionary renames and merges, bulk tagging | ✓ | ✓ | ✗ | ✗ |
-| `history_restore` | ✓ | ✓ | ✗ | ✗ |
+| `history_restore` — a version of the tree's settings takes `settings_manage` too | ✓ | ✓ | ✗ | ✗ |
 | `export` | ✓ | ✓ | With the tree's `guests_may_export` ([Privacy §9](privacy.md#9-tree-settings)) | ✗ |
 | `import` — into the existing tree | ✓ | ✗ | ✗ | ✗ |
 | `settings_manage` — name, roots, privacy settings, visibility | ✓ | ✗ | ✗ | ✗ |

@@ -1158,6 +1158,68 @@ async fn an_editors_writes_naming_an_excluded_person_are_refused() {
     assert_eq!(allowed.status, StatusCode::OK, "{}", allowed.json);
 }
 
+/// The tree's settings are the owner's (`settings_manage`): an Editor, who
+/// may restore other records' versions, may not put back a version of the
+/// settings — a Guest export allowed, a contemporary rule off — on REST or
+/// GraphQL.
+#[tokio::test]
+async fn an_editor_cannot_restore_the_trees_settings() {
+    let mut f = Fixture::new(&[]).await;
+    let (mut editor, editor_user) = f.user("editorthree").await;
+    f.owner
+        .json(
+            Method::POST,
+            &f.uri("/members"),
+            json!({ "email": editor_user.email(), "role": "editor" }),
+        )
+        .await;
+    for allowed in [true, false] {
+        ok(
+            &f.local,
+            Method::PUT,
+            &f.uri(""),
+            Some(json!({ "guests_may_export": allowed })),
+        )
+        .await;
+    }
+    let tree = f.canaries.tree.clone();
+    let versions = ok(
+        &f.local,
+        Method::GET,
+        &f.uri(&format!("/history/tree/{tree}?first=100")),
+        None,
+    )
+    .await;
+    let open = versions["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|edge| edge["node"]["snapshot"]["guests_may_export"] == true)
+        .map(|edge| edge["node"]["version"].as_i64().unwrap())
+        .unwrap_or_else(|| panic!("no version lets Guests export: {versions}"));
+    let rest = editor
+        .json(
+            Method::POST,
+            &f.uri(&format!("/history/tree/{tree}/revert")),
+            json!({ "version": open }),
+        )
+        .await;
+    assert_eq!(rest.status, StatusCode::FORBIDDEN, "{}", rest.json);
+    let gql = editor
+        .gql(
+            "mutation($t: ID!, $v: Int!) { revertRecord(treeId: $t, recordType: TREE, recordId: $t, version: $v) { id } }",
+            json!({ "t": tree, "v": open }),
+        )
+        .await;
+    assert_eq!(
+        gql.json["errors"][0]["extensions"]["code"], "FORBIDDEN",
+        "{}",
+        gql.json
+    );
+    let settings = ok(&f.local, Method::GET, &f.uri(""), None).await;
+    assert_eq!(settings["guests_may_export"], false, "{settings}");
+}
+
 /// The persons a scoped Editor's body names are checked whatever JSON
 /// media type it is sent as: the JSON extractor accepts any spelling of
 /// `application/json` and any `+json` type, and a body without a type is

@@ -43,7 +43,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::Utc;
 use futures_util::future::BoxFuture;
-use oxidgene_core::access::{Author, ViewerContext};
+use oxidgene_core::access::{Author, Permission, ViewerContext};
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
@@ -997,6 +997,12 @@ async fn revert_inner(
             "a deleted state cannot be restored; restore the version before it".to_string(),
         ));
     };
+    // The tree's settings — its privacy among them — are the owner's
+    // (`settings_manage`): restoring a version of them takes what changing
+    // them does, more than `history_restore`.
+    if matches!(snapshot, RecordSnapshot::Tree(_)) {
+        crate::authz::authorize(db, viewer, tree_id, Permission::SettingsManage).await?;
+    }
     let change = Change::new(
         viewer,
         tree_id,
