@@ -413,25 +413,23 @@ impl MembershipRepo {
     }
 
     /// Delete the memberships expired at `now`, returning them.
+    ///
+    /// One `DELETE … RETURNING`: the expiry is checked by the statement that
+    /// deletes, so a membership its owner extended after a read is kept, and
+    /// no list of ids is bound.
     pub async fn delete_expired(
         db: &impl ConnectionTrait,
         now: DateTime<Utc>,
     ) -> Result<Vec<TreeMembership>, OxidGeneError> {
-        let expired: Vec<TreeMembership> = Entity::find()
+        let mut expired: Vec<TreeMembership> = Entity::delete_many()
             .filter(Column::ExpiresAt.lte(now))
-            .all(db)
+            .exec_with_returning(db)
             .await
             .map_err(db_err)?
             .into_iter()
             .map(into_domain)
             .collect();
-        if !expired.is_empty() {
-            Entity::delete_many()
-                .filter(Column::Id.is_in(expired.iter().map(|m| m.id)))
-                .exec(db)
-                .await
-                .map_err(db_err)?;
-        }
+        expired.sort_by_key(|membership| membership.id);
         Ok(expired)
     }
 }

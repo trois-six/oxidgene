@@ -7,7 +7,7 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{InstanceRole, TreeRole};
 use oxidgene_db::repo::{
     AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus, MembershipRepo,
-    NewAppUser, NewInvitation, NewMail, TreeRepo,
+    NewAppUser, NewInvitation, NewMail, PaginationParams, SharedMembership, TreeRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
@@ -229,4 +229,54 @@ async fn a_deleted_tree_grants_no_role() {
         .unwrap();
     assert_eq!(roles.len(), 1);
     assert_eq!(roles.get(&kept), Some(&(TreeRole::Guest, None)));
+}
+
+/// Expired memberships are deleted and returned; the others stay.
+#[tokio::test]
+async fn expired_memberships_are_deleted_by_the_statement_that_checks_them() {
+    let db = setup_db().await;
+    let tree_id = tree(&db).await;
+    let owner = user(&db, "owner_1").await;
+    let now = now();
+    let mut ending = Vec::new();
+    for (subject, expires_at) in [
+        ("member_1", Some(now - Duration::days(1))),
+        ("member_2", Some(now + Duration::days(1))),
+        ("member_3", None),
+    ] {
+        let member = user(&db, subject).await;
+        let membership = MembershipRepo::create_shared(
+            &db,
+            SharedMembership {
+                tree_id,
+                user_id: member,
+                role: TreeRole::Guest,
+                scope_id: None,
+                expires_at,
+                created_by: Some(owner),
+            },
+        )
+        .await
+        .unwrap();
+        ending.push(membership.id);
+    }
+
+    let expired = MembershipRepo::delete_expired(&db, now).await.unwrap();
+    assert_eq!(
+        expired.iter().map(|m| m.id).collect::<Vec<_>>(),
+        [ending[0]]
+    );
+    assert!(
+        MembershipRepo::delete_expired(&db, now)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        MembershipRepo::list(&db, tree_id, &PaginationParams::default())
+            .await
+            .unwrap()
+            .total_count,
+        2
+    );
 }
