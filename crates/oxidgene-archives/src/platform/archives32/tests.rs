@@ -157,6 +157,25 @@ fn finds_a_register_in_one_search_and_computes_the_view() {
 }
 
 #[test]
+fn a_first_view_id_at_the_end_of_u64_opens_no_view_past_it() {
+    let title = "AD32 - Exampleville - (aucun) - N - 1850 - vue 5/512";
+    let at = |first: u64| {
+        let page = EC_EXAMPLEVILLE.replace("fichier=700300", &format!("fichier={first}"));
+        let portal = Portal::new(&[("lieu=Exampleville", page.leak())]);
+        let ArchiveTarget::View { views, .. } = resolve(title, &portal).unwrap() else {
+            panic!("a register");
+        };
+        views
+    };
+    // The cited view's id is the last `u64`: it opens.
+    let last = at(u64::MAX - 4);
+    assert_eq!(last.len(), 1);
+    assert!(last[0].url.contains(&format!("fichier={}", u64::MAX)));
+    // One more and it overflows: the register opens on its first image.
+    assert!(at(u64::MAX).is_empty());
+}
+
+#[test]
 fn reads_the_acts_from_the_content_s_first_line_only() {
     // The marriages' register notes births and deaths it does not hold.
     let portal = Portal::new(&[("lieu=Exampleville", EC_EXAMPLEVILLE)]);

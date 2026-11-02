@@ -357,26 +357,31 @@ async fn view(
     let first = page::viewer_first(query).ok_or_else(|| unexpected("a viewer link"))?;
     let register = format!("{}{}", settings.origin, settings.viewer(query));
     let mut count = chosen.images.map_or(0, usize::from);
+    // Contiguous ids are computed for the cited views alone, with checked
+    // arithmetic: `first` is the portal's, and may sit at the end of `u64`.
     let ids: Vec<u64> = match settings.views {
-        _ if citation.views.is_empty() => Vec::new(),
-        Views::Contiguous => (first..).take(count).collect(),
-        Views::Listed => {
+        Views::Listed if !citation.views.is_empty() => {
             let viewer = unchallenged(fetch.get(&settings.viewer(query)).await?)?;
             let ids = page::views(&viewer)?;
             count = ids.len();
             ids
         }
+        Views::Listed | Views::Contiguous => Vec::new(),
     };
     let views = cited_views(citation, count, chosen.period.as_deref())
         .iter()
         .filter_map(|cited| {
-            let id = ids.get(usize::from(cited.view).checked_sub(1)?)?;
+            let index = usize::from(cited.view).checked_sub(1)?;
+            let id = match settings.views {
+                Views::Contiguous => first.checked_add(u64::try_from(index).ok()?)?,
+                Views::Listed => *ids.get(index)?,
+            };
             Some(ArchiveView {
                 view: cited.view,
                 url: format!(
                     "{}{}",
                     settings.origin,
-                    settings.viewer(&page::viewer_at(query, *id))
+                    settings.viewer(&page::viewer_at(query, id))
                 ),
                 ark: None,
                 image: None,
