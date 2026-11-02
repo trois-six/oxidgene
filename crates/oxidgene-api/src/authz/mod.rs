@@ -136,15 +136,7 @@ pub async fn tree_access(
                 None => None,
             };
             match member {
-                // A Guest exports where the tree lets its Guests export
-                // (Privacy §9): the setting is read for a Guest only.
-                Some((TreeRole::Guest, scope_id)) => {
-                    let tree = oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-                    TreeAccess::of_role(TreeRole::Guest)
-                        .with_guest_export(tree.privacy.guests_may_export)
-                        .scoped(scope_id)
-                }
-                Some((role, scope_id)) => TreeAccess::of_role(role).scoped(scope_id),
+                Some((role, scope_id)) => member_access(db, tree_id, role, scope_id).await?,
                 None => match visitor_access(db, viewer, tree_id, now).await? {
                     Some(access) => access,
                     None if viewer.is_anonymous() => return Err(OxidGeneError::Unauthenticated),
@@ -155,6 +147,24 @@ pub async fn tree_access(
     };
     viewer.remember(tree_id, access);
     Ok(access)
+}
+
+/// The access a membership of `role`, limited to `scope_id`, gives on tree
+/// `tree_id`: the one place a member's access is built, whether one tree is
+/// resolved or several. A Guest exports where the tree lets its Guests
+/// export (Privacy §9): the setting is read for a Guest only.
+async fn member_access(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    role: TreeRole,
+    scope_id: Option<Uuid>,
+) -> Result<TreeAccess, OxidGeneError> {
+    let access = TreeAccess::of_role(role).scoped(scope_id);
+    if role != TreeRole::Guest {
+        return Ok(access);
+    }
+    let tree = TreeRepo::get(db, tree_id).await?;
+    Ok(access.with_guest_export(tree.privacy.guests_may_export))
 }
 
 /// The Visitor access the viewer holds on tree `tree_id` without a
@@ -247,7 +257,7 @@ pub async fn permitted_trees(
     let mut permitted = Vec::new();
     for &tree_id in tree_ids {
         let access = match roles.get(&tree_id) {
-            Some(&(role, scope)) => Some(TreeAccess::of_role(role).scoped(scope)),
+            Some(&(role, scope)) => Some(member_access(db, tree_id, role, scope).await?),
             None => visitor_access(db, viewer, tree_id, now).await?,
         };
         if let Some(access) = access {

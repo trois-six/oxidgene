@@ -1114,3 +1114,42 @@ fn the_requirements_cover_the_permissions_of_the_matrix() {
         );
     }
 }
+
+/// One request resolving its access to several trees, then to one, sees
+/// the same access both times: a Guest of a tree letting its Guests
+/// export keeps `export` once the tree list resolved their access.
+#[tokio::test]
+async fn a_members_access_is_the_same_however_the_request_resolves_it() {
+    use oxidgene_core::access::{Identity, Principal, ViewerContext};
+
+    let (fixture, _provider) = fixture().await;
+    let tree = fixture.tree_id;
+    let (status, settings) = fixture
+        .rest(
+            Who::Owner,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree}"),
+            Some(json!({ "guests_may_export": true })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    let viewer = ViewerContext::new(Principal::User(Identity {
+        issuer: "https://id.example.invalid".into(),
+        subject: "guest".into(),
+        user_id: fixture.users[&Who::Guest],
+        client_id: Some(TRUSTED_CLIENT.into()),
+        scopes: Vec::new(),
+        session_id: Some("session-digest".into()),
+        api_client_id: None,
+        instance_role: InstanceRole::User,
+        can_create_trees: false,
+    }));
+    let listed =
+        oxidgene_api::authz::permitted_trees(&fixture.db, &viewer, &[tree], Permission::Read)
+            .await
+            .expect("lists the trees");
+    assert_eq!(listed, [tree]);
+    oxidgene_api::authz::authorize(&fixture.db, &viewer, tree, Permission::Export)
+        .await
+        .expect("the Guest still exports");
+}
