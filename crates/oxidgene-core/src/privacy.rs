@@ -58,7 +58,7 @@ const MIN_PARENT_AGE: i32 = 15;
 /// A change to what they hold — a margin, an evidence, the way a date reads —
 /// bumps it, and every tree's rows are rebuilt (§4.5), as the projections
 /// are for `PROJECTION_SCHEMA_VERSION`.
-pub const VISIBILITY_RULE_VERSION: i32 = 1;
+pub const VISIBILITY_RULE_VERSION: i32 = 2;
 
 // ---------------------------------------------------------------------------
 // Dates
@@ -139,11 +139,18 @@ impl YearSpan {
 /// The last Gregorian year a date value written in `calendar` may fall in:
 /// the year its year ends in. The value's last number is its year (`1910`,
 /// `12 MAR 1910`, `15 VEND 7`).
+///
+/// The value is free text: a year no calendar date can hold (outside
+/// `NaiveDate`'s range, as `date_sort` is) is unreadable, and bounds
+/// nothing, so the rule stays closed and no later sum can overflow.
 fn latest_gregorian_year(value: &str, calendar: Calendar) -> Option<i32> {
     let year: i32 = value
         .split_whitespace()
         .rev()
         .find_map(|token| token.parse().ok())?;
+    if !(NaiveDate::MIN.year()..=NaiveDate::MAX.year()).contains(&year) {
+        return None;
+    }
     if calendar == Calendar::Gregorian {
         return Some(year);
     }
@@ -255,7 +262,7 @@ impl LifeEvidence {
                 continue;
             };
             let latest = if event.event_type == EventType::Marriage {
-                latest - MARRIAGE_AGE
+                latest.saturating_sub(MARRIAGE_AGE)
             } else {
                 latest
             };
@@ -301,17 +308,26 @@ pub fn kin_latest<'a>(
 ) -> Option<i32> {
     let mut bound = own.own_latest();
     for parent in parents {
-        bound = min_bound(bound, parent.birth_latest().map(|y| y + PARENT_BIRTH_SPAN));
-        bound = min_bound(bound, parent.death_latest.map(|y| y + PARENT_DEATH_SPAN));
+        let after_birth = parent
+            .birth_latest()
+            .map(|y| y.saturating_add(PARENT_BIRTH_SPAN));
+        let after_death = parent
+            .death_latest
+            .map(|y| y.saturating_add(PARENT_DEATH_SPAN));
+        bound = min_bound(bound, after_birth);
+        bound = min_bound(bound, after_death);
     }
     for spouse in spouses {
-        bound = min_bound(bound, spouse.birth_latest().map(|y| y + SPOUSE_BIRTH_SPAN));
+        let after_birth = spouse
+            .birth_latest()
+            .map(|y| y.saturating_add(SPOUSE_BIRTH_SPAN));
+        bound = min_bound(bound, after_birth);
     }
     for sibling in siblings {
-        bound = min_bound(
-            bound,
-            sibling.birth_latest().map(|y| y + SIBLING_BIRTH_SPAN),
-        );
+        let after_birth = sibling
+            .birth_latest()
+            .map(|y| y.saturating_add(SIBLING_BIRTH_SPAN));
+        bound = min_bound(bound, after_birth);
     }
     bound
 }
@@ -329,7 +345,7 @@ pub fn kin_earliest<'a>(
         let from_parent = parent
             .birth
             .and_then(|span| span.earliest)
-            .map(|y| y + MIN_PARENT_AGE);
+            .map(|y| y.saturating_add(MIN_PARENT_AGE));
         bound = max_bound(bound, from_parent);
     }
     bound
@@ -359,11 +375,11 @@ impl Descent {
     pub fn of_children<'a>(children: impl IntoIterator<Item = (Option<i32>, &'a Self)>) -> Self {
         let mut descent = Self::default();
         for (recorded, theirs) in children {
-            let recorded = recorded.map(|y| y - GENERATION_GAP);
+            let recorded = recorded.map(|y| y.saturating_sub(GENERATION_GAP));
             for depth in 0..DESCENT_DEPTH {
                 let deeper = match depth {
                     0 => None,
-                    _ => theirs.0[depth - 1].map(|y| y - GENERATION_GAP),
+                    _ => theirs.0[depth - 1].map(|y| y.saturating_sub(GENERATION_GAP)),
                 };
                 descent.0[depth] = min_bound(descent.0[depth], min_bound(recorded, deeper));
             }
@@ -460,7 +476,8 @@ impl ContemporaryRule {
     ) -> bool {
         self.enabled
             && !deceased
-            && latest_birth_year.is_none_or(|latest| latest > current_year - self.years)
+            && latest_birth_year
+                .is_none_or(|latest| latest > current_year.saturating_sub(self.years))
     }
 }
 

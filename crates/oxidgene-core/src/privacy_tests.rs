@@ -454,3 +454,44 @@ fn each_exclusion_kind_covers_its_branch() {
         .is_empty()
     );
 }
+
+#[test]
+fn a_range_end_no_date_can_hold_bounds_nothing_and_never_overflows() {
+    // A free-text far end at the edge of `i32` must not wrap a relative's
+    // bound into the distant past: the child stays contemporary.
+    let parent = evidence(&[range(DateQualifier::Between, 1990, "2147483647")]);
+    assert_eq!(parent.birth_latest(), None);
+    let child = LifeEvidence::default();
+    let bound = kin_latest(&child, [&parent], [&parent], [&parent]);
+    let visibility = PersonVisibility {
+        latest_birth_year: bound,
+        ..PersonVisibility::default()
+    };
+    assert!(visibility.is_contemporary(RULE, NOW));
+    assert_eq!(
+        latest_gregorian_year("2147483647", Calendar::Gregorian),
+        None
+    );
+    assert_eq!(latest_gregorian_year("2147483647", Calendar::Julian), None);
+    assert_eq!(latest_gregorian_year("-2147483648", Calendar::Hebrew), None);
+
+    // Stored bounds at the edge saturate rather than wrap.
+    let extreme = LifeEvidence {
+        birth: Some(YearSpan {
+            earliest: Some(i32::MAX),
+            latest: Some(i32::MAX),
+        }),
+        death_latest: Some(i32::MAX),
+        ..LifeEvidence::default()
+    };
+    assert_eq!(
+        kin_latest(&child, [&extreme], [&extreme], [&extreme]),
+        Some(i32::MAX)
+    );
+    assert_eq!(kin_earliest(&child, [&extreme]), Some(i32::MAX));
+    let deep = Descent([Some(i32::MIN); DESCENT_DEPTH]);
+    assert_eq!(
+        Descent::of_children([(Some(i32::MIN), &deep)]).bound(),
+        Some(i32::MIN)
+    );
+}

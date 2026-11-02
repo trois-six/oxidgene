@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -165,6 +165,10 @@ the Gregorian year:
 | `before Y` | Y − 1 |
 | `between Y1 and Y2`, `from Y1 to Y2` | Y2 |
 | `after Y`, a phrase with no year | No bound |
+
+A range's far end is free text: one whose year no stored date can hold
+(outside the range of `date_sort`) is unreadable and bounds nothing, so the rule
+stays closed.
 
 ### 4.3 Inference from relatives
 
