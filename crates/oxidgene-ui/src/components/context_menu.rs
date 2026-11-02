@@ -734,8 +734,6 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
     // Each action is offered to whom may take it (docs/authorization.md
     // §11): going to a relative and the kinship are everyone's.
     let permissions = use_tree_permissions();
-    let deletes = permissions.can(Permission::Delete);
-    let excludes = offers_exclusion(permissions);
 
     let union_count = props.unions.len();
 
@@ -832,54 +830,142 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                 }
             } else {
                 // Main action list: first what changes the person, to whom
-                // may (docs/authorization.md §11).
-                PersonWriteEntries {
-                    has_union: props.has_union,
-                    union_count,
-                    on_action: props.on_action,
-                    on_unions: move |()| show_union_sub.set(true),
-                }
-                // A divider only between groups: none above the first entry.
-                if !props.go_to.is_empty() {
-                    if permissions.writes() {
-                        hr { class: "context-menu-divider" }
-                    }
-                    button {
-                        role: "menuitem",
-                        class: "context-menu-item",
-                        onclick: move |_| show_go_to.set(true),
-                        {i18n.t("context.go_to")}
-                    }
-                }
-                if permissions.writes() || !props.go_to.is_empty() {
-                    hr { class: "context-menu-divider" }
-                }
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| props.on_action.call(PersonAction::Kinship),
-                    {i18n.t("context.kinship")}
-                }
-                if excludes {
-                    button {
-                        role: "menuitem",
-                        class: "context-menu-item",
-                        onclick: move |_| show_exclude.set(true),
-                        {i18n.t("context.exclude")}
-                    }
-                }
-                if deletes {
-                    hr { class: "context-menu-divider" }
-                    button {
-                        role: "menuitem",
-                        class: "context-menu-item context-menu-danger",
-                        onclick: move |_| props.on_action.call(PersonAction::Delete),
-                        {i18n.t("common.delete")}
+                // may (docs/authorization.md §11), then going elsewhere, the
+                // kinship and the exclusion, then the deletion.
+                for (k , entry) in person_entries(permissions, props.has_union, union_count, !props.go_to.is_empty()).into_iter().enumerate() {
+                    {
+                        let on_action = props.on_action;
+                        match entry {
+                            MenuEntry::Divider => rsx! {
+                                hr { key: "{k}", class: "context-menu-divider" }
+                            },
+                            MenuEntry::Unions => rsx! {
+                                button {
+                                    key: "{k}",
+                                    role: "menuitem",
+                                    class: "context-menu-item",
+                                    onclick: move |_| show_union_sub.set(true),
+                                    {i18n.t("context.edit_union_submenu")}
+                                }
+                            },
+                            MenuEntry::GoTo => rsx! {
+                                button {
+                                    key: "{k}",
+                                    role: "menuitem",
+                                    class: "context-menu-item",
+                                    onclick: move |_| show_go_to.set(true),
+                                    {i18n.t("context.go_to")}
+                                }
+                            },
+                            MenuEntry::Exclude => rsx! {
+                                button {
+                                    key: "{k}",
+                                    role: "menuitem",
+                                    class: "context-menu-item",
+                                    onclick: move |_| show_exclude.set(true),
+                                    {i18n.t("context.exclude")}
+                                }
+                            },
+                            MenuEntry::Action(action, label) => {
+                                let class = if action == PersonAction::Delete {
+                                    "context-menu-item context-menu-danger"
+                                } else {
+                                    "context-menu-item"
+                                };
+                                let label = i18n.t(label);
+                                rsx! {
+                                    button {
+                                        key: "{k}",
+                                        role: "menuitem",
+                                        class,
+                                        onclick: move |_| on_action.call(action.clone()),
+                                        "{label}"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/// An entry of the person menu's main list.
+#[derive(Debug, Clone, PartialEq)]
+enum MenuEntry {
+    /// An action, with the translation key of its label.
+    Action(PersonAction, &'static str),
+    /// The sub-list of the person's unions, when there are several.
+    Unions,
+    /// The sub-list of the relatives to go to.
+    GoTo,
+    /// The sub-list of the exclusions from sharing.
+    Exclude,
+    Divider,
+}
+
+/// The person menu's main list for a viewer holding `permissions`: first
+/// what changes the person — editing them and their unions, merging,
+/// tagging, adding relatives — then going to a relative, then the kinship
+/// and the exclusion, then the deletion, each for a viewer who may
+/// (docs/authorization.md §11). A divider stands only between two groups.
+/// Bulk tagging is never a scoped Editor's (§3.3).
+fn person_entries(
+    permissions: TreePermissions,
+    has_union: bool,
+    union_count: usize,
+    has_go_to: bool,
+) -> Vec<MenuEntry> {
+    use MenuEntry::{Action, Divider};
+    let edits = permissions.can(Permission::Edit);
+    let mut writes = Vec::new();
+    if edits {
+        writes.push(Action(PersonAction::Edit, "context.edit_individual"));
+    }
+    if permissions.can(Permission::Merge) {
+        writes.push(Action(PersonAction::Merge, "context.merge"));
+    }
+    if permissions.tags_records() {
+        writes.push(Action(PersonAction::Tags, "tag.picker.open"));
+    }
+    if permissions.can_shared(Permission::Merge) {
+        writes.push(Action(PersonAction::TagBranch, "tag.branch.open"));
+    }
+    if edits && has_union {
+        writes.push(if union_count > 1 {
+            MenuEntry::Unions
+        } else {
+            Action(PersonAction::EditUnion, "context.edit_union")
+        });
+    }
+    if permissions.can(Permission::Create) {
+        writes.extend([
+            Action(PersonAction::AddSpouse, "context.add_spouse"),
+            Action(PersonAction::AddChild, "context.add_child"),
+            Action(PersonAction::AddSibling, "context.add_sibling"),
+        ]);
+    }
+    let mut reads = vec![Action(PersonAction::Kinship, "context.kinship")];
+    if offers_exclusion(permissions) {
+        reads.push(MenuEntry::Exclude);
+    }
+    let mut groups = vec![writes];
+    if has_go_to {
+        groups.push(vec![MenuEntry::GoTo]);
+    }
+    groups.push(reads);
+    if permissions.can(Permission::Delete) {
+        groups.push(vec![Action(PersonAction::Delete, "common.delete")]);
+    }
+    let mut entries = Vec::new();
+    for group in groups.into_iter().filter(|group| !group.is_empty()) {
+        if !entries.is_empty() {
+            entries.push(Divider);
+        }
+        entries.extend(group);
+    }
+    entries
 }
 
 /// Whether the person menu offers to exclude from sharing: where the tree
@@ -888,95 +974,137 @@ fn offers_exclusion(permissions: TreePermissions) -> bool {
     permissions.shares() && permissions.can(Permission::ExclusionsManage)
 }
 
-/// The person menu's entries that change the tree, each for a viewer who
-/// may: editing the person and their unions, merging, tagging, and adding
-/// relatives. Bulk tagging is never a scoped Editor's (§3.3).
-#[component]
-fn PersonWriteEntries(
-    has_union: bool,
-    union_count: usize,
-    on_action: EventHandler<PersonAction>,
-    on_unions: EventHandler<()>,
-) -> Element {
-    let i18n = use_i18n();
-    let permissions = use_tree_permissions();
-    let edits = permissions.can(Permission::Edit);
-    rsx! {
-        if edits {
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::Edit),
-                {i18n.t("context.edit_individual")}
-            }
-        }
-        if permissions.can(Permission::Merge) {
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::Merge),
-                {i18n.t("context.merge")}
-            }
-        }
-        if permissions.tags_records() {
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::Tags),
-                {i18n.t("tag.picker.open")}
-            }
-        }
-        if permissions.can_shared(Permission::Merge) {
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::TagBranch),
-                {i18n.t("tag.branch.open")}
-            }
-        }
-        if edits && has_union {
-            if union_count > 1 {
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| on_unions.call(()),
-                    {i18n.t("context.edit_union_submenu")}
-                }
-            } else {
-                button {
-                    role: "menuitem",
-                    class: "context-menu-item",
-                    onclick: move |_| on_action.call(PersonAction::EditUnion),
-                    {i18n.t("context.edit_union")}
-                }
-            }
-        }
-        if permissions.can(Permission::Create) {
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::AddSpouse),
-                {i18n.t("context.add_spouse")}
-            }
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::AddChild),
-                {i18n.t("context.add_child")}
-            }
-            button {
-                role: "menuitem",
-                class: "context-menu-item",
-                onclick: move |_| on_action.call(PersonAction::AddSibling),
-                {i18n.t("context.add_sibling")}
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{MENU_GAP, menu_anchor, shift_into_window};
+    use super::{MENU_GAP, MenuEntry, menu_anchor, person_entries, shift_into_window};
+    use crate::account::AccountState;
+    use crate::permissions::TreePermissions;
+    use oxidgene_core::access::{TreeAccess, TreeRole};
+    use uuid::Uuid;
+
+    fn viewer(role: TreeRole, scoped: bool) -> TreePermissions {
+        let access = TreeAccess::of_role(role).scoped(scoped.then(Uuid::nil));
+        TreePermissions::resolve(&AccountState::Anonymous, Some(&access.viewer_access()))
+    }
+
+    /// The main list as its labels, `--` for a divider: a person with one
+    /// union and relatives to go to.
+    fn menu(permissions: TreePermissions) -> Vec<&'static str> {
+        person_entries(permissions, true, 1, true)
+            .into_iter()
+            .map(|entry| match entry {
+                MenuEntry::Action(_, label) => label,
+                MenuEntry::Unions => "unions",
+                MenuEntry::GoTo => "go_to",
+                MenuEntry::Exclude => "exclude",
+                MenuEntry::Divider => "--",
+            })
+            .collect()
+    }
+
+    const WRITES: [&str; 8] = [
+        "context.edit_individual",
+        "context.merge",
+        "tag.picker.open",
+        "tag.branch.open",
+        "context.edit_union",
+        "context.add_spouse",
+        "context.add_child",
+        "context.add_sibling",
+    ];
+
+    #[test]
+    fn a_visitor_and_a_guest_see_only_where_to_go_and_the_kinship() {
+        for role in [TreeRole::Visitor, TreeRole::Guest] {
+            assert_eq!(
+                menu(viewer(role, false)),
+                ["go_to", "--", "context.kinship"],
+                "{role:?}"
+            );
+        }
+        // Nothing to go to: the kinship alone, no stray divider.
+        assert_eq!(
+            person_entries(viewer(TreeRole::Guest, false), true, 1, false),
+            [MenuEntry::Action(
+                super::PersonAction::Kinship,
+                "context.kinship"
+            )]
+        );
+    }
+
+    #[test]
+    fn an_editor_changes_the_person_but_manages_no_exclusion() {
+        let mut expected = WRITES.to_vec();
+        expected.extend([
+            "--",
+            "go_to",
+            "--",
+            "context.kinship",
+            "--",
+            "common.delete",
+        ]);
+        assert_eq!(menu(viewer(TreeRole::Editor, false)), expected);
+    }
+
+    #[test]
+    fn a_scoped_editor_does_not_tag_a_branch() {
+        let mut expected: Vec<_> = WRITES
+            .iter()
+            .copied()
+            .filter(|label| *label != "tag.branch.open")
+            .collect();
+        expected.extend([
+            "--",
+            "go_to",
+            "--",
+            "context.kinship",
+            "--",
+            "common.delete",
+        ]);
+        assert_eq!(menu(viewer(TreeRole::Editor, true)), expected);
+    }
+
+    #[test]
+    fn the_owner_also_excludes_where_the_tree_has_other_viewers() {
+        let mut expected = WRITES.to_vec();
+        expected.extend([
+            "--",
+            "go_to",
+            "--",
+            "context.kinship",
+            "exclude",
+            "--",
+            "common.delete",
+        ]);
+        assert_eq!(menu(viewer(TreeRole::Owner, false)), expected);
+        // The local owner has no other viewer to exclude anyone from.
+        expected.retain(|label| *label != "exclude");
+        assert_eq!(menu(TreePermissions::local()), expected);
+    }
+
+    #[test]
+    fn several_unions_open_their_list_and_none_offers_no_union() {
+        let local = TreePermissions::local();
+        assert!(person_entries(local, true, 2, false).contains(&MenuEntry::Unions));
+        let without = person_entries(local, false, 0, false);
+        assert!(!without.contains(&MenuEntry::Unions));
+        assert!(
+            !without
+                .iter()
+                .any(|entry| matches!(entry, MenuEntry::Action(super::PersonAction::EditUnion, _)))
+        );
+    }
+
+    #[test]
+    fn nothing_is_offered_but_the_kinship_while_the_access_is_pending() {
+        assert_eq!(
+            person_entries(TreePermissions::pending(), true, 1, false),
+            [MenuEntry::Action(
+                super::PersonAction::Kinship,
+                "context.kinship"
+            )]
+        );
+    }
 
     #[test]
     fn a_menu_past_the_right_edge_moves_back_inside_the_client_area() {
