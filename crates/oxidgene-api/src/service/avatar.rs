@@ -22,6 +22,7 @@ use uuid::Uuid;
 use crate::auth::Principal;
 use crate::media::{MediaStore, sha256_hex, sniff_mime};
 use crate::service::account::{require_user, visible_user};
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// The largest upload, refused before it is decoded.
 pub const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
@@ -153,15 +154,9 @@ pub async fn set_avatar(
     crop: Option<Crop>,
 ) -> Result<AppUser, OxidGeneError> {
     let user_id = require_user(principal)?.user_id;
-    let renditions = tokio::task::spawn_blocking(move || render(&bytes, crop))
-        .await
-        .map_err(|_| OxidGeneError::Internal("avatar rendering failed".into()))??;
-    for (size, image) in &renditions.images {
-        media
-            .put_user_bytes(&avatar_key(user_id, &renditions.sha256, *size), image)
-            .await?;
-    }
-    replace(db, media, user_id, Some(renditions.sha256)).await
+    let span = tracing::info_span!("avatar.render", input.bytes = bytes.len());
+    let renditions = super::blocking::run(span, move || render(&bytes, crop)).await??;
+    replace(db, media.as_ref(), user_id, Some(&renditions)).await
 }
 
 /// Return the signed-in user to the generated avatar.
@@ -171,31 +166,86 @@ pub async fn delete_avatar(
     principal: &Principal,
 ) -> Result<AppUser, OxidGeneError> {
     let user_id = require_user(principal)?.user_id;
-    replace(db, media, user_id, None).await
+    replace(db, media.as_ref(), user_id, None).await
 }
 
-/// Point the user at `sha256`, then delete the files of the avatar it
-/// replaced once that is committed.
+/// Point the user at `renditions`, none for the generated avatar, then
+/// delete the files of the avatar it replaced.
+///
+/// The user's row stays locked from reading the avatar it replaces to the
+/// commit, and the new files are written meanwhile: two changes of one
+/// user take turns, so each replaces what the other committed and none
+/// deletes the files the other points at. Files written for a change that
+/// fails are deleted again, unless they are the avatar the user keeps.
 async fn replace(
     db: &DatabaseConnection,
-    media: &Arc<dyn MediaStore>,
+    media: &dyn MediaStore,
     user_id: Uuid,
-    sha256: Option<String>,
+    renditions: Option<&Renditions>,
 ) -> Result<AppUser, OxidGeneError> {
-    let previous = AppUserRepo::get(db, user_id).await?.avatar_sha256;
-    let updated = AppUserRepo::update(
-        db,
-        user_id,
-        AppUserChanges {
-            avatar_sha256: Some(sha256.clone()),
-            ..AppUserChanges::default()
-        },
-    )
-    .await?;
-    if let Some(previous) = previous.filter(|previous| Some(previous) != sha256.as_ref()) {
-        delete_files(media.as_ref(), user_id, &previous).await;
+    let sha256 = renditions.map(|r| r.sha256.clone());
+    let txn = begin_tx(db).await?;
+    let previous = AppUserRepo::get_for_update(&txn, user_id)
+        .await?
+        .avatar_sha256;
+    let written = renditions.filter(|_| previous != sha256);
+    let updated = async {
+        if let Some(renditions) = written {
+            for (size, image) in &renditions.images {
+                media
+                    .put_user_bytes(&avatar_key(user_id, &renditions.sha256, *size), image)
+                    .await?;
+            }
+        }
+        let updated = AppUserRepo::update(
+            &txn,
+            user_id,
+            AppUserChanges {
+                avatar_sha256: Some(sha256.clone()),
+                ..AppUserChanges::default()
+            },
+        )
+        .await?;
+        commit_tx(txn).await?;
+        Ok::<_, OxidGeneError>(updated)
+    }
+    .await;
+    if updated.is_err()
+        && let Some(renditions) = written
+    {
+        delete_files(media, user_id, &renditions.sha256).await;
+    }
+    let updated = updated?;
+    if let Some(previous) = previous.filter(|previous| Some(previous) != sha256.as_ref())
+        && let Err(error) = delete_unused(db, media, user_id, &previous).await
+    {
+        // The change is committed; only its cleanup failed.
+        tracing::warn!(
+            error = "avatar_cleanup",
+            error.kind = crate::error_contract::error_kind(&error),
+            "The replaced avatar's files could not be deleted"
+        );
     }
     Ok(updated)
+}
+
+/// Delete the files of avatar `sha256` of `user_id` unless the user points
+/// at it again — a concurrent change back to it, which wrote them anew
+/// under the same lock.
+async fn delete_unused(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    user_id: Uuid,
+    sha256: &str,
+) -> Result<(), OxidGeneError> {
+    let txn = begin_tx(db).await?;
+    let current = AppUserRepo::get_for_update(&txn, user_id)
+        .await?
+        .avatar_sha256;
+    if current.as_deref() != Some(sha256) {
+        delete_files(media, user_id, sha256).await;
+    }
+    commit_tx(txn).await
 }
 
 /// Delete the files of avatar `sha256`. A file left behind is logged, not
@@ -342,5 +392,81 @@ mod tests {
             avatar_key(user, &"a".repeat(64), 64),
             format!("users/{user}/avatar/{}-64.jpg", "a".repeat(64))
         );
+    }
+
+    /// A database with one fictitious user, and a media store.
+    async fn account() -> (
+        DatabaseConnection,
+        crate::media::store::FsStore,
+        tempfile::TempDir,
+        Uuid,
+    ) {
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let user = AppUserRepo::create(
+            &db,
+            oxidgene_db::repo::NewAppUser {
+                issuer: "https://idp.example.invalid/".into(),
+                subject: "subject-avatar".into(),
+                email: None,
+                email_verified: false,
+                provider_name: Some("Fictive member".into()),
+                username: None,
+                locale: None,
+                instance_role: oxidgene_db::repo::InstanceRole::User,
+                can_create_trees: false,
+            },
+        )
+        .await
+        .expect("creates the user");
+        let root = tempfile::tempdir().expect("creates media root");
+        let store = crate::media::store::FsStore::new(root.path());
+        (db, store, root, user.id)
+    }
+
+    #[tokio::test]
+    async fn a_failed_replacement_deletes_its_files_and_keeps_the_avatar() {
+        let (db, store, root, user) = account().await;
+        let first = render(&png(32, 32, Rgba([10, 20, 30, 255])), None).unwrap();
+        let second = render(&png(32, 32, Rgba([200, 100, 50, 255])), None).unwrap();
+        let file = |sha256: &str, size: u32| root.path().join(avatar_key(user, sha256, size));
+
+        replace(&db, &store, user, Some(&first))
+            .await
+            .expect("sets the avatar");
+        assert!(file(&first.sha256, 256).is_file());
+
+        // The second rendition cannot be written: a directory stands where
+        // it goes.
+        std::fs::create_dir_all(file(&second.sha256, 64)).unwrap();
+        assert!(replace(&db, &store, user, Some(&second)).await.is_err());
+        assert!(
+            !file(&second.sha256, 256).exists(),
+            "the written file is deleted"
+        );
+        let kept = AppUserRepo::get(&db, user).await.unwrap().avatar_sha256;
+        assert_eq!(kept.as_deref(), Some(first.sha256.as_str()));
+        for size in AVATAR_SIZES {
+            assert!(
+                file(&first.sha256, size).is_file(),
+                "the kept avatar's files stay"
+            );
+        }
+
+        // The same image again keeps its files; a new one replaces them.
+        replace(&db, &store, user, Some(&first))
+            .await
+            .expect("keeps the avatar");
+        assert!(file(&first.sha256, 256).is_file());
+        std::fs::remove_dir(file(&second.sha256, 64)).unwrap();
+        replace(&db, &store, user, Some(&second))
+            .await
+            .expect("replaces the avatar");
+        assert!(!file(&first.sha256, 256).exists());
+        assert!(file(&second.sha256, 256).is_file());
     }
 }

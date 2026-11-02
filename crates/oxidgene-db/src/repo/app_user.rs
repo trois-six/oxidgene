@@ -10,7 +10,9 @@ use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Connection;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use crate::entities::app_user::{self, ActiveModel, Column, Entity};
@@ -158,6 +160,22 @@ impl AppUserRepo {
     /// The user `id`, whatever its status.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<AppUser, OxidGeneError> {
         find(db, id).await.map(into_domain)
+    }
+
+    /// The user `id`, its row locked until transaction `txn` ends on
+    /// PostgreSQL, so that two changes of the same user take turns; SQLite's
+    /// single writer does the same there.
+    pub async fn get_for_update(
+        txn: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<AppUser, OxidGeneError> {
+        Entity::find_by_id(id)
+            .lock_exclusive()
+            .one(txn)
+            .await
+            .map_err(db_err)?
+            .map(into_domain)
+            .ok_or(OxidGeneError::NotFound { entity: "User", id })
     }
 
     /// The user an identity names, if one was provisioned.
