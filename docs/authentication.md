@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -113,7 +113,7 @@ settings; every secret also has a `_FILE` variant naming a mounted file.
 | `OXIDGENE_OIDC_CLIENT_SECRET` | — | The web client's secret, for `client_secret_basic` and `client_secret_post` |
 | `OXIDGENE_OIDC_PRIVATE_KEY_FILE` | — | The PEM key signing client assertions, for `private_key_jwt`: an RSA (`RS256`), P-256 (`ES256`) or Ed25519 (`EdDSA`) key |
 | `OXIDGENE_OIDC_SCOPES` | `openid profile email` | Scopes asked at sign-in, plus the API scopes of [Authorization §7.2](authorization.md#72-scopes) the web client needs |
-| `OXIDGENE_OIDC_AUDIENCE` | `OXIDGENE_PUBLIC_URL` | The resource identifier every access token's `aud` must contain (§5.2) |
+| `OXIDGENE_OIDC_AUDIENCE` | `OXIDGENE_PUBLIC_URL` | The resource identifier every access token's `aud` must contain (§5.2); never the client id, which is refused |
 | `OXIDGENE_OIDC_ALGORITHMS` | `RS256,PS256,ES256,EdDSA` | The signature allow-list (§5.2) |
 | `OXIDGENE_OIDC_TRUSTED_CLIENTS` | Unset | Client ids, other than the web client, whose user tokens are accepted as bearer tokens: the assistant clients' registration (`oxidgene-mcp`) and the operator's own interactive applications (§5.1) |
 | `OXIDGENE_OIDC_INTROSPECTION` | `false` | Validate opaque access tokens through the introspection endpoint (§5.3) |

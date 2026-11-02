@@ -211,8 +211,9 @@ impl std::fmt::Debug for StoreKind {
 /// The store, keys, idle timeout and absolute lifetime of sessions.
 type SessionSettings = (StoreKind, Vec<[u8; 32]>, Duration, Duration);
 
-/// The checked `oidc` configuration.
-#[derive(Debug, Clone)]
+/// The checked `oidc` configuration. Its `Debug` leaves the session keys
+/// out: they seal the sessions' tokens and sign the unsubscribe links.
+#[derive(Clone)]
 pub struct OidcConfig {
     /// The application's external origin, without a trailing slash.
     pub public_url: String,
@@ -237,6 +238,24 @@ pub struct OidcConfig {
     pub session_keys: Vec<[u8; 32]>,
     pub idle_timeout: Duration,
     pub absolute_lifetime: Duration,
+}
+
+impl std::fmt::Debug for OidcConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcConfig")
+            .field("public_url", &self.public_url)
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_auth", &self.client_auth)
+            .field("audience", &self.audience)
+            .field("trusted_clients", &self.trusted_clients)
+            .field("store", &self.store)
+            .field(
+                "session_keys",
+                &format_args!("{} keys", self.session_keys.len()),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl OidcConfig {
@@ -302,13 +321,20 @@ impl AuthSettings {
         let (public_url, public_origin) = public_url(self.public_url.as_deref())?;
         let issuer = self.issuer()?;
         let (store, session_keys, idle_timeout, absolute_lifetime) = self.sessions()?;
+        let client_id = self.client_id()?;
+        // The resource identifier, never a client id: an ID token, whose
+        // audience is the client, must not pass as an access token (§5.2).
+        let audience = optional(&self.oidc_audience).unwrap_or_else(|| public_url.clone());
+        if audience == client_id {
+            return Err(AuthConfigError::invalid("OXIDGENE_OIDC_AUDIENCE"));
+        }
         Ok(OidcConfig {
-            audience: optional(&self.oidc_audience).unwrap_or_else(|| public_url.clone()),
+            audience,
             public_url,
             public_origin,
             issuer,
             backchannel_url: self.backchannel_url()?,
-            client_id: self.client_id()?,
+            client_id,
             client_auth: self.client_auth()?,
             scopes: scopes(&self.oidc_scopes)?,
             algorithms: algorithms(&self.oidc_algorithms)?,
@@ -728,6 +754,35 @@ mod tests {
             config.redirect_uri(),
             "https://genealogy.example.invalid/auth/callback"
         );
+    }
+
+    #[test]
+    fn the_session_keys_never_print() {
+        let config = oidc(&[]).expect("valid");
+        let printed = format!("{config:?}");
+        assert!(printed.contains("1 keys"), "{printed}");
+        assert!(!printed.contains("[0, 1, 2"), "{printed}");
+        assert!(!printed.contains("fixture-secret"), "{printed}");
+    }
+
+    #[test]
+    fn the_audience_is_never_the_client_id() {
+        for audience in ["oxidgene-web", "oxidgene-web "] {
+            assert_eq!(
+                oidc(&[("oidc_audience", audience)]).unwrap_err(),
+                AuthConfigError::invalid("OXIDGENE_OIDC_AUDIENCE"),
+                "{audience}"
+            );
+        }
+        let custom = oidc(&[
+            ("oidc_client_id", "custom-web"),
+            ("oidc_audience", "custom-web"),
+        ]);
+        assert_eq!(
+            custom.unwrap_err(),
+            AuthConfigError::invalid("OXIDGENE_OIDC_AUDIENCE")
+        );
+        oidc(&[("oidc_audience", "https://api.example.invalid")]).expect("valid");
     }
 
     #[test]

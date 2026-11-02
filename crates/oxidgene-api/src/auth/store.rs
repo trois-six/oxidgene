@@ -58,8 +58,9 @@ impl Session {
     }
 }
 
-/// A sign-in under way between `/auth/login` and `/auth/callback`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// A sign-in under way between `/auth/login` and `/auth/callback`. Its
+/// `Debug` leaves the PKCE verifier out.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LoginTransaction {
     /// The digest of the value of the `__Host-oxidgene-login` cookie.
     pub binding_hash: String,
@@ -67,6 +68,14 @@ pub struct LoginTransaction {
     pub nonce_hash: String,
     pub pkce_verifier: String,
     pub return_to: String,
+}
+
+impl std::fmt::Debug for LoginTransaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginTransaction")
+            .field("return_to", &self.return_to)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The share-link grants a browser holds (docs/authorization.md §6.3):
@@ -674,6 +683,19 @@ mod tests {
     #[tokio::test]
     async fn the_memory_store_keeps_sessions_and_their_indexes() {
         exercise(&MemoryStore::default()).await;
+    }
+
+    #[test]
+    fn a_login_transaction_never_prints_its_verifier() {
+        let login = LoginTransaction {
+            binding_hash: "binding-digest".into(),
+            nonce_hash: "nonce-digest".into(),
+            pkce_verifier: "verifier-value".into(),
+            return_to: "/trees".into(),
+        };
+        let printed = format!("{login:?}");
+        assert!(!printed.contains("verifier-value"), "{printed}");
+        assert!(printed.contains("/trees"), "{printed}");
     }
 
     #[tokio::test]
