@@ -406,7 +406,10 @@ pseudonym, or absent, so nothing else names them.
   applies in memory. A direct read or a nested list deciding record by
   record reads the hidden records of every kind once per request, in one
   statement whose sets are common table expressions, so that a restricted
-  viewer's read costs the owner's plus a fixed few statements.
+  viewer's read costs the owner's plus a fixed few statements. The
+  redaction itself reads the tree's families, with their privacy and live
+  spouses, in one statement over the tree rather than by the identifiers
+  of its families or of its excluded persons.
 - A placeholder that may not be navigated through carries a pseudonym drawn
   afresh for each request: within one response it names the same
   placeholder everywhere; across requests it links nothing. Its only

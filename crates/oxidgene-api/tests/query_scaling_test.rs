@@ -588,7 +588,7 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
     use tower::ServiceExt as _;
 
     /// The statements a restricted viewer may run beyond the owner's.
-    const EXTRA: usize = 8;
+    const EXTRA: usize = 7;
 
     let counter = Arc::new(AtomicUsize::new(0));
     let _guard = tracing_subscriber::registry()

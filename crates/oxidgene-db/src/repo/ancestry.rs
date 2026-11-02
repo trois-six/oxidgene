@@ -146,6 +146,54 @@ impl AncestryRepo {
             .collect()
     }
 
+    /// Every live family of tree `tree_id` with its privacy and its live
+    /// spouses, in one statement over the tree: what a restricted viewer's
+    /// redaction weighs the families by. A family without a live spouse
+    /// comes with none.
+    #[tracing::instrument(name = "redaction.family_spouses", skip_all)]
+    pub async fn family_spouses(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(Uuid, oxidgene_core::enums::Privacy, Vec<Uuid>)>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let tree = match backend {
+            DbBackend::Sqlite => "?1",
+            _ => "$1",
+        };
+        let sql = format!(
+            "SELECT f.id AS family_id, f.privacy, s.person_id \
+             FROM family f \
+             LEFT JOIN (SELECT fs.family_id, fs.person_id FROM family_spouse fs \
+                        JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL) s \
+               ON s.family_id = f.id \
+             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL \
+             ORDER BY f.id"
+        );
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                backend,
+                &sql,
+                [Value::from(tree_id)],
+            ))
+            .await
+            .map_err(db_err)?;
+        let mut families: Vec<(Uuid, oxidgene_core::enums::Privacy, Vec<Uuid>)> = Vec::new();
+        for row in &rows {
+            let family_id: Uuid = row.try_get("", "family_id").map_err(db_err)?;
+            let spouse: Option<Uuid> = row.try_get("", "person_id").map_err(db_err)?;
+            if families.last().is_none_or(|(id, ..)| *id != family_id) {
+                let privacy = row
+                    .try_get::<sea_enums::Privacy>("", "privacy")
+                    .map_err(db_err)?;
+                families.push((family_id, privacy.into(), Vec::new()));
+            }
+            if let (Some(spouse), Some((.., spouses))) = (spouse, families.last_mut()) {
+                spouses.push(spouse);
+            }
+        }
+        Ok(families)
+    }
+
     /// Shared recursive walk from each of `roots`, by root; the two
     /// directions differ only in how one step joins through the family
     /// tables and which column it yields.

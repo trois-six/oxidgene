@@ -2181,6 +2181,69 @@ async fn ancestry_walks_the_family_links() {
     );
 }
 
+/// The families a redaction weighs: every live family of the tree with its
+/// privacy and its live spouses only — none for a family whose spouses are
+/// gone, nothing of a deleted family or of another tree.
+#[tokio::test]
+async fn family_spouses_lists_each_live_family_with_its_live_spouses() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let other_tree = create_tree(&db).await;
+
+    let (spouse_a, spouse_b, child) = (
+        create_person(&db, tree_id).await,
+        create_person(&db, tree_id).await,
+        create_person(&db, tree_id).await,
+    );
+    link_parents(&db, tree_id, &[spouse_a, spouse_b], child).await;
+    let gone = create_person(&db, tree_id).await;
+    let widowed = create_person(&db, tree_id).await;
+    link_parents(
+        &db,
+        tree_id,
+        &[gone, widowed],
+        create_person(&db, tree_id).await,
+    )
+    .await;
+    PersonRepo::delete(&db, gone).await.unwrap();
+    let lone = create_person(&db, tree_id).await;
+    link_parents(&db, tree_id, &[lone], create_person(&db, tree_id).await).await;
+    PersonRepo::delete(&db, lone).await.unwrap();
+    let deleted_family = Uuid::now_v7();
+    FamilyRepo::create(&db, deleted_family, tree_id)
+        .await
+        .unwrap();
+    FamilyRepo::delete(&db, deleted_family).await.unwrap();
+    let elsewhere = create_person(&db, other_tree).await;
+    link_parents(
+        &db,
+        other_tree,
+        &[elsewhere],
+        create_person(&db, other_tree).await,
+    )
+    .await;
+
+    let families = AncestryRepo::family_spouses(&db, tree_id).await.unwrap();
+    assert!(
+        families
+            .iter()
+            .all(|(_, privacy, _)| *privacy == Privacy::Default)
+    );
+    let mut found: Vec<Vec<Uuid>> = families
+        .into_iter()
+        .map(|(_, _, mut spouses)| {
+            spouses.sort();
+            spouses
+        })
+        .collect();
+    found.sort();
+    let mut couple = vec![spouse_a, spouse_b];
+    couple.sort();
+    let mut expected = vec![couple, vec![widowed], Vec::new()];
+    expected.sort();
+    assert_eq!(found, expected);
+}
+
 /// One walk from several persons gives each what a walk from them alone
 /// does, with persons reached from two roots under both, and nothing for a
 /// person without links or an unknown id.

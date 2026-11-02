@@ -71,7 +71,7 @@ async fn restricted(
     use chrono::Datelike;
     use oxidgene_core::enums::Privacy;
     use oxidgene_core::redaction::{RedactionInputs, ScopeInputs};
-    use oxidgene_db::repo::{FamilyRepo, MembershipsOf, PersonVisibilityRepo, TreeRepo};
+    use oxidgene_db::repo::{AncestryRepo, TreeRepo};
 
     let tree = TreeRepo::get(db, tree_id).await?;
     let excluded = if viewing.exclusions_apply {
@@ -94,35 +94,17 @@ async fn restricted(
         )),
         None => None,
     };
-    // The families whose spouses may be hidden: those of the excluded
-    // persons, or every family for a viewer the privacy rules or a scope
-    // redact.
-    let families: Vec<(Uuid, Privacy, Vec<Uuid>)> = if visibility.is_some() || scope.is_some() {
-        let all = FamilyRepo::list_all(db, tree_id).await?;
-        let ids: Vec<Uuid> = all.iter().map(|f| f.id).collect();
-        let spouses = spouses_of(db, &ids).await?;
-        all.into_iter()
-            .map(|f| {
-                let members = spouses.get(&f.id).cloned().unwrap_or_default();
-                (f.id, f.privacy, members)
-            })
-            .collect()
-    } else if excluded.is_empty() {
-        Vec::new()
-    } else {
-        let ids: Vec<Uuid> = excluded.iter().copied().collect();
-        let own = PersonVisibilityRepo::memberships(db, &ids, MembershipsOf::Persons).await?;
-        let family_ids: Vec<Uuid> = own
-            .iter()
-            .filter(|m| m.spouse)
-            .map(|m| m.family_id)
-            .collect();
-        spouses_of(db, &family_ids)
-            .await?
-            .into_iter()
-            .map(|(id, spouses)| (id, Privacy::Default, spouses))
-            .collect()
-    };
+    // The families whose spouses may be hidden: every family of a tree
+    // where anybody is, with its privacy and live spouses, in one
+    // statement over the tree. Selecting them by the identifiers of the
+    // tree's families or of the excluded persons bound thousands of values
+    // and cost several times as much on a tree of 10,000 persons.
+    let families: Vec<(Uuid, Privacy, Vec<Uuid>)> =
+        if visibility.is_some() || scope.is_some() || !excluded.is_empty() {
+            AncestryRepo::family_spouses(db, tree_id).await?
+        } else {
+            Vec::new()
+        };
     Ok(Redaction::build(
         viewing,
         tree.default_privacy,
@@ -140,24 +122,6 @@ async fn restricted(
         },
         chrono::Utc::now().year(),
     ))
-}
-
-/// The live spouses of each of `families`.
-#[cfg(feature = "auth")]
-async fn spouses_of(
-    db: &DatabaseConnection,
-    families: &[Uuid],
-) -> Result<std::collections::HashMap<Uuid, Vec<Uuid>>, OxidGeneError> {
-    use oxidgene_db::repo::{MembershipsOf, PersonVisibilityRepo};
-    let mut out: std::collections::HashMap<Uuid, Vec<Uuid>> = std::collections::HashMap::new();
-    for member in PersonVisibilityRepo::memberships(db, families, MembershipsOf::Families).await? {
-        if member.spouse {
-            out.entry(member.family_id)
-                .or_default()
-                .push(member.person_id);
-        }
-    }
-    Ok(out)
 }
 
 /// Without the `auth` feature the viewer is always the local owner, whose
