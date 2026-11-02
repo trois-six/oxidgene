@@ -9097,6 +9097,7 @@
     "profile.avatar_file_kind": "Bilder",
     "profile.avatar_too_large": "Dieses Bild ist größer als 5 MB.",
     "profile.avatar_wrong_type": "Wählen Sie ein JPEG-, PNG- oder WebP-Bild.",
+    "profile.avatar_undecodable": "Dieses Bild kann nicht gelesen werden: Es ist vielleicht beschädigt oder unvollständig. Wählen Sie ein anderes JPEG-, PNG- oder WebP-Bild.",
     "profile.avatar_failed": "Der Avatar konnte nicht geändert werden. Versuchen Sie es erneut.",
     "profile.avatar_crop_title": "Avatar wählen",
     "profile.avatar_crop_hint": "Ziehen Sie das Quadrat oder verschieben Sie es mit den Pfeiltasten; zoomen Sie, um einen kleineren Bildausschnitt zu wählen.",

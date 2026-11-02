@@ -79,6 +79,10 @@ pub fn AvatarCropper(
     let i18n = use_i18n();
     let image_id = crate::listeners::use_element_id("avatar-crop-image");
     let mut natural = use_signal(|| None::<(u32, u32)>);
+    // A picture that passed the type sniff yet does not decode — truncated
+    // or damaged — never loads: without this the stage would stay empty and
+    // Use disabled, with nothing said.
+    let mut undecodable = use_signal(|| false);
     let mut zoom = use_signal(|| 1.0_f64);
     let mut center = use_signal(|| None::<(f64, f64)>);
     // Where a drag started: the pointer, in client pixels, and the centre.
@@ -109,6 +113,9 @@ pub fn AvatarCropper(
             }),
             dioxus::html::events::onpointerup(move |_| drag.set(None)),
             dioxus::html::events::onpointerleave(move |_| drag.set(None)),
+            // The system taking the touch over, or a stylus leaving range,
+            // ends the drag as surely as lifting the pointer.
+            dioxus::html::events::onpointercancel(move |_| drag.set(None)),
         ]
     });
 
@@ -149,10 +156,13 @@ pub fn AvatarCropper(
                             move |_| {
                                 let image_id = image_id.clone();
                                 spawn(async move {
-                                    natural.set(natural_size(&image_id).await);
+                                    let size = natural_size(&image_id).await;
+                                    undecodable.set(size.is_none());
+                                    natural.set(size);
                                 });
                             }
                         },
+                        onerror: move |_| undecodable.set(true),
                     }
                     if let Some(crop) = crop {
                         div {
@@ -199,6 +209,9 @@ pub fn AvatarCropper(
                     },
                 }
             }
+            if undecodable() {
+                div { class: "error-msg", role: "alert", {i18n.t("profile.avatar_undecodable")} }
+            }
             if let Some(error) = error {
                 div { class: "error-msg", role: "alert", "{error}" }
             }
@@ -232,6 +245,23 @@ pub fn AvatarCropper(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cancelled pointer left the drag on, its move listener mounted, and
+    /// a picture that failed to decode left the dialog silently empty. The
+    /// listeners only run in a browser: their presence is what is pinned.
+    #[test]
+    fn a_drag_ends_on_a_cancel_and_a_broken_picture_says_so() {
+        let source = include_str!("avatar_cropper.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or_default();
+        for listener in [
+            "onpointerup(move |_| drag.set(None))",
+            "onpointerleave(move |_| drag.set(None))",
+            "onpointercancel(move |_| drag.set(None))",
+            "onerror: move |_| undecodable.set(true)",
+        ] {
+            assert!(production.contains(listener), "missing {listener}");
+        }
+    }
 
     #[test]
     fn the_square_starts_centred_on_the_shorter_side() {

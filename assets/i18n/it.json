@@ -9097,6 +9097,7 @@
     "profile.avatar_file_kind": "Immagini",
     "profile.avatar_too_large": "Questa immagine supera i 5 MB.",
     "profile.avatar_wrong_type": "Scegli un'immagine JPEG, PNG o WebP.",
+    "profile.avatar_undecodable": "Impossibile leggere questa immagine: potrebbe essere danneggiata o incompleta. Scegli un'altra immagine JPEG, PNG o WebP.",
     "profile.avatar_failed": "Non è stato possibile cambiare l'avatar. Riprova.",
     "profile.avatar_crop_title": "Scegli il tuo avatar",
     "profile.avatar_crop_hint": "Trascina il quadrato o spostalo con i tasti freccia; ingrandisci per inquadrare una parte più piccola dell'immagine.",

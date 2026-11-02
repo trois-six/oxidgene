@@ -9284,6 +9284,7 @@
     "profile.avatar_file_kind": "Obrazy",
     "profile.avatar_too_large": "Ten obraz jest większy niż 5 MB.",
     "profile.avatar_wrong_type": "Wybierz obraz JPEG, PNG lub WebP.",
+    "profile.avatar_undecodable": "Nie można odczytać tego obrazu: może być uszkodzony lub niekompletny. Wybierz inny obraz JPEG, PNG lub WebP.",
     "profile.avatar_failed": "Nie udało się zmienić awatara. Spróbuj ponownie.",
     "profile.avatar_crop_title": "Wybierz awatar",
     "profile.avatar_crop_hint": "Przeciągnij kwadrat lub przesuń go strzałkami; powiększ, aby wykadrować mniejszą część obrazu.",

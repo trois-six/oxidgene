@@ -9097,6 +9097,7 @@
     "profile.avatar_file_kind": "Afbeeldingen",
     "profile.avatar_too_large": "Deze afbeelding is groter dan 5 MB.",
     "profile.avatar_wrong_type": "Kies een JPEG-, PNG- of WebP-afbeelding.",
+    "profile.avatar_undecodable": "Deze afbeelding kan niet worden gelezen: ze is mogelijk beschadigd of onvolledig. Kies een andere JPEG-, PNG- of WebP-afbeelding.",
     "profile.avatar_failed": "De avatar kon niet worden gewijzigd. Probeer het opnieuw.",
     "profile.avatar_crop_title": "Kies uw avatar",
     "profile.avatar_crop_hint": "Sleep het vierkant of verplaats het met de pijltjestoetsen; zoom in om een kleiner deel van de afbeelding te kaderen.",
