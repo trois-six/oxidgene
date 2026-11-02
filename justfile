@@ -232,10 +232,12 @@ test-postgres:
     OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql,oxidgene-api/auth --test integration
     cargo nextest run -p oxidgene-api --features postgres,auth --lib --run-ignored only --test-threads 1 -E 'test(/on_postgres_/)'
 
-# Round-trip media through the RustFS service of docker/docker-compose.yml,
-# which must be running (`docker compose -f docker/docker-compose.yml up -d`).
+# Round-trip media and crops through the RustFS service of docker/docker-compose.yml,
+# then run the stored crops' lifecycle on it; the service must be running
+# (`docker compose -f docker/docker-compose.yml up -d rustfs rustfs-init`).
 test-s3:
     cargo nextest run -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
+    cargo nextest run -p oxidgene-api --features s3 --test integration --run-ignored only -E 'test(crops_live_and_die_on_the_s3_store_as_on_disk)'
 
 # Keep, index, expire and end sessions in the Redis server named by
 # OXIDGENE_TEST_REDIS_URL, such as the Compose stack's

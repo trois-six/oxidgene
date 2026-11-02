@@ -1509,6 +1509,46 @@ mod tests {
 
         store.delete(&survivor.key).await.unwrap();
         store.delete(&survivor.key).await.unwrap();
+
+        // Crops: written, listed, read back, deleted by vignette and by tree.
+        let tree_id = tree();
+        let (first, second) = (Uuid::now_v7(), Uuid::now_v7());
+        let card = crop_key(tree_id, first, &sha256_hex(b"card"), "card");
+        let thumbnail = crop_key(tree_id, first, &sha256_hex(b"thumbnail"), "thumbnail");
+        let other = crop_key(tree_id, second, &sha256_hex(b"other"), "card");
+        for key in [&card, &thumbnail, &other] {
+            store
+                .put_crop(key, Bytes::from(key.clone().into_bytes()))
+                .await
+                .unwrap();
+        }
+        assert_eq!(store.get(&card).await.unwrap(), card.as_bytes());
+        let mut listed = store.crop_objects(tree_id).await.unwrap();
+        listed.sort_by(|a, b| a.key.cmp(&b.key));
+        let mut expected = vec![card.clone(), thumbnail.clone(), other.clone()];
+        expected.sort();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|crop| crop.key.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(listed.iter().all(|crop| crop.size > 0));
+        assert!(store.tree_ids().await.unwrap().contains(&tree_id));
+        assert!(
+            store
+                .put_crop(&key_for(tree_id, &sha256_hex(b"x"), "jpg"), Bytes::new())
+                .await
+                .is_err(),
+            "only a crop key takes a crop"
+        );
+
+        store.delete_crops(tree_id, Some(first)).await.unwrap();
+        assert!(!store.exists(&card).await && !store.exists(&thumbnail).await);
+        assert!(store.exists(&other).await, "another vignette keeps its own");
+        store.delete_crops(tree_id, None).await.unwrap();
+        assert!(store.crop_objects(tree_id).await.unwrap().is_empty());
     }
 
     /// A multipart upload that records whether it was aborted.

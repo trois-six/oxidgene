@@ -818,6 +818,120 @@ async fn concurrent_first_views_cut_and_write_once() {
     assert_eq!(h.crops(&vignette).len(), 1);
 }
 
+/// The same lifecycle on the web's S3 store: a crop stored on its first
+/// view and read back from the bucket, the crops of a moved rectangle
+/// deleted, and the maintenance sweep's deletions.
+#[cfg(feature = "s3")]
+#[tokio::test]
+#[ignore = "needs the RustFS service of docker/docker-compose.yml: run by `just test-s3`"]
+async fn crops_live_and_die_on_the_s3_store_as_on_disk() {
+    use oxidgene_api::media::{S3Store, S3StoreConfig};
+
+    let s3 = S3Store::new(S3StoreConfig {
+        bucket: "oxidgene-media".to_string(),
+        region: "us-east-1".to_string(),
+        endpoint: Some("http://127.0.0.1:9000".to_string()),
+        access_key_id: "oxidgene-admin".to_string(),
+        secret_access_key: "oxidgene-development-secret".to_string(),
+    })
+    .expect("build RustFS store");
+    let h = Harness::with_store(TempRoot::new(), |_| Arc::new(s3)).await;
+    let tree_id = Uuid::parse_str(&h.tree_id).unwrap();
+    let keys_of = |vignette: &str| {
+        let vignette = Uuid::parse_str(vignette).unwrap();
+        let store = Arc::clone(&h.store);
+        async move {
+            let mut keys: Vec<String> = store
+                .crop_objects(tree_id)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|crop| crop.vignette_id == vignette)
+                .map(|crop| crop.key)
+                .collect();
+            keys.sort();
+            keys
+        }
+    };
+
+    // Stored on the first view, read back from the bucket afterwards.
+    let vignette = h.vignette(RECT, None).await;
+    let (status, card) = h.view(&vignette, "card").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(card, fresh_cut(&h.original, RECT, Rendition::Card));
+    let (status, _) = h.view(&vignette, "image").await;
+    assert_eq!(status, StatusCode::OK);
+    let stored = keys_of(&vignette).await;
+    assert_eq!(stored.len(), 2, "{stored:?}");
+    let card_key = stored
+        .iter()
+        .find(|key| key.ends_with("-card.jpg"))
+        .unwrap();
+    assert_eq!(h.store.get(card_key).await.unwrap(), card);
+    let marker = photograph(8, 8, 3);
+    h.store
+        .put_crop(card_key, Bytes::from(marker.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        h.view(&vignette, "card").await.1,
+        marker,
+        "read from the bucket"
+    );
+
+    // Moving the rectangle deletes them; the next view cuts the new one.
+    let (status, _) = send(
+        &h.app,
+        Method::PUT,
+        &format!("{}/vignettes/{vignette}", h.base()),
+        Some(json!({ "x": 0, "y": 0, "width": 200, "height": 200 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(keys_of(&vignette).await.is_empty());
+    let (_, moved) = h.view(&vignette, "card").await;
+    assert_eq!(
+        moved,
+        fresh_cut(&h.original, (0, 0, 200, 200), Rendition::Card)
+    );
+    let current = keys_of(&vignette).await;
+    assert_eq!(current.len(), 1);
+
+    // The sweep: a vanished vignette's crops and a stale key go, the
+    // current crop stays; a soft-deleted tree keeps none.
+    let vanished = h.vignette((0, 0, 64, 64), None).await;
+    h.view(&vanished, "card").await;
+    oxidgene_db::repo::VignetteRepo::delete(&h.db, Uuid::parse_str(&vanished).unwrap())
+        .await
+        .unwrap();
+    let stale = oxidgene_api::media::store::crop_key(
+        tree_id,
+        Uuid::parse_str(&vignette).unwrap(),
+        &"0".repeat(64),
+        "card",
+    );
+    h.store
+        .put_crop(&stale, Bytes::from_static(b"stale"))
+        .await
+        .unwrap();
+    let worker = BackgroundJobWorker::new(
+        h.db.clone(),
+        Arc::new(ProfileService::new(h.db.clone())),
+        Arc::clone(&h.store),
+        "crop-sweep-s3-test",
+    );
+    worker.maintain(chrono::Utc::now()).await;
+    assert_eq!(keys_of(&vignette).await, current);
+    assert!(keys_of(&vanished).await.is_empty());
+    oxidgene_db::repo::TreeRepo::soft_delete(&h.db, tree_id)
+        .await
+        .unwrap();
+    worker.maintain(chrono::Utc::now()).await;
+    assert!(h.store.crop_objects(tree_id).await.unwrap().is_empty());
+
+    h.store.delete_tree(tree_id).await.unwrap();
+}
+
 /// Processor time this process has used, user and system.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn cpu_time() -> std::time::Duration {

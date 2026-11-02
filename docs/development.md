@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -81,7 +81,7 @@ the repository root.
 | `just crop-bench` | Time a pedigree view's portraits on a generated tree of camera-sized photographs, cut (cold) and read back from their stored crops (warm), in release mode, and report the crops' sizes ([Architecture §4.2](architecture.md#42-stored-crops)). |
 | `just bench` | Run the opt-in benchmarks of the profile service, the person search, the person visibility, the access scopes and the kept redactions, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, a job queued by another process waking an idle worker, and a notification written by another process waking a long poll. |
-| `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
+| `just test-s3` | Round-trip media and crops through the Compose stack's RustFS service, then run the stored crops' lifecycle on it: stored and read back, deleted when a rectangle moves, swept (§3). |
 | `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
@@ -705,8 +705,10 @@ end-to-end journeys that sign in against that Rauthy are an opt-in suite,
 
 RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 `http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the
-`oxidgene-media` bucket idempotently. Run the ignored storage round-trip test
-while the stack is healthy with:
+`oxidgene-media` bucket idempotently. Run the ignored storage tests — the
+round trip of media and crops, then the stored crops' lifecycle (stored and
+read back, deleted when a rectangle moves, swept) — while the stack is healthy
+with:
 
 ```bash
 just test-s3
