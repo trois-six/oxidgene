@@ -1109,44 +1109,53 @@ pub async fn load_and_export(
     // Verify tree exists; its "Who am I?" person names the submitter.
     let tree = TreeRepo::get(db, tree_id).await?;
     let mut records = TreeRecords::load(db, tree_id).await?;
+    // The persons each cut keeps, read here; the cutting itself runs off
+    // the async workers below.
+    let mut cuts: Vec<Vec<Uuid>> = Vec::new();
     if let Some(spec) = scope {
-        let persons = tag_bulk::export_persons(db, tree_id, spec).await?;
-        export_scope::cut_to(&mut records, &persons, tree.self_person_id);
+        cuts.push(tag_bulk::export_persons(db, tree_id, spec).await?);
     }
     // Only the web build has access scopes.
     #[cfg(feature = "auth")]
     if let Some(scope) = privacy.access_scope {
-        let persons: Vec<Uuid> = crate::service::access_scope::scope_persons(db, scope)
-            .await?
-            .into_iter()
-            .collect();
-        export_scope::cut_to(&mut records, &persons, tree.self_person_id);
+        cuts.push(
+            crate::service::access_scope::scope_persons(db, scope)
+                .await?
+                .into_iter()
+                .collect(),
+        );
     }
     let excluded = excluded_persons(db, tree_id, privacy).await?;
-    export_privacy::apply(&mut records, &tree, privacy, &excluded);
 
-    // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
-    // archive rather than the paths whatever produced the record used. Media
-    // we hold no bytes for keep their original value — there is nothing to
-    // pack for them and nothing better to say.
-    let mut media_paths = std::collections::HashMap::new();
-    let mut media_files = Vec::new();
-    let packed = for_archive && choices.include_media;
-    for medium in records.media.iter().filter(|_| packed) {
-        let (Some(path), Some(key)) = (
-            oxidgene_gedcom::export::archive_path(medium),
-            medium.storage_key.clone(),
-        ) else {
-            continue;
-        };
-        media_paths.insert(medium.id, path.clone());
-        media_files.push((key, path));
-    }
-
-    // Serializing a whole tree is seconds of CPU on a large one: off the
-    // async workers, which the desktop shares with every page load.
+    // Cutting and serializing a whole tree are seconds of CPU on a large
+    // one: off the async workers, which the desktop shares with every page
+    // load.
     let span = tracing::info_span!("export.serialize", export.format = "gedcom");
-    let export_result = super::blocking::run(span, move || {
+    let (export_result, media_files) = super::blocking::run(span, move || {
+        for persons in &cuts {
+            export_scope::cut_to(&mut records, persons, tree.self_person_id);
+        }
+        export_privacy::apply(&mut records, &tree, privacy, &excluded);
+
+        // A GEDZIP carries the bytes, so its `FILE` lines name entries
+        // inside the archive rather than the paths whatever produced the
+        // record used. Media we hold no bytes for keep their original
+        // value — there is nothing to pack for them and nothing better to
+        // say.
+        let mut media_paths = std::collections::HashMap::new();
+        let mut media_files = Vec::new();
+        let packed = for_archive && choices.include_media;
+        for medium in records.media.iter().filter(|_| packed) {
+            let (Some(path), Some(key)) = (
+                oxidgene_gedcom::export::archive_path(medium),
+                medium.storage_key.clone(),
+            ) else {
+                continue;
+            };
+            media_paths.insert(medium.id, path.clone());
+            media_files.push((key, path));
+        }
+
         oxidgene_gedcom::export::export_gedcom(
             &records.export_records(),
             &oxidgene_gedcom::export::ExportOptions {
@@ -1166,6 +1175,7 @@ pub async fn load_and_export(
                 },
             },
         )
+        .map(|result| (result, media_files))
     })
     .await??;
 

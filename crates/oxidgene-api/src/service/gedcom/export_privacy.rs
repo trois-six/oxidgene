@@ -116,11 +116,7 @@ fn initial(text: Option<&str>) -> Option<String> {
 
 /// The name an `initials` placeholder carries: the initials of the first
 /// given name and of the surname of the person's primary name (`J. D.`).
-fn initials_of(names: &[PersonName], person: Uuid) -> Option<PersonName> {
-    let primary = names
-        .iter()
-        .filter(|name| name.person_id == person)
-        .min_by_key(|name| (!name.is_primary, name.sort_order))?;
+fn initials_of(primary: &PersonName) -> Option<PersonName> {
     let given = initial(
         primary
             .given_names
@@ -333,15 +329,27 @@ fn strip_persons(
     if stubs.is_empty() {
         return;
     }
-    let initials: Vec<PersonName> = if display == HiddenDisplay::Initials {
-        stubs
-            .iter()
-            .filter(|id| !excluded.contains(id))
-            .filter_map(|&id| initials_of(&records.person_names, id))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let initials: Vec<PersonName> =
+        if display == HiddenDisplay::Initials {
+            // Each stub's primary name, found in one pass over the names.
+            let rank = |name: &PersonName| (!name.is_primary, name.sort_order);
+            let mut primary: HashMap<Uuid, &PersonName> = HashMap::new();
+            for name in records.person_names.iter().filter(|name| {
+                stubs.contains(&name.person_id) && !excluded.contains(&name.person_id)
+            }) {
+                primary
+                    .entry(name.person_id)
+                    .and_modify(|best| {
+                        if rank(name) < rank(best) {
+                            *best = name;
+                        }
+                    })
+                    .or_insert(name);
+            }
+            primary.into_values().filter_map(initials_of).collect()
+        } else {
+            Vec::new()
+        };
     records
         .person_names
         .retain(|name| !stubs.contains(&name.person_id));
@@ -564,4 +572,61 @@ fn drop_orphans(
         !(kept.entity_kind == KeptEntityKind::Source && gone.contains(&kept.entity_id)
             || kept.entity_kind == KeptEntityKind::Repository && unheld.contains(&kept.entity_id))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn name(person_id: Uuid, given: &str, surname: &str, primary: bool, order: i32) -> PersonName {
+        PersonName {
+            id: Uuid::now_v7(),
+            person_id,
+            name_type: NameType::Birth,
+            given_names: Some(given.into()),
+            surname: Some(surname.into()),
+            surname_prefix: None,
+            prefix: None,
+            suffix: None,
+            nickname: None,
+            is_primary: primary,
+            sort_order: order,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn initials_come_from_each_stubs_primary_name_alone() {
+        let (stub, other, excluded) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let mut records = TreeRecords {
+            person_names: vec![
+                name(stub, "Zephyr Alder", "Ashgrove", false, 0),
+                name(stub, "Quillon Brae", "Canary", true, 1),
+                name(other, "Ottoline", "Wrenfield", false, 2),
+                name(other, "Marlow", "Wrenfield", false, 1),
+                name(excluded, "Thistle", "Canary", true, 0),
+            ],
+            ..TreeRecords::default()
+        };
+        let stubs = HashSet::from([stub, other, excluded]);
+        strip_persons(
+            &mut records,
+            &stubs,
+            &HashSet::from([excluded]),
+            HiddenDisplay::Initials,
+        );
+        let mut initials: Vec<(Uuid, Option<&str>, Option<&str>)> = records
+            .person_names
+            .iter()
+            .map(|n| (n.person_id, n.given_names.as_deref(), n.surname.as_deref()))
+            .collect();
+        initials.sort_unstable();
+        let mut expected = vec![
+            (stub, Some("Q."), Some("C.")),
+            (other, Some("M."), Some("W.")),
+        ];
+        expected.sort_unstable();
+        assert_eq!(initials, expected);
+    }
 }
