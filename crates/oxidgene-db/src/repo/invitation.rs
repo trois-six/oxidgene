@@ -7,9 +7,8 @@ use oxidgene_core::access::TreeRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Connection;
 use sea_orm::entity::prelude::*;
-use sea_orm::{
-    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, Condition, ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::tree;
@@ -222,36 +221,67 @@ impl InvitationRepo {
             .collect())
     }
 
-    /// Mark invitation `id` sent again at `now`, waiting until `expires_at`.
+    /// Mark invitation `id` sent again at `now`, waiting until `expires_at`;
+    /// `not_found` once it is no longer pending (see [`Self::end`]).
     pub async fn resent(
         db: &impl ConnectionTrait,
         id: Uuid,
         now: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<TreeInvitation, OxidGeneError> {
-        let mut active = Self::model(db, id).await?.into_active_model();
-        active.last_sent_at = Set(Some(now));
-        active.expires_at = Set(expires_at);
-        active.update(db).await.map(into_domain).map_err(db_err)
+        let update = Entity::update_many()
+            .col_expr(Column::LastSentAt, Expr::value(Some(now)))
+            .col_expr(Column::ExpiresAt, Expr::value(expires_at));
+        Self::while_pending(db, id, update, now).await
     }
 
-    /// End invitation `id` as `end` says, at `now`.
+    /// End invitation `id` as `end` says, at `now`; `not_found` once it is
+    /// no longer pending.
+    ///
+    /// The update is itself the check: it applies only while no answer,
+    /// revocation or expiry ended the invitation, so of a revocation and an
+    /// acceptance racing (different columns, which would not block each
+    /// other), the second finds it ended and fails, and its transaction —
+    /// the membership an acceptance creates with it — rolls back.
     pub async fn end(
         db: &impl ConnectionTrait,
         id: Uuid,
         end: InvitationEnd,
         now: DateTime<Utc>,
     ) -> Result<TreeInvitation, OxidGeneError> {
-        let mut active = Self::model(db, id).await?.into_active_model();
-        match end {
-            InvitationEnd::Accepted(user_id) => {
-                active.accepted_at = Set(Some(now));
-                active.accepted_by = Set(Some(user_id));
-            }
-            InvitationEnd::Declined => active.declined_at = Set(Some(now)),
-            InvitationEnd::Revoked => active.revoked_at = Set(Some(now)),
+        let update = Entity::update_many();
+        let update = match end {
+            InvitationEnd::Accepted(user_id) => update
+                .col_expr(Column::AcceptedAt, Expr::value(Some(now)))
+                .col_expr(Column::AcceptedBy, Expr::value(Some(user_id))),
+            InvitationEnd::Declined => update.col_expr(Column::DeclinedAt, Expr::value(Some(now))),
+            InvitationEnd::Revoked => update.col_expr(Column::RevokedAt, Expr::value(Some(now))),
+        };
+        Self::while_pending(db, id, update, now).await
+    }
+
+    /// Apply `update` to invitation `id` if it is pending at `now`, and
+    /// read it back; `not_found` when it no longer is, as a read of a
+    /// pending invitation answers.
+    async fn while_pending(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        update: sea_orm::UpdateMany<Entity>,
+        now: DateTime<Utc>,
+    ) -> Result<TreeInvitation, OxidGeneError> {
+        let result = update
+            .filter(Column::Id.eq(id))
+            .filter(pending_at(now))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        if result.rows_affected == 0 {
+            return Err(OxidGeneError::NotFound {
+                entity: "Invitation",
+                id,
+            });
         }
-        active.update(db).await.map(into_domain).map_err(db_err)
+        Self::model(db, id).await.map(into_domain)
     }
 
     /// Delete the invitations no longer pending at `now` — expired,
