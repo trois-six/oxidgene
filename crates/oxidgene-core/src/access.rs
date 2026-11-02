@@ -495,6 +495,28 @@ pub struct JobActor {
     pub session: Option<String>,
 }
 
+impl JobActor {
+    /// The local owner's: the desktop's, and every request's in the `none`
+    /// mode.
+    #[must_use]
+    pub fn local() -> Self {
+        Self {
+            issuer: Some(LOCAL_IDENTITY.to_string()),
+            subject: Some(LOCAL_IDENTITY.to_string()),
+            ..Self::default()
+        }
+    }
+
+    /// Whether it is the local owner's, who owns every tree: never an actor
+    /// without a user that says nothing else, such as an anonymous one.
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        self.user_id.is_none()
+            && self.issuer.as_deref() == Some(LOCAL_IDENTITY)
+            && self.subject.as_deref() == Some(LOCAL_IDENTITY)
+    }
+}
+
 impl std::fmt::Debug for JobActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JobActor")
@@ -644,11 +666,10 @@ impl ViewerContext {
                 scopes: identity.scopes.clone(),
                 session: identity.session_id.clone(),
             },
-            Principal::Local | Principal::Anonymous => JobActor {
-                issuer: Some(LOCAL_IDENTITY.to_string()),
-                subject: Some(LOCAL_IDENTITY.to_string()),
-                ..JobActor::default()
-            },
+            Principal::Local => JobActor::local(),
+            // Nobody: a job it submitted would act for no one, never for
+            // the local owner.
+            Principal::Anonymous => JobActor::default(),
         }
     }
 
@@ -848,5 +869,12 @@ mod tests {
         let printed = format!("{viewer:?} {:?}", viewer.job_actor());
         assert!(!printed.contains("subject-value"), "{printed}");
         assert!(!printed.contains("session-digest"), "{printed}");
+    }
+
+    #[test]
+    fn only_the_local_owner_submits_jobs_as_the_local_owner() {
+        assert!(ViewerContext::local().job_actor().is_local());
+        assert!(!ViewerContext::anonymous().job_actor().is_local());
+        assert!(!JobActor::default().is_local());
     }
 }

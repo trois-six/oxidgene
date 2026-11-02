@@ -3691,7 +3691,7 @@ async fn tree_list_marks_only_running_file_imports() {
     BackgroundJobRepo::create(
         &state.db,
         NewBackgroundJob {
-            actor: Default::default(),
+            actor: oxidgene_core::access::JobActor::local(),
             id: job_id,
             tree_id,
             kind: BackgroundJobKind::Import,

@@ -1775,7 +1775,7 @@ mod tests {
         BackgroundJobRepo::create(
             db,
             NewBackgroundJob {
-                actor: Default::default(),
+                actor: oxidgene_core::access::JobActor::local(),
                 id: job_id,
                 tree_id,
                 kind: BackgroundJobKind::Import,
@@ -2494,7 +2494,7 @@ mod tests {
         BackgroundJobRepo::create(
             db,
             NewBackgroundJob {
-                actor: Default::default(),
+                actor: oxidgene_core::access::JobActor::local(),
                 id: job_id,
                 tree_id,
                 kind: BackgroundJobKind::Import,

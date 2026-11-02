@@ -262,18 +262,23 @@ pub async fn check(
 
 /// The viewer a background job acts for: the actor recorded when it was
 /// submitted (docs/authentication.md §5.5), read again from the user row
-/// so that a deactivated or erased user acts no more.
+/// so that a deactivated or erased user acts no more. An actor without a
+/// user is the local owner only when it says so.
 ///
 /// # Errors
 ///
 /// `actor_revoked` ([`OxidGeneError::Forbidden`]) for a user who may no
-/// longer act.
+/// longer act, and for an actor who is neither a user nor the local owner.
 pub async fn job_viewer(
     db: &impl ConnectionTrait,
     actor: &JobActor,
 ) -> Result<ViewerContext, OxidGeneError> {
     let Some(user_id) = actor.user_id else {
-        return Ok(ViewerContext::local());
+        return if actor.is_local() {
+            Ok(ViewerContext::local())
+        } else {
+            Err(OxidGeneError::Forbidden)
+        };
     };
     let user = match AppUserRepo::get(db, user_id).await {
         Ok(user) => user,
@@ -329,4 +334,28 @@ pub fn is_refusal(error: &OxidGeneError) -> bool {
         error,
         OxidGeneError::Unauthenticated | OxidGeneError::Forbidden | OxidGeneError::NotFound { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A job submitted by nobody acts for nobody: only an actor saying it is
+    /// the local owner acts as the owner of every tree.
+    #[tokio::test]
+    async fn only_the_local_owners_jobs_act_as_the_local_owner() {
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("opens a database");
+        let local = job_viewer(&db, &ViewerContext::local().job_actor())
+            .await
+            .expect("the local owner acts");
+        assert!(local.is_local());
+        for actor in [ViewerContext::anonymous().job_actor(), JobActor::default()] {
+            assert!(matches!(
+                job_viewer(&db, &actor).await,
+                Err(OxidGeneError::Forbidden)
+            ));
+        }
+    }
 }
