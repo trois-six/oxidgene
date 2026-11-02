@@ -462,10 +462,11 @@ Confidential notes are left out of an export by an exporter without
 `read_confidential` (a Guest) and by *Apply visitors' privacy rules*; what
 the exporter's access hides is applied whatever the request asks, and a
 job resolves it again from its actor when it runs. *Apply visitors' privacy
-rules* is the tree a viewer without `read_private` sees, the visitor scope
-of [Authorization §6.5](authorization.md#65-access-scopes) aside until
-sharing ships; it keeps the tags, which a Visitor does not read but which
-are no privacy rule. A Guest exports only where `guests_may_export` is on,
+rules* is the tree a viewer without `read_private` sees, limited to the
+tree's visitor scope ([Authorization §6.4](authorization.md#64-tree-visibility))
+when it has one, as an access scope limits a scoped exporter's export
+([Authorization §6.5](authorization.md#65-access-scopes)); it keeps the
+tags, which a Visitor does not read but which are no privacy rule. A Guest exports only where `guests_may_export` is on,
 the setting being read for a Guest's access only.
 
 ---

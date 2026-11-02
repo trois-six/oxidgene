@@ -1115,9 +1115,17 @@ pub async fn load_and_export(
     if let Some(spec) = scope {
         cuts.push(tag_bulk::export_persons(db, tree_id, spec).await?);
     }
-    // Only the web build has access scopes.
+    // Only the web build has access scopes: the exporter's own, and the
+    // visitor scope when the export is the tree as a Visitor sees it.
     #[cfg(feature = "auth")]
-    if let Some(scope) = privacy.access_scope {
+    for scope in [
+        privacy.access_scope,
+        tree.visitor_scope_id
+            .filter(|_| privacy.apply_visitor_rules),
+    ]
+    .into_iter()
+    .flatten()
+    {
         cuts.push(
             crate::service::access_scope::scope_persons(db, scope)
                 .await?

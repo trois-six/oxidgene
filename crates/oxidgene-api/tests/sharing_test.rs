@@ -1293,6 +1293,48 @@ async fn a_scoped_editors_body_is_checked_whatever_its_media_type() {
     );
 }
 
+#[tokio::test]
+async fn an_export_as_a_visitor_sees_the_tree_keeps_to_the_visitor_scope() {
+    use crate::common::canary::OUTSIDE;
+
+    let mut f = Fixture::new(&[]).await;
+    let scoped = f
+        .owner
+        .json(
+            Method::PUT,
+            &f.uri(""),
+            json!({ "visibility": "public", "visitor_scope": { "kind": "ancestors_of", "person_id": f.person("Harlan") } }),
+        )
+        .await;
+    assert_eq!(scoped.status, StatusCode::OK, "{}", scoped.json);
+    let (whole, as_visitor) = (
+        f.uri("/gedcom/export"),
+        f.uri("/gedcom/export?apply_visitor_rules=true"),
+    );
+    let whole = f.owner.get(&whole).await;
+    assert!(
+        whole.json["gedcom"].as_str().unwrap().contains(OUTSIDE),
+        "the owner's own export holds the whole tree"
+    );
+    let visitor = f.owner.get(&as_visitor).await;
+    let visitor = visitor.json["gedcom"].as_str().unwrap().to_owned();
+    let gql = f
+        .owner
+        .gql(
+            "query($tree: ID!) { exportGedcom(treeId: $tree, applyVisitorRules: true) { gedcom } }",
+            json!({ "tree": f.canaries.tree }),
+        )
+        .await;
+    let gql = gql.json["data"]["exportGedcom"]["gedcom"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", gql.json))
+        .to_owned();
+    for gedcom in [visitor, gql] {
+        assert!(!gedcom.contains(OUTSIDE), "{gedcom}");
+        assert!(gedcom.contains("Corwin"), "{gedcom}");
+    }
+}
+
 /// What keeping scopes current costs on a generated tree of 10 000
 /// persons, printed: building a scope (one read of the persons, one of the
 /// links, the walk, the rows), rebuilding it once a link moved, the

@@ -43,7 +43,7 @@ pub struct ExportPrivacy {
     /// without `read_confidential`, never asked for.
     pub leave_out_confidential: bool,
     /// *Apply visitors' privacy rules* (§8): write the tree as a viewer
-    /// without `read_private` sees it.
+    /// without `read_private` sees it, within the tree's visitor scope.
     pub apply_visitor_rules: bool,
     /// The access scope the exporter is limited to: the export keeps its
     /// persons alone (Authorization §6.5). Set from the access, never asked
