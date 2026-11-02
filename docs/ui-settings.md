@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 
@@ -339,10 +339,15 @@ a branch without a root, or generations out of range, says so instead.
   see** with the scope editor, the stored visitor scope filled in, and the
   sentence that Visitors see every record nobody marked private but living
   and excluded persons. **Save** writes the visibility and the visitor scope
-  together, once the owner has seen the count.
+  together, once the owner has seen the count. The card waits for the tree's
+  stored visibility, and **Save** for the stored visitor scope: a read that
+  failed is said, and nothing is saved over a scope nobody read. The scope is
+  sent only when the owner changed it.
 - **Share links** card: one row per link not revoked — its label (*Link
   without a label*), its scope, its end, *Opened: N* and *expired* — with
-  **Revoke**; *No share link.* otherwise. **New link**: **Label**, the scope
+  **Revoke**; *No share link.* otherwise. A list that could not be read —
+  members, invitations, share links, exclusions — says so rather than
+  passing for an empty one. **New link**: **Label**, the scope
   editor, **Ends on** and **Create the link**, after which the link's
   address appears once in a copy field, with the sentence that it is shown
   this once.

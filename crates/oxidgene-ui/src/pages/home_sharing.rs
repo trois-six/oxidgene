@@ -9,6 +9,7 @@
 use dioxus::prelude::*;
 use oxidgene_core::access::TreeRole;
 
+use super::sharing_settings::Listed;
 use crate::account::use_account;
 use crate::api::ApiClient;
 use crate::api::sharing::MyInvitation;
@@ -113,14 +114,15 @@ pub fn HomeInvitations(on_accepted: EventHandler<()>) -> Element {
         let ready = matches!(*account.read(), crate::account::AccountState::SignedIn(_));
         async move {
             if ready {
-                api.my_invitations().await.unwrap_or_default()
+                api.my_invitations().await
             } else {
-                Vec::new()
+                Ok(Vec::new())
             }
         }
     });
-    let list = invitations.read().clone().unwrap_or_default();
-    if list.is_empty() {
+    // A failed read says so: hidden, it would pass for "no invitation".
+    let listed = Listed::of(&invitations.read(), &i18n);
+    if listed.rows.is_empty() && listed.error.is_none() {
         return rsx! {};
     }
     let answer = move |(id, accept): (uuid::Uuid, bool)| {
@@ -146,8 +148,11 @@ pub fn HomeInvitations(on_accepted: EventHandler<()>) -> Element {
     rsx! {
         section { class: "home-invitations", "aria-label": i18n.t("sharing.invitations.title"),
             h2 { class: "home-invitations-title", {i18n.t("sharing.invitations.title")} }
-            for invitation in list {
+            for invitation in listed.rows {
                 InvitationRow { key: "{invitation.id}", invitation, on_answer: answer.clone() }
+            }
+            if let Some(error) = listed.error {
+                div { class: "error-msg", role: "alert", "{error}" }
             }
             if let Some(error) = error() {
                 div { class: "error-msg", role: "alert", "{error}" }

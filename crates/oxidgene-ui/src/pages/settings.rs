@@ -675,7 +675,7 @@ pub fn Settings(tree_id: String) -> Element {
                         super::sharing_settings::OwnerSection {
                             section: sec.clone(),
                             sharing,
-                            visibility: page.tree.as_ref().map(|tree| tree.visibility).unwrap_or_default(),
+                            visibility: page.tree.as_ref().map(|tree| tree.visibility),
                         }
                     },
                     "privacy" => rsx! {

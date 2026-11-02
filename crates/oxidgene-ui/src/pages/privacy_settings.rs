@@ -14,6 +14,7 @@ use oxidgene_core::types::{PrivacySettings, Tree};
 use uuid::Uuid;
 
 use super::settings::SettingsCheck;
+use super::sharing_settings::Listed;
 use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::tree_cache::{TreeCache, use_tree_cache};
@@ -322,18 +323,18 @@ fn ExclusionsCard(tree_id: Uuid) -> Element {
             async move { api.list_exclusions(tree_id).await }
         }
     });
-    let rows = match &*exclusions.read() {
-        Some(Ok(rows)) => rows.clone(),
-        _ => Vec::new(),
-    };
+    let listed = Listed::of(&exclusions.read(), &i18n);
     rsx! {
         div { class: "card settings-card",
             h3 { class: "settings-card-title", {i18n.t("settings.exclusions_title")} }
             p { class: "settings-section-subtitle", {i18n.t("settings.exclusions_desc")} }
-            if rows.is_empty() {
+            if listed.empty {
                 p { class: "settings-check-desc", {i18n.t("settings.exclusions_empty")} }
             }
-            for row in rows {
+            if let Some(err) = listed.error {
+                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
+            }
+            for row in listed.rows {
                 div { key: "{row.id}", class: "settings-export-row",
                     div { class: "settings-export-info",
                         div { class: "settings-check-label",

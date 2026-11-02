@@ -18,11 +18,11 @@ use uuid::Uuid;
 
 use super::home_sharing::role_key;
 use super::settings::{SettingsCheck, parse_depth, root_person_row};
-use crate::api::ApiClient;
 use crate::api::sharing::{
     Invitation, Member, MemberPatchBody, ScopeView, ShareBody, ShareLink, ShareLinkBody,
     VisibilityBody,
 };
+use crate::api::{ApiClient, ApiError};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::format_day;
@@ -139,6 +139,30 @@ fn kind_key(kind: ScopeKind) -> &'static str {
     }
 }
 
+/// What `lookup` answers for the root person of `draft`, looked up again
+/// each time the owner picks another root. The root is read inside the
+/// resource: a value captured at the first render would name that root
+/// for good, while the draft saved another.
+fn use_draft_root<T, F>(
+    draft: Signal<ScopeDraft>,
+    mut lookup: impl FnMut(Uuid) -> F + 'static,
+) -> Resource<Option<T>>
+where
+    T: 'static,
+    F: Future<Output = Option<T>> + 'static,
+{
+    let root = use_memo(move || draft().root);
+    use_ui_resource("scope_root", move || {
+        let pending = root().map(&mut lookup);
+        async move {
+            match pending {
+                Some(pending) => pending.await,
+                None => None,
+            }
+        }
+    })
+}
+
 /// The scope editor: the whole tree or a branch — its root person, its side,
 /// its generations, the root itself, the spouses and the collateral — with
 /// the number of persons it reaches and how many of them a Visitor sees,
@@ -149,11 +173,9 @@ pub fn ScopeEditor(tree_id: Uuid, draft: Signal<ScopeDraft>, id_prefix: String) 
     let api = use_context::<ApiClient>();
     let current = draft();
     let root_api = api.clone();
-    let root = current.root;
-    let root_person = use_ui_resource("scope_root", move || {
+    let root_person = use_draft_root(draft, move |root| {
         let api = root_api.clone();
         async move {
-            let root = root?;
             api.get_person_profile(tree_id, root)
                 .await
                 .ok()
@@ -262,6 +284,42 @@ pub fn ScopeEditor(tree_id: Uuid, draft: Signal<ScopeDraft>, id_prefix: String) 
     }
 }
 
+/// A list as read for one of the owner's cards.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Listed<T> {
+    pub rows: Vec<T>,
+    /// Why the read failed, translated.
+    pub error: Option<String>,
+    /// The read succeeded and found nothing: the only case for the card's
+    /// "none" line.
+    pub empty: bool,
+}
+
+impl<T: Clone> Listed<T> {
+    /// The list of `read`. A failed read must not pass for an empty list:
+    /// "no share link" or "no exclusion" would tell the owner that nothing
+    /// is shared, or nobody protected, when the request only failed.
+    pub(crate) fn of(read: &Option<Result<Vec<T>, ApiError>>, i18n: &I18n) -> Self {
+        match read {
+            Some(Ok(rows)) => Self {
+                rows: rows.clone(),
+                error: None,
+                empty: rows.is_empty(),
+            },
+            Some(Err(e)) => Self {
+                rows: Vec::new(),
+                error: Some(e.message(i18n)),
+                empty: false,
+            },
+            None => Self {
+                rows: Vec::new(),
+                error: None,
+                empty: false,
+            },
+        }
+    }
+}
+
 /// The end of a day picked in a date field, as the server's expiry: none
 /// for an empty field.
 fn expiry_of(text: &str) -> Option<DateTime<Utc>> {
@@ -304,14 +362,8 @@ pub fn MembersSection(tree_id: Uuid) -> Element {
         async move { api.tree_invitations(tree_id).await }
     });
     let changed = move |()| refresh += 1;
-    let member_rows = match &*members.read() {
-        Some(Ok(rows)) => rows.clone(),
-        _ => Vec::new(),
-    };
-    let invitation_rows = match &*invitations.read() {
-        Some(Ok(rows)) => rows.clone(),
-        _ => Vec::new(),
-    };
+    let member_list = Listed::of(&members.read(), &i18n);
+    let invitation_list = Listed::of(&invitations.read(), &i18n);
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
@@ -322,18 +374,24 @@ pub fn MembersSection(tree_id: Uuid) -> Element {
 
             div { class: "card settings-card",
                 h3 { class: "settings-card-title", {i18n.t("sharing.members.list")} }
-                for member in member_rows {
+                for member in member_list.rows {
                     MemberRow { key: "{member.user_id}", tree_id, member, error, on_change: changed }
+                }
+                if let Some(err) = member_list.error {
+                    div { class: "error-msg settings-feedback", role: "alert", "{err}" }
                 }
             }
 
             div { class: "card settings-card",
                 h3 { class: "settings-card-title", {i18n.t("sharing.invitations.pending")} }
-                if invitation_rows.is_empty() {
+                if invitation_list.empty {
                     p { class: "settings-check-desc", {i18n.t("sharing.invitations.none")} }
                 }
-                for invitation in invitation_rows {
+                for invitation in invitation_list.rows {
                     InvitationRow { key: "{invitation.id}", tree_id, invitation, error, on_change: changed }
+                }
+                if let Some(err) = invitation_list.error {
+                    div { class: "error-msg settings-feedback", role: "alert", "{err}" }
                 }
             }
             if let Some(err) = error() {
@@ -361,9 +419,13 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
     let api_candidates = api.clone();
     let candidates = use_ui_resource("share_candidates", move || {
         let api = api_candidates.clone();
-        async move { api.share_candidates(tree_id).await.unwrap_or_default() }
+        async move { api.share_candidates(tree_id).await }
     });
-    let candidate_list = candidates.read().clone().unwrap_or_default();
+    let Listed {
+        rows: candidate_list,
+        error: candidates_error,
+        ..
+    } = Listed::of(&candidates.read(), &i18n);
     let submit = move |_| {
         let api = api.clone();
         let scope = match draft().definition() {
@@ -433,6 +495,9 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
                         }
                     }
                 }
+            }
+            if let Some(err) = candidates_error {
+                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
             }
             label { class: "settings-check-label", r#for: "share-role", {i18n.t("sharing.share.role")} }
             select {
@@ -674,19 +739,49 @@ fn InvitationRow(
 // ── Sharing ─────────────────────────────────────────────────────────────
 
 /// The Sharing section: who the tree is visible to, with the visitor scope
-/// and the number of persons Visitors will see, and the share links.
+/// and the number of persons Visitors will see, and the share links. The
+/// visibility card waits for the tree's stored visibility: drawn before it,
+/// it would offer **Private** as the current choice.
 #[component]
-pub fn SharingSection(tree_id: Uuid, visibility: TreeVisibility) -> Element {
+pub fn SharingSection(tree_id: Uuid, visibility: Option<TreeVisibility>) -> Element {
     let i18n = use_i18n();
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
             h2 { class: "settings-section-title", {i18n.t("sharing.section.title")} }
             p { class: "settings-section-subtitle", {i18n.t("sharing.section.subtitle")} }
-            VisibilityCard { key: "{tree_id}", tree_id, visibility }
+            if let Some(visibility) = visibility {
+                VisibilityCard { key: "{tree_id}", tree_id, visibility }
+            }
             ShareLinksCard { tree_id }
         }
     }
+}
+
+/// The update **Save** sends from the visibility card. `None` until the
+/// stored visitor scope is read: the draft would then stand for a scope
+/// nobody read, and could widen it to the whole tree. The scope is sent
+/// only when the owner changed it, so the visibility alone leaves the
+/// stored scope as it is. `Err` carries the translation key of what the
+/// changed scope lacks.
+fn visibility_update(
+    chosen: TreeVisibility,
+    stored: Option<&ScopeDraft>,
+    draft: &ScopeDraft,
+) -> Option<Result<VisibilityBody, &'static str>> {
+    let stored = stored?;
+    let visitor_scope = if draft == stored {
+        None
+    } else {
+        match draft.definition() {
+            Ok(scope) => Some(scope),
+            Err(problem) => return Some(Err(problem)),
+        }
+    };
+    Some(Ok(VisibilityBody {
+        visibility: Some(chosen),
+        visitor_scope,
+    }))
 }
 
 /// The tree's visibility and its visitor scope, saved together once the
@@ -697,40 +792,55 @@ fn VisibilityCard(tree_id: Uuid, visibility: TreeVisibility) -> Element {
     let api = use_context::<ApiClient>();
     let mut chosen = use_signal(|| visibility);
     let mut draft = use_signal(ScopeDraft::default);
+    // The stored visitor scope as read, or why it could not be: Save waits
+    // for it, and the draft is compared with it.
+    let mut stored = use_signal(|| None::<Result<ScopeDraft, String>>);
     let mut error = use_signal(|| None::<String>);
     let mut saved = use_signal(|| false);
     let api_scope = api.clone();
-    // The stored visitor scope fills the draft once it is read.
     use_future(move || {
         let api = api_scope.clone();
         async move {
-            if let Ok(scope) = api.visitor_scope(tree_id).await {
-                draft.set(ScopeDraft::of(scope.as_ref()));
+            let read = api
+                .visitor_scope(tree_id)
+                .await
+                .map(|scope| ScopeDraft::of(scope.as_ref()))
+                .map_err(|e| e.message(&i18n));
+            if let Ok(scope) = &read {
+                draft.set(scope.clone());
             }
+            stored.set(Some(read));
         }
     });
     let save = move |_| {
         let api = api.clone();
-        let scope = match draft().definition() {
-            Ok(scope) => scope,
-            Err(problem) => {
+        let current = draft();
+        let read = stored();
+        let read = read.as_ref().and_then(|read| read.as_ref().ok());
+        let body = match visibility_update(chosen(), read, &current) {
+            None => return,
+            Some(Ok(body)) => body,
+            Some(Err(problem)) => {
                 error.set(Some(i18n.t(problem)));
                 return;
             }
-        };
-        let body = VisibilityBody {
-            visibility: Some(chosen()),
-            visitor_scope: Some(scope),
         };
         spawn(async move {
             match api.update_visibility(tree_id, &body).await {
                 Ok(()) => {
                     error.set(None);
                     saved.set(true);
+                    // What is stored now is the draft just sent.
+                    stored.set(Some(Ok(current)));
                 }
                 Err(e) => error.set(Some(e.message(&i18n))),
             }
         });
+    };
+    let (readable, load_error) = match stored() {
+        Some(Ok(_)) => (true, None),
+        Some(Err(e)) => (false, Some(e)),
+        None => (false, None),
     };
     rsx! {
         div { class: "card settings-card",
@@ -754,18 +864,25 @@ fn VisibilityCard(tree_id: Uuid, visibility: TreeVisibility) -> Element {
                 }
             }
             p { class: "settings-check-desc", {i18n.t(visibility_hint(chosen()))} }
-            if chosen() != TreeVisibility::Private {
+            if chosen() != TreeVisibility::Private && readable {
                 label { class: "settings-check-label", {i18n.t("sharing.visibility.scope")} }
                 ScopeEditor { tree_id, draft, id_prefix: "visitor-scope" }
                 p { class: "settings-check-desc", {i18n.t("sharing.visibility.redaction")} }
             }
             div { class: "modal-actions",
-                button { class: "btn btn-primary", r#type: "button", onclick: save,
+                button {
+                    class: "btn btn-primary",
+                    r#type: "button",
+                    disabled: !readable,
+                    onclick: save,
                     {i18n.t("common.save")}
                 }
             }
             if saved() {
                 p { class: "settings-check-desc", role: "status", {i18n.t("sharing.visibility.saved")} }
+            }
+            if let Some(err) = load_error {
+                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
             }
             if let Some(err) = error() {
                 div { class: "error-msg settings-feedback", role: "alert", "{err}" }
@@ -801,10 +918,7 @@ fn ShareLinksCard(tree_id: Uuid) -> Element {
         let _tick = refresh();
         async move { api.share_links(tree_id).await }
     });
-    let rows = match &*links.read() {
-        Some(Ok(rows)) => rows.clone(),
-        _ => Vec::new(),
-    };
+    let listed = Listed::of(&links.read(), &i18n);
     let api_create = api.clone();
     let create = move |_| {
         let api = api_create.clone();
@@ -845,11 +959,14 @@ fn ShareLinksCard(tree_id: Uuid) -> Element {
         div { class: "card settings-card",
             h3 { class: "settings-card-title", {i18n.t("sharing.links.title")} }
             p { class: "settings-check-desc", {i18n.t("sharing.links.desc")} }
-            if rows.is_empty() {
+            if listed.empty {
                 p { class: "settings-check-desc", {i18n.t("sharing.links.none")} }
             }
-            for link in rows {
+            for link in listed.rows {
                 ShareLinkRow { key: "{link.id}", link, on_revoke: revoke.clone() }
+            }
+            if let Some(err) = listed.error {
+                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
             }
             h3 { class: "settings-card-title", {i18n.t("sharing.links.new")} }
             label { class: "settings-check-label", r#for: "link-label", {i18n.t("sharing.links.label")} }
@@ -986,7 +1103,11 @@ pub fn SharingNav(group: String, manages: bool, active_section: Signal<String>) 
 /// The owner's section `section`: **Members** or **Sharing**; nothing for
 /// anyone else.
 #[component]
-pub fn OwnerSection(section: String, sharing: TreeSharing, visibility: TreeVisibility) -> Element {
+pub fn OwnerSection(
+    section: String,
+    sharing: TreeSharing,
+    visibility: Option<TreeVisibility>,
+) -> Element {
     let (true, Some(tree_id)) = (sharing.manages, sharing.tree_id) else {
         return rsx! {};
     };
@@ -1099,6 +1220,133 @@ mod tests {
         assert_eq!(definition.depth, Some(3));
         draft.depth_text = "99".into();
         assert!(draft.definition().is_err());
+    }
+
+    fn branch_of(root: Uuid) -> ScopeDraft {
+        ScopeDraft {
+            branch: true,
+            root: Some(root),
+            ..ScopeDraft::default()
+        }
+    }
+
+    /// The visibility card used to send its draft — the whole tree until the
+    /// stored scope was read — with every save: a failed or slow read then
+    /// widened a branch scope to the whole tree for every anonymous visitor.
+    #[test]
+    fn saving_the_visibility_never_sends_a_visitor_scope_nobody_read() {
+        let stored = branch_of(Uuid::from_u128(7));
+
+        // Not read yet, or the read failed: nothing may be sent.
+        assert!(visibility_update(TreeVisibility::Public, None, &ScopeDraft::default()).is_none());
+
+        // Read and untouched: the visibility alone, the scope left out.
+        let body = visibility_update(TreeVisibility::Public, Some(&stored), &stored)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({"visibility": "public"})
+        );
+
+        // The owner chose the whole tree: sent as such, on purpose.
+        let body = visibility_update(TreeVisibility::Site, Some(&stored), &ScopeDraft::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({"visibility": "site", "visitor_scope": null})
+        );
+
+        // Another root: the new branch.
+        let other = Uuid::from_u128(8);
+        let body = visibility_update(TreeVisibility::Public, Some(&stored), &branch_of(other))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            body.visitor_scope.flatten().map(|scope| scope.person_id),
+            Some(other)
+        );
+
+        // A branch without its root is refused, not sent as the whole tree.
+        let incomplete = ScopeDraft {
+            root: None,
+            ..stored.clone()
+        };
+        assert_eq!(
+            visibility_update(TreeVisibility::Public, Some(&stored), &incomplete)
+                .unwrap()
+                .unwrap_err(),
+            "sharing.scope.incomplete"
+        );
+    }
+
+    /// Probe of the root the editor's row names after each render.
+    #[derive(Clone, Default)]
+    struct RootProbe(std::rc::Rc<std::cell::RefCell<Vec<Option<Option<Uuid>>>>>);
+
+    impl PartialEq for RootProbe {
+        fn eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    fn root_host(probe: RootProbe) -> Element {
+        let mut draft = use_signal(|| branch_of(Uuid::from_u128(1)));
+        let named = use_draft_root(draft, |root| async move { Some(root) });
+        // The owner picks another root once the first one is named.
+        use_effect(move || {
+            if *named.read() == Some(Some(Uuid::from_u128(1))) {
+                draft.write().root = Some(Uuid::from_u128(2));
+            }
+        });
+        probe.0.borrow_mut().push(*named.read());
+        rsx! {}
+    }
+
+    /// The row once named the first root for good, while the draft saved
+    /// the one picked after it.
+    #[tokio::test]
+    async fn the_scope_root_row_follows_the_root_picked() {
+        let probe = RootProbe::default();
+        let mut dom = VirtualDom::new_with_props(root_host, probe.clone());
+        dom.rebuild_in_place();
+        for _ in 0..8 {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work())
+                .await;
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+        let seen = probe.0.borrow();
+        assert!(seen.contains(&Some(Some(Uuid::from_u128(1)))));
+        assert_eq!(seen.last(), Some(&Some(Some(Uuid::from_u128(2)))));
+    }
+
+    /// A failed read of the owner's lists used to show "No share link" or
+    /// "No exclusion" while live links or exclusions existed.
+    #[test]
+    fn a_failed_list_read_is_an_error_not_an_empty_list() {
+        let i18n = I18n::new(crate::i18n::Language::english());
+        let failed: Option<Result<Vec<u8>, ApiError>> = Some(Err(ApiError::Api {
+            status: 500,
+            body: String::new(),
+        }));
+        let listed = Listed::of(&failed, &i18n);
+        assert!(!listed.empty);
+        assert!(listed.rows.is_empty());
+        assert!(listed.error.is_some_and(|error| !error.is_empty()));
+
+        let pending: Option<Result<Vec<u8>, ApiError>> = None;
+        let listed = Listed::of(&pending, &i18n);
+        assert!(!listed.empty);
+        assert_eq!(listed.error, None);
+
+        let listed = Listed::of(&Some(Ok(Vec::<u8>::new())), &i18n);
+        assert!(listed.empty);
+        assert_eq!(listed.error, None);
+
+        let listed = Listed::of(&Some(Ok(vec![1u8])), &i18n);
+        assert!(!listed.empty);
+        assert_eq!(listed.rows, [1]);
     }
 
     #[test]
