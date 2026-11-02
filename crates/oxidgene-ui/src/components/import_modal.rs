@@ -1488,7 +1488,7 @@ fn GwStep(
         spawn(async move {
             let file = rfd::AsyncFileDialog::new()
                 .add_filter("GeneWeb", &["gw"])
-                .add_filter("All files", &["*"])
+                .add_filter(i18n.t("common.all_files"), &["*"])
                 .set_title(i18n.t("geneanet.step1_pick"))
                 .pick_file()
                 .await;
@@ -1909,7 +1909,7 @@ fn SessionControls(
             };
 
             let Some(file) = rfd::AsyncFileDialog::new()
-                .add_filter("Session archive", &["zip"])
+                .add_filter(i18n.t("geneanet.session_file_kind"), &["zip"])
                 .set_file_name("geneanet-session.zip")
                 .set_title(i18n.t("geneanet.session_save"))
                 .save_file()
@@ -1917,11 +1917,14 @@ fn SessionControls(
             else {
                 return;
             };
-            if let Err(e) = trace
+            // The system's own text of the failure is English whatever the
+            // reader's language: the reader is told what to check instead.
+            if trace
                 .step(UiActionStep::GeneanetWrite, file.write(&archive))
                 .await
+                .is_err()
             {
-                error.set(Some(format!("{e}")));
+                error.set(Some(i18n.t("geneanet.file_write_error")));
             }
         });
     };
@@ -1935,7 +1938,7 @@ fn SessionControls(
             let Some(file) = rfd::AsyncFileDialog::new()
                 // A bare JSON collection still loads — the reader tells the
                 // shapes apart by content, not by extension.
-                .add_filter("Session", &["zip", "json"])
+                .add_filter(i18n.t("geneanet.session_file_kind"), &["zip", "json"])
                 .set_title(i18n.t("geneanet.session_load"))
                 .pick_file()
                 .await
@@ -2613,6 +2616,23 @@ fn group_digits(value: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The file dialogs' filters named "Session archive", "Session" and
+    /// "All files" in English whatever the reader's language: only format
+    /// names may stay literal.
+    #[test]
+    fn the_file_dialog_filters_are_translated() {
+        let source = include_str!("import_modal.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or_default();
+        for (at, _) in production.match_indices(".add_filter(\"") {
+            let label = &production[at + ".add_filter(\"".len()..];
+            let label = &label[..label.find('"').unwrap_or(0)];
+            assert!(
+                ["GeneWeb", "ZIP"].contains(&label),
+                "untranslated filter label {label:?}"
+            );
+        }
+    }
 
     #[test]
     fn the_extension_picks_the_reader_whatever_its_case() {
