@@ -60,11 +60,12 @@ fn privacy_text(privacy: Privacy) -> &'static str {
     }
 }
 
+/// The stored `text`; anything unknown is `Private`, which hides the most.
 fn privacy_of(text: &str) -> Privacy {
     match text {
         "public" => Privacy::Public,
-        "private" => Privacy::Private,
-        _ => Privacy::Default,
+        "default" => Privacy::Default,
+        _ => Privacy::Private,
     }
 }
 
@@ -339,5 +340,20 @@ impl PersonVisibilityRepo {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Privacy, privacy_of, privacy_text};
+
+    #[test]
+    fn an_unknown_privacy_is_private() {
+        for privacy in [Privacy::Default, Privacy::Public, Privacy::Private] {
+            assert_eq!(privacy_of(privacy_text(privacy)), privacy);
+        }
+        for unknown in ["", "Public", "restricted"] {
+            assert_eq!(privacy_of(unknown), Privacy::Private);
+        }
     }
 }

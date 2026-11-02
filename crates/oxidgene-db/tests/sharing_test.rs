@@ -6,10 +6,10 @@ use chrono::{DateTime, Duration, DurationRound, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{InstanceRole, TreeRole};
 use oxidgene_db::repo::{
-    AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus, NewAppUser,
-    NewInvitation, NewMail, TreeRepo,
+    AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus, MembershipRepo,
+    NewAppUser, NewInvitation, NewMail, TreeRepo,
 };
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
 
 use crate::common::setup_db;
@@ -176,4 +176,35 @@ async fn a_lapsed_claim_records_nothing() {
     assert_eq!(stored.status, MailStatus::Sent.as_str());
     assert_eq!(stored.sent_at, Some(later));
     assert_eq!(stored.error_category, None);
+}
+
+/// The columns access is decided on hold only the values the code writes:
+/// a value a reader would not know is refused at the write.
+#[tokio::test]
+async fn access_columns_refuse_unknown_values() {
+    let db = setup_db().await;
+    let tree_id = tree(&db).await;
+    let member = user(&db, "member_1").await;
+    MembershipRepo::create(&db, tree_id, member, TreeRole::Editor, None)
+        .await
+        .unwrap();
+    for sql in [
+        "UPDATE app_user SET status = 'enabled'",
+        "UPDATE app_user SET instance_role = 'root'",
+        "UPDATE tree SET visibility = 'open'",
+        "UPDATE tree_membership SET role = 'admin'",
+    ] {
+        assert!(db.execute_unprepared(sql).await.is_err(), "{sql}");
+    }
+    for sql in [
+        "UPDATE app_user SET status = 'deactivated'",
+        "UPDATE tree SET visibility = 'site'",
+        "UPDATE tree_membership SET role = 'guest'",
+    ] {
+        assert_eq!(
+            db.execute_unprepared(sql).await.unwrap().rows_affected(),
+            1,
+            "{sql}"
+        );
+    }
 }

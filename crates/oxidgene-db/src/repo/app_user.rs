@@ -40,11 +40,13 @@ impl UserStatus {
         }
     }
 
+    /// The stored `value`; anything unknown is `Deactivated`, refused at
+    /// sign-in, never an active account.
     fn parse(value: &str) -> Self {
         match value {
-            "deactivated" => Self::Deactivated,
+            "active" => Self::Active,
             "erased" => Self::Erased,
-            _ => Self::Active,
+            _ => Self::Deactivated,
         }
     }
 }
@@ -352,5 +354,24 @@ fn into_domain(model: app_user::Model) -> AppUser {
         last_sign_in_at: model.last_sign_in_at,
         deactivated_at: model.deactivated_at,
         erased_at: model.erased_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserStatus;
+
+    #[test]
+    fn an_unknown_status_is_deactivated() {
+        for status in [
+            UserStatus::Active,
+            UserStatus::Deactivated,
+            UserStatus::Erased,
+        ] {
+            assert_eq!(UserStatus::parse(status.as_str()), status);
+        }
+        for unknown in ["", "Active", "enabled", "suspended"] {
+            assert_eq!(UserStatus::parse(unknown), UserStatus::Deactivated);
+        }
     }
 }

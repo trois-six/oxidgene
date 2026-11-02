@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T10:00:00Z }
 ---
 
 
@@ -1405,7 +1405,12 @@ release they are added to the single initial migration, like every schema
 change, and databases are recreated. They are part of the one schema both
 backends share; only the web build writes them, and they stay empty on the
 desktop ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
-Every key is a UUID v7. A tree's purge deletes its rows of §6.2 to §6.9 —
+Every key is a UUID v7. The enumerated columns access is decided on —
+`app_user.instance_role` and `status`, the `role` of `tree_membership` and
+`tree_invitation`, `person_visibility.privacy` and `tree.visibility` — carry
+a `CHECK` holding them to their values, and a reader meeting any other value
+takes the least privilege: role `visitor`, status `deactivated`, privacy
+`private`, visibility `private`. A tree's purge deletes its rows of §6.2 to §6.9 —
 but its access events, which outlive it until their retention (§6.7) — and
 deprovisions its API clients at the provider.
 

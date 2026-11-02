@@ -12,6 +12,15 @@ use sea_orm_migration::{prelude::*, schema::*};
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
+/// A `CHECK` holding the enumerated column `column` to the `values` the
+/// code writes. The access columns' readers turn a value they do not know
+/// into the least privilege; refusing one at the write keeps a bad write or
+/// a hand edit from reaching them at all (docs/data-model.md §6).
+fn one_of(column: &str, values: &[&str]) -> Expr {
+    let values: Vec<String> = values.iter().map(|value| format!("'{value}'")).collect();
+    Expr::cust(format!("{column} IN ({})", values.join(", ")))
+}
+
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -760,6 +769,7 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 // `access_scope` is created after the tree and references
                 // it; the sharing service replaces and deletes it.
                 .col(string_len(Tree::Visibility, 8).default("private"))
+                .check(one_of("visibility", &["private", "site", "public"]))
                 .col(uuid_null(Tree::VisitorScopeId))
                 // Who the tree's GEDCOM exports say they are from (`SUBM`).
                 .col(string_null(Tree::SubmitterName))
@@ -2679,6 +2689,7 @@ async fn create_person_visibility(manager: &SchemaManager<'_>) -> Result<(), DbE
                 .col(integer_null(PersonVisibility::KinBirthYear))
                 // The bounds descendants give by depth (`Descent::encode`).
                 .col(string(PersonVisibility::Descent))
+                .check(one_of("privacy", &["default", "public", "private"]))
                 // `VISIBILITY_RULE_VERSION` the row was derived with.
                 .col(integer(PersonVisibility::RuleVersion))
                 .col(timestamp_with_time_zone(PersonVisibility::UpdatedAt))
@@ -3106,6 +3117,8 @@ async fn create_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(AppUser::LastSignInAt))
                 .col(timestamp_with_time_zone_null(AppUser::DeactivatedAt))
                 .col(timestamp_with_time_zone_null(AppUser::ErasedAt))
+                .check(one_of("instance_role", &["admin", "user"]))
+                .check(one_of("status", &["active", "deactivated", "erased"]))
                 .to_owned(),
         )
         .await?;
@@ -3218,6 +3231,7 @@ async fn create_invitations(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(TreeInvitation::TreeId))
                 .col(string(TreeInvitation::Email))
                 .col(string_len(TreeInvitation::Role, 8))
+                .check(one_of("role", &["editor", "guest"]))
                 .col(uuid_null(TreeInvitation::ScopeId))
                 .col(timestamp_with_time_zone_null(
                     TreeInvitation::MembershipExpiresAt,
@@ -3338,6 +3352,7 @@ async fn create_memberships(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(TreeMembership::TreeId))
                 .col(uuid(TreeMembership::UserId))
                 .col(string_len(TreeMembership::Role, 8))
+                .check(one_of("role", &["owner", "editor", "guest"]))
                 .col(uuid_null(TreeMembership::ScopeId))
                 .col(uuid_null(TreeMembership::SelfPersonId))
                 .col(timestamp_with_time_zone_null(TreeMembership::ExpiresAt))
