@@ -6,8 +6,9 @@ use chrono::{DateTime, Duration, DurationRound, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{InstanceRole, TreeRole};
 use oxidgene_db::repo::{
-    AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus, MembershipRepo,
-    NewAppUser, NewInvitation, NewMail, PaginationParams, SharedMembership, TreeRepo,
+    AccessScopeRepo, AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus,
+    MembershipRepo, NewAppUser, NewInvitation, NewMail, NotificationRepo, PaginationParams,
+    SharedMembership, TreeRepo,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
@@ -278,5 +279,40 @@ async fn expired_memberships_are_deleted_by_the_statement_that_checks_them() {
             .unwrap()
             .total_count,
         2
+    );
+}
+
+/// Lists of ids a request sizes are bound a bounded slice at a time: more
+/// than either backend binds in one statement is not an error.
+#[tokio::test]
+async fn request_sized_id_lists_stay_under_the_bound() {
+    let db = setup_db().await;
+    let tree_id = tree(&db).await;
+    let member = user(&db, "member_1").await;
+    let ids: Vec<Uuid> = (0..70_000).map(|_| Uuid::now_v7()).collect();
+
+    assert!(
+        AccessScopeRepo::persons_named(&db, tree_id, &ids)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        AccessScopeRepo::linked_persons(&db, &ids)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        NotificationRepo::mark_read(&db, member, Some(&ids), Utc::now())
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        MembershipRepo::live_roles(&db, member, &ids, Utc::now())
+            .await
+            .unwrap()
+            .is_empty()
     );
 }

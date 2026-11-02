@@ -18,6 +18,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, Set, Statement, Valu
 use uuid::Uuid;
 
 use crate::entities::access_scope::{self, ActiveModel, Column, Entity};
+use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
 
 /// Rows one insert statement writes: two values each.
@@ -289,8 +290,13 @@ impl AccessScopeRepo {
         ids: &[Uuid],
     ) -> Result<HashSet<Uuid>, OxidGeneError> {
         let mut named = Named::default();
-        named.records(db, tree_id, ids).await?;
-        named.attachments(db, tree_id, ids).await?;
+        // A write's body may name any number of ids. The media-link query
+        // binds a slice and the media it names, at most twice as many, so a
+        // third of the bound stays under it.
+        for slice in ids.chunks(MAX_BOUND_IDS / 3) {
+            named.records(db, tree_id, slice).await?;
+            named.attachments(db, tree_id, slice).await?;
+        }
         named.events_and_families(db, tree_id).await?;
         Ok(named.persons)
     }
@@ -305,25 +311,31 @@ impl AccessScopeRepo {
         if persons.is_empty() {
             return Ok(HashSet::new());
         }
-        let mut linked: HashSet<Uuid> = family_spouse::Entity::find()
-            .select_only()
-            .column(family_spouse::Column::PersonId)
-            .filter(family_spouse::Column::PersonId.is_in(persons.iter().copied()))
-            .into_tuple::<Uuid>()
-            .all(db)
-            .await
-            .map_err(db_err)?
-            .into_iter()
-            .collect();
-        linked.extend(
-            family_child::Entity::find()
+        let mut linked: HashSet<Uuid> = in_chunks(persons, |slice| async move {
+            family_spouse::Entity::find()
                 .select_only()
-                .column(family_child::Column::PersonId)
-                .filter(family_child::Column::PersonId.is_in(persons.iter().copied()))
+                .column(family_spouse::Column::PersonId)
+                .filter(family_spouse::Column::PersonId.is_in(slice))
                 .into_tuple::<Uuid>()
                 .all(db)
                 .await
-                .map_err(db_err)?,
+                .map_err(db_err)
+        })
+        .await?
+        .into_iter()
+        .collect();
+        linked.extend(
+            in_chunks(persons, |slice| async move {
+                family_child::Entity::find()
+                    .select_only()
+                    .column(family_child::Column::PersonId)
+                    .filter(family_child::Column::PersonId.is_in(slice))
+                    .into_tuple::<Uuid>()
+                    .all(db)
+                    .await
+                    .map_err(db_err)
+            })
+            .await?,
         );
         Ok(linked)
     }
@@ -514,31 +526,38 @@ impl Named {
     ) -> Result<(), OxidGeneError> {
         use crate::entities::{event, family_spouse};
         use sea_orm::QuerySelect;
-        let event_owners: Vec<(Option<Uuid>, Option<Uuid>)> = event::Entity::find()
-            .select_only()
-            .columns([event::Column::PersonId, event::Column::FamilyId])
-            .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::Id.is_in(self.events.iter().copied()))
-            .into_tuple()
-            .all(db)
-            .await
-            .map_err(db_err)?;
+        let events: Vec<Uuid> = self.events.iter().copied().collect();
+        let event_owners: Vec<(Option<Uuid>, Option<Uuid>)> =
+            in_chunks(&events, |slice| async move {
+                event::Entity::find()
+                    .select_only()
+                    .columns([event::Column::PersonId, event::Column::FamilyId])
+                    .filter(event::Column::TreeId.eq(tree_id))
+                    .filter(event::Column::Id.is_in(slice))
+                    .into_tuple()
+                    .all(db)
+                    .await
+                    .map_err(db_err)
+            })
+            .await?;
         for (person, family) in event_owners {
             self.persons.extend(person);
             self.families.extend(family);
         }
-        if !self.families.is_empty() {
-            self.persons.extend(
+        let families: Vec<Uuid> = self.families.iter().copied().collect();
+        self.persons.extend(
+            in_chunks(&families, |slice| async move {
                 family_spouse::Entity::find()
                     .select_only()
                     .column(family_spouse::Column::PersonId)
-                    .filter(family_spouse::Column::FamilyId.is_in(self.families.iter().copied()))
+                    .filter(family_spouse::Column::FamilyId.is_in(slice))
                     .into_tuple::<Uuid>()
                     .all(db)
                     .await
-                    .map_err(db_err)?,
-            );
-        }
+                    .map_err(db_err)
+            })
+            .await?,
+        );
         Ok(())
     }
 }

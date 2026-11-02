@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::entities::tree;
 use crate::entities::tree_membership::{self, ActiveModel, Column, Entity};
+use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
@@ -129,20 +130,23 @@ impl MembershipRepo {
         if tree_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let rows: Vec<(Uuid, String, Option<Uuid>)> = Entity::find()
-            .select_only()
-            .column(Column::TreeId)
-            .column(Column::Role)
-            .column(Column::ScopeId)
-            .inner_join(tree::Entity)
-            .filter(Column::UserId.eq(user_id))
-            .filter(Column::TreeId.is_in(tree_ids.iter().copied()))
-            .filter(tree::Column::DeletedAt.is_null())
-            .filter(live_at(now))
-            .into_tuple()
-            .all(db)
-            .await
-            .map_err(db_err)?;
+        let rows: Vec<(Uuid, String, Option<Uuid>)> = in_chunks(tree_ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::TreeId)
+                .column(Column::Role)
+                .column(Column::ScopeId)
+                .inner_join(tree::Entity)
+                .filter(Column::UserId.eq(user_id))
+                .filter(Column::TreeId.is_in(chunk))
+                .filter(tree::Column::DeletedAt.is_null())
+                .filter(live_at(now))
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
         Ok(rows
             .into_iter()
             .filter_map(|(tree_id, role, scope)| Some((tree_id, (TreeRole::parse(&role)?, scope))))

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::entities::notification::{self, ActiveModel, Column, Entity};
 use crate::entities::notification_preference as preference;
+use crate::repo::batch::MAX_BOUND_IDS;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, encode_cursor};
 
@@ -239,14 +240,25 @@ impl NotificationRepo {
         ids: Option<&[Uuid]>,
         now: DateTime<Utc>,
     ) -> Result<u64, OxidGeneError> {
-        let mut update = Entity::update_many()
-            .col_expr(Column::ReadAt, Expr::value(Some(now)))
-            .filter(Column::UserId.eq(user_id))
-            .filter(Column::ReadAt.is_null());
-        if let Some(ids) = ids {
-            update = update.filter(Column::Id.is_in(ids.iter().copied()));
+        let update = || {
+            Entity::update_many()
+                .col_expr(Column::ReadAt, Expr::value(Some(now)))
+                .filter(Column::UserId.eq(user_id))
+                .filter(Column::ReadAt.is_null())
+        };
+        let Some(ids) = ids else {
+            return Ok(update().exec(db).await.map_err(db_err)?.rows_affected);
+        };
+        let mut marked = 0;
+        for slice in ids.chunks(MAX_BOUND_IDS) {
+            marked += update()
+                .filter(Column::Id.is_in(slice.iter().copied()))
+                .exec(db)
+                .await
+                .map_err(db_err)?
+                .rows_affected;
         }
-        Ok(update.exec(db).await.map_err(db_err)?.rows_affected)
+        Ok(marked)
     }
 
     /// Delete the notifications created before `cutoff`.
