@@ -2179,3 +2179,51 @@ fn a_table_named_by_its_dates_alone_is_one_of_the_tables_of_successions() {
         assert!(!names_a_table_alone(text), "{text}");
     }
 }
+
+const CENSUSES: &str = include_str!("../../../fixtures/ligeo/censuses.html");
+
+/// A census search whose links' titles repeat the year and the call number
+/// a commune's lists share (`1841 9 M 999`): the `M` of the call number is
+/// no marriage, and the year tells the lists apart.
+#[test]
+fn a_call_number_in_the_link_s_title_names_no_act() {
+    let registry = registry_with(
+        serde_json::json!(["RP"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "recensement",
+            "node": 28,
+            "fields": {
+                "locality": "rech_commune",
+                "year_from": "RECH_DATE_debut",
+                "year_to": "RECH_DATE_fin"
+            },
+            "params": { "RECH_DAO": "1" },
+            "columns": {
+                "locality": "Commune",
+                "period": "Date",
+                "call_number": "Cote"
+            }
+        }),
+    );
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    let settings = Settings::read(collection).unwrap();
+    let found = page::results(CENSUSES, &settings.columns).unwrap();
+    assert!(found.rows.iter().all(|row| row.act.is_none()));
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - RP - 1841 - 9 M 999 - vue 12/39",
+            CENSUSES
+        )
+        .as_deref(),
+        Ok("vtaexample0182")
+    );
+    // The live check's discovery lists every list, oldest first.
+    let registers = discovered(&registry, "RP", CENSUSES);
+    let periods: Vec<Option<&str>> = registers
+        .iter()
+        .map(|register| register.period.as_deref())
+        .collect();
+    assert_eq!(periods, [Some("1836"), Some("1841"), Some("1846")]);
+}

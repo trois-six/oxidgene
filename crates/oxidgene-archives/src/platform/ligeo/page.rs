@@ -294,18 +294,6 @@ fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
         (None, None) => (Vec::new(), Vec::new()),
     };
 
-    // The act, and whether the text naming it names a table alone.
-    let read = |text: &str, codes: bool| {
-        act_code(text, codes).map(|code| (code, names_a_table_alone(text)))
-    };
-    let (act, bare_table) = cells
-        .get(columns.acts.as_ref())
-        .and_then(|acts| read(&acts, true))
-        .or_else(|| title.as_deref().and_then(|title| read(title, false)))
-        // The link's own title names the register where nothing else does
-        // (`BMS` on parish registers).
-        .or_else(|| label.and_then(|label| read(label, true)))
-        .map_or((None, false), |(code, bare)| (Some(code), bare));
     let call_number = cells
         .get(columns.call_number.as_ref())
         .map(|text| call_number_of(&text))
@@ -318,6 +306,25 @@ fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
                 .filter(|label| is_call_number(label))
                 .map(str::to_owned)
         });
+
+    // The act, and whether the text naming it names a table alone.
+    let read = |text: &str, codes: bool| {
+        act_code(text, codes).map(|code| (code, names_a_table_alone(text)))
+    };
+    let (act, bare_table) = cells
+        .get(columns.acts.as_ref())
+        .and_then(|acts| read(&acts, true))
+        .or_else(|| title.as_deref().and_then(|title| read(title, false)))
+        // The link's own title names the register where nothing else does
+        // (`BMS` on parish registers); the row's call number it may repeat
+        // (`1841 9 M 999`) names no act, whatever letter it holds.
+        .or_else(|| {
+            label.and_then(|label| match call_number.as_deref() {
+                Some(call_number) => read(&label.replace(call_number, " "), true),
+                None => read(label, true),
+            })
+        })
+        .map_or((None, false), |(code, bare)| (Some(code), bare));
     // The numbers a register spans, from their own column, or after a range
     // word in the title or the link's label (`n° 1 à 1586`).
     let numbers = match cells.get(columns.numbers.as_ref()) {

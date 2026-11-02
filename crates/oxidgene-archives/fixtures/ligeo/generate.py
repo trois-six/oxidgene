@@ -7,7 +7,8 @@ departmental portals since (notice lists, qualified and composite locality
 cells, indexes of persons searched by matricule or by name, a search
 within a finding aid, a year's table bound apart, a locality cell
 shortened to fit, volumes of military registers described by their
-numbers, tables of successions named by their dates alone, the maintenance
+numbers, tables of successions named by their dates alone, censuses whose
+viewer links repeat their call number, the maintenance
 page a host serves in place of the portal's), and a
 military-register table built in the same markup, with fictitious
 persons, localities, parishes, sections, call numbers, internal references,
@@ -576,6 +577,25 @@ write("successions.html", page(
     table(SUCCESSION_HEADERS, [
         succession_row(171, "1730-1768", "Tables du 1er janvier 1730 au 31 août 1768.", 29, "9 Q 901"),
         succession_row(172, "1768-1793", "Tables de 1768 à 1793.", 57, "9 Q 902"),
+    ])))
+
+# A census search whose rows name no act, and whose links' titles repeat
+# the year and the call number a commune's lists share: a letter of the
+# call number is no act.
+CENSUS_HEADERS = ["Commune", "Contenu", "Date", "Cote", "Vue", "Action(s)"]
+
+
+def census_row(n, year, count):
+    return ["Exampleville (Exempledept, France)", "", str(year), "9 M 999",
+            viewer_link(n, count, f"{year} 9 M 999"), actions(n, 28)]
+
+
+write("censuses.html", page(
+    '<p class="nb_reponses"><span>3</span> réponses à votre recherche</p>',
+    table(CENSUS_HEADERS, [
+        census_row(181, 1836, 41),
+        census_row(182, 1841, 39),
+        census_row(183, 1846, 44),
     ])))
 
 # The page a host serves with a success status at every address of the
