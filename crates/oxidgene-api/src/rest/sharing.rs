@@ -168,7 +168,15 @@ pub async fn update_share_link(
 ) -> Result<Json<ShareLinkView>, ApiError> {
     state.auth.sharing_env()?;
     Ok(Json(
-        share_link::update(&viewer, &state.db, tree_id, link_id, body).await?,
+        share_link::update(
+            &viewer,
+            &state.db,
+            state.profiles.cache(),
+            tree_id,
+            link_id,
+            body,
+        )
+        .await?,
     ))
 }
 
@@ -179,7 +187,7 @@ pub async fn revoke_share_link(
     Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
     state.auth.sharing_env()?;
-    share_link::revoke(&viewer, &state.db, tree_id, link_id).await?;
+    share_link::revoke(&viewer, &state.db, state.profiles.cache(), tree_id, link_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

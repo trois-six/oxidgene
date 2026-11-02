@@ -48,6 +48,7 @@ pub async fn update_member(
         membership::update_member(
             &viewer,
             &state.db,
+            state.profiles.cache(),
             state.auth.mailing(),
             tree_id,
             user_id,
@@ -63,7 +64,15 @@ pub async fn remove_member(
     viewer: Viewer,
     Path((tree_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    membership::remove_member(&viewer, &state.db, state.auth.mailing(), tree_id, user_id).await?;
+    membership::remove_member(
+        &viewer,
+        &state.db,
+        state.profiles.cache(),
+        state.auth.mailing(),
+        tree_id,
+        user_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -78,6 +87,7 @@ pub async fn transfer_ownership(
         membership::transfer_ownership(
             &viewer,
             &state.db,
+            state.profiles.cache(),
             state.auth.mailing(),
             tree_id,
             body.user_id,

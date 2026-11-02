@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -234,7 +234,14 @@ phase.
 The result, `TreeAccess`, holds the role, the permission set, the scope id,
 whether exclusions apply (always, unless the viewer is the owner or acts for
 the owner), and the redaction policy for a Visitor. It never outlives the
-request and is never shared between viewers. Its public part is returned on
+request and is never shared between viewers. What it implies for the
+tree's records — the redaction of its *viewer class*, made of its redacting
+permissions, its scope and the year — is kept between requests by the tree
+cache and shared by the viewers of one class, used only while the tree's
+redaction generation says nothing it read has changed
+([Architecture §4.1](architecture.md#41-tree-cache)); the access itself is
+resolved again at every request, so a revoked membership or share link
+reaches no kept redaction. Its public part is returned on
 every tree read as `viewer_access: { role, permissions, scoped }` (GraphQL
 `viewerAccess`), so the frontend knows what to offer. A read lacking it
 grants a Visitor's `read` and nothing more: the local owner's access is

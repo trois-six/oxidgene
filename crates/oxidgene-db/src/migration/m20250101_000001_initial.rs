@@ -26,7 +26,8 @@ impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         create_records(manager).await?;
         create_derived(manager).await?;
-        create_accounts(manager).await
+        create_accounts(manager).await?;
+        create_redaction_triggers(manager).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -40,13 +41,15 @@ impl MigrationTrait for Migration {
         }
         // PostgreSQL keeps a trigger's function when its table goes.
         if manager.get_database_backend() == DbBackend::Postgres {
-            for function in SOSA_TRIGGER_FUNCTIONS
+            let functions = SOSA_TRIGGER_FUNCTIONS
                 .iter()
                 .chain(PROJECTION_TRIGGER_FUNCTIONS)
-            {
+                .map(|function| format!("{function}()"))
+                .chain(REDACTION_TRIGGER_FUNCTIONS.iter().map(|f| (*f).to_owned()));
+            for function in functions {
                 conn.execute_raw(Statement::from_string(
                     DbBackend::Postgres,
-                    format!("DROP FUNCTION IF EXISTS {function}() CASCADE"),
+                    format!("DROP FUNCTION IF EXISTS {function} CASCADE"),
                 ))
                 .await?;
             }
@@ -557,6 +560,7 @@ enum ProjectionState {
     Table,
     TreeId,
     Generation,
+    RedactionGeneration,
 }
 
 #[derive(DeriveIden)]
@@ -2379,6 +2383,7 @@ async fn create_projection_state(manager: &SchemaManager<'_>) -> Result<(), DbEr
                 .if_not_exists()
                 .col(uuid(ProjectionState::TreeId).primary_key())
                 .col(big_integer(ProjectionState::Generation).default(0))
+                .col(big_integer(ProjectionState::RedactionGeneration).default(0))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_projection_state_tree")
@@ -2394,6 +2399,10 @@ async fn create_projection_state(manager: &SchemaManager<'_>) -> Result<(), DbEr
         DbBackend::Sqlite => SQLITE_PROJECTION_TRIGGERS,
         _ => POSTGRES_PROJECTION_TRIGGERS,
     };
+    let statements = statements.iter().chain(match backend {
+        DbBackend::Sqlite => &[][..],
+        _ => POSTGRES_REDACTION_FUNCTIONS,
+    });
     let conn = manager.get_connection();
     for sql in statements {
         conn.execute_raw(Statement::from_string(backend, (*sql).to_owned()))
@@ -2459,6 +2468,223 @@ const POSTGRES_PROJECTION_TRIGGERS: &[&str] = &[
          REFERENCING OLD TABLE AS removed_rows \
          FOR EACH STATEMENT EXECUTE FUNCTION projection_rows_removed()",
 ];
+
+/// The PostgreSQL functions that move `projection_state.redaction_generation`
+/// (docs/data-model.md §4.1), created with the table so that the SOSA
+/// functions may call `redaction_touch` too.
+///
+/// `redaction_touch` moves a tree's generation once per transaction: a
+/// reader stamping a redaction needs it to differ once the transaction
+/// commits, not once per row, and ten thousand updates of one row in one
+/// transaction would leave as many versions of it for every later read to
+/// walk. The trees already moved are kept in a transaction-local setting.
+/// The statement triggers pass `redaction_rows_written` the query naming the
+/// trees a statement touched, over its transition tables.
+const POSTGRES_REDACTION_FUNCTIONS: &[&str] = &[
+    "CREATE FUNCTION redaction_touch(tree uuid) RETURNS void LANGUAGE plpgsql AS $$ \
+         DECLARE touched text := \
+         coalesce(current_setting('oxidgene.redaction_touched', true), ''); \
+         BEGIN \
+         IF tree IS NULL OR position(tree::text IN touched) > 0 THEN RETURN; END IF; \
+         UPDATE projection_state SET redaction_generation = redaction_generation + 1 \
+         WHERE tree_id = tree; \
+         PERFORM set_config('oxidgene.redaction_touched', touched || tree::text || ',', true); \
+         END $$",
+    "CREATE FUNCTION redaction_rows_written() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         DECLARE tree uuid; BEGIN \
+         FOR tree IN EXECUTE TG_ARGV[0] LOOP PERFORM redaction_touch(tree); END LOOP; \
+         RETURN NULL; END $$",
+    "CREATE FUNCTION redaction_access_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         PERFORM redaction_touch(OLD.tree_id); RETURN NULL; END $$",
+];
+
+/// The PostgreSQL functions of the redaction generation, with their
+/// signatures, which `down` drops.
+const REDACTION_TRIGGER_FUNCTIONS: &[&str] = &[
+    "redaction_touch(uuid)",
+    "redaction_rows_written()",
+    "redaction_access_changed()",
+];
+
+/// How a row of a table a redaction reads names its tree.
+#[derive(Clone, Copy)]
+enum TreeOf {
+    /// Its own `tree_id`.
+    Column,
+    /// The tree of the `parent` row its column `key` names.
+    Via {
+        parent: &'static str,
+        key: &'static str,
+    },
+}
+
+const fn via(parent: &'static str, key: &'static str) -> TreeOf {
+    TreeOf::Via { parent, key }
+}
+
+/// Every table a restricted viewer's redaction reads (docs/architecture.md
+/// §4.1, Tree cache): a write to any of their rows moves the tree's
+/// redaction generation. `tree` itself is moved on update only — inserted,
+/// it has no redaction yet; deleted, it takes its `projection_state` row.
+const REDACTION_INPUTS: &[(&str, TreeOf)] = &[
+    ("person", TreeOf::Column),
+    ("family", TreeOf::Column),
+    ("family_spouse", via("family", "family_id")),
+    ("family_child", via("family", "family_id")),
+    ("event", TreeOf::Column),
+    ("citation", via("source", "source_id")),
+    ("note", TreeOf::Column),
+    ("media", TreeOf::Column),
+    ("media_link", via("media", "media_id")),
+    ("vignette", via("media", "media_id")),
+    ("source", TreeOf::Column),
+    ("source_repository", via("source", "source_id")),
+    ("repository", TreeOf::Column),
+    ("place", TreeOf::Column),
+    ("person_visibility", TreeOf::Column),
+    ("privacy_exclusion", TreeOf::Column),
+    ("excluded_person", TreeOf::Column),
+    ("access_scope", TreeOf::Column),
+    ("access_scope_person", via("access_scope", "scope_id")),
+];
+
+/// The changes to a viewer's access that end or change what a kept
+/// redaction was built for: a membership's role, scope or expiry, a share
+/// link's revocation, scope or expiry, and either's deletion. A share
+/// link's use, which updates its counters, moves nothing.
+const REDACTION_ACCESS: &[(&str, &str)] = &[
+    ("tree_membership", "role, scope_id, expires_at"),
+    ("share_link", "revoked_at, scope_id, expires_at"),
+];
+
+/// The tree of row `row` (`NEW` or `OLD`) of a table whose rows name it as
+/// `tree_of` says, as a SQLite trigger body reads it.
+fn sqlite_tree(row: &str, tree_of: TreeOf) -> String {
+    match tree_of {
+        TreeOf::Column => format!("{row}.tree_id"),
+        TreeOf::Via { parent, key } => {
+            format!("(SELECT tree_id FROM {parent} WHERE id = {row}.{key})")
+        }
+    }
+}
+
+/// The trees the rows of transition table `rows` name, as a PostgreSQL
+/// statement trigger reads them.
+fn postgres_trees(rows: &str, tree_of: TreeOf) -> String {
+    match tree_of {
+        TreeOf::Column => format!("SELECT tree_id FROM {rows}"),
+        TreeOf::Via { parent, key } => {
+            format!("SELECT p.tree_id FROM {parent} p JOIN {rows} r ON p.id = r.{key}")
+        }
+    }
+}
+
+/// The SQLite triggers moving the redaction generation: one bump per row.
+fn sqlite_redaction_triggers() -> Vec<String> {
+    const BUMP: &str =
+        "UPDATE projection_state SET redaction_generation = redaction_generation + 1";
+    let mut out = Vec::new();
+    for &(table, tree_of) in REDACTION_INPUTS {
+        let (new, old) = (sqlite_tree("NEW", tree_of), sqlite_tree("OLD", tree_of));
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_insert AFTER INSERT ON {table} BEGIN \
+             {BUMP} WHERE tree_id = {new}; END"
+        ));
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_update AFTER UPDATE ON {table} BEGIN \
+             {BUMP} WHERE tree_id IN ({old}, {new}); END"
+        ));
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_delete AFTER DELETE ON {table} BEGIN \
+             {BUMP} WHERE tree_id = {old}; END"
+        ));
+    }
+    out.push(format!(
+        "CREATE TRIGGER redaction_tree_update AFTER UPDATE ON tree BEGIN \
+         {BUMP} WHERE tree_id = NEW.id; END"
+    ));
+    for &(table, columns) in REDACTION_ACCESS {
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_update AFTER UPDATE OF {columns} ON {table} \
+             BEGIN {BUMP} WHERE tree_id = OLD.tree_id; END"
+        ));
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_delete AFTER DELETE ON {table} \
+             BEGIN {BUMP} WHERE tree_id = OLD.tree_id; END"
+        ));
+    }
+    out
+}
+
+/// The PostgreSQL triggers moving the redaction generation: one statement
+/// trigger per table and operation, through `redaction_touch`, and one row
+/// trigger on the rare changes of an access.
+fn postgres_redaction_triggers() -> Vec<String> {
+    let statement = |table: &str, operation: &str, transition: &str, trees: &str| {
+        format!(
+            "CREATE TRIGGER redaction_{table}_{} AFTER {operation} ON {table} \
+             REFERENCING {transition} FOR EACH STATEMENT \
+             EXECUTE FUNCTION redaction_rows_written('{trees}')",
+            operation.to_lowercase()
+        )
+    };
+    let mut out = Vec::new();
+    for &(table, tree_of) in REDACTION_INPUTS {
+        let added = postgres_trees("added_rows", tree_of);
+        let removed = postgres_trees("removed_rows", tree_of);
+        out.push(statement(
+            table,
+            "INSERT",
+            "NEW TABLE AS added_rows",
+            &added,
+        ));
+        out.push(statement(
+            table,
+            "UPDATE",
+            "OLD TABLE AS removed_rows NEW TABLE AS added_rows",
+            &format!("{added} UNION {removed}"),
+        ));
+        out.push(statement(
+            table,
+            "DELETE",
+            "OLD TABLE AS removed_rows",
+            &removed,
+        ));
+    }
+    out.push(statement(
+        "tree",
+        "UPDATE",
+        "NEW TABLE AS added_rows",
+        "SELECT id FROM added_rows",
+    ));
+    for &(table, columns) in REDACTION_ACCESS {
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_update AFTER UPDATE OF {columns} ON {table} \
+             FOR EACH ROW EXECUTE FUNCTION redaction_access_changed()"
+        ));
+        out.push(format!(
+            "CREATE TRIGGER redaction_{table}_delete AFTER DELETE ON {table} \
+             FOR EACH ROW EXECUTE FUNCTION redaction_access_changed()"
+        ));
+    }
+    out
+}
+
+/// Create the triggers moving the redaction generation (docs/data-model.md
+/// §4.1), once every table they watch exists.
+async fn create_redaction_triggers(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let backend = manager.get_database_backend();
+    let statements = match backend {
+        DbBackend::Sqlite => sqlite_redaction_triggers(),
+        _ => postgres_redaction_triggers(),
+    };
+    let conn = manager.get_connection();
+    for sql in statements {
+        conn.execute_raw(Statement::from_string(backend, sql))
+            .await?;
+    }
+    Ok(())
+}
 
 /// The stored SOSA ancestry of each tree (docs/data-model.md §4.8): the
 /// root and its ancestors, with their SOSA numbers, and the state saying
@@ -2538,6 +2764,9 @@ async fn create_sosa(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 }
 
 /// The bump of the tree owning family `$family`, as a trigger body writes it.
+/// Under PostgreSQL the SOSA functions move the tree's redaction generation
+/// first ([`touch_family_tree`]), so that every writer locks the tree's
+/// `projection_state` row before its `sosa_state` row.
 macro_rules! bump_family_tree {
     ($family:literal) => {
         concat!(
@@ -2606,6 +2835,19 @@ const SQLITE_SOSA_TRIGGERS: &[&str] = &[
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
 ];
 
+/// [`bump_family_tree`]'s move of the redaction generation, under
+/// PostgreSQL: `projection_state` is locked before `sosa_state`
+/// ([`POSTGRES_REDACTION_FUNCTIONS`]).
+macro_rules! touch_family_tree {
+    ($family:literal) => {
+        concat!(
+            "PERFORM redaction_touch((SELECT tree_id FROM family WHERE id = ",
+            $family,
+            "));"
+        )
+    };
+}
+
 /// The functions behind the PostgreSQL triggers, which `down` drops.
 const SOSA_TRIGGER_FUNCTIONS: &[&str] = &[
     "sosa_tree_insert",
@@ -2619,22 +2861,27 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
     "CREATE FUNCTION sosa_tree_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          INSERT INTO sosa_state (tree_id, generation) VALUES (NEW.id, 0); RETURN NULL; END $$",
     "CREATE FUNCTION sosa_tree_root() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+         PERFORM redaction_touch(NEW.id); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.id; \
          RETURN NULL; END $$",
     // A family link: the tree of the family it left, and of the one it joined.
     concat!(
         "CREATE FUNCTION sosa_link_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          IF TG_OP <> 'INSERT' THEN ",
+        touch_family_tree!("OLD.family_id"),
         bump_family_tree!("OLD.family_id"),
         " END IF; IF TG_OP <> 'DELETE' THEN ",
+        touch_family_tree!("NEW.family_id"),
         bump_family_tree!("NEW.family_id"),
         " END IF; RETURN NULL; END $$"
     ),
     // A family or a person, deleted or restored: the tree it belongs to.
     "CREATE FUNCTION sosa_owner_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          IF TG_OP = 'DELETE' THEN \
+         PERFORM redaction_touch(OLD.tree_id); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; \
          ELSE \
+         PERFORM redaction_touch(NEW.tree_id); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; \
          END IF; RETURN NULL; END $$",
     "CREATE TRIGGER sosa_tree_insert AFTER INSERT ON tree \

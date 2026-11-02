@@ -151,6 +151,7 @@ impl TreeMutation {
             let tree = tree::update_tree(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 id,
                 input.try_into()?,
             )
@@ -171,6 +172,7 @@ impl TreeMutation {
             tree::delete_tree(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 purge_from_ctx(ctx),
                 id,
             )

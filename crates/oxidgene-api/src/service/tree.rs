@@ -26,6 +26,7 @@ use crate::service::history::{self, Change};
 use crate::service::patch::double_option;
 use crate::service::purge::PurgeQueue;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::tree_cache::TreeCache;
 
 /// A tree as the tree list shows it, with the import running into it.
 ///
@@ -275,6 +276,7 @@ pub async fn create_tree(
 pub async fn update_tree(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     tree_id: Uuid,
     patch: TreePatch,
 ) -> Result<Tree, OxidGeneError> {
@@ -330,6 +332,9 @@ pub async fn update_tree(
         .await?
         .unwrap_or(tree);
     commit_tx(txn).await?;
+    // Its settings and visibility decide what restricted viewers see
+    // (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
     Ok(tree)
 }
 
@@ -387,6 +392,7 @@ async fn update_sharing(
 pub async fn delete_tree(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     purge: &PurgeQueue,
     tree_id: Uuid,
 ) -> Result<(), OxidGeneError> {
@@ -398,6 +404,9 @@ pub async fn delete_tree(
     TreeRepo::soft_delete(&txn, tree_id).await?;
     pending.record(&txn).await?;
     commit_tx(txn).await?;
+    // Nothing this process keeps of it is needed any more
+    // (docs/architecture.md §4.1).
+    cache.forget_tree(tree_id);
     purge.enqueue(tree_id);
     Ok(())
 }

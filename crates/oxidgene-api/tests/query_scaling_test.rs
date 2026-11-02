@@ -571,7 +571,9 @@ async fn the_sources_drill_down_costs_the_same_whatever_levels_it_skips() {
 /// own reads and the one statement selecting every hidden record, never a
 /// read per kind of record (docs/privacy.md §7). Before, the records side
 /// read the hidden records kind by kind on every request, some 39
-/// statements more than the owner's.
+/// statements more than the owner's. Once the tree cache keeps the
+/// Editor's redaction (docs/architecture.md §4.1), a read costs the
+/// owner's plus the Editor's access and the redaction generation's check.
 ///
 /// The tree is the enriched family blocks with one person excluded from
 /// sharing; the Editor is a member signed in through the mock provider.
@@ -587,8 +589,13 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
     use oxidgene_db::repo::{AppUserRepo, MembershipRepo, NewAppUser};
     use tower::ServiceExt as _;
 
-    /// The statements a restricted viewer may run beyond the owner's.
-    const EXTRA: usize = 7;
+    /// The statements a restricted viewer's read may run beyond the owner's
+    /// when its redaction is built: the access, the redaction generation,
+    /// the redaction's own reads and the hidden records.
+    const COLD_EXTRA: usize = 8;
+    /// Beyond the owner's once the redaction is kept: the access and the
+    /// redaction generation.
+    const EXTRA: usize = 2;
 
     let counter = Arc::new(AtomicUsize::new(0));
     let _guard = tracing_subscriber::registry()
@@ -633,7 +640,8 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
         .await
         .expect("shares the tree");
     let token = provider.access_token("editor", crate::common::oidc::TRUSTED_CLIENT, 3600);
-    let (app, _) = provider.app(&db, &[]);
+    let (app, kept) = provider.app_with_profiles(&db);
+    let tree_id: uuid::Uuid = tree.parse().unwrap();
 
     let mut grown = Vec::new();
     for path in [
@@ -646,7 +654,11 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
         let uri = format!("/api/v1/trees/{tree}{}", path.replace("{anchor}", &anchor));
         // Each viewer's first read warms what a read builds once.
         let mut costs = Vec::new();
-        for editor in [false, true, false, true] {
+        for (pass, editor) in [false, true, false, true].into_iter().enumerate() {
+            if pass == 1 {
+                // Each path's first read builds the redaction.
+                kept.cache().forget_redactions(tree_id);
+            }
             let mut request = Request::get(&uri).header(header::HOST, "genealogy.example.invalid");
             if editor {
                 request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
@@ -667,11 +679,17 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
             );
             costs.push((counter.load(Ordering::Relaxed), elapsed));
         }
-        let (owner, editor) = (costs[2], costs[3]);
+        let (owner, cold, editor) = (costs[2], costs[1], costs[3]);
         eprintln!(
             "{path}: owner {} statements in {:?}, editor {} statements in {:?}",
             owner.0, owner.1, editor.0, editor.1
         );
+        if cold.0 > owner.0 + COLD_EXTRA {
+            grown.push(format!(
+                "{path}: {} statements for the owner, {} for an Editor's first read",
+                owner.0, cold.0
+            ));
+        }
         if editor.0 > owner.0 + EXTRA {
             grown.push(format!(
                 "{path}: {} statements for the owner, {} for an Editor",

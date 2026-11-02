@@ -57,7 +57,7 @@ pub async fn update_tree(
     Json(body): Json<TreePatch>,
 ) -> Result<Json<Tree>, ApiError> {
     Ok(Json(
-        tree::update_tree(&viewer, &state.db, tree_id, body).await?,
+        tree::update_tree(&viewer, &state.db, state.profiles.cache(), tree_id, body).await?,
     ))
 }
 
@@ -90,7 +90,14 @@ pub async fn delete_tree(
     viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    tree::delete_tree(&viewer, &state.db, &state.purge, tree_id).await?;
+    tree::delete_tree(
+        &viewer,
+        &state.db,
+        state.profiles.cache(),
+        &state.purge,
+        tree_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

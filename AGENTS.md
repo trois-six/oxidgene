@@ -178,8 +178,14 @@ observability <- db/api (feature), server/worker/desktop
   of the label alone, which no write makes wrong — and the tree's decoded
   projections, used only while `projection_state.generation`, which triggers
   move in the transaction of every `person_denorm` write, has not moved since
-  they were read. Never bypass those triggers or copy the cached projections
-  (share the `Arc`). It keeps one tree at a time
+  they were read; and on the web the redactions of restricted viewers, one
+  per viewer class (the access's redacting permissions, its scope and the
+  year, never anything a client sends), used only while
+  `projection_state.redaction_generation`, which triggers move in the
+  transaction of every write to a table a redaction reads, has not moved,
+  their per-request pseudonyms never kept. Never bypass those triggers,
+  copy the cached projections or redactions (share the `Arc`), or let a
+  redaction's build read anything about the viewer but its class. It keeps one tree at a time
   on the desktop and trees within a byte budget (least recently used dropped
   first) on the web, drops a tree after an idle delay, and hands what it
   drops back to the system. The place dictionary's index, built by the first

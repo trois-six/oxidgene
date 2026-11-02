@@ -20,7 +20,7 @@
 //! never the person's own.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use uuid::Uuid;
 
@@ -54,7 +54,7 @@ pub struct HiddenPerson {
 }
 
 /// The redacting permissions a viewer's access to a tree holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Viewing {
     /// `read_private`: private records and contemporaries unredacted.
     pub read_private: bool,
@@ -183,11 +183,25 @@ pub struct PrivacyRules {
     pub contemporary_photos: bool,
 }
 
-/// What one viewer sees of one tree, for one request. It has no `Default`:
-/// an unrestricted redaction is the owner's, and only
-/// [`Redaction::unrestricted`] makes one.
+/// What one viewer sees of one tree, for one request: the decisions of
+/// the viewer's class ([`ClassRedaction`]), shared by every request of that
+/// class while the tree has not changed, and the pseudonyms this request
+/// draws, which are never shared. It has no `Default`: an unrestricted
+/// redaction is the owner's, and only [`Redaction::unrestricted`] makes one.
 #[derive(Debug)]
 pub struct Redaction {
+    class: Arc<ClassRedaction>,
+    /// Drawn afresh for each request (docs/privacy.md §7): a kept
+    /// [`ClassRedaction`] never carries them.
+    pseudonyms: Mutex<HashMap<Uuid, Uuid>>,
+}
+
+/// What one class of viewers sees of one tree: every decision of a
+/// [`Redaction`] but the pseudonyms of a request. It depends on the
+/// [`Viewing`], the access scope, the year and the tree's records alone,
+/// so the viewers of one class may share it (docs/architecture.md §4.1).
+#[derive(Debug)]
+pub struct ClassRedaction {
     restricted: bool,
     /// The person rules, for the queries applying them in SQL.
     rules: HidingRules,
@@ -199,7 +213,6 @@ pub struct Redaction {
     navigation: bool,
     contemporary_photos: bool,
     default_privacy: TreeDefaultPrivacy,
-    pseudonyms: Mutex<HashMap<Uuid, Uuid>>,
     /// The media and vignettes withheld (§3.2): no portrait is drawn from
     /// them.
     withheld_media: HashSet<Uuid>,
@@ -218,7 +231,7 @@ pub struct WithheldCounts {
     pub notes: u32,
 }
 
-impl Redaction {
+impl ClassRedaction {
     /// The owner's: nothing is hidden.
     #[must_use]
     pub fn unrestricted() -> Self {
@@ -233,14 +246,13 @@ impl Redaction {
             navigation: true,
             contemporary_photos: false,
             default_privacy: TreeDefaultPrivacy::default(),
-            pseudonyms: Mutex::default(),
             withheld_media: HashSet::new(),
             withheld_vignettes: HashSet::new(),
             withheld_counts: HashMap::new(),
         }
     }
 
-    /// The redaction `viewing` makes of a tree with these settings and
+    /// The decisions `viewing` makes of a tree with these settings and
     /// records, in `current_year`.
     #[must_use]
     pub fn build(
@@ -322,7 +334,6 @@ impl Redaction {
             navigation: settings.hidden_navigation,
             contemporary_photos: settings.contemporary_photos,
             default_privacy,
-            pseudonyms: Mutex::default(),
             withheld_media: HashSet::new(),
             withheld_vignettes: HashSet::new(),
             withheld_counts: HashMap::new(),
@@ -346,24 +357,110 @@ impl Redaction {
         self.withheld_counts = counts;
     }
 
-    /// Whether a portrait drawn from medium `media_id`, or its vignette
-    /// `vignette_id`, is withheld.
-    #[must_use]
-    pub fn portrait_withheld(&self, media_id: Option<Uuid>, vignette_id: Option<Uuid>) -> bool {
-        media_id.is_some_and(|id| self.withheld_media.contains(&id))
-            || vignette_id.is_some_and(|id| self.withheld_vignettes.contains(&id))
-    }
-
-    /// Whether the viewer sees everything: the owner.
+    /// Whether the class sees everything: the owner's.
     #[must_use]
     pub fn is_unrestricted(&self) -> bool {
         !self.restricted
     }
 
+    /// The person rules, as the queries that leave hidden persons and
+    /// their records out in SQL apply them.
+    #[must_use]
+    pub fn rules(&self) -> HidingRules {
+        self.rules
+    }
+
+    /// Whether the decisions hide no record but confidential notes and
+    /// tags: no hidden person, no withheld family, no private record.
+    #[must_use]
+    pub fn hides_no_record(&self) -> bool {
+        self.persons.is_empty() && self.families.is_empty() && !self.withhold_private_records
+    }
+
+    /// Whether confidential notes are withheld.
+    #[must_use]
+    pub fn withholds_confidential(&self) -> bool {
+        self.withhold_confidential
+    }
+
+    /// The bytes the decisions take in memory, their tables' spare capacity,
+    /// load factor and control bytes included: what the tree cache counts
+    /// them as (docs/architecture.md §4.1).
+    #[must_use]
+    pub fn estimated_bytes(&self) -> usize {
+        size_of::<Self>()
+            + crate::collections::table_bytes::<(Uuid, HiddenPerson)>(self.persons.capacity())
+            + crate::collections::table_bytes::<Uuid>(self.families.capacity())
+            + crate::collections::table_bytes::<Uuid>(self.withheld_media.capacity())
+            + crate::collections::table_bytes::<Uuid>(self.withheld_vignettes.capacity())
+            + crate::collections::table_bytes::<(Uuid, WithheldCounts)>(
+                self.withheld_counts.capacity(),
+            )
+    }
+}
+
+impl Redaction {
+    /// The owner's: nothing is hidden.
+    #[must_use]
+    pub fn unrestricted() -> Self {
+        Self::new(Arc::new(ClassRedaction::unrestricted()))
+    }
+
+    /// The redaction of one request whose viewer's class decided `class`:
+    /// its pseudonyms are its own.
+    #[must_use]
+    pub fn new(class: Arc<ClassRedaction>) -> Self {
+        Self {
+            class,
+            pseudonyms: Mutex::default(),
+        }
+    }
+
+    /// The redaction `viewing` makes of a tree with these settings and
+    /// records, in `current_year`, for one request.
+    #[must_use]
+    pub fn build(
+        viewing: Viewing,
+        default_privacy: TreeDefaultPrivacy,
+        settings: &PrivacySettings,
+        inputs: &RedactionInputs<'_>,
+        current_year: i32,
+    ) -> Self {
+        Self::new(Arc::new(ClassRedaction::build(
+            viewing,
+            default_privacy,
+            settings,
+            inputs,
+            current_year,
+        )))
+    }
+
+    /// The decisions of the viewer's class, which the requests of the class
+    /// share.
+    #[must_use]
+    pub fn class(&self) -> &Arc<ClassRedaction> {
+        &self.class
+    }
+
+    /// Whether a portrait drawn from medium `media_id`, or its vignette
+    /// `vignette_id`, is withheld.
+    #[must_use]
+    pub fn portrait_withheld(&self, media_id: Option<Uuid>, vignette_id: Option<Uuid>) -> bool {
+        media_id.is_some_and(|id| self.class.withheld_media.contains(&id))
+            || vignette_id.is_some_and(|id| self.class.withheld_vignettes.contains(&id))
+    }
+
+    /// Whether the viewer sees everything: the owner.
+    #[must_use]
+    pub fn is_unrestricted(&self) -> bool {
+        !self.class.restricted
+    }
+
     /// How person `id` appears.
     #[must_use]
     pub fn person(&self, id: Uuid) -> Appearance {
-        self.persons
+        self.class
+            .persons
             .get(&id)
             .map_or(Appearance::Shown, |hidden| hidden.appearance)
     }
@@ -371,7 +468,7 @@ impl Redaction {
     /// Why person `id` is hidden, if they are.
     #[must_use]
     pub fn hidden(&self, id: Uuid) -> Option<HiddenPerson> {
-        self.persons.get(&id).copied()
+        self.class.persons.get(&id).copied()
     }
 
     /// Why person `id` appears as a placeholder: *Not shared* outside the
@@ -390,7 +487,7 @@ impl Redaction {
     /// Whether person `id` is shown in full.
     #[must_use]
     pub fn shows(&self, id: Uuid) -> bool {
-        !self.persons.contains_key(&id)
+        !self.class.persons.contains_key(&id)
     }
 
     /// Whether person `id` appears at all, in full or as a placeholder.
@@ -401,7 +498,8 @@ impl Redaction {
 
     /// The persons who do not appear at all.
     pub fn absent(&self) -> impl Iterator<Item = Uuid> + '_ {
-        self.persons
+        self.class
+            .persons
             .iter()
             .filter(|(_, h)| h.appearance == Appearance::Absent)
             .map(|(id, _)| *id)
@@ -409,14 +507,14 @@ impl Redaction {
 
     /// Every hidden person, absent or a placeholder.
     pub fn hidden_persons(&self) -> impl Iterator<Item = Uuid> + '_ {
-        self.persons.keys().copied()
+        self.class.persons.keys().copied()
     }
 
     /// The person rules, as the queries that leave hidden persons and
     /// their records out in SQL apply them.
     #[must_use]
     pub fn rules(&self) -> HidingRules {
-        self.rules
+        self.class.rules
     }
 
     /// Whether the content of family `id` — its events, notes, citations
@@ -424,39 +522,39 @@ impl Redaction {
     /// private to a viewer without `read_private`. Its links stay.
     #[must_use]
     pub fn family_withheld(&self, id: Uuid) -> bool {
-        self.families.contains(&id)
+        self.class.families.contains(&id)
     }
 
     /// The families whose content is withheld ([`Self::family_withheld`]).
     pub fn withheld_families(&self) -> impl Iterator<Item = Uuid> + '_ {
-        self.families.iter().copied()
+        self.class.families.iter().copied()
     }
 
     /// Whether private records are withheld: a viewer without
     /// `read_private`.
     #[must_use]
     pub fn withholds_private_records(&self) -> bool {
-        self.withhold_private_records
+        self.class.withhold_private_records
     }
 
     /// Whether a record of `privacy` — a medium, a family — is private to
     /// this viewer (rule 2 of §3.1).
     #[must_use]
     pub fn private(&self, privacy: Privacy) -> bool {
-        self.withhold_private_records
-            && self.default_privacy.resolve(privacy) == TreeDefaultPrivacy::Private
+        self.class.withhold_private_records
+            && self.class.default_privacy.resolve(privacy) == TreeDefaultPrivacy::Private
     }
 
     /// Whether confidential notes are withheld.
     #[must_use]
     pub fn withholds_confidential(&self) -> bool {
-        self.withhold_confidential
+        self.class.withhold_confidential
     }
 
     /// Whether tags are withheld.
     #[must_use]
     pub fn withholds_tags(&self) -> bool {
-        self.withhold_tags
+        self.class.withhold_tags
     }
 
     /// Whether a medium of `privacy` showing `persons` — linked to it, on
@@ -470,7 +568,7 @@ impl Redaction {
         persons: impl IntoIterator<Item = Uuid>,
         families: impl IntoIterator<Item = Uuid>,
     ) -> bool {
-        if !self.restricted {
+        if !self.class.restricted {
             return false;
         }
         if self.private(privacy) || families.into_iter().any(|f| self.family_withheld(f)) {
@@ -480,7 +578,7 @@ impl Redaction {
             None => false,
             Some(hidden) => {
                 !(hidden.reason == Withheld::Contemporary
-                    && self.contemporary_photos
+                    && self.class.contemporary_photos
                     && hidden.appearance != Appearance::Absent)
             }
         })
@@ -490,7 +588,8 @@ impl Redaction {
     /// `read_confidential`, or of a record `owner_withheld` says is.
     #[must_use]
     pub fn note_withheld(&self, confidential: bool, owner_withheld: bool) -> bool {
-        self.restricted && ((confidential && self.withhold_confidential) || owner_withheld)
+        self.class.restricted
+            && ((confidential && self.class.withhold_confidential) || owner_withheld)
     }
 
     /// The identifier person `id` is shown under: their own when shown, or
@@ -503,7 +602,7 @@ impl Redaction {
             None => Some(id),
             Some(hidden) => match hidden.appearance {
                 Appearance::Absent => None,
-                _ if self.navigation
+                _ if self.class.navigation
                     && !matches!(hidden.reason, Withheld::Excluded | Withheld::OutOfScope) =>
                 {
                     Some(id)
@@ -532,7 +631,7 @@ impl Redaction {
     /// holds left out.
     #[must_use]
     pub fn profile(&self, profile: &PersonProfile) -> Option<PersonProfile> {
-        if !self.restricted {
+        if !self.class.restricted {
             return Some(profile.clone());
         }
         let id = self.public_id(profile.person_id)?;
@@ -546,11 +645,11 @@ impl Redaction {
             {
                 out.primary_media = None;
             }
-            if let Some(counts) = self.withheld_counts.get(&profile.person_id) {
+            if let Some(counts) = self.class.withheld_counts.get(&profile.person_id) {
                 out.media_count = out.media_count.saturating_sub(counts.media);
                 out.note_count = out.note_count.saturating_sub(counts.notes);
             }
-            if self.withhold_tags {
+            if self.class.withhold_tags {
                 out.tags.clear();
                 for event in out
                     .birth
@@ -607,7 +706,7 @@ impl Redaction {
         let mut out = link.clone();
         if self.family_withheld(link.family_id) {
             out.events.clear();
-        } else if self.withhold_tags {
+        } else if self.class.withhold_tags {
             for event in &mut out.events {
                 event.tags.clear();
             }
@@ -682,7 +781,7 @@ impl Redaction {
     /// through them gone, placeholders blanked, withheld families' events
     /// left out, and every identifier the viewer may not follow replaced.
     pub fn pedigree(&self, pedigree: &mut Pedigree) {
-        if !self.restricted {
+        if !self.class.restricted {
             return;
         }
         let mut persons = HashMap::with_capacity(pedigree.persons.len());
@@ -711,7 +810,7 @@ impl Redaction {
         pedigree
             .family_events
             .retain(|family, _| !self.family_withheld(*family));
-        if self.withhold_tags {
+        if self.class.withhold_tags {
             for events in pedigree.family_events.values_mut() {
                 for event in events {
                     event.tags.clear();
@@ -740,14 +839,14 @@ impl Redaction {
     /// A pedigree card as the viewer sees it; `None` for an absent person.
     #[must_use]
     pub fn node(&self, node: PedigreeNode) -> Option<PedigreeNode> {
-        if !self.restricted {
+        if !self.class.restricted {
             return Some(node);
         }
         let appearance = self.person(node.person_id);
         let person_id = self.public_id(node.person_id)?;
         let mut node = node;
         if appearance == Appearance::Shown {
-            if self.withhold_tags {
+            if self.class.withhold_tags {
                 node.tags.clear();
             }
             if node
@@ -795,7 +894,7 @@ impl Redaction {
         member.placeholder = self.placeholder(member.person_id);
         member.person_id = person_id;
         if appearance == Appearance::Shown {
-            if self.withhold_tags {
+            if self.class.withhold_tags {
                 for event in member.birth.iter_mut().chain(member.death.iter_mut()) {
                     event.tags.clear();
                 }

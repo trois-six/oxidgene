@@ -4067,6 +4067,175 @@ async fn every_projection_write_moves_its_trees_generation_alone() {
     assert_eq!(generation(Uuid::now_v7()).await, None, "no such tree");
 }
 
+/// Every write to a row a restricted viewer's redaction reads moves its
+/// tree's redaction generation, through the repository or around it, rows
+/// naming their tree through a parent too; the counters of a share link's
+/// use move nothing; and under PostgreSQL a transaction moves it once.
+#[tokio::test]
+async fn every_write_a_redaction_reads_moves_its_trees_redaction_generation() {
+    use oxidgene_db::repo::RedactionRepo;
+    use sea_orm::{DbBackend, TransactionTrait};
+
+    let db = setup_db().await;
+    let backend = db.get_database_backend();
+    // Three triggers for each table a redaction reads.
+    let catalogue = match backend {
+        DbBackend::Postgres => {
+            "SELECT tgname AS name FROM pg_trigger WHERE tgname LIKE 'redaction%'"
+        }
+        _ => "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'redaction%'",
+    };
+    let names: Vec<String> = db
+        .query_all_raw(Statement::from_string(backend, catalogue))
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.try_get("", "name").unwrap())
+        .collect();
+    for table in [
+        "person",
+        "family",
+        "family_spouse",
+        "family_child",
+        "event",
+        "citation",
+        "note",
+        "media",
+        "media_link",
+        "vignette",
+        "source",
+        "source_repository",
+        "repository",
+        "place",
+        "person_visibility",
+        "privacy_exclusion",
+        "excluded_person",
+        "access_scope",
+        "access_scope_person",
+    ] {
+        for operation in ["insert", "update", "delete"] {
+            let name = format!("redaction_{table}_{operation}");
+            assert!(names.contains(&name), "{name} is missing");
+        }
+    }
+
+    let (tree_id, other_tree) = (create_tree(&db).await, create_tree(&db).await);
+    let generation = |tree| {
+        let db = db.clone();
+        async move { RedactionRepo::generation(&db, tree).await.unwrap() }
+    };
+    let other_start = generation(other_tree).await;
+    let mut last = generation(tree_id).await.expect("created with the tree");
+    let source = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        source,
+        tree_id,
+        "Register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let person = create_person(&db, tree_id).await;
+    let citation = Uuid::now_v7();
+    CitationRepo::create(
+        &db,
+        citation,
+        source,
+        Some(person),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let now = generation(tree_id).await.unwrap();
+    assert!(now > last, "a source, a person and a citation");
+    last = now;
+    for (sql, what) in [
+        (
+            "UPDATE citation SET page = 'p. 7' WHERE id = $1",
+            "a citation updated",
+        ),
+        ("DELETE FROM citation WHERE id = $1", "a citation deleted"),
+    ] {
+        db.execute_raw(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [Value::from(citation)],
+        ))
+        .await
+        .unwrap();
+        let now = generation(tree_id).await.unwrap();
+        assert!(now > last, "{what} must move it");
+        last = now;
+    }
+    TreeRepo::update(
+        &db,
+        tree_id,
+        TreeChanges {
+            name: Some("Renamed".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let now = generation(tree_id).await.unwrap();
+    assert!(now > last, "the tree's row");
+    last = now;
+
+    // A share link: its use moves nothing, its revocation moves it.
+    let link = Uuid::now_v7();
+    db.execute_raw(Statement::from_sql_and_values(
+        backend,
+        "INSERT INTO share_link (id, tree_id, token_hash, created_at, use_count) \
+         VALUES ($1, $2, 'fictitious-hash', CURRENT_TIMESTAMP, 0)",
+        [Value::from(link), Value::from(tree_id)],
+    ))
+    .await
+    .unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        backend,
+        "UPDATE share_link SET use_count = use_count + 1, last_used_at = CURRENT_TIMESTAMP \
+         WHERE id = $1",
+        [Value::from(link)],
+    ))
+    .await
+    .unwrap();
+    assert_eq!(generation(tree_id).await.unwrap(), last, "a link used");
+    db.execute_raw(Statement::from_sql_and_values(
+        backend,
+        "UPDATE share_link SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [Value::from(link)],
+    ))
+    .await
+    .unwrap();
+    let now = generation(tree_id).await.unwrap();
+    assert!(now > last, "a link revoked");
+    last = now;
+
+    // Several writes of one transaction.
+    let txn = db.begin().await.unwrap();
+    for _ in 0..3 {
+        PersonRepo::create(&txn, Uuid::now_v7(), tree_id, Sex::Female)
+            .await
+            .unwrap();
+    }
+    txn.commit().await.unwrap();
+    let now = generation(tree_id).await.unwrap();
+    match backend {
+        DbBackend::Postgres => assert_eq!(now, last + 1, "once per transaction"),
+        _ => assert!(now > last),
+    }
+    assert_eq!(generation(other_tree).await, other_start, "its tree alone");
+    assert_eq!(generation(Uuid::now_v7()).await, None, "no such tree");
+}
+
 /// A tree's projections are usable only when every row is of the current
 /// version: a row written by an older build, or by a newer one, makes the
 /// tree stale.

@@ -34,6 +34,7 @@ use crate::service::history::Change;
 use crate::service::notification::{About, Mailing, Notices, NotificationKind};
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::tree_cache::TreeCache;
 
 /// A member of a tree, as the members list shows them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -170,6 +171,7 @@ pub(crate) fn member_view(
 pub async fn update_member(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
@@ -209,6 +211,9 @@ pub async fn update_member(
     });
     let notices = Notices::write(&txn, mailing, note).await?;
     commit_tx(txn).await?;
+    // The viewers this access gave may no longer see what was kept for
+    // them (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
     notices.publish();
     viewer.forget(tree_id);
     one_view(db, updated).await
@@ -283,6 +288,7 @@ fn check_patch(
 pub async fn remove_member(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
@@ -308,6 +314,9 @@ pub async fn remove_member(
     record(&txn, viewer, tree_id, AuditAction::Delete, membership.id).await?;
     let notices = removal_notices(&txn, viewer, mailing, (tree_id, user_id), leaving).await?;
     commit_tx(txn).await?;
+    // The viewers this access gave may no longer see what was kept for
+    // them (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
     notices.publish();
     viewer.forget(tree_id);
     Ok(())
@@ -350,6 +359,7 @@ async fn removal_notices(
 pub async fn transfer_ownership(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     mailing: Mailing,
     tree_id: Uuid,
     user_id: Uuid,
@@ -402,6 +412,9 @@ pub async fn transfer_ownership(
     )
     .await?;
     commit_tx(txn).await?;
+    // The viewers this access gave may no longer see what was kept for
+    // them (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
     notices.publish();
     viewer.forget(tree_id);
     one_view(db, promoted).await

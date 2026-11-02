@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-02T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
 ---
 
 
@@ -969,6 +969,7 @@ with it by a trigger, deleted with it (cascade):
 |---|---|
 | `tree_id` | Primary key and FK to `tree`. |
 | `generation` | Moved by every write to the tree's `person_denorm` rows. |
+| `redaction_generation` | Moved by every write to a row a restricted viewer's redaction reads. |
 
 Triggers on `person_denorm` move `generation` in the transaction of the write
 itself, whatever code path or process makes it — a mutation's refresh, an
@@ -984,6 +985,29 @@ the rows are still the table's. The tree cache relies on it
 ([Architecture §4.1](architecture.md#41-tree-cache)). It is one primary-key
 read. The audit log could not serve: projection maintenance writes no audit
 entry (§5.1).
+
+`redaction_generation` is the same contract for the redactions the tree
+cache keeps for restricted viewers. Triggers move it on every insert,
+update and delete of the tree's rows in `tree` (updates), `person`,
+`family`, `family_spouse`, `family_child`, `event`, `citation`, `note`,
+`media`, `media_link`, `vignette`, `source`, `source_repository`,
+`repository`, `place`, `person_visibility`, `privacy_exclusion`,
+`excluded_person`, `access_scope` and `access_scope_person`, and on the
+changes of `tree_membership` (`role`, `scope_id`, `expires_at`, deletion)
+and `share_link` (`revoked_at`, `scope_id`, `expires_at`, deletion) that
+end or change a viewer's access. A row without a `tree_id` names its tree
+through its family, medium, source or scope. Under SQLite one bump per
+row, as above. Under PostgreSQL one bump per transaction and tree: a write
+statement's transition tables name the trees it touched, and a
+transaction-local setting (`oxidgene.redaction_touched`) records those
+already moved, since a reader stamping a redaction needs the value to
+differ once the transaction commits, not once per row. The first write of
+a transaction to a tree therefore locks the tree's `projection_state` row
+until it commits; the SOSA triggers on family links and on deleted
+families and persons, and the rebuilds of an exclusion union and of an
+access scope, take it before `sosa_state` and the scope's row, so every
+writer takes the three in that one order and two writers of a tree never
+wait on each other in a cycle.
 
 ### 4.2 Pedigree assembly
 

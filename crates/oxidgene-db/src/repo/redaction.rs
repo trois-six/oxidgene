@@ -44,6 +44,59 @@ impl LeaveOut {
 pub struct RedactionRepo;
 
 impl RedactionRepo {
+    /// The redaction generation of tree `tree_id`
+    /// (`projection_state.redaction_generation`, docs/data-model.md §4.1):
+    /// triggers move it in the transaction of every write to a row a
+    /// restricted viewer's redaction reads, whatever process makes it, so a
+    /// redaction built after reading it stays what a new build would make
+    /// while it has not moved. `None` for a tree that does not exist (any
+    /// more).
+    ///
+    /// One primary-key read.
+    pub async fn generation(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Option<i64>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let placeholder = match backend {
+            DbBackend::Postgres => "$1",
+            _ => "?",
+        };
+        let row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                backend,
+                format!(
+                    "SELECT redaction_generation FROM projection_state WHERE tree_id = {placeholder}"
+                ),
+                [tree_id.into()],
+            ))
+            .await
+            .map_err(db_err)?;
+        row.map(|row| row.try_get::<i64>("", "redaction_generation"))
+            .transpose()
+            .map_err(db_err)
+    }
+
+    /// Lock tree `tree_id`'s `projection_state` row until the transaction
+    /// `txn` ends, under PostgreSQL: a rebuild of a derived row the
+    /// redaction reads takes it before `sosa_state` or a scope's row, the
+    /// order every writer of the tree takes them in (docs/data-model.md
+    /// §4.1). SQLite has one writer and no row lock: nothing to do.
+    pub async fn lock_tree(txn: &impl ConnectionTrait, tree_id: Uuid) -> Result<(), OxidGeneError> {
+        let backend = txn.get_database_backend();
+        if backend != DbBackend::Postgres {
+            return Ok(());
+        }
+        txn.query_one_raw(Statement::from_sql_and_values(
+            backend,
+            "SELECT tree_id FROM projection_state WHERE tree_id = $1 FOR UPDATE",
+            [tree_id.into()],
+        ))
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Every record of the tree `unseen` hides, as `(kind, id)`: `kind` is
     /// `event`, `citation`, `media`, `source`, `repository`, `place`,
     /// `note`, `media_link` or `vignette`. One statement, its bound values

@@ -64,8 +64,31 @@ pub struct HiddenRecords {
     vignettes: Vec<Uuid>,
 }
 
+impl HiddenRecords {
+    /// The bytes they take in memory, spare capacity included: what the
+    /// tree cache counts them as (docs/architecture.md §4.1).
+    #[must_use]
+    pub fn estimated_bytes(&self) -> usize {
+        size_of::<Self>()
+            + [
+                &self.events,
+                &self.citations,
+                &self.notes,
+                &self.media,
+                &self.sources,
+                &self.repositories,
+                &self.places,
+                &self.media_links,
+                &self.vignettes,
+            ]
+            .iter()
+            .map(|ids| ids.capacity() * size_of::<Uuid>())
+            .sum::<usize>()
+    }
+}
+
 /// The slot of a request's [`HiddenRecords`] for one tree.
-type Slot = OnceCell<Arc<HiddenRecords>>;
+pub(super) type Slot = OnceCell<Arc<HiddenRecords>>;
 
 fn holds(ids: &[Uuid], id: Uuid) -> bool {
     ids.binary_search(&id).is_ok()
@@ -447,28 +470,26 @@ fn kind_name(kind: RecordKind) -> &'static str {
     }
 }
 
-/// Give `redaction`, a restricted viewer's on tree `tree_id`, what the
-/// records' rules withhold of the persons it shows in full: the media and
-/// vignettes no portrait is drawn from (§3.2), and the media links and
-/// confidential notes their counts leave out. The hidden records are read
-/// once for the request, into the slot [`Records::of`] reads too.
-pub(super) async fn withhold_media(
+/// The records `redaction`, the decisions of a restricted viewer class on
+/// tree `tree_id`, hides, and what they withhold of the persons it shows in
+/// full, given to it: the media and vignettes no portrait is drawn from
+/// (§3.2), and the media links and confidential notes their counts leave
+/// out. Read once per class and generation of the tree, kept with the
+/// decisions by the tree cache (docs/architecture.md §4.1).
+#[cfg(feature = "auth")]
+pub(super) async fn withhold_records(
     db: &DatabaseConnection,
-    viewer: &ViewerContext,
     tree_id: Uuid,
-    redaction: &mut Redaction,
-) -> Result<(), OxidGeneError> {
+    redaction: &mut oxidgene_core::redaction::ClassRedaction,
+) -> Result<HiddenRecords, OxidGeneError> {
     use std::collections::HashMap;
 
     use oxidgene_core::redaction::WithheldCounts;
 
     let mut counts: HashMap<Uuid, WithheldCounts> = HashMap::new();
-    if !redaction.is_unrestricted() && !nothing_hidden(redaction) {
-        let unseen = Unseen::new(tree_id, redaction.rules());
-        let slot = viewer.derived::<Slot>(tree_id);
-        let hidden = slot
-            .get_or_try_init(|| async { hidden_records(db, &unseen).await.map(Arc::new) })
-            .await?;
+    let mut hidden = HiddenRecords::default();
+    if !redaction.is_unrestricted() && !redaction.hides_no_record() {
+        hidden = hidden_records(db, &Unseen::new(tree_id, redaction.rules())).await?;
         redaction.withhold_media(
             hidden.media.iter().copied(),
             hidden.vignettes.iter().copied(),
@@ -483,15 +504,13 @@ pub(super) async fn withhold_media(
         }
     }
     redaction.withhold_counts(counts);
-    Ok(())
+    Ok(hidden)
 }
 
 /// Whether the redaction hides no record but confidential notes and tags:
 /// no hidden person, no withheld family, no private medium.
 fn nothing_hidden(redaction: &Redaction) -> bool {
-    redaction.hidden_persons().next().is_none()
-        && redaction.withheld_families().next().is_none()
-        && !redaction.withholds_private_records()
+    redaction.class().hides_no_record()
 }
 
 /// The records `unseen` hides, each kind sorted: one statement.

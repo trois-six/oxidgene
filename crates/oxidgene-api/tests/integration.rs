@@ -54,6 +54,8 @@ mod real_import_test;
 mod record_redaction_test;
 #[cfg(all(feature = "auth", feature = "graphql"))]
 mod redacted_reads_test;
+#[cfg(all(feature = "auth", feature = "graphql"))]
+mod redaction_cache_test;
 mod rest_test;
 #[cfg(all(feature = "auth", feature = "graphql"))]
 mod sharing_test;

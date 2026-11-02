@@ -204,6 +204,9 @@ async fn purge_steps(
     tree_id: Uuid,
 ) -> Result<(), StepFailure> {
     let started = Instant::now();
+    // Nothing this process keeps of the tree is needed any more
+    // (docs/architecture.md §4.1).
+    profiles.cache().forget_tree(tree_id);
 
     // Projections first: the search table has no FK to cascade through.
     drop_projections(db, profiles, tree_id)

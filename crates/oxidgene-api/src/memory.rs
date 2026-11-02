@@ -69,6 +69,23 @@ pub fn release_free_memory() {
     }
 }
 
+/// The bytes the allocator holds allocated in all its arenas and mappings,
+/// where it can say (glibc's `mallinfo2`): what the measurements of the
+/// tree cache weigh what it keeps against (docs/architecture.md §4.1).
+pub fn allocated_bytes() -> Option<usize> {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        // SAFETY: `mallinfo2` only reads the allocator's statistics, under
+        // its own locks, into the value it returns.
+        let info = unsafe { libc::mallinfo2() };
+        Some(info.uordblks + info.hblkhd)
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    {
+        None
+    }
+}
+
 /// The requests the process is serving.
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 /// The requests the process has started serving.

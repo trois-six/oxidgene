@@ -14,6 +14,10 @@
 //! and a Visitor of the tree's `site` visibility; a share link's holder
 //! reads through the same Visitor access. Adding a kind of viewer is a line
 //! of [`VIEWERS`] and its canaries in [`canaries`].
+//!
+//! Every other read is answered with a redaction built for it, the others
+//! with one the tree cache kept from an earlier read (docs/architecture.md
+//! §4.1): neither may leak.
 
 use std::collections::BTreeMap;
 
@@ -97,6 +101,9 @@ struct Fixture {
     /// The scoped Guest's access scope.
     scope: Uuid,
     _provider: MockProvider,
+    /// The application's projection service, whose tree cache keeps the
+    /// viewers' redactions.
+    profiles: std::sync::Arc<oxidgene_api::profile::ProfileService>,
 }
 
 async fn user(db: &DatabaseConnection, provider: &MockProvider, subject: &str) -> Uuid {
@@ -142,7 +149,7 @@ async fn fixture() -> Fixture {
         Some(json!({ "text": CONFIDENTIAL_MARKER, "person_id": visible_person, "confidential": true })),
     )
     .await;
-    let (app, _) = provider.app(&db, &[]);
+    let (app, profiles) = provider.app_with_profiles(&db);
     let tree_id: Uuid = tree.tree_id.parse().unwrap();
     // Every signed-in user is a Visitor of the tree.
     TreeRepo::update(
@@ -202,10 +209,31 @@ async fn fixture() -> Fixture {
         visible,
         scope: scope.id,
         _provider: provider,
+        profiles,
     }
 }
 
 impl Fixture {
+    /// Every other read, drop the redactions the tree cache keeps, so that
+    /// the reads are answered with a redaction built for them and with one
+    /// kept from an earlier read alike (docs/architecture.md §4.1).
+    fn alternate_kept_and_built(&self, read: usize) {
+        if read.is_multiple_of(2) {
+            let tree: Uuid = self.tree.tree_id.parse().unwrap();
+            self.profiles.cache().forget_redactions(tree);
+        }
+    }
+
+    /// Check the cache keeps the viewers' redactions after a read, so that
+    /// the suite read through kept ones too.
+    async fn kept_some(&self) {
+        let tree: Uuid = self.tree.tree_id.parse().unwrap();
+        let uri = format!("/api/v1/trees/{tree}/profiles");
+        let (status, _) = self.rest(Who::Visitor, Method::GET, &uri, None).await;
+        assert!(status.is_success());
+        assert!(!self.profiles.cache().redaction_classes(tree).is_empty());
+    }
+
     async fn send(
         &self,
         who: Who,
@@ -316,6 +344,7 @@ async fn no_rest_read_shows_a_viewer_what_they_may_not_see() {
                         .then(|| spec.request_body(operation, records, path))
                         .flatten();
                     let method = Method::from_bytes(method.to_uppercase().as_bytes()).unwrap();
+                    f.alternate_kept_and_built(checked);
                     let (status, answer) = f.rest(who, method.clone(), &uri, body).await;
                     checked += 1;
                     if !status.is_success() {
@@ -330,6 +359,7 @@ async fn no_rest_read_shows_a_viewer_what_they_may_not_see() {
         }
     }
     assert!(checked > 100, "only {checked} reads checked");
+    f.kept_some().await;
     assert!(leaks.is_empty(), "reads that leaked:\n{}", leaks.join("\n"));
 }
 
@@ -368,6 +398,7 @@ async fn no_graphql_query_shows_a_viewer_what_they_may_not_see() {
                     "query {{ {name}{arguments}{} }}",
                     schema.selection(&field["type"], 0)
                 );
+                f.alternate_kept_and_built(checked);
                 let response = f.gql(who, &query).await;
                 checked += 1;
                 let found = leaked(&response["data"].to_string(), &canaries);
@@ -378,6 +409,7 @@ async fn no_graphql_query_shows_a_viewer_what_they_may_not_see() {
         }
     }
     assert!(checked > 60, "only {checked} queries checked");
+    f.kept_some().await;
     assert!(
         leaks.is_empty(),
         "queries that leaked:\n{}",

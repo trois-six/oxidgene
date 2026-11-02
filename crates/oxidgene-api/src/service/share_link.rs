@@ -28,6 +28,7 @@ use crate::service::access_scope::{self, ScopeView};
 use crate::service::patch::double_option;
 use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::sharing::{SharingEnv, future, record};
+use crate::tree_cache::TreeCache;
 
 /// The prefix of every share-link token.
 pub const TOKEN_PREFIX: &str = "ogs_";
@@ -197,6 +198,7 @@ pub async fn create(
 pub async fn update(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     tree_id: Uuid,
     link_id: Uuid,
     patch: ShareLinkPatch,
@@ -234,6 +236,9 @@ pub async fn update(
     )
     .await?;
     commit_tx(txn).await?;
+    // The viewers this access gave may no longer see what was kept for
+    // them (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
     one_view(db, link).await
 }
 
@@ -242,6 +247,7 @@ pub async fn update(
 pub async fn revoke(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    cache: &TreeCache,
     tree_id: Uuid,
     link_id: Uuid,
 ) -> Result<(), OxidGeneError> {
@@ -256,7 +262,11 @@ pub async fn revoke(
         link_id,
     )
     .await?;
-    commit_tx(txn).await
+    commit_tx(txn).await?;
+    // The viewers this access gave may no longer see what was kept for
+    // them (docs/architecture.md §4.1).
+    cache.forget_redactions(tree_id);
+    Ok(())
 }
 
 /// The live link whose token is `token`, its use counted and recorded in

@@ -577,6 +577,7 @@ impl SharingMutation {
             let link = share_link::update(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 tree_id,
                 uuid(&link_id)?,
                 patch,
@@ -596,6 +597,7 @@ impl SharingMutation {
             share_link::revoke(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 tree_id,
                 uuid(&link_id)?,
             )

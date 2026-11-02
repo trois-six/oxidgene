@@ -311,6 +311,21 @@ impl MockProvider {
         self.app_mailing(db, extra, false)
     }
 
+    /// The application over `db` and its projection service, whose tree
+    /// cache a test inspects: one API process of a deployment.
+    pub fn app_with_profiles(
+        &self,
+        db: &DatabaseConnection,
+    ) -> (Router, Arc<oxidgene_api::profile::ProfileService>) {
+        let AuthConfig::Oidc(config) = self.settings(&[]).resolve().expect("valid") else {
+            panic!("oidc expected");
+        };
+        let auth = Arc::new(Auth::with_store(*config, Arc::new(MemoryStore::default())));
+        let state = offline(AppState::new(db.clone(), test_media_root())).with_auth(auth);
+        let profiles = Arc::clone(&state.profiles);
+        (oxidgene_api::build_router(state), profiles)
+    }
+
     /// The application over `db`, as a deployment with an SMTP relay
     /// (`mailing`) or without: its mail is queued in the outbox, which the
     /// tests send themselves.

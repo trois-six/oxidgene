@@ -8,7 +8,7 @@ use oxidgene_core::access::TreeRole;
 use oxidgene_db::repo::{AccessEvent, PaginationParams};
 
 use super::scope::{boxed, live_tree, uuid, viewer_from_ctx};
-use super::types::{db_from_ctx, reader_from_ctx};
+use super::types::{db_from_ctx, profiles_from_ctx, reader_from_ctx};
 use crate::service::access_log;
 use crate::service::membership::{self, AdminTree, MemberPatch, MemberView};
 
@@ -300,6 +300,7 @@ impl MemberMutation {
             let member = membership::update_member(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,
@@ -323,6 +324,7 @@ impl MemberMutation {
             membership::remove_member(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,
@@ -345,6 +347,7 @@ impl MemberMutation {
             let owner = membership::transfer_ownership(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx).cache(),
                 super::account::auth_from_ctx(ctx).mailing(),
                 tree_id,
                 uuid(&user_id)?,

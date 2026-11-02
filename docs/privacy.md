@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -404,16 +404,27 @@ pseudonym, or absent, so nothing else names them.
   however many persons are hidden, under SQLite's 32,766 and PostgreSQL's
   65,535. The person rules are the same as the projections' redaction
   applies in memory. A direct read or a nested list deciding record by
-  record reads the hidden records of every kind once per request, in one
-  statement whose sets are common table expressions, so that a restricted
-  viewer's read costs the owner's plus a fixed few statements. The
-  redaction itself reads the tree's families, with their privacy and live
-  spouses, in one statement over the tree rather than by the identifiers
-  of its families or of its excluded persons.
+  record reads the hidden records of every kind in one statement whose
+  sets are common table expressions, so that a restricted viewer's read
+  costs the owner's plus a fixed few statements. The redaction itself
+  reads the tree's families, with their privacy and live spouses, in one
+  statement over the tree rather than by the identifiers of its families
+  or of its excluded persons.
+- The redaction and the hidden records are decided once per viewer class
+  — the redacting permissions of the access, its scope and the year — and
+  kept by the tree cache while no write touches what they read
+  ([Architecture §4.1](architecture.md#41-tree-cache)): every request of a
+  restricted viewer reads the tree's redaction generation first, and
+  builds the redaction again when it has moved, when the year has
+  changed, or when the generation cannot be read. Two viewers share one
+  only when their classes are equal; nothing a client sends is part of
+  the class.
 - A placeholder that may not be navigated through carries a pseudonym drawn
   afresh for each request: within one response it names the same
-  placeholder everywhere; across requests it links nothing. Its only
-  structure is a version-7 time prefix, which says when the request ran.
+  placeholder everywhere; across requests it links nothing, whether the
+  redaction was built for the request or kept from an earlier one — the
+  pseudonyms are the one part of it never kept. Its only structure is a
+  version-7 time prefix, which says when the request ran.
 - Ancestors, descendants and the branch targets of bulk tagging walk the
   family links through the persons who appear to the viewer only, as
   kinship does: a person reached only through an absent one is not
@@ -549,6 +560,15 @@ the tree is visible to.
   runs once per restricted kind of viewer: Editors and Guests today, with
   an excluded person and a confidential note as canaries; Visitors join it
   with one entry.
+- **Kept redactions.** A restricted viewer's redaction kept by the tree
+  cache, then each of its inputs changed — an exclusion, a scope, a
+  person's privacy, a date making someone contemporary or not, the tree's
+  privacy settings and visibility, a membership's role, the membership or
+  a share link revoked, the year, and a write made by another process:
+  the very next request, over REST and GraphQL, answers as if nothing had
+  been kept. Two viewer classes never receive each other's redaction, the
+  same placeholder carries different pseudonyms in two responses, and the
+  owner's requests keep nothing.
 - **Exports.** Each row of §8 on both builds, with `RESN` per version, and
   re-import of a redacted export.
 

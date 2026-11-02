@@ -17,7 +17,7 @@ use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::ExclusionKind;
 use oxidgene_core::history::{AuditEntity, AuditSubject};
 use oxidgene_core::privacy::{ExclusionScope, Kinship};
-use oxidgene_db::repo::{Exclusion, ExclusionRepo, display_names};
+use oxidgene_db::repo::{Exclusion, ExclusionRepo, RedactionRepo, display_names};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -92,6 +92,9 @@ async fn rebuild(
     tree_id: Uuid,
     force: bool,
 ) -> Result<(), OxidGeneError> {
+    // The tree's projection state before its ancestry state, the order
+    // every writer of the tree takes them in (docs/data-model.md §4.1).
+    RedactionRepo::lock_tree(conn, tree_id).await?;
     let (generation, built) = ExclusionRepo::lock_generations(conn, tree_id).await?;
     if !force && built == Some(generation) {
         return Ok(());

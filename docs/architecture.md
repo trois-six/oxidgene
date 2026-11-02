@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
 ---
 
 
@@ -177,6 +177,39 @@ answer, only the time of the next one.
   11 to 26 ms), and take 2.5 to 3.5 KB a person, 25 to 36 MiB for such a
   tree, estimated as twice their stored payload (a generated tree's 13 MiB
   of payload took 25 to 27 MiB once kept).
+- The redactions of its restricted viewers (web build only,
+  [Privacy §7](privacy.md#7-enforcement-points)), one per *viewer class*,
+  with the redaction generation they were read at. A class is everything
+  a redaction depends on besides the tree's rows: the redacting
+  permissions of the viewer's access (`read_private`, `read_confidential`,
+  `read_tags`, and whether the owner's exclusions apply), the access scope
+  the viewer is limited to, none for the whole tree, and the calendar year
+  the contemporary rule is applied in. A redaction holds what the rules
+  decide for that class: the persons hidden and how each appears, the
+  families whose content is withheld, the media and vignettes no portrait
+  is drawn from, what each shown person's counts leave out, and the tree's
+  hidden records of every kind — events, citations, notes, media, sources,
+  repositories, places, media links and vignettes. Otherwise every request
+  of such a viewer reads the tree's excluded persons, the stored inputs of
+  the contemporary rule of every person, every family with its spouses, a
+  scope's persons with the tree's family links, and the one statement
+  selecting every hidden record, which the redaction itself needs for the
+  media and counts it withholds — so the hidden records are kept with it
+  rather than read again. On a generated tree of 10,000 persons, release
+  build, the pedigree page's three requests cost an Editor kept from 2,000
+  excluded persons, a Visitor kept from 3,300 private ones and a Guest
+  scoped to a few persons 116, 156 and 222 ms with the redaction built
+  and 18 to 23 ms with it kept under SQLite (the owner's: 8 ms), and 153,
+  273 and 690 ms built against 64 to 91 ms kept under PostgreSQL (the
+  owner's: 106 ms). Those redactions take 0.15, 0.6 and 1.2 MiB, estimated
+  from the sizes of their sets (16 bytes an identifier, the hash tables'
+  buckets and control bytes included); the bytes the allocator holds more
+  once one is kept matched the estimate within 0.01 MiB.
+  Nothing else of a request is kept: the access it resolves,
+  the pseudonyms its placeholders carry — drawn afresh for each request,
+  so that no two responses link a placeholder
+  ([Privacy §7](privacy.md#7-enforcement-points)) — and the records it reads
+  stay with the request.
 
 **Why the projections are never stale.** Database triggers move the tree's
 projection generation (`projection_state`) in the transaction of every
@@ -208,6 +241,43 @@ tree's places (the statistics, the places not located) drops the readings
 of labels no place of the tree bears any more — a place renamed, merged or
 deleted.
 
+**Why a redaction is never stale, nor another viewer's.** Its key is the
+tree and the viewer class, and the class is made of the access the request
+resolves from the database at every request
+([Authorization §4.1](authorization.md#41-resolution)) and of the server's
+clock: nothing a client sends, no session, no user. Two viewers share a
+redaction exactly when their classes are equal, and then it is the same:
+the build reads the class and the tree's rows, nothing else about the
+viewer — a role, a user, a share link reach it only through the class,
+which is the one value the build receives. The tree's rows are covered by
+the *redaction generation* (`projection_state.redaction_generation`,
+[Data Model §4.1](data-model.md#41-person-projection-person_denorm)), which
+database triggers move in the transaction of every write to a table a
+redaction reads — the tree's settings, persons, families and their links,
+events, citations, notes, media, media links, vignettes, sources and their
+repositories, places, the stored inputs of the contemporary rule, the
+exclusions and their union, the access scopes and their persons — and of
+every change to a membership's role, scope or expiry, a share link's
+revocation, scope or expiry, and their deletion, whichever process makes
+it. A request about a tree with a redaction kept reads the generation
+first, one primary-key read, and uses the redaction of its class only if
+it was read at that generation and for the current year; otherwise it
+drops the tree's redactions read at another generation or for another
+year, gives their memory back, and builds its own, stamped with the
+generation read *before* the build. A write committed meanwhile leaves the
+redaction newer than its stamp, never older, and the next request builds
+it again. The rows a redaction's build rebuilds when stale — the union of
+the exclusions, a scope's persons, the stored inputs of the contemporary
+rule ([Authorization §6.5](authorization.md#65-access-scopes)) — move the
+generation when they are written, so a redaction is used only while those
+rows are what its build found current; the lists that read them in SQL
+read them current too. When the generation cannot be read — a failure of
+the database, a tree without its row — the redaction is built without the
+cache and not kept: a request never falls back on a redaction it could not
+check. A new year is a new class: the first request of the year finds no
+redaction of its year, and the year's change of who is contemporary
+applies at once.
+
 **Bounds.** Two scopes, chosen by the binary:
 
 - *One tree* (desktop): one person works on one tree at a time, so the
@@ -226,19 +296,36 @@ seconds or minutes, and each return within the delay is answered from
 memory; past it, reading the tree again costs a fraction of a second, less
 than holding its data for good. A task sleeps until the next tree is due and
 ends once nothing is kept, so an idle process does no work for the cache.
+
+A tree keeps at most eight viewer classes' redactions, the least recently
+used dropped first, so that classes nobody uses any more — a scope
+replaced, a year past — age out rather than pile up; each counts toward
+the budget with the rest of its tree. A tree's redactions are dropped at
+once, in the process that makes the change, when the tree is deleted or
+purged, when its settings or visibility change, when a membership's role,
+scope or expiry changes or the membership ends, and when a share link
+changes or is revoked; other processes drop them at their next request
+about the tree, the generation having moved, or when the tree goes idle.
+An expiry passing is no write: the viewer's next request resolves another
+access, and the redaction of the class it no longer holds ages out. The
+desktop and the web build's `none` mode serve the local owner alone,
+whose redaction is unrestricted and built without a read: they never keep
+one.
 The place dictionary's index, which place searches build and every tree
 shares, is not part of the cache but follows the same delay: released once
 no lookup has used it for that long, built again by the next search
 ([Place dictionary §2.1](place-dictionary.md)).
 
-Whatever is dropped — by a change of tree, the budget or idleness — is freed
+Whatever is dropped — by a change of tree, the budget, idleness, or a
+redaction found stale or revoked — is freed
 on the blocking pool and the allocator's free pages are then handed back to
 the system (`malloc_trim`, [§6](#6-asynchronous-processing)); what a
 request still in flight holds is freed when it ends, and the release after a
 burst of requests (`oxidgene_api::memory::release_when_idle`) hands it back.
 
 **Concurrency.** Requests arriving together for the same tree's missing
-readings, or its projections, wait on one another and read them once.
+readings, its projections, or its redactions, wait on one another and read
+them once.
 
 ---
 

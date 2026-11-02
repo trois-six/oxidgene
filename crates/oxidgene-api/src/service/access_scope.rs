@@ -18,7 +18,7 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::privacy::{FamilyMembers, Kinship, withheld};
 use oxidgene_core::sharing::ScopeDefinition;
 use oxidgene_db::repo::{
-    AccessScope, AccessScopeRepo, AncestryRepo, PersonRepo, TreeRepo, display_names,
+    AccessScope, AccessScopeRepo, AncestryRepo, PersonRepo, RedactionRepo, TreeRepo, display_names,
 };
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,9 @@ pub async fn create_optional(
 /// Rebuild the persons of `scope` as of the tree's current ancestry
 /// generation, in the transaction `conn`.
 async fn rebuild(conn: &impl ConnectionTrait, scope: &AccessScope) -> Result<(), OxidGeneError> {
+    // The tree's projection state before the scope's row, the order every
+    // writer of the tree takes them in (docs/data-model.md §4.1).
+    RedactionRepo::lock_tree(conn, scope.tree_id).await?;
     // The generation first: a change committed while the links are read
     // leaves the scope stale rather than marked current. Locked: a rebuild
     // running meanwhile commits before this one reads, or waits for it.
@@ -172,7 +175,10 @@ pub async fn ensure_current(db: &DatabaseConnection, scope_id: Uuid) -> Result<(
     let txn = begin_tx(db).await?;
     if let Some(scope) = AccessScopeRepo::get(&txn, scope_id).await? {
         // Another request may have rebuilt it meanwhile: the row locked,
-        // until this transaction ends, before it is read again.
+        // until this transaction ends, before it is read again — after the
+        // tree's projection state, the order every writer of the tree
+        // takes them in (docs/data-model.md §4.1).
+        RedactionRepo::lock_tree(&txn, scope.tree_id).await?;
         match AccessScopeRepo::lock_generations(&txn, scope_id).await? {
             Some((generation, Some(built))) if built == generation => {}
             _ => rebuild(&txn, &scope).await?,

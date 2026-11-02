@@ -28,6 +28,14 @@
 //!   current generation first — one primary-key read — and uses them only
 //!   while it has not moved, so it never sees projections older than what
 //!   it would read from the table.
+//! - on the web, the redactions of restricted viewers ([`ClassRecords`]),
+//!   one per [`ViewerClass`] — the redacting permissions of the viewer's
+//!   access, its scope and the year — with the redaction generation of the
+//!   tree they were read at (`projection_state.redaction_generation`,
+//!   moved by triggers in the transaction of every write to a row a
+//!   redaction reads). A request uses one only while that generation has
+//!   not moved and the year is its own; the pseudonyms of a request are
+//!   never part of it.
 //!
 //! What it holds is bounded and given back:
 //!
@@ -38,21 +46,27 @@
 //!   alone exceeds it is not kept.
 //! - **Idleness.** A tree no request has used for [`CacheSettings::idle`]
 //!   is dropped.
+//! - **Classes.** A tree keeps [`MAX_CLASSES`] redactions at most, the
+//!   least recently used dropped first; those of another generation or
+//!   year are dropped as soon as a request finds them, and all of a tree's
+//!   when its access changes ([`TreeCache::forget_redactions`]).
 //!
 //! Whatever is dropped is handed back to the system
 //! ([`crate::memory::release_free_memory`]) once freed.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::projection::PersonProfile;
+use oxidgene_core::redaction::{ClassRedaction, Viewing};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::authz::records::HiddenRecords;
 use crate::reference::LabelReading;
 
 /// How long a tree's cached data outlives the last request that used it.
@@ -71,6 +85,13 @@ pub const DEFAULT_IDLE: Duration = Duration::from_secs(5 * 60);
 /// dictionary's index; it holds the projections of about 70,000 persons at
 /// the 3.5 KB a person of a real tree, 100,000 of the generated reference one.
 pub const DEFAULT_BUDGET: usize = 256 * 1024 * 1024;
+
+/// How many viewer classes' redactions a tree keeps at most: the owner's
+/// Editors, Guests and Visitors, each with or without a scope or two, and a
+/// new year's beside the last one's for a moment. Past it the least
+/// recently used class is dropped, so classes nobody uses any more age out
+/// rather than pile up.
+pub const MAX_CLASSES: usize = 8;
 
 /// Which trees the cache keeps at once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +147,42 @@ pub struct TreeCache {
     inner: Mutex<Inner>,
     /// How many times dropped data was handed back to the system.
     releases: AtomicU64,
+    /// The year redactions are made for when set, the clock's otherwise:
+    /// the tests' clock.
+    year: AtomicI32,
+}
+
+/// Who a restricted viewer's redaction is for: everything it depends on
+/// besides the tree's rows (docs/architecture.md §4.1). It is made of the
+/// access the request resolved from the database and of the server's
+/// clock, never of anything the client sends; the build of a redaction
+/// receives it and nothing else about the viewer, so two viewers of one
+/// class are shown the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ViewerClass {
+    /// The redacting permissions of the access.
+    pub viewing: Viewing,
+    /// The access scope the viewer is limited to, none for the whole tree.
+    pub scope_id: Option<Uuid>,
+    /// The year the contemporary rule is applied in.
+    pub year: i32,
+}
+
+/// What a viewer class sees of a tree, as the tree cache keeps it: the
+/// decisions of its redaction and the hidden records they imply, shared
+/// read-only by the requests of the class. A request's pseudonyms are not
+/// part of it.
+#[derive(Debug)]
+pub struct ClassRecords {
+    pub redaction: Arc<ClassRedaction>,
+    pub hidden: Arc<HiddenRecords>,
+}
+
+impl ClassRecords {
+    /// The bytes it takes in memory, as the budget counts them.
+    pub fn estimated_bytes(&self) -> usize {
+        size_of::<Self>() + self.redaction.estimated_bytes() + self.hidden.estimated_bytes()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -152,6 +209,21 @@ struct Entry {
     /// Held while the tree's projections are read, so that requests
     /// arriving together read them once.
     profiles_gate: Arc<tokio::sync::Mutex<()>>,
+    /// The redactions of restricted viewer classes, at most [`MAX_CLASSES`].
+    redactions: Vec<KeptRedaction>,
+    /// Held while a redaction of the tree is built, so that requests of one
+    /// class arriving together build it once.
+    redactions_gate: Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Debug)]
+struct KeptRedaction {
+    class: ViewerClass,
+    /// The tree's redaction generation it was read at.
+    generation: i64,
+    records: Arc<ClassRecords>,
+    bytes: usize,
+    last_used: Instant,
 }
 
 #[derive(Debug)]
@@ -170,11 +242,27 @@ impl Entry {
             places_gate: Arc::default(),
             profiles: None,
             profiles_gate: Arc::default(),
+            redactions: Vec::new(),
+            redactions_gate: Arc::default(),
         }
     }
 
     fn bytes(&self) -> usize {
-        self.place_bytes + self.profiles.as_ref().map_or(0, |kept| kept.bytes)
+        self.place_bytes
+            + self.profiles.as_ref().map_or(0, |kept| kept.bytes)
+            + self.redactions.iter().map(|kept| kept.bytes).sum::<usize>()
+    }
+
+    /// Take out the redactions read before `generation`, the tree's
+    /// current one, or for another year than `year`. Generations only
+    /// grow: one read after `generation`, by a request that read the
+    /// generation later, is newer and stays.
+    fn take_stale_redactions(&mut self, generation: i64, year: i32) -> Vec<KeptRedaction> {
+        let (stale, current) = std::mem::take(&mut self.redactions)
+            .into_iter()
+            .partition(|kept| kept.generation < generation || kept.class.year != year);
+        self.redactions = current;
+        stale
     }
 }
 
@@ -248,6 +336,38 @@ impl TreeCache {
     /// How many times dropped data was handed back to the system.
     pub fn releases(&self) -> u64 {
         self.releases.load(Ordering::Acquire)
+    }
+
+    /// The year redactions are made for: the clock's, unless
+    /// [`Self::set_year`] fixed one.
+    pub fn current_year(&self) -> i32 {
+        match self.year.load(Ordering::Acquire) {
+            0 => chrono::Datelike::year(&chrono::Utc::now()),
+            year => year,
+        }
+    }
+
+    /// Make redactions for `year`, or for the clock's year again with
+    /// `None`: the tests' clock.
+    pub fn set_year(&self, year: Option<i32>) {
+        self.year.store(year.unwrap_or(0), Ordering::Release);
+    }
+
+    /// The viewer classes whose redaction of tree `tree_id` is kept, for
+    /// the tests and the measurements.
+    pub fn redaction_classes(&self, tree_id: Uuid) -> Vec<ViewerClass> {
+        self.lock()
+            .trees
+            .get(&tree_id)
+            .map(|entry| entry.redactions.iter().map(|kept| kept.class).collect())
+            .unwrap_or_default()
+    }
+
+    /// The estimated bytes of the redactions kept for tree `tree_id`.
+    pub fn redaction_bytes(&self, tree_id: Uuid) -> usize {
+        self.lock().trees.get(&tree_id).map_or(0, |entry| {
+            entry.redactions.iter().map(|kept| kept.bytes).sum()
+        })
     }
 
     /// Drop everything kept, and give the memory back.
@@ -520,6 +640,121 @@ impl TreeCache {
     fn release_profiles(&self, kept: KeptProfiles) {
         let mut entry = Entry::new(Instant::now());
         entry.profiles = Some(kept);
+        self.release(vec![entry]);
+    }
+
+    /// The redaction of `class` kept for tree `tree_id` at `generation`,
+    /// the tree's current redaction generation, noting a request about the
+    /// tree: with one tree at a time, every other tree is dropped. The
+    /// tree's redactions read at another generation or for another year
+    /// are dropped and their memory given back.
+    pub fn kept_redaction(
+        self: &Arc<Self>,
+        tree_id: Uuid,
+        class: ViewerClass,
+        generation: i64,
+    ) -> Option<Arc<ClassRecords>> {
+        let (found, stale) = self.enter(tree_id, |entry| {
+            let stale = entry.take_stale_redactions(generation, class.year);
+            let found = entry
+                .redactions
+                .iter_mut()
+                .find(|kept| kept.class == class && kept.generation == generation)
+                .map(|kept| {
+                    kept.last_used = Instant::now();
+                    Arc::clone(&kept.records)
+                });
+            (found, stale)
+        });
+        self.release_redactions(stale);
+        found
+    }
+
+    /// The gate a request building a redaction of tree `tree_id` holds, so
+    /// that requests of one class arriving together build it once.
+    pub fn redactions_gate(self: &Arc<Self>, tree_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
+        self.enter(tree_id, |entry| Arc::clone(&entry.redactions_gate))
+    }
+
+    /// Keep `records`, the redaction of `class` for tree `tree_id` read at
+    /// redaction generation `generation`, unless the tree was dropped
+    /// meanwhile, it keeps one of the class as new already, or it does not
+    /// fit the budget: after dropping the tree's redactions of an older
+    /// generation or another year, and the least recently used class when
+    /// the tree keeps [`MAX_CLASSES`].
+    pub fn keep_redaction(
+        &self,
+        tree_id: Uuid,
+        class: ViewerClass,
+        generation: i64,
+        records: Arc<ClassRecords>,
+    ) {
+        let bytes = records.estimated_bytes();
+        let mut dropped = Vec::new();
+        let mut gone = Vec::new();
+        {
+            let mut inner = self.lock();
+            let Some(entry) = inner.trees.get_mut(&tree_id) else {
+                return;
+            };
+            gone.extend(entry.take_stale_redactions(generation, class.year));
+            if entry.redactions.iter().any(|kept| kept.class == class) {
+                drop(inner);
+                self.release_redactions(gone);
+                return;
+            }
+            if entry.redactions.len() >= MAX_CLASSES
+                && let Some(oldest) = entry
+                    .redactions
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, kept)| kept.last_used)
+                    .map(|(at, _)| at)
+            {
+                gone.push(entry.redactions.swap_remove(oldest));
+            }
+            if Self::make_room(&mut inner, tree_id, bytes, &mut dropped)
+                && let Some(entry) = inner.trees.get_mut(&tree_id)
+            {
+                entry.redactions.push(KeptRedaction {
+                    class,
+                    generation,
+                    records,
+                    bytes,
+                    last_used: Instant::now(),
+                });
+            }
+        }
+        self.release_redactions(gone);
+        self.release(dropped);
+    }
+
+    /// Drop every redaction kept for tree `tree_id` and give their memory
+    /// back: an access to the tree changed — a membership, a share link,
+    /// its visibility — or the tree is gone.
+    pub fn forget_redactions(&self, tree_id: Uuid) {
+        let gone = self
+            .lock()
+            .trees
+            .get_mut(&tree_id)
+            .map(|entry| std::mem::take(&mut entry.redactions))
+            .unwrap_or_default();
+        self.release_redactions(gone);
+    }
+
+    /// Drop everything kept for tree `tree_id`, deleted or purged, and give
+    /// the memory back.
+    pub fn forget_tree(&self, tree_id: Uuid) {
+        let gone = self.lock().trees.remove(&tree_id);
+        self.release(gone.into_iter().collect());
+    }
+
+    fn release_redactions(&self, gone: Vec<KeptRedaction>) {
+        if gone.is_empty() {
+            return;
+        }
+        let mut entry = Entry::new(Instant::now());
+        entry.redactions = gone;
         self.release(vec![entry]);
     }
 

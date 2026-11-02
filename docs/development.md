@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -78,7 +78,7 @@ the repository root.
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
-| `just bench` | Run the opt-in benchmarks of the profile service, the person search, the person visibility and the access scopes, in release mode. |
+| `just bench` | Run the opt-in benchmarks of the profile service, the person search, the person visibility, the access scopes and the kept redactions, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, a job queued by another process waking an idle worker, and a notification written by another process waking a long poll. |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
 | `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
