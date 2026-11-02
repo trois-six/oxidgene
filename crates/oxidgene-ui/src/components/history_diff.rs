@@ -977,12 +977,10 @@ pub fn entry_details(i18n: &I18n, entry: &AuditEntry) -> Option<String> {
     if let Some(new_name) = &details.new_label {
         parts.push(i18n.t_args("history.renamed_to", &[("name", new_name)]));
     }
-    // The privacy options an export applied.
-    for option in details.privacy.iter().flat_map(|names| names.split(',')) {
-        parts.push(
-            i18n.try_t(&format!("history.export_privacy.{option}"))
-                .unwrap_or_else(|| option.to_string()),
-        );
+    // The privacy options an export applied: each has its sentence in every
+    // language (`every_history_key_exists_in_every_language`).
+    for option in &details.privacy {
+        parts.push(i18n.t(&format!("history.export_privacy.{}", option.as_str())));
     }
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
@@ -1339,6 +1337,59 @@ mod tests {
         );
     }
 
+    fn privacy_labels(before: Option<&PrivacySettings>, after: &PrivacySettings) -> Vec<String> {
+        let i18n = I18n::new(Language::english());
+        let mut group = GroupBuilder::new(String::new(), before.is_some(), true);
+        privacy_rows(&i18n, &mut group, before, after);
+        group.rows.into_iter().map(|row| row.label).collect()
+    }
+
+    /// A new tree lists only the privacy settings it sets apart from the
+    /// defaults; an update, only those it changed.
+    #[test]
+    fn the_privacy_rows_list_only_what_differs() {
+        let i18n = I18n::new(Language::english());
+        let defaults = PrivacySettings::default();
+        assert!(privacy_labels(None, &defaults).is_empty());
+        let changed = PrivacySettings {
+            hidden_display: oxidgene_core::HiddenDisplay::Initials,
+            ..defaults
+        };
+        assert_eq!(
+            privacy_labels(None, &changed),
+            [i18n.t("settings.hidden_display")]
+        );
+        assert!(privacy_labels(Some(&changed), &changed).is_empty());
+        let flipped = PrivacySettings {
+            guests_may_export: !changed.guests_may_export,
+            ..changed
+        };
+        assert_eq!(
+            privacy_labels(Some(&changed), &flipped),
+            [i18n.t("settings.guests_may_export")]
+        );
+    }
+
+    /// An export's privacy options read as their sentences, not as their
+    /// stored names.
+    #[test]
+    fn an_exports_privacy_options_read_as_sentences() {
+        let i18n = I18n::new(Language::english());
+        let mut export = entry();
+        export.details = oxidgene_core::history::AuditDetails {
+            privacy: oxidgene_core::history::ExportPrivacyOption::ALL.to_vec(),
+            ..Default::default()
+        };
+        let details = entry_details(&i18n, &export).unwrap();
+        for option in oxidgene_core::history::ExportPrivacyOption::ALL {
+            assert!(!details.contains(option.as_str()), "{details}");
+            assert!(
+                details.contains(&i18n.t(&format!("history.export_privacy.{}", option.as_str()))),
+                "{details}"
+            );
+        }
+    }
+
     #[test]
     fn every_history_key_exists_in_every_language() {
         let keys: Vec<String> = [
@@ -1354,6 +1405,19 @@ mod tests {
                 .iter()
                 .map(|c| format!("history.category.{c}"))
                 .collect(),
+            // The options an export applied, which an entry's details name.
+            oxidgene_core::history::ExportPrivacyOption::ALL
+                .iter()
+                .map(|o| format!("history.export_privacy.{}", o.as_str()))
+                .collect(),
+            [
+                oxidgene_core::HiddenDisplay::Stub,
+                oxidgene_core::HiddenDisplay::Initials,
+                oxidgene_core::HiddenDisplay::Hidden,
+            ]
+            .iter()
+            .map(|d| format!("settings.hidden_display.{}", d.as_str()))
+            .collect(),
         ]
         .concat();
         for language in Language::builtins() {

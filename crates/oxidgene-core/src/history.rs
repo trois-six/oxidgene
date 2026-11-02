@@ -261,10 +261,84 @@ pub struct AuditDetails {
     /// for the whole tree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
-    /// The privacy options an export applied, comma-separated
-    /// (`leave_out_private`, `leave_out_excluded`); absent for none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub privacy: Option<String>,
+    /// The privacy options an export applied; absent for none. Written
+    /// comma-separated (`leave_out_private,leave_out_excluded`).
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "export_privacy_list"
+    )]
+    pub privacy: Vec<ExportPrivacyOption>,
+}
+
+/// A privacy option an export applied, as its audit entry names it
+/// (docs/privacy.md §8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExportPrivacyOption {
+    /// *Apply visitors' privacy rules*.
+    ApplyVisitorRules,
+    /// The private and contemporary persons left out.
+    LeaveOutPrivate,
+    /// The persons excluded from sharing left out.
+    LeaveOutExcluded,
+    /// The confidential notes left out.
+    LeaveOutConfidential,
+    /// Limited to the exporter's access scope.
+    AccessScope,
+}
+
+impl ExportPrivacyOption {
+    /// Every option, in the order an entry names them.
+    pub const ALL: [Self; 5] = [
+        Self::ApplyVisitorRules,
+        Self::LeaveOutPrivate,
+        Self::LeaveOutExcluded,
+        Self::LeaveOutConfidential,
+        Self::AccessScope,
+    ];
+
+    /// The stored name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ApplyVisitorRules => "apply_visitor_rules",
+            Self::LeaveOutPrivate => "leave_out_private",
+            Self::LeaveOutExcluded => "leave_out_excluded",
+            Self::LeaveOutConfidential => "leave_out_confidential",
+            Self::AccessScope => "access_scope",
+        }
+    }
+
+    /// The option a stored name names.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|option| option.as_str() == name)
+    }
+}
+
+/// The options of [`AuditDetails::privacy`] as one comma-separated string,
+/// the shape audit entries have always been stored and served in.
+mod export_privacy_list {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::ExportPrivacyOption;
+
+    pub fn serialize<S: Serializer>(
+        options: &[ExportPrivacyOption],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let names: Vec<&str> = options.iter().map(|option| option.as_str()).collect();
+        serializer.serialize_str(&names.join(","))
+    }
+
+    /// A name no option has — written by another version — is skipped.
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<ExportPrivacyOption>, D::Error> {
+        let names = Option::<String>::deserialize(deserializer)?.unwrap_or_default();
+        Ok(names
+            .split(',')
+            .filter_map(ExportPrivacyOption::parse)
+            .collect())
+    }
 }
 
 impl AuditDetails {
@@ -690,6 +764,40 @@ pub fn align<'a, T: Keyed>(before: &'a [T], after: &'a [T]) -> Vec<(Option<&'a T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The options travel as the comma-separated names they were always
+    /// stored as, and read back as the options.
+    #[test]
+    fn export_privacy_options_keep_their_comma_separated_shape() {
+        let details = AuditDetails {
+            privacy: vec![
+                ExportPrivacyOption::LeaveOutPrivate,
+                ExportPrivacyOption::AccessScope,
+            ],
+            ..AuditDetails::default()
+        };
+        let json = serde_json::to_value(&details).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"privacy": "leave_out_private,access_scope"})
+        );
+        assert_eq!(
+            serde_json::from_value::<AuditDetails>(json).unwrap(),
+            details
+        );
+        // None applied: absent, and absent reads as none.
+        assert_eq!(
+            serde_json::to_value(AuditDetails::default()).unwrap(),
+            serde_json::json!({})
+        );
+        let read: AuditDetails =
+            serde_json::from_value(serde_json::json!({"privacy": "renamed,leave_out_excluded"}))
+                .unwrap();
+        assert_eq!(read.privacy, [ExportPrivacyOption::LeaveOutExcluded]);
+        for option in ExportPrivacyOption::ALL {
+            assert_eq!(ExportPrivacyOption::parse(option.as_str()), Some(option));
+        }
+    }
 
     fn note(n: u128, text: &str) -> NoteSnapshot {
         NoteSnapshot {

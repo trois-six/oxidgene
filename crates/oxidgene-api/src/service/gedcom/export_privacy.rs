@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{Datelike, Utc};
 use oxidgene_core::enums::{HiddenDisplay, NameType, Privacy, TreeDefaultPrivacy};
+use oxidgene_core::history::ExportPrivacyOption;
 use oxidgene_core::privacy::{Withheld, derive_records, withheld};
 use oxidgene_core::types::{KeptEntityKind, PersonName, Tree};
 use uuid::Uuid;
@@ -84,21 +85,32 @@ impl ExportPrivacy {
         }
     }
 
-    /// The options as an export's audit entry names them: absent when none
+    /// The options as an export's audit entry names them: none when none
     /// applies.
     #[must_use]
-    pub fn details(self) -> Option<String> {
-        let names: Vec<&str> = [
-            (self.apply_visitor_rules, "apply_visitor_rules"),
-            (self.leave_out_private, "leave_out_private"),
-            (self.leave_out_excluded, "leave_out_excluded"),
-            (self.leave_out_confidential, "leave_out_confidential"),
-            (self.access_scope.is_some(), "access_scope"),
+    pub fn details(self) -> Vec<ExportPrivacyOption> {
+        [
+            (
+                self.apply_visitor_rules,
+                ExportPrivacyOption::ApplyVisitorRules,
+            ),
+            (self.leave_out_private, ExportPrivacyOption::LeaveOutPrivate),
+            (
+                self.leave_out_excluded,
+                ExportPrivacyOption::LeaveOutExcluded,
+            ),
+            (
+                self.leave_out_confidential,
+                ExportPrivacyOption::LeaveOutConfidential,
+            ),
+            (
+                self.access_scope.is_some(),
+                ExportPrivacyOption::AccessScope,
+            ),
         ]
         .into_iter()
-        .filter_map(|(on, name)| on.then_some(name))
-        .collect();
-        (!names.is_empty()).then(|| names.join(","))
+        .filter_map(|(on, option)| on.then_some(option))
+        .collect()
     }
 }
 

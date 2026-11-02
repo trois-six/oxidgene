@@ -458,7 +458,7 @@ pub async fn duplicate_tree(
         history::DUPLICATE_FORMAT,
         Some(tree.name),
         None,
-        None,
+        Vec::new(),
     )
     .await?;
     // As the import left it: it fills the settings the file carries, such

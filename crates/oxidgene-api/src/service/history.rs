@@ -819,7 +819,7 @@ pub async fn record_export(
     format: &str,
     file_name: Option<String>,
     scope: Option<String>,
-    privacy: Option<String>,
+    privacy: Vec<oxidgene_core::history::ExportPrivacyOption>,
 ) -> Result<AuditEntry, OxidGeneError> {
     Change::new(
         viewer,
