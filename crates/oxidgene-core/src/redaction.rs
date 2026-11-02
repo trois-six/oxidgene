@@ -183,8 +183,10 @@ pub struct PrivacyRules {
     pub contemporary_photos: bool,
 }
 
-/// What one viewer sees of one tree, for one request.
-#[derive(Debug, Default)]
+/// What one viewer sees of one tree, for one request. It has no `Default`:
+/// an unrestricted redaction is the owner's, and only
+/// [`Redaction::unrestricted`] makes one.
+#[derive(Debug)]
 pub struct Redaction {
     restricted: bool,
     /// The person rules, for the queries applying them in SQL.
@@ -205,8 +207,17 @@ impl Redaction {
     #[must_use]
     pub fn unrestricted() -> Self {
         Self {
+            restricted: false,
+            rules: HidingRules::default(),
+            persons: HashMap::new(),
+            families: HashSet::new(),
+            withhold_private_records: false,
+            withhold_confidential: false,
+            withhold_tags: false,
             navigation: true,
-            ..Self::default()
+            contemporary_photos: false,
+            default_privacy: TreeDefaultPrivacy::default(),
+            pseudonyms: Mutex::default(),
         }
     }
 

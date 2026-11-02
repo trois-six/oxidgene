@@ -362,10 +362,13 @@ impl ViewerAccess {
 }
 
 impl Default for ViewerAccess {
-    /// What a tree read without a viewer reports: the local owner's, as the
-    /// desktop has.
+    /// What a tree read missing its `viewer_access` grants: a Visitor's
+    /// `read`, never more. Every read carries one — the local owner's on the
+    /// desktop and in `none` mode ([`Self::local`]) — so a client that falls
+    /// back to this fails closed, offering no control the server would
+    /// refuse.
     fn default() -> Self {
-        Self::local()
+        TreeAccess::of_role(TreeRole::Visitor).viewer_access()
     }
 }
 
@@ -772,6 +775,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_missing_viewer_access_grants_only_a_visitors_read() {
+        let fallback = ViewerAccess::default();
+        assert_eq!(fallback.role, TreeRole::Visitor);
+        assert_eq!(fallback.permissions, vec![Permission::Read]);
+        assert!(!fallback.scoped);
+        // A read that omits it, as a client's `#[serde(default)]` takes it.
+        #[derive(Deserialize)]
+        struct Read {
+            #[serde(default)]
+            viewer_access: ViewerAccess,
+        }
+        let read: Read = serde_json::from_str("{}").unwrap();
+        assert!(!read.viewer_access.allows(Permission::Edit));
+        // The local owner's stays explicit.
+        assert!(ViewerAccess::local().allows(Permission::SettingsManage));
     }
 
     #[test]
