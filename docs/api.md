@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-02T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 ---
 
 
@@ -901,7 +901,7 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/card` | The same region at card size: scaled so its shorter edge is 132 pixels (its longer at most 528), never enlarged — what a portrait on a card draws at device pixel ratio 2. Same rules as `/image`, with an `ETag` of its own |
-| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read and scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). It carries an `ETag` derived from the source file's digest and the rectangle, and answers `If-None-Match` with `304`. `400` for a PDF, even one with a thumbnail — crops are raster-only, and a PDF's thumbnail shows one image of its first page, not the page a region was drawn on |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. Cut on its first request and stored, then read back while the vignette, its rectangle and its page's file stay as they were ([Architecture §4.2](architecture.md#42-stored-crops)); `image-data` reads and stores the same objects. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). It carries an `ETag` derived from the source file's digest and the rectangle, and answers `If-None-Match` with `304`. `400` for a PDF, even one with a thumbnail — crops are raster-only, and a PDF's thumbnail shows one image of its first page, not the page a region was drawn on |
 
 Creation and updates require a page, never a document shell (`400`), and a live
 parent document. Person/event attributions must be live records in the page's

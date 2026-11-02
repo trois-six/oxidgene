@@ -57,7 +57,9 @@ pub const ENDED_JOB_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// How old an entry under `jobs/` that no job needs must be before it is
 /// swept: a job's inputs are stored before its row is created, and staging a
-/// Geneanet import's archives can take a while.
+/// Geneanet import's archives can take a while. Also how old the id of a tree
+/// this database does not hold must be before its stored crops are: a store
+/// may be shared with another database, as the tests share theirs.
 const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// How often a worker expires artifacts, prunes ended jobs and sweeps
@@ -778,9 +780,11 @@ impl BackgroundJobWorker {
     /// the rows (and any objects) of jobs ended more than
     /// [`ENDED_JOB_RETENTION`] ago, the objects under `jobs/` that no job
     /// needs any more, once older than a day, with the media an unfinished
-    /// import stored and did not take back, and the working files a crashed
-    /// run left (see [`WorkDir::sweep`]). Failures are logged; the next pass
-    /// retries.
+    /// import stored and did not take back, the working files a crashed run
+    /// left (see [`WorkDir::sweep`]), and the stored crops no read reaches
+    /// any more (see [`crate::media::crops::sweep`]; those of a tree the
+    /// database does not hold once its id is a day old). Failures are
+    /// logged; the next pass retries.
     pub async fn maintain(&self, now: chrono::DateTime<chrono::Utc>) {
         let work_dir = self.work_dir.clone();
         let swept = tokio::task::spawn_blocking(move || work_dir.sweep(now.into())).await;
@@ -802,6 +806,10 @@ impl BackgroundJobWorker {
         log_maintenance_failure(
             "job_object_sweep",
             sweep_orphaned_job_objects(&self.db, media, now).await,
+        );
+        log_maintenance_failure(
+            "crop_sweep",
+            crate::media::crops::sweep(&self.db, media, before(now, ORPHAN_GRACE)).await,
         );
         log_maintenance_failure("membership_expiry", self.expire_memberships(now).await);
         log_maintenance_failure("invitation_expiry", end_sharing(&self.db, now).await);
@@ -1685,7 +1693,7 @@ async fn sweep_orphaned_job_objects(
 
 /// Whether the UUID v7 `id` was minted before `cutoff`; an id without a
 /// time stamp never is.
-fn created_before(id: Uuid, cutoff: chrono::DateTime<chrono::Utc>) -> bool {
+pub(crate) fn created_before(id: Uuid, cutoff: chrono::DateTime<chrono::Utc>) -> bool {
     id.get_timestamp()
         .and_then(|stamp| {
             let (seconds, nanos) = stamp.to_unix();

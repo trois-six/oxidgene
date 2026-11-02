@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -371,7 +371,7 @@ which outlive it, stay hidden (§3.2).
 | Dictionary, value and place suggestions | Values and counts from visible records only: a surname borne only by hidden persons is not listed |
 | Tools | Owner and Editors only; Editors without excluded persons |
 | History | Owner and Editors; Editors without entries about excluded persons, scoped Editors without entries outside their scope |
-| Media bytes | The same decision as the medium's metadata, on every direct read |
+| Media bytes | The same decision as the medium's metadata, on every direct read. A stored crop ([Architecture §4.2](architecture.md#42-stored-crops)) is read only after its vignette's own decision, by the routes that cut it; no address names it |
 | MCP | The token's user's context; no MCP-specific rule ([Assistant Access §7.2](mcp.md#72-privacy-values-are-not-applied)) |
 | Messaging | Record links resolve under the reader's own access (§6.4) |
 | HTTP caching | `no-store` on tree JSON, `private` and `Vary: Cookie, Authorization` on media; nothing cached across viewers ([Authentication §9.1](authentication.md#91-origin-headers-and-caching)) |
@@ -465,8 +465,9 @@ privacy` in GEDCOM 5.5.1 — information withheld for privacy — or `RESN
 CONFIDENTIAL` in GEDCOM 7, which discourages `PRIVACY` for its ambiguity.
 Excluded persons are never stubbed with initials. Media of hidden persons stay
 out of a GEDZIP, and so does a medium linked to a record left out with them —
-an event of theirs, a withheld family or one of its events. The export's audit
-entry records which option applied.
+an event of theirs, a withheld family or one of its events. No export carries
+a stored crop, which is derived data no row names. The export's audit entry
+records which option applied.
 
 An export job, its status and its archive are its author's: since the archive
 holds what its author sees — the owner's, everything — nobody else finds it
@@ -559,7 +560,8 @@ the tree is visible to.
   from introspection, so a new route is covered without being listed, and
   runs once per restricted kind of viewer: Editors and Guests today, with
   an excluded person and a confidential note as canaries; Visitors join it
-  with one entry.
+  with one entry. The crops of a hidden vignette, stored by the owner's
+  views, are refused to each of them on both surfaces.
 - **Kept redactions.** A restricted viewer's redaction kept by the tree
   cache, then each of its inputs changed — an exclusion, a scope, a
   person's privacy, a date making someone contemporary or not, the tree's

@@ -1334,6 +1334,7 @@ impl TreeMutation {
             let vignette = vignette::update_vignette(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                &**media_from_ctx(ctx),
                 tree_id,
                 uuid(&id)?,
                 input.try_into()?,
@@ -1352,6 +1353,7 @@ impl TreeMutation {
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
+                &**media_from_ctx(ctx),
                 tree_id,
                 uuid(&id)?,
             )

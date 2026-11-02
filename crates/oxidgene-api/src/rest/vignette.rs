@@ -93,7 +93,15 @@ pub async fn update_vignette(
     Json(body): Json<VignetteUpdate>,
 ) -> Result<Json<Vignette>, ApiError> {
     Ok(Json(
-        vignette::update_vignette(&viewer, &state.db, tree_id, vignette_id, body).await?,
+        vignette::update_vignette(
+            &viewer,
+            &state.db,
+            &*state.media,
+            tree_id,
+            vignette_id,
+            body,
+        )
+        .await?,
     ))
 }
 
@@ -103,7 +111,15 @@ pub async fn delete_vignette(
     viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    vignette::delete_vignette(&viewer, &state.db, &state.profiles, tree_id, vignette_id).await?;
+    vignette::delete_vignette(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        &*state.media,
+        tree_id,
+        vignette_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -111,9 +127,11 @@ pub async fn delete_vignette(
 ///
 /// The cropped region, as its own JPEG at thumbnail size.
 ///
-/// Cropping on read rather than storing a second file is what makes a vignette
-/// cheap enough to create freely: eight entries on one register page cost eight
-/// rows, not eight copies of a 40 MB scan.
+/// Cut on its first view rather than when the vignette is drawn, and stored
+/// then (`media::crops`): a vignette stays cheap enough to create freely —
+/// eight entries on one register page cost eight rows until somebody looks
+/// at them — and a second view reads a few kilobytes instead of decoding the
+/// page again.
 pub async fn vignette_image(
     State(state): State<AppState>,
     viewer: Viewer,
@@ -166,12 +184,12 @@ async fn cropped_image(
         records.require_vignette(VignetteRepo::get(&state.reader, vignette_id).await?)?;
     let media = MediaRepo::get(&state.reader, vignette.media_id).await?;
 
-    let Some(key) = media.storage_key.as_deref() else {
+    if media.storage_key.is_none() {
         return Err(ApiError(OxidGeneError::NotFound {
             entity: "Media file",
             id: media.id,
         }));
-    };
+    }
     // A PDF's thumbnail shows one image of its first page, not the page a
     // region was drawn on: crops are raster-only.
     if !crate::media::thumbnail::can_crop(&media.mime_type) {
@@ -197,7 +215,11 @@ async fn cropped_image(
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
-    let cropped = crate::media::cut_vignette(&*state.media, &media, key, rect, rendition).await?;
+    let (cropped, written) =
+        crate::media::crops::read_or_cut(&*state.media, &media, &vignette, rendition).await?;
+    if let Some(written) = written {
+        crate::media::crops::confirm(&state.reader, &*state.media, &[written]).await;
+    }
 
     let mut headers = HeaderMap::new();
     if let Some(etag) = etag {
@@ -208,8 +230,8 @@ async fn cropped_image(
         CONTENT_LENGTH,
         super::media::header_value(&cropped.len().to_string()),
     );
-    // Re-derived from the source on every miss, and the rectangle can move, so
-    // this caches for a short while rather than being treated as immutable.
+    // The rectangle can move under the same address, so this caches for a
+    // short while rather than being treated as immutable.
     headers.insert(
         CACHE_CONTROL,
         super::media::header_value("private, max-age=300"),

@@ -24,7 +24,7 @@ use oxidgene_db::repo::MediaRepo;
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
-use super::store::{BlobStream, MediaStore, StoredObject, content_key_tree};
+use super::store::{BlobStream, MediaStore, StoredCrop, StoredObject, content_key_tree};
 
 /// The prefix of a job's records of the objects it wrote.
 const CREATED: &str = "created-";
@@ -105,6 +105,26 @@ impl MediaStore for RecordingStore<'_> {
 
     async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
         self.inner.job_ids().await
+    }
+
+    async fn put_crop(&self, key: &str, bytes: axum::body::Bytes) -> Result<(), OxidGeneError> {
+        self.inner.put_crop(key, bytes).await
+    }
+
+    async fn crop_objects(&self, tree_id: Uuid) -> Result<Vec<StoredCrop>, OxidGeneError> {
+        self.inner.crop_objects(tree_id).await
+    }
+
+    async fn delete_crops(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Option<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        self.inner.delete_crops(tree_id, vignette_id).await
+    }
+
+    async fn tree_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
+        self.inner.tree_ids().await
     }
 }
 

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -58,6 +58,9 @@ generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
   §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
 - [x] Prefer an event-linked vignette over the whole media as its illustration
   ([Person Profile](ui-person-profile.md)).
+- [x] Store the pictures cut out of a page for its vignettes once first
+  viewed, deleted with the vignette, its rectangle or its page's file
+  ([Architecture §4.2](architecture.md#42-stored-crops)).
 - [x] Add per-media progress and cancellation to the final Geneanet write pass:
   every import is one transaction a cancellation rolls back
   ([Architecture §6.3](architecture.md)).

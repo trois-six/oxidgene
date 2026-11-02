@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use crate::common::oidc::{MockProvider, TRUSTED_CLIENT};
 use crate::common::populated::{NOTE_MARKER, PLACE_MARKER, Populated, populated_tree};
-use crate::common::{app_on, ok, setup_db};
+use crate::common::{app_on, ok, send_bytes, setup_db, stored_crops, test_media_root};
 use crate::guards::surface::Spec;
 
 /// A restricted viewer of the suite.
@@ -606,6 +606,82 @@ async fn no_viewer_reaches_an_export_made_by_someone_else() {
         .await;
     let found: Value = serde_json::from_str(&found).unwrap();
     assert_eq!(found["job_id"], own["job_id"], "{found}");
+}
+
+/// The crops stored of a hidden vignette, cut and stored by the owner's
+/// views, never reach a viewer who may not see it: not by its image routes,
+/// not through `image-data` on either surface.
+#[tokio::test]
+async fn a_stored_crop_of_a_hidden_vignette_is_never_served() {
+    let f = fixture().await;
+    let base = format!("/api/v1/trees/{}", f.tree.tree_id);
+    let vignette = f.tree.id("vignette_id").to_string();
+    let local = app_on(f.db.clone());
+    let mut owner_sees = Vec::new();
+    for size in ["card", "image"] {
+        let (status, bytes) =
+            send_bytes(&local, &format!("{base}/vignettes/{vignette}/{size}")).await;
+        assert_eq!(status, StatusCode::OK, "the owner sees the {size} crop");
+        owner_sees.push(bytes);
+    }
+    let stored = stored_crops(&test_media_root(), &vignette);
+    assert_eq!(stored.len(), 2, "both sizes are stored: {stored:?}");
+    for crop in &stored {
+        let bytes = std::fs::read(crop).unwrap();
+        assert!(
+            owner_sees.contains(&bytes),
+            "the owner is served the stored crop"
+        );
+    }
+
+    let sources = json!({ "sources": [
+        { "kind": "crop", "vignette_id": vignette },
+        { "kind": "card_crop", "vignette_id": vignette },
+    ] });
+    for who in VIEWERS {
+        for size in ["card", "image"] {
+            let (status, _) = f
+                .rest(
+                    who,
+                    Method::GET,
+                    &format!("{base}/vignettes/{vignette}/{size}"),
+                    None,
+                )
+                .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{who:?} {size}");
+        }
+        let (status, slots) = f
+            .rest(
+                who,
+                Method::POST,
+                &format!("{base}/image-data"),
+                Some(sources.clone()),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{who:?} image-data");
+        assert_eq!(
+            serde_json::from_str::<Value>(&slots).unwrap(),
+            json!([null, null]),
+            "{who:?} image-data"
+        );
+        #[cfg(feature = "graphql")]
+        {
+            let query = format!(
+                "query {{ imageData(treeId: \"{}\", sources: [\
+                 {{ kind: CROP, vignetteId: \"{vignette}\" }}, \
+                 {{ kind: CARD_CROP, vignetteId: \"{vignette}\" }}]) }}",
+                f.tree.tree_id
+            );
+            let answer = f.gql(who, &query).await;
+            assert_eq!(
+                answer["data"]["imageData"],
+                json!([null, null]),
+                "{who:?} imageData: {answer}"
+            );
+        }
+    }
+    // Still stored, never served: the refusals did not depend on a miss.
+    assert_eq!(stored_crops(&test_media_root(), &vignette).len(), 2);
 }
 
 /// The persons a growth chart adds up to.

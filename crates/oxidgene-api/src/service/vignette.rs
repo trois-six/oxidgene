@@ -6,7 +6,8 @@
 //! on delete, so a vignette pointing into another tree would silently vanish
 //! with a record of that tree. Each write records the change in its
 //! transaction; deleting a vignette someone uses as their portrait rewrites
-//! their projection.
+//! their projection. Moving a vignette's rectangle or deleting it deletes
+//! the crops stored of it once the change has committed (`media::crops`).
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
@@ -17,6 +18,7 @@ use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::media::MediaStore;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
@@ -82,10 +84,12 @@ pub async fn create_vignette(
     Ok(vignette)
 }
 
-/// Move or re-attribute vignette `id` of `tree_id`.
+/// Move or re-attribute vignette `id` of `tree_id`. A moved rectangle
+/// takes the crops stored of the old one out of `store`.
 pub async fn update_vignette(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    store: &dyn MediaStore,
     tree_id: Uuid,
     id: Uuid,
     update: VignetteUpdate,
@@ -130,15 +134,22 @@ pub async fn update_vignette(
         .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
+    let moved =
+        rect.is_some_and(|rect| rect != (existing.x, existing.y, existing.width, existing.height));
+    if moved {
+        crate::media::crops::forget(store, tree_id, &[id]).await;
+    }
     Ok(vignette)
 }
 
-/// Delete vignette `id` of `tree_id`; the media it cropped is untouched. A
-/// person using it as their portrait falls back to their other pictures.
+/// Delete vignette `id` of `tree_id`, and the crops stored of it from
+/// `store`; the media it cropped is untouched. A person using it as their
+/// portrait falls back to their other pictures.
 pub async fn delete_vignette(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
     profiles: &ProfileService,
+    store: &dyn MediaStore,
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
@@ -155,7 +166,9 @@ pub async fn delete_vignette(
         .media(media_id)
         .record_unversioned(&txn)
         .await?;
-    commit_tx(txn).await
+    commit_tx(txn).await?;
+    crate::media::crops::forget(store, tree_id, &[id]).await;
+    Ok(())
 }
 
 /// Fail with `NotFound` unless the person and the event a vignette names

@@ -57,18 +57,25 @@ pub async fn load_image_data_urls(
         .map(|(index, read)| {
             let store = Arc::clone(store);
             async move {
-                let data = match read {
+                let (data, written) = match read {
                     Some(read) => read.load(&store).await,
-                    None => None,
+                    None => (None, None),
                 };
-                (index, data)
+                (index, data, written)
             }
         })
         .buffer_unordered(BLOB_READ_CONCURRENCY)
         .collect::<Vec<_>>()
         .await;
-    resolved.sort_by_key(|(index, _)| *index);
-    Ok(resolved.into_iter().map(|(_, data)| data).collect())
+    // The crops this request cut and stored, confirmed together: a fixed
+    // number of statements however many there are.
+    let written: Vec<crate::media::crops::Written> = resolved
+        .iter_mut()
+        .filter_map(|(_, _, written)| written.take())
+        .collect();
+    crate::media::crops::confirm(db, &**store, &written).await;
+    resolved.sort_by_key(|(index, _, _)| *index);
+    Ok(resolved.into_iter().map(|(_, data, _)| data).collect())
 }
 
 /// [`load_image_data_urls`] of what the viewer of `records` may see: the
@@ -103,25 +110,31 @@ pub async fn load_visible_image_data_urls(
         .collect())
 }
 
-/// What producing one picture takes: a stored blob, and for a crop the
-/// rectangle to cut out of it.
+/// What producing one picture takes: a stored blob, or a vignette's crop,
+/// stored or cut on first view.
 enum BlobRead {
     /// A stored picture: a thumbnail or a card rendition.
     Stored { key: String },
-    /// A held, drawable medium (its storage key known), the rectangle, and
-    /// the size to send it at.
+    /// A held, drawable medium (its storage key known), the vignette of it,
+    /// and the size to send it at.
     Crop {
         medium: Box<Media>,
-        rect: (i32, i32, i32, i32),
+        vignette: Box<Vignette>,
         rendition: Rendition,
     },
 }
 
 impl BlobRead {
-    async fn load(self, store: &Arc<dyn MediaStore>) -> Option<String> {
+    /// The picture as a `data:` URL, and the crop it stored, if it cut one.
+    async fn load(
+        self,
+        store: &Arc<dyn MediaStore>,
+    ) -> (Option<String>, Option<crate::media::crops::Written>) {
         match self {
             Self::Stored { key } => {
-                let bytes = store.get(&key).await.ok()?;
+                let Ok(bytes) = store.get(&key).await else {
+                    return (None, None);
+                };
                 // `ingest` only ever writes `jpg` or `png`, and the key says
                 // which.
                 let mime_type = if key.ends_with(".png") {
@@ -129,19 +142,18 @@ impl BlobRead {
                 } else {
                     "image/jpeg"
                 };
-                Some(data_url(mime_type, &bytes))
+                (Some(data_url(mime_type, &bytes)), None)
             }
             Self::Crop {
                 medium,
-                rect,
+                vignette,
                 rendition,
-            } => {
-                let key = medium.storage_key.as_deref()?;
-                let cropped = crate::media::cut_vignette(&**store, &medium, key, rect, rendition)
-                    .await
-                    .ok()?;
-                Some(data_url("image/jpeg", &cropped))
-            }
+            } => match crate::media::crops::read_or_cut(&**store, &medium, &vignette, rendition)
+                .await
+            {
+                Ok((cropped, written)) => (Some(data_url("image/jpeg", &cropped)), written),
+                Err(_) => (None, None),
+            },
         }
     }
 }
@@ -213,7 +225,7 @@ async fn plan_reads(
                 }
                 Some(BlobRead::Crop {
                     medium: Box::new(medium.clone()),
-                    rect: (vignette.x, vignette.y, vignette.width, vignette.height),
+                    vignette: Box::new(vignette.clone()),
                     rendition,
                 })
             }

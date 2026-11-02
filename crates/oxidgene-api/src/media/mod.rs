@@ -4,7 +4,9 @@
 //! [`store`] holds the blob store, [`thumbnail`] the raster work and [`pages`]
 //! the document page count. [`ingest`] is the one entry point handlers call:
 //! it validates, stores, derives, and hands back a row's worth of metadata.
+//! [`crops`] keeps the pictures cut out of a page for its vignettes.
 
+pub mod crops;
 pub(crate) mod job_objects;
 pub mod pages;
 pub mod store;
@@ -23,7 +25,7 @@ use oxidgene_core::types::last_path_segment;
 use uuid::Uuid;
 
 pub use oxidgene_core::types::{guess_mime, is_remote_url, normalize_mime};
-pub use store::{FsStore, MediaStore, StoredObject, sha256_hex};
+pub use store::{FsStore, MediaStore, StoredCrop, StoredObject, sha256_hex};
 #[cfg(feature = "s3")]
 pub use store::{S3Store, S3StoreConfig};
 

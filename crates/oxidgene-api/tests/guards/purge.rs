@@ -6,13 +6,15 @@
 //! belonged to — personal data the user believes deleted.
 //!
 //! The tree holds one record of every kind (`common::populated`), with a
-//! document's pages and their vignettes, history, an import job and an
-//! export job with its artifact. Before the purge, every row of every table
+//! document's pages and their vignettes, the crops stored of a vignette at
+//! both sizes, history, an import job and an export job with its artifact.
+//! Before the purge, every row of every table
 //! that references the tree, or a row that does, transitively, is collected
 //! from the schema itself (`sqlite_master`, `pragma_table_info`): a table
 //! added later is covered without touching this file. After the tree is
 //! deleted and purged, no table may hold a row referencing any of them, and
-//! the media store no file under the tree's or its jobs' keys.
+//! the media store no file whose key names the tree, one of its jobs or any
+//! of those rows — a stored crop names its vignette, wherever it is kept.
 //!
 //! Fixing a failure: teach `service::purge` to delete the table's rows (or
 //! the store's objects) with the tree.
@@ -178,15 +180,32 @@ async fn a_purged_tree_leaves_no_row_and_no_file() {
         tables_holding.len() > 20,
         "the fixture should reach most tables: {tables_holding:?}"
     );
-    let keys = [
-        tree.tree_id.clone(),
+    // A portrait viewed at both sizes: its crops are stored.
+    let vignette = tree.id("vignette_id").to_string();
+    for size in ["card", "image"] {
+        let (status, _) = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/vignettes/{vignette}/{size}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "the {size} crop is served");
+    }
+    let mut keys: Vec<String> = owned.iter().map(Uuid::to_string).collect();
+    keys.extend([
         tree.id("job_id").to_string(),
         tree.id("export_job_id").to_string(),
-    ];
+    ]);
     let media_root = test_media_root();
     assert!(
         !files_naming(&media_root, &keys).is_empty(),
         "the fixture stored no media or job file"
+    );
+    assert_eq!(
+        files_naming(&media_root, std::slice::from_ref(&vignette)).len(),
+        2,
+        "the fixture stored no crop of each size"
     );
 
     let (status, _) = send(

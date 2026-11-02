@@ -8,14 +8,18 @@
 //! many media they have — rewrites their projection in that transaction too.
 //! Stored bytes leave the store only once the transaction holding their rows'
 //! deletion has committed: a key deleted before the commit would be a file
-//! gone from a page the database still lists.
+//! gone from a page the database still lists. The crops stored of a page's
+//! vignettes go the same way when the page or its file goes
+//! (`media::crops`).
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
 use oxidgene_core::history::{AuditAction, AuditEntity};
 use oxidgene_core::types::{Media, RecordKind, normalize_mime};
 use oxidgene_core::{Calendar, DateQualifier};
-use oxidgene_db::repo::{MediaLinkRepo, MediaPatch, MediaRepo, PersonRepo};
+use oxidgene_db::repo::{
+    MediaLinkRepo, MediaPatch, MediaPurge, MediaRepo, PersonRepo, VignetteRepo,
+};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -228,7 +232,45 @@ pub async fn upload(
     if outcome.is_err() && !written.is_empty() {
         discard_unnamed(db, store, tree_id, &written).await;
     }
+    if let (Ok(_), UploadTarget::Attach { media_id }) = (&outcome, upload.target) {
+        forget_page_crops(db, store, tree_id, media_id).await;
+    }
     outcome
+}
+
+/// Delete the crops stored of the vignettes of page `page_id`, whose file
+/// was just attached or replaced: they were cut from the bytes it held
+/// before. Best effort, as [`crate::media::crops::forget`].
+async fn forget_page_crops(
+    db: &DatabaseConnection,
+    store: &dyn MediaStore,
+    tree_id: Uuid,
+    page_id: Uuid,
+) {
+    match VignetteRepo::list_for_media(db, page_id).await {
+        Ok(vignettes) => {
+            let ids: Vec<Uuid> = vignettes.iter().map(|vignette| vignette.id).collect();
+            crate::media::crops::forget(store, tree_id, &ids).await;
+        }
+        Err(_) => tracing::warn!(
+            error = "crop_deletion",
+            "could not list the vignettes of a replaced file; the maintenance sweep deletes their crops"
+        ),
+    }
+}
+
+/// Remove from `store` what `purge`, committed, left unreachable: the crops
+/// of its vignettes, then its files.
+async fn release(
+    store: &dyn MediaStore,
+    tree_id: Uuid,
+    purge: MediaPurge,
+) -> Result<(), OxidGeneError> {
+    crate::media::crops::forget(store, tree_id, &purge.vignette_ids).await;
+    for key in purge.storage_keys {
+        store.delete(&key).await?;
+    }
+    Ok(())
 }
 
 /// Delete the objects of `keys`, stored by an upload whose rows were not
@@ -552,7 +594,8 @@ pub async fn reorder_pages(
 }
 
 /// Remove page `page_id` from document `document_id` of `tree_id`,
-/// permanently, with its bytes, transcript, links, crops and portraits.
+/// permanently, with its bytes, transcript, links, vignettes and the crops
+/// stored of them, and portraits.
 /// Removing the last page leaves the document standing and empty.
 pub async fn delete_page(
     viewer: &ViewerContext,
@@ -577,10 +620,7 @@ pub async fn delete_page(
         .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
-    for key in purge.storage_keys {
-        store.delete(&key).await?;
-    }
-    Ok(())
+    release(store, tree_id, purge).await
 }
 
 /// Delete media `id` of `tree_id` permanently, with its pages, related rows
@@ -622,9 +662,7 @@ pub async fn delete_media(
         .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
-    for key in purge.storage_keys {
-        store.delete(&key).await?;
-    }
+    release(store, tree_id, purge).await?;
     Ok(true)
 }
 

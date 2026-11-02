@@ -248,6 +248,34 @@ pub async fn send(
     )
 }
 
+/// `GET uri`: the status and the raw answer, for the routes answering bytes.
+pub async fn send_bytes(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, bytes.to_vec())
+}
+
+/// The files of the crops stored of vignette `vignette_id` under media root
+/// `root`, sorted.
+pub fn stored_crops(root: &std::path::Path, vignette_id: &str) -> Vec<std::path::PathBuf> {
+    let mut found: Vec<std::path::PathBuf> = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|tree| tree.path().join("crops").join(vignette_id))
+        .flat_map(|directory| std::fs::read_dir(directory).into_iter().flatten().flatten())
+        .map(|file| file.path())
+        .collect();
+    found.sort();
+    found
+}
+
 /// [`send`], requiring a success status; the JSON answer.
 pub async fn ok(app: &Router, method: Method, uri: &str, body: Option<Value>) -> Value {
     let (status, json) = send(app, method, uri, body).await;

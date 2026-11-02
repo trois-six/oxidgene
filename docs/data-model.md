@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 ---
 
 
@@ -437,6 +437,8 @@ platform user-data directory). Uploading the same scan twice writes one file and
 two rows — what a census page documenting eight siblings needs. Keys are scoped
 per tree rather than globally: deduplication stops at the tree boundary, which is
 the price of purging a tree by removing one directory, with no reference counting.
+The crops cut out of a page for its vignettes are stored under the same prefix,
+`{tree_id}/crops/{vignette_id}/…` ([Architecture §4.2](architecture.md#42-stored-crops)).
 
 **Privacy.** `Person`, `Family` and `Media` each carry a `privacy` enum
 (`default` / `public` / `private`), defaulting to `default` — follow the tree's
@@ -526,7 +528,10 @@ A rectangular region of a media file, kept as coordinates rather than as a secon
 copy of the pixels. One parish-register page routinely documents several unrelated
 families; each entry is a vignette on the single stored scan, so a better scan can
 replace it without orphaning anything, and the crop is still served as if it were
-its own image.
+its own image. The picture cut for it is stored in the media store once it is
+first viewed, as derived data no row names: read back while the vignette, its
+rectangle and its page's file stay as they were, and deleted when any of them
+changes or goes ([Architecture §4.2](architecture.md#42-stored-crops)).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -1126,7 +1131,7 @@ materialized (§4.1) and rebuilds it when it is not.
 ### 4.5 Deletion and recovery
 
 Deleting a tree flags it and returns; a background worker then purges its rows,
-its media files, and its jobs' files. On SQLite nothing of the purged tree
+its media files with the crops stored of its vignettes, and its jobs' files. On SQLite nothing of the purged tree
 stays readable in the database file. Its deletions run with
 `PRAGMA secure_delete` on, set for their transaction's connection and restored
 after, so SQLite overwrites the deleted bytes with zeros as it frees them: the

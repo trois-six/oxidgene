@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -78,6 +78,7 @@ the repository root.
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
+| `just crop-bench` | Time a pedigree view's portraits on a generated tree of camera-sized photographs, cut (cold) and read back from their stored crops (warm), in release mode, and report the crops' sizes ([Architecture §4.2](architecture.md#42-stored-crops)). |
 | `just bench` | Run the opt-in benchmarks of the profile service, the person search, the person visibility, the access scopes and the kept redactions, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, a job queued by another process waking an idle worker, and a notification written by another process waking a long poll. |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
@@ -348,6 +349,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
+| Crop timing | The `#[ignore]`d benchmark of `portrait_crop_test.rs`: a pedigree view's portraits cut and then read back stored, in release mode | `just crop-bench` | None | No |
 | End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E; Release: End-to-end tests of the images (§6) | No |
 | End-to-end sign-in | The Playwright project of `e2e/playwright.auth.config.ts` against the development Compose stack and its Rauthy, which the recipe starts ([Authentication §12](authentication.md#12-tests)); every test skips itself while the server has no OpenID Connect sign-in | `just e2e-auth` | None | No |
 | Helm chart | `helm lint` with each values file of `charts/oxidgene/ci/` and the rendering tests of `scripts/chart-tests.py`: every `auth.idp.mode`, the values each requires and refuses, the Ingress paths, the Rauthy workload, and the setup it bootstraps against the development one | `just chart-test` | Validate Helm chart (Renovate); Release: Publish Helm chart | No |
@@ -360,7 +362,7 @@ binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
 only time something; each one's ignore reason names the `just` recipe that
 runs it (`just bench`, `just test-postgres`, `just test-s3`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
-`just real-import`, `just scaling`, `just import-memory`,
+`just real-import`, `just scaling`, `just import-memory`, `just crop-bench`,
 `just archives-live`), and a guard fails on a reason that names none.
 
 Each crate builds a single integration test binary, `tests/integration.rs`,
@@ -627,7 +629,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Stack depth | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
 | Cross-tree access | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
 | Pagination | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
-| Purge completeness | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | A purged tree leaves no row in any table and no file in the media store |
+| Purge completeness | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | A purged tree leaves no row in any table and no file in the media store, the crops stored of its vignettes included |
 | History without duplicates | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does |
 | Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |

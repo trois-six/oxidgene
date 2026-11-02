@@ -91,6 +91,8 @@ pub struct MediaPatch {
 #[derive(Debug, Clone, Default)]
 pub struct MediaPurge {
     pub storage_keys: Vec<String>,
+    /// The vignettes deleted with the media, whose stored crops go too.
+    pub vignette_ids: Vec<Uuid>,
 }
 
 /// Repository for media CRUD operations.
@@ -555,7 +557,7 @@ impl MediaRepo {
             .collect();
         let retained_keys =
             keys_of_other_media(db, root.tree_id, &media_ids, &candidate_keys).await?;
-        delete_media_rows(db, &page_ids, id).await?;
+        let vignette_ids = delete_media_rows(db, &page_ids, id).await?;
         if let Some(document_id) = root.parent_media_id {
             let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
                 .await?
@@ -568,6 +570,7 @@ impl MediaRepo {
 
         Ok(MediaPurge {
             storage_keys: candidate_keys.difference(&retained_keys).cloned().collect(),
+            vignette_ids,
         })
     }
 
@@ -848,19 +851,20 @@ async fn keys_of_other_media(
         .collect())
 }
 
-/// Delete medium `id`, its pages `page_ids`, and every row naming them.
+/// Delete medium `id`, its pages `page_ids`, and every row naming them;
+/// the vignettes deleted with them.
 async fn delete_media_rows(
     db: &impl ConnectionTrait,
     page_ids: &[Uuid],
     id: Uuid,
-) -> Result<(), OxidGeneError> {
+) -> Result<Vec<Uuid>, OxidGeneError> {
     let media_ids: Vec<Uuid> = page_ids.iter().copied().chain([id]).collect();
     record_tag::Entity::delete_many()
         .filter(record_tag::Column::MediaId.is_in(media_ids.iter().copied()))
         .exec(db)
         .await
         .map_err(db_err)?;
-    delete_media_relations(db, &media_ids).await?;
+    let vignette_ids = delete_media_relations(db, &media_ids).await?;
     note::Entity::delete_many()
         .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
         .exec(db)
@@ -875,13 +879,15 @@ async fn delete_media_rows(
             .map_err(db_err)?;
     }
     Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
-    Ok(())
+    Ok(vignette_ids)
 }
 
+/// Delete the links, vignettes and portrait pointers naming `media_ids`;
+/// the vignettes deleted.
 async fn delete_media_relations(
     db: &impl ConnectionTrait,
     media_ids: &[Uuid],
-) -> Result<(), OxidGeneError> {
+) -> Result<Vec<Uuid>, OxidGeneError> {
     let vignette_ids: Vec<Uuid> = vignette::Entity::find()
         .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
         .all(db)
@@ -908,7 +914,7 @@ async fn delete_media_relations(
             .await
             .map_err(db_err)?;
         vignette::Entity::delete_many()
-            .filter(vignette::Column::Id.is_in(vignette_ids))
+            .filter(vignette::Column::Id.is_in(vignette_ids.iter().copied()))
             .exec(db)
             .await
             .map_err(db_err)?;
@@ -923,7 +929,7 @@ async fn delete_media_relations(
         .await
         .map_err(db_err)?;
 
-    Ok(())
+    Ok(vignette_ids)
 }
 
 pub(crate) fn into_domain(m: media::Model) -> Media {

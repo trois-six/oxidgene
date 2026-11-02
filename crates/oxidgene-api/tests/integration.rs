@@ -47,6 +47,7 @@ mod notification_test;
 mod page_bundles_test;
 #[cfg(feature = "auth")]
 mod placeholder_test;
+mod portrait_crop_test;
 mod profile_service_test;
 mod query_scaling_test;
 mod real_import_test;

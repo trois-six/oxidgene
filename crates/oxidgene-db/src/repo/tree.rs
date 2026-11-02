@@ -281,6 +281,31 @@ impl TreeRepo {
             .map_err(db_err)
     }
 
+    /// Which of `ids` name a tree, and whether it is live: `true` for a live
+    /// tree, `false` for a soft-deleted one awaiting its purge. An id naming
+    /// no tree is absent.
+    pub async fn liveness(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, bool>, OxidGeneError> {
+        let rows: Vec<(Uuid, Option<chrono::DateTime<Utc>>)> =
+            crate::repo::batch::in_chunks(ids, |chunk| async move {
+                Entity::find()
+                    .select_only()
+                    .columns([Column::Id, Column::DeletedAt])
+                    .filter(Column::Id.is_in(chunk))
+                    .into_tuple()
+                    .all(db)
+                    .await
+                    .map_err(db_err)
+            })
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, deleted_at)| (id, deleted_at.is_none()))
+            .collect())
+    }
+
     /// Hard-delete a tree. Cascades via `ON DELETE CASCADE` foreign keys to
     /// every entity scoped to this tree (person, event, family, place,
     /// source, media, note, ...) — a tree's data is never shared with

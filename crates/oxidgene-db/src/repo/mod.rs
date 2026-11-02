@@ -84,7 +84,7 @@ pub use gedcom_kept::GedcomKeptRepo;
 pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
 pub use invitation::{InvitationEnd, InvitationRepo, NewInvitation, TreeInvitation};
 pub use mail_outbox::{MAIL_CHANNEL, MailOutboxRepo, MailStatus, NewMail, OutboxMail};
-pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
+pub use media::{MediaPatch, MediaPurge, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
 pub use membership::{MembershipChanges, MembershipRepo, SharedMembership, TreeMembership};

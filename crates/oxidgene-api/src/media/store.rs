@@ -24,6 +24,19 @@
 //! the price of being able to delete a tree by removing one directory, with no
 //! reference counting and no chance of a purge pulling a file out from under
 //! another tree.
+//!
+//! # Crops
+//!
+//! The pictures cut out of a page for its vignettes are derived objects,
+//! stored under the tree's prefix too, beside the originals they are cut
+//! from (`docs/architecture.md` §4.2):
+//!
+//! ```text
+//! {tree_id}/crops/{vignette_id}/{fingerprint}-{card|thumbnail}.jpg
+//! ```
+//!
+//! A tree's purge takes them with its directory; a vignette's go with its
+//! own directory, [`MediaStore::delete_crops`].
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -54,6 +67,17 @@ pub struct StoredObject {
     pub size: i64,
     /// `true` if an identical file was already present and nothing was written.
     pub deduplicated: bool,
+}
+
+/// A stored crop, as [`MediaStore::crop_objects`] lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredCrop {
+    /// Its crop key.
+    pub key: String,
+    /// The vignette it was cut for.
+    pub vignette_id: Uuid,
+    /// Byte length of the object.
+    pub size: u64,
 }
 
 pub type BlobStream = Pin<Box<dyn Stream<Item = Result<Bytes, OxidGeneError>> + Send + 'static>>;
@@ -128,6 +152,89 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
 
     /// The jobs that have anything stored under `jobs/`.
     async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError>;
+
+    /// Write the crop `bytes` at crop key `key` (see [`crop_key`]),
+    /// replacing whatever is there: the same key always holds the same
+    /// picture, so a second writer changes nothing.
+    async fn put_crop(&self, key: &str, bytes: Bytes) -> Result<(), OxidGeneError>;
+
+    /// The crops stored for tree `tree_id`.
+    async fn crop_objects(&self, tree_id: Uuid) -> Result<Vec<StoredCrop>, OxidGeneError>;
+
+    /// Remove the crops stored for tree `tree_id`: those of vignette
+    /// `vignette_id`, or every one of the tree's when `None`. Removing
+    /// nothing is not an error.
+    async fn delete_crops(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Option<Uuid>,
+    ) -> Result<(), OxidGeneError>;
+
+    /// The trees that have anything stored under their prefix.
+    async fn tree_ids(&self) -> Result<Vec<Uuid>, OxidGeneError>;
+}
+
+/// The segment under a tree's prefix holding its crops.
+const CROPS: &str = "crops";
+
+/// The sizes a crop is stored at, as its key names them.
+pub const CROP_SIZES: [&str; 2] = ["card", "thumbnail"];
+
+/// The key of the crop of vignette `vignette_id` of tree `tree_id` whose
+/// fingerprint is `fingerprint` (a lowercase hex SHA-256), at `size`, one
+/// of [`CROP_SIZES`].
+pub fn crop_key(tree_id: Uuid, vignette_id: Uuid, fingerprint: &str, size: &str) -> String {
+    format!("{tree_id}/{CROPS}/{vignette_id}/{fingerprint}-{size}.jpg")
+}
+
+/// The tree and the vignette of crop key `key`; `None` for any other key.
+pub fn crop_key_owner(key: &str) -> Option<(Uuid, Uuid)> {
+    if crop_key_error(key).is_some() {
+        return None;
+    }
+    let mut parts = key.split('/');
+    let tree = parts.next()?.parse().ok()?;
+    let vignette = parts.nth(1)?.parse().ok()?;
+    Some((tree, vignette))
+}
+
+/// What is wrong with a crop key,
+/// `{tree}/crops/{vignette}/{fingerprint}-{size}.jpg`, if anything.
+fn crop_key_error(key: &str) -> Option<&'static str> {
+    let mut parts = key.split('/');
+    let (Some(tree), Some(CROPS), Some(vignette), Some(file), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return Some("expected {tree}/crops/{vignette}/{fingerprint}-{size}.jpg");
+    };
+    if Uuid::parse_str(tree).is_err() || Uuid::parse_str(vignette).is_err() {
+        return Some("tree and vignette segments must be UUIDs");
+    }
+    let Some((fingerprint, size)) = file
+        .strip_suffix(".jpg")
+        .and_then(|stem| stem.split_once('-'))
+    else {
+        return Some("invalid crop file name");
+    };
+    let hex = fingerprint.len() == 64
+        && fingerprint
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+    (!hex || !CROP_SIZES.contains(&size)).then_some("invalid crop file name")
+}
+
+/// Refuse anything but a crop key where only a crop may be written.
+fn require_crop_key(key: &str) -> Result<(), OxidGeneError> {
+    match crop_key_error(key) {
+        Some(why) => Err(OxidGeneError::Validation(format!(
+            "invalid crop key: {why}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 /// Lowercase hex SHA-256 of `bytes`.
@@ -230,6 +337,7 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
     }
     let checked = match key.strip_prefix("jobs/") {
         Some(job_key) => job_key_error(job_key),
+        None if key.split('/').nth(1) == Some(CROPS) => crop_key_error(key),
         None => content_key_error(key),
     };
     match checked {
@@ -507,6 +615,78 @@ impl MediaStore for FsStore {
         }
         Ok(ids)
     }
+
+    async fn put_crop(&self, key: &str, bytes: Bytes) -> Result<(), OxidGeneError> {
+        require_crop_key(key)?;
+        write_replacing(&self.path_for(key)?, &bytes).await
+    }
+
+    async fn crop_objects(&self, tree_id: Uuid) -> Result<Vec<StoredCrop>, OxidGeneError> {
+        let crops = self.root.join(tree_id.to_string()).join(CROPS);
+        let mut found = Vec::new();
+        for vignette in directory_names(&crops).await? {
+            for name in directory_names(&crops.join(&vignette)).await? {
+                let key = format!("{tree_id}/{CROPS}/{vignette}/{name}");
+                // A temporary file of a write under way is no crop.
+                let Some((_, vignette_id)) = crop_key_owner(&key) else {
+                    continue;
+                };
+                let size = tokio::fs::metadata(self.root.join(&key))
+                    .await
+                    .map_or(0, |metadata| metadata.len());
+                found.push(StoredCrop {
+                    key,
+                    vignette_id,
+                    size,
+                });
+            }
+        }
+        Ok(found)
+    }
+
+    async fn delete_crops(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Option<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let crops = self.root.join(tree_id.to_string()).join(CROPS);
+        match vignette_id {
+            Some(vignette_id) => remove_dir(&crops.join(vignette_id.to_string())).await,
+            None => remove_dir(&crops).await,
+        }
+    }
+
+    async fn tree_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
+        Ok(directory_names(&self.root)
+            .await?
+            .iter()
+            .filter_map(|name| name.parse().ok())
+            .collect())
+    }
+}
+
+/// The names of the entries of directory `path`; none when it is missing
+/// or is no directory.
+async fn directory_names(path: &Path) -> Result<Vec<String>, OxidGeneError> {
+    let mut entries = match tokio::fs::read_dir(path).await {
+        Ok(entries) => entries,
+        Err(err)
+            if matches!(
+                err.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(Vec::new());
+        }
+        Err(err) => return Err(err.into()),
+    };
+    let mut names = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        if let Some(name) = entry.file_name().to_str() {
+            names.push(name.to_owned());
+        }
+    }
+    Ok(names)
 }
 
 /// Write `bytes` at `path`, beside it first and then renamed into place: a
@@ -890,6 +1070,62 @@ impl MediaStore for S3Store {
             .list_with_delimiter(Some(&object_store::path::Path::from("jobs")))
             .await
             .map_err(|error| s3_error("job listing", &error))?;
+        Ok(listing
+            .common_prefixes
+            .iter()
+            .filter_map(|prefix| prefix.filename()?.parse().ok())
+            .collect())
+    }
+
+    async fn put_crop(&self, key: &str, bytes: Bytes) -> Result<(), OxidGeneError> {
+        require_crop_key(key)?;
+        self.store
+            .put(&Self::location(key)?, bytes.into())
+            .await
+            .map(drop)
+            .map_err(|error| s3_error("write", &error))
+    }
+
+    async fn crop_objects(&self, tree_id: Uuid) -> Result<Vec<StoredCrop>, OxidGeneError> {
+        let prefix = object_store::path::Path::from_iter([tree_id.to_string(), CROPS.to_string()]);
+        let objects: Vec<_> = self
+            .store
+            .list(Some(&prefix))
+            .try_collect()
+            .await
+            .map_err(|error| s3_error("crop listing", &error))?;
+        Ok(objects
+            .into_iter()
+            .filter_map(|object| {
+                let key = object.location.to_string();
+                let (_, vignette_id) = crop_key_owner(&key)?;
+                Some(StoredCrop {
+                    key,
+                    vignette_id,
+                    size: object.size,
+                })
+            })
+            .collect())
+    }
+
+    async fn delete_crops(
+        &self,
+        tree_id: Uuid,
+        vignette_id: Option<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let mut segments = vec![tree_id.to_string(), CROPS.to_string()];
+        segments.extend(vignette_id.map(|id| id.to_string()));
+        self.delete_prefix(&object_store::path::Path::from_iter(segments))
+            .await
+            .map_err(|error| s3_error("crop delete", &error))
+    }
+
+    async fn tree_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
+        let listing = self
+            .store
+            .list_with_delimiter(None)
+            .await
+            .map_err(|error| s3_error("tree listing", &error))?;
         Ok(listing
             .common_prefixes
             .iter()

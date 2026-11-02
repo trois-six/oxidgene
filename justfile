@@ -145,6 +145,13 @@ check: fmt-check clippy cyclomatic doc-check test
 scaling:
     cargo nextest run --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
 
+# Time a pedigree view's portraits cut from generated camera-sized photographs
+# (cold) and read back from their stored crops (warm), in release mode, and
+# report the crops' sizes (see docs/architecture.md §4.2). The fixture is
+# staged under target/, on disk rather than in a RAM-backed /tmp.
+crop-bench:
+    cargo nextest run --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(a_pedigree_view_reads_stored_crops_instead_of_cutting_them)'
+
 # Import your own exports end to end through the desktop's backend, in release
 # mode, and check the trees they produce (see docs/development.md). Opt-in: the
 # OXIDGENE_REAL_* variables name the files, and a test whose files are unset

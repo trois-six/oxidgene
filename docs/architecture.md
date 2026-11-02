@@ -327,6 +327,99 @@ burst of requests (`oxidgene_api::memory::release_when_idle`) hands it back.
 readings, its projections, or its redactions, wait on one another and read
 them once.
 
+### 4.2 Stored crops
+
+The picture cut out of a page for a vignette
+([Data Model](data-model.md#vignette)) is stored in the media store the
+first time it is cut, and read back from there afterwards. It is derived
+data, like a thumbnail, and never a source of truth: a function of the
+page's bytes, the rectangle and the size it is sent at alone, reproducible
+from them at any time, named by no row, absent from every export, and
+deleted as soon as no read can reach it.
+
+**Why.** Cutting decodes the whole page: 10 to 72 ms of CPU per picture,
+0.4 to 0.57 s per pedigree view on a tree of 248 vignettes, the same on the
+desktop and the web, for every view of every card. A stored crop is a read
+of a few kilobytes.
+
+**What is stored.** The crop at each of the two sizes the routes send it at,
+each when first requested: `card`, covering the 132-pixel square of a
+portrait on a pedigree card, a result row or the events panel, and
+`thumbnail`, fitted in the 400-pixel box of a profile, a gallery or the
+media viewer — the bytes the cut produced, JPEG. The key is
+
+```text
+{tree_id}/crops/{vignette_id}/{fingerprint}-{card|thumbnail}.jpg
+```
+
+under the tree's prefix, beside the originals. The fingerprint is the
+SHA-256 of the version of the cut, the page's id, the page's content digest
+(`media.sha256`), the rectangle and the size. A vignette has no rotation of
+its own; the page's EXIF orientation, applied by the cut, is part of its
+bytes and so of its digest. Nothing records a crop in the database: the
+listing of the store is the only inventory, and the rows say which keys are
+current.
+
+**Never stale.** A read computes the key from the vignette and its page as
+they are now, so a moved rectangle, a replaced file or a new way of cutting
+(the version is bumped with any change to the cut, its sizes or its
+encoding) names another key: the old object can no longer be read, and is
+deleted (below).
+
+**Creation.** Lazily, by the first request for a key that finds no object:
+the page is read and cut on the blocking pool, at most as many cuts at once
+as the process has cores, four at most, and the result stored. Requests for
+the same key in one process take turns: the first cuts and stores, the
+others read what it stored, so concurrent first views cut and write once.
+Several processes sharing a store (web replicas) may each cut once and
+write the same bytes. Once its pictures are read, a request that stored
+crops reads their trees, vignettes and pages again — three statements
+however many it stored — and deletes each object whose key is no longer
+their current one: a deletion committed between its read and its write has
+already run. A crop that cannot be stored is logged (its kind, never which
+crop) and answered all the same. Nothing is cut when a vignette is created
+or moved: an import creates hundreds that may never be viewed, and the
+write would wait on the decode.
+
+**Authorization.** Unchanged: a stored crop is read only by the two paths
+that cut one before, after the checks they make — `GET
+/vignettes/{id}/image` and `/card` (which the desktop shell proxies) and the
+`image-data` batch of REST and GraphQL: the vignette and its live page in
+the tree, the page raster and held, and the viewer's access to the vignette
+([Privacy §3.2](privacy.md#32-records)). No address names an object: the
+store is not served, an S3 bucket is private and nothing is presigned, the
+server reads it. A hidden vignette's stored crop is never read, for any
+viewer or surface.
+
+**Deletion.** Each write deletes the crops it makes unreachable right after
+its transaction commits; a failure is logged and left to the sweep.
+
+| Event | Crops deleted |
+|---|---|
+| A vignette is deleted | Its own |
+| A vignette's rectangle moves | Its own; re-attributing it keeps them |
+| A page is deleted, or a document with its pages | Those of the page's vignettes, deleted with them |
+| A page's file is attached or replaced | Those of the page's vignettes, cut from the bytes it held before |
+| A tree is deleted | With everything under its prefix, by the purge |
+| A person is deleted or merged | None: no vignette is removed, and a crop lives exactly as long as its vignette, its rectangle and its page's file |
+
+The background worker's maintenance ([§6](#6-asynchronous-processing), every six minutes and at its start,
+on the server's worker and on the desktop alike) sweeps the store for what a
+crash, a failed deletion or a race left: the crops of a soft-deleted tree;
+those of a tree the database does not hold, once the tree's id is a day old
+(a store shared with another database, or a database recreated beside its
+store, as a reimport after a schema change does); and in a live tree, those
+of a vignette that is gone and those whose key is not its vignette's
+current one. It lists the store before reading the rows, so a crop cut
+meanwhile is not considered; deleting a current crop is harmless, as it is
+cut again on its next view.
+
+**Bounds.** At most two objects per vignette: on generated 3 MB camera
+photographs (`just crop-bench`), 3 KB for the card and 32 KB for the
+thumbnail, 8.5 MB for 240 portraits, against 66 ms of CPU saved per card
+on every view after the first. No memory is kept between requests. The application reports no storage usage
+figure, so none has to count them.
+
 ---
 
 ## 5. Frontend Architecture
@@ -406,8 +499,9 @@ and flow — are listed in the [specification index](index.md).
     start and then every six minutes, deletes the expired artifacts, the rows
     and objects of jobs ended more than a day ago and the objects under
     `jobs/` that no job needs any more (no row, or ended without an artifact)
-    once they are a day old. Purging a tree deletes its jobs' objects before the rows cascade
-    away.
+    once they are a day old, and sweeps the stored crops no read reaches any
+    more ([§4.2](#42-stored-crops)). Purging a tree deletes its jobs' objects
+    before the rows cascade away.
 - A crafted file cannot stop the queue. Readers parse on the blocking pool
     behind a task boundary, so a reader that panics fails its job as
     unreadable input (`invalid_job_input`) instead of reaching the worker. The
