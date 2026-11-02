@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -168,7 +168,8 @@ and offers it on every page: the desktop window has no browser around it.
   moves, once — and its history follows the browser to the page it lands on,
   preferring the move it announced when the same page is found both ways. The
   browser tab keeps the titles and the place in them in its session storage,
-  as it keeps its own history, so a reload finds them again.
+  as it keeps its own history, so a reload finds them again. Signing out,
+  or signing in again after a session ended, removes them.
 - **Desktop.** The window's in-memory history does the navigating, and the
   application handles Alt+Left, Alt+Right and the mouse's back and forward
   buttons itself — except in a text field, list or editable area, where the

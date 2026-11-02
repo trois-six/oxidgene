@@ -422,8 +422,21 @@ impl AppHistory {
 }
 
 /// Where a browser tab keeps its history (see [`AppHistory`]).
-#[cfg(target_arch = "wasm32")]
 const SESSION_KEY: &str = "oxidgene.history";
+
+/// The script removing the tab's saved history.
+fn forget_script() -> String {
+    format!("try {{ sessionStorage.removeItem('{SESSION_KEY}'); }} catch (e) {{}} return null;")
+}
+
+/// Removes the history a browser tab keeps across reloads, when the account
+/// that walked it leaves: it names the persons visited, and the tab's next
+/// user would find them in the history list. The desktop keeps none.
+pub async fn forget() {
+    if cfg!(target_arch = "wasm32") {
+        let _ = document::eval(&forget_script()).join::<()>().await;
+    }
+}
 
 fn parse_route(raw: &str) -> Route {
     raw.parse().unwrap_or(Route::Home {})
@@ -596,6 +609,16 @@ pub fn use_saved_view<T: 'static>(view: impl Fn() -> T + 'static) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Signing out left the visited persons' names in the tab's storage,
+    /// for its next user to find in the history list.
+    #[test]
+    fn forgetting_removes_the_saved_history() {
+        assert_eq!(
+            forget_script(),
+            "try { sessionStorage.removeItem('oxidgene.history'); } catch (e) {} return null;"
+        );
+    }
 
     fn routes(history: &NavHistory<&'static str>) -> Vec<&'static str> {
         history.entries.iter().map(|entry| entry.route).collect()

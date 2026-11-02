@@ -238,7 +238,18 @@ pub fn AccountPrompts() -> Element {
             confirm_label: confirm,
             dismiss_label: i18n.t("common.close"),
             confirm_class: "btn btn-primary",
-            on_confirm: move |_| sign_in(&accounts, &api, &route, language()),
+            on_confirm: move |_| {
+                let (accounts, api, route) = (accounts.clone(), api.clone(), route.clone());
+                let ended = matches!(current, AccountPrompt::SessionEnded);
+                spawn(async move {
+                    // Whoever signs in next may not be the account whose
+                    // session ended: its page history goes with it.
+                    if ended {
+                        crate::nav_history::forget().await;
+                    }
+                    sign_in(&accounts, &api, &route, language());
+                });
+            },
             on_cancel: move |_| prompt.set(None),
         }
     }

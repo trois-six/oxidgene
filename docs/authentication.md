@@ -992,7 +992,10 @@ and no other account route is ever called.
   entries in memory, for the user to copy before signing in again.
 - **Sign out** posts `/auth/logout` and goes to the provider's end-session
   address it answers, or to the home page; either way the page loads afresh,
-  with nothing of the account left in memory.
+  with nothing of the account left in memory, nor in the tab's saved page
+  history ([Common UI](ui-common.md)), which names the persons visited.
+  **Sign in again** after a session ended forgets that history too: whoever
+  signs in next may be someone else.
 - **Profile page** (`/profile`, web only, signed in), in the `sub-page`
   layout with a left navigation like App Settings:
   - *Profile*: the avatar with **Upload** (file picker, then a square crop

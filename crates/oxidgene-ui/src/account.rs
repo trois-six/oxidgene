@@ -337,13 +337,14 @@ pub fn sign_in(accounts: &Accounts, api: &ApiClient, route: &Route, language: La
 /// Signs out — of this session, or of every session of the user — and
 /// leaves for the provider's sign-out, or the home page when it has none.
 /// Either way the page loads afresh, with nothing of the account left in
-/// memory.
+/// memory, nor in the tab's saved page history.
 pub async fn sign_out(
     accounts: &Accounts,
     api: &ApiClient,
     everywhere: bool,
 ) -> Result<(), crate::api::ApiError> {
     let answer = api.sign_out(everywhere).await?;
+    crate::nav_history::forget().await;
     accounts.navigate(answer.logout_url.as_deref().unwrap_or("/"));
     Ok(())
 }
