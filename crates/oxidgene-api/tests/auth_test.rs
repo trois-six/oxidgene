@@ -394,6 +394,28 @@ async fn sign_out_here_everywhere_and_from_the_back_channel() {
         )
         .await;
     assert_eq!(d.get("/api/v1/me").await.status, StatusCode::UNAUTHORIZED);
+
+    // By provider session and subject, for a session signed in without a
+    // `sid`, which no `sid` names: the user's sessions without one end.
+    let unindexed = MockUser::new("hollis").with("sid", Value::Null);
+    let mut e = Browser::new(&app);
+    e.sign_in(&provider, &unindexed).await;
+    assert_eq!(e.get("/api/v1/me").await.status, StatusCode::OK);
+    let token = provider.logout_token(
+        Some("sid-the-provider-knows"),
+        Some(&unindexed.subject),
+        json!({}),
+    );
+    let answer = channel
+        .send(
+            Method::POST,
+            "/auth/backchannel-logout",
+            Some(format!("logout_token={token}").into()),
+            Some("application/x-www-form-urlencoded"),
+        )
+        .await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(e.get("/api/v1/me").await.status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

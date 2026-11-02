@@ -323,8 +323,10 @@ Redis holds no genealogy and is not a cache of tree data
   field). It is validated like an ID token (signature, `iss`, `aud`, `iat`)
   and must carry the back-channel logout event, a `sid` or a `sub`, a `jti`
   not seen within its lifetime, and no `nonce`. Every session of that `sid`
-  — or of that user — ends. It answers `200`, or `400` for a token that
-  fails validation.
+  — or of that user — ends; a token naming both a `sid` no session holds
+  and a user ends that user's sessions signed in without a `sid`, which no
+  `sid` names. It answers `200`, or `400` for a token that fails
+  validation.
 - Deactivating or erasing a user, and `/auth/logout-everywhere`, end every
   session of the user at once, through the store's user index.
 

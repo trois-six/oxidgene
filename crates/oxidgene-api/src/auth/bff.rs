@@ -764,24 +764,45 @@ async fn end_by_logout_token(state: &AppState, oidc: &Oidc, token: &str) -> Resu
     let unavailable = |_| StatusCode::SERVICE_UNAVAILABLE;
     if let Some(sid) = sid {
         let keys = oidc.store.sid_sessions(sid).await.map_err(unavailable)?;
-        super::store::delete_all(oidc.store.as_ref(), keys)
-            .await
-            .map_err(unavailable)?;
-        return Ok(());
+        // A session signed in without a `sid` is not indexed under one: a
+        // token naming its user too ends the user's sessions without one,
+        // rather than nothing.
+        if !keys.is_empty() || sub.is_none() {
+            super::store::delete_all(oidc.store.as_ref(), keys)
+                .await
+                .map_err(unavailable)?;
+            return Ok(());
+        }
     }
     let issuer = text("iss").unwrap_or_default();
-    if let Some(user) = oxidgene_db::repo::AppUserRepo::find_by_identity(
+    let Some(user) = oxidgene_db::repo::AppUserRepo::find_by_identity(
         &state.reader,
         issuer,
         sub.unwrap_or_default(),
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-    {
-        oidc.end_user_sessions(user.id, "backchannel_logout")
+    else {
+        return Ok(());
+    };
+    if sid.is_some() {
+        let keys: Vec<String> = oidc
+            .store
+            .user_sessions(user.id)
+            .await
+            .map_err(unavailable)?
+            .into_iter()
+            .filter(|session| session.sid.is_none())
+            .map(|session| session.id_hash)
+            .collect();
+        super::store::delete_all(oidc.store.as_ref(), keys)
             .await
             .map_err(unavailable)?;
+        return Ok(());
     }
+    oidc.end_user_sessions(user.id, "backchannel_logout")
+        .await
+        .map_err(unavailable)?;
     Ok(())
 }
 
