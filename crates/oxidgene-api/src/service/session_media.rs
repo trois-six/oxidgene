@@ -87,10 +87,31 @@ pub(crate) fn decode(
     Ok(session)
 }
 
-/// The medium the wizard holds at `path` — staged by [`decode`] or fetched
-/// by the login window —, opened for `session::encode_with_media`, which
-/// streams it into the saved archive.
-pub(crate) fn open_staged_medium(path: &str) -> std::io::Result<Box<dyn Read>> {
+/// The archive of `session`, each of its media read from the path the
+/// wizard holds — staged by [`decode`] or fetched by the login window — and
+/// streamed into it. Reading hundreds of pictures and deflating them is
+/// blocking work: it runs on the blocking pool, off the async workers the
+/// desktop shares with every page load.
+///
+/// # Errors
+///
+/// `Validation` for a session that cannot be encoded, such as one naming a
+/// medium that cannot be read.
+pub(crate) async fn encode(session: Session) -> Result<Vec<u8>, OxidGeneError> {
+    let span = tracing::info_span!(
+        "geneanet.session.encode",
+        session.media.count = session.media.len()
+    );
+    super::blocking::run(span, move || {
+        session::encode_with_media(&session, open_staged_medium)
+    })
+    .await?
+    .map_err(|error| OxidGeneError::Validation(error.to_string()))
+}
+
+/// The medium the wizard holds at `path`, opened for
+/// `session::encode_with_media`.
+fn open_staged_medium(path: &str) -> std::io::Result<Box<dyn Read>> {
     Ok(Box::new(std::fs::File::open(path)?))
 }
 
