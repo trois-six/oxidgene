@@ -26,7 +26,7 @@
           "N": ["Baptêmes, naissances"],
           "M": ["Mariages"],
           "S": ["Sépultures, décès"],
-          "D": ["Sépultures, décès", "Décès"],
+          "D": ["Sépultures, décès"],
           "TD": ["Tables décennales"]
         },
         "image_source": "visualizer"
