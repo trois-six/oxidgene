@@ -18,7 +18,7 @@ use crate::repo::record_tag::RecordTagRepo;
 pub struct SourceRepo;
 
 /// What [`SourceRepo::list_filtered`] narrows a tree's sources to.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct SourceFilter<'a> {
     /// Sources titled exactly so — trimmed, ignoring case: how an editor
     /// finds the source a typed title names without reading every source of
@@ -32,16 +32,8 @@ pub struct SourceFilter<'a> {
 }
 
 impl SourceRepo {
-    /// List sources in a tree with pagination (excludes soft-deleted).
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        params: &PaginationParams,
-    ) -> Result<Connection<Source>, OxidGeneError> {
-        Self::list_filtered(db, tree_id, &SourceFilter::default(), params).await
-    }
-
-    /// [`Self::list`], narrowed by `filter`.
+    /// List the live sources of a tree, narrowed by `filter`, with
+    /// pagination.
     pub async fn list_filtered(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

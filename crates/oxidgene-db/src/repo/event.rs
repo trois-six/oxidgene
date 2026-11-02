@@ -73,17 +73,8 @@ fn apply_details(active: &mut ActiveModel, details: EventDetailsPatch) {
 pub struct EventRepo;
 
 impl EventRepo {
-    /// List events in a tree with optional filters and pagination.
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        filter: &EventFilter,
-        params: &PaginationParams,
-    ) -> Result<Connection<Event>, OxidGeneError> {
-        Self::list_visible(db, tree_id, filter, params, LeaveOut::NONE).await
-    }
-
-    /// [`Self::list`] without the events `leave_out` names.
+    /// List events in a tree with optional filters and pagination, without
+    /// those `leave_out` names (`LeaveOut::NONE` for the owner).
     pub async fn list_visible(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

@@ -18,7 +18,7 @@ use crate::repo::record_tag::RecordTagRepo;
 pub struct PlaceRepo;
 
 /// What a place list may be narrowed to.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct PlaceFilter<'a> {
     /// Places whose name contains it.
     pub search: Option<&'a str>,
@@ -32,21 +32,7 @@ pub struct PlaceFilter<'a> {
 }
 
 impl PlaceRepo {
-    /// List places in a tree with optional search and pagination.
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        search: Option<&str>,
-        params: &PaginationParams,
-    ) -> Result<Connection<Place>, OxidGeneError> {
-        let filter = PlaceFilter {
-            search,
-            ..PlaceFilter::default()
-        };
-        Self::list_filtered(db, tree_id, &filter, params).await
-    }
-
-    /// [`Self::list`] with every filter a place list takes.
+    /// List places in a tree, narrowed by `filter`, with pagination.
     pub async fn list_filtered(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

@@ -406,7 +406,7 @@ impl ProfileService {
             &self.reader,
             tree_id,
             params,
-            oxidgene_db::repo::Unseen::default(),
+            oxidgene_db::repo::Unseen::NONE,
         )
         .await
     }

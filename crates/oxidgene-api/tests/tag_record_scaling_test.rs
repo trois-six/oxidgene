@@ -18,7 +18,10 @@ use common::{app_on, new_person, new_tree, ok, send, setup_db};
 use oxidgene_api::authz::records::Records;
 use oxidgene_api::service::tag;
 use oxidgene_core::types::RecordKind;
-use oxidgene_db::repo::{DictionaryRepo, NoteRepo, PaginationParams, PlaceRepo, RepositoryRepo};
+use oxidgene_db::repo::{
+    DictionaryRepo, LeaveOut, NoteRepo, PaginationParams, PlaceFilter, PlaceRepo, RepositoryRepo,
+    Unseen,
+};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::json;
 use tracing::Subscriber;
@@ -131,13 +134,37 @@ async fn reading_tagged_places_repositories_and_notes_costs_the_same_on_many_as_
     };
 
     let few = statements(&counter, || async {
-        let page = PlaceRepo::list(&db, small, None, &params).await.unwrap();
+        let page = PlaceRepo::list_filtered(
+            &db,
+            small,
+            &PlaceFilter {
+                search: None,
+                name: None,
+                ids: None,
+                unseen: Unseen::NONE,
+            },
+            &params,
+        )
+        .await
+        .unwrap();
         assert_eq!(page.edges.len(), 1);
         assert_eq!(page.edges[0].node.tags.len(), 1);
     })
     .await;
     let many = statements(&counter, || async {
-        let page = PlaceRepo::list(&db, large, None, &params).await.unwrap();
+        let page = PlaceRepo::list_filtered(
+            &db,
+            large,
+            &PlaceFilter {
+                search: None,
+                name: None,
+                ids: None,
+                unseen: Unseen::NONE,
+            },
+            &params,
+        )
+        .await
+        .unwrap();
         assert_eq!(page.edges.len(), 30);
         assert!(page.edges.iter().all(|edge| edge.node.tags.len() == 1));
     })
@@ -149,12 +176,16 @@ async fn reading_tagged_places_repositories_and_notes_costs_the_same_on_many_as_
     );
 
     let few = statements(&counter, || async {
-        let page = RepositoryRepo::list(&db, small, &params).await.unwrap();
+        let page = RepositoryRepo::list_visible(&db, small, &params, LeaveOut::NONE)
+            .await
+            .unwrap();
         assert!(page.edges.iter().all(|edge| edge.node.tags.len() == 1));
     })
     .await;
     let many = statements(&counter, || async {
-        let page = RepositoryRepo::list(&db, large, &params).await.unwrap();
+        let page = RepositoryRepo::list_visible(&db, large, &params, LeaveOut::NONE)
+            .await
+            .unwrap();
         assert_eq!(page.edges.len(), 30);
         assert!(page.edges.iter().all(|edge| edge.node.tags.len() == 1));
     })

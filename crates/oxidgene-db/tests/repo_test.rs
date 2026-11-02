@@ -7,14 +7,15 @@ use oxidgene_core::enums::{
     Sex, SourceMediaType, SpouseRole,
 };
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::redaction::Redaction;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
-    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
-    MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams, ParentLink,
-    PersonDistinctRepo, PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
-    PersonRepo, PlaceRepo, RepositoryFields, RepositoryRepo, SosaAncestor, SosaRepo, SourceRepo,
-    SourceRepositoryFields, SourceRepositoryRepo, TreeChanges, TreeRepo, UploadedMedia,
-    UploadedMediaMetadata,
+    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, LeaveOut, MediaLinkRepo,
+    MediaLinkTarget, MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo,
+    PaginationParams, ParentLink, PersonDistinctRepo, PersonMergeRepo, PersonNamePieces,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceFilter, PlaceRepo, RepositoryFields,
+    RepositoryRepo, SosaAncestor, SosaRepo, SourceFilter, SourceRepo, SourceRepositoryFields,
+    SourceRepositoryRepo, TreeChanges, TreeRepo, Unseen, UploadedMedia, UploadedMediaMetadata,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use std::sync::{Arc, Mutex};
@@ -23,6 +24,23 @@ use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 use uuid::Uuid;
 
 use crate::common::setup_db;
+
+/// The owner's place list, narrowed to names containing `search`.
+fn owner_places(search: Option<&str>) -> PlaceFilter<'_> {
+    PlaceFilter {
+        search,
+        name: None,
+        ids: None,
+        unseen: Unseen::NONE,
+    }
+}
+
+/// The owner's source list, whole.
+const OWNER_SOURCES: SourceFilter<'static> = SourceFilter {
+    title: None,
+    ids: None,
+    unseen: Unseen::NONE,
+};
 
 #[cfg(feature = "telemetry-context")]
 use opentelemetry::global;
@@ -694,7 +712,7 @@ async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
 
     TreeRepo::purge(&db, tree_id).await.unwrap();
     assert!(SourceRepositoryRepo::get(&db, link.id).await.is_err());
-    let notes = NoteRepo::list(
+    let notes = NoteRepo::list_visible(
         &db,
         tree_id,
         &NoteFilter {
@@ -702,6 +720,7 @@ async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
             ..NoteFilter::default()
         },
         &PaginationParams::default(),
+        LeaveOut::NONE,
     )
     .await
     .unwrap();
@@ -1016,9 +1035,15 @@ async fn event_crud_and_filters() {
 
     // List all in tree
     let params = PaginationParams::default();
-    let conn = EventRepo::list(&db, tree_id, &EventFilter::default(), &params)
-        .await
-        .unwrap();
+    let conn = EventRepo::list_visible(
+        &db,
+        tree_id,
+        &EventFilter::default(),
+        &params,
+        LeaveOut::NONE,
+    )
+    .await
+    .unwrap();
     assert_eq!(conn.total_count, 2);
 
     // Filter by event_type
@@ -1026,7 +1051,7 @@ async fn event_crud_and_filters() {
         event_type: Some(EventType::Birth),
         ..Default::default()
     };
-    let conn2 = EventRepo::list(&db, tree_id, &filter, &params)
+    let conn2 = EventRepo::list_visible(&db, tree_id, &filter, &params, LeaveOut::NONE)
         .await
         .unwrap();
     assert_eq!(conn2.total_count, 1);
@@ -1036,7 +1061,7 @@ async fn event_crud_and_filters() {
         person_id: Some(person_id),
         ..Default::default()
     };
-    let conn3 = EventRepo::list(&db, tree_id, &filter2, &params)
+    let conn3 = EventRepo::list_visible(&db, tree_id, &filter2, &params, LeaveOut::NONE)
         .await
         .unwrap();
     assert_eq!(conn3.total_count, 2);
@@ -1082,7 +1107,7 @@ async fn place_search_matches_like_wildcards_literally() {
         let db = &db;
         let params = &params;
         async move {
-            PlaceRepo::list(db, tree_id, Some(search), params)
+            PlaceRepo::list_filtered(db, tree_id, &owner_places(Some(search)), params)
                 .await
                 .unwrap()
                 .edges
@@ -1126,18 +1151,20 @@ async fn place_crud_and_search() {
 
     // List all
     let params = PaginationParams::default();
-    let conn = PlaceRepo::list(&db, tree_id, None, &params).await.unwrap();
+    let conn = PlaceRepo::list_filtered(&db, tree_id, &owner_places(None), &params)
+        .await
+        .unwrap();
     assert_eq!(conn.total_count, 2);
 
     // Search by name
-    let conn2 = PlaceRepo::list(&db, tree_id, Some("Paris"), &params)
+    let conn2 = PlaceRepo::list_filtered(&db, tree_id, &owner_places(Some("Paris")), &params)
         .await
         .unwrap();
     assert_eq!(conn2.total_count, 1);
     assert_eq!(conn2.edges[0].node.name, "Paris, France");
 
     // Search for "France" matches both
-    let conn3 = PlaceRepo::list(&db, tree_id, Some("France"), &params)
+    let conn3 = PlaceRepo::list_filtered(&db, tree_id, &owner_places(Some("France")), &params)
         .await
         .unwrap();
     assert_eq!(conn3.total_count, 2);
@@ -1198,7 +1225,9 @@ async fn source_and_citation_lifecycle() {
 
     // List sources
     let params = PaginationParams::default();
-    let conn = SourceRepo::list(&db, tree_id, &params).await.unwrap();
+    let conn = SourceRepo::list_filtered(&db, tree_id, &OWNER_SOURCES, &params)
+        .await
+        .unwrap();
     assert_eq!(conn.total_count, 1);
 
     // Create citation
@@ -2660,7 +2689,9 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
     .await
     .unwrap();
 
-    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::family_names_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].value, "Dupont");
     assert_eq!(entries[0].count, 2); // p1 (2 rows) + p2 — not 3
@@ -2704,7 +2735,9 @@ async fn dictionary_given_names_counts_persons_per_word() {
     name(p3, NameType::Birth, "Given_c").await;
     PersonRepo::delete(&db, p3).await.unwrap();
 
-    let entries = DictionaryRepo::given_names(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::given_names_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     let got: Vec<(&str, i64)> = entries
         .iter()
         .map(|e| (e.value.as_str(), e.count))
@@ -2761,7 +2794,9 @@ async fn dictionary_set_family_name_particle_recuts_every_occurrence() {
 
     // The dictionary still lists the same text — only the filing key moved,
     // from the root "branch" to the whole surname.
-    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::family_names_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     let branch = entries.iter().find(|e| e.value == "LE BRANCH").unwrap();
     assert_eq!(branch.count, 3);
     assert_eq!(branch.sort_key, "le branch");
@@ -2858,7 +2893,7 @@ async fn family_name_entry(
     tree_id: Uuid,
     value: &str,
 ) -> Option<oxidgene_db::repo::DictionaryValueEntry> {
-    DictionaryRepo::family_names(db, tree_id)
+    DictionaryRepo::family_names_for(db, tree_id, &Redaction::unrestricted())
         .await
         .unwrap()
         .into_iter()
@@ -3085,7 +3120,9 @@ async fn dictionary_set_family_name_particle_refuses_a_particle_that_is_not_ther
         .unwrap_err();
     assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
 
-    let entries = DictionaryRepo::family_names(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::family_names_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     assert_eq!(entries[0].value, "Dupont");
     assert_eq!(entries[0].sort_key, "dupont");
 }
@@ -3116,7 +3153,9 @@ async fn dictionary_padded_occupation_resolves_to_its_holder() {
     .await
     .unwrap();
 
-    let entries = DictionaryRepo::occupations(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::occupations_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     assert_eq!(entries[0].value, "Farmer");
     let usage = DictionaryRepo::occupation_usage_person_ids(&db, tree_id, "Farmer")
         .await
@@ -3251,7 +3290,9 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
     .unwrap();
     EventRepo::delete(&db, deleted_ev).await.unwrap();
 
-    let entries = DictionaryRepo::occupations(&db, tree_id).await.unwrap();
+    let entries = DictionaryRepo::occupations_for(&db, tree_id, &Redaction::unrestricted())
+        .await
+        .unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].value, "Baker");
     assert_eq!(entries[0].count, 1);

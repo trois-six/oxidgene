@@ -35,17 +35,8 @@ pub struct NoteFilter {
 pub struct NoteRepo;
 
 impl NoteRepo {
-    /// List notes in a tree with optional entity filters and pagination.
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        filter: &NoteFilter,
-        params: &PaginationParams,
-    ) -> Result<Connection<Note>, OxidGeneError> {
-        Self::list_visible(db, tree_id, filter, params, LeaveOut::NONE).await
-    }
-
-    /// [`Self::list`] without the notes `leave_out` names, nor the
+    /// List notes in a tree with optional entity filters and pagination,
+    /// without those `leave_out` names (`LeaveOut::NONE` for the owner), nor the
     /// confidential ones when it says so.
     pub async fn list_visible(
         db: &impl ConnectionTrait,

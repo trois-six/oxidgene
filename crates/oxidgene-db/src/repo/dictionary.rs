@@ -8,7 +8,7 @@
 //! occurrence of one surname at once, and [`DictionaryRepo::rename_family_name`],
 //! which gives every person carrying it as their main name another one. They
 //! live here rather than in `PersonNameRepo` because "which rows are this
-//! dictionary entry" is defined by [`DictionaryRepo::family_names`] right above
+//! dictionary entry" is defined by [`DictionaryRepo::family_names_for`] right above
 //! them, and all of them must agree on the answer: a row belongs to the entry
 //! spelled exactly like its full surname, particle included.
 
@@ -159,15 +159,8 @@ async fn tree_names(
 
 impl DictionaryRepo {
     /// Distinct surnames across all persons in a tree, with the number of
-    /// persons carrying each (as entered — no accent-folding/normalization).
-    pub async fn family_names(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        Self::family_names_for(db, tree_id, &Redaction::unrestricted()).await
-    }
-
-    /// [`Self::family_names`] as `redaction`'s viewer sees them: only the
+    /// persons carrying each (as entered — no accent-folding/normalization),
+    /// as `redaction`'s viewer sees them: only the
     /// persons it shows in full count, so a surname only hidden persons
     /// bear is not listed (docs/privacy.md §7).
     pub async fn family_names_for(
@@ -237,15 +230,7 @@ impl DictionaryRepo {
 
     /// Distinct given names across a tree, one per word of the given-names
     /// field ("Jean Marie" holds "Jean" and "Marie"), with the number of
-    /// persons carrying each.
-    pub async fn given_names(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        Self::given_names_for(db, tree_id, &Redaction::unrestricted()).await
-    }
-
-    /// [`Self::given_names`] of the persons `redaction` shows in full.
+    /// persons carrying each, of the persons `redaction` shows in full.
     pub async fn given_names_for(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -284,15 +269,8 @@ impl DictionaryRepo {
     }
 
     /// Distinct occupation labels (`Event.description` for `Occupation`
-    /// events) across a tree, with the number of persons holding each.
-    pub async fn occupations(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        Self::occupations_for(db, tree_id, &Redaction::unrestricted()).await
-    }
-
-    /// [`Self::occupations`] of the persons `redaction` shows in full.
+    /// events) across a tree, with the number of persons holding each, of
+    /// the persons `redaction` shows in full.
     pub async fn occupations_for(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -708,7 +686,7 @@ impl DictionaryRepo {
 
     /// Distinct persons holding a given occupation label in a tree.
     ///
-    /// Labels are matched trimmed, as [`Self::occupations`] lists them: a
+    /// Labels are matched trimmed, as [`Self::occupations_for`] lists them: a
     /// description stored with surrounding spaces belongs to its entry.
     pub async fn occupation_usage_person_ids(
         db: &impl ConnectionTrait,
@@ -722,7 +700,7 @@ impl DictionaryRepo {
     }
 
     /// The live occupation events of persons in `tree_id` whose label, trimmed,
-    /// is one of `values` — the rows [`Self::occupations`] lists under those
+    /// is one of `values` — the rows [`Self::occupations_for`] lists under those
     /// entries — as `(event id, person id, trimmed label)`.
     async fn occupation_events_labelled(
         db: &impl ConnectionTrait,
@@ -771,7 +749,7 @@ impl DictionaryRepo {
     }
 
     /// Give every occupation event of `tree_id` labelled `value` (trimmed, as
-    /// [`Self::occupations`] lists it) the label `new_value`, which joins an
+    /// [`Self::occupations_for`] lists it) the label `new_value`, which joins an
     /// occupation already listed under it. Renaming a label to itself changes
     /// nothing and reports zero events.
     ///
@@ -861,7 +839,7 @@ impl DictionaryRepo {
     /// wrong across a whole family — a tree full of "Le …" persons wrongly
     /// carrying a `Le` prefix is fixed in one call with an empty `particle`.
     ///
-    /// `value` is a surname as listed by [`Self::family_names`], particle
+    /// `value` is a surname as listed by [`Self::family_names_for`], particle
     /// included. Rows are matched on that *joined* surname rather than by
     /// re-splitting it, because how they are currently cut is precisely what
     /// is being corrected — the full surname is a dictionary entry's only
@@ -914,7 +892,7 @@ impl DictionaryRepo {
     /// Give every person whose primary name carries surname `value` the
     /// surname `new_value` instead.
     ///
-    /// `value` is a surname as listed by [`Self::family_names`], matched
+    /// `value` is a surname as listed by [`Self::family_names_for`], matched
     /// exactly — particle included and case included, so "Martin" and
     /// "MARTIN" are two names, and renaming one is how they are unified.
     /// Only primary names are rewritten: an alias, a married name or any other

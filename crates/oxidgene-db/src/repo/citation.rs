@@ -33,17 +33,8 @@ pub struct CitationFilter {
 pub struct CitationRepo;
 
 impl CitationRepo {
-    /// List citations in a tree with optional entity filters and pagination.
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        filter: &CitationFilter,
-        params: &PaginationParams,
-    ) -> Result<Connection<Citation>, OxidGeneError> {
-        Self::list_visible(db, tree_id, filter, params, LeaveOut::NONE).await
-    }
-
-    /// [`Self::list`] without the citations `leave_out` names.
+    /// List citations in a tree with optional entity filters and pagination,
+    /// without those `leave_out` names (`LeaveOut::NONE` for the owner).
     pub async fn list_visible(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

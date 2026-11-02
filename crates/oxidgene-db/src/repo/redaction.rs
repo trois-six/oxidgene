@@ -18,7 +18,7 @@ use crate::repo::hiding::Unseen;
 
 /// What a paged list leaves out for a viewer who may not see everything,
 /// applied in SQL so that the list's pages and its `total_count` agree.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct LeaveOut {
     /// The persons and records the viewer may not see.
     pub unseen: Unseen,
@@ -29,14 +29,7 @@ pub struct LeaveOut {
 impl LeaveOut {
     /// Nothing left out: the owner's lists.
     pub const NONE: LeaveOut = LeaveOut {
-        unseen: Unseen {
-            tree_id: Uuid::nil(),
-            rules: oxidgene_core::redaction::HidingRules {
-                exclusions: false,
-                scope: None,
-                privacy: None,
-            },
-        },
+        unseen: Unseen::NONE,
         confidential: false,
     };
 

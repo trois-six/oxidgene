@@ -27,8 +27,10 @@ use sea_orm::sea_query::{
 use uuid::Uuid;
 
 /// The persons, records and families a viewer may not see in one tree, as
-/// SQL selects them. The default hides nothing: the owner's.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// SQL selects them. There is no default: what hides nothing, the owner's,
+/// is spelled [`Unseen::NONE`], so that no `..Default::default()` drops a
+/// restricted viewer's rules unnoticed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unseen {
     pub tree_id: Uuid,
     pub rules: HidingRules,
@@ -75,6 +77,16 @@ fn named(name: &str) -> SelectStatement {
 }
 
 impl Unseen {
+    /// Nothing hidden: the owner's.
+    pub const NONE: Unseen = Unseen {
+        tree_id: Uuid::nil(),
+        rules: HidingRules {
+            exclusions: false,
+            scope: None,
+            privacy: None,
+        },
+    };
+
     /// What `rules` hide in tree `tree_id`.
     #[must_use]
     pub fn new(tree_id: Uuid, rules: HidingRules) -> Self {
@@ -700,7 +712,7 @@ mod tests {
 
     #[test]
     fn nothing_hidden_adds_no_condition() {
-        let owner = Unseen::default();
+        let owner = Unseen::NONE;
         assert!(owner.hides_nothing());
         let condition = owner.keeping(RecordKind::Event, crate::entities::event::Column::Id);
         assert!(condition.is_empty());

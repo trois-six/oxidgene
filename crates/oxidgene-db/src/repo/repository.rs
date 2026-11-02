@@ -65,16 +65,8 @@ pub struct SourceRepositoryPatch {
 pub struct RepositoryRepo;
 
 impl RepositoryRepo {
-    /// The live repositories of a tree, a page at a time.
-    pub async fn list(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        params: &PaginationParams,
-    ) -> Result<Connection<Repository>, OxidGeneError> {
-        Self::list_visible(db, tree_id, params, LeaveOut::NONE).await
-    }
-
-    /// [`Self::list`] without the repositories `leave_out` names.
+    /// The live repositories of a tree, a page at a time, without those
+    /// `leave_out` names (`LeaveOut::NONE` for the owner).
     pub async fn list_visible(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

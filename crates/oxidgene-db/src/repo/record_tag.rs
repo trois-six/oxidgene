@@ -263,19 +263,9 @@ impl RecordTagRepo {
         Ok(tags)
     }
 
-    /// One page of the live records of `kind` that carry `tag_id` in `tree_id`,
-    /// by id, after the cursor in `params`. `total_count` counts them all.
-    pub async fn records_of_tag(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        tag_id: Uuid,
-        kind: RecordKind,
-        params: &PaginationParams,
-    ) -> Result<Connection<Uuid>, OxidGeneError> {
-        Self::visible_records_of_tag(db, tree_id, tag_id, kind, params, LeaveOut::NONE).await
-    }
-
-    /// [`Self::records_of_tag`] without the records `leave_out` names, so
+    /// One page of the live records of `kind` that carry `tag_id` in
+    /// `tree_id`, by id, after the cursor in `params`, without the records
+    /// `leave_out` names (`LeaveOut::NONE` for the owner), so
     /// that the page and its `total_count` see only what the viewer sees.
     pub async fn visible_records_of_tag(
         db: &impl ConnectionTrait,

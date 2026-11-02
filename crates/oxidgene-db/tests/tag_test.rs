@@ -8,7 +8,7 @@ use oxidgene_core::types::RecordKind;
 use oxidgene_core::{Calendar, DateQualifier, EventType, OxidGeneError, Sex};
 use oxidgene_db::entities::{record_tag, tag};
 use oxidgene_db::repo::{
-    CitationRepo, EventDetails, EventRepo, MediaFilter, MediaLibraryRepo, MediaRepo,
+    CitationRepo, EventDetails, EventRepo, LeaveOut, MediaFilter, MediaLibraryRepo, MediaRepo,
     PaginationParams, PersonMergeRepo, PersonRepo, PersonSearchEntry, PersonSearchFilters,
     PersonSearchRepo, PersonSearchSort, PlaceRepo, RecordTagRepo, SourceRepo, TagRepo, TreeRepo,
 };
@@ -433,12 +433,13 @@ async fn citations_of_a_soft_deleted_source_are_not_counted() {
     SourceRepo::delete(&db, source).await.unwrap();
     let usage = TagRepo::list(&db, tree).await.unwrap();
     assert_eq!(count_of(&usage, tag.id, RecordKind::Citation), 0);
-    let page = RecordTagRepo::records_of_tag(
+    let page = RecordTagRepo::visible_records_of_tag(
         &db,
         tree,
         tag.id,
         RecordKind::Citation,
         &PaginationParams::default(),
+        LeaveOut::NONE,
     )
     .await
     .unwrap();
@@ -492,7 +493,7 @@ async fn records_of_a_tag_page_by_cursor_over_live_records() {
     ids.sort();
     PersonRepo::delete(&db, ids[2]).await.unwrap();
 
-    let first = RecordTagRepo::records_of_tag(
+    let first = RecordTagRepo::visible_records_of_tag(
         &db,
         tree,
         tag.id,
@@ -501,6 +502,7 @@ async fn records_of_a_tag_page_by_cursor_over_live_records() {
             first: 1,
             after: None,
         },
+        LeaveOut::NONE,
     )
     .await
     .unwrap();
@@ -508,7 +510,7 @@ async fn records_of_a_tag_page_by_cursor_over_live_records() {
     assert_eq!(first.edges[0].node, ids[0]);
     assert!(first.page_info.has_next_page);
 
-    let second = RecordTagRepo::records_of_tag(
+    let second = RecordTagRepo::visible_records_of_tag(
         &db,
         tree,
         tag.id,
@@ -517,6 +519,7 @@ async fn records_of_a_tag_page_by_cursor_over_live_records() {
             first: 1,
             after: first.page_info.end_cursor.clone(),
         },
+        LeaveOut::NONE,
     )
     .await
     .unwrap();
@@ -549,7 +552,15 @@ async fn media_tags_filter_and_count_live_documents() {
 
     let filter = MediaFilter {
         tags: vec![tag.id],
-        ..MediaFilter::default()
+        kind: None,
+        category: None,
+        name: None,
+        linked_name: None,
+        event_from: None,
+        event_to: None,
+        added_from: None,
+        added_to: None,
+        unseen: oxidgene_db::repo::Unseen::NONE,
     };
     let listed = MediaLibraryRepo::list(&db, tree, &filter, &PaginationParams::default(), None)
         .await
@@ -559,7 +570,7 @@ async fn media_tags_filter_and_count_live_documents() {
     assert_eq!(listed.edges[0].node.tags.len(), 1);
     assert_eq!(listed.edges[0].node.tags[0].label, "Documents");
 
-    let facets = MediaLibraryRepo::facets(&db, tree, &[], oxidgene_db::repo::Unseen::default())
+    let facets = MediaLibraryRepo::facets(&db, tree, &[], oxidgene_db::repo::Unseen::NONE)
         .await
         .unwrap();
     assert_eq!(facets.tags.len(), 1);

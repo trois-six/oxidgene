@@ -65,7 +65,7 @@ impl MediaListFilters {
             event_to: self.event_to,
             added_from: self.added_from,
             added_to: self.added_to,
-            unseen: oxidgene_db::repo::Unseen::default(),
+            unseen: oxidgene_db::repo::Unseen::NONE,
         })
     }
 }

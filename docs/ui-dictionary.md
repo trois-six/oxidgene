@@ -610,10 +610,10 @@ request ([API Contract](api.md#dictionary)):
 
 | Tab | Aggregation |
 |---|---|
-| Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names`); an unfolded name's descent (§7.2), read in nine grouped queries (`DictionaryRepo::load_family_name_descent`) and grouped in memory (`service::surname_descent`) |
+| Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names_for`); an unfolded name's descent (§7.2), read in nine grouped queries (`DictionaryRepo::load_family_name_descent`) and grouped in memory (`service::surname_descent`) |
 | Sources | The tree's sources, each with its citation count (`DictionaryRepo::sources_with_usage`, or `sources_with_usage_by_prefix` once the drill-down of section 8 has narrowed them) |
 | Places | The tree's places, each with the count of events and media referencing it (`DictionaryRepo::places_with_usage`) |
-| Occupations | The distinct descriptions of `Occupation` events, with their counts (`DictionaryRepo::occupations`) |
+| Occupations | The distinct descriptions of `Occupation` events, with their counts (`DictionaryRepo::occupations_for`) |
 
 ---
 

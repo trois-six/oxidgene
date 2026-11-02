@@ -42,8 +42,9 @@ use crate::repo::{db_err, escape_like};
 use oxidgene_core::types::RecordKind;
 
 /// What a library listing is narrowed to. Every field is optional, and the
-/// set fields combine with AND; the default lists every document.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// set fields combine with AND; with none set, and `unseen` at
+/// [`Unseen::NONE`], it lists every document.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaFilter {
     /// Documents carrying every one of these tags, by id.
     pub tags: Vec<Uuid>,
@@ -169,18 +170,11 @@ impl MediaLibraryRepo {
 
     /// How many distinct records — persons, families, events and sources —
     /// each document is attached to, through a link on the document itself
-    /// or on one of its pages. A document nothing links to is absent.
+    /// or on one of its pages, without the links `unseen` hides, which
+    /// attach a document to records the viewer may not see. A document
+    /// nothing links to is absent.
     ///
     /// One grouped query per bounded slice of ids, whatever their number.
-    pub async fn usage_counts(
-        db: &impl ConnectionTrait,
-        document_ids: &[Uuid],
-    ) -> Result<HashMap<Uuid, i64>, OxidGeneError> {
-        Self::visible_usage_counts(db, document_ids, Unseen::default()).await
-    }
-
-    /// [`Self::usage_counts`] without the links `unseen` hides, which
-    /// attach a document to records the viewer may not see.
     pub async fn visible_usage_counts(
         db: &impl ConnectionTrait,
         document_ids: &[Uuid],

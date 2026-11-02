@@ -178,7 +178,7 @@ impl Records {
         Self {
             redaction: Arc::new(Redaction::unrestricted()),
             hidden: Arc::default(),
-            unseen: Unseen::default(),
+            unseen: Unseen::NONE,
         }
     }
 
