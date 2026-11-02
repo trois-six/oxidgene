@@ -308,22 +308,40 @@ fn sharer(viewer: &ViewerContext) -> Result<&Identity, OxidGeneError> {
 
 // ── Lookups' rate limit ─────────────────────────────────────────────────
 
-/// The lookups each user made in the last hour, in this process.
+/// The lookups each user made in the last hour, in this process: only the
+/// users who made one in that hour, so it never outgrows them.
 static LOOKUPS: LazyLock<Mutex<HashMap<Uuid, VecDeque<Instant>>>> = LazyLock::new(Mutex::default);
 
-/// Count one lookup of `user_id`: `rate_limited` past [`LOOKUPS_PER_HOUR`]
-/// in the last hour, with the seconds until the oldest one leaves it.
+/// Count one lookup of `user_id` — or one resend of an invitation mail —:
+/// `rate_limited` past [`LOOKUPS_PER_HOUR`] in the last hour, with the
+/// seconds until the oldest one leaves it.
 fn count_lookup(user_id: Uuid) -> Result<(), OxidGeneError> {
+    count_lookup_at(
+        &mut LOOKUPS.lock().unwrap_or_else(|poison| poison.into_inner()),
+        user_id,
+        Instant::now(),
+    )
+}
+
+/// [`count_lookup`] in `lookups` at `now`.
+fn count_lookup_at(
+    lookups: &mut HashMap<Uuid, VecDeque<Instant>>,
+    user_id: Uuid,
+    now: Instant,
+) -> Result<(), OxidGeneError> {
     let hour = Duration::from_secs(3600);
-    let now = Instant::now();
-    let mut lookups = LOOKUPS.lock().unwrap_or_else(|poison| poison.into_inner());
+    // Every user's lookups older than the hour leave; a user left with
+    // none leaves the map.
+    lookups.retain(|_, made| {
+        while made
+            .front()
+            .is_some_and(|at| now.duration_since(*at) >= hour)
+        {
+            made.pop_front();
+        }
+        !made.is_empty()
+    });
     let made = lookups.entry(user_id).or_default();
-    while made
-        .front()
-        .is_some_and(|at| now.duration_since(*at) >= hour)
-    {
-        made.pop_front();
-    }
     if made.len() >= LOOKUPS_PER_HOUR {
         let oldest = made.front().copied().unwrap_or(now);
         let wait = hour
@@ -735,7 +753,12 @@ pub async fn resend_invitation(
     tree_id: Uuid,
     invitation_id: Uuid,
 ) -> Result<InvitationView, OxidGeneError> {
-    sharer(viewer)?;
+    let identity = sharer(viewer)?;
+    // A resend that mails counts as a lookup, so that nobody makes the
+    // relay mail an address without bound.
+    if env.outbox.delivers() {
+        count_lookup(identity.user_id)?;
+    }
     let txn = begin_tx(db).await?;
     let current = pending_of_tree(&txn, tree_id, invitation_id).await?;
     let now = Utc::now();
@@ -1021,5 +1044,24 @@ mod tests {
         assert!(shared_role(TreeRole::Guest).is_ok());
         assert!(shared_role(TreeRole::Owner).is_err());
         assert!(shared_role(TreeRole::Visitor).is_err());
+    }
+
+    #[test]
+    fn the_lookup_counters_keep_only_the_last_hours_users() {
+        let mut lookups = HashMap::new();
+        let (first, second) = (Uuid::now_v7(), Uuid::now_v7());
+        let start = Instant::now();
+        for _ in 0..LOOKUPS_PER_HOUR {
+            count_lookup_at(&mut lookups, first, start).unwrap();
+        }
+        assert!(matches!(
+            count_lookup_at(&mut lookups, first, start),
+            Err(OxidGeneError::RateLimited { retry_after: 3600 })
+        ));
+        // An hour on, the first user's lookups and their entry are gone.
+        let later = start + Duration::from_secs(3600);
+        count_lookup_at(&mut lookups, second, later).unwrap();
+        assert_eq!(lookups.keys().copied().collect::<Vec<_>>(), [second]);
+        count_lookup_at(&mut lookups, first, later).unwrap();
     }
 }

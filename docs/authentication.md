@@ -919,7 +919,7 @@ and in the process otherwise; past a limit, `429 rate_limited` with
 |---|---|
 | `/auth/login`, `/auth/callback` | 30 per minute per address |
 | `/auth/share/{token}` | 30 per minute per address |
-| Share and invitation lookups by email or username | 30 per hour per user ([Authorization §6.1](authorization.md#61-sharing-with-a-user-of-the-instance)) |
+| Share and invitation lookups by email or username, and the invitation mails resent | 30 per hour per user ([Authorization §6.1](authorization.md#61-sharing-with-a-user-of-the-instance)) |
 | An API client | 600 requests per minute, bursts of 100 ([Authorization §7.5](authorization.md#75-rate-limits-and-usage)) |
 | Messages | [Messaging §8](messaging.md#8-rate-limits) |
 

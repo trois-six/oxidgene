@@ -31,7 +31,7 @@ Ouvrez les réglages de l’arbre, puis **Membres** — une section que seul le 
 
 Une personne qui a un compte devient membre aussitôt, trouve l’arbre sur sa page d’accueil et reçoit une [notification](@/guide/accounts.fr.md#notifications) — par courriel aussi, sauf si elle l’a désactivé. Une adresse qui n’a pas encore de compte reçoit à la place une **invitation** : quand l’instance envoie des courriels, OxidGene la lui envoie, avec qui l’invite, sur quel arbre et avec quel rôle, et comment l’accepter. Quand l’instance n’envoie pas de courriel, la section le dit et affiche le **Lien d’invitation** à envoyer vous-même : il ne contient aucun secret, puisque seule l’adresse invitée peut l’accepter.
 
-La recherche d’une personne par adresse ou nom d’utilisateur est limitée à trente fois par heure.
+La recherche d’une personne par adresse ou nom d’utilisateur et le renvoi d’une invitation par courriel sont limités à trente fois par heure à eux deux.
 
 **Membres de l’arbre** liste chacun avec son rôle, ce qu’il voit et la fin de son partage. Pour chaque membre, vous pouvez changer le rôle, **Rendre propriétaire** pour céder l’arbre — vous devenez alors éditeur — ou le **Retirer**.
 

@@ -622,6 +622,55 @@ async fn invitations_are_queued_with_their_transaction_and_sent_in_the_language_
 }
 
 #[tokio::test]
+async fn resending_an_invitation_mail_counts_against_the_hourly_lookups() {
+    let mut f = Fixture::new(true).await;
+    // The invitation by address is the first lookup of the hour.
+    let shared = f
+        .owner
+        .json(
+            Method::POST,
+            &format!("/api/v1/trees/{}/members", f.tree),
+            json!({ "email": "fictive.resent@example.invalid", "role": "guest" }),
+        )
+        .await;
+    assert_eq!(shared.status, StatusCode::ACCEPTED, "{}", shared.json);
+    let invitation = shared.json["invitation"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resend = format!("/api/v1/trees/{}/invitations/{invitation}/resend", f.tree);
+    let query = "mutation($tree: ID!, $id: ID!) { resendTreeInvitation(treeId: $tree, invitationId: $id) { delivery } }";
+    let variables = json!({ "tree": f.tree, "id": invitation });
+    for _ in 1..oxidgene_api::service::sharing::LOOKUPS_PER_HOUR - 1 {
+        let resent = f.owner.send(Method::POST, &resend, None, None).await;
+        assert_eq!(resent.status, StatusCode::OK, "{}", resent.json);
+    }
+    let resent = f.owner.gql(query, variables.clone()).await;
+    assert_eq!(
+        resent.json["data"]["resendTreeInvitation"]["delivery"], "EMAIL",
+        "{}",
+        resent.json
+    );
+    // The hour's budget is spent, on both surfaces, and no mail is queued.
+    let queued = outbox(&f.db).await.len();
+    assert_eq!(queued, oxidgene_api::service::sharing::LOOKUPS_PER_HOUR);
+    let refused = f.owner.send(Method::POST, &resend, None, None).await;
+    assert_eq!(
+        refused.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        refused.json
+    );
+    let refused = f.owner.gql(query, variables).await;
+    assert_eq!(
+        refused.json["errors"][0]["extensions"]["code"], "RATE_LIMITED",
+        "{}",
+        refused.json
+    );
+    assert_eq!(outbox(&f.db).await.len(), queued);
+}
+
+#[tokio::test]
 async fn a_failing_relay_is_retried_then_given_up_and_a_rejection_at_once() {
     let mut f = Fixture::new(true).await;
     let (_, _, _) = f.user("relaynine").await;

@@ -375,7 +375,8 @@ any, and its own expiry (14 days by default, at most 90).
   the user sees it on their home and accepts or declines it. Acceptance
   creates the membership; an address that does not match accepts nothing,
   whoever holds the link. A pending invitation is listed, revocable and
-  re-sendable by the owner.
+  re-sendable by the owner; a resend that mails counts as a lookup
+  (§6.1), so the relay never mails an address without bound.
 - An address has one pending invitation to a tree at a time: inviting it
   again is `409 conflict`, also when two invitations race.
 - An expired invitation is deleted by the worker's maintenance pass, or
