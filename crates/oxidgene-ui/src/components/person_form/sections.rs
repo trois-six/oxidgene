@@ -60,6 +60,18 @@ impl FormScope {
         self.refresh += 1;
     }
 
+    /// An event was added, but not its notes and source: said in the
+    /// footer, as the sub-form closes on the event, which exists — adding
+    /// it again would make two.
+    fn notes_not_saved(self, error: &ApiError) {
+        let mut save_error = self.save_error;
+        let message = error.message(&self.i18n);
+        save_error.set(Some(self.i18n.t_args(
+            "person_form.notes_source_not_saved",
+            &[("error", message.as_str())],
+        )));
+    }
+
     /// The add button of a part: it toggles the part's sub-form, or, while
     /// the person is being created, creates it first.
     fn add_button(self, label: String, show: Signal<bool>, opening: FormOpening) -> Element {
@@ -110,6 +122,20 @@ fn place_name(options: &[(String, String)], place_id: Uuid) -> String {
         .find(|(option, _)| *option == id)
         .map(|(_, name)| name.clone())
         .unwrap_or_default()
+}
+
+/// The events of the Other Events section: every event of the person but
+/// its professions, listed under Civil Status, and the birth and death the
+/// form edits in their own sections. A second birth or death — conflicting
+/// sources, often, in an imported tree — is listed here, where it can be
+/// seen, edited and deleted.
+fn other_events(events: &[CoreEvent]) -> Vec<CoreEvent> {
+    let vitals = super::state::vital_ids(events);
+    events
+        .iter()
+        .filter(|e| e.event_type != EventType::Occupation && !vitals.contains(&Some(e.id)))
+        .cloned()
+        .collect()
 }
 
 /// The person's loaded events `keep` retains.
@@ -198,6 +224,8 @@ struct ProfessionDraft {
     notes: Signal<String>,
     source: Signal<String>,
     error: Signal<Option<String>>,
+    /// A create is on its way: a second click would add a second row.
+    busy: Signal<bool>,
 }
 
 impl ProfessionDraft {
@@ -209,6 +237,7 @@ impl ProfessionDraft {
             notes: use_signal(String::new),
             source: use_signal(String::new),
             error: use_signal(|| None::<String>),
+            busy: use_signal(|| false),
         }
     }
 
@@ -225,54 +254,66 @@ impl ProfessionDraft {
     fn create(self, scope: FormScope, api: ApiClient, mut show: Signal<bool>) {
         let FormScope { i18n, tid, pid, .. } = scope;
         let mut error = self.error;
+        let mut busy = self.busy;
+        if *busy.peek() {
+            return;
+        }
         let label = (self.label)().trim().to_string();
         let parts = (self.parts)();
         let place_str = (self.place_id)();
         let notes = (self.notes)().trim().to_string();
         let source = (self.source)();
+        busy.set(true);
         spawn(async move {
-            if label.is_empty() {
-                error.set(Some(i18n.t("person_form.profession_required")));
-                return;
-            }
-            if let Some(key) = parts.validate() {
-                error.set(Some(i18n.t(key)));
-                return;
-            }
-            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await
-            {
-                Ok(place_id) => place_id,
-                Err(e) => {
-                    error.set(Some(e.message(&i18n)));
+            async {
+                if label.is_empty() {
+                    error.set(Some(i18n.t("person_form.profession_required")));
                     return;
                 }
-            };
-            let body = create_event_body(
-                EventType::Occupation,
-                &parts,
-                place_id,
-                EventOwner::Person(pid),
-                opt_str(&label),
-                EventExtras::default(),
-            );
-            match api.create_event(tid, &body).await {
-                Ok(new_event) => {
-                    let _ = save_notes_source(
-                        &api,
-                        tid,
-                        Some(pid),
-                        Some(new_event.id),
-                        &notes,
-                        &source,
-                        &NotesSource::default(),
-                    )
-                    .await;
-                    show.set(false);
-                    self.clear();
-                    scope.landed();
+                if let Some(key) = parts.validate() {
+                    error.set(Some(i18n.t(key)));
+                    return;
                 }
-                Err(e) => error.set(Some(e.message(&i18n))),
+                let place_id =
+                    match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await {
+                        Ok(place_id) => place_id,
+                        Err(e) => {
+                            error.set(Some(e.message(&i18n)));
+                            return;
+                        }
+                    };
+                let body = create_event_body(
+                    EventType::Occupation,
+                    &parts,
+                    place_id,
+                    EventOwner::Person(pid),
+                    opt_str(&label),
+                    EventExtras::default(),
+                );
+                match api.create_event(tid, &body).await {
+                    Ok(new_event) => {
+                        let notes_saved = save_notes_source(
+                            &api,
+                            tid,
+                            Some(pid),
+                            Some(new_event.id),
+                            &notes,
+                            &source,
+                            &NotesSource::default(),
+                        )
+                        .await;
+                        show.set(false);
+                        self.clear();
+                        scope.landed();
+                        if let Err(e) = notes_saved {
+                            scope.notes_not_saved(&e);
+                        }
+                    }
+                    Err(e) => error.set(Some(e.message(&i18n))),
+                }
             }
+            .await;
+            busy.set(false);
         });
     }
 }
@@ -332,6 +373,7 @@ pub(super) fn ProfessionsBlock(
                     button {
                         class: "pf-confirm-btn",
                         r#type: "button",
+                        disabled: (draft.busy)(),
                         onclick: on_create,
                         {i18n.t("person.create_profession")}
                     }
@@ -519,22 +561,28 @@ pub(super) fn InformationBlock(
     let mut form_value = use_signal(String::new);
     let mut form_particle_override = use_signal(|| None::<String>);
     let mut form_error = use_signal(|| None::<String>);
+    // A create is on its way: a second click would add the name twice.
+    let mut form_busy = use_signal(|| false);
     let edit = NameEdit::use_new();
 
     let on_create = {
         let api = api.clone();
         move |_| {
+            if *form_busy.peek() {
+                return;
+            }
             let api = api.clone();
             let value = form_value().trim().to_string();
             let info_type = form_type();
             let birth_surname = birth_surname().trim().to_string();
             let particle_override = form_particle_override();
             let birth_override = birth_particle_override();
+            if value.is_empty() {
+                form_error.set(Some(i18n.t("person_form.information_value_required")));
+                return;
+            }
+            form_busy.set(true);
             spawn(async move {
-                if value.is_empty() {
-                    form_error.set(Some(i18n.t("person_form.information_value_required")));
-                    return;
-                }
                 let body = build_information_body(
                     &info_type,
                     &value,
@@ -553,6 +601,7 @@ pub(super) fn InformationBlock(
                     }
                     Err(e) => form_error.set(Some(e.message(&i18n))),
                 }
+                form_busy.set(false);
             });
         }
     };
@@ -933,6 +982,8 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
     let mut form_text = use_signal(String::new);
     let mut form_confidential = use_signal(|| false);
     let mut form_error = use_signal(|| None::<String>);
+    // A create is on its way: a second click would add the note twice.
+    let mut busy = use_signal(|| false);
     // A note's confidentiality is set by whom may change it, where the tree
     // has other viewers.
     let privacy_edit = use_can(Permission::PrivacyEdit);
@@ -941,14 +992,18 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
     let on_create = {
         let api = api.clone();
         move |_| {
+            if *busy.peek() {
+                return;
+            }
             let api = api.clone();
             let text = form_text().trim().to_string();
             let confidential = form_confidential();
+            if text.is_empty() {
+                form_error.set(Some(i18n.t("person_form.note_required")));
+                return;
+            }
+            busy.set(true);
             spawn(async move {
-                if text.is_empty() {
-                    form_error.set(Some(i18n.t("person_form.note_required")));
-                    return;
-                }
                 let body = CreateNoteBody {
                     media_id: None,
                     repository_id: None,
@@ -969,6 +1024,7 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
                     }
                     Err(e) => form_error.set(Some(e.message(&i18n))),
                 }
+                busy.set(false);
             });
         }
     };
@@ -992,6 +1048,7 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
             button {
                 class: "pf-confirm-btn",
                 r#type: "button",
+                disabled: busy(),
                 onclick: on_create,
                 {i18n.t("person.create_note")}
             }
@@ -1031,6 +1088,8 @@ struct EventDraft {
     notes: Signal<String>,
     source: Signal<String>,
     error: Signal<Option<String>>,
+    /// A create is on its way: a second click would add a second event.
+    busy: Signal<bool>,
 }
 
 impl EventDraft {
@@ -1047,6 +1106,7 @@ impl EventDraft {
             notes: use_signal(String::new),
             source: use_signal(String::new),
             error: use_signal(|| None::<String>),
+            busy: use_signal(|| false),
         }
     }
 
@@ -1068,6 +1128,10 @@ impl EventDraft {
     fn create(self, scope: FormScope, api: ApiClient, mut show: Signal<bool>) {
         let FormScope { i18n, tid, pid, .. } = scope;
         let mut error = self.error;
+        let mut busy = self.busy;
+        if *busy.peek() {
+            return;
+        }
         let event_type = (self.event_type)();
         let parts = (self.parts)();
         let place_str = (self.place_id)();
@@ -1075,52 +1139,60 @@ impl EventDraft {
         let extras = EventExtras::from_form(&(self.cause)(), &(self.age)(), &(self.agency)());
         let notes = (self.notes)().trim().to_string();
         let source = (self.source)();
+        busy.set(true);
         spawn(async move {
-            if let Some(key) = parts.validate() {
-                error.set(Some(i18n.t(key)));
-                return;
-            }
-            let extras = match extras {
-                Ok(extras) => extras,
-                Err(key) => {
+            async {
+                if let Some(key) = parts.validate() {
                     error.set(Some(i18n.t(key)));
                     return;
                 }
-            };
-            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await
-            {
-                Ok(place_id) => place_id,
-                Err(e) => {
-                    error.set(Some(e.message(&i18n)));
-                    return;
+                let extras = match extras {
+                    Ok(extras) => extras,
+                    Err(key) => {
+                        error.set(Some(i18n.t(key)));
+                        return;
+                    }
+                };
+                let place_id =
+                    match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await {
+                        Ok(place_id) => place_id,
+                        Err(e) => {
+                            error.set(Some(e.message(&i18n)));
+                            return;
+                        }
+                    };
+                let body = create_event_body(
+                    event_type,
+                    &parts,
+                    place_id,
+                    EventOwner::Person(pid),
+                    opt_str(&desc),
+                    extras,
+                );
+                match api.create_event(tid, &body).await {
+                    Ok(new_event) => {
+                        let notes_saved = save_notes_source(
+                            &api,
+                            tid,
+                            Some(pid),
+                            Some(new_event.id),
+                            &notes,
+                            &source,
+                            &NotesSource::default(),
+                        )
+                        .await;
+                        show.set(false);
+                        self.clear();
+                        scope.landed();
+                        if let Err(e) = notes_saved {
+                            scope.notes_not_saved(&e);
+                        }
+                    }
+                    Err(e) => error.set(Some(e.message(&i18n))),
                 }
-            };
-            let body = create_event_body(
-                event_type,
-                &parts,
-                place_id,
-                EventOwner::Person(pid),
-                opt_str(&desc),
-                extras,
-            );
-            match api.create_event(tid, &body).await {
-                Ok(new_event) => {
-                    let _ = save_notes_source(
-                        &api,
-                        tid,
-                        Some(pid),
-                        Some(new_event.id),
-                        &notes,
-                        &source,
-                        &NotesSource::default(),
-                    )
-                    .await;
-                    show.set(false);
-                    self.clear();
-                    scope.landed();
-                }
-                Err(e) => error.set(Some(e.message(&i18n))),
             }
+            .await;
+            busy.set(false);
         });
     }
 }
@@ -1146,12 +1218,10 @@ pub(super) fn OtherEventsSection(
         mut description,
         ..
     } = draft;
-    let other_events = owner_events(&events, |t| {
-        !matches!(
-            t,
-            EventType::Birth | EventType::Death | EventType::Occupation
-        )
-    });
+    let other_events = match &*events.read() {
+        Some(Ok(events)) => other_events(events),
+        _ => Vec::new(),
+    };
     let place_options = place_options(&places);
     let on_create = {
         let api = api.clone();
@@ -1216,6 +1286,7 @@ pub(super) fn OtherEventsSection(
                     button {
                         class: "pf-confirm-btn",
                         r#type: "button",
+                        disabled: (draft.busy)(),
                         onclick: on_create,
                         {i18n.t("person.create_event")}
                     }
@@ -1280,6 +1351,58 @@ pub(super) fn OtherEventsSection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn event(n: u128, event_type: EventType) -> CoreEvent {
+        let now = chrono::Utc::now();
+        CoreEvent {
+            classification: None,
+            id: Uuid::from_u128(n),
+            tree_id: Uuid::nil(),
+            event_type,
+            date_value: None,
+            date_sort: None,
+            date_qualifier: oxidgene_core::DateQualifier::Exact,
+            date_value2: None,
+            calendar: oxidgene_core::Calendar::Gregorian,
+            cause: None,
+            age: None,
+            agency: None,
+            spouse_ages: Vec::new(),
+            place_id: None,
+            person_id: None,
+            family_id: None,
+            related_family_id: None,
+            description: None,
+            tags: Vec::new(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    /// With two births, the form edited the date of the last one and the
+    /// notes of the first, and hid the other from every list. Now the first
+    /// of each is the one edited, wholly, and the other is listed.
+    #[test]
+    fn a_second_birth_or_death_is_listed_with_the_other_events() {
+        let events = [
+            event(1, EventType::Birth),
+            event(2, EventType::Occupation),
+            event(3, EventType::Birth),
+            event(4, EventType::Death),
+            event(5, EventType::Baptism),
+            event(6, EventType::Death),
+        ];
+        assert_eq!(
+            super::super::state::vital_ids(&events),
+            [Some(Uuid::from_u128(1)), Some(Uuid::from_u128(4))]
+        );
+        let listed: Vec<Uuid> = other_events(&events).iter().map(|e| e.id).collect();
+        assert_eq!(
+            listed,
+            [Uuid::from_u128(3), Uuid::from_u128(5), Uuid::from_u128(6)]
+        );
+    }
 
     #[test]
     fn a_place_resolves_to_its_name_or_to_nothing() {

@@ -9,10 +9,12 @@ use uuid::Uuid;
 
 use super::sections::VitalDraft;
 use super::{
-    NewPerson, NotesSource, PersonFormCreateContext, load_notes_source, override_for_stored,
+    NewPerson, NotesSource, PersonFormCreateContext, Written, load_notes_source,
+    override_for_stored, without_notes,
 };
 use crate::api::{ApiClient, ApiError, PersonDetail};
 use crate::components::date_input::DateParts;
+use crate::i18n::I18n;
 use crate::ui_observability::use_ui_resource;
 
 /// The fields the footer Save writes: the person's sex and privacy, its
@@ -36,6 +38,11 @@ pub(super) struct HeldFields {
     pub source: Signal<String>,
     /// The source stored, which the Save reconciles against.
     pub source_stored: Signal<NotesSource>,
+    /// Create mode: the person an earlier Create created before a later
+    /// step failed, which the next one goes on with.
+    pub created: Signal<Option<Uuid>>,
+    /// Create mode: the person is linked as the parent the form adds.
+    pub linked: Signal<bool>,
 }
 
 impl HeldFields {
@@ -63,7 +70,48 @@ impl HeldFields {
             death: VitalDraft::use_new(),
             source: use_signal(String::new),
             source_stored: use_signal(NotesSource::default),
+            created: use_signal(|| None::<Uuid>),
+            linked: use_signal(|| false),
         }
+    }
+
+    /// What is stored of the records the footer Save writes, as a save
+    /// starts from.
+    pub(super) fn written(&self) -> Written {
+        let vital = |draft: VitalDraft| (*draft.event_id.peek(), draft.stored.peek().clone());
+        Written {
+            person_id: *self.created.peek(),
+            birth_name_id: *self.birth_name_id.peek(),
+            vitals: [vital(self.birth), vital(self.death)],
+            source: without_notes(self.source_stored.peek().clone()),
+            linked: *self.linked.peek(),
+        }
+    }
+
+    /// Keeps what a save wrote, whether it went through or failed halfway:
+    /// the next save updates those records rather than creating them again.
+    pub(super) fn record(&self, written: Written) {
+        let Self {
+            mut created,
+            mut birth_name_id,
+            mut source_stored,
+            mut linked,
+            ..
+        } = *self;
+        let [birth, death] = written.vitals;
+        for (draft, (id, stored)) in [(self.birth, birth), (self.death, death)] {
+            let VitalDraft {
+                mut event_id,
+                stored: mut held,
+                ..
+            } = draft;
+            event_id.set(id);
+            held.set(stored);
+        }
+        created.set(written.person_id);
+        birth_name_id.set(written.birth_name_id);
+        source_stored.set(written.source);
+        linked.set(written.linked);
     }
 
     /// What the form holds now.
@@ -78,6 +126,7 @@ impl HeldFields {
         };
         NewPerson {
             sex: (self.sex)(),
+            privacy: (self.privacy)(),
             given: (self.given)().trim().to_string(),
             surname: (self.surname)().trim().to_string(),
             particle_override: (self.particle_override)(),
@@ -101,8 +150,26 @@ pub(super) struct FormLoads {
     pub places: Resource<Result<Vec<Place>, ApiError>>,
     pub notes: Resource<Result<Vec<CoreNote>, ApiError>>,
     /// The notes and source of the birth, then of the death.
-    pub vital_sources: Resource<(NotesSource, NotesSource)>,
-    pub person_source: Resource<NotesSource>,
+    pub vital_sources: Resource<Result<(NotesSource, NotesSource), ApiError>>,
+    pub person_source: Resource<Result<NotesSource, ApiError>>,
+}
+
+impl FormLoads {
+    /// Why a load the footer Save depends on failed, if one did: the Save
+    /// is then refused, as it would write defaults over what is stored.
+    pub(super) fn save_blocker(&self, i18n: &I18n) -> Option<String> {
+        fn error<T>(resource: &Resource<Result<T, ApiError>>, i18n: &I18n) -> Option<String> {
+            match &*resource.read() {
+                Some(Err(e)) => Some(e.message(i18n)),
+                _ => None,
+            }
+        }
+        error(&self.person, i18n)
+            .or_else(|| error(&self.names, i18n))
+            .or_else(|| error(&self.events, i18n))
+            .or_else(|| error(&self.vital_sources, i18n))
+            .or_else(|| error(&self.person_source, i18n))
+    }
 }
 
 /// The person form's loads, read again whenever `refresh` changes.
@@ -185,7 +252,7 @@ pub(super) fn use_form_data(
             async move {
                 match stored() {
                     Some(pid) => load_vital_sources(&api, tid, pid).await,
-                    None => Default::default(),
+                    None => Ok(Default::default()),
                 }
             }
         }
@@ -197,7 +264,7 @@ pub(super) fn use_form_data(
             async move {
                 match stored() {
                     Some(pid) => load_notes_source(&api, tid, Some(pid), None).await,
-                    None => NotesSource::default(),
+                    None => Ok(NotesSource::default()),
                 }
             }
         }
@@ -217,25 +284,32 @@ pub(super) fn use_form_data(
 /// are read again here (the GET is cached) so the ids loaded against are
 /// always the ones just seen, rather than a signal that may not have caught
 /// up.
-async fn load_vital_sources(api: &ApiClient, tid: Uuid, pid: Uuid) -> (NotesSource, NotesSource) {
-    let events = api
-        .list_events(tid, Some(pid), None)
-        .await
-        .unwrap_or_default();
-    let of = |event_type: EventType| {
+async fn load_vital_sources(
+    api: &ApiClient,
+    tid: Uuid,
+    pid: Uuid,
+) -> Result<(NotesSource, NotesSource), ApiError> {
+    let events = api.list_events(tid, Some(pid), None).await?;
+    let [birth, death] = vital_ids(&events);
+    let load = |event_id: Option<Uuid>| async move {
+        match event_id {
+            Some(eid) => load_notes_source(api, tid, Some(pid), Some(eid)).await,
+            None => Ok(NotesSource::default()),
+        }
+    };
+    Ok((load(birth).await?, load(death).await?))
+}
+
+/// The birth and the death the form edits among `events`: the first of
+/// each, the same one for its date, its place, its notes and its source.
+/// Any other is listed with the other events.
+pub(super) fn vital_ids(events: &[CoreEvent]) -> [Option<Uuid>; 2] {
+    [EventType::Birth, EventType::Death].map(|event_type| {
         events
             .iter()
             .find(|event| event.event_type == event_type)
             .map(|event| event.id)
-    };
-    let (birth, death) = (of(EventType::Birth), of(EventType::Death));
-    let load = |event_id: Option<Uuid>| async move {
-        match event_id {
-            Some(eid) => load_notes_source(api, tid, Some(pid), Some(eid)).await,
-            None => NotesSource::default(),
-        }
-    };
-    (load(birth).await, load(death).await)
+    })
 }
 
 /// Fills the held fields from what is stored, once each.
@@ -246,7 +320,15 @@ async fn load_vital_sources(api: &ApiClient, tid: Uuid, pid: Uuid) -> (NotesSour
 ///
 /// A person being created has nothing stored to seed from; its sources are
 /// left as the user types them.
-pub(super) fn use_seeded_fields(data: FormLoads, fields: HeldFields, is_create: bool) {
+///
+/// Returns whether every field the footer Save writes holds what is stored:
+/// until then, the Save would write the fields' defaults — sex unknown,
+/// privacy following the tree — over the person.
+pub(super) fn use_seeded_fields(
+    data: FormLoads,
+    fields: HeldFields,
+    is_create: bool,
+) -> Memo<bool> {
     let mut person_seeded = use_signal(|| false);
     use_effect(move || {
         if let Some(Ok(Some(person))) = &*data.person.read()
@@ -275,7 +357,7 @@ pub(super) fn use_seeded_fields(data: FormLoads, fields: HeldFields, is_create: 
 
     let mut sources_seeded = use_signal(|| false);
     use_effect(move || {
-        if let (Some((birth, death)), Some(person)) =
+        if let (Some(Ok((birth, death))), Some(Ok(person))) =
             (&*data.vital_sources.read(), &*data.person_source.read())
             && !is_create
             && !*sources_seeded.peek()
@@ -294,15 +376,21 @@ pub(super) fn use_seeded_fields(data: FormLoads, fields: HeldFields, is_create: 
             name_seeded.set(true);
         }
     });
+
+    use_memo(move || {
+        is_create || (person_seeded() && vitals_seeded() && name_seeded() && sources_seeded())
+    })
 }
 
-/// The stored birth and death: their ids, dates and places.
+/// The stored birth and death: their ids, dates and places — the first of
+/// each, as [`vital_ids`] picks them.
 fn seed_vitals(events: &[CoreEvent], fields: HeldFields) {
-    for ev in events {
-        let draft = match ev.event_type {
-            EventType::Birth => fields.birth,
-            EventType::Death => fields.death,
-            _ => continue,
+    for (draft, id) in [fields.birth, fields.death]
+        .into_iter()
+        .zip(vital_ids(events))
+    {
+        let Some(ev) = id.and_then(|id| events.iter().find(|event| event.id == id)) else {
+            continue;
         };
         let VitalDraft {
             mut event_id,

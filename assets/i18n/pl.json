@@ -8240,6 +8240,7 @@
     "person_form.cause": "Przyczyna",
     "person_form.civil": "Cywilne",
     "person_form.create_failed": "Nie udało się utworzyć osoby",
+    "person_form.notes_source_not_saved": "Wydarzenie zostało dodane, ale bez notatek i źródła ({error}). Otwórz je, aby dodać je ponownie.",
     "person_form.date": "Data",
     "person_form.date2_label_between": "i",
     "person_form.date2_label_or": "lub",

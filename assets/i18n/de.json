@@ -8125,6 +8125,7 @@
     "person_form.cause": "Ursache",
     "person_form.civil": "Standesamtlich",
     "person_form.create_failed": "Person konnte nicht erstellt werden",
+    "person_form.notes_source_not_saved": "Das Ereignis wurde hinzugefügt, nicht aber seine Notizen oder seine Quelle ({error}). Öffnen Sie es, um sie erneut hinzuzufügen.",
     "person_form.date": "Datum",
     "person_form.date2_label_between": "und",
     "person_form.date2_label_or": "oder",

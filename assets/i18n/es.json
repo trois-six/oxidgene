@@ -8125,6 +8125,7 @@
     "person_form.cause": "Causa",
     "person_form.civil": "Civil",
     "person_form.create_failed": "No se pudo crear la persona",
+    "person_form.notes_source_not_saved": "El evento se añadió, pero no sus notas ni su fuente ({error}). Ábralo para volver a añadirlas.",
     "person_form.date": "Fecha",
     "person_form.date2_label_between": "y",
     "person_form.date2_label_or": "o",

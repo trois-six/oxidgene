@@ -8125,6 +8125,7 @@
     "person_form.cause": "Oorzaak",
     "person_form.civil": "Burgerlijk",
     "person_form.create_failed": "Persoon aanmaken mislukt",
+    "person_form.notes_source_not_saved": "De gebeurtenis is toegevoegd, maar niet de notities of de bron ({error}). Open haar om ze opnieuw toe te voegen.",
     "person_form.date": "Datum",
     "person_form.date2_label_between": "en",
     "person_form.date2_label_or": "of",

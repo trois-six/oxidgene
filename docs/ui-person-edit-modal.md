@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T20:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 ---
 
 
@@ -328,21 +328,18 @@ Section divider label: "Death".
 
 ## 7. Section: Privacy
 
-A single selector displayed below the Death section.
-
-This selector records future visibility intent only. Until authentication and
-authorization land in EPIC G, choosing `private` does not hide the person from
-the UI, API, search, export, or media access. The interface must state this
-limitation beside the selector and must not present the setting as protection
-already in effect.
+A single selector displayed below the Death section, in both modes, to
+whom may change it (`privacy_edit`). It is enforced as
+[Privacy §3](privacy.md#3-record-privacy) specifies; a person created with
+another choice than `default` is created with it.
 
 **Options** (radio group):
 
 | Value | Label | Description |
 |---|---|---|
-| `default` | Default | Records the tree-level privacy intent |
-| `public` | Public | Records an explicit public override |
-| `private` | Private | Records an explicit private override |
+| `default` | Default | Follows the tree's default privacy |
+| `public` | Public | An explicit public override |
+| `private` | Private | An explicit private override |
 
 ---
 
@@ -567,10 +564,23 @@ Civil Status section lists the matching persons:
 ## 13. Validation & Save Behavior
 
 - The family name and the given names are required; every other field is optional. Dates must be valid (§5). A failed check shows its message above the footer and saves nothing
-- The **Create / Save** button is always active
+- The **Create** button is active at once. The **Save** button waits until
+  every field it writes holds what is stored — the person's sex and privacy,
+  the birth name, the birth and death with their notes and sources, the
+  person's own source — and stays disabled, with the error above the footer,
+  when one of those reads failed: it would write the fields' defaults over
+  the person. Both are disabled while a save, and the homonym lookup after
+  it, are on their way
+- The birth and the death the form edits are the person's first of each; a
+  second one (conflicting sources, often, in an imported tree) is listed in
+  **Other Events**
 - On save:
-  1. The person is created (create mode) or updated (edit mode) via the API
-  2. In create mode: the relationship link is created (FamilySpouse, FamilyChild, etc.) if applicable
+  1. The person is created (create mode) or updated (edit mode) via the API,
+     then each record the footer holds is written. A save failing halfway
+     keeps the form open with the records already written remembered: the
+     next one updates them — the person created included — rather than
+     creating them again
+  2. In create mode: the relationship link is created (FamilySpouse, FamilyChild, etc.) if applicable; a family founded for it and left without the new parent is deleted
   3. The saved person's homonyms are read; when there are any, the homonym check below runs before the modal closes
   4. The modal closes
   5. The tree layout is recalculated

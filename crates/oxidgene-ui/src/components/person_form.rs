@@ -102,6 +102,10 @@ impl ParentLink {
 
     /// Make `person_id` the child's father or mother, founding the parents'
     /// family first when there is none. The error is the reader's.
+    ///
+    /// A family founded here and left without its parent — the child's or
+    /// the spouse's link failing — is deleted, best effort: it would hold
+    /// the child alone, and the next attempt founds another.
     pub(crate) async fn link(
         self,
         api: &ApiClient,
@@ -109,8 +113,8 @@ impl ParentLink {
         person_id: Uuid,
         i18n: &crate::i18n::I18n,
     ) -> Result<(), String> {
-        let fid = match self.family_id {
-            Some(fid) => fid,
+        let (fid, founded) = match self.family_id {
+            Some(fid) => (fid, false),
             None => {
                 let Ok(family) = api.create_family(tid).await else {
                     return Err(i18n.t("person_form.create_failed"));
@@ -126,7 +130,7 @@ impl ParentLink {
                     let _ = api.delete_family(tid, family.id).await;
                     return Err(i18n.t("person_form.create_failed"));
                 }
-                family.id
+                (family.id, true)
             }
         };
         let spouse_body = AddSpouseBody {
@@ -138,10 +142,15 @@ impl ParentLink {
             },
             sort_order: 0,
         };
-        api.add_spouse(tid, fid, &spouse_body)
-            .await
-            .map(drop)
-            .map_err(|e| e.message(i18n))
+        match api.add_spouse(tid, fid, &spouse_body).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if founded {
+                    let _ = api.delete_family(tid, fid).await;
+                }
+                Err(e.message(i18n))
+            }
+        }
     }
 }
 
@@ -296,7 +305,7 @@ fn PersonFormBody(
 
     let fields = HeldFields::use_new(props.create_context.as_ref());
     let data = use_form_data(&api, tid, pid, is_create, refresh);
-    use_seeded_fields(data, fields, is_create);
+    let seeded = use_seeded_fields(data, fields, is_create);
 
     let save = SaveState {
         saving: use_signal(|| false),
@@ -316,13 +325,12 @@ fn PersonFormBody(
             let (Some(context), Some(on_created)) = (context.clone(), on_created) else {
                 return;
             };
-            let new = fields.held();
             spawn(promote_person(
                 api.clone(),
                 i18n,
                 tid,
                 context,
-                new,
+                fields,
                 save,
                 move |person_id| {
                     on_saved.call(());
@@ -355,7 +363,12 @@ fn PersonFormBody(
     let display_name = display_name(&i18n, is_create, &data.names);
     let body = form_body(&props, scope, fields, data, folds, opening, has_changes);
     let on_save = footer_save(api.clone(), &props, scope, fields, save);
-    let footer = render_footer(scope, save, props.embedded, try_close, on_save);
+    let blocker = data.save_blocker(&i18n);
+    let gate = SaveGate {
+        ready: seeded() && blocker.is_none(),
+        blocker,
+    };
+    let footer = render_footer(scope, save, gate, props.embedded, try_close, on_save);
     let homonym_dialog = render_homonym_dialog(&props, save.homonym_check);
 
     if props.embedded {
@@ -455,22 +468,30 @@ async fn promote_person(
     i18n: crate::i18n::I18n,
     tid: Uuid,
     context: PersonFormCreateContext,
-    new: NewPerson,
+    fields: HeldFields,
     save: SaveState,
     created: impl FnOnce(Uuid),
 ) {
+    let new = fields.held();
     let SaveState {
         mut saving,
         mut error,
         ..
     } = save;
+    // A Create or another add button already creating the person.
+    if *saving.peek() {
+        return;
+    }
     if let Some(key) = new.invalid() {
         error.set(Some(i18n.t(key)));
         return;
     }
     saving.set(true);
     error.set(None);
-    match create_person(&api, tid, &i18n, &context, &new).await {
+    let mut written = fields.written();
+    let result = create_person(&api, tid, &i18n, &context, &new, &mut written).await;
+    fields.record(written);
+    match result {
         Ok(person_id) => created(person_id),
         Err(message) => {
             error.set(Some(message));
@@ -494,38 +515,48 @@ fn footer_save(
         let api = api.clone();
         let context = context.clone();
         let new = fields.held();
-        let privacy = (fields.privacy)();
         let SaveState {
             mut saving,
             mut error,
             mut homonym_check,
         } = save;
         let FormScope { i18n, tid, pid, .. } = scope;
+        // Marked before the request leaves: two clicks in a row must not
+        // both reach it.
+        if *saving.peek() {
+            return;
+        }
+        if let Some(key) = new.invalid() {
+            error.set(Some(i18n.t(key)));
+            return;
+        }
+        saving.set(true);
+        error.set(None);
         spawn(async move {
-            if let Some(key) = new.invalid() {
-                error.set(Some(i18n.t(key)));
-                return;
-            }
-            saving.set(true);
-            error.set(None);
+            let mut written = fields.written();
             let saved = match &context {
-                Some(context) => create_person(&api, tid, &i18n, context, &new).await,
-                None => save_person_edits(&api, tid, pid, &i18n, &new, privacy, fields)
+                Some(context) => create_person(&api, tid, &i18n, context, &new, &mut written).await,
+                None => save_person_edits(&api, tid, pid, &i18n, &new, &mut written)
                     .await
                     .map(|()| pid),
             };
-            saving.set(false);
+            fields.record(written);
             let saved_pid = match saved {
                 Ok(saved_pid) => saved_pid,
                 Err(message) => {
                     error.set(Some(message));
+                    saving.set(false);
                     return;
                 }
             };
             // A name somebody else in the tree already bears raises the
             // question before the form closes. A failed lookup is not a
-            // failed save, so it closes as it always did.
-            if let Ok(homonyms) = api.person_homonyms(tid, saved_pid).await
+            // failed save, so it closes as it always did. The button stays
+            // disabled meanwhile: a second click would create another
+            // person.
+            let homonyms = api.person_homonyms(tid, saved_pid).await;
+            saving.set(false);
+            if let Ok(homonyms) = homonyms
                 && !homonyms.is_empty()
             {
                 homonym_check.set(Some(HomonymCheck {
@@ -773,10 +804,20 @@ fn PersonDeletion(scope: FormScope, display_name: String, on_close: EventHandler
     }
 }
 
+/// Whether the footer Save may run: not before every field it writes holds
+/// what is stored, nor when a load failed — it would write the fields'
+/// defaults over the person.
+struct SaveGate {
+    ready: bool,
+    /// The failed load, said in the footer.
+    blocker: Option<String>,
+}
+
 /// The fixed footer: the Save error, Cancel, and Save or Create.
 fn render_footer(
     scope: FormScope,
     save: SaveState,
+    gate: SaveGate,
     embedded: bool,
     mut try_close: impl FnMut(()) + 'static,
     on_save: impl FnMut(Event<MouseData>) + 'static,
@@ -795,6 +836,9 @@ fn render_footer(
             if let Some(err) = (save.error)() {
                 div { class: "error-msg", "{err}" }
             }
+            if let Some(err) = gate.blocker {
+                div { class: "error-msg", role: "alert", "{err}" }
+            }
             div { class: "pf-footer-right",
                 if !embedded {
                     button {
@@ -807,7 +851,7 @@ fn render_footer(
                 button {
                     class: "btn btn-primary",
                     r#type: "button",
-                    disabled: saving,
+                    disabled: saving || !gate.ready,
                     onclick: on_save,
                     "{label}"
                 }
@@ -1381,6 +1425,7 @@ pub(crate) fn update_event_body(
 #[derive(Clone)]
 struct NewPerson {
     sex: Sex,
+    privacy: Privacy,
     given: String,
     surname: String,
     particle_override: Option<String>,
@@ -1400,69 +1445,88 @@ impl NewPerson {
     }
 }
 
-/// Creates the person the create form holds: the person, its birth name, its
-/// birth and death with their notes and source, its own source, and the link
-/// the form was opened for. Returns the new person's id.
+/// What a save has written so far: the records the next step, or the next
+/// attempt after a failure, updates rather than creates again. A save is a
+/// sequence of requests, and one failing halfway leaves the form open with
+/// the earlier ones landed; read back into the form's signals after every
+/// attempt, this keeps a retry from duplicating them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Written {
+    /// The person the create form created.
+    pub person_id: Option<Uuid>,
+    /// The birth name.
+    pub birth_name_id: Option<Uuid>,
+    /// The birth, then the death: the event and its notes and source as
+    /// stored.
+    pub vitals: [(Option<Uuid>, NotesSource); 2],
+    /// The person's own source as stored, without its notes (the list under
+    /// Civil Status saves those).
+    pub source: NotesSource,
+    /// The create form linked the person as the parent it was opened for.
+    pub linked: bool,
+}
+
+/// `stored` without its notes: the person's own notes are the list under
+/// Civil Status, each row saved on its own, so the footer Save must not
+/// touch them.
+pub(super) fn without_notes(stored: NotesSource) -> NotesSource {
+    NotesSource {
+        notes: String::new(),
+        note_id: None,
+        ..stored
+    }
+}
+
+/// Creates the person the create form holds: the person with its privacy,
+/// its birth name, its birth and death with their notes and source, its own
+/// source, and the link the form was opened for. Returns the new person's
+/// id. A retry after a failure goes on from `written` — the person it
+/// already created, updated rather than created again.
 async fn create_person(
     api: &ApiClient,
     tree_id: Uuid,
     i18n: &crate::i18n::I18n,
     context: &PersonFormCreateContext,
     new: &NewPerson,
+    written: &mut Written,
 ) -> Result<Uuid, String> {
-    let person = api
-        .create_person(tree_id, &CreatePersonBody { sex: new.sex })
-        .await
-        .map_err(|_| i18n.t("person_form.create_failed"))?;
-    let person_id = person.id;
-
-    let split = resolve_particle(&new.surname, new.particle_override.as_deref());
-    let name = CreatePersonNameBody {
-        name_type: NameType::Birth,
-        given_names: Some(new.given.clone()),
-        surname: Some(split.root),
-        surname_prefix: split.particle,
-        prefix: None,
-        suffix: None,
-        nickname: None,
-        is_primary: true,
-        sort_order: 0,
+    let failed = |e: ApiError| e.message(i18n);
+    let person_id = match written.person_id {
+        Some(person_id) => {
+            let body = UpdatePersonBody {
+                sex: Some(new.sex),
+                privacy: Some(new.privacy),
+            };
+            api.update_person(tree_id, person_id, &body)
+                .await
+                .map_err(failed)?;
+            person_id
+        }
+        None => {
+            let person = api
+                .create_person(tree_id, &CreatePersonBody { sex: new.sex })
+                .await
+                .map_err(|_| i18n.t("person_form.create_failed"))?;
+            written.person_id = Some(person.id);
+            // The privacy chosen: a person is created with the tree's.
+            if new.privacy != Privacy::Default {
+                let body = UpdatePersonBody {
+                    sex: None,
+                    privacy: Some(new.privacy),
+                };
+                api.update_person(tree_id, person.id, &body)
+                    .await
+                    .map_err(failed)?;
+            }
+            person.id
+        }
     };
-    api.create_person_name(tree_id, person_id, &name)
-        .await
-        .map_err(|e| e.message(i18n))?;
-
-    for (event_type, (parts, place, notes, source)) in [
-        (EventType::Birth, &new.birth),
-        (EventType::Death, &new.death),
-    ] {
-        let event = VitalEvent {
-            event_type,
-            existing_id: None,
-            parts,
-            place,
-            notes,
-            source,
-            current: &NotesSource::default(),
-        };
-        save_vital_event(api, tree_id, person_id, i18n.0.reference_code(), event)
-            .await
-            .map_err(|e| e.message(i18n))?;
-    }
-
-    let _ = save_notes_source(
-        api,
-        tree_id,
-        Some(person_id),
-        None,
-        "",
-        &new.source,
-        &NotesSource::default(),
-    )
-    .await;
-
-    if let Some(link) = ParentLink::of(context) {
-        link.link(api, tree_id, person_id, i18n).await?;
+    save_held_records(api, tree_id, person_id, i18n, new, written).await?;
+    if !written.linked {
+        if let Some(link) = ParentLink::of(context) {
+            link.link(api, tree_id, person_id, i18n).await?;
+        }
+        written.linked = true;
     }
     Ok(person_id)
 }
@@ -1476,24 +1540,34 @@ async fn save_person_edits(
     pid: Uuid,
     i18n: &crate::i18n::I18n,
     held: &NewPerson,
-    privacy: Privacy,
-    targets: HeldFields,
+    written: &mut Written,
 ) -> Result<(), String> {
-    let failed = |e: ApiError| e.message(i18n);
-
-    // 1. Sex and privacy.
     let person_body = UpdatePersonBody {
         sex: Some(held.sex),
-        privacy: Some(privacy),
+        privacy: Some(held.privacy),
     };
     api.update_person(tid, pid, &person_body)
         .await
-        .map_err(failed)?;
+        .map_err(|e| e.message(i18n))?;
+    save_held_records(api, tid, pid, i18n, held, written).await
+}
 
-    // 2. Birth name (surname + given names).
+/// Saves the records the footer holds of person `pid` — its birth name, its
+/// birth and death with their notes and source, its own source — over what
+/// `written` says is stored, recording each one as it lands.
+async fn save_held_records(
+    api: &ApiClient,
+    tid: Uuid,
+    pid: Uuid,
+    i18n: &crate::i18n::I18n,
+    held: &NewPerson,
+    written: &mut Written,
+) -> Result<(), String> {
+    let failed = |e: ApiError| e.message(i18n);
+
+    // 1. Birth name (surname + given names).
     let split = resolve_particle(&held.surname, held.particle_override.as_deref());
-    let birth_name_id = *targets.birth_name_id.peek();
-    if let Some(name_id) = birth_name_id {
+    if let Some(name_id) = written.birth_name_id {
         let name_body = UpdatePersonNameBody {
             name_type: None,
             given_names: Some(opt_str(&held.given)),
@@ -1520,51 +1594,45 @@ async fn save_person_edits(
             is_primary: true,
             sort_order: 0,
         };
-        api.create_person_name(tid, pid, &name_body)
+        let name = api
+            .create_person_name(tid, pid, &name_body)
             .await
             .map_err(failed)?;
+        written.birth_name_id = Some(name.id);
     }
 
-    // 3. Birth and death, each with its notes and source.
-    for (event_type, (parts, place, notes, source), draft) in [
-        (EventType::Birth, &held.birth, targets.birth),
-        (EventType::Death, &held.death, targets.death),
-    ] {
-        let current = draft.stored.peek().clone();
+    // 2. Birth and death, each with its notes and source.
+    for ((event_type, (parts, place, notes, source)), (event_id, stored)) in [
+        (EventType::Birth, &held.birth),
+        (EventType::Death, &held.death),
+    ]
+    .into_iter()
+    .zip(written.vitals.iter_mut())
+    {
         let event = VitalEvent {
             event_type,
-            existing_id: *draft.event_id.peek(),
+            existing_id: *event_id,
             parts,
             place,
-            notes,
-            source,
-            current: &current,
         };
-        let stored = save_vital_event(api, tid, pid, i18n.0.reference_code(), event)
+        *event_id = save_vital_event(api, tid, pid, i18n.0.reference_code(), event)
             .await
             .map_err(failed)?;
-        if let Some(stored) = stored {
-            let mut target = draft.stored;
-            target.set(stored);
+        if let Some(eid) = *event_id {
+            *stored = save_notes_source(api, tid, Some(pid), Some(eid), notes, source, stored)
+                .await
+                .map_err(failed)?;
         }
     }
 
-    // 4. The person's own source. Only the source travels with the person:
+    // 3. The person's own source. Only the source travels with the person:
     //    its notes are the list under Civil Status, each row saved on its
     //    own, so this save must not touch them — and keeps them out of the
     //    state it reconciles against.
-    let without_notes = |ns: NotesSource| NotesSource {
-        notes: String::new(),
-        note_id: None,
-        ..ns
-    };
-    let current = without_notes(targets.source_stored.peek().clone());
-    if let Ok(stored) =
-        save_notes_source(api, tid, Some(pid), None, "", &held.source, &current).await
-    {
-        let mut source_stored = targets.source_stored;
-        source_stored.set(without_notes(stored));
-    }
+    let stored = save_notes_source(api, tid, Some(pid), None, "", &held.source, &written.source)
+        .await
+        .map_err(failed)?;
+    written.source = without_notes(stored);
     Ok(())
 }
 
@@ -1573,40 +1641,32 @@ struct VitalEvent<'a> {
     existing_id: Option<Uuid>,
     parts: &'a DateParts,
     place: &'a str,
-    notes: &'a str,
-    source: &'a str,
-    current: &'a NotesSource,
 }
 
-/// Writes a person's birth or death — the two events the modal owns outright
-/// — together with the notes and source hanging off it.
+/// Writes a person's birth or death — the two events the modal owns
+/// outright — and returns its id: the caller then saves the notes and
+/// source hanging off it, and keeps the id at once, so that a later step
+/// failing does not make the next save create the event again.
 ///
 /// Creates the event when the person has none recorded and there is now
 /// something to record, updates it when there is one, and leaves an empty
 /// section alone: notes and a source need an event to hang off, so a person
 /// with no birth at all has nothing to attach them to.
-///
-/// Returns the notes/source state now stored, which the caller must adopt as
-/// its new `current` — saving twice against a stale one would take the
-/// "nothing there yet" branch again and leave a duplicate row behind.
 async fn save_vital_event(
     api: &ApiClient,
     tree_id: Uuid,
     person_id: Uuid,
     lang: &str,
     event: VitalEvent<'_>,
-) -> Result<Option<NotesSource>, ApiError> {
+) -> Result<Option<Uuid>, ApiError> {
     let VitalEvent {
         event_type,
         existing_id,
         parts,
         place,
-        notes,
-        source,
-        current,
     } = event;
     let place_id = resolve_place(api, tree_id, place, lang).await?;
-    let event_id = match existing_id {
+    match existing_id {
         Some(eid) => {
             api.update_event(
                 tree_id,
@@ -1620,9 +1680,9 @@ async fn save_vital_event(
                 ),
             )
             .await?;
-            Some(eid)
+            Ok(Some(eid))
         }
-        None if !parts.is_empty() || place_id.is_some() => Some(
+        None if !parts.is_empty() || place_id.is_some() => Ok(Some(
             api.create_event(
                 tree_id,
                 &create_event_body(
@@ -1636,22 +1696,7 @@ async fn save_vital_event(
             )
             .await?
             .id,
-        ),
-        None => None,
-    };
-
-    match event_id {
-        Some(eid) => save_notes_source(
-            api,
-            tree_id,
-            Some(person_id),
-            Some(eid),
-            notes,
-            source,
-            current,
-        )
-        .await
-        .map(Some),
+        )),
         None => Ok(None),
     }
 }
@@ -1680,6 +1725,47 @@ async fn load_witnesses(
     (witnesses, names)
 }
 
+/// What `load` answers for event `event_id`, loaded again when `tick`
+/// moves and when the event id changes — the default while there is none.
+///
+/// The id is a prop the birth and death sections fill once the events load,
+/// after the first render: read as a signal, so the load runs again when it
+/// arrives, instead of keeping what it answered for no event.
+fn use_event_load<T, F>(
+    event_id: Option<Uuid>,
+    tick: Signal<u32>,
+    mut load: impl FnMut(Uuid) -> F + 'static,
+) -> Resource<T>
+where
+    T: Default + 'static,
+    F: Future<Output = T> + 'static,
+{
+    let event_id = crate::utils::use_synced(event_id);
+    use_ui_resource("event_witnesses", move || {
+        let _tick = tick();
+        let pending = event_id().map(&mut load);
+        async move {
+            match pending {
+                Some(pending) => pending.await,
+                None => T::default(),
+            }
+        }
+    })
+}
+
+/// Says in `error` why `resource` could not be read, once it failed.
+fn use_read_error<T: 'static>(
+    resource: Resource<Result<T, ApiError>>,
+    mut error: Signal<Option<String>>,
+    i18n: crate::i18n::I18n,
+) {
+    use_effect(move || {
+        if let Some(Err(e)) = &*resource.read() {
+            error.set(Some(e.message(&i18n)));
+        }
+    });
+}
+
 /// Witness list + add/remove editor for an event. Each add/remove is
 /// persisted immediately via the API (mirrors the inline per-item saves
 /// used elsewhere in this form), so it's only usable once the event has
@@ -1702,15 +1788,9 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
     let mut error = use_signal(|| None::<String>);
 
     let api_list = api.clone();
-    let witnesses_resource = use_ui_resource("event_witnesses", move || {
+    let witnesses_resource = use_event_load(event_id, refresh_tick, move |event_id| {
         let api = api_list.clone();
-        let _tick = refresh_tick();
-        async move {
-            let Some(event_id) = event_id else {
-                return Default::default();
-            };
-            load_witnesses(&api, tree_id, event_id).await
-        }
+        async move { load_witnesses(&api, tree_id, event_id).await }
     });
 
     let Some(event_id) = event_id else {
@@ -1872,12 +1952,16 @@ async fn resolve_source(
 /// Only ever surfaces the first of each: this editor exposes one notes field
 /// and one source picker per target, so extra rows (imported, or added
 /// through another surface) are left untouched rather than silently merged.
+///
+/// A failed read is an error, not "no note, no source": saved against an
+/// empty state, the form would add a second note or citation beside the
+/// stored ones.
 async fn load_notes_source(
     api: &ApiClient,
     tree_id: Uuid,
     person_id: Option<Uuid>,
     event_id: Option<Uuid>,
-) -> NotesSource {
+) -> Result<NotesSource, ApiError> {
     let (person_filter, event_filter) = match event_id {
         Some(eid) => (None, Some(eid)),
         None => (person_id, None),
@@ -1888,35 +1972,29 @@ async fn load_notes_source(
 
     let note = api
         .list_notes(tree_id, person_filter, event_filter, None, None, None)
-        .await
-        .unwrap_or_default()
+        .await?
         .into_iter()
         .find(|n| !person_level_only || n.event_id.is_none());
     let citation = api
         .list_citations(tree_id, person_filter, event_filter, None, None)
-        .await
-        .unwrap_or_default()
+        .await?
         .into_iter()
         .find(|c| !person_level_only || c.event_id.is_none());
 
     let source_id = citation.as_ref().map(|c| c.source_id);
     let confidence = citation.as_ref().and_then(|c| c.confidence);
     let source_title = match source_id {
-        Some(sid) => api
-            .get_source(tree_id, sid)
-            .await
-            .map(|s| s.title)
-            .unwrap_or_default(),
+        Some(sid) => api.get_source(tree_id, sid).await?.title,
         None => String::new(),
     };
-    NotesSource {
+    Ok(NotesSource {
         notes: note.as_ref().map(|n| n.text.clone()).unwrap_or_default(),
         source_title,
         source_id,
         note_id: note.map(|n| n.id),
         citation_id: citation.map(|c| c.id),
         confidence,
-    }
+    })
 }
 
 /// Persists an edited notes + source pair against its target, reconciling
@@ -2193,8 +2271,11 @@ pub fn EventEditor(
         async move { load_notes_source(&api, tree_id, person_id, Some(event_id)).await }
     });
 
+    // Unread, the notes and source are not offered to a save, which would
+    // add a second note or citation beside the stored ones.
+    use_read_error(resource, error, i18n);
     use_effect(move || {
-        if let Some(ns) = &*resource.read()
+        if let Some(Ok(ns)) = &*resource.read()
             && loaded.peek().is_none()
         {
             notes.set(ns.notes.clone());
@@ -2811,6 +2892,281 @@ mod information_form_tests {
         );
     }
 
+    /// A parent founded a family whose spouse link then failed: the family
+    /// held the child alone, and the next attempt founded another.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_founded_family_whose_spouse_link_fails_is_dropped() {
+        let (listener, address) = crate::api::test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
+        let (tree, family) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let family_json = format!(
+            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deleted_at":null}}"#
+        );
+        let link = ParentLink {
+            child_id: Uuid::from_u128(3),
+            family_id: None,
+            is_father: false,
+        };
+        let responses = [
+            (200, family_json.as_str()),
+            (200, "{}"),
+            (500, r#"{"error":"internal"}"#),
+            (204, ""),
+        ];
+        let (result, requests) = tokio::join!(
+            link.link(&api, tree, Uuid::from_u128(4), &i18n),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            requests,
+            [
+                format!("POST /api/v1/trees/{tree}/families HTTP/1.1"),
+                format!("POST /api/v1/trees/{tree}/families/{family}/children HTTP/1.1"),
+                format!("POST /api/v1/trees/{tree}/families/{family}/spouses HTTP/1.1"),
+                format!("DELETE /api/v1/trees/{tree}/families/{family} HTTP/1.1"),
+            ]
+        );
+    }
+
+    fn person_json(tree: Uuid, person: Uuid) -> String {
+        serde_json::json!({
+            "id": person, "tree_id": tree, "sex": Sex::Female, "privacy": Privacy::Private,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+            "deleted_at": null,
+        })
+        .to_string()
+    }
+
+    fn name_json(person: Uuid, name: Uuid) -> String {
+        serde_json::json!({
+            "id": name, "person_id": person, "name_type": NameType::Birth,
+            "given_names": "Alice", "surname": "Sample", "is_primary": true, "sort_order": 0,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+        })
+        .to_string()
+    }
+
+    fn new_person(birth: DateParts, birth_notes: &str) -> NewPerson {
+        NewPerson {
+            sex: Sex::Female,
+            privacy: Privacy::Private,
+            given: "Alice".into(),
+            surname: "Sample".into(),
+            particle_override: None,
+            birth: (birth, String::new(), birth_notes.into(), String::new()),
+            death: Default::default(),
+            source: String::new(),
+        }
+    }
+
+    /// Creating a person dropped the privacy chosen in the form; and a
+    /// Create retried after a later step failed created a second person.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_created_person_keeps_its_privacy_and_a_retry_creates_no_other() {
+        let (listener, address) = crate::api::test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
+        let (tree, person, name) = (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
+        let new = new_person(DateParts::default(), "");
+        let context = PersonFormCreateContext::Standalone;
+        let mut written = Written::default();
+        let person_body = person_json(tree, person);
+
+        // The name fails: the person exists, with its privacy.
+        let responses = [
+            (201, person_body.as_str()),
+            (200, person_body.as_str()),
+            (500, r#"{"error":"internal"}"#),
+        ];
+        let (result, requests) = tokio::join!(
+            create_person(&api, tree, &i18n, &context, &new, &mut written),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            requests,
+            [
+                format!("POST /api/v1/trees/{tree}/persons HTTP/1.1"),
+                format!("PUT /api/v1/trees/{tree}/persons/{person} HTTP/1.1"),
+                format!("POST /api/v1/trees/{tree}/persons/{person}/names HTTP/1.1"),
+            ]
+        );
+        assert_eq!(written.person_id, Some(person));
+
+        // The retry goes on with that person.
+        let name_body = name_json(person, name);
+        let responses = [(200, person_body.as_str()), (201, name_body.as_str())];
+        let (result, requests) = tokio::join!(
+            create_person(&api, tree, &i18n, &context, &new, &mut written),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert_eq!(result, Ok(person));
+        assert_eq!(
+            requests,
+            [
+                format!("PUT /api/v1/trees/{tree}/persons/{person} HTTP/1.1"),
+                format!("POST /api/v1/trees/{tree}/persons/{person}/names HTTP/1.1"),
+            ]
+        );
+        assert_eq!(written.birth_name_id, Some(name));
+    }
+
+    /// A birth created by a save whose next step failed was forgotten: the
+    /// next save created a second birth.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_birth_saved_before_a_failure_is_updated_on_the_retry() {
+        let (listener, address) = crate::api::test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
+        let (tree, person, name, birth) = (
+            Uuid::from_u128(1),
+            Uuid::from_u128(2),
+            Uuid::from_u128(3),
+            Uuid::from_u128(4),
+        );
+        let parts = DateParts::from_fields(
+            oxidgene_core::Calendar::Gregorian,
+            oxidgene_core::DateQualifier::Exact,
+            Some("1900"),
+            None,
+        );
+        let held = new_person(parts, "A note");
+        let mut written = Written {
+            birth_name_id: Some(name),
+            ..Written::default()
+        };
+        let name_body = name_json(person, name);
+        let now = chrono::Utc::now();
+        let event_body = serde_json::to_string(&CoreEvent {
+            classification: None,
+            id: birth,
+            tree_id: tree,
+            event_type: EventType::Birth,
+            date_value: Some("1900".into()),
+            date_sort: None,
+            date_qualifier: oxidgene_core::DateQualifier::Exact,
+            date_value2: None,
+            calendar: oxidgene_core::Calendar::Gregorian,
+            cause: None,
+            age: None,
+            agency: None,
+            spouse_ages: Vec::new(),
+            place_id: None,
+            person_id: Some(person),
+            family_id: None,
+            related_family_id: None,
+            description: None,
+            tags: Vec::new(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        })
+        .unwrap();
+
+        // The birth's note fails, after the birth was created.
+        let responses = [
+            (200, name_body.as_str()),
+            (201, event_body.as_str()),
+            (500, r#"{"error":"internal"}"#),
+        ];
+        let (result, requests) = tokio::join!(
+            save_held_records(&api, tree, person, &i18n, &held, &mut written),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            requests[1],
+            format!("POST /api/v1/trees/{tree}/events HTTP/1.1")
+        );
+        assert_eq!(written.vitals[0].0, Some(birth));
+
+        // The retry updates that birth.
+        let note_body = serde_json::json!({
+            "id": Uuid::from_u128(5), "tree_id": tree, "text": "A note", "event_id": birth,
+            "created_at": now, "updated_at": now,
+        })
+        .to_string();
+        let responses = [
+            (200, name_body.as_str()),
+            (200, event_body.as_str()),
+            (201, note_body.as_str()),
+        ];
+        let (result, requests) = tokio::join!(
+            save_held_records(&api, tree, person, &i18n, &held, &mut written),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            requests[1],
+            format!("PUT /api/v1/trees/{tree}/events/{birth} HTTP/1.1")
+        );
+        assert_eq!(written.vitals[0].1.note_id, Some(Uuid::from_u128(5)));
+    }
+
+    /// A failed read of the notes passed for "no note": the next save then
+    /// added a second note beside the stored one.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_failed_notes_read_is_an_error_not_an_empty_state() {
+        let (listener, address) = crate::api::test_server::listen().await;
+        let api = ApiClient::new(&address);
+        let (tree, person) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let responses = [(500, r#"{"error":"internal"}"#)];
+        let (loaded, requests) = tokio::join!(
+            load_notes_source(&api, tree, Some(person), None),
+            crate::api::test_server::serve_json(&listener, &responses)
+        );
+        assert!(loaded.is_err());
+        assert_eq!(requests.len(), 1);
+    }
+
+    /// Probe of what the witnesses' load answered, render after render.
+    #[derive(Clone, Default)]
+    struct LoadProbe(std::rc::Rc<std::cell::RefCell<Vec<Option<Option<Uuid>>>>>);
+
+    impl PartialEq for LoadProbe {
+        fn eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[component]
+    fn EventLoadProbe(event_id: Option<Uuid>, probe: LoadProbe) -> Element {
+        let tick = use_signal(|| 0u32);
+        let loaded = use_event_load(event_id, tick, |id| async move { Some(id) });
+        probe.0.borrow_mut().push(*loaded.read());
+        rsx! {}
+    }
+
+    fn event_load_host(probe: LoadProbe) -> Element {
+        let mut event_id = use_signal(|| None::<Uuid>);
+        // The birth's id arrives once the events load, after the first
+        // render, as the birth section's prop.
+        use_effect(move || event_id.set(Some(Uuid::from_u128(9))));
+        rsx! { EventLoadProbe { event_id: event_id(), probe: probe.clone() } }
+    }
+
+    /// The witnesses of a birth or death were loaded once, for no event,
+    /// and stayed empty when the event's id arrived.
+    #[tokio::test]
+    async fn the_witnesses_load_again_once_the_event_is_known() {
+        let probe = LoadProbe::default();
+        let mut dom = VirtualDom::new_with_props(event_load_host, probe.clone());
+        dom.rebuild_in_place();
+        for _ in 0..8 {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work())
+                .await;
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+        let seen = probe.0.borrow();
+        assert_eq!(seen.last(), Some(&Some(Some(Uuid::from_u128(9)))));
+    }
+
     /// Saving an event from its editor writes the cause it shows — set,
     /// changed or cleared — while the shortcuts that do not show one leave
     /// the stored cause alone.
@@ -2911,6 +3267,7 @@ mod information_form_tests {
             })
             .await
             .expect("notes, citations and source must all be requested");
+            let loaded = loaded.expect("every read answered");
             assert_eq!(loaded.notes, if has_note { "Editable note" } else { "" });
             assert_eq!(loaded.note_id, has_note.then_some(note));
             assert_eq!(loaded.citation_id, Some(citation));
