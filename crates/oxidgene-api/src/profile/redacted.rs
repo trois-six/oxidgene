@@ -117,6 +117,25 @@ fn relatives_match(profile: &PersonProfile, filters: &PersonSearchFilters) -> bo
     spouses_ok && father_ok && mother_ok
 }
 
+/// A page of projections as the viewer sees them. The page was read
+/// through the SQL filter of the same rules, so every row should redact to
+/// a profile; one that does not — a person the redaction leaves absent —
+/// is dropped rather than sent unredacted.
+fn redact_page(
+    redaction: &Redaction,
+    mut page: Connection<PersonProfile>,
+) -> Connection<PersonProfile> {
+    page.edges
+        .retain_mut(|edge| match redaction.profile(&edge.node) {
+            Some(profile) => {
+                edge.node = profile;
+                true
+            }
+            None => false,
+        });
+    page
+}
+
 /// A person record as the viewer sees it: `not_found` unless they reach it
 /// by its identifier; a placeholder keeps its sex and privacy only.
 pub fn person_record(
@@ -205,13 +224,8 @@ impl ProfileService {
         }
         self.ensure_materialized(tree_id).await?;
         let unseen = oxidgene_db::repo::Unseen::new(tree_id, redaction.rules());
-        let mut page = PersonDenormRepo::list_page(self.reader(), tree_id, params, unseen).await?;
-        for edge in &mut page.edges {
-            if let Some(profile) = redaction.profile(&edge.node) {
-                edge.node = profile;
-            }
-        }
-        Ok(page)
+        let page = PersonDenormRepo::list_page(self.reader(), tree_id, params, unseen).await?;
+        Ok(redact_page(redaction, page))
     }
 
     /// The pedigree around `root` as the viewer sees it.
@@ -461,5 +475,88 @@ impl ProfileService {
         let rows = self.homonyms(tree_id, person_id).await?;
         let ids: Vec<Uuid> = rows.iter().map(|e| e.person_id).collect();
         self.search_entries_as(redaction, tree_id, &ids).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use chrono::Utc;
+    use oxidgene_core::enums::{NameType, Sex, TreeDefaultPrivacy};
+    use oxidgene_core::projection::ProfileName;
+    use oxidgene_core::redaction::{RedactionInputs, Viewing};
+    use oxidgene_core::types::{Edge, PageInfo, PrivacySettings};
+
+    use super::*;
+
+    fn profile(given: &str) -> PersonProfile {
+        PersonProfile {
+            placeholder: None,
+            tags: Vec::new(),
+            person_id: Uuid::now_v7(),
+            tree_id: Uuid::nil(),
+            sex: Sex::Unknown,
+            primary_name: Some(ProfileName {
+                name_id: Uuid::now_v7(),
+                name_type: NameType::Birth,
+                display_name: format!("{given} BRANCH_A"),
+                given_names: Some(given.to_string()),
+                surname: Some("BRANCH_A".to_string()),
+            }),
+            other_names: Vec::new(),
+            birth: None,
+            death: None,
+            baptism: None,
+            burial: None,
+            other_events: Vec::new(),
+            families_as_spouse: Vec::new(),
+            family_as_child: None,
+            primary_media: None,
+            media_count: 0,
+            citation_count: 0,
+            note_count: 0,
+            updated_at: Utc::now(),
+            built_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn a_row_the_redaction_leaves_absent_is_dropped_from_the_page() {
+        let (kept, excluded) = (profile("child_1"), profile("child_2"));
+        let excluded_set = HashSet::from([excluded.person_id]);
+        let editor = Viewing {
+            read_private: true,
+            read_confidential: true,
+            read_tags: true,
+            exclusions_apply: true,
+        };
+        let redaction = Redaction::build(
+            editor,
+            TreeDefaultPrivacy::Public,
+            &PrivacySettings::default(),
+            &RedactionInputs {
+                excluded: Some(&excluded_set),
+                ..RedactionInputs::default()
+            },
+            2026,
+        );
+        let page = Connection {
+            edges: [&kept, &excluded]
+                .into_iter()
+                .map(|node| Edge {
+                    cursor: node.person_id.to_string(),
+                    node: node.clone(),
+                })
+                .collect(),
+            page_info: PageInfo {
+                has_next_page: false,
+                end_cursor: None,
+            },
+            total_count: 2,
+        };
+        let page = redact_page(&redaction, page);
+        let ids: Vec<Uuid> = page.edges.iter().map(|edge| edge.node.person_id).collect();
+        assert_eq!(ids, [kept.person_id]);
     }
 }
