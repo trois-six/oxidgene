@@ -1607,25 +1607,33 @@ async fn prune_access_log(
     now: chrono::DateTime<chrono::Utc>,
     retention: Duration,
 ) -> Result<(), OxidGeneError> {
-    let retention = chrono::Duration::from_std(retention)
-        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-    oxidgene_db::repo::AccessEventRepo::delete_before(db, now - retention).await?;
+    oxidgene_db::repo::AccessEventRepo::delete_before(db, before(now, retention)).await?;
     Ok(())
 }
 
-/// Log a failed maintenance pass under `code`; it is retried by the next.
+/// Log a failed maintenance pass under `code`, with the bounded kind of
+/// its error; it is retried by the next.
 fn log_maintenance_failure(code: &'static str, result: Result<(), OxidGeneError>) {
-    if result.is_err() {
+    if let Err(error) = result {
         tracing::warn!(
             error = code,
+            error.kind = error_kind(&error),
             "background job maintenance failed; the next pass retries"
         );
     }
 }
 
-/// `now` less `age`.
+/// `now` less `age`, never earlier than the Unix epoch: the application
+/// wrote no row before it, and both databases store it. An age too long
+/// for a date, such as a retention meant as "keep forever", so keeps
+/// everything instead of overflowing.
 fn before(now: chrono::DateTime<chrono::Utc>, age: Duration) -> chrono::DateTime<chrono::Utc> {
-    now - chrono::Duration::from_std(age).unwrap_or(chrono::TimeDelta::MAX)
+    chrono::TimeDelta::from_std(age)
+        .ok()
+        .and_then(|age| now.checked_sub_signed(age))
+        .map_or(chrono::DateTime::UNIX_EPOCH, |cutoff| {
+            cutoff.max(chrono::DateTime::UNIX_EPOCH)
+        })
 }
 
 /// Delete the artifacts of the exports completed before `now` less
@@ -1855,6 +1863,48 @@ mod tests {
         .await
         .expect("shares the tree");
         tree_id
+    }
+
+    #[test]
+    fn a_retention_too_long_for_a_date_keeps_everything() {
+        let now = chrono::Utc::now();
+        // 99,999,999 days: `TimeDelta` holds it, a date before it does not.
+        let forever = Duration::from_secs(99_999_999 * 86_400);
+        assert_eq!(before(now, forever), chrono::DateTime::UNIX_EPOCH);
+        assert_eq!(
+            before(now, Duration::from_secs(u64::MAX)),
+            chrono::DateTime::UNIX_EPOCH
+        );
+        assert_eq!(
+            before(now, Duration::from_secs(3_600)),
+            now - chrono::Duration::hours(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_retention_too_long_for_a_date_prunes_no_access_event() {
+        let db = migrated_db().await;
+        let tree_id = expired_membership(&db).await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let worker = BackgroundJobWorker::new(
+            db.clone(),
+            Arc::new(ProfileService::new(db.clone())),
+            Arc::new(crate::media::store::FsStore::new(root.path())),
+            "test",
+        );
+        let now = chrono::Utc::now();
+        worker.expire_memberships(now).await.expect("expires");
+        prune_access_log(&db, now, Duration::from_secs(99_999_999 * 86_400))
+            .await
+            .expect("prunes without overflowing");
+        let events = oxidgene_db::repo::AccessEventRepo::list(
+            &db,
+            Some(tree_id),
+            &oxidgene_db::repo::PaginationParams::default(),
+        )
+        .await
+        .expect("lists events");
+        assert_eq!(events.total_count, 1);
     }
 
     #[tokio::test]
