@@ -281,8 +281,15 @@ impl ProfileService {
         let mut entries: Vec<SearchEntry> =
             shown.iter().filter_map(|id| by_id.remove(id)).collect();
         crate::service::portrait::with_portraits(self.reader(), tree_id, &mut entries).await?;
-        if redaction.withholds_tags() {
-            for entry in &mut entries {
+        for entry in &mut entries {
+            if entry
+                .portrait
+                .as_ref()
+                .is_some_and(|p| redaction.portrait_withheld(p.media_id, p.vignette_id))
+            {
+                entry.portrait = None;
+            }
+            if redaction.withholds_tags() {
                 entry.tags.clear();
             }
         }

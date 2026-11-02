@@ -200,6 +200,22 @@ pub struct Redaction {
     contemporary_photos: bool,
     default_privacy: TreeDefaultPrivacy,
     pseudonyms: Mutex<HashMap<Uuid, Uuid>>,
+    /// The media and vignettes withheld (§3.2): no portrait is drawn from
+    /// them.
+    withheld_media: HashSet<Uuid>,
+    withheld_vignettes: HashSet<Uuid>,
+    /// What each shown person's counts leave out: their media links and
+    /// notes the viewer may not see.
+    withheld_counts: HashMap<Uuid, WithheldCounts>,
+}
+
+/// What a shown person's projection counts that the viewer may not see:
+/// the media links of theirs whose medium is withheld, and the notes about
+/// them that are.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WithheldCounts {
+    pub media: u32,
+    pub notes: u32,
 }
 
 impl Redaction {
@@ -218,6 +234,9 @@ impl Redaction {
             contemporary_photos: false,
             default_privacy: TreeDefaultPrivacy::default(),
             pseudonyms: Mutex::default(),
+            withheld_media: HashSet::new(),
+            withheld_vignettes: HashSet::new(),
+            withheld_counts: HashMap::new(),
         }
     }
 
@@ -304,7 +323,35 @@ impl Redaction {
             contemporary_photos: settings.contemporary_photos,
             default_privacy,
             pseudonyms: Mutex::default(),
+            withheld_media: HashSet::new(),
+            withheld_vignettes: HashSet::new(),
+            withheld_counts: HashMap::new(),
         }
+    }
+
+    /// Record the media and vignettes withheld from the viewer, which the
+    /// records' rules decide (§3.2): a shown person's portrait drawn from
+    /// one is left out too.
+    pub fn withhold_media(
+        &mut self,
+        media: impl IntoIterator<Item = Uuid>,
+        vignettes: impl IntoIterator<Item = Uuid>,
+    ) {
+        self.withheld_media.extend(media);
+        self.withheld_vignettes.extend(vignettes);
+    }
+
+    /// Record what each shown person's counts leave out.
+    pub fn withhold_counts(&mut self, counts: HashMap<Uuid, WithheldCounts>) {
+        self.withheld_counts = counts;
+    }
+
+    /// Whether a portrait drawn from medium `media_id`, or its vignette
+    /// `vignette_id`, is withheld.
+    #[must_use]
+    pub fn portrait_withheld(&self, media_id: Option<Uuid>, vignette_id: Option<Uuid>) -> bool {
+        media_id.is_some_and(|id| self.withheld_media.contains(&id))
+            || vignette_id.is_some_and(|id| self.withheld_vignettes.contains(&id))
     }
 
     /// Whether the viewer sees everything: the owner.
@@ -492,6 +539,17 @@ impl Redaction {
         let appearance = self.person(profile.person_id);
         let mut out = if appearance == Appearance::Shown {
             let mut out = profile.clone();
+            if out
+                .primary_media
+                .as_ref()
+                .is_some_and(|m| self.portrait_withheld(Some(m.media_id), m.vignette_id))
+            {
+                out.primary_media = None;
+            }
+            if let Some(counts) = self.withheld_counts.get(&profile.person_id) {
+                out.media_count = out.media_count.saturating_sub(counts.media);
+                out.note_count = out.note_count.saturating_sub(counts.notes);
+            }
             if self.withhold_tags {
                 out.tags.clear();
                 for event in out
@@ -692,6 +750,17 @@ impl Redaction {
             if self.withhold_tags {
                 node.tags.clear();
             }
+            if node
+                .portrait
+                .as_ref()
+                .is_some_and(|p| self.portrait_withheld(p.media_id, p.vignette_id))
+            {
+                node.portrait = None;
+            }
+            if self.portrait_withheld(node.primary_media_id, None) {
+                node.primary_media_id = None;
+                node.primary_media_path = None;
+            }
             return Some(node);
         }
         let (given, surname) = if appearance == Appearance::Initials {
@@ -709,6 +778,7 @@ impl Redaction {
             death: None,
             occupation: None,
             primary_media_path: None,
+            primary_media_id: None,
             generation: node.generation,
             sosa_number: None,
             portrait: None,

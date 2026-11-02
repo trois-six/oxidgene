@@ -23,7 +23,7 @@ use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_reso
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
 
 /// The portraits of `rows` the viewer may see: those of persons shown in
-/// full.
+/// full, drawn from a medium the viewer may see.
 #[must_use]
 pub fn portraits_as(
     redaction: &oxidgene_core::redaction::Redaction,
@@ -33,7 +33,10 @@ pub fn portraits_as(
         return rows;
     }
     rows.into_iter()
-        .filter(|row| redaction.shows(row.person_id))
+        .filter(|row| {
+            redaction.shows(row.person_id)
+                && !redaction.portrait_withheld(row.media_id, row.vignette_id)
+        })
         .collect()
 }
 
@@ -142,6 +145,7 @@ pub struct PortraitImage {
 /// Resolve locally-held and remote portraits for a bounded set of people.
 pub async fn load_portrait_images(
     db: &DatabaseConnection,
+    redaction: &oxidgene_core::redaction::Redaction,
     tree_id: Uuid,
     person_ids: &[Uuid],
 ) -> Result<Vec<PortraitImage>, OxidGeneError> {
@@ -151,8 +155,8 @@ pub async fn load_portrait_images(
         )));
     }
 
-    Ok(PersonRepo::list_portraits_for(db, tree_id, person_ids)
-        .await?
+    let rows = PersonRepo::list_portraits_for(db, tree_id, person_ids).await?;
+    Ok(portraits_as(redaction, rows)
         .into_iter()
         .filter_map(portrait_image)
         .collect())
@@ -171,13 +175,18 @@ pub async fn portrait_refs(
     Ok(PersonRepo::list_portraits_for(db, tree_id, person_ids)
         .await?
         .into_iter()
-        .filter_map(portrait_image)
-        .map(|image| {
+        .filter_map(|row| {
+            let (media_id, vignette_id) = (row.media_id, row.vignette_id);
+            portrait_image(row).map(|image| (image, media_id, vignette_id))
+        })
+        .map(|(image, media_id, vignette_id)| {
             (
                 image.person_id,
                 PortraitRef {
                     source: image.source,
                     crop: image.crop,
+                    media_id,
+                    vignette_id,
                 },
             )
         })

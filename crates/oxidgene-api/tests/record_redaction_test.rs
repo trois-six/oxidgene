@@ -555,3 +555,92 @@ async fn the_records_of_a_deleted_hidden_person_stay_hidden() {
         );
     }
 }
+
+/// A medium the viewer may not see — a scan showing the excluded anchor —
+/// is no visible person's portrait, and their profile does not count it;
+/// nor does it count a confidential note a Guest may not read
+/// (docs/privacy.md §3.2), on REST and GraphQL alike.
+#[tokio::test]
+async fn a_withheld_medium_is_nobodys_portrait_and_is_not_counted() {
+    let f = fixture().await;
+    let t = &f.tree;
+    let (document, page, visible) = (t.id("media_id"), t.id("page_id"), f.visible.as_str());
+    ok(
+        &f.owner,
+        Method::POST,
+        &f.path("/media-links"),
+        Some(json!({ "media_id": document, "person_id": visible })),
+    )
+    .await;
+    ok(
+        &f.owner,
+        Method::PUT,
+        &f.path(&format!("/persons/{visible}/portrait")),
+        Some(json!({ "media_id": page })),
+    )
+    .await;
+    let owners = ok(
+        &f.owner,
+        Method::GET,
+        &f.path(&format!("/profiles/{visible}")),
+        None,
+    )
+    .await;
+    assert_eq!(owners["primary_media"]["media_id"], page, "{owners}");
+    assert_eq!(owners["media_count"], 1, "{owners}");
+    for who in VIEWERS {
+        let profile = f.get(who, &format!("/profiles/{visible}")).await;
+        // A count of none is left out of the projection.
+        let count = |name: &str| profile[name].as_u64().unwrap_or(0);
+        assert!(profile["primary_media"].is_null(), "{who:?}: {profile}");
+        assert_eq!(count("media_count"), 0, "{who:?}: {profile}");
+        let notes = match who {
+            Who::Guest => 0,
+            Who::Editor => 1,
+        };
+        assert_eq!(count("note_count"), notes, "{who:?}: {profile}");
+        let pedigree = f
+            .get(
+                who,
+                &format!("/pedigree/{visible}?ancestor_depth=1&descendant_depth=1"),
+            )
+            .await;
+        assert!(!pedigree.to_string().contains(page), "{who:?}: {pedigree}");
+        let portraits = f.get(who, "/portraits").await;
+        assert!(
+            !portraits.to_string().contains(page),
+            "{who:?}: {portraits}"
+        );
+        let (_, images) = f
+            .rest(
+                who,
+                Method::POST,
+                "/portrait-images",
+                Some(json!({ "person_ids": [visible] })),
+            )
+            .await;
+        assert_eq!(images, json!([]), "{who:?}");
+        let data = f
+            .data(
+                who,
+                &format!(
+                    r#"{{ personProfile(treeId: "{tree}", personId: "{visible}") {{ primaryMedia {{ mediaId }} mediaCount noteCount }}
+                        pedigree(treeId: "{tree}", rootPersonId: "{visible}", ancestorDepth: 1, descendantDepth: 1) {{ nodes {{ portrait {{ __typename }} primaryMediaPath }} }} }}"#,
+                    tree = t.tree_id
+                ),
+            )
+            .await;
+        let profile = &data["personProfile"];
+        assert!(profile["primaryMedia"].is_null(), "{who:?}: {data}");
+        assert_eq!(profile["mediaCount"], 0, "{who:?}: {data}");
+        assert_eq!(profile["noteCount"], notes, "{who:?}: {data}");
+        assert!(
+            data["pedigree"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|node| node["portrait"].is_null() && node["primaryMediaPath"].is_null()),
+            "{who:?}: {data}"
+        );
+    }
+}

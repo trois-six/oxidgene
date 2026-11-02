@@ -133,6 +133,11 @@ case open, the records' redaction decides:
   them — and those of a deleted event outlive them: they are hidden from
   every viewer anything is hidden from, as the records of a hidden person
   are.
+- A person shown in full is drawn with no portrait taken from a withheld
+  medium or vignette — the chosen one, or the first linked photograph the
+  portrait falls back to — on their page, their card, a search row or a
+  list of portraits; their media and note counts leave out the links to
+  withheld media and the notes the viewer may not read.
 
 ---
 

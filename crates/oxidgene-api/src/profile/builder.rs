@@ -800,6 +800,7 @@ pub fn build_pedigree_node(
         death: person.death_or_burial().cloned(),
         occupation: person.occupation().map(str::to_owned),
         primary_media_path: person.primary_media.as_ref().map(|m| m.file_path.clone()),
+        primary_media_id: person.primary_media.as_ref().map(|m| m.media_id),
         generation,
         sosa_number,
         // Filled by the assembly, which reads them for the whole window.

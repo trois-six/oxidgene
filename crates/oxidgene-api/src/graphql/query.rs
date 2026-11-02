@@ -553,6 +553,7 @@ impl TreeQuery {
                 .collect();
             let images = crate::service::portrait::load_portrait_images(
                 reader_from_ctx(ctx),
+                &redaction,
                 tid,
                 &person_ids,
             )

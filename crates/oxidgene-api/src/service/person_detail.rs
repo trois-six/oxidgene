@@ -230,6 +230,7 @@ pub(crate) async fn load_seen_bundle(
     }?;
     let (portrait, mut sosa_ancestor_ids) =
         page_marks(db, profiles, tree_id, person_id, &persons).await?;
+    let portrait = portrait.filter(|p| !redaction.portrait_withheld(p.media_id, p.vignette_id));
     sosa_ancestor_ids.retain(|id| redaction.shows(*id));
 
     Ok(PersonDetailBundle {

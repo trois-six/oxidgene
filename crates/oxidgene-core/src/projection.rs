@@ -404,6 +404,10 @@ pub struct PedigreeNode {
     pub occupation: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_media_path: Option<String>,
+    /// The medium [`Self::primary_media_path`] names, for the redaction;
+    /// never sent.
+    #[serde(skip)]
+    pub primary_media_id: Option<Uuid>,
     pub generation: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sosa_number: Option<u64>,

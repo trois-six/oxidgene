@@ -145,7 +145,12 @@ pub async fn load_media_viewer_bundle(
         portrait_refs(db, tree_id, &attached),
         load_visible_gallery_bundle(db, records, tree_id, shown.as_slice(), &vignette_ids),
     )?;
-    portraits.retain(|_, portrait| !records.hides_image(&portrait.source));
+    portraits.retain(|_, portrait| {
+        !records.hides_image(&portrait.source)
+            && !records
+                .redaction()
+                .portrait_withheld(portrait.media_id, portrait.vignette_id)
+    });
     let sexes = persons
         .into_iter()
         .filter(|person| person.tree_id == tree_id)

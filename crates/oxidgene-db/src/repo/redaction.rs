@@ -71,4 +71,55 @@ impl RedactionRepo {
             })
             .collect()
     }
+
+    /// The person each of the media links `links` attaches a medium to, one
+    /// entry per link that names a person: what a shown person's media
+    /// count leaves out when those links are hidden.
+    pub async fn persons_of_media_links(
+        db: &impl ConnectionTrait,
+        links: &[Uuid],
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        use crate::entities::media_link;
+        use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
+        let mut persons = Vec::new();
+        for chunk in links.chunks(1_000) {
+            let found: Vec<Option<Uuid>> = media_link::Entity::find()
+                .select_only()
+                .column(media_link::Column::PersonId)
+                .filter(media_link::Column::Id.is_in(chunk.iter().copied()))
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            persons.extend(found.into_iter().flatten());
+        }
+        Ok(persons)
+    }
+
+    /// How many live confidential notes are about each person of tree
+    /// `tree_id` who has any: what their note count leaves out for a viewer
+    /// without `read_confidential`.
+    pub async fn confidential_notes_by_person(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(Uuid, u32)>, OxidGeneError> {
+        use crate::entities::note;
+        use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
+        let persons: Vec<Option<Uuid>> = note::Entity::find()
+            .select_only()
+            .column(note::Column::PersonId)
+            .filter(note::Column::TreeId.eq(tree_id))
+            .filter(note::Column::Confidential.eq(true))
+            .filter(note::Column::PersonId.is_not_null())
+            .filter(note::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        let mut counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
+        for person in persons.into_iter().flatten() {
+            *counts.entry(person).or_default() += 1;
+        }
+        Ok(counts.into_iter().collect())
+    }
 }

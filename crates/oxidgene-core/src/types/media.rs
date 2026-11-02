@@ -384,6 +384,12 @@ pub struct PortraitRef {
     pub source: ImageSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<ImageCrop>,
+    /// The medium it is drawn from, for the redaction; never sent.
+    #[serde(skip)]
+    pub media_id: Option<Uuid>,
+    /// The vignette it is drawn from, for the redaction; never sent.
+    #[serde(skip)]
+    pub vignette_id: Option<Uuid>,
 }
 
 /// The MIME type of a PDF.

@@ -370,6 +370,6 @@ pub async fn load_portrait_images(
         .copied()
         .filter(|id| redaction.shows(*id))
         .collect();
-    let images = portrait::load_portrait_images(&state.reader, tree_id, &shown).await?;
+    let images = portrait::load_portrait_images(&state.reader, &redaction, tree_id, &shown).await?;
     Ok(Json(images))
 }

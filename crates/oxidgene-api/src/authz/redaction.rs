@@ -41,7 +41,16 @@ pub async fn redaction(
     } else {
         // On the heap: the build reads several tables, and every resolver
         // awaits it, on small stacks too.
-        Arc::new(Box::pin(restricted(db, profiles, viewing, access.scope_id, tree_id)).await?)
+        let mut redaction =
+            Box::pin(restricted(db, profiles, viewing, access.scope_id, tree_id)).await?;
+        Box::pin(super::records::withhold_media(
+            db,
+            viewer,
+            tree_id,
+            &mut redaction,
+        ))
+        .await?;
+        Arc::new(redaction)
     };
     viewer.remember_redaction(tree_id, Arc::clone(&redaction));
     Ok(redaction)

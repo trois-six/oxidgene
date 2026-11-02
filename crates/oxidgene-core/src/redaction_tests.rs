@@ -282,6 +282,7 @@ fn a_pedigree_loses_absent_persons_and_their_links() {
         death: None,
         occupation: Some("Lamplighter".to_string()),
         primary_media_path: None,
+        primary_media_id: None,
         generation: 0,
         sosa_number: Some(3),
         portrait: None,

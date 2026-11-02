@@ -447,6 +447,45 @@ fn kind_name(kind: RecordKind) -> &'static str {
     }
 }
 
+/// Give `redaction`, a restricted viewer's on tree `tree_id`, what the
+/// records' rules withhold of the persons it shows in full: the media and
+/// vignettes no portrait is drawn from (§3.2), and the media links and
+/// confidential notes their counts leave out. The hidden records are read
+/// once for the request, into the slot [`Records::of`] reads too.
+pub(super) async fn withhold_media(
+    db: &DatabaseConnection,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    redaction: &mut Redaction,
+) -> Result<(), OxidGeneError> {
+    use std::collections::HashMap;
+
+    use oxidgene_core::redaction::WithheldCounts;
+
+    let mut counts: HashMap<Uuid, WithheldCounts> = HashMap::new();
+    if !redaction.is_unrestricted() && !nothing_hidden(redaction) {
+        let unseen = Unseen::new(tree_id, redaction.rules());
+        let slot = viewer.derived::<Slot>(tree_id);
+        let hidden = slot
+            .get_or_try_init(|| async { hidden_records(db, &unseen).await.map(Arc::new) })
+            .await?;
+        redaction.withhold_media(
+            hidden.media.iter().copied(),
+            hidden.vignettes.iter().copied(),
+        );
+        for person in RedactionRepo::persons_of_media_links(db, &hidden.media_links).await? {
+            counts.entry(person).or_default().media += 1;
+        }
+    }
+    if redaction.withholds_confidential() {
+        for (person, notes) in RedactionRepo::confidential_notes_by_person(db, tree_id).await? {
+            counts.entry(person).or_default().notes += notes;
+        }
+    }
+    redaction.withhold_counts(counts);
+    Ok(())
+}
+
 /// Whether the redaction hides no record but confidential notes and tags:
 /// no hidden person, no withheld family, no private medium.
 fn nothing_hidden(redaction: &Redaction) -> bool {
