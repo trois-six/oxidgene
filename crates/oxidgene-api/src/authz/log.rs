@@ -4,10 +4,9 @@
 //! An event is written on the writer in a task of its own: a refusal is
 //! answered at once, and an import holding the SQLite writer delays the
 //! record, never the answer. A failed write is logged and dropped; the log
-//! is an audit aid, not a gate. So is an event met while
-//! [`MAX_PENDING`] others wait to be written: a flood of refused requests
-//! piles up neither tasks nor memory, nor holds back the writes that
-//! matter.
+//! is an audit aid, not a gate. So is an event met while 1,024 others
+//! wait to be written: a flood of refused requests piles up neither tasks
+//! nor memory, nor holds back the writes that matter.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

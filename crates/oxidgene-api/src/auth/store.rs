@@ -703,6 +703,25 @@ mod tests {
     }
 
     async fn exercise_marks(store: &dyn SessionStore) {
+        exercise_locks(store).await;
+        let jti = super::super::crypto::random_token();
+        assert!(
+            store
+                .first_seen(&jti, Duration::from_secs(60))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .first_seen(&jti, Duration::from_secs(60))
+                .await
+                .unwrap()
+        );
+    }
+
+    /// A lock is taken once, released by its holder only, and a lapsed one
+    /// taken by another is theirs.
+    async fn exercise_locks(store: &dyn SessionStore) {
         let lock = super::super::crypto::random_token();
         let holder = store.lock(&lock, Duration::from_secs(10)).await.unwrap();
         let holder = holder.expect("takes the lock");
@@ -737,20 +756,6 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
-        );
-
-        let jti = super::super::crypto::random_token();
-        assert!(
-            store
-                .first_seen(&jti, Duration::from_secs(60))
-                .await
-                .unwrap()
-        );
-        assert!(
-            !store
-                .first_seen(&jti, Duration::from_secs(60))
-                .await
-                .unwrap()
         );
     }
 
