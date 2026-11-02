@@ -245,3 +245,74 @@ async fn a_redacted_export_imports_again_with_its_placeholders_private() {
         .count();
     assert_eq!(private, 2, "{persons}");
 }
+
+/// A scan linked only to a record left out — the contemporary canary's
+/// birth, a private family — goes with it (docs/privacy.md §8): neither
+/// appears in a file leaving out contemporary and private persons, on REST
+/// or GraphQL, though both are written without the option.
+#[tokio::test]
+async fn the_media_of_a_left_out_record_go_with_it() {
+    let f = Fixture::new().await;
+    let tree = f.tree();
+    let profiles = crate::common::all_profiles(&f.app, tree).await;
+    let given = |name: &str| {
+        profiles
+            .iter()
+            .find(|p| p["primary_name"]["given_names"] == name)
+            .unwrap_or_else(|| panic!("no {name}"))
+    };
+    let birth = given("Quillon")["birth"]["event_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let family = given("Ashby")["families_as_spouse"][0]["family_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    ok(
+        &f.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}/families/{family}"),
+        Some(json!({ "privacy": "private" })),
+    )
+    .await;
+    for (title, link) in [
+        ("Canarybirthscan", json!({ "event_id": birth })),
+        ("Canaryfamilyscan", json!({ "family_id": family })),
+    ] {
+        let document = ok(
+            &f.app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/media/document"),
+            Some(json!({ "title": title })),
+        )
+        .await;
+        let document = document["id"].as_str().unwrap().to_owned();
+        crate::common::populated::upload_page(
+            &f.app,
+            tree,
+            &document,
+            &crate::common::populated::png(32, 24),
+        )
+        .await;
+        let mut link = link;
+        link["media_id"] = json!(document);
+        ok(
+            &f.app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/media-links"),
+            Some(link),
+        )
+        .await;
+    }
+    let whole = f.rest("").await;
+    for gedcom in [
+        f.rest("leave_out_private=true").await,
+        f.graphql(true).await,
+    ] {
+        for title in ["Canarybirthscan", "Canaryfamilyscan"] {
+            assert!(whole.contains(title), "{title} is written:\n{whole}");
+            assert!(!gedcom.contains(title), "{title} leaked:\n{gedcom}");
+        }
+    }
+}

@@ -439,7 +439,9 @@ family links, no name (or the initials, in `initials` mode), and `RESN
 privacy` in GEDCOM 5.5.1 — information withheld for privacy — or `RESN
 CONFIDENTIAL` in GEDCOM 7, which discourages `PRIVACY` for its ambiguity.
 Excluded persons are never stubbed with initials. Media of hidden persons stay
-out of a GEDZIP. The export's audit entry records which option applied.
+out of a GEDZIP, and so does a medium linked to a record left out with them —
+an event of theirs, a withheld family or one of its events. The export's audit
+entry records which option applied.
 
 An export job, its status and its archive are its author's: since the archive
 holds what its author sees — the owner's, everything — nobody else finds it

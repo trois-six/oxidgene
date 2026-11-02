@@ -21,7 +21,7 @@
 //! only hidden records cite, a repository only such sources reach, and a
 //! place only hidden events and media use are left out too.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Datelike, Utc};
 use oxidgene_core::enums::{HiddenDisplay, NameType, Privacy, TreeDefaultPrivacy};
@@ -217,15 +217,45 @@ pub(super) fn apply(
     let display = tree.privacy.hidden_display;
     let places_before = places_used(records);
     let cited_before: HashSet<Uuid> = records.citations.iter().map(|c| c.source_id).collect();
+    let reached_before = media_reached(records);
     strip_persons(records, &hidden.persons, &hidden.excluded, display);
     strip_families(records, &hidden.persons, options, tree.default_privacy);
-    strip_media(records, &hidden.persons, options, tree.default_privacy);
+    // A medium linked to a record left out — an event of a placeholder, a
+    // withheld family or one of its events — shows what was left out.
+    let reached_now = media_reached(records);
+    let left_out: HashSet<Uuid> = reached_before
+        .into_iter()
+        .filter(|(link, _)| !reached_now.contains_key(link))
+        .map(|(_, medium)| medium)
+        .collect();
+    strip_media(
+        records,
+        &hidden.persons,
+        &left_out,
+        options,
+        tree.default_privacy,
+    );
     if display == HiddenDisplay::Hidden {
         remove_persons(records, &hidden.persons);
     } else {
         records.withheld_persons = hidden.persons.iter().copied().collect();
     }
     drop_orphans(records, &places_before, &cited_before);
+}
+
+/// Each media link and vignette, by its id, with the medium it reaches.
+fn media_reached(records: &TreeRecords) -> HashMap<Uuid, Uuid> {
+    records
+        .media_links
+        .iter()
+        .map(|link| (link.id, link.media_id))
+        .chain(
+            records
+                .vignettes
+                .iter()
+                .map(|crop| (crop.id, crop.media_id)),
+        )
+        .collect()
 }
 
 /// The places events and media use.
@@ -406,27 +436,31 @@ fn strip_families(
     });
 }
 
-/// Leave out the media private themselves, and those showing a placeholder
-/// — linked to them or cropped on them — with the pages of each.
+/// Leave out the media private themselves, those showing a placeholder —
+/// linked to them or cropped on them — and `left_out`, those linked to a
+/// record left out, with the pages of each.
 fn strip_media(
     records: &mut TreeRecords,
     stubs: &HashSet<Uuid>,
+    left_out: &HashSet<Uuid>,
     options: ExportPrivacy,
     default: TreeDefaultPrivacy,
 ) {
-    let mut hidden: HashSet<Uuid> = records
-        .media_links
-        .iter()
-        .filter(|link| link.person_id.is_some_and(|id| stubs.contains(&id)))
-        .map(|link| link.media_id)
-        .chain(
-            records
-                .vignettes
-                .iter()
-                .filter(|crop| crop.person_id.is_some_and(|id| stubs.contains(&id)))
-                .map(|crop| crop.media_id),
-        )
-        .collect();
+    let mut hidden: HashSet<Uuid> = left_out.clone();
+    hidden.extend(
+        records
+            .media_links
+            .iter()
+            .filter(|link| link.person_id.is_some_and(|id| stubs.contains(&id)))
+            .map(|link| link.media_id)
+            .chain(
+                records
+                    .vignettes
+                    .iter()
+                    .filter(|crop| crop.person_id.is_some_and(|id| stubs.contains(&id)))
+                    .map(|crop| crop.media_id),
+            ),
+    );
     if options.leave_out_private {
         hidden.extend(
             records
