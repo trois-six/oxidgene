@@ -4,7 +4,12 @@
 //! An event is written on the writer in a task of its own: a refusal is
 //! answered at once, and an import holding the SQLite writer delays the
 //! record, never the answer. A failed write is logged and dropped; the log
-//! is an audit aid, not a gate.
+//! is an audit aid, not a gate. So is an event met while
+//! [`MAX_PENDING`] others wait to be written: a flood of refused requests
+//! piles up neither tasks nor memory, nor holds back the writes that
+//! matter.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Principal, ViewerContext};
@@ -41,10 +46,42 @@ pub fn event(viewer: &ViewerContext, kind: &'static str, outcome: &str) -> NewAc
     }
 }
 
+/// The most events waiting to be written at once; one more is dropped.
+const MAX_PENDING: usize = 1024;
+
+/// The events waiting to be written.
+static PENDING: AtomicUsize = AtomicUsize::new(0);
+
+/// A place among the events waiting to be written, given back when
+/// dropped.
+struct Pending;
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        PENDING.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Take a place among the events waiting to be written; none when all
+/// [`MAX_PENDING`] are taken.
+fn reserve() -> Option<Pending> {
+    PENDING
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+            (pending < MAX_PENDING).then_some(pending + 1)
+        })
+        .ok()
+        .map(|_| Pending)
+}
+
 /// Record `event` without waiting for it.
 pub fn record(db: &DatabaseConnection, event: NewAccessEvent) {
+    let Some(pending) = reserve() else {
+        tracing::warn!("access event dropped: too many waiting to be written");
+        return;
+    };
     let db = db.clone();
     tokio::spawn(async move {
+        let _pending = pending;
         if let Err(error) = AccessEventRepo::insert(&db, event).await {
             tracing::warn!(
                 error.kind = crate::error_contract::error_kind(&error),
@@ -78,6 +115,15 @@ pub fn refusal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_more_than_the_bound_wait_to_be_written() {
+        let held: Vec<Pending> = std::iter::from_fn(reserve).take(MAX_PENDING).collect();
+        assert_eq!(held.len(), MAX_PENDING);
+        assert!(reserve().is_none(), "one more than the bound");
+        drop(held);
+        assert!(reserve().is_some());
+    }
 
     #[test]
     fn a_browser_holding_share_links_is_logged_as_a_link_holder() {

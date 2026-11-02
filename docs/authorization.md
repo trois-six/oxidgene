@@ -666,7 +666,9 @@ id — never an email, a name, a token, a search term or an address.
 Administrators read the instance's log, owners their tree's. Rows older than
 `OXIDGENE_ACCESS_LOG_RETENTION` are deleted by the worker's maintenance pass.
 An event is written in a task of its own, so a refusal is answered without
-waiting for the database. Phase 2 records refusals (`request_refused`, with
+waiting for the database; while 1,024 events wait to be written, one more is
+dropped with a warning, so that a flood of refused requests piles up neither
+tasks nor memory. Phase 2 records refusals (`request_refused`, with
 the requirement refused), sign-ins (`login_succeeded`, `login_failed` with
 its reason), sign-outs (`logout`, `logout_everywhere`), back-channel
 logouts, expired memberships (`membership_expired`) and administrator
