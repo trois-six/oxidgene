@@ -112,7 +112,7 @@ pub(crate) async fn summary_portraits(
     let mut portraits = if refs.is_empty() {
         HashMap::new()
     } else {
-        api.portraits_from_refs(tree_id, &refs).await
+        api.portraits_from_refs(tree_id, &refs)
     };
     if !unknown.is_empty() {
         portraits.extend(api.portrait_map_for_ids(tree_id, &unknown).await);
@@ -317,7 +317,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             .and_then(|result| result.as_ref().ok())
             .map(|result| result.entries.clone())
             .unwrap_or_default();
-        async move { api.entry_portraits(tree_id, &entries).await }
+        async move { api.entry_portraits(tree_id, &entries) }
     });
 
     let results: Vec<SearchEntry> = {

@@ -270,7 +270,7 @@ fn UserRow(
     .flatten()
     .collect();
     let signed_in = format_timestamp(&i18n, user.last_sign_in_at);
-    let avatar = user.avatar.as_ref().map(|avatar| avatar.etag.clone());
+    let avatar = user.avatar.as_ref().map(|avatar| avatar.version.clone());
     let actions = if own {
         Vec::new()
     } else {

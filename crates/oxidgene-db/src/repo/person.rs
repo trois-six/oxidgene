@@ -44,6 +44,16 @@ pub struct PortraitRow {
     #[doc(hidden)]
     #[serde(skip)]
     pub mime_type: String,
+    /// The content digest of the medium drawn whole, which versions its
+    /// picture addresses.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub sha256: Option<String>,
+    /// The page the vignette is drawn on, and its content digest: with the
+    /// rectangle, what the crop's version is made of.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub vignette_page: Option<(Uuid, String)>,
     #[doc(hidden)]
     #[serde(skip)]
     pub crop: Option<(i32, i32, i32, i32)>,
@@ -65,6 +75,9 @@ struct PortraitQueryRow {
     thumbnail_key: Option<String>,
     storage_key: Option<String>,
     mime_type: Option<String>,
+    sha256: Option<String>,
+    vignette_media_id: Option<Uuid>,
+    vignette_sha256: Option<String>,
     source_width: Option<i32>,
     source_height: Option<i32>,
     crop_x: Option<i32>,
@@ -89,6 +102,8 @@ impl From<PortraitQueryRow> for PortraitRow {
             thumbnail_key: row.thumbnail_key,
             storage_key: row.storage_key.filter(|key| !key.is_empty()),
             mime_type: row.mime_type.unwrap_or_default(),
+            sha256: row.sha256,
+            vignette_page: row.vignette_media_id.zip(row.vignette_sha256),
             crop,
             source_size: (row.source_width, row.source_height),
         }
@@ -570,6 +585,9 @@ impl PersonRepo {
                                              COALESCE(m.thumbnail_key, vm.thumbnail_key) AS thumbnail_key,
                                              COALESCE(m.storage_key, vm.storage_key) AS storage_key,
                                              COALESCE(m.mime_type, vm.mime_type) AS mime_type,
+                                             COALESCE(m.sha256, vm.sha256) AS sha256,
+                                             vm.id AS vignette_media_id,
+                                             vm.sha256 AS vignette_sha256,
                                              COALESCE(m.width, vm.width) AS source_width,
                                              COALESCE(m.height, vm.height) AS source_height,
                                              v.x AS crop_x,

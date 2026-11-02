@@ -28,7 +28,6 @@ use crate::common::{app_on, new_tree, ok, send, setup_db};
 /// leaves out what is not of the tree.
 const BATCH_READS: &[&str] = &[
     "/api/v1/trees/{tree_id}/gallery-bundle",
-    "/api/v1/trees/{tree_id}/image-data",
     "/api/v1/trees/{tree_id}/pedigrees",
     "/api/v1/trees/{tree_id}/portrait-images",
     "/api/v1/trees/{tree_id}/relation-labels",
@@ -38,6 +37,13 @@ const BATCH_READS: &[&str] = &[
 /// serves.
 fn checked_route(path: &str) -> bool {
     path.contains("{tree_id}") && !super::surface::absent_without_accounts(path)
+}
+
+/// Whether `GET uri` answers: with its content, or for a versioned picture
+/// with the redirect to its version.
+async fn answers(app: &axum::Router, uri: &str) -> bool {
+    let status = send(app, Method::GET, uri, None).await.0;
+    status.is_success() || status == StatusCode::TEMPORARY_REDIRECT
 }
 
 #[tokio::test]
@@ -87,11 +93,11 @@ async fn no_rest_route_reaches_another_trees_record() {
             if !(refused || (read && status.is_success() && !mentions_b)) {
                 leaks.push(format!("{method} {path}: {status} {answer}"));
             }
-            // The control: the same read on the records' own tree answers,
-            // so a refusal above is the tree check, not a malformed request.
+            // The control: the same read on the records' own tree answers —
+            // a versioned picture by the redirect to its version — so a
+            // refusal above is the tree check, not a malformed request.
             if method == Method::GET {
-                let own = uri.replace(&tree_a, &b.tree_id);
-                if send(&app, Method::GET, &own, None).await.0.is_success() {
+                if answers(&app, &uri.replace(&tree_a, &b.tree_id)).await {
                     controls += 1;
                 } else {
                     failed_controls.push(path.clone());

@@ -714,30 +714,43 @@ async fn the_last_source_level_comes_with_its_sources() {
     assert!(sources[0]["repositories"].is_array(), "{data}");
 }
 
+/// The base map is versioned by a digest of the embedded file: kept by
+/// anyone for a year at its version, redirected there from any other
+/// (docs/architecture.md §4.3).
 #[tokio::test]
-async fn the_base_map_is_cacheable_and_revalidated_without_a_body() {
+async fn the_base_map_is_immutable_at_its_version() {
     let db = setup_db().await;
     let app = common::app_on(db);
-    let request = |etag: Option<&str>| {
-        let mut builder = axum::http::Request::builder().uri("/api/v1/reference/basemap");
-        if let Some(etag) = etag {
-            builder = builder.header(header::IF_NONE_MATCH, etag);
-        }
-        builder.body(axum::body::Body::empty()).unwrap()
+    let request = |uri: &str| {
+        axum::http::Request::builder()
+            .uri(uri)
+            .body(axum::body::Body::empty())
+            .unwrap()
     };
     use tower::ServiceExt as _;
-    let response = app.clone().oneshot(request(None)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response.headers()[header::CACHE_CONTROL],
-        "public, no-cache"
-    );
-    let etag = response.headers()[header::ETAG]
+    let response = app
+        .clone()
+        .oneshot(request("/api/v1/reference/basemap"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let current = response.headers()[header::LOCATION]
         .to_str()
         .unwrap()
         .to_string();
-    let response = app.oneshot(request(Some(&etag))).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    let version = current
+        .strip_prefix("/api/v1/reference/basemap?v=")
+        .unwrap();
+    assert_eq!(version, oxidgene_api::reference::basemap_version());
+    assert_eq!(version.len(), 16);
+    let response = app.oneshot(request(&current)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    assert!(response.headers().get(header::ETAG).is_none());
 }
 
 /// A source cited for an event of `person_id`, held at a repository under a

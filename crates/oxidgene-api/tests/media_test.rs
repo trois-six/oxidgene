@@ -154,8 +154,23 @@ async fn upload(
     (status, value)
 }
 
-/// A raw response, for the endpoints that return bytes rather than JSON.
+/// `GET uri` with `headers`, following a versioned asset's redirect to its
+/// current version as a browser does (docs/architecture.md §4.3).
 async fn raw(
+    app: &axum::Router,
+    uri: &str,
+    headers: &[(header::HeaderName, &str)],
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let answer = raw_once(app, uri, headers).await;
+    if answer.0 == StatusCode::TEMPORARY_REDIRECT {
+        let location = answer.1[header::LOCATION].to_str().unwrap().to_string();
+        return raw_once(app, &location, headers).await;
+    }
+    answer
+}
+
+/// One `GET uri` with `headers`, a redirect answered as it is.
+async fn raw_once(
     app: &axum::Router,
     uri: &str,
     headers: &[(header::HeaderName, &str)],
@@ -299,14 +314,10 @@ async fn single_media_downloads_are_attachments_while_files_remain_inline() {
             headers.get("content-security-policy").is_some(),
             content_type != "application/pdf"
         );
-        let etag = headers[header::ETAG].to_str().unwrap();
-        let (status, _, bytes) = raw(&h.app, &file_url, &[(header::IF_NONE_MATCH, etag)]).await;
-        assert_eq!(status, StatusCode::NOT_MODIFIED);
-        assert!(bytes.is_empty());
         let (status, _, bytes) = raw(
             &h.app,
             &format!("/api/v1/trees/{}/media/{id}/download", h.tree_id),
-            &[(header::IF_NONE_MATCH, etag)],
+            &[(header::IF_NONE_MATCH, "\"a-validator\"")],
         )
         .await;
         assert_eq!(
@@ -912,10 +923,6 @@ async fn a_stored_file_is_served_back_byte_for_byte() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(bytes, content);
     assert_eq!(headers[header::CONTENT_TYPE], "image/png");
-    assert_eq!(
-        headers[header::ETAG],
-        format!("\"{}\"", media["sha256"].as_str().unwrap()).as_str()
-    );
     assert!(
         headers[header::CONTENT_DISPOSITION]
             .to_str()
@@ -924,49 +931,49 @@ async fn a_stored_file_is_served_back_byte_for_byte() {
     );
 }
 
+/// Every picture of a medium is answered at its version, immutable, and
+/// any other address of it is redirected there: no lifetime, no
+/// revalidation (docs/architecture.md §4.3).
 #[tokio::test]
-async fn a_client_that_already_has_the_file_gets_a_304() {
+async fn a_medium_is_immutable_at_its_version_and_redirected_to_it_otherwise() {
     let h = setup().await;
     let (_, media) = upload(
         &h.app,
         h.tree_id,
-        &[("file", Some("photo.png"), &png(120, 120))],
+        &[("file", Some("photo.png"), &png(600, 600))],
     )
     .await;
     let id = media["id"].as_str().unwrap();
-    let etag = format!("\"{}\"", media["sha256"].as_str().unwrap());
+    let version = &media["sha256"].as_str().unwrap()[..16];
+    for rendition in ["file", "thumbnail", "card"] {
+        let base = format!("/api/v1/trees/{}/media/{id}/{rendition}", h.tree_id);
+        let current = format!("{base}?v={version}");
+        let (status, headers, bytes) = raw_once(&h.app, &current, &[]).await;
+        assert_eq!(status, StatusCode::OK, "{rendition}");
+        assert!(!bytes.is_empty(), "{rendition}");
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            "private, max-age=31536000, immutable",
+            "{rendition}"
+        );
+        assert!(headers.get(header::ETAG).is_none(), "{rendition}");
+        // A validator is not looked at: there is nothing to revalidate.
+        let (status, _, again) =
+            raw_once(&h.app, &current, &[(header::IF_NONE_MATCH, "\"x\"")]).await;
+        assert_eq!((status, again), (StatusCode::OK, bytes), "{rendition}");
 
-    let (status, _, bytes) = raw(
-        &h.app,
-        &format!("/api/v1/trees/{}/media/{id}/file", h.tree_id),
-        &[(header::IF_NONE_MATCH, &etag)],
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::NOT_MODIFIED);
-    assert!(bytes.is_empty(), "a 304 carries no body");
-}
-
-#[tokio::test]
-async fn a_stale_etag_still_gets_the_file() {
-    let h = setup().await;
-    let (_, media) = upload(
-        &h.app,
-        h.tree_id,
-        &[("file", Some("photo.png"), &png(120, 120))],
-    )
-    .await;
-    let id = media["id"].as_str().unwrap();
-
-    let (status, _, bytes) = raw(
-        &h.app,
-        &format!("/api/v1/trees/{}/media/{id}/file", h.tree_id),
-        &[(header::IF_NONE_MATCH, "\"an-etag-from-a-different-file\"")],
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::OK);
-    assert!(!bytes.is_empty());
+        for other in [
+            base.clone(),
+            format!("{base}?v=0000000000000000"),
+            format!("{base}?v="),
+        ] {
+            let (status, headers, body) = raw_once(&h.app, &other, &[]).await;
+            assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{other}");
+            assert_eq!(headers[header::LOCATION], current.as_str(), "{other}");
+            assert_eq!(headers[header::CACHE_CONTROL], "no-store", "{other}");
+            assert!(body.is_empty(), "{other}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -1166,30 +1173,16 @@ async fn a_vignette_serves_the_cropped_region_as_its_own_image() {
     .await;
     let id = vignette["id"].as_str().unwrap();
 
-    let (status, headers, bytes) = raw(
-        &h.app,
-        &format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id),
-        &[],
-    )
-    .await;
+    let image = format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id);
+    let (status, headers, bytes) = raw(&h.app, &image, &[]).await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
     let cropped = image::load_from_memory(&bytes).expect("crop decodes");
     assert_eq!((cropped.width(), cropped.height()), (320, 240));
+    let before = common::current_address(&h.app, &image).await;
 
-    // A reload revalidates instead of cutting the scan again.
-    let etag = headers[header::ETAG].to_str().unwrap().to_string();
-    let (status, _, bytes) = raw(
-        &h.app,
-        &format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id),
-        &[(header::IF_NONE_MATCH, &etag)],
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_MODIFIED);
-    assert!(bytes.is_empty());
-
-    // Moving the rectangle changes the picture, and so its validator.
+    // Moving the rectangle changes the picture, and so its address.
     let (status, _) = send(
         &h.app,
         Method::PUT,
@@ -1198,14 +1191,9 @@ async fn a_vignette_serves_the_cropped_region_as_its_own_image() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let (status, headers, bytes) = raw(
-        &h.app,
-        &format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id),
-        &[(header::IF_NONE_MATCH, &etag)],
-    )
-    .await;
+    let (status, _, bytes) = raw(&h.app, &before, &[]).await;
     assert_eq!(status, StatusCode::OK);
-    assert_ne!(headers[header::ETAG].to_str().unwrap(), etag);
+    assert_ne!(common::current_address(&h.app, &image).await, before);
     // A crop wider than a thumbnail is sent at thumbnail size.
     let cropped = image::load_from_memory(&bytes).expect("crop decodes");
     assert_eq!((cropped.width(), cropped.height()), (400, 320));
@@ -1738,14 +1726,22 @@ async fn a_pdf_document_draws_its_thumbnail_but_is_no_portrait() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{bundle}");
+    // The tiles, their sources' versions left out: what each draws.
     let item = |id: &str| {
-        bundle["media"]
+        let mut item = bundle["media"]
             .as_array()
             .unwrap()
             .iter()
             .find(|item| item["media_id"] == id)
             .cloned()
-            .unwrap_or_else(|| panic!("{id} missing from {bundle}"))
+            .unwrap_or_else(|| panic!("{id} missing from {bundle}"));
+        for preview in item["document_previews"].as_array_mut().unwrap() {
+            preview.as_object_mut().unwrap().remove("version");
+        }
+        if let Some(source) = item["source"].as_object_mut() {
+            source.remove("version");
+        }
+        item
     };
     // Drawn, never offered as a portrait, which a PDF never is.
     assert_eq!(
@@ -2658,7 +2654,7 @@ async fn a_page_whose_url_names_no_extension_is_still_previewed() {
 
 /// An uploaded picture gets a card rendition beside its thumbnail: the
 /// picture covering a 132-pixel square, served for the media and, cut on
-/// read, for a region of it, and inlined by `image-data` on both surfaces.
+/// read, for a region of it.
 #[tokio::test]
 async fn a_picture_has_a_card_rendition_for_itself_and_its_regions() {
     let h = setup().await;
@@ -2690,63 +2686,17 @@ async fn a_picture_has_a_card_rendition_for_itself_and_its_regions() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
     let vignette_id = vignette["id"].as_str().unwrap().to_string();
-    let (status, card_headers, crop) =
-        raw(&h.app, &format!("{base}/vignettes/{vignette_id}/card"), &[]).await;
+    let (status, _, crop) = raw(&h.app, &format!("{base}/vignettes/{vignette_id}/card"), &[]).await;
     assert_eq!(status, StatusCode::OK);
     let decoded = image::load_from_memory(&crop).expect("the crop decodes");
     assert_eq!((decoded.width(), decoded.height()), (176, 132));
-    let (_, image_headers, _) = raw(
+    let (_, _, image) = raw(
         &h.app,
         &format!("{base}/vignettes/{vignette_id}/image"),
         &[],
     )
     .await;
-    assert_ne!(
-        card_headers[header::ETAG],
-        image_headers[header::ETAG],
-        "the two sizes are two representations"
-    );
-
-    let (status, rest) = send(
-        &h.app,
-        Method::POST,
-        &format!("{base}/image-data"),
-        Some(json!({
-            "sources": [
-                { "kind": "card", "media_id": media_id },
-                { "kind": "card_crop", "vignette_id": vignette_id },
-            ]
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{rest}");
-    let slots = rest.as_array().expect("array response");
-    assert!(
-        slots.iter().all(|slot| slot
-            .as_str()
-            .is_some_and(|s| s.starts_with("data:image/jpeg"))),
-        "{rest}"
-    );
-
-    #[cfg(feature = "graphql")]
-    {
-        let query = format!(
-            r#"{{ imageData(treeId: "{}", sources: [
-                {{ kind: CARD, mediaId: "{media_id}" }},
-                {{ kind: CARD_CROP, vignetteId: "{vignette_id}" }}
-            ]) }}"#,
-            h.tree_id
-        );
-        let (status, gql) = send(
-            &h.app,
-            Method::POST,
-            "/graphql",
-            Some(json!({ "query": query })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{gql}");
-        assert_eq!(gql["data"]["imageData"], rest, "{gql}");
-    }
+    assert_ne!(crop, image, "the two sizes are two pictures");
 }
 
 /// A picture stored without a card rendition is drawn at card size from its
@@ -2778,127 +2728,143 @@ async fn a_picture_without_a_card_rendition_falls_back_to_its_thumbnail() {
     assert_eq!(card, thumbnail);
 }
 
-/// The web client has no shell to serve pictures from, so it asks for a whole
-/// screen's worth of bytes at once rather than one request per portrait.
+/// The version of `source`, an image source as the API sends it.
+fn version_of(source: &Value) -> String {
+    source["version"]
+        .as_str()
+        .expect("a held source's version")
+        .to_string()
+}
+
+/// Replacing a medium's file changes the address of each of its pictures in
+/// every answer naming them, on both surfaces; the old address never serves
+/// the new picture as immutable, it redirects to the new one, which does
+/// (docs/architecture.md §4.3).
 #[tokio::test]
-async fn image_sources_resolve_to_inline_data_in_one_request() {
+async fn replacing_a_file_gives_its_pictures_new_addresses() {
     let h = setup().await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
-    let (status, page) = upload(
+    let person_id = person(&h).await;
+    let document = new_document(&h.app, h.tree_id, Some("Portrait")).await;
+    let (_, page) = upload(
         &h.app,
         h.tree_id,
-        &[("file", Some("scan.png"), &png(12, 10))],
+        &[
+            ("file", Some("before.png"), &png(300, 200)),
+            ("document_id", None, document.as_bytes()),
+        ],
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED, "{page}");
-    let media_id = page["id"].as_str().unwrap().to_string();
-
-    let (status, body) = send(
+    let page_id = page["id"].as_str().unwrap().to_string();
+    let (status, _) = send(
         &h.app,
         Method::POST,
-        &format!("{base}/image-data"),
-        Some(json!({
-            "sources": [
-                { "kind": "thumbnail", "media_id": media_id },
-                { "kind": "remote", "url": "https://archives.example.invalid/7.jpg" },
-                { "kind": "thumbnail", "media_id": uuid::Uuid::now_v7() }
-            ]
-        })),
+        &format!("{base}/media-links"),
+        Some(json!({ "media_id": document, "person_id": person_id })),
     )
     .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = send(
+        &h.app,
+        Method::PUT,
+        &format!("{base}/persons/{person_id}/portrait"),
+        Some(json!({ "media_id": page_id })),
+    )
+    .await;
+    assert!(status.is_success(), "{status}");
 
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let slots = body.as_array().expect("array response");
-    assert_eq!(slots.len(), 3, "one slot per source, in order: {body}");
-    assert!(
-        slots[0]
-            .as_str()
-            .is_some_and(|s| s.starts_with("data:image/")),
-        "a held picture is inlined: {body}"
-    );
-    assert!(
-        slots[1].is_null(),
-        "we never proxy somebody else's file: {body}"
-    );
-    assert!(
-        slots[2].is_null(),
-        "a picture we do not hold draws nothing: {body}"
-    );
-}
-
-/// Counts the SQL statements SeaORM runs, as `query_scaling_test` does.
-struct StatementCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
-
-impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for StatementCounter {
-    fn on_new_span(
-        &self,
-        attributes: &tracing::span::Attributes<'_>,
-        _id: &tracing::span::Id,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        if attributes.metadata().name().starts_with("sea_orm.") {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-}
-
-/// A screen's pictures are read from the database in a fixed number of
-/// statements, however many there are — it used to be one or two per
-/// picture, up to 2,048 for a full batch.
-#[tokio::test]
-async fn image_data_reads_its_records_in_batches_not_per_picture() {
-    use std::sync::atomic::Ordering;
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-
-    let h = setup().await;
-    let base = format!("/api/v1/trees/{}", h.tree_id);
-    let mut sources = Vec::new();
-    for index in 0..8 {
-        let (status, page) = upload(
-            &h.app,
-            h.tree_id,
-            &[("file", Some("scan.png"), &png(40 + index, 30))],
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED, "{page}");
-        let media_id = page["id"].as_str().unwrap().to_string();
-        let (_, vignette) = send(
+    // Every answer naming the picture, read once before and once after.
+    let versions = || async {
+        let (_, gallery) = send(
             &h.app,
             Method::POST,
-            &format!("{base}/media/{media_id}/vignettes"),
-            Some(json!({"x": 1, "y": 1, "width": 10, "height": 10})),
+            &format!("{base}/gallery-bundle"),
+            Some(json!({ "media_ids": [document], "vignette_ids": [] })),
         )
         .await;
-        sources.push(json!({ "kind": "thumbnail", "media_id": media_id }));
-        sources.push(json!({ "kind": "crop", "vignette_id": vignette["id"] }));
-    }
-
-    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let _guard = tracing_subscriber::registry()
-        .with(StatementCounter(std::sync::Arc::clone(&counter)))
-        .set_default();
-    let mut counts = Vec::new();
-    for batch in [&sources[..2], &sources[..]] {
-        counter.store(0, Ordering::Relaxed);
-        let (status, body) = send(
+        let (_, portraits) = send(
             &h.app,
             Method::POST,
-            &format!("{base}/image-data"),
-            Some(json!({ "sources": batch })),
+            &format!("{base}/portrait-images"),
+            Some(json!({ "person_ids": [person_id] })),
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        let slots = body.as_array().expect("array response");
-        assert!(
-            slots
-                .iter()
-                .all(|slot| slot.as_str().is_some_and(|s| s.starts_with("data:image/"))),
-            "{body}"
-        );
-        counts.push(counter.load(Ordering::Relaxed));
-    }
-    assert_eq!(counts[0], counts[1], "statements for 2 and 16 pictures");
+        let (_, pedigree) = send(
+            &h.app,
+            Method::GET,
+            &format!("{base}/pedigree/{person_id}?ancestor_depth=1&descendant_depth=0"),
+            None,
+        )
+        .await;
+        let (_, listed) = send(
+            &h.app,
+            Method::GET,
+            &format!("{base}/media/{page_id}"),
+            None,
+        )
+        .await;
+        let found = vec![
+            version_of(&gallery["media"][0]["document_previews"][0]),
+            version_of(&portraits[0]["source"]),
+            version_of(&pedigree["persons"][&person_id]["portrait"]["source"]),
+            listed["sha256"].as_str().unwrap()[..16].to_string(),
+        ];
+        #[cfg(feature = "graphql")]
+        let found = {
+            let mut found = found;
+            let query = format!(
+                r#"{{ galleryBundle(treeId: "{}", mediaIds: ["{document}"], vignetteIds: []) {{
+                    media {{ documentPreviews {{ version }} }} }} }}"#,
+                h.tree_id
+            );
+            let (_, gql) = send(
+                &h.app,
+                Method::POST,
+                "/graphql",
+                Some(json!({ "query": query })),
+            )
+            .await;
+            found.push(version_of(
+                &gql["data"]["galleryBundle"]["media"][0]["documentPreviews"][0],
+            ));
+            found
+        };
+        found
+    };
+    let before = versions().await;
+    let old = before[0].clone();
+    assert!(before.iter().all(|version| *version == old), "{before:?}");
+    let old_thumbnail = format!("{base}/media/{page_id}/thumbnail?v={old}");
+    let (_, _, old_bytes) = raw_once(&h.app, &old_thumbnail, &[]).await;
+
+    let (status, _) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some("after.png"), &png(200, 300)),
+            ("media_id", None, page_id.as_bytes()),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let after = versions().await;
+    let new = after[0].clone();
+    assert_ne!(new, old);
+    assert!(after.iter().all(|version| *version == new), "{after:?}");
+    let (status, headers, body) = raw_once(&h.app, &old_thumbnail, &[]).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.is_empty(), "the old address holds no picture");
+    let new_thumbnail = format!("{base}/media/{page_id}/thumbnail?v={new}");
+    assert_eq!(headers[header::LOCATION], new_thumbnail.as_str());
+    let (status, headers, new_bytes) = raw_once(&h.app, &new_thumbnail, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "private, max-age=31536000, immutable"
+    );
+    assert_ne!(new_bytes, old_bytes);
 }
 
 /// A remote page carrying a region of somebody, ready to be read back.

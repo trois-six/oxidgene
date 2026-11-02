@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -354,6 +354,8 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
 - A browser bundle built with a non-empty `OTEL_EXPORTER_OTLP_ENDPOINT` exports
   client spans over OTLP/HTTP and injects W3C Trace Context into every request
   the typed API client sends to the backend (never into a remote download).
+  A picture the browser fetches from its versioned address carries none: the
+  engine sends it, not the client.
   Like the native runtimes, it exports only the application's own spans
   (`oxidgene_*` targets, `INFO` and above), never those of its dependencies,
   and sends the spans that end within a second of each other in one request.
@@ -672,30 +674,38 @@ must never be exposed directly to an untrusted network:
   for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
   of the origin that serves it; the type of a held file is the one sniffed from
   its bytes and cannot be relabelled;
-- UI markup never places a backend URL in `href`, `src`, `action`, redirects,
+- UI markup never places a backend URL in `href`, `action`, redirects,
   new-window navigation, or other user-visible navigation targets, except the
   App Settings API section's links to the API description and, in the web
   build, the GraphiQL page, neither of which holds tree data;
-- media, thumbnails, crops, archives, and exports are fetched through the
-  typed client, then exposed to the rendering engine as local `data:` or
-  `blob:` resources or written through a platform save dialog. A script of
-  the page that reads a file rather than drawing it — the PDF viewer's
-  pdf.js — receives the bytes themselves, base64-encoded in chunks over the
-  script channel, never an address;
+- a held picture — a medium's thumbnail, card rendition or file, a
+  vignette's crop, an avatar — is drawn from its versioned address
+  ([Architecture §4.3](architecture.md#43-versioned-assets)): the web build
+  puts the API's address of it in an image's `src`, which the browser
+  fetches with the page's own credentials (the session cookie on the one
+  origin of `oidc` mode, none in `none` mode, whose backend stays on a
+  trusted network), and which the server authorizes on every request as any
+  read. An image source is not a navigation target: it opens nothing and
+  carries nothing out. Archives and exports are fetched through the typed
+  client and written through a platform save dialog. A script of the page
+  that reads a file rather than drawing it — the PDF viewer's pdf.js —
+  receives on the web the bytes themselves, base64-encoded in chunks over
+  the script channel, never an address;
 - a shell that answers on an origin of its own may serve them from it instead —
   the desktop build registers a handler under `/oxidgene-media/…` and proxies
   it onto the embedded server. That is the application's own address, not the
   backend's, so nothing about this rule is relaxed: the markup still carries no
   backend URL, and the picture cannot be reached by anyone the shell has not
   already let in. The handler forwards, with the launch token, only the paths
-  its image host builds — a medium's thumbnail or file, a vignette's image —
-  and answers `404` to anything else. It forwards the engine's
-  `If-None-Match` and relays the backend's status, `ETag` and
-  `Cache-Control`, so a picture revalidates as it would against the backend
-  itself. Note bodies keep no image and no
+  its image host builds — a medium's thumbnail, card or file, a vignette's
+  image or card, each with its version — and answers `404` to anything else.
+  It relays the backend's status and `Cache-Control` unchanged, and a
+  redirect to a picture's current version as a redirect to that version's
+  path under its own prefix, so a picture is cached by the WebView as it
+  would be against the backend itself. Note bodies keep no image and no
   relative URL that could point at it (§7). The PDF viewer's pdf.js fetches
   a PDF there too, a path of the same handler. A second handler,
-  `/pdfjs/…`, serves pdf.js itself from the binary and nothing of the
+  `/pdfjs/{release}/…`, serves pdf.js itself from the binary and nothing of the
   backend's. The media handler is preferred where available, because the engine can then
   cache, lazily load and decode pictures the way it does for any other image —
   see [API §Image sources](api.md).

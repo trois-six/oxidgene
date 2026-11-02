@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Vendors pdf.js (docs/development.md §2.6): downloads pdfjs-dist VERSION from
 # the npm registry, checks the archive against INTEGRITY, and copies the files
-# the PDF viewer loads into assets/public/pdfjs/, which the web bundle serves
-# as they are and the desktop embeds.
+# the PDF viewer loads into assets/public/pdfjs/VERSION/, which the web bundle
+# serves as they are and the desktop embeds: the release in the path versions
+# them (docs/architecture.md §4.3).
 #
 #   scripts/pdfjs.sh VERSION INTEGRITY
 #
@@ -45,7 +46,8 @@ tar --extract --gzip --no-same-owner --no-same-permissions \
 package="$work/package"
 
 rm -rf "$destination"
-mkdir -p "$destination/wasm" "$destination/images"
+release="$destination/$version"
+mkdir -p "$release/wasm" "$release/images"
 # The library, its worker, the viewer components and their stylesheet.
 install -m 644 \
     "$package/legacy/build/pdf.min.mjs" \
@@ -53,9 +55,9 @@ install -m 644 \
     "$package/legacy/web/pdf_viewer.mjs" \
     "$package/legacy/web/pdf_viewer.css" \
     "$package/LICENSE" \
-    "$destination/"
+    "$release/"
 # The one picture of the stylesheet the viewer shows: a page being drawn.
-install -m 644 "$package/legacy/web/images/loading-icon.gif" "$destination/images/"
+install -m 644 "$package/legacy/web/images/loading-icon.gif" "$release/images/"
 # The decoders of JPEG 2000 and JBIG2 images, the formats of many scans,
 # with their licences. Neither the scripting sandbox nor the colour
 # management module: scripts never run, and colours fall back to the
@@ -67,7 +69,7 @@ install -m 644 \
     "$package/wasm/LICENSE_PDFJS_OPENJPEG" \
     "$package/wasm/LICENSE_JBIG2" \
     "$package/wasm/LICENSE_PDFJS_JBIG2" \
-    "$destination/wasm/"
+    "$release/wasm/"
 printf 'pdfjs-dist %s %s\n' "$version" "$integrity" > "$destination/VERSION"
 
-echo "pdf.js $version is in ${destination#"$root"/}"
+echo "pdf.js $version is in ${release#"$root"/}"

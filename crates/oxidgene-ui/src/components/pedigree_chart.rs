@@ -319,8 +319,7 @@ pub type AncestorSet = Shared<HashSet<Uuid>>;
 /// that region, and the card cuts it itself.
 ///
 /// Kept apart from the [`PedigreeData`] and the layout: portraits arrive
-/// after the pedigree, and on the web each one is a `data:` URL tens of
-/// kilobytes long. Folded into the pedigree, their arrival built a new one,
+/// after the pedigree. Folded into the pedigree, their arrival built a new one,
 /// which laid the chart out again and redrew every card, and each picture
 /// was copied into every node of the layout.
 pub type Portraits = Shared<HashMap<Uuid, CroppedSource>>;

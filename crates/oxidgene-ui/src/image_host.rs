@@ -1,19 +1,18 @@
 //! Turning a backend-held picture into something the engine can draw.
 //!
 //! The API never sends pictures inline: a gallery or a pedigree says where each
-//! one lives (`ImageSource`) and the bytes travel over their own request. What
-//! a "request" means differs per platform, and this is the one place that knows:
+//! one lives and at which version (`ImageSource`), and the engine fetches the
+//! bytes from the versioned address, which it keeps immutable
+//! (`docs/architecture.md` §4.3). Whose address it is differs per platform:
 //!
 //! - **Desktop** installs a [`MediaAssetHost`]. It serves the picture from the
-//!   application's own origin, so the markup carries a short relative path, the
-//!   WebView caches it, decodes it off the main thread, and never fetches one
-//!   that stays off screen.
-//! - **Web** has no such origin. The bytes are fetched through the typed client
-//!   and handed over as a `data:` URL, which is what every picture used to be.
+//!   application's own origin, which proxies the embedded backend, so the
+//!   markup carries a short relative path.
+//! - **Web** draws it from the API's own address, which the browser fetches
+//!   with the page's credentials (`docs/cross-cutting.md` §7.1).
 //!
-//! Either way no backend address reaches the markup, which is what
-//! `docs/cross-cutting.md` §7.1 requires until authentication
-//! ships.
+//! Either way the engine caches the picture, decodes it off the main thread,
+//! and never fetches one that stays off screen.
 
 use std::sync::Arc;
 
@@ -33,7 +32,7 @@ pub trait MediaAssetHost: Send + Sync {
     ///
     /// `None` for an asset this host does not serve, which sends the caller
     /// down the fetch-and-encode path instead.
-    fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String>;
+    fn path(&self, tree_id: Uuid, asset: &MediaAsset) -> Option<String>;
 
     /// The path this shell serves the default silhouette from.
     ///
@@ -60,39 +59,77 @@ pub fn silhouette_slug(sex: Sex) -> &'static str {
 /// answers for these is answering for pictures, and cannot be talked into
 /// proxying the rest of the API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaAsset {
+pub enum AssetKind {
     /// The thumbnail generated for a media.
-    Thumbnail { media_id: Uuid },
+    Thumbnail,
     /// The region cut out of a media.
-    Crop { vignette_id: Uuid },
+    Crop,
     /// The stored file itself, at full size.
-    File { media_id: Uuid },
+    File,
     /// The card rendition of a media: its picture at the size of a portrait
     /// on a card.
-    Card { media_id: Uuid },
+    Card,
     /// The region cut out of a media, at the size of a portrait on a card.
-    CardCrop { vignette_id: Uuid },
+    CardCrop,
+}
+
+impl AssetKind {
+    /// The path of the asset of record `id`, under tree `tree_id`.
+    fn path(self, tree_id: Uuid, id: Uuid) -> String {
+        match self {
+            Self::Thumbnail => format!("/api/v1/trees/{tree_id}/media/{id}/thumbnail"),
+            Self::Crop => format!("/api/v1/trees/{tree_id}/vignettes/{id}/image"),
+            Self::File => format!("/api/v1/trees/{tree_id}/media/{id}/file"),
+            Self::Card => format!("/api/v1/trees/{tree_id}/media/{id}/card"),
+            Self::CardCrop => format!("/api/v1/trees/{tree_id}/vignettes/{id}/card"),
+        }
+    }
+}
+
+/// One held picture: what serves it, the medium or vignette it is of, and
+/// its version, which makes its address change with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaAsset {
+    pub kind: AssetKind,
+    /// The medium (thumbnail, card, file) or the vignette (crops).
+    pub id: Uuid,
+    pub version: String,
 }
 
 impl MediaAsset {
+    /// A medium's stored file, at `version`.
+    #[must_use]
+    pub fn file(media_id: Uuid, version: String) -> Self {
+        Self {
+            kind: AssetKind::File,
+            id: media_id,
+            version,
+        }
+    }
+
     /// The asset an [`ImageSource`] names, when it names one of ours.
     #[must_use]
     pub fn from_source(source: &ImageSource) -> Option<Self> {
-        match source {
-            ImageSource::Remote { .. } => None,
-            ImageSource::Thumbnail { media_id } => Some(Self::Thumbnail {
-                media_id: *media_id,
-            }),
-            ImageSource::Crop { vignette_id } => Some(Self::Crop {
-                vignette_id: *vignette_id,
-            }),
-            ImageSource::Card { media_id } => Some(Self::Card {
-                media_id: *media_id,
-            }),
-            ImageSource::CardCrop { vignette_id } => Some(Self::CardCrop {
-                vignette_id: *vignette_id,
-            }),
-        }
+        let (kind, id, version) = match source {
+            ImageSource::Remote { .. } => return None,
+            ImageSource::Thumbnail { media_id, version } => {
+                (AssetKind::Thumbnail, media_id, version)
+            }
+            ImageSource::Crop {
+                vignette_id,
+                version,
+            } => (AssetKind::Crop, vignette_id, version),
+            ImageSource::Card { media_id, version } => (AssetKind::Card, media_id, version),
+            ImageSource::CardCrop {
+                vignette_id,
+                version,
+            } => (AssetKind::CardCrop, vignette_id, version),
+        };
+        Some(Self {
+            kind,
+            id: *id,
+            version: version.clone(),
+        })
     }
 }
 
@@ -107,7 +144,7 @@ impl ImageHost {
     }
 
     #[must_use]
-    pub fn path(&self, tree_id: Uuid, asset: MediaAsset) -> Option<String> {
+    pub fn path(&self, tree_id: Uuid, asset: &MediaAsset) -> Option<String> {
         self.0.path(tree_id, asset)
     }
 
@@ -123,108 +160,102 @@ impl std::fmt::Debug for ImageHost {
     }
 }
 
-/// The API path that serves one held picture.
+/// The API path, version included, that serves one held picture.
 ///
 /// Shared by both resolution paths: the desktop handler proxies this path, and
-/// the web fallback fetches it through the typed client.
+/// the web draws it from the API's origin.
 #[must_use]
-pub fn api_path(tree_id: Uuid, asset: MediaAsset) -> String {
-    match asset {
-        MediaAsset::Thumbnail { media_id } => {
-            format!("/api/v1/trees/{tree_id}/media/{media_id}/thumbnail")
-        }
-        MediaAsset::Crop { vignette_id } => {
-            format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image")
-        }
-        MediaAsset::File { media_id } => {
-            format!("/api/v1/trees/{tree_id}/media/{media_id}/file")
-        }
-        MediaAsset::Card { media_id } => {
-            format!("/api/v1/trees/{tree_id}/media/{media_id}/card")
-        }
-        MediaAsset::CardCrop { vignette_id } => {
-            format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/card")
-        }
-    }
+pub fn api_path(tree_id: Uuid, asset: &MediaAsset) -> String {
+    format!("{}?v={}", asset.kind.path(tree_id, asset.id), asset.version)
 }
 
 /// Whether `path` is one [`api_path`] produces: a medium's thumbnail, card
-/// rendition or file, or a vignette's image or card, named by UUIDs.
+/// rendition or file, or a vignette's image or card, named by UUIDs, with a
+/// version of hexadecimal digits.
 ///
 /// A shell that proxies these paths onto the backend answers nothing else,
 /// so whatever reaches the proxy — markup that slipped through, a crafted
 /// link — can read no other route with the shell's credentials.
 #[must_use]
 pub fn is_asset_path(path: &str) -> bool {
+    let Some((path, version)) = path.split_once("?v=") else {
+        return false;
+    };
+    let versioned = (1..=oxidgene_core::types::VERSION_DIGITS).contains(&version.len())
+        && version.bytes().all(|b| b.is_ascii_hexdigit());
     let segments: Vec<&str> = path.split('/').collect();
     let is_id = |segment: &str| segment.parse::<Uuid>().is_ok();
-    matches!(
-        segments.as_slice(),
-        ["", "api", "v1", "trees", tree, "media", media, "thumbnail" | "file" | "card"]
-            if is_id(tree) && is_id(media)
-    ) || matches!(
-        segments.as_slice(),
-        ["", "api", "v1", "trees", tree, "vignettes", vignette, "image" | "card"]
-            if is_id(tree) && is_id(vignette)
-    )
+    versioned
+        && (matches!(
+            segments.as_slice(),
+            ["", "api", "v1", "trees", tree, "media", media, "thumbnail" | "file" | "card"]
+                if is_id(tree) && is_id(media)
+        ) || matches!(
+            segments.as_slice(),
+            ["", "api", "v1", "trees", tree, "vignettes", vignette, "image" | "card"]
+                if is_id(tree) && is_id(vignette)
+        ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const KINDS: [AssetKind; 5] = [
+        AssetKind::Thumbnail,
+        AssetKind::Crop,
+        AssetKind::File,
+        AssetKind::Card,
+        AssetKind::CardCrop,
+    ];
+
+    fn asset(kind: AssetKind, id: Uuid) -> MediaAsset {
+        MediaAsset {
+            kind,
+            id,
+            version: "0123456789abcdef".into(),
+        }
+    }
+
     #[test]
     fn only_asset_paths_are_asset_paths() {
         let id = Uuid::now_v7();
-        for asset in [
-            MediaAsset::Thumbnail { media_id: id },
-            MediaAsset::Crop { vignette_id: id },
-            MediaAsset::File { media_id: id },
-            MediaAsset::Card { media_id: id },
-            MediaAsset::CardCrop { vignette_id: id },
-        ] {
-            assert!(is_asset_path(&api_path(id, asset)), "{asset:?}");
+        for kind in KINDS {
+            assert!(is_asset_path(&api_path(id, &asset(kind, id))), "{kind:?}");
         }
         for other in [
             "/api/v1/trees".to_string(),
-            format!("/api/v1/trees/{id}"),
-            format!("/api/v1/trees/{id}/media/{id}"),
-            format!("/api/v1/trees/{id}/media/{id}/archive"),
-            format!("/api/v1/trees/{id}/media/{id}/file/extra"),
-            format!("/api/v1/trees/{id}/media/../persons/file"),
+            format!("/api/v1/trees/{id}?v=1"),
+            format!("/api/v1/trees/{id}/media/{id}?v=1"),
+            format!("/api/v1/trees/{id}/media/{id}/archive?v=1"),
+            format!("/api/v1/trees/{id}/media/{id}/file/extra?v=1"),
+            format!("/api/v1/trees/{id}/media/../persons/file?v=1"),
             format!("/api/v1/trees/{id}/vignettes/{id}/image?x=1"),
-            format!("/api/v1/trees/{id}/notes/{id}/thumbnail"),
-            format!("/api/v1/trees/{id}/notes/{id}/card"),
-            format!("/api/v1/trees/{id}/vignettes/{id}/file"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/image?v=1&x=1"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/image?v=0123456789abcdef0"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/image"),
+            format!("/api/v1/trees/{id}/notes/{id}/thumbnail?v=1"),
+            format!("/api/v1/trees/{id}/notes/{id}/card?v=1"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/file?v=1"),
         ] {
             assert!(!is_asset_path(&other), "{other}");
         }
     }
 
     #[test]
-    fn every_asset_names_the_endpoint_that_serves_it() {
+    fn every_asset_names_the_endpoint_that_serves_it_at_its_version() {
         let id = Uuid::nil();
         let zero = "00000000-0000-0000-0000-000000000000";
-
+        let paths = KINDS.map(|kind| api_path(id, &asset(kind, id)));
         assert_eq!(
-            api_path(id, MediaAsset::Thumbnail { media_id: id }),
-            format!("/api/v1/trees/{zero}/media/{zero}/thumbnail")
-        );
-        assert_eq!(
-            api_path(id, MediaAsset::Crop { vignette_id: id }),
-            format!("/api/v1/trees/{zero}/vignettes/{zero}/image")
-        );
-        assert_eq!(
-            api_path(id, MediaAsset::File { media_id: id }),
-            format!("/api/v1/trees/{zero}/media/{zero}/file")
-        );
-        assert_eq!(
-            api_path(id, MediaAsset::Card { media_id: id }),
-            format!("/api/v1/trees/{zero}/media/{zero}/card")
-        );
-        assert_eq!(
-            api_path(id, MediaAsset::CardCrop { vignette_id: id }),
-            format!("/api/v1/trees/{zero}/vignettes/{zero}/card")
+            paths,
+            [
+                format!("/api/v1/trees/{zero}/media/{zero}/thumbnail?v=0123456789abcdef"),
+                format!("/api/v1/trees/{zero}/vignettes/{zero}/image?v=0123456789abcdef"),
+                format!("/api/v1/trees/{zero}/media/{zero}/file?v=0123456789abcdef"),
+                format!("/api/v1/trees/{zero}/media/{zero}/card?v=0123456789abcdef"),
+                format!("/api/v1/trees/{zero}/vignettes/{zero}/card?v=0123456789abcdef"),
+            ]
         );
     }
 
@@ -253,11 +284,10 @@ mod tests {
         );
         assert_eq!(
             MediaAsset::from_source(&ImageSource::Thumbnail {
-                media_id: Uuid::nil()
+                media_id: Uuid::nil(),
+                version: "0123456789abcdef".into(),
             }),
-            Some(MediaAsset::Thumbnail {
-                media_id: Uuid::nil()
-            })
+            Some(asset(AssetKind::Thumbnail, Uuid::nil()))
         );
     }
 }

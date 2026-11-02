@@ -12,7 +12,7 @@
 //! every person, so the reads that gather them are measured too. The same
 //! survey runs over GraphQL, whose nested fields must cost one query per
 //! relation for a whole page rather than one per record; and the batch reads
-//! (pedigrees at three depths, portraits, image data, gallery bundles,
+//! (pedigrees at three depths, portraits, gallery bundles,
 //! relation labels) are measured with 4 and with 64 ids, which must cost the
 //! same.
 //!
@@ -374,10 +374,6 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
             persons.len() == n && crops.len() == n,
             "the tree holds {n} portraits"
         );
-        let sources: Vec<Value> = crops
-            .iter()
-            .map(|id| json!({ "kind": "crop", "vignette_id": id }))
-            .collect();
         // The pedigrees at three depths: the roots of a batch share its walks
         // and reads, so its cost may follow the depth, never the roots.
         let pedigrees = [(2, 1), (5, 3), (10, 10)].map(|(up, down)| {
@@ -388,7 +384,6 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
         });
         let others = [
             ("/portrait-images", json!({ "person_ids": persons })),
-            ("/image-data", json!({ "sources": sources })),
             (
                 "/gallery-bundle",
                 json!({ "media_ids": [], "vignette_ids": crops }),

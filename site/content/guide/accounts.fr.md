@@ -24,7 +24,7 @@ Si la connexion échoue, la page où vous revenez en donne la raison : vous ou l
 
 Une fois connecté, votre avatar remplace **Se connecter** en haut à droite de la page d’accueil et des paramètres de l’application. Cliquez dessus pour ouvrir le menu du compte : votre nom et votre adresse e-mail, **Profil** et **Se déconnecter**.
 
-**Se déconnecter** termine votre session dans OxidGene, puis chez le fournisseur d’identité : la connexion suivante vous redemande qui vous êtes.
+**Se déconnecter** termine votre session dans OxidGene, puis chez le fournisseur d’identité : la connexion suivante vous redemande qui vous êtes. Elle vide aussi les copies des images que le navigateur vous a montrées : votre navigateur garde chaque photographie qu’il a affichée, pour qu’une page où vous revenez apparaisse aussitôt, et se déconnecter sur un ordinateur partagé n’en laisse aucune. Une session qui se termine autrement les vide la prochaine fois que ce navigateur contacte OxidGene.
 
 ## Quand votre session se termine
 

@@ -124,7 +124,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
     let portraits_resource = use_ui_resource("homonym_portraits", move || {
         let api = api_portraits.clone();
         let homonyms = homonyms.clone();
-        async move { api.entry_portraits(tree_id, &homonyms).await }
+        async move { api.entry_portraits(tree_id, &homonyms) }
     });
     let portraits = portraits_resource.read().clone().unwrap_or_default();
 

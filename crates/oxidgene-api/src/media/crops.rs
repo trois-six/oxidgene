@@ -15,10 +15,11 @@
 //! that make it so, right after their commit ([`forget`]), and by the
 //! maintenance sweep ([`sweep`]) for whatever a crash or a race left.
 //!
-//! Nothing here decides who may see a crop. Its two readers — the vignette
-//! image routes and the image-data batch of REST and GraphQL — check the
-//! viewer's access to the vignette and its page first, exactly as they did
-//! when every view cut the page again.
+//! Nothing here decides who may see a crop. Its readers, the vignette image
+//! routes, check the viewer's access to the vignette and its page first,
+//! exactly as they did when every view cut the page again. The same inputs
+//! less the size make the crops' [`version`], which their addresses carry
+//! (`docs/architecture.md` §4.3).
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -72,17 +73,41 @@ fn size_name(rendition: Rendition) -> &'static str {
 /// no digest, which is a page we do not hold.
 #[must_use]
 pub fn fingerprint(medium: &Media, vignette: &Vignette, rendition: Rendition) -> Option<String> {
-    let digest = medium.sha256.as_deref()?;
-    let identity = format!(
-        "oxidgene-crop/{CUT_VERSION}\n{}\n{digest}\n{},{},{},{}\n{}",
+    let identity = identity(
         medium.id,
-        vignette.x,
-        vignette.y,
-        vignette.width,
-        vignette.height,
-        size_name(rendition)
+        medium.sha256.as_deref()?,
+        (vignette.x, vignette.y, vignette.width, vignette.height),
     );
-    Some(sha256_hex(identity.as_bytes()))
+    Some(sha256_hex(
+        format!("{identity}\n{}", size_name(rendition)).as_bytes(),
+    ))
+}
+
+/// Everything a crop depends on but its size: the version of the cut, the
+/// page's id and content digest, and the rectangle.
+fn identity(page_id: Uuid, digest: &str, (x, y, width, height): (i32, i32, i32, i32)) -> String {
+    format!("oxidgene-crop/{CUT_VERSION}\n{page_id}\n{digest}\n{x},{y},{width},{height}")
+}
+
+/// The version of the crops of a vignette with `rect` on page `page_id`
+/// whose content digest is `digest`, at both sizes: the first digits of the
+/// SHA-256 of what they depend on, which names none of it
+/// (`docs/architecture.md` §4.3). A moved rectangle, a replaced page or a
+/// new way of cutting is a new version.
+#[must_use]
+pub fn version(page_id: Uuid, digest: &str, rect: (i32, i32, i32, i32)) -> String {
+    oxidgene_core::types::version_of(&sha256_hex(identity(page_id, digest, rect).as_bytes()))
+}
+
+/// [`version`] of `vignette`, a region of page `medium`, as both rows are
+/// now; `None` for a page we do not hold.
+#[must_use]
+pub fn vignette_version(medium: &Media, vignette: &Vignette) -> Option<String> {
+    Some(version(
+        medium.id,
+        medium.sha256.as_deref()?,
+        (vignette.x, vignette.y, vignette.width, vignette.height),
+    ))
 }
 
 /// The key of the crop of `vignette`, a region of page `medium`, at

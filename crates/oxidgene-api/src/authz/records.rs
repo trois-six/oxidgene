@@ -309,10 +309,10 @@ impl Records {
     pub fn hides_image(&self, source: &ImageSource) -> bool {
         match source {
             ImageSource::Remote { .. } => false,
-            ImageSource::Thumbnail { media_id } | ImageSource::Card { media_id } => {
+            ImageSource::Thumbnail { media_id, .. } | ImageSource::Card { media_id, .. } => {
                 holds(&self.hidden.media, *media_id)
             }
-            ImageSource::Crop { vignette_id } | ImageSource::CardCrop { vignette_id } => {
+            ImageSource::Crop { vignette_id, .. } | ImageSource::CardCrop { vignette_id, .. } => {
                 holds(&self.hidden.vignettes, *vignette_id)
             }
         }

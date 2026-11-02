@@ -19,15 +19,10 @@ use crate::service::avatar::{self, Crop, MAX_AVATAR_BYTES};
 /// around it.
 pub const AVATAR_BODY_LIMIT: usize = MAX_AVATAR_BYTES + 64 * 1024;
 
-/// A response that clears the session cookie: the request's own session
-/// ended.
+/// A response that ends the browser's session: the request's own session
+/// ended, so its cookie and the pictures its browser kept go.
 fn signed_out(mut response: Response) -> Response {
-    response.headers_mut().append(
-        header::SET_COOKIE,
-        HeaderValue::from_static(
-            "__Host-oxidgene=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0",
-        ),
-    );
+    crate::auth::cookie::end_session(response.headers_mut());
     response
 }
 

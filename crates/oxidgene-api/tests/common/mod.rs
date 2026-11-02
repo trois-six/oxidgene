@@ -249,7 +249,30 @@ pub async fn send(
 }
 
 /// `GET uri`: the status and the raw answer, for the routes answering bytes.
+/// A versioned asset's redirect to its current version is followed, as a
+/// browser does (docs/architecture.md §4.3).
 pub async fn send_bytes(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
+    let (status, location, bytes) = get_once(app, uri).await;
+    match location {
+        Some(location) if status == StatusCode::TEMPORARY_REDIRECT => {
+            let (status, _, bytes) = get_once(app, &location).await;
+            (status, bytes)
+        }
+        _ => (status, bytes),
+    }
+}
+
+/// The address `uri` names now: its current version's when the route
+/// redirects there, `uri` itself otherwise.
+pub async fn current_address(app: &Router, uri: &str) -> String {
+    match get_once(app, uri).await {
+        (StatusCode::TEMPORARY_REDIRECT, Some(location), _) => location,
+        _ => uri.to_string(),
+    }
+}
+
+/// One `GET uri`: its status, its `Location` and its body.
+async fn get_once(app: &Router, uri: &str) -> (StatusCode, Option<String>, Vec<u8>) {
     let request = Request::builder()
         .method(Method::GET)
         .uri(uri)
@@ -257,8 +280,12 @@ pub async fn send_bytes(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .map(|value| value.to_str().unwrap().to_string());
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    (status, bytes.to_vec())
+    (status, location, bytes.to_vec())
 }
 
 /// The files of the crops stored of vignette `vignette_id` under media root

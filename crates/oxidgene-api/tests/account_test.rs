@@ -139,27 +139,37 @@ async fn an_uploaded_avatar_is_cropped_reencoded_served_and_removed() {
         )
         .await;
     assert_eq!(uploaded.status, StatusCode::OK, "{}", uploaded.json);
-    let etag = uploaded.json["avatar"]["etag"]
+    let version = uploaded.json["avatar"]["version"]
         .as_str()
         .expect("an avatar")
         .to_string();
+    assert_eq!(version.len(), 16, "{version}");
 
     for size in [256, 64] {
-        let image = browser
-            .get(&format!("/api/v1/users/{id}/avatar?size={size}"))
-            .await;
+        // Immutable at its version (docs/architecture.md §4.3).
+        let current = format!("/api/v1/users/{id}/avatar?size={size}&v={version}");
+        let image = browser.get(&current).await;
         assert_eq!(image.status, StatusCode::OK);
         assert_eq!(image.headers[header::CONTENT_TYPE], "image/jpeg");
         assert_eq!(
             image.headers[header::CACHE_CONTROL],
-            "private, max-age=86400"
+            "private, max-age=31536000, immutable"
         );
         assert_eq!(image.headers[header::VARY], "Cookie, Authorization");
         assert_eq!(image.headers[header::CONTENT_SECURITY_POLICY], "sandbox");
+        assert!(image.headers.get(header::ETAG).is_none());
         let decoded = image::load_from_memory(&image.bytes).expect("a JPEG");
         assert_eq!((decoded.width(), decoded.height()), (size, size));
-        let tag = image.headers[header::ETAG].to_str().unwrap().to_string();
-        assert_eq!(tag, format!("\"{etag}-{size}\""));
+        // Redirected there from any other version, or none.
+        for other in [
+            format!("/api/v1/users/{id}/avatar?size={size}"),
+            format!("/api/v1/users/{id}/avatar?size={size}&v=0000000000000000"),
+        ] {
+            let moved = browser.get(&other).await;
+            assert_eq!(moved.status, StatusCode::TEMPORARY_REDIRECT, "{other}");
+            assert_eq!(moved.headers[header::LOCATION], current.as_str());
+            assert_eq!(moved.headers[header::CACHE_CONTROL], "no-store");
+        }
     }
     let out_of_image = multipart(&png(100, 100), &[("x", "50"), ("y", "0"), ("size", "80")]);
     let refused = browser
@@ -182,32 +192,55 @@ async fn an_uploaded_avatar_is_cropped_reencoded_served_and_removed() {
     // GraphQL: the profile gives the image's address; an upload replaces it.
     let profile = browser
         .gql(
-            "query($id: ID!) { userProfile(userId: $id) { displayName avatar { etag } avatarUrl(size: 64) } }",
+            "query($id: ID!) { userProfile(userId: $id) { displayName avatar { version } avatarUrl(size: 64) } }",
             json!({ "id": id }),
         )
         .await;
     let url = profile.json["data"]["userProfile"]["avatarUrl"]
         .as_str()
         .expect("a URL");
-    assert_eq!(url, format!("/api/v1/users/{id}/avatar?size=64&v={etag}"));
+    assert_eq!(
+        url,
+        format!("/api/v1/users/{id}/avatar?size=64&v={version}")
+    );
     let encoded = base64::engine::general_purpose::STANDARD.encode(png(64, 64));
     let replaced = browser
         .gql(
-            "mutation($image: String!) { uploadMyAvatar(input: { contentBase64: $image }) { avatar { etag } } }",
+            "mutation($image: String!) { uploadMyAvatar(input: { contentBase64: $image }) { avatar { version } } }",
             json!({ "image": encoded }),
         )
         .await;
-    let new_etag = replaced.json["data"]["uploadMyAvatar"]["avatar"]["etag"]
+    let new_version = replaced.json["data"]["uploadMyAvatar"]["avatar"]["version"]
         .as_str()
         .expect("replaced")
         .to_string();
-    assert_ne!(new_etag, etag);
+    assert_ne!(new_version, version);
+    // The old address redirects to the new one, never serving it itself.
+    let moved = browser
+        .get(&format!("/api/v1/users/{id}/avatar?size=64&v={version}"))
+        .await;
+    assert_eq!(moved.status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        moved.headers[header::LOCATION],
+        format!("/api/v1/users/{id}/avatar?size=64&v={new_version}").as_str()
+    );
     // The replaced avatar's files are gone.
-    let old = crate::common::test_media_root().join(format!("users/{id}/avatar/{etag}-256.jpg"));
-    assert!(!old.exists(), "{}", old.display());
-    let current =
-        crate::common::test_media_root().join(format!("users/{id}/avatar/{new_etag}-256.jpg"));
-    assert!(current.exists());
+    let stored = |version: &str| {
+        std::fs::read_dir(crate::common::test_media_root().join(format!("users/{id}/avatar")))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                name.starts_with(version) && name.ends_with("-256.jpg")
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(stored(&version).is_empty());
+    let current = stored(&new_version)
+        .pop()
+        .expect("the new avatar is stored");
 
     let removed = browser.gql("mutation { deleteMyAvatar }", json!({})).await;
     assert_eq!(
@@ -240,45 +273,6 @@ async fn an_uploaded_avatar_is_cropped_reencoded_served_and_removed() {
             .status,
         StatusCode::NO_CONTENT
     );
-}
-
-#[tokio::test]
-async fn an_avatar_answers_not_modified_to_a_client_that_has_it() {
-    let provider = MockProvider::start().await;
-    let db = setup_db().await;
-    let (app, _) = provider.app(&db, &[]);
-    let (mut browser, id) = signed_in(&app, &provider, &MockUser::new("cora")).await;
-    let (body, content_type) = multipart(&png(80, 80), &[]);
-    browser
-        .send(
-            Method::PUT,
-            "/api/v1/me/avatar",
-            Some(body),
-            Some(&content_type),
-        )
-        .await;
-    let first = browser.get(&format!("/api/v1/users/{id}/avatar")).await;
-    let etag = first.headers[header::ETAG].to_str().unwrap().to_string();
-    use tower::ServiceExt as _;
-    let cookie = browser
-        .cookies
-        .iter()
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    let response = app
-        .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .uri(format!("/api/v1/users/{id}/avatar"))
-                .header(header::COOKIE, cookie)
-                .header(header::IF_NONE_MATCH, etag)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
 }
 
 #[tokio::test]
@@ -319,6 +313,8 @@ async fn a_user_lists_and_ends_their_sessions_on_both_surfaces() {
         )
         .await;
     assert_eq!(ended.json["data"]["endMySession"], true, "{}", ended.json);
+    // Another session ended: this browser keeps its pictures.
+    assert!(ended.headers.get("clear-site-data").is_none());
     assert_eq!(
         phone.get("/api/v1/me").await.status,
         StatusCode::UNAUTHORIZED
@@ -348,6 +344,7 @@ async fn a_user_lists_and_ends_their_sessions_on_both_surfaces() {
         .await;
     assert_eq!(signed_out.status, StatusCode::NO_CONTENT);
     assert!(!laptop.cookies.contains_key("__Host-oxidgene"));
+    assert_eq!(signed_out.headers["clear-site-data"], "\"cache\"");
 }
 
 #[tokio::test]
@@ -571,4 +568,27 @@ async fn an_anonymous_request_is_refused_alike_on_both_surfaces() {
         "{}",
         open.json
     );
+}
+
+/// Ending one's own session over GraphQL signs the browser out as REST does:
+/// its cookie and the pictures it kept go (docs/authentication.md §9.1).
+#[tokio::test]
+async fn ending_ones_own_session_over_graphql_clears_the_browsers_cache() {
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+    let (mut browser, _) = signed_in(&app, &provider, &MockUser::new("gil")).await;
+    let mine = browser.get("/api/v1/me/sessions").await.json[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ended = browser
+        .gql(
+            "mutation($id: ID!) { endMySession(sessionId: $id) }",
+            json!({ "id": mine }),
+        )
+        .await;
+    assert_eq!(ended.json["data"]["endMySession"], true, "{}", ended.json);
+    assert_eq!(ended.headers["clear-site-data"], "\"cache\"");
+    assert!(!browser.cookies.contains_key("__Host-oxidgene"));
 }

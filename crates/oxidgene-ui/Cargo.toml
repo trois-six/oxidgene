@@ -17,6 +17,9 @@ compressed-locales = ["dep:brotli", "dep:brotli-decompressor"]
 
 [build-dependencies]
 brotli = { workspace = true, optional = true }
+# The base map's version, a digest of the file the backend embeds
+# (docs/architecture.md §4.3): computed at build time, never linked.
+sha2 = { workspace = true }
 
 [dependencies]
 oxidgene-core = { workspace = true }

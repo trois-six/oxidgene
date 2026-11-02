@@ -15,7 +15,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::body::{Body, Bytes};
 use axum::http::{Method, Request, StatusCode, header};
-use base64::Engine as _;
 use http_body_util::BodyExt;
 use oxidgene_api::media::store::{BlobStream, StoredCrop, StoredObject};
 use oxidgene_api::media::thumbnail::{self, Rendition};
@@ -208,35 +207,6 @@ impl Harness {
         }
         found
     }
-
-    /// The `image-data` slots of the vignette's two crops.
-    async fn image_data(&self, vignette: &str) -> Vec<Option<Vec<u8>>> {
-        let (status, slots) = send(
-            &self.app,
-            Method::POST,
-            &format!("{}/image-data", self.base()),
-            Some(json!({ "sources": [
-                { "kind": "card_crop", "vignette_id": vignette },
-                { "kind": "crop", "vignette_id": vignette },
-            ] })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{slots}");
-        slots
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|slot| {
-                let url = slot.as_str()?;
-                let encoded = url.strip_prefix("data:image/jpeg;base64,").unwrap();
-                Some(
-                    base64::engine::general_purpose::STANDARD
-                        .decode(encoded)
-                        .unwrap(),
-                )
-            })
-            .collect()
-    }
 }
 
 /// A generated photograph: a gradient with a pattern, so a crop of it has
@@ -263,17 +233,10 @@ fn fresh_cut(original: &[u8], rect: (i32, i32, i32, i32), rendition: Rendition) 
 
 const RECT: (i32, i32, i32, i32) = (100, 80, 240, 200);
 
-/// `GET uri`, conditional on `if_none_match` when given: the status, the
-/// headers and the body.
-async fn conditional(
-    app: &axum::Router,
-    uri: &str,
-    if_none_match: Option<&str>,
-) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
-    let mut request = Request::builder().method(Method::GET).uri(uri);
-    if let Some(validator) = if_none_match {
-        request = request.header(header::IF_NONE_MATCH, validator);
-    }
+/// One `GET uri`: the status, the headers and the body, a redirect
+/// answered as it is.
+async fn get(app: &axum::Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let request = Request::builder().method(Method::GET).uri(uri);
     let response = app
         .clone()
         .oneshot(request.body(Body::empty()).unwrap())
@@ -285,40 +248,45 @@ async fn conditional(
     (status, headers, bytes.to_vec())
 }
 
-/// A crop is revalidated on every use, never kept for a while: a moved
-/// rectangle or a replaced file shows at once. Its validator is the
-/// fingerprint, which names nothing; a vignette gone answers 404 whatever
-/// validator the client holds.
+/// The vignette's version, as its address carries it: what the route
+/// redirects an address without one to.
+async fn version(app: &axum::Router, uri: &str) -> String {
+    let (status, headers, _) = get(app, uri).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    let location = headers[header::LOCATION].to_str().unwrap();
+    location.split_once("?v=").unwrap().1.to_string()
+}
+
+/// A crop is immutable at its version, the same for both sizes, and a moved
+/// rectangle or a replaced file is a new version: the old address redirects
+/// there and never holds the new picture. The version names nothing; a
+/// vignette gone answers 404 whatever version is asked
+/// (docs/architecture.md §4.3).
 #[tokio::test]
-async fn a_crop_is_revalidated_by_its_fingerprint_on_every_use() {
+async fn a_crop_is_immutable_at_its_version_which_moves_with_it() {
     let h = Harness::new().await;
     let vignette = h.vignette(RECT, None).await;
-    for size in ["card", "image"] {
-        let uri = format!("{}/vignettes/{vignette}/{size}", h.base());
-        let (status, headers, _) = conditional(&h.app, &uri, None).await;
+    let card = format!("{}/vignettes/{vignette}/card", h.base());
+    let image = format!("{}/vignettes/{vignette}/image", h.base());
+    let first = version(&h.app, &card).await;
+    assert_eq!(first.len(), 16, "{first}");
+    assert!(!h.page_id.contains(&first) && !vignette.contains(&first));
+    assert_eq!(
+        version(&h.app, &image).await,
+        first,
+        "one version, both sizes"
+    );
+    for uri in [&card, &image] {
+        let (status, headers, body) = get(&h.app, &format!("{uri}?v={first}")).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
-        let etag = headers[header::ETAG].to_str().unwrap().to_string();
-        let fingerprint = etag.trim_matches('"');
-        assert_eq!(fingerprint.len(), 64, "a SHA-256: {etag}");
-        assert!(
-            h.crops(&vignette)
-                .iter()
-                .any(|file| file.to_string_lossy().contains(fingerprint)),
-            "the validator is the stored crop's fingerprint"
+        assert!(!body.is_empty());
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            "private, max-age=31536000, immutable"
         );
-        assert!(!etag.contains(&h.page_id) && !etag.contains(&vignette));
-
-        let (status, headers, body) = conditional(&h.app, &uri, Some(&etag)).await;
-        assert_eq!(status, StatusCode::NOT_MODIFIED, "{size}");
-        assert!(body.is_empty());
-        assert_eq!(headers[header::ETAG].to_str().unwrap(), etag);
-        assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+        assert!(headers.get(header::ETAG).is_none());
     }
 
-    let uri = format!("{}/vignettes/{vignette}/card", h.base());
-    let (_, headers, _) = conditional(&h.app, &uri, None).await;
-    let before = headers[header::ETAG].to_str().unwrap().to_string();
     let moved = (0, 0, 320, 320);
     let (status, _) = send(
         &h.app,
@@ -328,21 +296,26 @@ async fn a_crop_is_revalidated_by_its_fingerprint_on_every_use() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let (status, headers, body) = conditional(&h.app, &uri, Some(&before)).await;
-    assert_eq!(status, StatusCode::OK, "a moved rectangle is no 304");
-    assert_ne!(headers[header::ETAG].to_str().unwrap(), before);
+    let (status, headers, body) = get(&h.app, &format!("{card}?v={first}")).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "a moved rectangle");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.is_empty());
+    let second = version(&h.app, &card).await;
+    assert_ne!(second, first);
+    assert_eq!(
+        headers[header::LOCATION].to_str().unwrap(),
+        format!("{card}?v={second}")
+    );
+    let (_, _, body) = get(&h.app, &format!("{card}?v={second}")).await;
     assert_eq!(body, fresh_cut(&h.original, moved, Rendition::Card));
 
-    let (_, headers, _) = conditional(&h.app, &uri, None).await;
-    let current = headers[header::ETAG].to_str().unwrap().to_string();
     let replacement = photograph(640, 480, 33);
     h.upload(&replacement, ("media_id", &h.page_id)).await;
-    let (status, headers, _) = conditional(&h.app, &uri, Some(&current)).await;
-    assert_eq!(status, StatusCode::OK, "a replaced file is no 304");
-    assert_ne!(headers[header::ETAG].to_str().unwrap(), current);
+    let (status, _, _) = get(&h.app, &format!("{card}?v={second}")).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "a replaced file");
+    let third = version(&h.app, &card).await;
+    assert_ne!(third, second);
 
-    let (_, headers, _) = conditional(&h.app, &uri, None).await;
-    let last = headers[header::ETAG].to_str().unwrap().to_string();
     let (status, _) = send(
         &h.app,
         Method::DELETE,
@@ -351,7 +324,7 @@ async fn a_crop_is_revalidated_by_its_fingerprint_on_every_use() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let (status, _, _) = conditional(&h.app, &uri, Some(&last)).await;
+    let (status, _, _) = get(&h.app, &format!("{card}?v={third}")).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -371,11 +344,6 @@ async fn a_stored_crop_is_a_fresh_cut_and_is_read_back_from_the_store() {
         let stored = std::fs::read(&file).unwrap();
         assert!(stored == card || stored == image, "{}", file.display());
     }
-    // The batch of the web build reads the same objects.
-    assert_eq!(
-        h.image_data(&vignette).await,
-        vec![Some(card.clone()), Some(image)]
-    );
 
     // A second view reads the store, not the page: a marker written over
     // the stored card is what comes back.
@@ -473,7 +441,7 @@ async fn deleting_the_vignette_deletes_its_crops_and_answers_404_after() {
     assert!(h.crops(&vignette).is_empty());
     assert_eq!(h.crops(&kept).len(), 2, "another vignette keeps its own");
     assert_eq!(h.view(&vignette, "card").await.0, StatusCode::NOT_FOUND);
-    assert_eq!(h.image_data(&vignette).await, vec![None, None]);
+    assert_eq!(h.view(&vignette, "image").await.0, StatusCode::NOT_FOUND);
     assert!(
         h.crops(&vignette).is_empty(),
         "a refused view stores nothing"
@@ -613,7 +581,6 @@ async fn a_soft_deleted_page_serves_no_crop() {
     .unwrap();
     assert_eq!(h.view(&vignette, "card").await.0, StatusCode::NOT_FOUND);
     assert_eq!(h.view(&vignette, "image").await.0, StatusCode::NOT_FOUND);
-    assert_eq!(h.image_data(&vignette).await, vec![None, None]);
 }
 
 #[tokio::test]
@@ -974,9 +941,9 @@ fn camera_photograph(width: u32, height: u32, seed: u32) -> Vec<u8> {
 
 /// What a pedigree view costs in portraits, cold (every crop cut from its
 /// original) and warm (every crop stored), on a generated tree of a few
-/// hundred portraits cut out of camera-sized photographs. A view asks
-/// `image-data` for the card crops of twenty persons, as a ten-generation
-/// chart's first screen does. Reports figures; asserts only that a warm
+/// hundred portraits cut out of camera-sized photographs. A view asks for
+/// the card crops of twenty persons, as a ten-generation chart's first
+/// screen does. Reports figures; asserts only that a warm
 /// view is cheaper.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[tokio::test(flavor = "multi_thread")]
@@ -1018,25 +985,24 @@ async fn a_pedigree_view_reads_stored_crops_instead_of_cutting_them() {
         started.elapsed().as_secs_f64()
     );
 
-    let view = |chunk: &[String]| {
-        json!({ "sources": chunk
-            .iter()
-            .map(|id| json!({ "kind": "card_crop", "vignette_id": id }))
-            .collect::<Vec<_>>() })
-    };
+    let address = |id: &String, size: &str| format!("{}/vignettes/{id}/{size}", h.base());
+    let mut cards = Vec::with_capacity(vignettes.len());
+    for id in &vignettes {
+        cards.push(common::current_address(&h.app, &address(id, "card")).await);
+    }
     let measure = |pass: &'static str| {
         let app = h.app.clone();
-        let uri = format!("{}/image-data", h.base());
-        let views: Vec<Value> = vignettes.chunks(PER_VIEW).map(view).collect();
+        let views: Vec<Vec<String>> = cards.chunks(PER_VIEW).map(<[String]>::to_vec).collect();
         async move {
             let (mut wall, mut cpu) = (Vec::new(), Vec::new());
-            for body in views {
+            for view in views {
                 let (wall_before, cpu_before) = (std::time::Instant::now(), cpu_time());
-                let (status, slots) = send(&app, Method::POST, &uri, Some(body)).await;
+                for card in &view {
+                    let (status, _) = send_bytes(&app, card).await;
+                    assert_eq!(status, StatusCode::OK);
+                }
                 wall.push(wall_before.elapsed());
                 cpu.push(cpu_time() - cpu_before);
-                assert_eq!(status, StatusCode::OK);
-                assert!(slots.as_array().unwrap().iter().all(Value::is_string));
             }
             let mean = |times: &[std::time::Duration]| {
                 times.iter().sum::<std::time::Duration>().as_secs_f64() * 1e3 / times.len() as f64
@@ -1059,18 +1025,8 @@ async fn a_pedigree_view_reads_stored_crops_instead_of_cutting_them() {
     );
 
     // The thumbnail size, which profiles and galleries draw, stored too.
-    for chunk in vignettes.chunks(PER_VIEW) {
-        let body = json!({ "sources": chunk
-            .iter()
-            .map(|id| json!({ "kind": "crop", "vignette_id": id }))
-            .collect::<Vec<_>>() });
-        let (status, _) = send(
-            &h.app,
-            Method::POST,
-            &format!("{}/image-data", h.base()),
-            Some(body),
-        )
-        .await;
+    for id in &vignettes {
+        let (status, _) = send_bytes(&h.app, &address(id, "image")).await;
         assert_eq!(status, StatusCode::OK);
     }
     let stored = h

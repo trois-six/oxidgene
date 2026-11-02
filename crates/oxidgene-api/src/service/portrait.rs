@@ -212,10 +212,15 @@ fn portrait_image(row: PortraitRow) -> Option<PortraitImage> {
     // A region we hold is cut by the crop endpoint; a whole picture we hold is
     // drawn from the thumbnail we generated.
     let source = if let (Some(vignette_id), true) = (row.vignette_id, row.storage_key.is_some()) {
-        ImageSource::Crop { vignette_id }
+        let (page_id, digest) = row.vignette_page.as_ref()?;
+        ImageSource::Crop {
+            vignette_id,
+            version: crate::media::crops::version(*page_id, digest, row.crop?),
+        }
     } else if row.thumbnail_key.is_some() {
         ImageSource::Thumbnail {
             media_id: row.media_id?,
+            version: oxidgene_core::types::version_of(row.sha256.as_deref()?),
         }
     } else if is_remote_url(&row.file_path) {
         // A face identified on a photograph we do not hold. We never fetch it

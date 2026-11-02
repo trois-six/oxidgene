@@ -302,6 +302,9 @@ async fn sign_out_here_everywhere_and_from_the_back_channel() {
     first.sign_in(&provider, &user).await;
     let logout = first.json(Method::POST, "/auth/logout", json!({})).await;
     assert_eq!(logout.status, StatusCode::OK);
+    // The pictures the browser kept go with the session
+    // (docs/authentication.md §9.1).
+    assert_eq!(logout.headers["clear-site-data"], "\"cache\"");
     let url = logout.json["logout_url"]
         .as_str()
         .expect("an end-session URL");
@@ -325,13 +328,15 @@ async fn sign_out_here_everywhere_and_from_the_back_channel() {
         "{}",
         sessions.json
     );
-    assert_eq!(
-        a.json(Method::POST, "/auth/logout-everywhere", json!({}))
-            .await
-            .status,
-        StatusCode::OK
-    );
-    assert_eq!(b.get("/api/v1/me").await.status, StatusCode::UNAUTHORIZED);
+    let everywhere = a
+        .json(Method::POST, "/auth/logout-everywhere", json!({}))
+        .await;
+    assert_eq!(everywhere.status, StatusCode::OK);
+    assert_eq!(everywhere.headers["clear-site-data"], "\"cache\"");
+    // The other browser drops its copies on its next request.
+    let refused = b.get("/api/v1/me").await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(refused.headers["clear-site-data"], "\"cache\"");
 
     // The back channel, by provider session.
     let mut c = Browser::new(&app);
@@ -761,6 +766,7 @@ async fn deactivation_and_erasure_end_sessions() {
     let erased = browser.send(Method::DELETE, "/api/v1/me", None, None).await;
     assert_eq!(erased.status, StatusCode::NO_CONTENT);
     assert!(!browser.cookies.contains_key("__Host-oxidgene"));
+    assert_eq!(erased.headers["clear-site-data"], "\"cache\"");
     let tombstone = admin.get(&format!("/api/v1/admin/users/{id}")).await;
     assert_eq!(tombstone.json["status"], "erased");
     for field in ["display_name", "email", "issuer", "subject", "username"] {

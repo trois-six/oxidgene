@@ -1,5 +1,7 @@
-// UI request budgets: the API requests every page makes, against the
-// committed budget of e2e/budgets/requests.json.
+// UI request budgets: the API requests every page's client makes, against
+// the committed budget of e2e/budgets/requests.json. The pictures the
+// browser fetches from their versioned addresses are not the client's and
+// are left out (asset-cache.spec.ts reports them).
 //
 // Drift it prevents: a page that starts fetching per card, a waterfall that
 // gains a level, the same request sent twice, a payload that balloons — the
@@ -26,7 +28,7 @@ import { join } from "node:path";
 import type { Browser, Locator, Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
-import { type Metrics, type PicturedTree, Recorder, metrics, picturedTree, template } from "./requests";
+import { type Metrics, type PicturedTree, Recorder, blockOutside, metrics, picturedTree, template } from "./requests";
 
 const BUDGET_FILE = join(import.meta.dirname, "..", "budgets", "requests.json");
 const REPORT_FILE = join(import.meta.dirname, "..", "test-results", "request-report.json");
@@ -126,9 +128,9 @@ async function openPage(browser: Browser, view?: string): Promise<{ page: Page; 
         }, view);
     }
     const page = await context.newPage();
-    await page.route(/^https?:\/\/(?!127\.0\.0\.1[:/])/, (route) => route.abort());
     await page.routeWebSocket(/\/_dioxus/, () => {});
     const recorder = await Recorder.attach(page, LATENCY_MS);
+    await blockOutside(recorder.cdp);
     return { page, recorder, close: () => context.close() };
 }
 

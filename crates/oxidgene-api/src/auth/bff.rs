@@ -523,9 +523,7 @@ async fn session_state(State(state): State<AppState>, headers: HeaderMap) -> Res
         Err(refusal) => {
             let mut response = Json(answer).into_response();
             if refusal.clears_session() {
-                response
-                    .headers_mut()
-                    .append(header::SET_COOKIE, cookie::clear(cookie::SESSION));
+                cookie::end_session(response.headers_mut());
             }
             response
         }
@@ -668,7 +666,7 @@ async fn sign_out(state: &AppState, headers: &HeaderMap, everywhere: bool) -> Re
     }
     let mut response = Json(LogoutAnswer { logout_url }).into_response();
     let cleared = response.headers_mut();
-    cleared.append(header::SET_COOKIE, cookie::clear(cookie::SESSION));
+    cookie::end_session(cleared);
     cleared.append(header::SET_COOKIE, cookie::clear(cookie::SHARE));
     response
 }

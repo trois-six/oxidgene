@@ -3,11 +3,9 @@
 use super::authorize::Viewer;
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Multipart, Path, Query, State};
-use axum::http::header::{
-    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH,
-};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Multipart, OriginalUri, Path, Query, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
@@ -22,6 +20,7 @@ use crate::service::media::{
 };
 use crate::service::media_library::{self, MediaListItem};
 
+use super::caching::{IMMUTABLE, VersionQuery, versioned};
 use super::dto::{
     CreateDocumentRequest, DeleteMediaQuery, GalleryBundleRequest, MediaDeletionStatusQuery,
     MediaListQuery, MediaViewerQuery, ReorderPagesRequest,
@@ -29,30 +28,6 @@ use super::dto::{
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::scope::{TreeResource, require_tree_resource};
-
-/// POST /api/v1/trees/:tree_id/image-data
-///
-/// Resolve held picture sources to inline `data:` URLs, in request order, for
-/// a client that cannot serve them from an origin of its own. A slot is null
-/// when there is nothing to inline — a remote source, or a picture we no
-/// longer hold.
-pub async fn image_data(
-    State(state): State<AppState>,
-    viewer: Viewer,
-    Path(tree_id): Path<Uuid>,
-    Json(body): Json<crate::rest::dto::ImageDataRequest>,
-) -> Result<Json<Vec<Option<String>>>, ApiError> {
-    let records = state.records(&viewer, tree_id).await?;
-    let urls = crate::service::image_bytes::load_visible_image_data_urls(
-        &state.reader,
-        &records,
-        &state.media,
-        tree_id,
-        &body.sources,
-    )
-    .await?;
-    Ok(Json(urls))
-}
 
 /// POST /api/v1/trees/:tree_id/gallery-bundle
 pub async fn gallery_bundle(
@@ -377,27 +352,25 @@ pub async fn upload_media(
     Ok((status, Json(page)))
 }
 
-/// GET /api/v1/trees/:tree_id/media/:media_id/file
+/// GET /api/v1/trees/:tree_id/media/:media_id/file?v=
 ///
-/// The stored bytes, served inline.
+/// The stored bytes, served inline, at the medium's version.
 pub async fn download_media(
     State(state): State<AppState>,
     viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
+    Query(version): Query<VersionQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, ApiError> {
     let records = state.records(&viewer, tree_id).await?;
     let media = download_record(&state.reader, &records, tree_id, media_id).await?;
     let key = stored_key(&media)?;
-    serve(
-        &state,
-        key,
-        &media.mime_type,
-        media.sha256.as_deref(),
-        Some(&media.file_name),
-        &headers,
-    )
-    .await
+    let at = At {
+        uri: &uri,
+        requested: version.v.as_deref(),
+        media: &media,
+    };
+    serve(&state, &at, key, &media.mime_type, Some(&media.file_name)).await
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/archive
@@ -572,7 +545,7 @@ fn archive_stem(file_name: &str) -> String {
     }
 }
 
-/// GET /api/v1/trees/:tree_id/media/:media_id/thumbnail
+/// GET /api/v1/trees/:tree_id/media/:media_id/thumbnail?v=
 ///
 /// The generated thumbnail. `404` when none was made — a PDF whose first
 /// page paints no scan, or an image whose thumbnail generation failed at
@@ -581,7 +554,8 @@ pub async fn download_thumbnail(
     State(state): State<AppState>,
     viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
+    Query(version): Query<VersionQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
     let records = state.records(&viewer, tree_id).await?;
@@ -600,12 +574,15 @@ pub async fn download_thumbnail(
     } else {
         "image/jpeg"
     };
-    // No ETag: the thumbnail's digest is not on the row, and its key already
-    // changes whenever the bytes do.
-    serve(&state, key, mime_type, None, None, &headers).await
+    let at = At {
+        uri: &uri,
+        requested: version.v.as_deref(),
+        media: &media,
+    };
+    serve(&state, &at, key, mime_type, None).await
 }
 
-/// GET /api/v1/trees/:tree_id/media/:media_id/card
+/// GET /api/v1/trees/:tree_id/media/:media_id/card?v=
 ///
 /// The card rendition: the picture at the size of a portrait on a card, or
 /// its thumbnail where none was made (a picture stored before card
@@ -614,25 +591,31 @@ pub async fn download_card(
     State(state): State<AppState>,
     viewer: Viewer,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
+    Query(version): Query<VersionQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
     let records = state.records(&viewer, tree_id).await?;
     records.require_id(RecordKind::Media, media_id)?;
     let media = MediaRepo::get(&state.reader, media_id).await?;
-    let Some(key) = crate::service::image_bytes::card_or_thumbnail(&media) else {
+    let Some(key) = card_or_thumbnail(&media) else {
         return Err(ApiError(OxidGeneError::NotFound {
             entity: "Card",
             id: media_id,
         }));
     };
-    // As the thumbnail: `ingest` writes `jpg` or `png`, and no ETag.
+    // As the thumbnail: `ingest` writes `jpg` or `png`.
     let mime_type = if key.ends_with(".png") {
         "image/png"
     } else {
         "image/jpeg"
     };
-    serve(&state, key, mime_type, None, None, &headers).await
+    let at = At {
+        uri: &uri,
+        requested: version.v.as_deref(),
+        media: &media,
+    };
+    serve(&state, &at, key, mime_type, None).await
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────
@@ -708,41 +691,37 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
     Ok(form)
 }
 
-/// Serve stored bytes, honouring conditional requests.
+/// The medium a request reads a picture of, and the version it names.
+struct At<'a> {
+    uri: &'a Uri,
+    requested: Option<&'a str>,
+    media: &'a Media,
+}
+
+/// Serve stored bytes of `at`'s medium, immutable at its version and
+/// redirected to it otherwise (`docs/architecture.md` §4.3). The caller has
+/// allowed the request to read them.
 async fn serve(
     state: &AppState,
+    at: &At<'_>,
     key: &str,
     mime_type: &str,
-    sha256: Option<&str>,
     download_name: Option<&str>,
-    request_headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
-    // The content hash makes a strong validator for free — no timestamps, no
-    // guessing. A gallery that reloads gets 304s instead of megabytes.
-    let etag = sha256.map(|digest| format!("\"{digest}\""));
-    if let (Some(etag), Some(requested)) = (&etag, request_headers.get(IF_NONE_MATCH))
-        && requested
-            .to_str()
-            .is_ok_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
-    {
-        return Ok(StatusCode::NOT_MODIFIED.into_response());
-    }
+    // A held medium has a digest: one without is a file we do not hold.
+    let current = at.media.version().ok_or(ApiError(OxidGeneError::NotFound {
+        entity: "Media file",
+        id: at.media.id,
+    }))?;
+    let mut headers = match versioned(at.uri, at.requested, &current, IMMUTABLE) {
+        Ok(headers) => headers,
+        Err(moved) => return Ok(moved.into_response()),
+    };
 
+    // Read only for the version the client asked for, never for a redirect.
     let bytes = state.media.get(key).await?;
-
-    let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, header_value(mime_type));
     headers.insert(CONTENT_LENGTH, header_value(&bytes.len().to_string()));
-    // Long enough that a pedigree full of portraits is not re-fetched on every
-    // navigation, short enough that attaching bytes to an existing record
-    // becomes visible without anyone clearing a cache. `private` because a
-    // family archive is not something a shared proxy should hold.
-    headers.insert(CACHE_CONTROL, header_value("private, max-age=3600"));
-    #[cfg(feature = "auth")]
-    super::caching::vary_on_credentials(&mut headers);
-    if let Some(etag) = etag {
-        headers.insert(ETAG, header_value(&etag));
-    }
     if let Some(name) = download_name {
         headers.insert(CONTENT_DISPOSITION, header_value(&disposition(name)));
     }
@@ -823,6 +802,16 @@ pub async fn download_attachment(
     );
     confine(&mut headers, &media.mime_type);
     Ok((headers, Body::from_stream(stream)).into_response())
+}
+
+/// The key a card-sized picture of `medium` is read from: its card
+/// rendition, or its thumbnail where it has none — a picture stored before
+/// card renditions existed, or one whose card could not be stored.
+fn card_or_thumbnail(medium: &Media) -> Option<&str> {
+    medium
+        .card_key
+        .as_deref()
+        .or(medium.thumbnail_key.as_deref())
 }
 
 pub(super) fn header_value(value: &str) -> axum::http::HeaderValue {

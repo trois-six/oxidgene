@@ -1184,44 +1184,6 @@ impl From<RenameOccupationInput> for crate::service::occupations::OccupationChan
     }
 }
 
-/// Where a held picture lives, as an input. Mirrors `ImageSource`: `kind`
-/// selects which of the payload fields is meaningful.
-#[derive(async_graphql::InputObject)]
-pub struct ImageSourceInput {
-    pub kind: super::types::GqlImageSourceKind,
-    pub url: Option<String>,
-    pub media_id: Option<async_graphql::ID>,
-    pub vignette_id: Option<async_graphql::ID>,
-}
-
-impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
-    type Error = async_graphql::Error;
-
-    fn try_from(input: ImageSourceInput) -> Result<Self, Self::Error> {
-        use super::types::GqlImageSourceKind;
-        let missing = |field: &str| {
-            async_graphql::Error::from(OxidGeneError::Validation(format!("{field} is required")))
-        };
-        Ok(match input.kind {
-            GqlImageSourceKind::Remote => Self::Remote {
-                url: input.url.ok_or_else(|| missing("url"))?,
-            },
-            GqlImageSourceKind::Thumbnail => Self::Thumbnail {
-                media_id: uuid(input.media_id.ok_or_else(|| missing("mediaId"))?)?,
-            },
-            GqlImageSourceKind::Crop => Self::Crop {
-                vignette_id: uuid(input.vignette_id.ok_or_else(|| missing("vignetteId"))?)?,
-            },
-            GqlImageSourceKind::Card => Self::Card {
-                media_id: uuid(input.media_id.ok_or_else(|| missing("mediaId"))?)?,
-            },
-            GqlImageSourceKind::CardCrop => Self::CardCrop {
-                vignette_id: uuid(input.vignette_id.ok_or_else(|| missing("vignetteId"))?)?,
-            },
-        })
-    }
-}
-
 // ── Media library ────────────────────────────────────────────────────
 
 /// Filters of `mediaList`. Every field is optional and the set ones combine

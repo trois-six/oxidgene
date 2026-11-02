@@ -75,7 +75,10 @@ pub fn AccountNav() -> Element {
         .or_else(|| signed_in.email.clone())
         .unwrap_or_default();
     let email = signed_in.email.clone().filter(|email| *email != name);
-    let avatar = signed_in.avatar.as_ref().map(|avatar| avatar.etag.clone());
+    let avatar = signed_in
+        .avatar
+        .as_ref()
+        .map(|avatar| avatar.version.clone());
 
     rsx! {
         div { class: "nav-end",

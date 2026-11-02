@@ -112,7 +112,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                 return HashMap::new();
             };
             match wanted {
-                Ok(rows) => api.entry_portraits(tid, &rows).await,
+                Ok(rows) => api.entry_portraits(tid, &rows),
                 Err(ends) => api.portrait_map_for_ids(tid, &ends).await,
             }
         }

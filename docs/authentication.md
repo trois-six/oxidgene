@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -594,14 +594,15 @@ and account deletion, which the other sections and specifications define.
   outside every tree, so a tree's purge never touches them; a replaced or
   removed avatar's files are deleted once the change commits, and erasure
   deletes them.
-- **Serving.** `GET /api/v1/users/{user_id}/avatar?size=256|64` answers the
-  JPEG to whoever may see the user, with `ETag` (its SHA-256),
-  `Cache-Control: private, max-age=86400`, `Vary: Cookie, Authorization`,
-  `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`,
-  and `If-None-Match` answered `304`. The frontend fetches it through its
-  client and draws it from memory, as it does every media
-  ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)):
-  the address of the backend never reaches the markup.
+- **Serving.** `GET /api/v1/users/{user_id}/avatar?size=256|64&v=` answers
+  the JPEG to whoever may see the user, versioned by the avatar's `version`
+  — the first 16 hexadecimal digits of its SHA-256 — as every held picture
+  is ([Architecture §4.3](architecture.md#43-versioned-assets)):
+  `Cache-Control: private, max-age=31536000, immutable` at its version, a
+  redirect to it otherwise, with `Vary: Cookie, Authorization`,
+  `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`.
+  The frontend draws it from that address, as it draws every held picture
+  ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 - **Generated avatar.** Without an upload, the avatar is the user's initials —
   the first letter of the first two words of the display name, upper-cased,
   `?` when there is none — on a background chosen from the user's id: the
@@ -617,8 +618,8 @@ and account deletion, which the other sections and specifications define.
 | `PUT` | `/me` | `updateMe` | `{ display_name?, locale? }`; `display_name: null` returns to the provider's name |
 | `PUT` | `/me/avatar` | `uploadMyAvatar` | Multipart: the image (`file`) and the crop square (`x`, `y`, `size`, in pixels of the upright image). GraphQL takes the image base64-encoded, as it does media uploads, within its body limit |
 | `DELETE` | `/me/avatar` | `deleteMyAvatar` | Back to the generated avatar |
-| `GET` | `/users/{user_id}` | `userProfile` | `{ id, display_name, avatar }`, `avatar` being `{ etag, updated_at }` or `null` |
-| `GET` | `/users/{user_id}/avatar?size=` | — | The image; a direct read, REST only like media files. GraphQL's `UserProfile.avatarUrl` gives its URL, with the avatar's `etag` as `v` so that a replaced avatar is a new address |
+| `GET` | `/users/{user_id}` | `userProfile` | `{ id, display_name, avatar }`, `avatar` being `{ version, updated_at }` or `null` |
+| `GET` | `/users/{user_id}/avatar?size=` | — | The image; a direct read, REST only like media files. GraphQL's `UserProfile.avatarUrl` gives its URL, with the avatar's `version` as `v` so that a replaced avatar is a new address |
 | `GET` | `/me/sessions` | `mySessions` | The user's sessions: an opaque handle, creation, last use, client, browser family read from the user agent, and which one is the current |
 | `DELETE` | `/me/sessions/{session_id}` | `endMySession` | Ends one session; the current one signs out |
 
@@ -896,16 +897,34 @@ provider, its mail relay and the session store beside the application:
   the API and nginx add `Strict-Transport-Security: max-age=63072000;
   includeSubDomains` when the public URL is `https`.
 - **Caching.** `/auth/*` and every JSON response holding tree data answer
-  `Cache-Control: no-store`; media answer `Cache-Control: private` with
-  `Vary: Cookie, Authorization`, keeping their `ETag`. No response is cached
-  across viewers, by OxidGene or by an intermediary
+  `Cache-Control: no-store`; held pictures — media, crops, avatars — are
+  versioned and answer `Cache-Control: private, max-age=31536000, immutable`
+  with `Vary: Cookie, Authorization`
+  ([Architecture §4.3](architecture.md#43-versioned-assets)). No response is
+  cached across viewers, by OxidGene or by an intermediary
   ([Privacy §7](privacy.md#7-enforcement-points)). The frontend's in-memory
   caches are dropped when the session's user changes or ends. Built: the web
   build marks every JSON answer of the API, REST's and GraphQL's, that sets
-  no caching of its own `no-store`, and sends `Vary: Cookie, Authorization`
-  beside the `private` caching and the `ETag` of a medium's bytes and crops.
-  The desktop keeps its headers: it has one viewer, and its per-launch token
-  would make every launch miss the pictures the previous one cached.
+  no caching of its own `no-store`, and sends the `Vary` beside a picture's
+  caching. The desktop sends no `Vary`: it has one viewer, and its
+  per-launch token would make every launch miss the pictures the previous
+  one cached.
+- **Clearing the browser's cache.** A picture a browser keeps is not asked
+  for again, so a viewer who loses access keeps what their browser already
+  holds until it is cleared. Every answer that ends the browser's session
+  sends `Clear-Site-Data: "cache"` with the cleared cookie: `POST
+  /auth/logout`, `POST /auth/logout-everywhere`, the end of one's own
+  session from the sessions list and the account's deletion (REST and
+  GraphQL), and any request whose session the server finds ended — expired,
+  ended by *sign out everywhere* in another browser, revoked by an
+  administrator — which is that browser's next request. A share link's
+  visitor clears it by signing out, which drops the link's grants; a link
+  that expires or is revoked clears nothing: the grant's cookie expires with
+  it in the browser, so no request reports the end, and a revoked link's
+  grant is refused tree by tree, where clearing the cache on every refused
+  read would also drop the application's own bundle from every stale tab.
+  What the link showed while it was valid stays, as anything its visitor
+  saved would; no further read is answered.
 
 ### 9.2 Rate limits and brute force
 

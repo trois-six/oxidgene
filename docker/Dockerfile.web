@@ -23,6 +23,8 @@ COPY assets/themes/ assets/themes/
 COPY assets/portraits/ assets/portraits/
 COPY assets/fonts/ assets/fonts/
 COPY assets/brand/logo_64.png assets/brand/logo_64.png
+# Hashed by oxidgene-ui's build script for the base map's version.
+COPY assets/basemap/countries.json.br assets/basemap/countries.json.br
 # Served as they are at the bundle's root (Dioxus.toml `public_dir`): pdf.js.
 COPY assets/public/ assets/public/
 COPY scripts/dx.sh scripts/dx.sh

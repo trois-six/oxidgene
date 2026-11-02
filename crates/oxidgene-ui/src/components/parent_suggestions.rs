@@ -78,7 +78,7 @@ pub(crate) fn ParentSuggestions(
                 .await
                 .map(|result| result.entries)
                 .unwrap_or_default();
-            let portraits = api.entry_portraits(tree_id, &entries).await;
+            let portraits = api.entry_portraits(tree_id, &entries);
             (entries, portraits)
         }
     });

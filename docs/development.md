@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -130,7 +130,7 @@ Algorithmic complexity is tested at three levels.
   it, which must cost the same for a page of 40 records and one of 100: the
   nested fields are read in batches, one query per relation for the whole
   page (`graphql/loaders.rs`). The batch reads (pedigrees at three depths,
-  portrait images, image data, gallery bundles, relation labels) are asked
+  portrait images, gallery bundles, relation labels) are asked
   for 4 and for 64 ids and must cost the same.
   Add a new tree-wide or per-person route to the survey.
 - **Counted work.** Where an in-memory computation risks quadratic work on
@@ -310,22 +310,25 @@ ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau, the DGT CAOP, CBS
 and the Wikidata query service.
 
 **pdf.js.** The PDF viewer draws with Mozilla's pdf.js (`pdfjs-dist`,
-Apache-2.0), vendored in `assets/public/pdfjs/` and committed: the directory is
-the web bundle's static files (`public_dir` of `apps/oxidgene-web/Dioxus.toml`,
-served by nginx under `/pdfjs/`) and is compressed with Brotli into the
-desktop binary by its build script, which serves it at the same path. It holds
+Apache-2.0), vendored in `assets/public/pdfjs/{release}/` and committed: the
+directory is the web bundle's static files (`public_dir` of
+`apps/oxidgene-web/Dioxus.toml`, served by nginx under `/pdfjs/{release}/`)
+and is compressed with Brotli into the desktop binary by its build script,
+which serves it at the same path. The release in the path versions the
+files, which both serve immutable ([Architecture §4.3](architecture.md#43-versioned-assets)). It holds
 the legacy build's library, worker and viewer components — the modern build
 requires what only the latest Chrome and Firefox implement, and the desktop
 draws in WebKitGTK, WKWebView and WebView2 — the viewer's stylesheet and its
 loading picture, the JPEG 2000 and JBIG2 decoders scans need, and the
 licences. Neither the standard fonts nor the CMaps are vendored: a PDF whose
 fonts are not embedded is drawn with the system's, and CJK text without
-embedded CMaps may not draw. `VERSION` records the release and its archive's
-integrity.
+embedded CMaps may not draw. `assets/public/pdfjs/VERSION` records the
+release and its archive's integrity; the viewer reads the release from it at
+build time.
 
 | Command | Purpose |
 |---------|---------|
-| `just pdfjs VERSION INTEGRITY` | Download `pdfjs-dist` VERSION from the npm registry, check the archive against INTEGRITY — the `sha512-…` the registry lists (`npm view pdfjs-dist@VERSION dist.integrity`) — and replace `assets/public/pdfjs/` with its files. Commit the result. |
+| `just pdfjs VERSION INTEGRITY` | Download `pdfjs-dist` VERSION from the npm registry, check the archive against INTEGRITY — the `sha512-…` the registry lists (`npm view pdfjs-dist@VERSION dist.integrity`) — and replace `assets/public/pdfjs/` with its files, under `{VERSION}/`. Commit the result. |
 
 pdf.js runs in the application's origin, which reads every tree, on files
 users supplied, so its security releases are taken as soon as they are
@@ -615,7 +618,8 @@ of both passed (the next-toolchain jobs report without failing).
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
 | Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage |
-| Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` is one release of pdf.js's legacy build, the one its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
+| Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` holds one release of pdf.js's legacy build, in the directory named after the release its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
+| Versioned assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file the web bundle serves under a stable name is the page or the deployment's configuration: the rest are `dx`'s hashed files and the files of `assets/public/` under a release directory; nginx answers those immutable and the page `no-cache`; every picture the UI addresses carries its version ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
@@ -636,8 +640,9 @@ of both passed (the next-toolchain jobs report without failing).
 | SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
 | Dependencies | 2 | `just deps` | Dependencies | No advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |
-| Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json` |
+| Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json`; the pictures the browser fetches from their versioned addresses are counted by the picture cache check instead |
 | Trace continuity | 3 | `just e2e tests/trace-continuity.spec.ts` | Nightly: E2E | Every page display's API requests share one trace of their own |
+| Picture cache | 3 | `just e2e tests/asset-cache.spec.ts` | Nightly: E2E | A person page and a pedigree view visited again, after a reload, draw every picture from the browser's cache; `E2E_ASSET_REPORT=1` writes the requests, bytes and times of both visits to `e2e/test-results/asset-cache-report.json`, never a gate ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Binary budgets | 3 | `python3 scripts/budgets.py binaries` after the release builds | Nightly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
 | Scaling | 3 | `just scaling` | Nightly: Scaling | No tree-wide computation grows faster than linear |
 | Import memory | 3 | `just import-memory` | Nightly: Import memory | A Geneanet import of a generated tree peaks, and keeps once done, within the budgets of `import_memory_test.rs` |

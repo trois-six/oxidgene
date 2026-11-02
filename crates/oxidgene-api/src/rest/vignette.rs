@@ -4,15 +4,16 @@
 use super::authorize::Viewer;
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{OriginalUri, Path, Query, State};
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::{RecordKind, Vignette};
 use oxidgene_db::repo::{MediaRepo, VignetteRepo};
 use uuid::Uuid;
 
+use super::caching::{IMMUTABLE, VersionQuery, versioned};
 use super::dto::VignetteListQuery;
 use super::error::ApiError;
 use super::state::AppState;
@@ -123,7 +124,7 @@ pub async fn delete_vignette(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// GET /api/v1/trees/:tree_id/vignettes/:vignette_id/image
+/// GET /api/v1/trees/:tree_id/vignettes/:vignette_id/image?v=
 ///
 /// The cropped region, as its own JPEG at thumbnail size.
 ///
@@ -136,47 +137,51 @@ pub async fn vignette_image(
     State(state): State<AppState>,
     viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
-    request_headers: HeaderMap,
+    Query(version): Query<VersionQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, ApiError> {
-    cropped_image(
-        &state,
-        &viewer,
-        tree_id,
-        vignette_id,
-        &request_headers,
-        Rendition::Thumbnail,
-    )
-    .await
+    let asked = Asked {
+        uri: &uri,
+        version: version.v.as_deref(),
+        rendition: Rendition::Thumbnail,
+    };
+    cropped_image(&state, &viewer, tree_id, vignette_id, &asked).await
 }
 
-/// GET /api/v1/trees/:tree_id/vignettes/:vignette_id/card
+/// GET /api/v1/trees/:tree_id/vignettes/:vignette_id/card?v=
 ///
 /// The cropped region at the size of a portrait on a card.
 pub async fn vignette_card(
     State(state): State<AppState>,
     viewer: Viewer,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
-    request_headers: HeaderMap,
+    Query(version): Query<VersionQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, ApiError> {
-    cropped_image(
-        &state,
-        &viewer,
-        tree_id,
-        vignette_id,
-        &request_headers,
-        Rendition::Card,
-    )
-    .await
+    let asked = Asked {
+        uri: &uri,
+        version: version.v.as_deref(),
+        rendition: Rendition::Card,
+    };
+    cropped_image(&state, &viewer, tree_id, vignette_id, &asked).await
 }
 
-/// Vignette `vignette_id` of tree `tree_id`, cut and sized for `rendition`.
+/// What a crop request asks for: its address, the version it names, and
+/// the size.
+struct Asked<'a> {
+    uri: &'a Uri,
+    version: Option<&'a str>,
+    rendition: Rendition,
+}
+
+/// Vignette `vignette_id` of tree `tree_id`, cut and sized as `asked`, at
+/// its version (`docs/architecture.md` §4.3).
 async fn cropped_image(
     state: &AppState,
     viewer: &Viewer,
     tree_id: Uuid,
     vignette_id: Uuid,
-    request_headers: &HeaderMap,
-    rendition: Rendition,
+    asked: &Asked<'_>,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Vignette, vignette_id).await?;
     let records = state.records(viewer, tree_id).await?;
@@ -199,35 +204,22 @@ async fn cropped_image(
         ))));
     }
 
-    // The fingerprint names everything the crop depends on, hashed: a strong
-    // validator that reveals nothing. It is compared only once the viewer
-    // has been allowed to see the vignette, so one who lost access is
-    // answered 404, never 304.
-    let etag = crate::media::crops::fingerprint(&media, &vignette, rendition)
-        .map(|fingerprint| format!("\"{fingerprint}\""));
-    let mut headers = HeaderMap::new();
-    if let Some(etag) = &etag {
-        headers.insert(ETAG, super::media::header_value(etag));
-    }
-    // Revalidated on every use: the rectangle can move and the page's file
-    // be replaced under the same address, and the old picture must not be
-    // drawn meanwhile. A revalidation costs no cut and no read of the store.
-    headers.insert(
-        CACHE_CONTROL,
-        super::media::header_value("private, no-cache"),
-    );
-    #[cfg(feature = "auth")]
-    super::caching::vary_on_credentials(&mut headers);
-    if let (Some(etag), Some(requested)) = (&etag, request_headers.get(IF_NONE_MATCH))
-        && requested
-            .to_str()
-            .is_ok_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
-    {
-        return Ok((StatusCode::NOT_MODIFIED, headers).into_response());
-    }
+    // Compared only once the viewer has been allowed to see the vignette,
+    // so one who lost access is answered 404, never the redirect. A
+    // redirect reads and cuts nothing.
+    let current = crate::media::crops::vignette_version(&media, &vignette).ok_or(ApiError(
+        OxidGeneError::NotFound {
+            entity: "Media file",
+            id: media.id,
+        },
+    ))?;
+    let mut headers = match versioned(asked.uri, asked.version, &current, IMMUTABLE) {
+        Ok(headers) => headers,
+        Err(moved) => return Ok(moved.into_response()),
+    };
 
     let (cropped, written) =
-        crate::media::crops::read_or_cut(&*state.media, &media, &vignette, rendition).await?;
+        crate::media::crops::read_or_cut(&*state.media, &media, &vignette, asked.rendition).await?;
     if let Some(written) = written {
         crate::media::crops::confirm(&state.reader, &*state.media, &[written]).await;
     }

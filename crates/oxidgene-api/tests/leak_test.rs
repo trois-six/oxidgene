@@ -37,7 +37,9 @@ use uuid::Uuid;
 
 use crate::common::oidc::{MockProvider, TRUSTED_CLIENT};
 use crate::common::populated::{NOTE_MARKER, PLACE_MARKER, Populated, populated_tree};
-use crate::common::{app_on, ok, send_bytes, setup_db, stored_crops, test_media_root};
+use crate::common::{
+    app_on, current_address, ok, send_bytes, setup_db, stored_crops, test_media_root,
+};
 use crate::guards::surface::Spec;
 
 /// A restricted viewer of the suite.
@@ -304,7 +306,6 @@ fn leaked(text: &str, canaries: &[String]) -> Vec<String> {
 /// POST routes that only read.
 const READ_POSTS: &[&str] = &[
     "/api/v1/trees/{tree_id}/gallery-bundle",
-    "/api/v1/trees/{tree_id}/image-data",
     "/api/v1/trees/{tree_id}/pedigrees",
     "/api/v1/trees/{tree_id}/portrait-images",
     "/api/v1/trees/{tree_id}/relation-labels",
@@ -609,13 +610,17 @@ async fn no_viewer_reaches_an_export_made_by_someone_else() {
 }
 
 /// The crops stored of a hidden vignette, cut and stored by the owner's
-/// views, never reach a viewer who may not see it: not by its image routes,
-/// not through `image-data` on either surface.
+/// views, never reach a viewer who may not see it, and neither does a hidden
+/// medium's file, thumbnail or card: not at their current versioned address
+/// (docs/architecture.md §4.3), which the owner's views name, not at a stale
+/// one, not without one. Every answer is `404`, never the redirect that
+/// would name the current version: a version is no capability.
 #[tokio::test]
-async fn a_stored_crop_of_a_hidden_vignette_is_never_served() {
+async fn a_hidden_picture_is_never_served_at_any_version() {
     let f = fixture().await;
     let base = format!("/api/v1/trees/{}", f.tree.tree_id);
     let vignette = f.tree.id("vignette_id").to_string();
+    let page = f.tree.id("page_id").to_string();
     let local = app_on(f.db.clone());
     let mut owner_sees = Vec::new();
     for size in ["card", "image"] {
@@ -634,72 +639,29 @@ async fn a_stored_crop_of_a_hidden_vignette_is_never_served() {
         );
     }
 
-    let sources = json!({ "sources": [
-        { "kind": "crop", "vignette_id": vignette },
-        { "kind": "card_crop", "vignette_id": vignette },
-    ] });
-    // The owner's validators: a viewer holding one, as one who lost access
-    // since may, still gets 404, never 304.
-    let mut validators = Vec::new();
-    for size in ["card", "image"] {
-        let request = Request::builder()
-            .uri(format!("{base}/vignettes/{vignette}/{size}"))
-            .body(Body::empty())
-            .unwrap();
-        let response = local.clone().oneshot(request).await.unwrap();
-        let etag = response.headers()[header::ETAG].to_str().unwrap();
-        validators.push((size, etag.to_string()));
-    }
-    for who in VIEWERS {
-        for (size, etag) in &validators {
-            let (status, _) = f
-                .rest(
-                    who,
-                    Method::GET,
-                    &format!("{base}/vignettes/{vignette}/{size}"),
-                    None,
-                )
-                .await;
-            assert_eq!(status, StatusCode::NOT_FOUND, "{who:?} {size}");
-            let request = Request::builder()
-                .method(Method::GET)
-                .uri(format!("{base}/vignettes/{vignette}/{size}"))
-                .header(header::IF_NONE_MATCH, etag.as_str());
-            let (status, _) = f.send(who, request, Body::empty()).await;
-            assert_eq!(
-                status,
-                StatusCode::NOT_FOUND,
-                "{who:?} {size} with the owner's validator"
-            );
-        }
-        let (status, slots) = f
-            .rest(
-                who,
-                Method::POST,
-                &format!("{base}/image-data"),
-                Some(sources.clone()),
-            )
-            .await;
-        assert_eq!(status, StatusCode::OK, "{who:?} image-data");
-        assert_eq!(
-            serde_json::from_str::<Value>(&slots).unwrap(),
-            json!([null, null]),
-            "{who:?} image-data"
-        );
-        #[cfg(feature = "graphql")]
-        {
-            let query = format!(
-                "query {{ imageData(treeId: \"{}\", sources: [\
-                 {{ kind: CROP, vignetteId: \"{vignette}\" }}, \
-                 {{ kind: CARD_CROP, vignetteId: \"{vignette}\" }}]) }}",
-                f.tree.tree_id
-            );
-            let answer = f.gql(who, &query).await;
-            assert_eq!(
-                answer["data"]["imageData"],
-                json!([null, null]),
-                "{who:?} imageData: {answer}"
-            );
+    let pictures = [
+        format!("{base}/vignettes/{vignette}/card"),
+        format!("{base}/vignettes/{vignette}/image"),
+        format!("{base}/media/{page}/file"),
+        format!("{base}/media/{page}/thumbnail"),
+        format!("{base}/media/{page}/card"),
+    ];
+    for picture in &pictures {
+        let current = current_address(&local, picture).await;
+        assert!(current.contains("?v="), "{current}");
+        let (status, _) = send_bytes(&local, &current).await;
+        assert_eq!(status, StatusCode::OK, "the owner reads {current}");
+        for who in VIEWERS {
+            for address in [
+                current.clone(),
+                picture.clone(),
+                format!("{picture}?v=0000000000000000"),
+            ] {
+                let request = Request::builder().method(Method::GET).uri(&address);
+                let (status, body) = f.send(who, request, Body::empty()).await;
+                assert_eq!(status, StatusCode::NOT_FOUND, "{who:?} {address}: {body}");
+                assert!(!body.contains("?v="), "{who:?} {address}: {body}");
+            }
         }
     }
     // Still stored, never served: the refusals did not depend on a miss.

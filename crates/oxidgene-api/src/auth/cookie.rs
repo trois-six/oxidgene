@@ -52,6 +52,19 @@ pub(crate) fn clear(name: &str) -> HeaderValue {
     build(name, "", same_site, 0)
 }
 
+/// The header that empties the browser's HTTP cache of this origin.
+pub(crate) const CLEAR_SITE_DATA: &str = "clear-site-data";
+/// Its value: the cache alone, cookies and storage being the application's.
+pub(crate) const CLEAR_CACHE: &str = "\"cache\"";
+
+/// End the browser's session in `headers`: the session cookie cleared, and
+/// the pictures it kept dropped from its cache, since a picture kept is
+/// never asked for again (docs/authentication.md §9.1).
+pub(crate) fn end_session(headers: &mut HeaderMap) {
+    headers.append(header::SET_COOKIE, clear(SESSION));
+    headers.insert(CLEAR_SITE_DATA, HeaderValue::from_static(CLEAR_CACHE));
+}
+
 fn build(name: &str, value: &str, same_site: &str, max_age: u64) -> HeaderValue {
     HeaderValue::from_str(&format!(
         "{name}={value}; Path=/; Secure; HttpOnly; SameSite={same_site}; Max-Age={max_age}"

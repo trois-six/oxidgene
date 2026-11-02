@@ -33,8 +33,8 @@ pub use gedcom_kept::{GedcomKept, KeptEntityKind};
 pub use kinship::{Kinship, KinshipPath, KinshipSegment};
 pub use media::{
     DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, PDF_MIME, Portrait, PortraitRef,
-    Vignette, guess_mime, is_image_mime, is_pdf_mime, is_remote_url, last_path_segment,
-    may_draw_as_image, normalize_mime,
+    VERSION_DIGITS, Vignette, guess_mime, is_image_mime, is_pdf_mime, is_remote_url,
+    last_path_segment, may_draw_as_image, normalize_mime, version_of,
 };
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};

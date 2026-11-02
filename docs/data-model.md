@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 
@@ -374,7 +374,7 @@ by folded label. They are the citation's own, not its event's or its source's.
 | `mime_type` | String | MIME type, decided from the file's magic bytes at upload |
 | `file_path` | String | GEDCOM `OBJE.FILE` value — the producer's own path, kept verbatim so an export round-trips. Not where our copy lives |
 | `storage_key` | String? | Key of the stored bytes in the media store. Null for a record that names a file we have never received — every GEDCOM import starts that way |
-| `sha256` | String? | Hex SHA-256 of the stored bytes. Doubles as the HTTP `ETag` and as the deduplication key |
+| `sha256` | String? | Hex SHA-256 of the stored bytes. The deduplication key; its first 16 digits are the medium's version, which its picture addresses carry ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | `thumbnail_key` | String? | Key of the generated thumbnail. For a PDF, a thumbnail of the scan its first page paints: the largest image that page draws (see [API](api.md), PDF uploads). Null for byte-less records, for a PDF whose first page paints no image we decode, and wherever generation failed |
 | `card_key` | String? | Key of the card rendition: the picture scaled so its shorter edge is 132 pixels (its longer at most 528, never enlarged), what a portrait on a pedigree card, a result row or the events panel needs at device pixel ratio 2. Generated with the thumbnail of every raster page, from the thumbnail unless the picture is more elongated than 3:1, and stored the same way. Null wherever `thumbnail_key` is, and for a PDF, which is never a portrait; a page without one is drawn at card size from its thumbnail |
 | `thumbnail_url` | String? | For a page held only as an `http(s)` URL, the `http(s)` address of a small picture of it that its server also serves — an archive's thumbnail of a view. Gallery tiles draw it instead of the full picture. Null for every other row; cleared when the page is repointed without a new one, or receives our own bytes |

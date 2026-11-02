@@ -109,7 +109,8 @@ async fn occupation_reference_bundle_is_bounded_per_request() {
 #[tokio::test]
 async fn the_basemap_names_its_populated_places_by_zoom() {
     let app = setup_app().await;
-    let (status, body) = send(&app, Method::GET, "/api/v1/reference/basemap", None).await;
+    let basemap = crate::common::current_address(&app, "/api/v1/reference/basemap").await;
+    let (status, body) = send(&app, Method::GET, &basemap, None).await;
     assert_eq!(status, StatusCode::OK);
     let france = body
         .as_array()

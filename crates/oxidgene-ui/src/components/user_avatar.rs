@@ -6,7 +6,6 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::account::AvatarImages;
 use crate::api::ApiClient;
 
 /// How many avatar colours the palette has: the `--avatar-N-bg` and
@@ -66,9 +65,9 @@ pub fn avatar_tone(id: Uuid) -> usize {
 
 /// A user's avatar.
 ///
-/// `avatar` is the uploaded avatar's version (`etag`), `None` for the
-/// generated one. The uploaded image is fetched through the client — never
-/// by the engine from a backend address — and kept for the session.
+/// `avatar` is the uploaded avatar's version, `None` for the generated one.
+/// The uploaded image is drawn from its versioned address, which the
+/// browser fetches once and keeps (`docs/architecture.md` §4.3).
 #[component]
 pub fn UserAvatar(
     user_id: Uuid,
@@ -78,34 +77,9 @@ pub fn UserAvatar(
     #[props(default)] size: AvatarSize,
 ) -> Element {
     let api = use_context::<ApiClient>();
-    let images = try_use_context::<AvatarImages>();
-    let rendition = size.rendition();
-    let key = crate::utils::use_synced(avatar.clone().map(|etag| (user_id, rendition, etag)));
-    let cached = key().and_then(|key| images.and_then(|images| images.0.read().get(&key).cloned()));
-    let fetched = crate::ui_observability::use_ui_resource("user_avatar", move || {
-        let api = api.clone();
-        let key = key();
-        async move {
-            let (user_id, rendition, etag) = key?;
-            if let Some(url) = images.and_then(|images| {
-                images
-                    .0
-                    .peek()
-                    .get(&(user_id, rendition, etag.clone()))
-                    .cloned()
-            }) {
-                return Some(url);
-            }
-            let url = api.avatar_data_url(user_id, rendition, &etag).await.ok()?;
-            if let Some(mut images) = images.map(|images| images.0) {
-                images
-                    .write()
-                    .insert((user_id, rendition, etag), url.clone());
-            }
-            Some(url)
-        }
-    });
-    let image = cached.or_else(|| fetched.read().clone().flatten());
+    let image = avatar
+        .as_deref()
+        .map(|version| api.avatar_url(user_id, size.rendition(), version));
     let tone = avatar_tone(user_id);
     let label = name.clone().unwrap_or_default();
 

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -61,6 +61,10 @@ generated: { by: human:maintainer, at: 2026-11-02T22:00:00Z }
 - [x] Store the pictures cut out of a page for its vignettes once first
   viewed, deleted with the vignette, its rectangle or its page's file
   ([Architecture §4.2](architecture.md#42-stored-crops)).
+- [x] Version every asset's address — media, crops, avatars, the base map,
+  the web bundle and pdf.js — and keep it immutable, the browser drawing
+  pictures from those addresses; clear the browser's cache when its session
+  ends ([Architecture §4.3](architecture.md#43-versioned-assets)).
 - [x] Add per-media progress and cancellation to the final Geneanet write pass:
   every import is one transaction a cancellation rolls back
   ([Architecture §6.3](architecture.md)).

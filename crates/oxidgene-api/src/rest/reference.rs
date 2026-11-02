@@ -87,37 +87,28 @@ pub async fn places(
         .map_err(|_| ApiError(OxidGeneError::Internal("place search failed".into())))
 }
 
-/// GET /api/v1/reference/basemap
+/// GET /api/v1/reference/basemap?v=
 ///
 /// The country outlines the statistics heat map is drawn over.
 ///
 /// Built into the binary, so it only changes with a new release: it is
-/// cacheable by anyone for a week without asking again, and its `ETag`
-/// answers a revalidation with `304` and no body (1.6 MB of JSON otherwise).
-pub async fn basemap(headers: axum::http::HeaderMap) -> axum::response::Response {
-    use axum::http::header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH};
-    use axum::http::{HeaderValue, StatusCode};
+/// versioned by a digest of the embedded file, which the frontend's build
+/// computes from the same file, and kept by anyone for a year at its
+/// version (`docs/architecture.md` §4.3); any other version is redirected
+/// to it.
+pub async fn basemap(
+    Query(version): Query<super::caching::VersionQuery>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+) -> axum::response::Response {
     use axum::response::IntoResponse as _;
 
-    let etag = reference::basemap_etag();
-    let cache = [
-        (
-            CACHE_CONTROL,
-            HeaderValue::from_static(BASEMAP_CACHE_CONTROL),
-        ),
-        (ETAG, HeaderValue::from_static(etag)),
-    ];
-    let revalidated = headers
-        .get(IF_NONE_MATCH)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag));
-    if revalidated {
-        return (StatusCode::NOT_MODIFIED, cache).into_response();
+    match super::caching::versioned(
+        &uri,
+        version.v.as_deref(),
+        reference::basemap_version(),
+        super::caching::IMMUTABLE_PUBLIC,
+    ) {
+        Ok(headers) => (headers, Json(reference::basemap())).into_response(),
+        Err(moved) => moved.into_response(),
     }
-    (cache, Json(reference::basemap())).into_response()
 }
-
-/// The base map is stored but revalidated on every use: its URL carries no
-/// version, so a release that changes it must reach browsers at once. The
-/// `ETag` makes the revalidation a bodiless `304`.
-const BASEMAP_CACHE_CONTROL: &str = "public, no-cache";

@@ -57,7 +57,8 @@ pub struct SessionUser {
 /// An uploaded avatar's version; `None` where the avatar is generated.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AvatarInfo {
-    pub etag: String,
+    /// The version its address carries (`docs/architecture.md` §4.3).
+    pub version: String,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -261,18 +262,14 @@ impl ApiClient {
         self.delete_no_content("/api/v1/me/avatar").await
     }
 
-    /// A user's avatar at `size` pixels (64 or 256), ready to draw. `etag`
-    /// names the version, so a replaced avatar is a new address.
-    pub async fn avatar_data_url(
-        &self,
-        user_id: Uuid,
-        size: u32,
-        etag: &str,
-    ) -> Result<String, ApiError> {
-        self.get_binary_data_url(&format!(
-            "/api/v1/users/{user_id}/avatar?size={size}&v={etag}"
+    /// The address of a user's avatar at `size` pixels (64 or 256), at
+    /// `version`: a replaced avatar is a new address, which the browser
+    /// fetches once and keeps.
+    #[must_use]
+    pub fn avatar_url(&self, user_id: Uuid, size: u32, version: &str) -> String {
+        self.url(&format!(
+            "/api/v1/users/{user_id}/avatar?size={size}&v={version}"
         ))
-        .await
     }
 
     pub async fn my_sessions(&self) -> Result<Vec<SessionEntry>, ApiError> {

@@ -345,13 +345,14 @@ pub async fn refresh_claims(
 /// it by this `etag`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AvatarInfo {
-    pub etag: String,
+    /// The version its address carries (`docs/architecture.md` §4.3).
+    pub version: String,
     pub updated_at: DateTime<Utc>,
 }
 
 fn avatar_of(user: &AppUser) -> Option<AvatarInfo> {
     Some(AvatarInfo {
-        etag: user.avatar_sha256.clone()?,
+        version: oxidgene_core::types::version_of(user.avatar_sha256.as_deref()?),
         updated_at: user.avatar_updated_at.unwrap_or(user.updated_at),
     })
 }

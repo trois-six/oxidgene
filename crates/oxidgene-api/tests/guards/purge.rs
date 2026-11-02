@@ -183,11 +183,9 @@ async fn a_purged_tree_leaves_no_row_and_no_file() {
     // A portrait viewed at both sizes: its crops are stored.
     let vignette = tree.id("vignette_id").to_string();
     for size in ["card", "image"] {
-        let (status, _) = send(
+        let (status, _) = crate::common::send_bytes(
             &app,
-            Method::GET,
             &format!("/api/v1/trees/{tree_id}/vignettes/{vignette}/{size}"),
-            None,
         )
         .await;
         assert_eq!(status, StatusCode::OK, "the {size} crop is served");

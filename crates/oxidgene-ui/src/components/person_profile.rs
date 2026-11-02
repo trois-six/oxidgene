@@ -1166,7 +1166,7 @@ pub(crate) struct PagePictures {
     pub portraits: Vec<(Uuid, PortraitRef)>,
 }
 
-/// A profile page's pictures, resolved in one request once its bundle has
+/// A profile page's pictures, resolved to their addresses once its bundle has
 /// answered — the text is drawn first, without waiting for them.
 pub(crate) fn use_page_pictures(
     load_trace: UiLoadTrace,
@@ -1184,7 +1184,6 @@ pub(crate) fn use_page_pictures(
             };
             let galleries: Vec<&GallerySources> = wanted.galleries.iter().collect();
             api.resolve_pictures(tid, &galleries, &wanted.portraits)
-                .await
         }
     })
 }

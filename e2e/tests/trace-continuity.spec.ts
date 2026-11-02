@@ -54,7 +54,9 @@ test("every page display sends its API requests in one trace of its own", async 
     const requests: Array<{ url: string; traceparent: string | undefined }> = [];
     page.on("request", (request) => {
         const url = request.url();
-        if (!isApiCall(url) || request.method() === "OPTIONS") return;
+        // A picture is fetched by the engine from its versioned address, not
+        // by the client, so it carries no trace context.
+        if (!isApiCall(url) || request.method() === "OPTIONS" || request.resourceType() === "image") return;
         requests.push({ url: url.slice(apiUrl.length), traceparent: request.headers().traceparent });
     });
 

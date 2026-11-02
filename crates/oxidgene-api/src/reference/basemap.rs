@@ -53,15 +53,16 @@ pub struct LocalName {
     pub name: String,
 }
 
-/// A strong validator of the base map: a digest of the embedded data, which
-/// only a new build changes.
-pub fn basemap_etag() -> &'static str {
+/// The version of the base map: the first 16 hexadecimal digits of the
+/// SHA-256 of the embedded file, which only a new build changes. The
+/// frontend's build script computes the same from the same file.
+pub fn basemap_version() -> &'static str {
     use sha2::{Digest as _, Sha256};
-    static ETAG: OnceLock<String> = OnceLock::new();
-    ETAG.get_or_init(|| {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| {
         let digest = Sha256::digest(BASEMAP);
-        let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
-        format!("\"{hex}\"")
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        oxidgene_core::types::version_of(&hex)
     })
 }
 

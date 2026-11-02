@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 
@@ -119,7 +119,7 @@ API endpoints are documented in [API Contract](api.md).
 
 **Media ingest.** An upload is identified by its magic bytes, stored under its content hash, then derived on a blocking thread (`oxidgene-api::media::ingest`): its page count, its pixel size and a thumbnail. A raster image is decoded and scaled by `image`. A PDF is parsed once by `hayro-syntax` for its page count and for the largest image its first page paints, which becomes the thumbnail: a JPEG as stored, a CCITT fax, JBIG2 or JPEG 2000 image decoded, each refused before decoding when its declared size exceeds the decode ceiling. OxidGene ships no PDF renderer — `hayro`, `pdfium` and MuPDF were weighed against their binary size and native dependencies — so a text or vector PDF gets no thumbnail from the server, and drawing and viewing a PDF is the frontend's work (**PDF viewer** below). A thumbnail that cannot be made costs an icon, never the upload. Crops are cut from raster originals only ([API Contract](api.md), Media).
 
-**PDF viewer.** The PDF viewer draws with Mozilla pdf.js (`pdfjs-dist`, Apache-2.0; JPEG 2000 and JBIG2 decoders under BSD licences), vendored as files rather than a Cargo dependency: the legacy build's library, worker, viewer components, stylesheet and two wasm decoders in `assets/public/pdfjs/` (about 2.9 MB, 0.67 MB brotli). The web bundle serves them as static files (`public_dir`), and the desktop brotli-compresses them into its binary at build time and serves them from an asset handler at the same `/pdfjs/` path. They are loaded on first use only, never from the network. `oxidgene-ui` drives them through `document::eval` (`components/pdf_viewer.js`) and keeps no JS or web-sys dependency, so it still compiles to WASM. `scripts/pdfjs.sh` (`just pdfjs`) updates them against the npm integrity, and a guard keeps them one release of the legacy build. The same library draws, client-side, the gallery preview of a PDF the server could not thumbnail.
+**PDF viewer.** The PDF viewer draws with Mozilla pdf.js (`pdfjs-dist`, Apache-2.0; JPEG 2000 and JBIG2 decoders under BSD licences), vendored as files rather than a Cargo dependency: the legacy build's library, worker, viewer components, stylesheet and two wasm decoders in `assets/public/pdfjs/{release}/` (about 2.9 MB, 0.67 MB brotli), beside the `VERSION` that names the release. The web bundle serves them as static files (`public_dir`), and the desktop brotli-compresses them into its binary at build time and serves them from an asset handler at the same `/pdfjs/{release}/` path; the directory's name versions them ([§4.3](#43-versioned-assets)). They are loaded on first use only, never from the network. `oxidgene-ui` drives them through `document::eval` (`components/pdf_viewer.js`) and keeps no JS or web-sys dependency, so it still compiles to WASM. `scripts/pdfjs.sh` (`just pdfjs`) updates them against the npm integrity, and a guard keeps them one release of the legacy build. The same library draws, client-side, the gallery preview of a PDF the server could not thumbnail.
 
 **Database connections.** A SQLite database opens in write-ahead-log mode and
 has a single writer: one pooled connection, SeaORM's default, through which
@@ -381,26 +381,19 @@ crop) and answered all the same. Nothing is cut when a vignette is created
 or moved: an import creates hundreds that may never be viewed, and the
 write would wait on the decode.
 
-**Authorization.** Unchanged: a stored crop is read only by the two paths
-that cut one before, after the checks they make — `GET
-/vignettes/{id}/image` and `/card` (which the desktop shell proxies) and the
-`image-data` batch of REST and GraphQL: the vignette and its live page in
-the tree, the page raster and held, and the viewer's access to the vignette
-([Privacy §3.2](privacy.md#32-records)). No address names an object: the
-store is not served, an S3 bucket is private and nothing is presigned, the
-server reads it. A hidden vignette's stored crop is never read, for any
-viewer or surface.
+**Authorization.** Unchanged: a stored crop is read only by the two routes
+that cut one, `GET /vignettes/{id}/image` and `/card` (which the desktop
+shell proxies), after the checks they make: the vignette and its live page
+in the tree, the page raster and held, and the viewer's access to the
+vignette ([Privacy §3.2](privacy.md#32-records)). No address names an
+object: the store is not served, an S3 bucket is private and nothing is
+presigned, the server reads it. A hidden vignette's stored crop is never
+read, for any viewer or surface.
 
-**Revalidation.** The two routes send `Cache-Control: private, no-cache`
-and the crop's fingerprint as its `ETag`: a client keeps the picture but
-asks again on every use, so a moved rectangle or a replaced file shows at
-once, never after a cache lifetime. `If-None-Match` is answered `304` after
-the same checks as the picture, so a viewer who lost access gets `404`; a
-revalidation reads no object. The desktop shell's handler forwards the
-engine's `If-None-Match` and relays the backend's `304`, `ETag` and
-`Cache-Control` rather than a lifetime of its own. The web build draws crops
-as `data:` URLs from `image-data`, never cached by HTTP; its session keeps
-them ten minutes, and drops a tree's when it writes to that tree.
+**Caching.** The two routes are versioned by the vignette's version
+([§4.3](#43-versioned-assets)), which the fingerprint's inputs make: a
+moved rectangle or a replaced file is a new address, and its old one
+redirects there.
 
 **Deletion.** Each write deletes the crops it makes unreachable right after
 its transaction commits; a failure is logged and left to the sweep.
@@ -431,6 +424,107 @@ thumbnail, 8.5 MB for 240 portraits, against 66 ms of CPU saved per card
 on every view after the first. No memory is kept between requests. The application reports no storage usage
 figure, so none has to count them.
 
+### 4.3 Versioned assets
+
+Every asset the application draws or loads is named by an address that
+changes when its content changes, and is answered as immutable: a client
+keeps it for a year and never asks again, and an asset that changes is a new
+address, drawn at once. No asset is served under a stable name with a
+lifetime, and none is revalidated: there is no `ETag` and no conditional
+request on these routes.
+
+| Asset | Address | Version | `Cache-Control` |
+|---|---|---|---|
+| A medium's file, thumbnail and card rendition | `/api/v1/trees/{tree_id}/media/{media_id}/file`, `/thumbnail`, `/card` `?v=` | The medium's version | `private, max-age=31536000, immutable` |
+| A vignette's crop, at thumbnail and card size | `/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image`, `/card` `?v=` | The vignette's version | `private, max-age=31536000, immutable` |
+| A user's avatar | `/api/v1/users/{user_id}/avatar?size=&v=` | The avatar's version | `private, max-age=31536000, immutable` |
+| The statistics base map | `/api/v1/reference/basemap?v=` | The first 16 hex digits of the SHA-256 of the embedded file | `public, max-age=31536000, immutable` |
+| The web bundle's WebAssembly and script | `/assets/{name}-dxh{hash}.{wasm,js}` | `dx`'s content hash | `public, max-age=31536000, immutable` (nginx) |
+| pdf.js | `/pdfjs/{release}/…` | The vendored `pdfjs-dist` release | `public, max-age=31536000, immutable` (nginx, the desktop's handler) |
+| The desktop's silhouettes | `/oxidgene-media/silhouette/{sex}?v=` | The FNV-1a hash of the picture compiled in | `private, max-age=31536000, immutable` |
+
+**Versions.** A version is 16 hexadecimal digits derived from what the row
+already holds, so a payload naming a picture carries its version at no
+extra query: an image source ([API Contract](api.md#image-sources)) has
+it, and a client holding a medium's row reads it there.
+
+- A medium's version is the first 16 digits of its content digest
+  (`media.sha256`). It covers the file and its renditions: the thumbnail
+  and the card are written with the file, in the same write, at
+  content-addressed keys, and never regenerated in place; replacing the
+  file replaces the digest.
+- A vignette's version is the first 16 digits of the SHA-256 of what its
+  crop depends on: the version of the cut, the page's id, the page's digest
+  and the rectangle ([§4.2](#42-stored-crops)). The stored crop's
+  fingerprint adds the size to the same inputs. A moved rectangle, a
+  replaced page or a new way of cutting is a new version.
+- An avatar's version is the first 16 digits of the digest of the uploaded
+  image (`app_user.avatar_sha256`), which `avatar.version` carries.
+
+A version reveals nothing a viewer of the picture lacks: a prefix of a
+digest, never a rectangle, a key or a person.
+
+**Answers.** Each route makes every check it makes for the content —
+the record in the tree, the viewer's access to it ([Privacy §7](privacy.md#7-enforcement-points)) —
+before it looks at the version, so a hidden picture is `404` whatever the
+version asked, and a version is never a capability. Then:
+
+- the current version is answered with the content, immutable;
+- a missing or other version is answered `307 Temporary Redirect` to the
+  current version's address, `Cache-Control: no-store`, with no content. A
+  stale address therefore never holds the new content, in any cache: the
+  content is only ever stored under its own version. A client that knows
+  no version — an API client, a payload read before a change — reaches the
+  content in one more request.
+
+Media and crops also answer `Vary: Cookie, Authorization` in the web build
+([Authentication §9.1](authentication.md#91-origin-headers-and-caching)), so a
+browser shared by two accounts never shows one the other's copy.
+
+**Clients.** The web client draws a held picture from its versioned API
+address — `<img src>`, an SVG `<image>` — and the browser fetches,
+decodes, caches and lazily loads it like any image; the desktop shell
+serves the same paths from its own origin
+([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)),
+relaying the backend's status and `Cache-Control` unchanged. The WebView
+does not always honour that rule on the shell's own scheme: WebKit (Linux,
+macOS), where the shell answers on `dioxus://`, keeps a subresource of a
+scheme other than HTTP in memory for the window's life whatever its headers
+say, and never on disk (`CachedResource::freshnessLifetime`); WebView2
+(Windows), where it answers on `http://dioxus.index.html/`, applies the
+rule like any HTTP answer. Only the version in the address makes a changed
+picture show at once on all three; a stable address with a lifetime kept
+the old picture on WebKit until the window closed.
+Pictures used to travel to the web client inlined, as `data:` URLs of one
+`image-data` request per screen, kept ten minutes in the client's memory
+and lost on a reload. Measured on the end-to-end suite's generated tree of
+portraits, crops and a register (`E2E_ASSET_REPORT=1`, release bundle,
+50 ms of added latency, medians of five), a second visit after a reload
+fetches no picture: a person page went from 5 API requests and 60 kB to 4
+and 6.5 kB, its pictures drawn after 293 ms instead of 358 ms; a pedigree
+view from 3 requests and 15.9 kB to 2 and 3.1 kB, 311 ms instead of 345 ms.
+A first visit makes one request per picture rather than one per screen,
+fetched in parallel; it transfers what the pictures weigh, where base64
+inside compressed JSON weighs the same for a photograph and less only for
+the fixture's synthetic gradients.
+
+**Static assets.** The web bundle's WebAssembly and script carry `dx`'s
+content hash in their name; locales, themes, fonts, the logo, the
+silhouettes and the archive catalogue are compiled into the WebAssembly and
+change with its hash. pdf.js lives under a directory named after its
+release, `assets/public/pdfjs/{release}/`, which the desktop serves at the
+same path. Two files keep a stable name, because they name the others: the
+page (`index.html` and every client route), `no-cache`, and the deployment's
+`runtime-config.js`, written at deployment and `no-store`.
+
+**Losing access.** A picture already in a browser's cache stays readable
+there after its viewer loses access: the server is not asked again. Signing
+out, ending one's own session or deleting the account answers
+`Clear-Site-Data: "cache"`, and so does any request whose session the server
+finds ended — expired, ended elsewhere by *sign out everywhere*, revoked —
+so the browser's copies go the next time that browser reaches the server
+([Authentication §9.1](authentication.md#91-origin-headers-and-caching)).
+
 ---
 
 ## 5. Frontend Architecture
@@ -448,9 +542,11 @@ figure, so none has to count them.
     authentication and authorization ship, no deployment exposes Axum directly
     to an untrusted network; a container that listens on its private network is
     reachable only through a trusted same-origin gateway.
-- The UI fetches backend media through `ApiClient` and gives the rendering
-    engine only local `data:`/`blob:` resources. API URLs never become links,
-    image sources, redirects, or new-window destinations.
+- The UI draws a held picture from its versioned address
+    ([§4.3](#43-versioned-assets)): the API's on the web, the shell's own
+    origin on the desktop. Other API URLs never become links, image sources,
+    redirects, or new-window destinations; files the UI saves or a script
+    reads come through `ApiClient`.
 - Geneanet import separates control and data planes: REST/GraphQL carry import
     metadata and local paths, while the login WebView and embedded backend
     exchange media bytes through their shared filesystem. Before returning a
@@ -853,7 +949,10 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
     build arguments, and the Helm chart replaces it with the origin of
     `frontend.otlpEndpoint` and `frontend.extraConnectSrc`. The e2e static
     server sends the same file's headers, so the suite runs under the deployed
-    policy.
+    policy. nginx answers the versioned bundle files (`/assets/`) and pdf.js
+    (`/pdfjs/`) `public, max-age=31536000, immutable`, a missing one `404`,
+    the page and its client routes `no-cache`, and `runtime-config.js`
+    `no-store` ([§4.3](#43-versioned-assets)).
 - Browser builds can export client spans over OTLP/HTTP and inject W3C Trace
     Context into REST and GraphQL requests. The API continues the context into
     SeaORM operations and stores it with durable jobs; workers restore it before

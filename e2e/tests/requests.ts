@@ -114,6 +114,17 @@ export async function picturedTree(request: APIRequestContext, name: string): Pr
     return { ...tree, familyId, kinId, groupId: group, registerId: register };
 }
 
+/// Refuse the debug bundle's only outside requests, its development
+/// toast's web font, through the DevTools protocol rather than with
+/// `page.route`, which turns the browser's HTTP cache off: a page visited
+/// again must draw its versioned pictures from that cache, as a browser
+/// does (docs/architecture.md §4.3).
+export async function blockOutside(cdp: CDPSession): Promise<void> {
+    await cdp.send("Network.setBlockedURLs", {
+        urls: ["*://fonts.googleapis.com/*", "*://fonts.gstatic.com/*"],
+    });
+}
+
 /// One API request as the browser saw it, times in milliseconds from the
 /// first request of the scenario.
 export interface Recorded {
@@ -148,7 +159,11 @@ export class Recorder {
         }
         cdp.on("Network.requestWillBeSent", (event) => {
             const url = event.request.url;
-            if (!isApiCall(url)) return;
+            // A picture is the engine's request, not the client's: one per
+            // picture drawn, from its versioned address, kept immutable
+            // (docs/architecture.md §4.3). Its cost is reported by
+            // asset-cache.spec.ts.
+            if (!isApiCall(url) || event.type === "Image") return;
             const headers = event.request.headers as Record<string, string>;
             recorder.origin ??= event.timestamp * 1000;
             recorder.requests.set(event.requestId, {

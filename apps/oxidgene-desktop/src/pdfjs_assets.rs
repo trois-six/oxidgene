@@ -1,11 +1,12 @@
 //! pdf.js, served to the window from the binary.
 //!
-//! The PDF viewer loads its library from `/pdfjs/…` on the page's own origin
-//! (`docs/ui-common.md`, PDF viewer). The web bundle serves those files as
-//! static files; the desktop answers for the same paths here, from the copy
-//! the build script compressed into the binary (`build.rs`), so a PDF opens
-//! without the network and with exactly the release the application was
-//! built with.
+//! The PDF viewer loads its library from `/pdfjs/{release}/…` on the page's
+//! own origin (`docs/ui-common.md`, PDF viewer). The web bundle serves those
+//! files as static files; the desktop answers for the same paths here, from
+//! the copy the build script compressed into the binary (`build.rs`), so a
+//! PDF opens without the network and with exactly the release the
+//! application was built with. The release in the path versions them
+//! (`docs/architecture.md` §4.3).
 
 use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::Response;
@@ -38,10 +39,8 @@ fn response(path: &str) -> Option<Response<Vec<u8>>> {
         // A module script and its worker are only run under a script type,
         // which the engine must not second-guess.
         .header("X-Content-Type-Options", "nosniff")
-        // The library is loaded once per window, and a later release of the
-        // application must never meet an earlier one's files in the
-        // WebView's cache: decompressing it again costs milliseconds.
-        .header("Cache-Control", "no-store")
+        // The path names the release: a later one is other paths.
+        .header("Cache-Control", "public, max-age=31536000, immutable")
         .body(bytes)
         .ok()
 }
@@ -86,30 +85,48 @@ mod tests {
         "wasm/jbig2.wasm",
     ];
 
-    #[test]
-    fn every_file_the_viewer_loads_is_embedded_as_it_is_on_disk() {
-        let directory = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/public/pdfjs");
-        for path in LOADED {
-            let on_disk = std::fs::read(format!("{directory}/{path}")).unwrap();
-            assert_eq!(file(path).as_deref(), Some(on_disk.as_slice()), "{path}");
-        }
-        // The licences travel with the code they cover.
-        assert!(file("LICENSE").is_some());
+    /// The vendored release, which names the directory of its files.
+    fn release() -> String {
+        let record = include_str!("../../../assets/public/pdfjs/VERSION");
+        record.split_whitespace().nth(1).unwrap().to_string()
     }
 
     #[test]
-    fn scripts_are_served_as_scripts_and_nothing_else_is_answered() {
-        let served = response("pdf.min.mjs").unwrap();
+    fn every_file_the_viewer_loads_is_embedded_as_it_is_on_disk() {
+        let release = release();
+        let directory = format!(
+            "{}/../../assets/public/pdfjs/{release}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        for path in LOADED {
+            let on_disk = std::fs::read(format!("{directory}/{path}")).unwrap();
+            let served = file(&format!("{release}/{path}"));
+            assert_eq!(served.as_deref(), Some(on_disk.as_slice()), "{path}");
+        }
+        // The licences travel with the code they cover.
+        assert!(file(&format!("{release}/LICENSE")).is_some());
+    }
+
+    #[test]
+    fn scripts_are_served_immutable_as_scripts_and_nothing_else_is_answered() {
+        let release = release();
+        let served = response(&format!("{release}/pdf.min.mjs")).unwrap();
         assert_eq!(served.headers()["Content-Type"], "text/javascript");
         assert_eq!(served.headers()["X-Content-Type-Options"], "nosniff");
+        assert_eq!(
+            served.headers()["Cache-Control"],
+            "public, max-age=31536000, immutable"
+        );
         assert_eq!(content_type("pdf_viewer.css"), "text/css");
         assert_eq!(content_type("wasm/jbig2.wasm"), "application/wasm");
         for path in [
             "",
             "missing.mjs",
+            "pdf.min.mjs",
             "../Cargo.toml",
             "/pdf.min.mjs",
-            "pdf.min.mjs?x=1",
+            "0.0.1/pdf.min.mjs",
+            &format!("{release}/pdf.min.mjs?x=1"),
         ] {
             assert!(response(path).is_none(), "{path}");
         }

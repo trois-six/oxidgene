@@ -461,6 +461,12 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
         )
         .await;
     let vignette_id = vignette["id"].as_str().expect("vignette id").to_string();
+    // The crop at its version, which a client's address names.
+    let crop = crate::common::current_address(
+        &harness.app,
+        &format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"),
+    )
+    .await;
 
     // ── Read routes ──────────────────────────────────────────────────
     let reads: [(&str, String, &[&str]); 5] = [
@@ -499,7 +505,7 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
         ),
         (
             "vignette crop",
-            format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"),
+            crop,
             &[
                 "http.server.request",
                 "media.crop",

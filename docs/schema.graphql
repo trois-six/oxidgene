@@ -1817,6 +1817,10 @@ type GqlGalleryPdfPage {
 	Its size in bytes: drawing it means reading the whole file.
 	"""
 	fileSize: Int!
+	"""
+	Its version, which the file's address carries.
+	"""
+	version: String!
 }
 
 type GqlGalleryVignette {
@@ -2001,10 +2005,9 @@ Where a picture lives.
 
 Exactly one of the three payload fields is set, matching `kind`: `url`
 for `REMOTE`, `mediaId` for `THUMBNAIL` and `CARD`, `vignetteId` for
-`CROP` and `CARD_CROP`. A held
-picture names its resource rather than a URL: turning it into something
-drawable is the client's business, because until authentication ships no
-backend address may appear in the markup.
+`CROP` and `CARD_CROP`. A held picture names its resource and its
+`version` rather than a URL: the client builds the address, `?v=` the
+version, which changes with the picture.
 """
 type GqlImageSource {
 	kind: GqlImageSourceKind!
@@ -2020,6 +2023,11 @@ type GqlImageSource {
 	Set when `kind` is `CROP` or `CARD_CROP`.
 	"""
 	vignetteId: ID
+	"""
+	The held picture's version, the same at both sizes; unset for
+	`REMOTE`.
+	"""
+	version: String
 }
 
 """
@@ -4201,7 +4209,10 @@ type GqlUser {
 An uploaded avatar's version.
 """
 type GqlUserAvatar {
-	etag: String!
+	"""
+	The version its address carries.
+	"""
+	version: String!
 	updatedAt: DateTime!
 }
 
@@ -4359,17 +4370,6 @@ type GrowthImport {
 	Persons the import brought.
 	"""
 	persons: Int!
-}
-
-"""
-Where a held picture lives, as an input. Mirrors `ImageSource`: `kind`
-selects which of the payload fields is meaningful.
-"""
-input ImageSourceInput {
-	kind: GqlImageSourceKind!
-	url: String
-	mediaId: ID
-	vignetteId: ID
 }
 
 """
@@ -5172,12 +5172,6 @@ type QueryRoot {
 	Load display-ready portraits for a bounded set of people in one operation.
 	"""
 	portraitImages(treeId: ID!, personIds: [ID!]!): [GqlPortraitImage!]!
-	"""
-	Resolve held picture sources to inline `data:` URLs in one operation,
-	for a client that cannot serve them from an origin of its own.
-	Mirrors REST's `image-data` endpoint.
-	"""
-	imageData(treeId: ID!, sources: [ImageSourceInput!]!): [String]!
 	"""
 	Load display-ready media gallery data in one bounded operation.
 	"""

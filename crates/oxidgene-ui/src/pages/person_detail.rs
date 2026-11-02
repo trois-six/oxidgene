@@ -109,7 +109,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     let tree_resource = use_tree_resource(load_trace.clone(), api.clone(), tree_id_parsed, refresh);
     // The gallery's pictures and this person's portrait — reused by the
-    // header and the mini pedigree — in one request once the bundle is in.
+    // header and the mini pedigree — once the bundle is in.
     let wanted_pictures = use_memo(move || {
         let detail = detail_resource.read();
         let Some(Ok(detail)) = &*detail else {

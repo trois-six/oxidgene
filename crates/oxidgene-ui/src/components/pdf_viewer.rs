@@ -30,8 +30,25 @@ use crate::i18n::use_i18n;
 use crate::listeners::use_element_id;
 use crate::ui_observability::use_ui_trace;
 
-/// The page-side half: the viewer, the previews and the library loader.
-const SCRIPT: &str = include_str!("pdf_viewer.js");
+/// The page-side half: the viewer, the previews and the library loader,
+/// told the release of pdf.js its files are under.
+static SCRIPT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "const PDFJS_RELEASE = {:?};\n{}",
+        pdfjs_release(),
+        include_str!("pdf_viewer.js")
+    )
+});
+
+/// The vendored pdf.js release, which names the directory its files are
+/// served under (`/pdfjs/{release}/`, `docs/architecture.md` §4.3): the
+/// second field of `assets/public/pdfjs/VERSION`.
+fn pdfjs_release() -> &'static str {
+    include_str!("../../../../assets/public/pdfjs/VERSION")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default()
+}
 
 /// The bytes of a file the web build hands over per message, as base64. A
 /// multiple of three, so every chunk but the last encodes without padding
@@ -66,18 +83,40 @@ pub(crate) fn opens_in_pdf_viewer(kind: MediaKind, source: MediaSource, failed: 
 /// A display convenience of this session alone: the picture is never stored
 /// or sent anywhere, and it changes nothing a thumbnail decides — the medium
 /// is no more a portrait, nor a picture beside an attachment, than it was.
-pub(crate) fn pdf_preview_page(media: &Media, pdf_page: Option<GalleryPdfPage>) -> Option<Uuid> {
+pub(crate) fn pdf_preview_page(media: &Media, pdf_page: Option<GalleryPdfPage>) -> Option<PdfFile> {
     let small = |size: i64| (0..=PREVIEW_MAX_BYTES).contains(&size);
     if media.is_document() {
         return pdf_page
             .filter(|page| small(page.file_size))
-            .map(|page| page.media_id);
+            .map(|page| PdfFile {
+                media_id: page.media_id,
+                version: page.version,
+            });
     }
     (oxidgene_core::types::is_pdf_mime(&media.mime_type)
         && crate::api::media_source(media) == MediaSource::Stored
         && media.thumbnail_key.is_none()
         && small(media.file_size))
-    .then_some(media.id)
+    .then(|| PdfFile::of(media))
+    .flatten()
+}
+
+/// A stored PDF a viewer or a preview reads: the medium and its version,
+/// which the file's address carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PdfFile {
+    pub media_id: Uuid,
+    pub version: String,
+}
+
+impl PdfFile {
+    /// The file of `media`, when we hold it.
+    pub(crate) fn of(media: &Media) -> Option<Self> {
+        Some(Self {
+            media_id: media.id,
+            version: media.version()?,
+        })
+    }
 }
 
 /// One step in from `percent`, within a PDF's bounds.
@@ -198,7 +237,7 @@ impl PdfState {
 #[component]
 pub(crate) fn PdfViewer(
     tree_id: Uuid,
-    media_id: Uuid,
+    file: PdfFile,
     position: Signal<(u32, u32)>,
     goto: Signal<Option<u32>>,
     on_failed: EventHandler<()>,
@@ -233,13 +272,16 @@ pub(crate) fn PdfViewer(
         let page_label = i18n.t("pager.page");
         move |_| {
             let (channel, id, page_label) = (channel.clone(), id.clone(), page_label.clone());
-            let (api, trace) = (api.clone(), trace.clone());
+            let (api, trace, file) = (api.clone(), trace.clone(), file.clone());
             async move {
-                let mut eval = document::eval(SCRIPT);
+                let mut eval = document::eval(&SCRIPT);
                 channel.set(Some(eval));
                 let request =
                     serde_json::json!({ "mode": "viewer", "id": id, "page_label": page_label });
-                let file = trace.resource("pdf_file", api.media_file_for_script(tree_id, media_id));
+                let file = trace.resource(
+                    "pdf_file",
+                    api.media_file_for_script(tree_id, file.media_id, file.version),
+                );
                 let opened = eval.send(request).is_ok() && send_file(&eval, file.await);
                 let mut alive = opened;
                 while alive && let Ok(event) = eval.recv::<ScriptEvent>().await {
@@ -430,7 +472,8 @@ fn PdfSearch(
 /// picture is kept for the session, per medium, so a gallery shown again
 /// draws it at once.
 #[component]
-pub(crate) fn PdfPreview(tree_id: Uuid, media_id: Uuid, alt: String, fallback: Element) -> Element {
+pub(crate) fn PdfPreview(tree_id: Uuid, file: PdfFile, alt: String, fallback: Element) -> Element {
+    let media_id = file.media_id;
     let api = use_context::<ApiClient>();
     let trace = use_ui_trace();
     let id = use_element_id("pdf-preview");
@@ -446,16 +489,20 @@ pub(crate) fn PdfPreview(tree_id: Uuid, media_id: Uuid, alt: String, fallback: E
         let id = id.clone();
         move |_| {
             let (channel, id) = (channel.clone(), id.clone());
-            let (api, trace) = (api.clone(), trace.clone());
+            let (api, trace, file) = (api.clone(), trace.clone(), file.clone());
             async move {
-                let mut eval = document::eval(SCRIPT);
+                let mut eval = document::eval(&SCRIPT);
                 channel.set(Some(eval));
                 let request = serde_json::json!({ "mode": "preview", "id": id, "key": media_id });
                 let mut listening = eval.send(request).is_ok();
                 while listening && let Ok(event) = eval.recv::<ScriptEvent>().await {
                     listening = match event {
                         ScriptEvent::Want => {
-                            let file = api.media_file_for_script(tree_id, media_id);
+                            let file = api.media_file_for_script(
+                                tree_id,
+                                file.media_id,
+                                file.version.clone(),
+                            );
                             send_file(&eval, trace.resource("pdf_preview", file).await)
                         }
                         ScriptEvent::Preview { url } => {
@@ -496,7 +543,7 @@ mod tests {
                 "https://archives.example.org/register.pdf".to_string()
             },
             storage_key: stored.then(|| "media/register.pdf".to_string()),
-            sha256: None,
+            sha256: stored.then(|| "ab".repeat(32)),
             thumbnail_key: thumbnail.then(|| "thumbnails/register.jpg".to_string()),
             card_key: None,
             thumbnail_url: None,
@@ -568,11 +615,15 @@ mod tests {
             let page = pdf(thumbnail, stored, size);
             pdf_preview_page(&page, None)
         };
-        assert_eq!(page(false, true, 40_000), Some(Uuid::nil()));
+        let file = Some(PdfFile {
+            media_id: Uuid::nil(),
+            version: "ab".repeat(8),
+        });
+        assert_eq!(page(false, true, 40_000), file);
         // The server's thumbnail wins: it costs one small image.
         assert_eq!(page(true, true, 40_000), None);
         assert_eq!(page(false, false, 40_000), None);
-        assert_eq!(page(false, true, PREVIEW_MAX_BYTES), Some(Uuid::nil()));
+        assert_eq!(page(false, true, PREVIEW_MAX_BYTES), file);
         assert_eq!(page(false, true, PREVIEW_MAX_BYTES + 1), None);
         let mut photo = pdf(false, true, 40_000);
         photo.mime_type = "image/jpeg".to_string();
@@ -589,9 +640,16 @@ mod tests {
             Some(GalleryPdfPage {
                 media_id: page_id,
                 file_size,
+                version: "1".into(),
             })
         };
-        assert_eq!(pdf_preview_page(&document, named(40_000)), Some(page_id));
+        assert_eq!(
+            pdf_preview_page(&document, named(40_000)),
+            Some(PdfFile {
+                media_id: page_id,
+                version: "1".into()
+            })
+        );
         assert_eq!(
             pdf_preview_page(&document, named(PREVIEW_MAX_BYTES + 1)),
             None

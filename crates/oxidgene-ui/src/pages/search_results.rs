@@ -560,7 +560,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         };
         async move {
             match tree_id.filter(|_| !entries.is_empty()) {
-                Some(tree_id) => api.entry_portraits(tree_id, &entries).await,
+                Some(tree_id) => api.entry_portraits(tree_id, &entries),
                 None => Default::default(),
             }
         }

@@ -3749,10 +3749,9 @@ pub enum GqlImageSourceKind {
 ///
 /// Exactly one of the three payload fields is set, matching `kind`: `url`
 /// for `REMOTE`, `mediaId` for `THUMBNAIL` and `CARD`, `vignetteId` for
-/// `CROP` and `CARD_CROP`. A held
-/// picture names its resource rather than a URL: turning it into something
-/// drawable is the client's business, because until authentication ships no
-/// backend address may appear in the markup.
+/// `CROP` and `CARD_CROP`. A held picture names its resource and its
+/// `version` rather than a URL: the client builds the address, `?v=` the
+/// version, which changes with the picture.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlImageSource {
     pub kind: GqlImageSourceKind,
@@ -3762,42 +3761,49 @@ pub struct GqlImageSource {
     pub media_id: Option<ID>,
     /// Set when `kind` is `CROP` or `CARD_CROP`.
     pub vignette_id: Option<ID>,
+    /// The held picture's version, the same at both sizes; unset for
+    /// `REMOTE`.
+    pub version: Option<String>,
 }
 
 impl From<oxidgene_core::types::ImageSource> for GqlImageSource {
     fn from(source: oxidgene_core::types::ImageSource) -> Self {
         use oxidgene_core::types::ImageSource;
+        let held =
+            |kind, media_id: Option<uuid::Uuid>, vignette_id: Option<uuid::Uuid>, version| Self {
+                kind,
+                url: None,
+                media_id: media_id.map(|id| ID(id.to_string())),
+                vignette_id: vignette_id.map(|id| ID(id.to_string())),
+                version: Some(version),
+            };
         match source {
             ImageSource::Remote { url } => Self {
                 kind: GqlImageSourceKind::Remote,
                 url: Some(url),
                 media_id: None,
                 vignette_id: None,
+                version: None,
             },
-            ImageSource::Thumbnail { media_id } => Self {
-                kind: GqlImageSourceKind::Thumbnail,
-                url: None,
-                media_id: Some(ID(media_id.to_string())),
-                vignette_id: None,
-            },
-            ImageSource::Crop { vignette_id } => Self {
-                kind: GqlImageSourceKind::Crop,
-                url: None,
-                media_id: None,
-                vignette_id: Some(ID(vignette_id.to_string())),
-            },
-            ImageSource::Card { media_id } => Self {
-                kind: GqlImageSourceKind::Card,
-                url: None,
-                media_id: Some(ID(media_id.to_string())),
-                vignette_id: None,
-            },
-            ImageSource::CardCrop { vignette_id } => Self {
-                kind: GqlImageSourceKind::CardCrop,
-                url: None,
-                media_id: None,
-                vignette_id: Some(ID(vignette_id.to_string())),
-            },
+            ImageSource::Thumbnail { media_id, version } => {
+                held(GqlImageSourceKind::Thumbnail, Some(media_id), None, version)
+            }
+            ImageSource::Crop {
+                vignette_id,
+                version,
+            } => held(GqlImageSourceKind::Crop, None, Some(vignette_id), version),
+            ImageSource::Card { media_id, version } => {
+                held(GqlImageSourceKind::Card, Some(media_id), None, version)
+            }
+            ImageSource::CardCrop {
+                vignette_id,
+                version,
+            } => held(
+                GqlImageSourceKind::CardCrop,
+                None,
+                Some(vignette_id),
+                version,
+            ),
         }
     }
 }
@@ -3828,6 +3834,8 @@ pub struct GqlGalleryPdfPage {
     pub media_id: ID,
     /// Its size in bytes: drawing it means reading the whole file.
     pub file_size: i64,
+    /// Its version, which the file's address carries.
+    pub version: String,
 }
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -3857,6 +3865,7 @@ impl From<crate::service::gallery::GalleryBundle> for GqlGalleryBundle {
                     pdf_page: item.pdf_page.map(|page| GqlGalleryPdfPage {
                         media_id: ID(page.media_id.to_string()),
                         file_size: page.file_size,
+                        version: page.version,
                     }),
                 })
                 .collect(),

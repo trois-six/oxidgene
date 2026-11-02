@@ -290,7 +290,6 @@ const REST: &[(&str, &str, Requirement)] = &[
     ),
     // Media, documents, their pages and links.
     ("POST", "/trees/{tree_id}/gallery-bundle", Tree(P::Read)),
-    ("POST", "/trees/{tree_id}/image-data", Tree(P::Read)),
     ("GET", "/trees/{tree_id}/media", Tree(P::Read)),
     ("POST", "/trees/{tree_id}/media", Tree(P::Create)),
     ("POST", "/trees/{tree_id}/media/upload", Tree(P::Create)),
@@ -838,7 +837,6 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("addSpouse", Tree(P::Create)),
     ("removeSpouse", Tree(P::Delete)),
     ("galleryBundle", Tree(P::Read)),
-    ("imageData", Tree(P::Read)),
     ("mediaList", Tree(P::Read)),
     ("uploadMedia", Tree(P::Create)),
     ("uploadMediaFile", Tree(P::Create)),

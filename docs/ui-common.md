@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -616,21 +616,21 @@ document's note and the page's transcript, its place, the attachments of both
 with the names, spouses, portraits and sexes they need, the regions on the
 page and their pictures' sources. Its pictures — the page's thumbnail beside
 each attachment, the regions' crops, and the portraits standing in for a page
-that cannot be drawn — then come in one request, and the page's file in one
-more. Turning the page asks for that page's bundle, which the client keeps
+that cannot be drawn — and the page's file are then drawn from their
+versioned addresses. Turning the page asks for that page's bundle, which the client keeps
 like any read until the tree is written to; while it loads, the document's
 facts stay and the page's own appear with it, never the previous page's. An
 editor panel may use an individual endpoint after the user opens one asset;
-a document's page list in its editor resolves every page's thumbnail in one
-request too.
+a document's page list in its editor draws every page's thumbnail from the
+pages it lists.
 
-On the web, where pictures are fetched and inlined as `data:` URLs, a screen
-asks for all of its pictures at once, each distinct address once. The client
-keeps those it fetched for the session, keyed by tree and address, so a page
-visited again draws them without downloading them: at most 24 MB, the oldest
-dropped first, each reused for ten minutes, and a tree's dropped whenever the
-client writes to it, as its cached reads are. The desktop serves pictures from
-its own origin and needs none of this.
+Every held picture is drawn from its versioned address
+([Architecture §4.3](architecture.md#43-versioned-assets)) — the API's on
+the web, the shell's own origin on the desktop — which the engine fetches
+once, keeps immutable and draws again without asking: a page visited again,
+in the same session or after a reload, sends no request for a picture it
+drew before. A picture that changes is a new address, drawn at once. The
+client keeps no picture of its own.
 
 A tile draws its document's page previews when there are any, its own
 thumbnail when the tile is a stored page, and the address when it is a remote
@@ -723,7 +723,7 @@ buttons beside it step to the next and previous match, with the match shown
 out of their count, or that there is none. Every label, and the name each page
 gives assistive technology, goes through the interface's translations. The
 library, its worker, its stylesheet and its JPEG 2000 and JBIG2 decoders load
-on first use from `/pdfjs/` on the application's own origin — the web bundle's
+on first use from `/pdfjs/{release}/` on the application's own origin — the web bundle's
 static files, the desktop's own handler — never with the page and never from
 the network. They run no script of the document, render no XFA form and
 evaluate no code built from the file. The file reaches pdf.js as

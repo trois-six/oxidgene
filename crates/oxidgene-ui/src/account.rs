@@ -15,12 +15,10 @@
 //! then sends with every write, or nobody, and the pages that need an
 //! account offer to sign in instead.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use futures_util::StreamExt as _;
-use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::api::account::Me;
@@ -197,12 +195,6 @@ impl AuthError {
     }
 }
 
-/// The avatars drawn this session, as `data:` URLs keyed by user, size and
-/// version, so that a navigation — which mounts the navbar again — does not
-/// fetch the user's own avatar again.
-#[derive(Clone, Copy)]
-pub struct AvatarImages(pub Signal<HashMap<(Uuid, u32, String), String>>);
-
 /// The account state, provided by [`use_init_account`].
 pub fn use_account() -> Signal<AccountState> {
     use_context()
@@ -228,7 +220,6 @@ pub fn use_init_account() {
     });
     let prompt = use_context_provider(|| Signal::new(None::<AccountPrompt>));
     let refusals = use_context_provider(|| AnonymousRefusals(Signal::new(0)));
-    use_context_provider(|| AvatarImages(Signal::new(HashMap::new())));
     let notifications = use_context_provider(|| {
         crate::notifications::NotificationsState(Signal::new(Default::default()))
     });
@@ -354,6 +345,7 @@ mod tests {
     use super::*;
     use crate::api::account::SessionUser;
     use oxidgene_core::access::InstanceRole;
+    use uuid::Uuid;
 
     fn signed_in(role: InstanceRole) -> AccountState {
         AccountState::SignedIn(Box::new(SignedIn {

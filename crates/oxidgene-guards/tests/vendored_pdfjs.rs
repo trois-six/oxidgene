@@ -1,9 +1,13 @@
 //! Vendored pdf.js: the files under `assets/public/pdfjs/` are one release,
-//! the one `VERSION` names, its legacy build, with what the viewer loads.
+//! the one `VERSION` names, its legacy build, with what the viewer loads, in
+//! the directory named after the release, which versions their addresses
+//! (docs/architecture.md §4.3).
 //!
 //! Drift it prevents: a file updated by hand or left over from another
 //! release — pdf.js refuses a worker of another version, so the viewer
-//! breaks only once a PDF is opened — the modern build copied in, which
+//! breaks only once a PDF is opened — a release's files under another
+//! release's name, which browsers would keep a year as that release's, the
+//! modern build copied in, which
 //! fails in the desktop's WebViews, a file the viewer's script asks for
 //! missing, or a licence dropped. And a version bump that only edited
 //! `VERSION`, as the update bot does, until the files follow.
@@ -28,14 +32,34 @@ fn recorded_version() -> String {
     }
 }
 
+/// The directory of the release `VERSION` records.
+fn release_directory() -> String {
+    format!("{DIRECTORY}/{}", recorded_version())
+}
+
+#[test]
+fn the_release_directory_is_the_only_one() {
+    let mut entries: Vec<String> = std::fs::read_dir(root().join(DIRECTORY))
+        .expect("the vendored directory")
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [recorded_version(), "VERSION".to_string()],
+        "{DIRECTORY} holds the release VERSION names and VERSION alone"
+    );
+}
+
 #[test]
 fn every_script_is_of_the_release_version_names() {
     let version = recorded_version();
+    let directory = release_directory();
     for script in ["pdf.min.mjs", "pdf.worker.min.mjs", "pdf_viewer.mjs"] {
-        let source = read(format!("{DIRECTORY}/{script}"));
+        let source = read(format!("{directory}/{script}"));
         assert!(
             source.contains(&format!("pdfjsVersion = {version}")),
-            "{DIRECTORY}/{script} is not pdf.js {version}"
+            "{directory}/{script} is not pdf.js {version}"
         );
     }
 }
@@ -43,10 +67,11 @@ fn every_script_is_of_the_release_version_names() {
 #[test]
 fn the_build_is_the_legacy_one() {
     // The legacy build carries core-js's polyfills; the modern one has none.
+    let directory = release_directory();
     for script in ["pdf.min.mjs", "pdf.worker.min.mjs", "pdf_viewer.mjs"] {
         assert!(
-            read(format!("{DIRECTORY}/{script}")).contains("core-js"),
-            "{DIRECTORY}/{script} is not from pdf.js's legacy build"
+            read(format!("{directory}/{script}")).contains("core-js"),
+            "{directory}/{script} is not from pdf.js's legacy build"
         );
     }
 }
@@ -70,7 +95,8 @@ fn every_file_the_viewer_loads_is_vendored_with_its_licence() {
             ],
         );
     }
-    let directory = root().join(DIRECTORY);
+    let release = release_directory();
+    let directory = root().join(&release);
     for path in loaded
         .iter()
         .map(String::as_str)
@@ -80,7 +106,7 @@ fn every_file_the_viewer_loads_is_vendored_with_its_licence() {
     {
         assert!(
             directory.join(path).is_file(),
-            "{DIRECTORY}/{path} is missing"
+            "{release}/{path} is missing"
         );
     }
 }

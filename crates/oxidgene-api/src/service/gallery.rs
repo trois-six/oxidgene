@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{ImageCrop, ImageSource, Media, RecordKind, is_pdf_mime};
+use oxidgene_core::types::{ImageCrop, ImageSource, Media, RecordKind, Vignette, is_pdf_mime};
 use oxidgene_db::repo::{MediaLinkRepo, MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -51,6 +51,8 @@ pub struct GalleryPdfPage {
     pub media_id: Uuid,
     /// Its size in bytes: drawing it means reading the whole file.
     pub file_size: i64,
+    /// Its version, which the file's address carries.
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,14 +117,10 @@ pub async fn load_gallery_bundle(
     // Which vignettes we can cut ourselves. Whether the cut then succeeds is
     // the crop endpoint's business: reading and decoding every picture here
     // just to find out is exactly the work this bundle no longer does.
-    let cuttable = vignettes
+    let cuttable = cuttable(&vignettes, &vignette_media);
+    let cut = cuttable
         .iter()
-        .filter(|vignette| {
-            vignette_media.get(&vignette.media_id).is_some_and(|media| {
-                media.storage_key.is_some() && crate::media::thumbnail::can_crop(&media.mime_type)
-            })
-        })
-        .map(|vignette| vignette.id)
+        .map(|(vignette_id, _)| *vignette_id)
         .collect::<HashSet<_>>();
     // A region drawn on a page we only have a URL for cannot be cut here:
     // cutting means re-decoding our own copy, and we never fetch somebody
@@ -132,7 +130,7 @@ pub async fn load_gallery_bundle(
     // on its own — the crop badge already says it is a region.
     let remote_crops = vignettes
         .iter()
-        .filter(|vignette| !cuttable.contains(&vignette.id))
+        .filter(|vignette| !cut.contains(&vignette.id))
         .filter_map(|vignette| {
             let media = vignette_media.get(&vignette.media_id)?;
             is_remote_image(media).then_some(())?;
@@ -174,10 +172,7 @@ pub async fn load_gallery_bundle(
                 let pages = pages_of.remove(&item.id).unwrap_or_default();
                 let document_previews = previews.remove(&item.id).unwrap_or_default();
                 GalleryMedia {
-                    source: item
-                        .thumbnail_key
-                        .is_some()
-                        .then_some(ImageSource::Thumbnail { media_id: item.id }),
+                    source: ImageSource::thumbnail_of(&item),
                     event_ids: event_ids.get(&item.id).cloned().unwrap_or_default(),
                     portrayable: !item.is_pdf_only(&pages),
                     pdf_page: document_previews
@@ -191,9 +186,12 @@ pub async fn load_gallery_bundle(
             .collect(),
         vignettes: cuttable
             .into_iter()
-            .map(|vignette_id| GalleryVignette {
+            .map(|(vignette_id, version)| GalleryVignette {
                 vignette_id,
-                source: ImageSource::Crop { vignette_id },
+                source: ImageSource::Crop {
+                    vignette_id,
+                    version,
+                },
                 crop: None,
             })
             .chain(
@@ -207,6 +205,23 @@ pub async fn load_gallery_bundle(
             )
             .collect(),
     })
+}
+
+/// The vignettes of `vignettes` we cut ourselves, each with its version: a
+/// region of a raster page we hold. Whether the cut then succeeds is the
+/// crop endpoint's business.
+fn cuttable(vignettes: &[Vignette], pages: &HashMap<Uuid, Media>) -> Vec<(Uuid, String)> {
+    vignettes
+        .iter()
+        .filter_map(|vignette| {
+            let media = pages.get(&vignette.media_id)?;
+            if media.storage_key.is_none() || !crate::media::thumbnail::can_crop(&media.mime_type) {
+                return None;
+            }
+            let version = crate::media::crops::vignette_version(media, vignette)?;
+            Some((vignette.id, version))
+        })
+        .collect()
 }
 
 /// [`load_gallery_bundle`] of what the viewer of `records` may see: a
@@ -274,9 +289,12 @@ fn pdf_page(pages: &[Media]) -> Option<GalleryPdfPage> {
                 && page.thumbnail_key.is_none()
                 && is_pdf_mime(&page.mime_type)
         })
-        .map(|page| GalleryPdfPage {
-            media_id: page.id,
-            file_size: page.file_size,
+        .and_then(|page| {
+            Some(GalleryPdfPage {
+                media_id: page.id,
+                file_size: page.file_size,
+                version: page.version()?,
+            })
         })
 }
 
@@ -287,8 +305,8 @@ fn pdf_page(pages: &[Media]) -> Option<GalleryPdfPage> {
 /// other, and the alternative is a document tile showing a file icon for a
 /// photograph the viewer can see perfectly well one click away.
 fn page_preview(page: &Media) -> Option<ImageSource> {
-    if page.thumbnail_key.is_some() {
-        return Some(ImageSource::Thumbnail { media_id: page.id });
+    if let Some(thumbnail) = ImageSource::thumbnail_of(page) {
+        return Some(thumbnail);
     }
     // The archive's own thumbnail when it serves one: a tile of a few
     // kilobytes rather than the full view.

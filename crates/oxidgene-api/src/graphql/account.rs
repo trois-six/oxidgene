@@ -38,25 +38,26 @@ pub(crate) fn auth_from_ctx(ctx: &Context<'_>) -> Arc<Auth> {
         .unwrap_or_else(|| Arc::new(Auth::none()))
 }
 
-/// Clear the session cookie: the request's own session ended.
+/// End the browser's session, as REST does: the request's own session
+/// ended, so its cookie and the pictures its browser kept go.
 fn sign_out(ctx: &Context<'_>) {
-    ctx.append_http_header(
-        "set-cookie",
-        "__Host-oxidgene=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0",
-    );
+    use crate::auth::cookie;
+    ctx.append_http_header("set-cookie", cookie::clear(cookie::SESSION));
+    ctx.insert_http_header(cookie::CLEAR_SITE_DATA, cookie::CLEAR_CACHE);
 }
 
 /// An uploaded avatar's version.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlUserAvatar {
-    pub etag: String,
+    /// The version its address carries.
+    pub version: String,
     pub updated_at: DateTime<Utc>,
 }
 
 impl From<AvatarInfo> for GqlUserAvatar {
     fn from(avatar: AvatarInfo) -> Self {
         Self {
-            etag: avatar.etag,
+            version: avatar.version,
             updated_at: avatar.updated_at,
         }
     }
@@ -112,7 +113,7 @@ impl GqlUserProfile {
             format!(
                 "/api/v1/users/{}/avatar?size={size}&v={}",
                 self.id.as_str(),
-                avatar.etag
+                avatar.version
             )
         })
     }

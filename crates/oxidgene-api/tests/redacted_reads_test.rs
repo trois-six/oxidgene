@@ -175,42 +175,6 @@ impl Fixture {
         )
     }
 
-    /// `GET uri` as `who` with the request header `extra`.
-    async fn raw_with(
-        &self,
-        who: Who,
-        uri: &str,
-        (name, value): (header::HeaderName, &str),
-    ) -> (StatusCode, axum::http::HeaderMap, String) {
-        let mut request = Request::builder()
-            .uri(uri)
-            .header(header::HOST, "genealogy.example.invalid")
-            .header(name, value);
-        let app = match who {
-            Who::Owner => &self.local,
-            _ => {
-                request = request.header(
-                    header::AUTHORIZATION,
-                    format!("Bearer {}", self.tokens[&who]),
-                );
-                &self.app
-            }
-        };
-        let response = app
-            .clone()
-            .oneshot(request.body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let status = response.status();
-        let headers = response.headers().clone();
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        (
-            status,
-            headers,
-            String::from_utf8_lossy(&bytes).into_owned(),
-        )
-    }
-
     /// `method` on `uri` as `who`: the status and the JSON body.
     async fn rest(
         &self,
@@ -917,7 +881,11 @@ async fn nothing_a_viewer_reads_is_cached_for_another() {
         &crate::common::populated::png(4, 4),
     )
     .await;
-    let file = f.uri(&format!("/media/{}/file", page["id"].as_str().unwrap()));
+    let version = &page["sha256"].as_str().unwrap()[..16];
+    let file = f.uri(&format!(
+        "/media/{}/file?v={version}",
+        page["id"].as_str().unwrap()
+    ));
 
     for who in [Who::Owner, Who::Editor, Who::Guest] {
         // Tree JSON, REST's and GraphQL's: never stored.
@@ -939,14 +907,13 @@ async fn nothing_a_viewer_reads_is_cached_for_another() {
             .await;
         assert_eq!(headers[header::CACHE_CONTROL], "no-store", "{who:?}");
 
-        // Media bytes: private, varying on the credential, still validated.
+        // Media bytes: kept by the viewer's client alone, at their version,
+        // varying on the credential (docs/architecture.md §4.3).
         let (status, headers, _) = f.raw(who, Method::GET, &file, None).await;
         assert_eq!(status, StatusCode::OK, "{who:?}");
-        assert!(
-            headers[header::CACHE_CONTROL]
-                .to_str()
-                .unwrap()
-                .starts_with("private"),
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            "private, max-age=31536000, immutable",
             "{who:?}"
         );
         let vary: Vec<&str> = headers
@@ -955,8 +922,5 @@ async fn nothing_a_viewer_reads_is_cached_for_another() {
             .map(|value| value.to_str().unwrap())
             .collect();
         assert!(vary.contains(&"Cookie, Authorization"), "{who:?} {vary:?}");
-        let etag = headers[header::ETAG].to_str().unwrap().to_owned();
-        let (status, _, _) = f.raw_with(who, &file, (header::IF_NONE_MATCH, &etag)).await;
-        assert_eq!(status, StatusCode::NOT_MODIFIED, "{who:?}");
     }
 }

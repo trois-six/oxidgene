@@ -12,6 +12,24 @@ fn main() {
         .map(|file| embedded_locale(file, &output))
         .collect();
     write_list(&output.join("locales.rs"), &locales);
+    basemap_version(&assets.join("basemap/countries.json.br"));
+}
+
+/// The base map's version, `OXIDGENE_BASEMAP_VERSION`: the first 16
+/// hexadecimal digits of the SHA-256 of the file the backend embeds and
+/// versions its address by (docs/architecture.md §4.3). A frontend built
+/// from another release than its backend's names another version, which the
+/// backend redirects to its own.
+fn basemap_version(file: &Path) {
+    use sha2::{Digest as _, Sha256};
+    println!("cargo:rerun-if-changed={}", file.display());
+    let bytes = fs::read(file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    println!("cargo:rustc-env=OXIDGENE_BASEMAP_VERSION={digest}");
 }
 
 /// Every `*.json` file of `directory`, sorted by name.

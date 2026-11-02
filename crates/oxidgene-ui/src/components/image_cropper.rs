@@ -27,7 +27,6 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateVignetteBody};
 use crate::i18n::use_i18n;
-use crate::ui_observability::use_ui_resource;
 
 /// A rectangle in the source image's pixel space.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -317,25 +316,9 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // avoid.
     let remote_url = (crate::api::media_source(&media) == crate::api::MediaSource::Remote)
         .then(|| media.file_path.trim().to_string());
-    let stored_image = use_ui_resource("crop_image", {
-        let api = api.clone();
-        let is_remote = remote_url.is_some();
-        move || {
-            let api = api.clone();
-            async move {
-                if is_remote {
-                    return None;
-                }
-                api.media_file_data_url(tree_id, media_id).await.ok()
-            }
-        }
-    });
-    let image_url = remote_url.clone().or_else(|| {
-        stored_image
-            .read_unchecked()
-            .as_ref()
-            .and_then(|result| result.clone())
-    });
+    let image_url = remote_url
+        .clone()
+        .or_else(|| api.media_file_url(tree_id, &media));
 
     // The size the crop is measured in. Our own files were decoded on upload;
     // a remote one has never been opened here, so the browser that just drew
@@ -360,7 +343,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // Nothing to draw a rectangle on: a file that is not a picture, or a
     // record naming a file nobody ever uploaded and that names no address
     // either. Saying so beats showing a canvas where dragging does nothing.
-    let no_file = remote_url.is_none() && matches!(&*stored_image.read_unchecked(), Some(None));
+    let no_file = image_url.is_none();
     if !oxidgene_core::types::is_image_mime(&media.mime_type) || no_file {
         return rsx! { CropUnavailable { on_close } };
     }

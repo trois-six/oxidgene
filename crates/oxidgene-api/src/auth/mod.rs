@@ -17,7 +17,7 @@
 
 pub(crate) mod bff;
 pub mod config;
-mod cookie;
+pub(crate) mod cookie;
 pub(crate) mod crypto;
 pub mod identity;
 pub(crate) mod layer;

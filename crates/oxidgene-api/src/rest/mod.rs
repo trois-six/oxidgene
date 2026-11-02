@@ -9,7 +9,6 @@ pub mod admin_tree;
 #[cfg(feature = "auth")]
 pub mod admin_user;
 pub mod authorize;
-#[cfg(feature = "auth")]
 pub mod caching;
 pub mod citation;
 pub mod dictionary;

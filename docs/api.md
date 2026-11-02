@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-02T23:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 ---
 
 
@@ -48,9 +48,9 @@ import sources and download export artifacts. Pagination envelopes follow each
 transport's conventions.
 
 Direct media reads (`/file`, `/download`, `/archive`, `/thumbnail`, `/card`, and vignette `/image` and `/card`)
-remain HTTP representations because their cache validators, content types,
-download disposition and conditional `ETag` semantics are HTTP behaviour rather
-than product operations. GraphQL exposes the underlying metadata and checked
+remain HTTP representations because their versioned addresses and caching,
+content types and download disposition are HTTP behaviour rather than
+product operations. GraphQL exposes the underlying metadata and checked
 attachment URLs through `mediaDownload` and `mediaArchive`. Geneanet
 session archives retain their existing base64 representation because they are
 desktop session handoffs rather than genealogy import or export artifacts.
@@ -130,16 +130,28 @@ with no GraphQL twin. The desktop's embedded server keeps its launch token.
 Server defaults, container publication, CORS, and UI media rendering follow
 [Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication).
 The standalone server's CORS policy lets the browser keep a preflight answer
-for two hours, so the `POST` reads (pedigree batches, a page's pictures) are
+for two hours, so the `POST` reads (pedigree batches, gallery bundles) are
 not preceded by a preflight on every page.
 
 **HTTP caching.** The web build answers every JSON response of the API —
 REST's and GraphQL's — that sets no caching of its own with
 `Cache-Control: no-store`, since it holds what one viewer may see of a tree;
-a medium's bytes and crops keep `Cache-Control: private` and their `ETag`
-(a matching `If-None-Match` is `304`) and add `Vary: Cookie, Authorization`
+a medium's bytes, crops and avatars are versioned and immutable
+(**Versioned assets** below) and vary on `Cookie, Authorization`
 ([Authentication §9.1](authentication.md#91-origin-headers-and-caching)). The
-desktop's headers are unchanged.
+desktop sends no `Vary`.
+
+**Versioned assets.** A picture's route — a medium's `/file`, `/thumbnail`
+and `/card`, a vignette's `/image` and `/card`, a user's `/avatar` — and the
+base map take its version as `v` ([Architecture §4.3](architecture.md#43-versioned-assets)):
+the 16 hexadecimal digits an image source's `version`, a medium's
+`sha256` prefix or an avatar's `version` give. After the same checks as the
+content, so that a picture the viewer may not see is `404` whatever `v`
+says, the current version is answered with the content and
+`Cache-Control: private, max-age=31536000, immutable` (`public` for the base
+map); a missing or other `v` is answered `307 Temporary Redirect` to the
+current version's address, `Cache-Control: no-store`, with no body. These
+routes send no `ETag` and answer no conditional request.
 
 **Records a restricted viewer does not see** (web build, phase 3). The reads
 of events, families' spouses and children, citations, notes, media, media
@@ -173,20 +185,22 @@ person shown in full carries none, and the frontend labels the two
 *Private* and *Not shared*. A
 viewer without `read_tags` gets an empty `GET /tags` (`tags`), no tags on
 any record and in no media facet, and `404` from a tag's records. In
-`gallery-bundle` and `image-data` a hidden medium, vignette or picture is
+`gallery-bundle` a hidden medium, vignette or picture is
 answered as a missing one is; the media viewer's bundle, the couple page's
 bundle and the tag lists leave out what the viewer may not see. The owner,
 the desktop and `OXIDGENE_AUTH_MODE=none` see everything, at no extra
 query.
 
-Direct HTTP media representations remain API-client transports, not browser
-navigation destinations. Frontends fetch their bytes through the typed client
-and render a local `data:`/`blob:` resource; they never emit `/api/v1`,
-`/graphql`, or an API origin in user-visible links, image sources, form actions,
-redirects, or new-window targets. The one exception is the API section of
-[App Settings](ui-app-settings.md), whose purpose is to show the endpoints: it
-links the OpenAPI document and, in the web build, the GraphiQL page, which
-carry no tree data.
+Direct HTTP media representations are not browser navigation destinations.
+The web frontend draws a held picture from its versioned address as an image
+source, which the server authorizes on every request like any other read;
+the desktop serves the same paths from its own origin. Files a frontend
+saves, and the PDF a script reads, come through the typed client. Frontends
+never emit `/api/v1`, `/graphql`, or an API origin in user-visible links,
+form actions, redirects, or new-window targets. The one exception is the API
+section of [App Settings](ui-app-settings.md), whose purpose is to show the
+endpoints: it links the OpenAPI document and, in the web build, the
+GraphiQL page, which carry no tree data.
 
 ### Errors and consistency
 
@@ -274,7 +288,8 @@ and the memberships, ownership and access log of its trees
 served only by a server built with the `auth` feature — the desktop answers
 `404 not_found`. They need a signed-in user: `401 unauthenticated` without
 one. In `OXIDGENE_AUTH_MODE=none`, a personal install whose local owner has
-no account, they are absent as on the desktop: `404 not_found`. Times are RFC 3339; `avatar` is `{ etag, updated_at }`, or
+no account, they are absent as on the desktop: `404 not_found`. Times are RFC 3339; `avatar` is `{ version, updated_at }`, `version` the
+avatar's version (**Versioned assets** above), or
 `null` for the generated initials avatar the frontend draws itself.
 
 | Method | Path | Description |
@@ -288,7 +303,7 @@ no account, they are absent as on the desktop: `404 not_found`. Times are RFC 33
 | `GET` | `/me/sessions` | The user's sessions, newest first: `[{ id, created_at, last_used_at, client_id, browser, current }]`, `browser` being `firefox`, `chrome`, `edge`, `safari`, `opera` or `other`. GraphQL: `mySessions` |
 | `DELETE` | `/me/sessions/{session_id}` | End one session; ending the current one clears the session cookie. `204`. GraphQL: `endMySession(sessionId)` |
 | `GET` | `/users/{user_id}` | A user as those who may see them see them: `{ id, display_name, avatar }`, `display_name` `null` for an erased user. Visible to the user and to administrators; to anyone else `404`. GraphQL: `userProfile(userId)`, `null` where REST answers `404` |
-| `GET` | `/users/{user_id}/avatar?size=256` | The uploaded avatar as JPEG, `size` `256` (default) or `64`; `404` with the generated avatar. `ETag`, `If-None-Match` answered `304`, `Cache-Control: private, max-age=86400`, `Vary: Cookie, Authorization`, `Content-Security-Policy: sandbox`. An optional `v` (the avatar's `etag`) is ignored and makes a replaced avatar a new address. A direct read: GraphQL's `UserProfile.avatarUrl(size)` gives the address |
+| `GET` | `/users/{user_id}/avatar?size=256&v=` | The uploaded avatar as JPEG, `size` `256` (default) or `64`; `404` with the generated avatar. Versioned by `v`, the avatar's `version` (**Versioned assets** above): immutable at its version, redirected to it otherwise. `Vary: Cookie, Authorization`, `Content-Security-Policy: sandbox`. A direct read: GraphQL's `UserProfile.avatarUrl(size)` gives the address, version included |
 | `GET` | `/admin/users` | Every user, tombstones included, cursor-paginated: `{ id, display_name, username, email, email_verified, issuer, subject, avatar, instance_role, can_create_trees, status, created_at, last_sign_in_at, deactivated_at, erased_at }`. Administrators only (`403 forbidden` for another user). GraphQL: `users(first, after)` |
 | `GET` | `/admin/users/{user_id}` | One user, as in the list. GraphQL: `user(userId)` |
 | `PUT` | `/admin/users/{user_id}` | `{ instance_role?, can_create_trees?, status? }`: `admin` or `user`; `active` or `deactivated`. A field the roles claim decides (`OXIDGENE_OIDC_ROLES_CLAIM`, `OXIDGENE_AUTH_TREE_CREATION=claim`) is a `validation_error`; an erased user is a `conflict`. Deactivating, or changing the role, ends the user's sessions. GraphQL: `updateUser(userId, input)` |
@@ -750,17 +765,16 @@ meaning.
 | `POST` | `/trees/{tree_id}/media` | Add a page that names a file without holding it — an archive's URL, or a path a GEDCOM mentioned. `document_id` is required: bytes and addresses live on pages, and a page belongs to a document. A page held as an `http(s)` URL may also carry `thumbnail_url`, the `http(s)` address of a small picture of it its server serves, and its pixel size, `width` and `height` together. The GraphQL twin is `uploadMedia` |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document. A `media_id` or `document_id` that is not a record of the tree is `not_found` and stores nothing; an upload whose rows cannot be written deletes the objects it stored that no record names |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
-| `POST` | `/trees/{tree_id}/image-data` | Resolve held **image sources** (see below) to inline `data:` URLs, in request order, at most 1,024 per request. A slot is `null` when there is nothing of ours to inline — a remote source, or a picture we no longer hold. For clients with no origin of their own to serve pictures from; a client that has one never calls this |
 | `POST` | `/trees/{tree_id}/gallery-bundle` | Load gallery data for `{media_ids, vignette_ids}`: thumbnail sources, linked event ids, up to four document-page previews, and cropped vignette sources. Every source is an **image source** (see below), never image bytes. A page preview is the page's own thumbnail, or — for a page held only as a remote image URL — its `thumbnail_url` when it has one and that address otherwise, which the client draws directly. A remote page that is not an image contributes no preview. A PDF page's thumbnail previews its document like any page's. `portrayable` says whether the medium may be chosen as a portrait as far as its type goes: `false` for a PDF page and for a document all of whose pages are PDFs, which a portrait refuses (see [Portraits](#portraits)), so a client draws such a tile without offering it. `pdf_page` (`{media_id, file_size}`) names, for a document none of whose pages has a preview, its first page that is a PDF we hold without a thumbnail, for a client to draw itself; it is null otherwise. A vignette source is the crop we cut from our own copy; over a remote page there is nothing to cut, so the whole picture's address is sent with a `crop` object — `{x, y, width, height, source_width, source_height}` — and the client cuts it. `crop` is absent whenever the source already is the region, and for a page whose pixel size nobody has recorded |
 | `GET` | `/trees/{tree_id}/media/{media_id}/pages` | A document's pages, in order |
 | `PUT` | `/trees/{tree_id}/media/{media_id}/pages` | Set the page order (`{page_ids: [...]}`). Must name exactly this document's pages, once each — a partial list is refused rather than guessed at |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}/pages/{page_id}` | Permanently delete the page, its relationships and unshared stored bytes. Remaining pages close the gap; removing the last page leaves an empty document |
 | `GET` | `/trees/{tree_id}/media/{media_id}` | Get media metadata |
 | `GET` | `/trees/{tree_id}/media/{media_id}/viewer-bundle` | Everything the media viewer draws for one page of a document, in one answer. `media` is the document; an id naming a page opens its document, on that page. `page` (query, from 0) chooses the page described, which defaults to the page the id names, else the first, and is clamped to the last; the answer's `page` says which it is. With `pages` (the document's pages, in order) come, for the document and that page: `note` (the document's oldest note) and `page_note` (the page's, its transcript), `place`, `links` (the links of both, `media_id` telling which), `vignettes` (the regions on the page), `labels` (the names of every person the links and regions name and the spouses of every couple the links name, as `relation-labels` answers), `persons` (each person the links attach, `{person_id, sex, portrait?}`, the portrait an **image source** with its optional `crop` as portraits carry it) and `gallery` (the page's thumbnail source and the regions' sources, as the gallery bundle answers). It costs a fixed number of statements whatever the number of pages, links and regions. A media of another tree is `not_found`. GraphQL: `mediaViewerBundle(treeId, mediaId, page)` |
-| `GET` | `/trees/{tree_id}/media/{media_id}/file` | The stored bytes, served **inline** for previews. `Content-Type` from the file, strong `ETag` (its SHA-256), `Cache-Control: private, max-age=3600`, `304` on a matching `If-None-Match`. `404` if the record has no bytes |
+| `GET` | `/trees/{tree_id}/media/{media_id}/file?v=` | The stored bytes, served **inline** for previews. `Content-Type` from the file. Versioned by `v`, the first 16 digits of its `sha256` (**Versioned assets** above). `404` if the record has no bytes |
 | `GET` | `/trees/{tree_id}/media/{media_id}/download` | Stream one stored original of any supported media type with `Content-Disposition: attachment`, its MIME type, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`. Always transfers the file rather than returning a conditional `304`. `404` for absent, deleted, foreign-tree or byte-less records; remote URLs are never fetched or redirected to |
-| `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px): a PNG when a pixel of the source is transparent, a JPEG otherwise — an alpha channel opaque everywhere, as photographs saved as PNG often carry, counts as none. For a PDF it is the scan its first page paints (see **Upload rules**). `404` when none was made — a PDF whose first page paints no image we decode, or a file whose decoding failed — so a gallery can fall back to an icon on the status alone |
-| `GET` | `/trees/{tree_id}/media/{media_id}/card` | The card rendition, generated with the thumbnail of a raster page and stored the same way: the picture scaled so its shorter edge is 132 pixels and its longer at most 528, never enlarged — a portrait on a pedigree card is at most 66 pixels wide and drawn to cover its square, so this is what it needs at device pixel ratio 2. PNG or JPEG as the thumbnail. A page without one (stored before card renditions existed, or whose card could not be stored) is answered its thumbnail; `404` when it has neither. Media get it when they are uploaded or imported: there is no backfill, since a schema change recreates the database and re-imports it |
+| `GET` | `/trees/{tree_id}/media/{media_id}/thumbnail` | Generated thumbnail (longest edge 400 px): a PNG when a pixel of the source is transparent, a JPEG otherwise — an alpha channel opaque everywhere, as photographs saved as PNG often carry, counts as none. For a PDF it is the scan its first page paints (see **Upload rules**). `404` when none was made — a PDF whose first page paints no image we decode, or a file whose decoding failed — so a gallery can fall back to an icon on the status alone. Versioned by `v`, the medium's version |
+| `GET` | `/trees/{tree_id}/media/{media_id}/card` | The card rendition, generated with the thumbnail of a raster page and stored the same way: the picture scaled so its shorter edge is 132 pixels and its longer at most 528, never enlarged — a portrait on a pedigree card is at most 66 pixels wide and drawn to cover its square, so this is what it needs at device pixel ratio 2. PNG or JPEG as the thumbnail. A page without one (stored before card renditions existed, or whose card could not be stored) is answered its thumbnail; `404` when it has neither. Media get it when they are uploaded or imported: there is no backfill, since a schema change recreates the database and re-imports it. Versioned by `v`, the medium's version |
 | `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every live page of a document, in one ZIP attachment (`application/zip`, `private, no-store`, `nosniff`). Entries are prefixed `001_`, `002_` in current reading order; padding grows beyond 999 pages so lexical order remains correct. A page held only as an `http(s)` URL contributes a `.url` Internet Shortcut (`[InternetShortcut]` + `URL=`, CRLF, control characters stripped) instead of bytes, so the archive has one entry per page and the address survives the round trip. Empty documents and any other page without stored bytes return `404`; pages are never silently skipped |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata. `width`/`height` are sent together or not at all, and only for a page whose bytes we do not hold — the browser that displayed a remote picture is the only witness to its size, and for our own copy the size is read from the bytes. Recording them re-checks the regions already drawn on that page. `thumbnail_url` sets a remote page's thumbnail address (`null` clears it); repointing `file_path` without one clears it |
 | `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
@@ -853,11 +867,10 @@ links, never server-side fetch targets.
 The gallery bundle accepts at most 1,024 media and vignette ids combined. It
 resolves each database collection in one query and reads blobs with bounded
 concurrency. Clients split larger galleries into as many bundles as necessary.
-The media viewer reads what it draws from one viewer bundle per page shown,
-then its pictures in one image-data request. The per-media thumbnail,
-page-list, and vignette-image endpoints remain for an editor that opens one
-selected asset, such as a document's page manager; neither the initial grid
-nor the viewer calls them once per tile, relation or region.
+The media viewer reads what it draws from one viewer bundle per page shown;
+its pictures are then drawn from their versioned addresses, each a request
+the browser makes once and keeps. The page-list endpoint remains for an
+editor that opens one selected document, its page manager.
 
 **Upload rules.** The type is decided by the file's magic bytes, not by the declared MIME type or the extension: JPEG, PNG, GIF, BMP, TIFF, WebP, ICO and PDF are accepted, everything else is a `400`. Maximum 128 MiB — comfortably above what the services we exchange with take (Geneanet caps a media file at 50 MB and accepts only JPEG, PNG, GIF and PDF), because a 1200 dpi register spread or a few-hundred-page dossier clears 64 MiB unremarkably. Larger still is EPIC H's chunked-upload problem. Uploading a file the tree already holds re-uses the stored bytes and still creates a second record, which is what a census page shared by eight siblings needs.
 
@@ -900,8 +913,8 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
 | `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
-| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/card` | The same region at card size: scaled so its shorter edge is 132 pixels (its longer at most 528), never enlarged — what a portrait on a card draws at device pixel ratio 2. Same rules as `/image`, with an `ETag` of its own |
-| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. Cut on its first request and stored, then read back while the vignette, its rectangle and its page's file stay as they were ([Architecture §4.2](architecture.md#42-stored-crops)); `image-data` reads and stores the same objects. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). It carries `Cache-Control: private, no-cache` and an `ETag` that is the crop's fingerprint (a SHA-256 naming nothing), so a client revalidates on every use and a moved rectangle or a replaced file shows at once; a matching `If-None-Match` is answered `304` only after the same checks as the picture, so a viewer who may no longer see the vignette gets `404`, never `304`. `400` for a PDF, even one with a thumbnail — crops are raster-only, and a PDF's thumbnail shows one image of its first page, not the page a region was drawn on |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/card?v=` | The same region at card size: scaled so its shorter edge is 132 pixels (its longer at most 528), never enlarged — what a portrait on a card draws at device pixel ratio 2. Same rules as `/image` |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image?v=` | The cropped region as its own JPEG, scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. Cut on its first request and stored, then read back while the vignette, its rectangle and its page's file stay as they were ([Architecture §4.2](architecture.md#42-stored-crops)). A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). Versioned by `v`, the vignette's version, which a moved rectangle or a replaced file changes (**Versioned assets** above). `400` for a PDF, even one with a thumbnail — crops are raster-only, and a PDF's thumbnail shows one image of its first page, not the page a region was drawn on |
 
 Creation and updates require a page, never a document shell (`400`), and a live
 parent document. Person/event attributions must be live records in the page's
@@ -1526,10 +1539,10 @@ in the interface languages where they differ, its position in tenths of a
 degree, the web map zoom it is named from in tenths, and its population in
 thousands, ordered by zoom then population. From Natural Earth (public
 domain), embedded and Brotli-compressed like the place dictionary. Only a
-release changes it, but its URL carries no version, so it is served with
-`Cache-Control: public, no-cache` and a strong `ETag` (a digest of the
-embedded data): browsers keep it and revalidate it on each use, and an
-unchanged map answers `If-None-Match` with a bodiless `304`.
+release changes it: it is versioned by `v`, the first 16 hexadecimal digits
+of the SHA-256 of the embedded file, which the frontend's build computes
+from the same file (**Versioned assets**, [§1](#1-contract-conventions)), and answered
+`Cache-Control: public, max-age=31536000, immutable` at its version.
 
 ### Import / export
 
@@ -1920,41 +1933,40 @@ merge every response; they never truncate terms at the limit.
 
 ### Image sources
 
-Payloads that list pictures — the gallery bundle, portrait images — carry a
-picture's **address**, never its bytes. A source is one of:
+Payloads that list pictures — the gallery bundle, portrait images, pedigree
+nodes, search rows — carry a picture's **address**, never its bytes. A
+source is one of:
 
 | `kind` | Payload | Meaning |
 |---|---|---|
 | `remote` | `url` | An address outside our control. The client fetches it directly; we never proxy somebody else's file |
-| `thumbnail` | `media_id` | The thumbnail we generated, served by `GET /trees/{tree_id}/media/{media_id}/thumbnail` |
-| `crop` | `vignette_id` | The region we cut, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/image` |
-| `card` | `media_id` | The card rendition we generated, served by `GET /trees/{tree_id}/media/{media_id}/card` |
-| `card_crop` | `vignette_id` | The region we cut, at card size, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/card` |
+| `thumbnail` | `media_id`, `version` | The thumbnail we generated, served by `GET /trees/{tree_id}/media/{media_id}/thumbnail?v={version}` |
+| `crop` | `vignette_id`, `version` | The region we cut, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/image?v={version}` |
+| `card` | `media_id`, `version` | The card rendition we generated, served by `GET /trees/{tree_id}/media/{media_id}/card?v={version}` |
+| `card_crop` | `vignette_id`, `version` | The region we cut, at card size, served by `GET /trees/{tree_id}/vignettes/{vignette_id}/card?v={version}` |
 
-Payloads name a held picture at thumbnail size (`thumbnail`, `crop`). A
-client drawing it as a portrait of at most 66 pixels — a pedigree card, a
-result row, the events panel — asks for the card size instead (`card`,
-`card_crop`), about a ninth of the pixels; a remote source has no rendition
-of ours and stays as it is.
+`version` is the medium's or the vignette's version
+([Architecture §4.3](architecture.md#43-versioned-assets)): a source read
+after the file is replaced or the rectangle moved names a new address. It is
+the same at both sizes. Payloads name a held picture at thumbnail size
+(`thumbnail`, `crop`). A client drawing it as a portrait of at most 66
+pixels — a pedigree card, a result row, the events panel — asks for the card
+size instead (`card`, `card_crop`), about a ninth of the pixels; a remote
+source has no rendition of ours and stays as it is.
 
 GraphQL exposes the same five shapes as an `ImageSource` object whose `kind`
-selects which of `url`, `mediaId` and `vignetteId` is set, and takes the same
-shape as `ImageSourceInput`.
+selects which of `url`, `mediaId` and `vignetteId` is set, with `version`
+beside a held one.
 
-A held source names the resource rather than a URL because until authentication
-ships no backend address may appear in UI markup — see
-[Cross-cutting §7.1](cross-cutting.md). Turning it into something drawable is
-the client's business, and the two platforms differ: the desktop shell serves
-the picture from its own origin, and the web client resolves a whole screen's
-sources through `POST /image-data` in one request and hands them to the markup
-as `data:` URLs. Resolving them one at a time would be a request per portrait on
-a pedigree.
-
-The payloads do not carry the bytes inline: base64 would inflate them by a
-third, put a whole album through a single JSON parse before anything could be
-drawn, and deny the rendering engine every optimisation it has for images —
-caching between renders or pages, decoding off the main thread, and skipping a
-picture that never scrolls into view.
+A held source names the resource rather than a URL: the client builds the
+address, the API's on the web and the shell's own origin on the desktop
+([Cross-cutting §7.1](cross-cutting.md#71-backend-exposure-before-authentication)),
+and the rendering engine fetches it. The payloads do not carry the bytes
+inline: base64 would inflate them by a third, put a whole album through a
+single JSON parse before anything could be drawn, and deny the rendering
+engine every optimisation it has for images — caching between renders,
+pages and visits, decoding off the main thread, and skipping a picture that
+never scrolls into view.
 
 ### Update semantics — omitted vs `null`
 
@@ -2033,7 +2045,7 @@ Every other list is one of these documented exceptions:
 | `/trees/{tree_id}/tags` (`tags(treeId)`) | The vocabulary, a handful of short rows the picker and the Tags tab filter as the reader types |
 | `/trees/{tree_id}/exclusions` (`exclusions(treeId)`) | The owner's exclusions from sharing, a handful of short rows listed together in the privacy settings |
 
-Batch reads (`/pedigrees`, `/portrait-images`, `/image-data`,
+Batch reads (`/pedigrees`, `/portrait-images`,
 `/gallery-bundle`, `/relation-labels`, the reference bundles) take a list of
 ids or terms and are bounded by their documented per-request maximum instead.
 

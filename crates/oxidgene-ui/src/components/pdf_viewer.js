@@ -17,8 +17,9 @@
 // reports is an object with an `event` field: opened, page, scale, found,
 // want, preview, failed.
 //
-// pdf.js is loaded once per page, on first use, from /pdfjs/ (served by the
-// web bundle and by the desktop's own handler, never from the network). It
+// pdf.js is loaded once per page, on first use, from /pdfjs/{release}/
+// (served by the web bundle and by the desktop's own handler, never from the
+// network); PDFJS_RELEASE, which names it, is set by the Rust side. It
 // runs no script of the document, renders no XFA form and never evaluates
 // code built from the file.
 
@@ -31,7 +32,7 @@ if (request?.mode === "viewer") {
 }
 
 function library(window, document) {
-    const base = new URL("/pdfjs/", document.baseURI).href;
+    const base = new URL(`/pdfjs/${PDFJS_RELEASE}/`, document.baseURI).href;
     // Two previews at a time: each one holds a whole file and a canvas.
     const LIMIT = 2;
     // Page 1 of a tile is drawn this wide, twice the tile on a dense screen.

@@ -622,11 +622,6 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "POST",
-        "/api/v1/trees/{tree_id}/image-data",
-        Gql(&["Query.imageData"]),
-    ),
-    (
-        "POST",
         "/api/v1/trees/{tree_id}/import-jobs",
         RestOnly(
             "streamed binary upload of an import source (docs/api.md, Surfaces and parity); GraphQL polls the job with importJobStatus",

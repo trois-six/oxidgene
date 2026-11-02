@@ -10,7 +10,6 @@ mod history;
 pub mod notification;
 pub mod sharing;
 
-use base64::Engine as _;
 #[cfg(feature = "telemetry-client")]
 use opentelemetry::global;
 #[cfg(feature = "telemetry-client")]
@@ -1214,14 +1213,6 @@ type WireCroppedSource = oxidgene_core::types::PortraitRef;
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
 
-/// Matches the server's `MAX_IMAGES_PER_REQUEST`.
-const IMAGE_DATA_BATCH_SIZE: usize = 1_024;
-
-#[derive(Debug, Serialize)]
-struct ImageDataRequest {
-    sources: Vec<ImageSource>,
-}
-
 /// Matches the server's `MAX_PEDIGREES_PER_REQUEST`.
 const PEDIGREE_BATCH_SIZE: usize = 64;
 
@@ -1304,11 +1295,13 @@ pub struct GalleryMedia {
 }
 
 /// A PDF page a tile draws its picture from, with pdf.js.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct GalleryPdfPage {
     pub media_id: Uuid,
     /// Its size in bytes: drawing it means reading the whole file.
     pub file_size: i64,
+    /// Its version, which the file's address carries.
+    pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1319,7 +1312,7 @@ pub struct GalleryVignette {
 
 /// A gallery's picture addresses, as the API sends them: what a page holds
 /// until [`ApiClient::resolve_pictures`] turns them, with the page's
-/// portraits, into a [`GalleryBundle`] in one request.
+/// portraits, into a [`GalleryBundle`] of drawable addresses.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct GallerySources {
     media: Vec<WireGalleryMedia>,
@@ -1365,7 +1358,7 @@ impl GallerySources {
                 event_ids: item.event_ids.clone(),
                 document_previews: previews,
                 portrayable: item.portrayable,
-                pdf_page: item.pdf_page,
+                pdf_page: item.pdf_page.clone(),
             });
         }
         for item in &self.vignettes {
@@ -1408,9 +1401,10 @@ struct WireGalleryVignette {
 /// absent for every image that arrives already cut.
 /// A picture ready to draw, and the region of it to show.
 ///
-/// `source` is whatever this platform puts in an `src`: a path on the
-/// application's own origin, an address we do not own, or a `data:` URL. It is
-/// never a backend address — see `image_host`.
+/// `source` is whatever this platform puts in an `src`: a picture's
+/// versioned address — on the application's own origin on the desktop, the
+/// API's on the web — an address we do not own, or a compiled-in `data:`
+/// URL. See `image_host`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CroppedSource {
     pub source: String,
@@ -2605,8 +2599,8 @@ pub struct ExportGedcomResult {
 }
 
 /// Everything one person page renders. Its pictures are addresses: the page
-/// draws its text at once and resolves them, with the person's portrait, in
-/// one request of its own ([`ApiClient::resolve_pictures`]).
+/// draws its text at once, and the engine fetches each picture it draws
+/// ([`ApiClient::resolve_pictures`]).
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonDetailBundle {
     pub sosa_number: Option<u64>,
@@ -2671,7 +2665,7 @@ pub struct CoupleDetailBundle {
 
 /// Everything the media viewer draws for one page of a document, in one
 /// request; its pictures are addresses, resolved with the attached persons'
-/// portraits in one request more ([`ApiClient::resolve_pictures`]).
+/// portraits ([`ApiClient::resolve_pictures`]).
 #[derive(Debug, Clone, Deserialize)]
 pub struct MediaViewerBundle {
     /// The document opened: a page's document, when the media id named a page.
@@ -2710,12 +2704,13 @@ pub struct MediaViewerPerson {
     pub portrait: Option<oxidgene_core::types::PortraitRef>,
 }
 
-/// A screen's pictures, resolved in one request: its galleries as one — a
-/// gallery looks its pictures up by media and vignette — and the portraits.
+/// A screen's pictures, resolved to their addresses: its galleries as one —
+/// a gallery looks its pictures up by media and vignette — and the
+/// portraits.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolvedPictures {
-    /// Shared rather than owned: it carries every thumbnail as a base64 data
-    /// URI, and every gallery on the page reads the same one.
+    /// Shared rather than owned: every gallery on the page reads the same
+    /// one.
     pub gallery: std::sync::Arc<GalleryBundle>,
     pub portraits: HashMap<Uuid, CroppedSource>,
 }
@@ -2904,99 +2899,20 @@ impl ResponseCache {
 /// Where the batch of several trees' recent persons is read from.
 const RECENT_PERSONS_PATH: &str = "/api/v1/trees/recent-persons";
 
-// ── Picture cache ───────────────────────────────────────────────────
+// ── Pictures ────────────────────────────────────────────────────────
 
 /// A held picture as [`ApiClient::get_asset`] answers it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetResponse {
-    /// The engine's copy is still current (`304`): no bytes.
-    pub not_modified: bool,
-    pub bytes: Vec<u8>,
-    pub content_type: String,
-    /// The backend's validator, for the engine to revalidate with.
-    pub etag: Option<String>,
-    /// The backend's caching rule.
-    pub cache_control: Option<String>,
-}
-
-/// How many bytes of picture data the session keeps.
-const PICTURE_CACHE_MAX_BYTES: usize = 24 * 1024 * 1024;
-
-/// How long a kept picture is used without asking again, in seconds: long
-/// enough for going back and forth between pages, short enough that a change
-/// made elsewhere — another tab, another person — shows within minutes.
-const PICTURE_CACHE_TTL_SECS: i64 = 10 * 60;
-
-/// The pictures the web client fetched as `data:` URLs, kept for the session
-/// and keyed by the address they were fetched for, so a page visited again
-/// draws them without downloading them again.
-///
-/// The response cache cannot do this: pictures are read with `POST`, never
-/// cached there. Bounded in bytes, oldest dropped first; a tree's are dropped
-/// whenever this client writes to it, as its cached reads are.
-#[derive(Clone, Default)]
-struct PictureCache(std::sync::Arc<std::sync::Mutex<PictureEntries>>);
-
-#[derive(Default)]
-struct PictureEntries {
-    entries: HashMap<(Uuid, ImageSource), (String, i64)>,
-    bytes: usize,
-}
-
-impl std::fmt::Debug for PictureCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let count = self.0.lock().map(|e| e.entries.len()).unwrap_or(0);
-        write!(f, "PictureCache({count})")
-    }
-}
-
-impl PictureCache {
-    fn get(&self, tree_id: Uuid, source: &ImageSource) -> Option<String> {
-        let entries = self.0.lock().ok()?;
-        let (data, stored) = entries.entries.get(&(tree_id, source.clone()))?;
-        (chrono::Utc::now().timestamp() - stored < PICTURE_CACHE_TTL_SECS).then(|| data.clone())
-    }
-
-    fn set(&self, tree_id: Uuid, source: ImageSource, data: String) {
-        let Ok(mut entries) = self.0.lock() else {
-            return;
-        };
-        if data.len() > PICTURE_CACHE_MAX_BYTES / 4 {
-            return;
-        }
-        let now = chrono::Utc::now().timestamp();
-        if let Some((old, _)) = entries.entries.remove(&(tree_id, source.clone())) {
-            entries.bytes -= old.len();
-        }
-        while entries.bytes + data.len() > PICTURE_CACHE_MAX_BYTES {
-            let Some(oldest) = entries
-                .entries
-                .iter()
-                .min_by_key(|(_, (_, stored))| *stored)
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            if let Some((old, _)) = entries.entries.remove(&oldest) {
-                entries.bytes -= old.len();
-            }
-        }
-        entries.bytes += data.len();
-        entries.entries.insert((tree_id, source), (data, now));
-    }
-
-    fn invalidate_tree(&self, tree_id: Uuid) {
-        if let Ok(mut entries) = self.0.lock() {
-            let PictureEntries { entries, bytes } = &mut *entries;
-            entries.retain(|(tree, _), (data, _)| {
-                let keep = *tree != tree_id;
-                if !keep {
-                    *bytes -= data.len();
-                }
-                keep
-            });
-        }
-    }
+pub enum AssetResponse {
+    /// The picture, with the backend's caching rule.
+    Content {
+        bytes: Vec<u8>,
+        content_type: String,
+        cache_control: Option<String>,
+    },
+    /// The address asked for names another version: the current one's path
+    /// and query, which the backend redirected to.
+    Moved { location: String },
 }
 
 // ── API Client ──────────────────────────────────────────────────────
@@ -3007,11 +2923,9 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
     cache: ResponseCache,
-    /// The pictures fetched as `data:` URLs this session (see [`PictureCache`]).
-    pictures: PictureCache,
     /// The shell that serves backend-held pictures from its own origin, when
-    /// this build has one. Absent on the web, where pictures are fetched here
-    /// and handed to the markup as `data:` URLs instead.
+    /// this build has one. Absent on the web, where pictures are drawn from
+    /// the API's own addresses.
     image_host: Option<crate::image_host::ImageHost>,
     /// The `Authorization` value the desktop's embedded backend requires.
     /// Sent to that backend only — never to a remote address a download names.
@@ -3336,7 +3250,6 @@ impl ApiClient {
             client: builder.build().expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
-            pictures: PictureCache::default(),
             image_host: None,
             auth: None,
             session: std::sync::Arc::default(),
@@ -3426,14 +3339,15 @@ impl ApiClient {
         Ok((request, backend))
     }
 
-    /// Serve backend-held pictures through `host` rather than encoding them.
+    /// Serve backend-held pictures through `host` rather than from the API's
+    /// own addresses.
     #[must_use]
     pub fn with_image_host(mut self, host: crate::image_host::ImageHost) -> Self {
         self.image_host = Some(host);
         self
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
 
@@ -3525,7 +3439,6 @@ impl ApiClient {
             .invalidate_prefix(&format!("/api/v1/trees/{tree_id}"));
         // The batch of several trees' recent persons names no single tree.
         self.cache.invalidate_prefix(RECENT_PERSONS_PATH);
-        self.pictures.invalidate_tree(tree_id);
     }
 
     /// The exclusions from sharing of tree `tree_id`, oldest first. Read
@@ -5053,206 +4966,100 @@ impl ApiClient {
     }
 
     /// Fetch a held picture for a shell that serves it from its own origin,
-    /// as a conditional request when the engine holds a copy validated by
-    /// `if_none_match`: the backend's `304` comes back as such, and its
-    /// validator and caching rule travel with the answer, so the engine
-    /// revalidates exactly as it would against the backend itself.
-    pub async fn get_asset(
-        &self,
-        path: &str,
-        if_none_match: Option<&str>,
-    ) -> Result<AssetResponse, ApiError> {
-        let mut request = self.client.get(self.url(path));
-        if let Some(validator) = if_none_match {
-            request = request.header(reqwest::header::IF_NONE_MATCH, validator);
+    /// at the versioned `path` the shell was asked for: the backend's bytes
+    /// and caching rule, or, when `path` names another version than the
+    /// current one, the current one's address. The redirect is reported
+    /// rather than its target's bytes: answering the old address with the
+    /// new content would keep it there for a year (`docs/architecture.md`
+    /// §4.3).
+    pub async fn get_asset(&self, path: &str) -> Result<AssetResponse, ApiError> {
+        let asked = self.url(path);
+        let response = self.send_request("GET", self.client.get(&asked)).await?;
+        if response.url().as_str() != asked {
+            let url = response.url();
+            let location = match url.query() {
+                Some(query) => format!("{}?{query}", url.path()),
+                None => url.path().to_string(),
+            };
+            return Ok(AssetResponse::Moved { location });
         }
-        let response = self.send_request("GET", request).await?;
-        let header = |name: reqwest::header::HeaderName| {
-            response
-                .headers()
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string)
-        };
-        let etag = header(reqwest::header::ETAG);
-        let cache_control = header(reqwest::header::CACHE_CONTROL);
-        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
-            return Ok(AssetResponse {
-                not_modified: true,
-                bytes: Vec::new(),
-                content_type: String::new(),
-                etag,
-                cache_control,
-            });
-        }
+        let cache_control = response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let (bytes, content_type) = Self::binary_body(response).await?;
-        Ok(AssetResponse {
-            not_modified: false,
+        Ok(AssetResponse::Content {
             bytes,
             content_type,
-            etag,
             cache_control,
         })
     }
 
-    async fn get_binary_data_url(&self, path: &str) -> Result<String, ApiError> {
-        let (bytes, content_type) = self.get_binary(path).await?;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        Ok(format!("data:{content_type};base64,{encoded}"))
+    /// The address a held picture is drawn from: the shell's own path when
+    /// it serves pictures, the API's versioned address otherwise.
+    #[must_use]
+    pub fn asset_url(&self, tree_id: Uuid, asset: &crate::image_host::MediaAsset) -> String {
+        self.image_host
+            .as_ref()
+            .and_then(|host| host.path(tree_id, asset))
+            .unwrap_or_else(|| self.url(&crate::image_host::api_path(tree_id, asset)))
     }
 
-    /// A media's stored file, ready to draw.
-    ///
-    /// Goes through the shell that serves pictures from its own origin when
-    /// there is one — which matters most here, since this is the full-size
-    /// file: inlining a multi-megabyte scan costs a third again in base64 and
-    /// denies the engine its own caching and decoding.
-    pub async fn media_file_data_url(
-        &self,
-        tree_id: Uuid,
-        media_id: Uuid,
-    ) -> Result<String, ApiError> {
-        self.media_asset_url(tree_id, crate::image_host::MediaAsset::File { media_id })
-            .await
+    /// A held medium's stored file, ready to draw; `None` for one whose
+    /// bytes we do not hold.
+    #[must_use]
+    pub fn media_file_url(&self, tree_id: Uuid, media: &Media) -> Option<String> {
+        media.storage_key.as_ref()?;
+        let asset = crate::image_host::MediaAsset::file(media.id, media.version()?);
+        Some(self.asset_url(tree_id, &asset))
     }
 
-    /// A medium's stored file, for a script of the page to read rather than
-    /// an element to draw: the PDF viewer's.
+    /// A medium's stored file at `version`, for a script of the page to read
+    /// rather than an element to draw: the PDF viewer's.
     ///
     /// A shell serving media from its own origin hands over the path, which
     /// the script fetches from that origin. Everywhere else the bytes come
-    /// through this client, and the caller passes them on as they are: a
-    /// `data:` URL would cost a third again and a second copy to decode.
+    /// through this client, from the versioned address the browser keeps,
+    /// and the caller passes them on as they are: a `data:` URL would cost a
+    /// third again and a second copy to decode.
     pub async fn media_file_for_script(
         &self,
         tree_id: Uuid,
         media_id: Uuid,
+        version: String,
     ) -> Result<ScriptFile, ApiError> {
-        let asset = crate::image_host::MediaAsset::File { media_id };
+        let asset = crate::image_host::MediaAsset::file(media_id, version);
         if let Some(host) = &self.image_host
-            && let Some(path) = host.path(tree_id, asset)
+            && let Some(path) = host.path(tree_id, &asset)
         {
             return Ok(ScriptFile::Hosted(path));
         }
         let (bytes, _) = self
-            .get_binary(&crate::image_host::api_path(tree_id, asset))
+            .get_binary(&crate::image_host::api_path(tree_id, &asset))
             .await?;
         Ok(ScriptFile::Bytes(bytes))
     }
 
-    /// The drawable form of one held picture, hosted or inlined.
-    async fn media_asset_url(
-        &self,
-        tree_id: Uuid,
-        asset: crate::image_host::MediaAsset,
-    ) -> Result<String, ApiError> {
-        if let Some(host) = &self.image_host
-            && let Some(path) = host.path(tree_id, asset)
-        {
-            return Ok(path);
-        }
-        self.get_binary_data_url(&crate::image_host::api_path(tree_id, asset))
-            .await
+    /// Turn a screen's picture addresses into things it can draw, one slot
+    /// per source, in order: a remote address as it is, a held picture's
+    /// versioned address ([`Self::asset_url`]). Nothing is fetched here: the
+    /// engine fetches each picture it draws, and keeps it.
+    fn resolve_sources(&self, tree_id: Uuid, sources: Vec<ImageSource>) -> Vec<Option<String>> {
+        sources
+            .into_iter()
+            .map(|source| match source {
+                ImageSource::Remote { url } => Some(url),
+                held => crate::image_host::MediaAsset::from_source(&held)
+                    .map(|asset| self.asset_url(tree_id, &asset)),
+            })
+            .collect()
     }
 
-    /// Resolve every source that needs no request: remote URLs, and whatever
-    /// the shell serving pictures from its own origin can answer for.
-    ///
-    /// Returns one slot per source, in order, plus the sources left for the
-    /// server, each with the slot it has to fill.
-    fn resolve_locally(
-        &self,
-        tree_id: Uuid,
-        sources: Vec<ImageSource>,
-    ) -> (Vec<Option<String>>, Vec<(usize, ImageSource)>) {
-        let mut resolved: Vec<Option<String>> = Vec::with_capacity(sources.len());
-        let mut pending: Vec<(usize, ImageSource)> = Vec::new();
-        for (index, source) in sources.into_iter().enumerate() {
-            if let ImageSource::Remote { url } = source {
-                resolved.push(Some(url));
-                continue;
-            }
-            let hosted = crate::image_host::MediaAsset::from_source(&source)
-                .zip(self.image_host.as_ref())
-                .and_then(|(asset, host)| host.path(tree_id, asset));
-            if hosted.is_none() {
-                pending.push((index, source));
-            }
-            resolved.push(hosted);
-        }
-        (resolved, pending)
-    }
-
-    /// Turn a whole screen's picture addresses into things it can draw.
-    ///
-    /// A shell that serves pictures from its own origin (the desktop) answers
-    /// per source with no network at all. Everywhere else the bytes have to be
-    /// fetched and inlined as `data:` URLs — and that happens for the whole set
-    /// in one request, because a pedigree resolving one portrait at a time is
-    /// one round trip per person on screen. A picture fetched earlier in the
-    /// session comes from the [`PictureCache`], and one asked for twice on the
-    /// same screen is fetched once.
-    ///
-    /// Returns one slot per source, in order.
-    async fn resolve_sources(
-        &self,
-        tree_id: Uuid,
-        sources: Vec<ImageSource>,
-    ) -> Vec<Option<String>> {
-        let (mut resolved, pending) = self.resolve_locally(tree_id, sources);
-        let mut wanted: Vec<ImageSource> = Vec::new();
-        let mut slots: HashMap<ImageSource, Vec<usize>> = HashMap::new();
-        for (index, source) in pending {
-            if let Some(data) = self.pictures.get(tree_id, &source) {
-                resolved[index] = Some(data);
-                continue;
-            }
-            slots
-                .entry(source.clone())
-                .or_insert_with(|| {
-                    wanted.push(source);
-                    Vec::new()
-                })
-                .push(index);
-        }
-
-        for chunk in wanted.chunks(IMAGE_DATA_BATCH_SIZE) {
-            let body = ImageDataRequest {
-                sources: chunk.to_vec(),
-            };
-            match self
-                .post_read::<Vec<Option<String>>, _>(
-                    &format!("/api/v1/trees/{tree_id}/image-data"),
-                    &body,
-                )
-                .await
-            {
-                Ok(urls) => {
-                    for (source, url) in chunk.iter().zip(urls) {
-                        let Some(url) = url else { continue };
-                        for &index in slots.get(source).into_iter().flatten() {
-                            resolved[index] = Some(url.clone());
-                        }
-                        self.pictures.set(tree_id, source.clone(), url);
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error.kind = error.kind(),
-                        status = error.status(),
-                        count = chunk.len(),
-                        "pictures could not be loaded"
-                    );
-                }
-            }
-        }
-        resolved
-    }
-
-    /// Turn a screen's galleries and portraits into things it can draw, in
-    /// one request: every address flattened so one call answers for the lot,
-    /// then handed back to the slot it came from.
-    pub async fn resolve_pictures(
+    /// Turn a screen's galleries and portraits into things it can draw:
+    /// every address flattened, then handed back to the slot it came from.
+    #[must_use]
+    pub fn resolve_pictures(
         &self,
         tree_id: Uuid,
         galleries: &[&GallerySources],
@@ -5267,7 +5074,7 @@ impl ApiClient {
                     .map(|(_, portrait)| portrait.source.clone()),
             )
             .collect();
-        let mut drawn = self.resolve_sources(tree_id, sources).await.into_iter();
+        let mut drawn = self.resolve_sources(tree_id, sources).into_iter();
         let mut gallery = GalleryBundle::default();
         for sources in galleries {
             let resolved = sources.resolve(&mut drawn);
@@ -5294,12 +5101,13 @@ impl ApiClient {
     }
 
     /// The portraits of people whose sources a payload already carried —
-    /// pedigree nodes, search rows — in one request, at the size of a
+    /// pedigree nodes, search rows — at the size of a
     /// portrait on a card: every one of them is drawn at most 66 pixels wide
     /// (pedigree cards, result rows, the events panel), where the thumbnail
     /// would ship nine times the pixels. A profile's header, larger, resolves
     /// its portrait through [`Self::resolve_pictures`] at thumbnail size.
-    pub async fn portraits_from_refs(
+    #[must_use]
+    pub fn portraits_from_refs(
         &self,
         tree_id: Uuid,
         portraits: &[(Uuid, oxidgene_core::types::PortraitRef)],
@@ -5312,27 +5120,25 @@ impl ApiClient {
                 (*person_id, portrait)
             })
             .collect();
-        self.resolve_pictures(tree_id, &[], &card_sized)
-            .await
-            .portraits
+        self.resolve_pictures(tree_id, &[], &card_sized).portraits
     }
 
-    /// The thumbnails of `media_ids`, drawable, in one request — a
-    /// document's pages, which would otherwise be a request per page.
-    pub async fn thumbnails(&self, tree_id: Uuid, media_ids: &[Uuid]) -> HashMap<Uuid, String> {
-        let sources = media_ids
+    /// The thumbnails of `pages` that have one, drawable, by page.
+    #[must_use]
+    pub fn thumbnails(&self, tree_id: Uuid, pages: &[Media]) -> HashMap<Uuid, String> {
+        pages
             .iter()
-            .map(|&media_id| ImageSource::Thumbnail { media_id })
-            .collect();
-        media_ids
-            .iter()
-            .zip(self.resolve_sources(tree_id, sources).await)
-            .filter_map(|(id, source)| Some((*id, source?)))
+            .filter_map(|page| {
+                let source = ImageSource::thumbnail_of(page)?;
+                let asset = crate::image_host::MediaAsset::from_source(&source)?;
+                Some((page.id, self.asset_url(tree_id, &asset)))
+            })
             .collect()
     }
 
     /// The portraits of search rows, which carry their sources.
-    pub async fn entry_portraits(
+    #[must_use]
+    pub fn entry_portraits(
         &self,
         tree_id: Uuid,
         entries: &[SearchEntry],
@@ -5344,7 +5150,7 @@ impl ApiClient {
         if refs.is_empty() {
             return HashMap::new();
         }
-        self.portraits_from_refs(tree_id, &refs).await
+        self.portraits_from_refs(tree_id, &refs)
     }
 
     /// The portraits of people known only by id: their sources first, in
@@ -5371,7 +5177,7 @@ impl ApiClient {
                         .into_iter()
                         .map(|image| (image.person_id, image.image))
                         .collect();
-                    portraits.extend(self.portraits_from_refs(tree_id, &refs).await);
+                    portraits.extend(self.portraits_from_refs(tree_id, &refs));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -5784,7 +5590,7 @@ impl ApiClient {
                 .await
             {
                 Ok(batch) => {
-                    let resolved = self.resolve_pictures(tree_id, &[&batch], &[]).await;
+                    let resolved = self.resolve_pictures(tree_id, &[&batch], &[]);
                     let batch = std::sync::Arc::unwrap_or_clone(resolved.gallery);
                     bundle.media.extend(batch.media);
                     bundle.vignettes.extend(batch.vignettes);
@@ -6389,7 +6195,13 @@ impl ApiClient {
 
     /// The country outlines the statistics heat map is drawn over.
     pub async fn basemap(&self) -> Result<Vec<BasemapCountry>, ApiError> {
-        self.get("/api/v1/reference/basemap").await
+        // Versioned, so the browser keeps it a year (docs/architecture.md
+        // §4.3).
+        self.get(concat!(
+            "/api/v1/reference/basemap?v=",
+            env!("OXIDGENE_BASEMAP_VERSION")
+        ))
+        .await
     }
 
     /// What `field` suggests for `query`: the tree's values, then the
@@ -6675,48 +6487,37 @@ mod tests {
     }
 
     #[test]
-    fn a_kept_picture_is_found_until_its_tree_is_written_to() {
-        let cache = PictureCache::default();
-        let (tree, other) = (Uuid::now_v7(), Uuid::now_v7());
-        let source = ImageSource::Thumbnail {
-            media_id: Uuid::now_v7(),
-        };
-        cache.set(tree, source.clone(), "data:image/jpeg;base64,AAAA".into());
-        cache.set(other, source.clone(), "data:image/jpeg;base64,BBBB".into());
-        assert_eq!(
-            cache.get(tree, &source).as_deref(),
-            Some("data:image/jpeg;base64,AAAA")
+    fn a_held_picture_is_drawn_from_its_versioned_api_address() {
+        let api = ApiClient::new("http://127.0.0.1:18080");
+        let (tree, media, vignette) = (Uuid::nil(), Uuid::now_v7(), Uuid::now_v7());
+        let drawn = api.resolve_sources(
+            tree,
+            vec![
+                ImageSource::Card {
+                    media_id: media,
+                    version: "00000000000000aa".into(),
+                },
+                ImageSource::Crop {
+                    vignette_id: vignette,
+                    version: "00000000000000bb".into(),
+                },
+                ImageSource::Remote {
+                    url: "https://archives.example.invalid/1.jpg".into(),
+                },
+            ],
         );
-        cache.invalidate_tree(tree);
-        assert_eq!(cache.get(tree, &source), None);
-        assert!(cache.get(other, &source).is_some());
-    }
-
-    #[test]
-    fn the_picture_cache_drops_its_oldest_pictures_past_its_size() {
-        let cache = PictureCache::default();
-        let tree = Uuid::now_v7();
-        let picture = "x".repeat(PICTURE_CACHE_MAX_BYTES / 5);
-        let sources: Vec<ImageSource> = (0..8)
-            .map(|_| ImageSource::Thumbnail {
-                media_id: Uuid::now_v7(),
-            })
-            .collect();
-        for source in &sources {
-            cache.set(tree, source.clone(), picture.clone());
-        }
-        let kept = sources
-            .iter()
-            .filter(|source| cache.get(tree, source).is_some())
-            .count();
-        assert_eq!(kept, 5);
-        assert!(cache.0.lock().unwrap().bytes <= PICTURE_CACHE_MAX_BYTES);
-        // A picture too large to be worth keeping is not kept.
-        let huge = ImageSource::Thumbnail {
-            media_id: Uuid::now_v7(),
-        };
-        cache.set(tree, huge.clone(), "x".repeat(PICTURE_CACHE_MAX_BYTES / 2));
-        assert_eq!(cache.get(tree, &huge), None);
+        assert_eq!(
+            drawn,
+            [
+                Some(format!(
+                    "http://127.0.0.1:18080/api/v1/trees/{tree}/media/{media}/card?v=00000000000000aa"
+                )),
+                Some(format!(
+                    "http://127.0.0.1:18080/api/v1/trees/{tree}/vignettes/{vignette}/image?v=00000000000000bb"
+                )),
+                Some("https://archives.example.invalid/1.jpg".into()),
+            ]
+        );
     }
 
     #[test]
@@ -6725,15 +6526,15 @@ mod tests {
         let sources: GallerySources = serde_json::from_value(serde_json::json!({
             "media": [{
                 "media_id": page,
-                "source": { "kind": "thumbnail", "media_id": page },
+                "source": { "kind": "thumbnail", "media_id": page, "version": "1" },
                 "event_ids": [],
-                "document_previews": [{ "kind": "thumbnail", "media_id": preview }],
+                "document_previews": [{ "kind": "thumbnail", "media_id": preview, "version": "2" }],
                 "portrayable": false,
-                "pdf_page": { "media_id": preview, "file_size": 42 }
+                "pdf_page": { "media_id": preview, "file_size": 42, "version": "4" }
             }],
             "vignettes": [{
                 "vignette_id": vignette,
-                "source": { "kind": "crop", "vignette_id": vignette }
+                "source": { "kind": "crop", "vignette_id": vignette, "version": "3" }
             }]
         }))
         .unwrap();
@@ -6747,7 +6548,8 @@ mod tests {
             gallery.media[0].pdf_page,
             Some(GalleryPdfPage {
                 media_id: preview,
-                file_size: 42
+                file_size: 42,
+                version: "4".into()
             })
         );
         assert_eq!(gallery.vignettes[0].image.source, "c");
@@ -6850,12 +6652,13 @@ mod tests {
         assert!(api.cache.get(&cache_key).is_none());
     }
 
-    /// The desktop's picture handler revalidates through `get_asset`: the
-    /// engine's validator goes out, the backend's `304`, validator and
-    /// caching rule come back.
+    /// The desktop's picture handler answers through `get_asset`: the
+    /// backend's bytes and caching rule come back as they are, and a
+    /// redirect to another version comes back as that version's address,
+    /// never as its bytes under the address asked for.
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
-    async fn an_asset_is_revalidated_with_the_engines_validator() {
+    async fn an_asset_comes_back_with_its_rule_or_as_the_address_it_moved_to() {
         let (listener, address) = test_server::listen().await;
         let api = ApiClient::new(&address);
         let path = format!(
@@ -6863,38 +6666,40 @@ mod tests {
             Uuid::now_v7(),
             Uuid::now_v7()
         );
-        let (answer, request) = tokio::join!(
-            api.get_asset(&path, Some("\"abc\"")),
+        let asked = format!("{path}?v=1");
+        let (answer, _) = tokio::join!(
+            api.get_asset(&asked),
             test_server::serve_once(
                 &listener,
-                b"HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nCache-Control: private, no-cache\r\n\r\n"
+                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nCache-Control: private, max-age=31536000, immutable\r\nContent-Length: 3\r\nConnection: close\r\n\r\njpg"
             )
         );
-        let answer = answer.unwrap();
-        assert!(
-            request
-                .to_ascii_lowercase()
-                .contains("if-none-match: \"abc\""),
-            "{request}"
+        assert_eq!(
+            answer.unwrap(),
+            AssetResponse::Content {
+                bytes: b"jpg".to_vec(),
+                content_type: "image/jpeg".into(),
+                cache_control: Some("private, max-age=31536000, immutable".into()),
+            }
         );
-        assert!(answer.not_modified);
-        assert!(answer.bytes.is_empty());
-        assert_eq!(answer.etag.as_deref(), Some("\"abc\""));
-        assert_eq!(answer.cache_control.as_deref(), Some("private, no-cache"));
 
-        let (answer, request) = tokio::join!(
-            api.get_asset(&path, None),
+        let redirect = format!(
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: {path}?v=2\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let (answer, _) = tokio::join!(api.get_asset(&asked), async {
+            test_server::serve_once(&listener, redirect.as_bytes()).await;
             test_server::serve_once(
                 &listener,
-                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nETag: \"def\"\r\nContent-Length: 3\r\n\r\njpg"
+                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 3\r\nConnection: close\r\n\r\nnew",
             )
+            .await
+        });
+        assert_eq!(
+            answer.unwrap(),
+            AssetResponse::Moved {
+                location: format!("{path}?v=2")
+            }
         );
-        let answer = answer.unwrap();
-        assert!(!request.to_ascii_lowercase().contains("if-none-match"));
-        assert!(!answer.not_modified);
-        assert_eq!(answer.bytes, b"jpg");
-        assert_eq!(answer.content_type, "image/jpeg");
-        assert_eq!(answer.etag.as_deref(), Some("\"def\""));
     }
 
     #[test]

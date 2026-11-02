@@ -24,7 +24,7 @@ If the sign-in fails, the page you return to says why: you or the provider refus
 
 Once signed in, your avatar replaces **Sign in** at the top right of the home page and of the application settings. Click it to open the account menu: your name and email, **Profile**, and **Sign out**.
 
-**Sign out** ends your session in OxidGene, then at the identity provider, so the next sign-in asks who you are again.
+**Sign out** ends your session in OxidGene, then at the identity provider, so the next sign-in asks who you are again. It also empties the browser's copies of the pictures you were shown: your browser keeps each photograph it has drawn, so that a page you come back to appears at once, and signing out on a shared computer leaves none of them behind. A session that ends any other way empties them the next time that browser reaches OxidGene.
 
 ## When your session ends
 

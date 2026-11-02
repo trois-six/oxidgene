@@ -43,7 +43,9 @@ use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::media_stage::{MediaStage, StagePicture};
 use crate::components::pager::Pager;
-use crate::components::pdf_viewer::{PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page};
+use crate::components::pdf_viewer::{
+    PdfFile, PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page,
+};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBadges, TagPicker};
@@ -522,7 +524,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                     thumbnail_source: bundle.and_then(|item| item.source.clone()),
                     document_previews: bundle.map(|item| item.document_previews.clone()).unwrap_or_default(),
                     portrayable: bundle.is_none_or(|item| item.portrayable),
-                    pdf_page: bundle.and_then(|item| item.pdf_page),
+                    pdf_page: bundle.and_then(|item| item.pdf_page.clone()),
                     media_event_ids: bundle.map(|item| item.event_ids.clone()).unwrap_or_default(),
                     profile_event_links: profile_event_links.clone(),
                     is_open: editing() == Some(tile.media.id),
@@ -715,7 +717,7 @@ pub fn MediaLibraryGrid(
                             thumbnail_source: preview.and_then(|item| item.source.clone()),
                             document_previews: preview.map(|item| item.document_previews.clone()).unwrap_or_default(),
                             portrayable: preview.is_none_or(|item| item.portrayable),
-                            pdf_page: preview.and_then(|item| item.pdf_page),
+                            pdf_page: preview.and_then(|item| item.pdf_page.clone()),
                             media_event_ids: Vec::new(),
                             profile_event_links: Vec::new(),
                             is_open: false,
@@ -968,7 +970,7 @@ fn MediaTile(
                     &document_previews,
                     thumbnail_source.clone(),
                     tile.media.thumbnail_key.is_some(),
-                    look.pdf_preview.map(|page| (tree_id, page)),
+                    look.pdf_preview.clone().map(|file| (tree_id, file)),
                 )}
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
                 // The ⋮ lies on the picture, at its bottom right (ui-common.md
@@ -1218,7 +1220,7 @@ struct TileLook {
     draws_remote: bool,
     /// The PDF page whose first page it draws with pdf.js, when it has no
     /// other picture: a display convenience, never a portrait either.
-    pdf_preview: Option<Uuid>,
+    pdf_preview: Option<PdfFile>,
 }
 
 /// The address a remote medium is drawn from, when its type says it is a
@@ -1289,7 +1291,7 @@ fn tile_picture(
     previews: &[String],
     thumbnail_source: Option<String>,
     has_thumbnail: bool,
-    pdf_preview: Option<(Uuid, Uuid)>,
+    pdf_preview: Option<(Uuid, PdfFile)>,
 ) -> Element {
     if !previews.is_empty() {
         return rsx! { DocumentMosaic { sources: previews.to_vec() } };
@@ -1307,8 +1309,8 @@ fn tile_picture(
         }
     };
     match pdf_preview {
-        Some((tree_id, media_id)) => rsx! {
-            PdfPreview { tree_id, media_id, alt: look.caption.clone(), fallback: icon }
+        Some((tree_id, file)) => rsx! {
+            PdfPreview { tree_id, file, alt: look.caption.clone(), fallback: icon }
         },
         None => icon,
     }
@@ -2421,29 +2423,9 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
         _ => Vec::new(),
     };
 
-    // Every page's thumbnail in one request: a document runs to a hundred
-    // pages and more, and a request per page queued them all.
-    let thumbnails = use_ui_resource("document_page_thumbnails", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let ids: Vec<Uuid> = match &*pages.read() {
-                Some(Ok(list)) => list
-                    .iter()
-                    .filter(|page| page.thumbnail_key.is_some())
-                    .map(|page| page.id)
-                    .collect(),
-                _ => Vec::new(),
-            };
-            async move {
-                if ids.is_empty() {
-                    return HashMap::new();
-                }
-                api.thumbnails(tree_id, &ids).await
-            }
-        }
-    });
-    let thumbnails = thumbnails.read_unchecked().clone().unwrap_or_default();
+    // Every page's thumbnail from the pages listed: their versioned
+    // addresses, which the engine fetches as they scroll into view.
+    let thumbnails = api.thumbnails(tree_id, &list);
 
     // Moving a page sends the whole order, not a "move up" operation: the
     // server applies it as one list, so a failure cannot leave the pages half
@@ -3471,9 +3453,9 @@ fn primary_person_name(names: &[PersonName], person_id: Uuid) -> Option<String> 
 
 /// The pictures of the viewer's `bundle`: the regions' crops, the page's
 /// thumbnail when an attachment row draws it, and the attached persons'
-/// portraits when the page cannot be drawn and they stand in for it. One
-/// request, none where pictures are served from the shell's own origin.
-async fn viewer_pictures(
+/// portraits when the page cannot be drawn and they stand in for it, each
+/// at its versioned address.
+fn viewer_pictures(
     api: &ApiClient,
     tree_id: Uuid,
     bundle: &crate::api::MediaViewerBundle,
@@ -3493,7 +3475,7 @@ async fn viewer_pictures(
     } else {
         bundle.gallery.vignettes_only()
     };
-    api.resolve_pictures(tree_id, &[&gallery], &portraits).await
+    api.resolve_pictures(tree_id, &[&gallery], &portraits)
 }
 
 /// Whether an attachment row of the viewer draws the thumbnail we hold of
@@ -3574,7 +3556,6 @@ fn MediaViewer(
     let mut failed_pdf = use_signal(|| None::<Uuid>);
     let pdf_position = use_signal(|| (1_u32, 0_u32));
     let pdf_goto = use_signal(|| None::<u32>);
-    let mut asset_media_id = use_signal(|| None::<Uuid>);
     // The viewer's writes, offered to whom may make them
     // (docs/authorization.md §11).
     let permissions = use_tree_permissions();
@@ -3607,24 +3588,8 @@ fn MediaViewer(
                 .and_then(|loaded| loaded.clone().ok());
             async move {
                 match bundle {
-                    Some(bundle) => viewer_pictures(&api, tree_id, &bundle).await,
+                    Some(bundle) => viewer_pictures(&api, tree_id, &bundle),
                     None => crate::api::ResolvedPictures::default(),
-                }
-            }
-        }
-    });
-    // Only a media we hold has an asset to fetch. A remote one is rendered
-    // straight from its URL, and asking the server for bytes it never stored
-    // is a request that can only 404.
-    let media_asset = use_ui_resource("media_asset", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            let media_id = asset_media_id();
-            async move {
-                match media_id {
-                    Some(media_id) => api.media_file_data_url(tree_id, media_id).await.ok(),
-                    None => None,
                 }
             }
         }
@@ -3699,13 +3664,13 @@ fn MediaViewer(
     let pdf_paged = pdf_drives_pager(shows_pdf, total_pages);
     let (pager_current, pager_total) =
         pager_position(pdf_paged.then(&*pdf_position), current, total_pages);
-    follow(
-        &mut asset_media_id,
-        asset_to_fetch(content_source, kind, content_media_id),
-    );
+    // Only a media we hold has a file of ours to draw. A remote one is
+    // drawn straight from its URL, and asking the server for bytes it never
+    // stored is a request that can only 404.
     let url = displayed_address(
         &content_media,
-        media_asset.read_unchecked().as_ref().and_then(Clone::clone),
+        asset_to_fetch(content_source, kind, content_media_id)
+            .and_then(|_| api.media_file_url(tree_id, &content_media)),
     );
     let facts = ViewerFacts::of(
         &bundle,
@@ -3897,7 +3862,10 @@ fn MediaViewer(
                     PdfViewer {
                         key: "pdf-{content_media_id}",
                         tree_id,
-                        media_id: content_media_id,
+                        file: PdfFile::of(&content_media).unwrap_or(PdfFile {
+                            media_id: content_media_id,
+                            version: String::new(),
+                        }),
                         position: pdf_position,
                         goto: pdf_goto,
                         on_failed: move |()| failed_pdf.set(Some(content_media_id)),
@@ -4024,14 +3992,6 @@ fn pager_position(pdf: Option<(u32, u32)>, current: usize, total_pages: usize) -
     match pdf {
         Some((page, pages)) => (page.saturating_sub(1) as usize, pages as usize),
         None => (current, total_pages),
-    }
-}
-
-/// Sets `signal` to `value` when it holds another, so that what reads it
-/// reruns only on a change.
-fn follow<T: PartialEq + 'static>(signal: &mut Signal<T>, value: T) {
-    if *signal.peek() != value {
-        signal.set(value);
     }
 }
 
@@ -5032,6 +4992,7 @@ mod tests {
             "file_path": "sample",
             "mime_type": mime_type,
             "storage_key": (!document).then_some("sample-key"),
+            "sha256": (!document).then_some("0123456789abcdef".repeat(4)),
             "thumbnail_key": thumbnail.then_some("sample-thumbnail"),
             "page_count": 1,
             "file_size": 42,
@@ -5195,9 +5156,13 @@ mod tests {
         let page = GalleryPdfPage {
             media_id: Uuid::from_u128(5),
             file_size: 42,
+            version: "1".into(),
         };
-        let look = TileLook::of(&document, &[], false, Some(page));
-        assert_eq!(look.pdf_preview, Some(page.media_id));
+        let look = TileLook::of(&document, &[], false, Some(page.clone()));
+        assert_eq!(
+            look.pdf_preview.map(|file| file.media_id),
+            Some(page.media_id)
+        );
         assert!(!look.may_portray);
         // A preview from the server wins over drawing one here.
         let scans = ["scan.jpg".to_string()];
@@ -5207,7 +5172,9 @@ mod tests {
         );
         let text = tile_of("application/pdf", false, false);
         assert_eq!(
-            TileLook::of(&text, &[], true, None).pdf_preview,
+            TileLook::of(&text, &[], true, None)
+                .pdf_preview
+                .map(|file| file.media_id),
             Some(text.media.id)
         );
     }

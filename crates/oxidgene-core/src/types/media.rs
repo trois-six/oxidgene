@@ -111,6 +111,17 @@ pub struct Media {
 }
 
 impl Media {
+    /// The version of this medium's file and of its thumbnail and card,
+    /// which its picture addresses carry: the first digits of its content
+    /// digest (`docs/architecture.md` §4.3). The renditions are written with
+    /// the file, at content-addressed keys, and never regenerated in place,
+    /// so the file's digest versions them too. `None` for a medium whose
+    /// bytes we do not hold.
+    #[must_use]
+    pub fn version(&self) -> Option<String> {
+        self.sha256.as_deref().map(version_of)
+    }
+
     /// Whether this row is a document — the container a gallery shows — rather
     /// than one of its pages.
     ///
@@ -338,10 +349,10 @@ impl ImageCrop {
 /// base64, put the whole album through one JSON parse, and defeated every one
 /// of those.
 ///
-/// A held variant names the resource, not a URL. Turning it into something
-/// drawable is the client's business, and deliberately so: until authentication
-/// ships, no backend address may appear in the markup (see
-/// `docs/cross-cutting.md` §7.1).
+/// A held variant names the resource and its version, not a URL: the client
+/// builds the address, the API's or its shell's own
+/// (`docs/cross-cutting.md` §7.1), and the version makes a changed picture a
+/// new address (`docs/architecture.md` §4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ImageSource {
@@ -349,28 +360,58 @@ pub enum ImageSource {
     /// itself. We never proxy somebody else's bandwidth.
     Remote { url: String },
     /// The thumbnail this backend generated for a media it holds.
-    Thumbnail { media_id: Uuid },
+    Thumbnail { media_id: Uuid, version: String },
     /// The region this backend cuts out of a media it holds.
-    Crop { vignette_id: Uuid },
+    Crop { vignette_id: Uuid, version: String },
     /// The card rendition of a media it holds: [`Self::Thumbnail`] at the size
     /// of a portrait on a pedigree card.
-    Card { media_id: Uuid },
+    Card { media_id: Uuid, version: String },
     /// [`Self::Crop`] at the size of a portrait on a pedigree card.
-    CardCrop { vignette_id: Uuid },
+    CardCrop { vignette_id: Uuid, version: String },
 }
 
 impl ImageSource {
+    /// The thumbnail of `media`, when it has one.
+    #[must_use]
+    pub fn thumbnail_of(media: &Media) -> Option<Self> {
+        media.thumbnail_key.as_ref()?;
+        Some(Self::Thumbnail {
+            media_id: media.id,
+            version: media.version()?,
+        })
+    }
+
     /// The same picture at the size of a portrait on a card: what a pedigree
     /// card, a result row or an events panel draws. A remote picture has no
-    /// rendition of ours and stays as it is.
+    /// rendition of ours and stays as it is. One version covers both sizes.
     #[must_use]
     pub fn card_sized(self) -> Self {
         match self {
-            Self::Thumbnail { media_id } => Self::Card { media_id },
-            Self::Crop { vignette_id } => Self::CardCrop { vignette_id },
+            Self::Thumbnail { media_id, version } => Self::Card { media_id, version },
+            Self::Crop {
+                vignette_id,
+                version,
+            } => Self::CardCrop {
+                vignette_id,
+                version,
+            },
             other => other,
         }
     }
+}
+
+/// How many hexadecimal digits a version has: 64 bits, which no two
+/// versions of one picture share by chance.
+pub const VERSION_DIGITS: usize = 16;
+
+/// The version a hexadecimal digest gives: its first [`VERSION_DIGITS`]
+/// digits (`docs/architecture.md` §4.3).
+#[must_use]
+pub fn version_of(digest: &str) -> String {
+    digest
+        .get(..VERSION_DIGITS)
+        .unwrap_or(digest)
+        .to_ascii_lowercase()
 }
 
 /// Where a person's portrait is drawn from: the picture's address and, for a
@@ -792,21 +833,51 @@ mod source_tests {
     #[test]
     fn a_card_sized_source_names_the_card_rendition_of_what_we_hold() {
         let id = Uuid::nil();
+        let version = || "0123456789abcdef".to_string();
         assert_eq!(
-            ImageSource::Thumbnail { media_id: id }.card_sized(),
-            ImageSource::Card { media_id: id }
+            ImageSource::Thumbnail {
+                media_id: id,
+                version: version()
+            }
+            .card_sized(),
+            ImageSource::Card {
+                media_id: id,
+                version: version()
+            }
         );
         assert_eq!(
-            ImageSource::Crop { vignette_id: id }.card_sized(),
-            ImageSource::CardCrop { vignette_id: id }
+            ImageSource::Crop {
+                vignette_id: id,
+                version: version()
+            }
+            .card_sized(),
+            ImageSource::CardCrop {
+                vignette_id: id,
+                version: version()
+            }
         );
         let remote = ImageSource::Remote {
             url: "https://archives.example.invalid/1.jpg".into(),
         };
         assert_eq!(remote.clone().card_sized(), remote);
         assert_eq!(
-            serde_json::to_value(ImageSource::CardCrop { vignette_id: id }).unwrap(),
-            serde_json::json!({ "kind": "card_crop", "vignette_id": id })
+            serde_json::to_value(ImageSource::CardCrop {
+                vignette_id: id,
+                version: version()
+            })
+            .unwrap(),
+            serde_json::json!({
+                "kind": "card_crop",
+                "vignette_id": id,
+                "version": "0123456789abcdef"
+            })
         );
+    }
+
+    #[test]
+    fn a_version_is_the_start_of_a_digest() {
+        let digest = "ABCDEF0123456789".repeat(4);
+        assert_eq!(version_of(&digest), "abcdef0123456789");
+        assert_eq!(version_of("abc"), "abc");
     }
 }

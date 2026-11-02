@@ -265,16 +265,16 @@ pub async fn delete_files(media: &dyn MediaStore, user_id: Uuid, sha256: &str) {
     }
 }
 
-/// A served avatar: where its JPEG is stored and its `ETag`.
+/// A served avatar: where its JPEG is stored and its version.
 #[derive(Debug)]
 pub struct AvatarImage {
     pub key: String,
-    pub etag: String,
+    pub version: String,
 }
 
 /// The avatar of `user_id` at `size`, for whoever may see the user;
 /// `not_found` when they have no uploaded avatar. The bytes are read by the
-/// caller, once it knows the client lacks them.
+/// caller, once it knows the version asked for is the current one.
 pub async fn avatar_image(
     db: &impl sea_orm::ConnectionTrait,
     principal: &Principal,
@@ -291,7 +291,7 @@ pub async fn avatar_image(
     })?;
     Ok(AvatarImage {
         key: avatar_key(user_id, &sha256, size),
-        etag: format!("{sha256}-{size}"),
+        version: oxidgene_core::types::version_of(&sha256),
     })
 }
 

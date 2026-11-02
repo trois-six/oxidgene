@@ -1010,7 +1010,7 @@ fn RecentPersons(tree_id: Uuid) -> Element {
     let portraits = use_ui_resource("home_recent_portraits", move || {
         let api = api.clone();
         let entries = rows().unwrap_or_default();
-        async move { api.entry_portraits(tree_id, &entries).await }
+        async move { api.entry_portraits(tree_id, &entries) }
     });
 
     // Nothing while loading or when the read failed: the card works without.

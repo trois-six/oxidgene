@@ -265,7 +265,7 @@ fn AvatarOption(me: Me) -> Element {
         });
     };
 
-    let avatar = me.avatar.as_ref().map(|avatar| avatar.etag.clone());
+    let avatar = me.avatar.as_ref().map(|avatar| avatar.version.clone());
     let has_avatar = avatar.is_some();
 
     rsx! {

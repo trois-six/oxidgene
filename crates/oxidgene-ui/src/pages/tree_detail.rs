@@ -595,7 +595,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             let Some(tid) = tid.filter(|_| !refs.is_empty()) else {
                 return Portraits::default();
             };
-            Shared::new(api.portraits_from_refs(tid, &refs).await)
+            Shared::new(api.portraits_from_refs(tid, &refs))
         }
     });
     // The SOSA root's ancestors in the window, as the server marked them.

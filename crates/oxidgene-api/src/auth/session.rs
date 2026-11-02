@@ -123,7 +123,7 @@ impl IntoResponse for Refusal {
         let headers = response.headers_mut();
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         if self.clear_session {
-            headers.append(header::SET_COOKIE, cookie::clear(cookie::SESSION));
+            cookie::end_session(headers);
         }
         if self.bearer && self.status == StatusCode::UNAUTHORIZED {
             headers.insert(

@@ -32,8 +32,8 @@ use super::history::{
     GqlRecordVersionConnection, GqlVersionChangeConnection,
 };
 use super::inputs::{
-    GeneanetPreviewInput, ImageSourceInput, MediaListFilterInput, TagTargetInput,
-    geneanet_deposit_sizes, tag_target_spec,
+    GeneanetPreviewInput, MediaListFilterInput, TagTargetInput, geneanet_deposit_sizes,
+    tag_target_spec,
 };
 use super::scope::{
     boxed, job_tree, live_tree, opt_uuid, records, uuid, uuids, viewer_from_ctx, visible_tree,
@@ -559,33 +559,6 @@ impl TreeQuery {
             )
             .await?;
             Ok(images.into_iter().map(Into::into).collect())
-        })
-        .await
-    }
-
-    /// Resolve held picture sources to inline `data:` URLs in one operation,
-    /// for a client that cannot serve them from an origin of its own.
-    /// Mirrors REST's `image-data` endpoint.
-    async fn image_data(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        sources: Vec<ImageSourceInput>,
-    ) -> Result<Vec<Option<String>>> {
-        boxed(async move {
-            let sources = sources
-                .into_iter()
-                .map(oxidgene_core::types::ImageSource::try_from)
-                .collect::<Result<Vec<_>>>()?;
-            let tree_id = live_tree(ctx, &tree_id).await?;
-            Ok(crate::service::image_bytes::load_visible_image_data_urls(
-                reader_from_ctx(ctx),
-                &records(ctx, tree_id).await?,
-                media_from_ctx(ctx),
-                tree_id,
-                &sources,
-            )
-            .await?)
         })
         .await
     }
