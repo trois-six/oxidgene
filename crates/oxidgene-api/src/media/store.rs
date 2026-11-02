@@ -645,6 +645,49 @@ fn s3_error(operation: &'static str, error: &object_store::Error) -> OxidGeneErr
     OxidGeneError::Internal(format!("S3 media storage {operation} failed"))
 }
 
+/// Send `file` through the multipart `upload`, then complete it. On any
+/// failure the upload is aborted, so that the parts already sent do not
+/// stay in the bucket as an incomplete upload, invisible and billed
+/// (`finish` aborts its own failures).
+#[cfg(feature = "s3")]
+async fn upload_file(
+    upload: Box<dyn object_store::MultipartUpload>,
+    file: &mut tokio::fs::File,
+) -> Result<(), OxidGeneError> {
+    let mut writer = WriteMultipart::new(upload);
+    let mut buffer = vec![0; 1024 * 1024];
+    let copied = async {
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                return Ok(());
+            }
+            writer
+                .wait_for_capacity(4)
+                .await
+                .map_err(|error| s3_error("multipart write", &error))?;
+            writer.write(&buffer[..read]);
+        }
+    }
+    .await;
+    if let Err(error) = copied {
+        if let Err(abort) = writer.abort().await {
+            tracing::warn!(
+                error = "s3_storage",
+                error.kind = s3_error_kind(&abort),
+                operation = "multipart abort",
+                "S3 media storage operation failed"
+            );
+        }
+        return Err(error);
+    }
+    writer
+        .finish()
+        .await
+        .map(drop)
+        .map_err(|error| s3_error("multipart finish", &error))
+}
+
 /// The bounded category of an S3 failure: what an operator needs to tell
 /// bad credentials from a missing bucket or an unreachable service.
 #[cfg(feature = "s3")]
@@ -758,29 +801,15 @@ impl MediaStore for S3Store {
     async fn put_file(&self, key: &str, path: &Path) -> Result<StoredObject, OxidGeneError> {
         let location = Self::location(key)?;
         let (sha256, size) = file_digest(path).await?;
+        // Opened before the upload starts, so that a missing file starts
+        // none.
+        let mut file = tokio::fs::File::open(path).await?;
         let upload = self
             .store
             .put_multipart(&location)
             .await
             .map_err(|error| s3_error("multipart start", &error))?;
-        let mut writer = WriteMultipart::new(upload);
-        let mut file = tokio::fs::File::open(path).await?;
-        let mut buffer = vec![0; 1024 * 1024];
-        loop {
-            let read = file.read(&mut buffer).await?;
-            if read == 0 {
-                break;
-            }
-            writer
-                .wait_for_capacity(4)
-                .await
-                .map_err(|error| s3_error("multipart write", &error))?;
-            writer.write(&buffer[..read]);
-        }
-        writer
-            .finish()
-            .await
-            .map_err(|error| s3_error("multipart finish", &error))?;
+        upload_file(upload, &mut file).await?;
         Ok(StoredObject {
             key: key.to_string(),
             sha256,
@@ -1244,5 +1273,59 @@ mod tests {
 
         store.delete(&survivor.key).await.unwrap();
         store.delete(&survivor.key).await.unwrap();
+    }
+
+    /// A multipart upload that records whether it was aborted.
+    #[cfg(feature = "s3")]
+    #[derive(Debug)]
+    struct RecordedUpload(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    #[cfg(feature = "s3")]
+    #[async_trait::async_trait]
+    impl object_store::MultipartUpload for RecordedUpload {
+        fn put_part(&mut self, _data: object_store::PutPayload) -> object_store::UploadPart {
+            Box::pin(async { Ok(()) })
+        }
+
+        async fn complete(&mut self) -> object_store::Result<object_store::PutResult> {
+            Ok(object_store::PutResult {
+                e_tag: None,
+                version: None,
+                extensions: object_store::Extensions::default(),
+            })
+        }
+
+        async fn abort(&mut self) -> object_store::Result<()> {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "s3", unix))]
+    #[tokio::test]
+    async fn a_multipart_upload_whose_file_cannot_be_read_is_aborted() {
+        let root = TempRoot::new("multipart");
+        // A directory opens as a file on Unix, and fails at its first read.
+        let mut unreadable = tokio::fs::File::open(root.0.path()).await.unwrap();
+        let aborted = std::sync::Arc::default();
+        let failed = upload_file(
+            Box::new(RecordedUpload(std::sync::Arc::clone(&aborted))),
+            &mut unreadable,
+        )
+        .await;
+        assert!(failed.is_err());
+        assert!(aborted.load(std::sync::atomic::Ordering::SeqCst));
+
+        let readable = root.0.path().join("medium");
+        std::fs::write(&readable, b"fictitious scan").unwrap();
+        let mut readable = tokio::fs::File::open(readable).await.unwrap();
+        let completed = std::sync::Arc::default();
+        upload_file(
+            Box::new(RecordedUpload(std::sync::Arc::clone(&completed))),
+            &mut readable,
+        )
+        .await
+        .unwrap();
+        assert!(!completed.load(std::sync::atomic::Ordering::SeqCst));
     }
 }
