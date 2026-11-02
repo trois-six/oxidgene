@@ -7,7 +7,9 @@
 //! anonymous, a signed-in outsider, an instance administrator who is no
 //! member, the holder of a share link, the tree's guest, editor and owner,
 //! and a guest and an editor limited to a scope; then, the tree made
-//! `public`, the anonymous and the outsider again, now Visitors. A refusal
+//! `public`, the anonymous and the outsider again, now Visitors. The owner
+//! calls them once more through a bearer token granting `tree:read` alone,
+//! whose scopes bound what it may do (§7.2). A refusal
 //! must be the exact `401`, `403` or `404` the policy owes that viewer;
 //! anything else must not be a refusal. API clients join the matrix with
 //! phase 6.
@@ -44,9 +46,12 @@ enum Who {
     /// An editor limited to a scope (docs/authorization.md §3.3).
     ScopedEditor,
     Owner,
+    /// The owner through a bearer token granting `tree:read` alone
+    /// (docs/authorization.md §7.2).
+    ReadOnlyOwner,
 }
 
-const VIEWERS: [Who; 9] = [
+const VIEWERS: [Who; 10] = [
     Who::Anonymous,
     Who::Outsider,
     Who::Admin,
@@ -56,6 +61,7 @@ const VIEWERS: [Who; 9] = [
     Who::ScopedGuest,
     Who::ScopedEditor,
     Who::Owner,
+    Who::ReadOnlyOwner,
 ];
 
 /// The viewers of a `public` tree who are no member: Visitors.
@@ -75,7 +81,7 @@ fn role(who: Who, public: bool) -> Option<TreeRole> {
     match who {
         Who::Guest | Who::ScopedGuest => Some(TreeRole::Guest),
         Who::Editor | Who::ScopedEditor => Some(TreeRole::Editor),
-        Who::Owner => Some(TreeRole::Owner),
+        Who::Owner | Who::ReadOnlyOwner => Some(TreeRole::Owner),
         Who::LinkHolder => Some(TreeRole::Visitor),
         Who::Anonymous | Who::Outsider if public => Some(TreeRole::Visitor),
         _ => None,
@@ -89,8 +95,14 @@ fn anonymous(who: Who) -> bool {
 
 /// The outcome `requirement` owes `who` on the fixture tree, `public` or
 /// private. Only the owner may create trees, only the administrator
-/// administers.
+/// administers; a token without a permission's scope may not use it.
 fn expected(requirement: Requirement, who: Who, public: bool) -> Outcome {
+    if who == Who::ReadOnlyOwner
+        && let Requirement::Tree(permission) | Requirement::Trees(permission) = requirement
+        && permission.oauth_scope() != "tree:read"
+    {
+        return Outcome::Forbidden;
+    }
     match requirement {
         Requirement::Open | Requirement::Trees(_) => return Outcome::Allowed,
         Requirement::Tree(permission) if anonymous(who) => {
@@ -105,7 +117,9 @@ fn expected(requirement: Requirement, who: Who, public: bool) -> Outcome {
     }
     match requirement {
         Requirement::Open | Requirement::SignedIn | Requirement::Trees(_) => Outcome::Allowed,
-        Requirement::TreeCreation if who == Who::Owner => Outcome::Allowed,
+        Requirement::TreeCreation if matches!(who, Who::Owner | Who::ReadOnlyOwner) => {
+            Outcome::Allowed
+        }
         Requirement::Administrator if who == Who::Admin => Outcome::Allowed,
         Requirement::TreeCreation | Requirement::Administrator => Outcome::Forbidden,
         Requirement::Tree(permission) => match role(who, public) {
@@ -246,6 +260,10 @@ async fn fixture() -> (Fixture, MockProvider) {
         users.insert(who, id);
         tokens.insert(who, provider.access_token(subject, TRUSTED_CLIENT, 3600));
     }
+    tokens.insert(
+        Who::ReadOnlyOwner,
+        provider.access_token_scoped("owner", TRUSTED_CLIENT, 3600, "openid tree:read"),
+    );
     let mut fixture = Fixture {
         app,
         db,

@@ -206,6 +206,39 @@ impl Permission {
         Self::Leave,
     ];
 
+    /// The OAuth scope a bearer token needs to use the permission
+    /// (docs/authorization.md §7.2): those of the table, and `tree:admin`
+    /// for the owner's other operations, which fail closed.
+    #[must_use]
+    pub fn oauth_scope(self) -> &'static str {
+        match self {
+            Self::Read
+            | Self::ReadPrivate
+            | Self::ReadExcluded
+            | Self::ReadConfidential
+            | Self::ReadTags
+            | Self::Tools => "tree:read",
+            Self::Create
+            | Self::Edit
+            | Self::PrivacyEdit
+            | Self::Delete
+            | Self::Merge
+            | Self::HistoryRestore => "tree:write",
+            Self::HistoryRead => "history:read",
+            Self::Import => "import",
+            Self::Export => "export",
+            Self::SettingsManage
+            | Self::ExclusionsManage
+            | Self::MembersManage
+            | Self::ApiClientsManage
+            | Self::AccessLogRead
+            | Self::TreeDuplicate
+            | Self::TreeDelete
+            | Self::OwnershipTransfer
+            | Self::Leave => "tree:admin",
+        }
+    }
+
     /// The stable identifier.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -637,6 +670,21 @@ impl ViewerContext {
             .is_some_and(|identity| identity.instance_role == InstanceRole::Admin)
     }
 
+    /// Whether the viewer's credential grants the OAuth scope `scope`: a
+    /// bearer token's scopes bound what its request may do
+    /// (docs/authentication.md §5.2), and so do those a job recorded from
+    /// one. A session, the local owner and an anonymous viewer carry no
+    /// scope to check.
+    #[must_use]
+    pub fn token_grants(&self, scope: &str) -> bool {
+        match self.user() {
+            Some(identity) if identity.session_id.is_none() => {
+                identity.scopes.iter().any(|granted| granted == scope)
+            }
+            _ => true,
+        }
+    }
+
     /// The author the viewer's writes record.
     pub fn author(&self) -> Author {
         match &self.principal {
@@ -869,6 +917,28 @@ mod tests {
         let printed = format!("{viewer:?} {:?}", viewer.job_actor());
         assert!(!printed.contains("subject-value"), "{printed}");
         assert!(!printed.contains("session-digest"), "{printed}");
+    }
+
+    #[test]
+    fn a_bearer_tokens_scopes_bound_it_and_a_sessions_do_not() {
+        let identity = |session: Option<&str>| Identity {
+            issuer: "https://id.example.invalid".into(),
+            subject: "subject-value".into(),
+            user_id: Uuid::nil(),
+            client_id: Some("oxidgene-mcp".into()),
+            scopes: vec!["tree:read".into()],
+            session_id: session.map(str::to_owned),
+            api_client_id: None,
+            instance_role: InstanceRole::User,
+            can_create_trees: false,
+        };
+        let bearer = ViewerContext::new(Principal::User(identity(None)));
+        assert!(bearer.token_grants(Permission::Read.oauth_scope()));
+        assert!(!bearer.token_grants(Permission::Edit.oauth_scope()));
+        assert!(!bearer.token_grants(Permission::TreeDelete.oauth_scope()));
+        let session = ViewerContext::new(Principal::User(identity(Some("digest"))));
+        assert!(session.token_grants(Permission::TreeDelete.oauth_scope()));
+        assert!(ViewerContext::local().token_grants("instance:admin"));
     }
 
     #[test]

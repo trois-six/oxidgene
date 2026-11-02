@@ -523,8 +523,17 @@ as the owner.
 | `instance:admin` | The administrator's operations — user clients of an administrator only |
 
 The scopes stored on the client are authoritative: a token carrying more is
-cut down to them. An operation's required scope is declared beside its
-permission in the parity table.
+cut down to them. An operation's required scope is its permission's, as the
+table above lists them, and `tree:admin` for the owner's operations it does
+not list (duplicating, deleting or handing over the tree, leaving it); an
+administrator's operation takes `instance:admin`. Every bearer token is
+bound by its scopes — a trusted client's (`OXIDGENE_OIDC_TRUSTED_CLIENTS`)
+too — and so is a job it submitted, which records them; a browser session is
+not, its client being the web application's own. A token without the scope
+an operation needs is `403 forbidden`, on REST, GraphQL and MCP alike.
+Until API clients ship, a direct media read or upload takes its
+permission's scope, `tree:read` or `tree:write`; `media:read` and
+`media:write` narrow them for API clients.
 
 ### 7.3 Provisioning
 

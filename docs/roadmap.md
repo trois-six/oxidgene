@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -383,7 +383,8 @@ string in every language, and the user guide. In order:
 6. **API clients and assistant access over HTTP.**
    - [ ] Tree and user API clients over client credentials, with
      provisioning, rotation, revocation, rate limits and usage
-     ([Authorization §7](authorization.md#7-api-clients)), and their
+     ([Authorization §7](authorization.md#7-api-clients)), the `media:read`
+     and `media:write` scopes on direct media reads and uploads, and their
      `api_client_expiring` notification.
    - [x] The MCP tools act for any viewer and are checked as their REST
      operations are; `list_trees` lists the trees the viewer may read

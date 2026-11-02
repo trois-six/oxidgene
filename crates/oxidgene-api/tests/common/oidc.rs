@@ -199,6 +199,19 @@ impl MockProvider {
         )
     }
 
+    /// [`Self::access_token`] granting the space-separated `scope` alone.
+    pub fn access_token_scoped(
+        &self,
+        subject: &str,
+        client: &str,
+        lifetime: i64,
+        scope: &str,
+    ) -> String {
+        let mut claims = access_claims(&self.shared.issuer, subject, client, lifetime);
+        claims["scope"] = json!(scope);
+        self.sign(&self.header(), &claims)
+    }
+
     /// Play the user `user` signing in at the authorization URL the
     /// application redirected to; the callback URL the provider sends the
     /// browser back to, as a path of the application.
@@ -320,6 +333,11 @@ impl MockProvider {
     }
 }
 
+/// The scopes the provider grants by default: the sign-in scopes and every
+/// API scope (docs/authorization.md §7.2).
+pub const API_SCOPES: &str = "openid profile email tree:read tree:write media:read media:write \
+     history:read import export tree:admin instance:admin";
+
 fn access_claims(issuer: &str, subject: &str, client: &str, lifetime: i64) -> Value {
     let now = chrono::Utc::now().timestamp();
     json!({
@@ -327,7 +345,7 @@ fn access_claims(issuer: &str, subject: &str, client: &str, lifetime: i64) -> Va
         "sub": subject,
         "aud": [CLIENT_ID, PUBLIC_URL],
         "azp": client,
-        "scope": "openid profile email",
+        "scope": API_SCOPES,
         "iat": now,
         "exp": now + lifetime,
     })

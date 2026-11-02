@@ -54,16 +54,28 @@ pub enum Requirement {
 impl Requirement {
     /// The part of the requirement the viewer alone decides, before any
     /// tree is read.
+    ///
+    /// A bearer token's scopes bound it (§7.2): a permission on a tree takes
+    /// the permission's scope, an administrator's operation
+    /// `instance:admin`.
     pub fn check_viewer(self, viewer: &ViewerContext) -> Result<(), OxidGeneError> {
         let principal = viewer.principal();
         match self {
             Self::Open => Ok(()),
             // A `public` tree, or one a share link opens, has anonymous
             // Visitors (§6.3, §6.4): the tree decides.
+            Self::Tree(permission) | Self::Trees(permission)
+                if !viewer.token_grants(permission.oauth_scope()) =>
+            {
+                Err(OxidGeneError::Forbidden)
+            }
             Self::Tree(_) | Self::Trees(_) => Ok(()),
             _ if matches!(principal, Principal::Anonymous) => Err(OxidGeneError::Unauthenticated),
             Self::TreeCreation if !viewer.may_create_trees() => Err(OxidGeneError::Forbidden),
-            Self::Administrator if !viewer.is_local() && !viewer.is_admin() => {
+            Self::Administrator
+                if !viewer.is_local()
+                    && (!viewer.is_admin() || !viewer.token_grants("instance:admin")) =>
+            {
                 Err(OxidGeneError::Forbidden)
             }
             _ => Ok(()),
@@ -192,7 +204,8 @@ pub async fn link_trees(
 }
 
 /// Check that the viewer holds `permission` on tree `tree_id`: `403
-/// forbidden` for a viewer who sees the tree without it.
+/// forbidden` for a viewer who sees the tree without it, or whose bearer
+/// token lacks the permission's scope (§7.2).
 ///
 /// Duplicating a tree also takes the instance's tree creation right.
 pub async fn authorize(
@@ -203,6 +216,7 @@ pub async fn authorize(
 ) -> Result<TreeAccess, OxidGeneError> {
     let access = tree_access(db, viewer, tree_id).await?;
     if !access.allows(permission)
+        || !viewer.token_grants(permission.oauth_scope())
         || (permission == Permission::TreeDuplicate && !viewer.may_create_trees())
     {
         return Err(OxidGeneError::Forbidden);
