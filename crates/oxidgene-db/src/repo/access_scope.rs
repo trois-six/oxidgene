@@ -278,17 +278,18 @@ impl AccessScopeRepo {
         Ok(row.is_some())
     }
 
-    /// The persons of `tree_id` that the records `ids` are or belong to: a
-    /// person itself, a family's spouses, the owner of an event, a name, a
-    /// note, a citation, a witness, and the persons a medium, a media link
-    /// or a vignette shows. An identifier of nothing in the tree names
-    /// nobody. What a scoped Editor's write is checked against
-    /// (docs/authorization.md §3.3).
-    pub async fn persons_named(
+    /// What the records `ids` of `tree_id` name: the persons they are or
+    /// belong to — a person itself, the owner of an event, a name, a note,
+    /// a citation, a witness, and the persons a medium, a media link or a
+    /// vignette shows — and the families they are or belong to, with those
+    /// families' spouses. An identifier of nothing in the tree names
+    /// nothing. What an Editor's write is checked against
+    /// (docs/authorization.md §3.3, docs/privacy.md §6.4).
+    pub async fn records_named(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         ids: &[Uuid],
-    ) -> Result<HashSet<Uuid>, OxidGeneError> {
+    ) -> Result<NamedRecords, OxidGeneError> {
         let mut named = Named::default();
         // A write's body may name any number of ids. The media-link query
         // binds a slice and the media it names, at most twice as many, so a
@@ -298,7 +299,12 @@ impl AccessScopeRepo {
             named.attachments(db, tree_id, slice).await?;
         }
         named.events_and_families(db, tree_id).await?;
-        Ok(named.persons)
+        let spouses = named.spouses(db).await?;
+        Ok(NamedRecords {
+            persons: named.persons,
+            families: named.families,
+            spouses,
+        })
     }
 
     /// Those of `persons` linked to a live family, as a spouse or a child.
@@ -357,6 +363,25 @@ impl AccessScopeRepo {
             .await
             .map_err(db_err)?;
         Ok(result.rows_affected())
+    }
+}
+
+/// What a write names ([`AccessScopeRepo::records_named`]).
+#[derive(Debug, Default)]
+pub struct NamedRecords {
+    /// The persons it names itself, or through a record of theirs.
+    pub persons: HashSet<Uuid>,
+    /// The families it names itself, or through a record of theirs.
+    pub families: HashSet<Uuid>,
+    /// The spouses of those families.
+    pub spouses: HashSet<Uuid>,
+}
+
+impl NamedRecords {
+    /// Every person named: those named directly and the spouses of the
+    /// families named.
+    pub fn all_persons(&self) -> HashSet<Uuid> {
+        self.persons.union(&self.spouses).copied().collect()
     }
 }
 
@@ -517,14 +542,14 @@ impl Named {
         Ok(())
     }
 
-    /// The persons of the events and families gathered: an event belongs
-    /// to its person, or to its family, whose spouses it names.
+    /// The persons and families of the events gathered: an event belongs
+    /// to its person, or to its family.
     async fn events_and_families(
         &mut self,
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        use crate::entities::{event, family_spouse};
+        use crate::entities::event;
         use sea_orm::QuerySelect;
         let events: Vec<Uuid> = self.events.iter().copied().collect();
         let event_owners: Vec<(Option<Uuid>, Option<Uuid>)> =
@@ -544,20 +569,29 @@ impl Named {
             self.persons.extend(person);
             self.families.extend(family);
         }
-        let families: Vec<Uuid> = self.families.iter().copied().collect();
-        self.persons.extend(
-            in_chunks(&families, |slice| async move {
-                family_spouse::Entity::find()
-                    .select_only()
-                    .column(family_spouse::Column::PersonId)
-                    .filter(family_spouse::Column::FamilyId.is_in(slice))
-                    .into_tuple::<Uuid>()
-                    .all(db)
-                    .await
-                    .map_err(db_err)
-            })
-            .await?,
-        );
         Ok(())
+    }
+
+    /// The spouses of the families gathered.
+    async fn spouses(&self, db: &impl ConnectionTrait) -> Result<HashSet<Uuid>, OxidGeneError> {
+        use crate::entities::family_spouse;
+        use sea_orm::QuerySelect;
+        if self.families.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let families: Vec<Uuid> = self.families.iter().copied().collect();
+        Ok(in_chunks(&families, |slice| async move {
+            family_spouse::Entity::find()
+                .select_only()
+                .column(family_spouse::Column::PersonId)
+                .filter(family_spouse::Column::FamilyId.is_in(slice))
+                .into_tuple::<Uuid>()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?
+        .into_iter()
+        .collect())
     }
 }

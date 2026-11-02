@@ -1697,3 +1697,81 @@ async fn a_viewer_other_than_the_owner_is_checked_like_rest() {
         "unauthenticated"
     );
 }
+
+/// An Editor's write tools naming a person the owner excluded from sharing
+/// are `not_found`, as their REST and GraphQL twins are
+/// (docs/privacy.md §6.4), and nothing is written; their writes on the
+/// persons they see go through.
+#[cfg(feature = "auth")]
+#[tokio::test]
+async fn an_editors_write_tools_naming_an_excluded_person_are_not_found() {
+    use oxidgene_core::access::{Principal, TreeRole};
+    use oxidgene_db::repo::MembershipRepo;
+
+    let db = setup_db().await;
+    let owner = Harness {
+        rest: app_on(db.clone()),
+        client: session_as(&db, Principal::Local).await,
+    };
+    let tree = owner.tree("Exclusion Fixture").await;
+    let shown = owner.person(&tree, "female", "Wren", "Ashcombe").await;
+    let excluded = owner.person(&tree, "male", "Sorrel", "Ashcombe").await;
+    let (status, body) = owner
+        .rest(
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/exclusions"),
+            Some(json!({ "kind": "person", "person_id": excluded })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let editor = signed_in(&db, "editor").await;
+    let Principal::User(identity) = &editor else {
+        unreachable!("a signed-in user")
+    };
+    MembershipRepo::create(
+        &db,
+        tree.parse().unwrap(),
+        identity.user_id,
+        TreeRole::Editor,
+        None,
+    )
+    .await
+    .expect("shares the tree");
+    let as_editor = Harness {
+        rest: owner.rest.clone(),
+        client: session_as(&db, editor).await,
+    };
+    for (tool, arguments) in [
+        (
+            "update_person",
+            json!({ "tree_id": tree, "person_id": excluded, "sex": "female" }),
+        ),
+        (
+            "delete_person",
+            json!({ "tree_id": tree, "person_id": excluded }),
+        ),
+        (
+            "create_note",
+            json!({ "tree_id": tree, "text": "Fictitious remark", "person_id": excluded }),
+        ),
+    ] {
+        assert_eq!(
+            as_editor.error_code(tool, arguments).await,
+            "not_found",
+            "{tool}"
+        );
+    }
+    let person = owner
+        .ok(
+            "get_person_profile",
+            json!({ "tree_id": tree, "person_id": excluded }),
+        )
+        .await;
+    assert_eq!(person["sex"], "male", "{person}");
+    as_editor
+        .ok(
+            "update_person",
+            json!({ "tree_id": tree, "person_id": shown, "sex": "male" }),
+        )
+        .await;
+}

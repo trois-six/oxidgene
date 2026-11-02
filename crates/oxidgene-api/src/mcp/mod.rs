@@ -1086,7 +1086,9 @@ impl OxidGeneMcp {
             && let Some(access) = viewer.cached(tree_id)
             && crate::authz::scoped::applies(&access, permission)
         {
-            if crate::authz::scoped::refuses_route(route) {
+            if crate::authz::scoped::refuses_shared(&access)
+                && crate::authz::scoped::refuses_route(route)
+            {
                 return Err(OxidGeneError::Forbidden);
             }
             let mut ids = std::collections::HashSet::new();

@@ -140,7 +140,7 @@ pub async fn authorize(
         return ApiError(error).into_response();
     }
     #[cfg(feature = "auth")]
-    let request = match scoped_write(&state, &viewer, requirement, tree_id, route, request).await {
+    let request = match editor_write(&state, &viewer, requirement, tree_id, route, request).await {
         Ok(request) => request,
         Err(error) => {
             authz::log::refusal(&state.db, &viewer, tree_id, route, requirement, &error);
@@ -152,17 +152,24 @@ pub async fn authorize(
     next.run(request).await
 }
 
-/// The largest JSON body a scoped viewer's write is read for the persons
-/// it names; a larger one is refused.
+/// The largest body an Editor's write is read for the persons it names; a
+/// larger one is refused.
 #[cfg(feature = "auth")]
-const SCOPED_BODY_LIMIT: usize = 2 * 1024 * 1024;
+const NAMED_BODY_LIMIT: usize = 2 * 1024 * 1024;
 
-/// Apply a scoped Editor's rules to their write (docs/authorization.md
-/// §3.3, [`authz::scoped`]): a change to a record the whole tree shares is
-/// `403`, and every person the path or the JSON body names must be in the
-/// scope. The body is read here and handed on whole.
+/// Apply the rules on an Editor's writes ([`authz::scoped`]): a scoped
+/// Editor's change to a record the whole tree shares is `403`
+/// (docs/authorization.md §3.3), and every person the path or the body
+/// names is checked against the owner's exclusions and the scope
+/// (docs/privacy.md §6.4). The body is read here and handed on whole.
+///
+/// Every body but a multipart form is read, whatever its type says: the
+/// JSON extractor takes any spelling of `application/json` and every
+/// `+json` type, and a route reading raw bytes takes a body of any type,
+/// so only a body this check has read reaches a handler. One that is not
+/// JSON is refused, before the handler, which would refuse it too.
 #[cfg(feature = "auth")]
-async fn scoped_write(
+async fn editor_write(
     state: &AppState,
     viewer: &ViewerContext,
     requirement: Requirement,
@@ -179,31 +186,39 @@ async fn scoped_write(
     if !authz::scoped::applies(&access, permission) {
         return Ok(request);
     }
-    if authz::scoped::refuses_route(route) {
+    if authz::scoped::refuses_shared(&access) && authz::scoped::refuses_route(route) {
         return Err(OxidGeneError::Forbidden);
     }
+    let Some(named) = authz::scoped::NamedCheck::of(&state.db, &access, tree_id).await? else {
+        return Ok(request);
+    };
     let mut ids = std::collections::HashSet::new();
     authz::scoped::ids_in_path(request.uri().path(), &mut ids);
-    let json = request
+    let multipart = request
         .headers()
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("application/json"));
-    let (parts, body) = request.into_parts();
-    let bytes = if json {
-        axum::body::to_bytes(body, SCOPED_BODY_LIMIT)
-            .await
-            .map_err(|_| OxidGeneError::Validation("the request body is too large".into()))?
-    } else {
-        // Only JSON bodies name persons; a file upload names none.
-        let request = Request::from_parts(parts, body);
-        authz::scoped::check_named(&state.db, &access, tree_id, &ids).await?;
+        .is_some_and(|value| {
+            value
+                .trim_start()
+                .get(..10)
+                .is_some_and(|start| start.eq_ignore_ascii_case("multipart/"))
+        });
+    if multipart {
+        // A file upload names no person in its body.
+        named.check(&state.db, tree_id, &ids).await?;
         return Ok(request);
-    };
-    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+    }
+    let (parts, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, NAMED_BODY_LIMIT)
+        .await
+        .map_err(|_| OxidGeneError::Validation("the request body is too large".into()))?;
+    if !bytes.iter().all(u8::is_ascii_whitespace) {
+        let value = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|_| OxidGeneError::Validation("malformed JSON body".into()))?;
         authz::scoped::ids_in_json(&value, &mut ids);
     }
-    authz::scoped::check_named(&state.db, &access, tree_id, &ids).await?;
+    named.check(&state.db, tree_id, &ids).await?;
     Ok(Request::from_parts(parts, axum::body::Body::from(bytes)))
 }
 

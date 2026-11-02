@@ -292,9 +292,10 @@ async fn request_sized_id_lists_stay_under_the_bound() {
     let ids: Vec<Uuid> = (0..70_000).map(|_| Uuid::now_v7()).collect();
 
     assert!(
-        AccessScopeRepo::persons_named(&db, tree_id, &ids)
+        AccessScopeRepo::records_named(&db, tree_id, &ids)
             .await
             .unwrap()
+            .persons
             .is_empty()
     );
     assert!(

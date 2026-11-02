@@ -974,6 +974,263 @@ async fn a_scoped_editor_writes_inside_the_scope_only() {
     );
 }
 
+/// An Editor's writes naming a person the owner excluded are `404`, as a
+/// read of that person is, and those touching a family with an excluded
+/// spouse `403` (docs/privacy.md §6.4), on REST and GraphQL alike; nothing
+/// they asked for is written, and the Editor's other writes go through.
+#[tokio::test]
+async fn an_editors_writes_naming_an_excluded_person_are_refused() {
+    let mut f = Fixture::new(&[]).await;
+    let (mut editor, editor_user) = f.user("editortwo").await;
+    f.owner
+        .json(
+            Method::POST,
+            &f.uri("/members"),
+            json!({ "email": editor_user.email(), "role": "editor" }),
+        )
+        .await;
+    let excluded = f.person("Thistle");
+    ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/exclusions"),
+        Some(json!({ "kind": "person", "person_id": excluded })),
+    )
+    .await;
+    let profiles = crate::common::all_profiles(&f.local, &f.canaries.tree).await;
+    let profile = profiles
+        .iter()
+        .find(|p| p["person_id"] == excluded.as_str())
+        .expect("the excluded person");
+    let text = |pointer: &str| {
+        profile
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .unwrap()
+            .to_owned()
+    };
+    let (birth, name, family) = (
+        text("/birth/event_id"),
+        text("/primary_name/name_id"),
+        text("/families_as_spouse/0/family_id"),
+    );
+    let note = ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/notes"),
+        Some(json!({ "text": "Fictitious remark", "person_id": excluded })),
+    )
+    .await;
+    let note = note["id"].as_str().unwrap().to_owned();
+    let child = ok(
+        &f.local,
+        Method::POST,
+        &f.uri("/persons"),
+        Some(json!({ "sex": "unknown" })),
+    )
+    .await;
+    let child = child["id"].as_str().unwrap().to_owned();
+
+    let refused = [
+        (
+            Method::PUT,
+            format!("/persons/{excluded}"),
+            Some(json!({ "sex": "male" })),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::DELETE,
+            format!("/persons/{excluded}"),
+            None,
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::POST,
+            "/events".to_string(),
+            Some(json!({ "event_type": "occupation", "person_id": excluded })),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::PUT,
+            format!("/events/{birth}"),
+            Some(json!({})),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::PUT,
+            format!("/persons/{excluded}/names/{name}"),
+            Some(json!({})),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::PUT,
+            format!("/notes/{note}"),
+            Some(json!({})),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::POST,
+            format!("/persons/{}/merge", f.person("Corwin")),
+            Some(json!({ "duplicate_id": excluded })),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            Method::PUT,
+            format!("/families/{family}"),
+            Some(json!({})),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Method::POST,
+            format!("/families/{family}/children"),
+            Some(json!({ "person_id": child, "child_type": "biological", "sort_order": 1 })),
+            StatusCode::FORBIDDEN,
+        ),
+    ];
+    for (method, path, body, status) in refused {
+        let answer = match body {
+            Some(body) => editor.json(method.clone(), &f.uri(&path), body).await,
+            None => editor.send(method.clone(), &f.uri(&path), None, None).await,
+        };
+        assert_eq!(answer.status, status, "{method} {path}: {}", answer.json);
+        assert!(
+            !answer
+                .json
+                .to_string()
+                .contains(crate::common::canary::EXCLUDED),
+            "{method} {path}: {}",
+            answer.json
+        );
+    }
+    for (query, variables, code) in [
+        (
+            "mutation($tree: ID!, $id: ID!) { updatePerson(treeId: $tree, id: $id, input: { sex: MALE }) { id } }",
+            json!({ "tree": f.canaries.tree, "id": excluded }),
+            "NOT_FOUND",
+        ),
+        (
+            "mutation($tree: ID!, $id: ID!) { deletePerson(treeId: $tree, id: $id) }",
+            json!({ "tree": f.canaries.tree, "id": excluded }),
+            "NOT_FOUND",
+        ),
+        (
+            "mutation($tree: ID!, $id: ID!) { updateEvent(treeId: $tree, id: $id, input: {}) { id } }",
+            json!({ "tree": f.canaries.tree, "id": birth }),
+            "NOT_FOUND",
+        ),
+        (
+            "mutation($tree: ID!, $family: ID!, $child: String!) { addChild(treeId: $tree, familyId: $family, input: { personId: $child, childType: BIOLOGICAL }) { personId } }",
+            json!({ "tree": f.canaries.tree, "family": family, "child": child }),
+            "FORBIDDEN",
+        ),
+    ] {
+        let answer = editor.gql(query, variables).await;
+        assert_eq!(
+            answer.json["errors"][0]["extensions"]["code"], code,
+            "{query}: {}",
+            answer.json
+        );
+    }
+
+    // Nothing was written; the Editor's other writes go through.
+    let person = ok(
+        &f.local,
+        Method::GET,
+        &f.uri(&format!("/persons/{excluded}")),
+        None,
+    )
+    .await;
+    assert_eq!(person["sex"], "female", "{person}");
+    let profiles = crate::common::all_profiles(&f.local, &f.canaries.tree).await;
+    assert!(
+        profiles
+            .iter()
+            .all(|p| p["person_id"] != child.as_str() || p["family_as_child"].is_null()),
+        "the child was linked"
+    );
+    let allowed = editor
+        .json(
+            Method::PUT,
+            &f.uri(&format!("/persons/{}", f.person("Corwin"))),
+            json!({ "sex": "male" }),
+        )
+        .await;
+    assert_eq!(allowed.status, StatusCode::OK, "{}", allowed.json);
+}
+
+/// The persons a scoped Editor's body names are checked whatever JSON
+/// media type it is sent as: the JSON extractor accepts any spelling of
+/// `application/json` and any `+json` type, and a body without a type is
+/// read by the routes that take raw bytes (`PUT …/families/{id}`).
+#[tokio::test]
+async fn a_scoped_editors_body_is_checked_whatever_its_media_type() {
+    let mut f = Fixture::new(&[]).await;
+    let (mut editor, editor_user) = f.user("editorone").await;
+    f.owner
+        .json(
+            Method::POST,
+            &f.uri("/members"),
+            json!({ "email": editor_user.email(), "role": "editor", "scope": { "kind": "descendants_of", "person_id": f.person("Harlan") } }),
+        )
+        .await;
+    let body = json!({ "event_type": "occupation", "person_id": f.person("Ashby") }).to_string();
+    for content_type in [
+        Some("Application/JSON"),
+        Some("application/vnd.test+json"),
+        Some("application/merge-patch+json; charset=utf-8"),
+        Some("text/plain"),
+        None,
+    ] {
+        let answer = editor
+            .send(
+                Method::POST,
+                &f.uri("/events"),
+                Some(axum::body::Body::from(body.clone())),
+                content_type,
+            )
+            .await;
+        assert!(
+            !answer.status.is_success(),
+            "{content_type:?}: {} {}",
+            answer.status,
+            answer.json
+        );
+        if content_type.is_some_and(|t| t.contains("json") || t.contains("JSON")) {
+            assert_eq!(answer.status, StatusCode::NOT_FOUND, "{content_type:?}");
+        }
+    }
+    // A malformed body is refused before it reaches the handler.
+    let malformed = editor
+        .send(
+            Method::POST,
+            &f.uri("/events"),
+            Some(axum::body::Body::from("{ not json")),
+            Some("application/vnd.test+json"),
+        )
+        .await;
+    assert_eq!(
+        malformed.status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        malformed.json
+    );
+    let events = ok(
+        &f.local,
+        Method::GET,
+        &f.uri(&format!("/events?person_id={}", f.person("Ashby"))),
+        None,
+    )
+    .await;
+    assert!(
+        events["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|edge| edge["node"]["event_type"] != "occupation"),
+        "{events}"
+    );
+}
+
 /// What keeping scopes current costs on a generated tree of 10 000
 /// persons, printed: building a scope (one read of the persons, one of the
 /// links, the walk, the rows), rebuilding it once a link moved, the

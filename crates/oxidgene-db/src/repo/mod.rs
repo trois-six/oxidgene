@@ -56,7 +56,7 @@ mod tree;
 mod vignette;
 
 pub use access_event::{AccessEvent, AccessEventRepo, NewAccessEvent};
-pub use access_scope::{AccessScope, AccessScopeRepo};
+pub use access_scope::{AccessScope, AccessScopeRepo, NamedRecords};
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use app_user::{AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, UserStatus};
 pub use background_job::{

@@ -85,7 +85,7 @@ async fn authorized(ctx: &Context<'_>, tree_id: Uuid) -> Result<(), OxidGeneErro
     let checked = authz::check(reader_from_ctx(ctx), viewer, requirement, Some(tree_id)).await;
     #[cfg(feature = "auth")]
     let checked = match checked {
-        Ok(()) => scoped_write(ctx, field, permission, tree_id).await,
+        Ok(()) => editor_write(ctx, field, permission, tree_id).await,
         refused => refused,
     };
     if let Err(error) = checked {
@@ -102,12 +102,13 @@ async fn authorized(ctx: &Context<'_>, tree_id: Uuid) -> Result<(), OxidGeneErro
     Ok(())
 }
 
-/// Apply a scoped Editor's rules to their mutation (docs/authorization.md
-/// §3.3), as REST's middleware does: a change to a record the whole tree
-/// shares is `FORBIDDEN`, and every person its arguments name must be in
-/// the scope.
+/// Apply the rules on an Editor's mutations ([`authz::scoped`]), as REST's
+/// middleware does: a scoped Editor's change to a record the whole tree
+/// shares is `FORBIDDEN` (docs/authorization.md §3.3), and every person its
+/// arguments name is checked against the owner's exclusions and the scope
+/// (docs/privacy.md §6.4).
 #[cfg(feature = "auth")]
-async fn scoped_write(
+async fn editor_write(
     ctx: &Context<'_>,
     field: &str,
     permission: Permission,
@@ -120,7 +121,7 @@ async fn scoped_write(
     if !authz::scoped::applies(&access, permission) {
         return Ok(());
     }
-    if authz::scoped::refuses_field(field) {
+    if authz::scoped::refuses_shared(&access) && authz::scoped::refuses_field(field) {
         return Err(OxidGeneError::Forbidden);
     }
     let mut ids = std::collections::HashSet::new();

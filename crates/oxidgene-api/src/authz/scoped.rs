@@ -1,19 +1,24 @@
-//! The two rules a scoped Editor's writes follow (docs/authorization.md
-//! §3.3), checked for REST and GraphQL alike before the operation runs:
+//! The rules an Editor's writes follow, checked for REST, GraphQL and MCP
+//! alike before the operation runs:
 //!
-//! - every person a write names — the one written, and every one it links
-//!   to, through a family, an event, a name, a note, a citation, a medium
-//!   or a vignette — must be in the scope (`404 not_found` otherwise, as a
-//!   person outside it is to a read). A person without any family link yet
-//!   is accepted: it is the one a scoped Editor just created, to link it to
-//!   a person already in the scope, which brings it in.
-//! - places, sources, repositories and tags are read and linked, not
-//!   edited, merged or deleted, since a change would reach records outside
-//!   the scope; the dictionary's renames, bulk tagging and restoring a
-//!   version are refused too (`403 forbidden`).
+//! - a write naming a person the owner excluded from sharing is `404
+//!   not_found`, as a read of that person is, and one touching a family
+//!   with an excluded spouse `403 forbidden` (docs/privacy.md §6.4), for
+//!   every viewer the exclusions apply to;
+//! - a scoped Editor's (docs/authorization.md §3.3): every person a write
+//!   names — the one written, and every one it links to, through a family,
+//!   an event, a name, a note, a citation, a medium or a vignette — must be
+//!   in the scope (`404 not_found` otherwise, as a person outside it is to
+//!   a read). A person without any family link yet is accepted: it is the
+//!   one a scoped Editor just created, to link it to a person already in
+//!   the scope, which brings it in.
+//! - for a scoped Editor too, places, sources, repositories and tags are
+//!   read and linked, not edited, merged or deleted, since a change would
+//!   reach records outside the scope; the dictionary's renames, bulk
+//!   tagging and restoring a version are refused too (`403 forbidden`).
 //!
 //! What the write names is every identifier it carries — its path, its
-//! JSON body or its GraphQL arguments — that is a record of the tree: an
+//! body or its GraphQL arguments — that is a record of the tree: an
 //! identifier of another kind names nothing to check.
 
 use std::collections::HashSet;
@@ -59,10 +64,18 @@ const REFUSED_FIELDS: &[&str] = &[
     "removeSourceRepository",
 ];
 
-/// Whether a scoped viewer's rules apply to an operation needing
-/// `permission` with `access`.
+/// Whether the rules on the persons a write names apply to an operation
+/// needing `permission` with `access`: the writes of a scoped viewer, and
+/// of a viewer the owner's exclusions apply to.
 pub fn applies(access: &TreeAccess, permission: Permission) -> bool {
-    access.scope_id.is_some() && WRITES.contains(&permission)
+    (access.scope_id.is_some() || access.exclusions_apply) && WRITES.contains(&permission)
+}
+
+/// Whether the writes `access` allows may not change the records the
+/// whole tree shares ([`refuses_route`], [`refuses_field`]): a scoped
+/// viewer's.
+pub fn refuses_shared(access: &TreeAccess) -> bool {
+    access.scope_id.is_some()
 }
 
 /// Whether the REST write `route` (its template, `/api/v1` included)
@@ -86,36 +99,93 @@ pub fn refuses_field(field: &str) -> bool {
     REFUSED_FIELDS.contains(&field)
 }
 
-/// Check that every person `ids` name in `tree_id` is in the scope of
-/// `access`, the scope made current first on the writer `db`.
+/// What the persons a write names are checked against: the owner's
+/// exclusions, and the viewer's scope.
+#[derive(Debug)]
+pub struct NamedCheck {
+    scope_id: Option<Uuid>,
+    excluded: HashSet<Uuid>,
+}
+
+impl NamedCheck {
+    /// The check of `access`'s writes in `tree_id`, the exclusions and the
+    /// scope made current first on the writer `db`; none when nothing a
+    /// write names can be refused — no scope, and no exclusion applying.
+    pub async fn of(
+        db: &DatabaseConnection,
+        access: &TreeAccess,
+        tree_id: Uuid,
+    ) -> Result<Option<Self>, OxidGeneError> {
+        let excluded = if access.exclusions_apply {
+            crate::service::exclusion::excluded_persons(db, tree_id).await?
+        } else {
+            HashSet::new()
+        };
+        if access.scope_id.is_none() && excluded.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            scope_id: access.scope_id,
+            excluded,
+        }))
+    }
+
+    /// Check what `ids` name in `tree_id`: no excluded person (`404`), no
+    /// family with an excluded spouse (`403`), and for a scoped viewer every
+    /// person in the scope (`404`).
+    pub async fn check(
+        &self,
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+        ids: &HashSet<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let ids: Vec<Uuid> = ids.iter().copied().filter(|id| *id != tree_id).collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let named = AccessScopeRepo::records_named(db, tree_id, &ids).await?;
+        if let Some(person) = named.persons.iter().find(|p| self.excluded.contains(p)) {
+            return Err(OxidGeneError::NotFound {
+                entity: "Person",
+                id: *person,
+            });
+        }
+        if named.spouses.iter().any(|p| self.excluded.contains(p)) {
+            return Err(OxidGeneError::Forbidden);
+        }
+        let Some(scope_id) = self.scope_id else {
+            return Ok(());
+        };
+        let named = named.all_persons();
+        if named.is_empty() {
+            return Ok(());
+        }
+        let scope = crate::service::access_scope::scope_persons(db, scope_id).await?;
+        let outside: Vec<Uuid> = named
+            .into_iter()
+            .filter(|person| !scope.contains(person))
+            .collect();
+        let linked = AccessScopeRepo::linked_persons(db, &outside).await?;
+        match outside.into_iter().find(|person| linked.contains(person)) {
+            Some(person) => Err(OxidGeneError::NotFound {
+                entity: "Person",
+                id: person,
+            }),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Check what `ids` name in `tree_id` against `access`'s
+/// [`NamedCheck`], made on the writer `db`.
 pub async fn check_named(
     db: &DatabaseConnection,
     access: &TreeAccess,
     tree_id: Uuid,
     ids: &HashSet<Uuid>,
 ) -> Result<(), OxidGeneError> {
-    let Some(scope_id) = access.scope_id else {
-        return Ok(());
-    };
-    let ids: Vec<Uuid> = ids.iter().copied().filter(|id| *id != tree_id).collect();
-    if ids.is_empty() {
-        return Ok(());
-    }
-    let named = AccessScopeRepo::persons_named(db, tree_id, &ids).await?;
-    if named.is_empty() {
-        return Ok(());
-    }
-    let scope = crate::service::access_scope::scope_persons(db, scope_id).await?;
-    let outside: Vec<Uuid> = named
-        .into_iter()
-        .filter(|person| !scope.contains(person))
-        .collect();
-    let linked = AccessScopeRepo::linked_persons(db, &outside).await?;
-    match outside.into_iter().find(|person| linked.contains(person)) {
-        Some(person) => Err(OxidGeneError::NotFound {
-            entity: "Person",
-            id: person,
-        }),
+    match NamedCheck::of(db, access, tree_id).await? {
+        Some(check) => check.check(db, tree_id, ids).await,
         None => Ok(()),
     }
 }
@@ -174,11 +244,13 @@ mod tests {
     }
 
     #[test]
-    fn only_a_scoped_viewers_writes_follow_the_rules() {
+    fn an_editors_writes_follow_the_rules_and_the_owners_do_not() {
+        let owner = TreeAccess::of_role(TreeRole::Owner);
+        assert!(!applies(&owner, Permission::Edit));
         let editor = TreeAccess::of_role(TreeRole::Editor);
-        assert!(!applies(&editor, Permission::Edit));
+        assert!(applies(&editor, Permission::Edit) && !refuses_shared(&editor));
         let scoped = editor.scoped(Some(Uuid::now_v7()));
-        assert!(applies(&scoped, Permission::Edit));
+        assert!(applies(&scoped, Permission::Edit) && refuses_shared(&scoped));
         assert!(!applies(&scoped, Permission::Read));
     }
 
