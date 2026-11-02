@@ -31,8 +31,6 @@ La **Confidentialité par défaut** dit ce que signifie « suit l’arbre » pou
 
 Un nouvel arbre est Public : un enregistrement que personne n’a classé est public, tandis que les personnes vivantes restent protégées par la règle des contemporains, qui les cache aux visiteurs quelle que soit leur propre confidentialité. Choisissez Privé pour limiter les visiteurs à ce que vous publiez explicitement.
 
-La confidentialité est enregistrée dès aujourd’hui, mais ne masque encore rien. Comme l’indique la section : **Enregistré dès maintenant. Rien n’est encore masqué — cela prendra effet avec les comptes et la publication.**
-
 ### Personnes contemporaines
 
 La carte **Personnes contemporaines** décide qui compte comme vivant, et comment apparaît une personne écartée :

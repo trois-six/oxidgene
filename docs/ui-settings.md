@@ -209,11 +209,9 @@ A card controls the tree-wide default described in [§8](#8-section-privacy).
 
 ## 8. Section: Privacy
 
-Privacy is stored but not enforced until authentication and authorization are
-available. The UI must state this limitation and must not imply that records
-are currently hidden from a viewer. How the web build will enforce it is
-specified in [Privacy](privacy.md); the controls below marked *planned* follow
-that specification and are not built yet.
+Privacy is enforced as [Privacy](privacy.md) specifies: the web build hides
+private records from a tree's Visitors, and both builds apply it to the
+exports that leave out private persons ([Privacy §8](privacy.md#8-exports)).
 
 ### Default privacy
 
@@ -228,8 +226,7 @@ explicit Private or an exclusion hides more
 was published explicitly.
 
 Saving is immediate — one click, one write — with a local override so the control
-answers the click rather than the refetch. It carries the same line every other
-privacy control does: *recorded now, nothing is hidden yet*.
+answers the click rather than the refetch.
 
 Stored as `tree.default_privacy`; see [Data Model](data-model.md) (Privacy) for
 why it is not a `Privacy` value itself.

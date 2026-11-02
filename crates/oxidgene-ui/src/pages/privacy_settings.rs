@@ -116,9 +116,6 @@ pub fn PrivacySection(tree_id: String, tree_resource: TreeResource) -> Element {
                         }
                     }
                 }
-                p { class: "pf-ns-hint settings-hint",
-                    {i18n.t("privacy.not_enforced_yet")}
-                }
                 if let Some(err) = &save_error() {
                     div { class: "error-msg settings-feedback", "{err}" }
                 }

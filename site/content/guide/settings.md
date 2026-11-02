@@ -31,8 +31,6 @@ On the web version, the owner of a tree also finds **Members** and **Sharing** i
 
 A new tree starts as Public: a record nobody classified is public, while living persons stay protected by the contemporary-person rule, which hides them from visitors whatever their own privacy. Choose Private to limit visitors to what you publish explicitly.
 
-Privacy is recorded today but does not hide anything yet. As the section says: **Recorded now. Nothing is hidden yet — this takes effect when accounts and publishing arrive.**
-
 ### Contemporary persons
 
 The **Contemporary persons** card decides who counts as living, and how a person left out appears:

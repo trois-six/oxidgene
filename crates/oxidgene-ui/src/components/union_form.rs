@@ -298,7 +298,6 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                 IfCan { permission: Permission::PrivacyEdit,
                     FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
                         {privacy_choice(&scope, privacy_val)}
-                        p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
                     }
                 }
 

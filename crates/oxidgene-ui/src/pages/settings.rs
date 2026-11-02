@@ -2079,7 +2079,6 @@ const SETTINGS_STYLES: &str = r#"
     .settings-export-row .settings-card-desc { margin-bottom: 0; }
     .settings-feedback,
     .settings-choices { margin-top: var(--space-6); }
-    .settings-hint { margin-top: var(--space-4); }
     .settings-export-info { flex: 1; }
     .settings-check {
         display: grid;

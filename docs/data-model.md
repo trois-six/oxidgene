@@ -34,7 +34,7 @@ independent of this schema reset (see §4.1).
 | `id` | UUID v7 | PK |
 | `name` | String | Required |
 | `description` | String? | Optional |
-| `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP, enforced for viewers by [Privacy §3](privacy.md#3-record-privacy) |
+| `default_privacy` | TreeDefaultPrivacy | Tree-wide privacy of the records that have not chosen (`Public` by default), enforced by [Privacy §3](privacy.md#3-record-privacy) |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
 | `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §10 |
@@ -161,7 +161,7 @@ a per-viewer preference ([App Settings](ui-app-settings.md), route `/settings`, 
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
-| `privacy` | Privacy | Per-family privacy intent (default `Default`); not enforced in the current MVP |
+| `privacy` | Privacy | Per-family privacy (default `Default`), enforced by [Privacy §3](privacy.md#3-record-privacy) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

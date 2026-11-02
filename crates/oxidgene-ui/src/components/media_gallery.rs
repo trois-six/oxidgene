@@ -2334,8 +2334,7 @@ pub(crate) fn MediaClassification(
             p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
         }
 
-        // Recorded, not yet enforced — the hint says so rather than
-        // letting the control imply a protection that does not exist.
+        // Enforced for the tree's other viewers (docs/privacy.md §3.2).
         div { class: "form-group",
             label { {i18n.t("media.privacy")} }
             select {
@@ -2357,7 +2356,6 @@ pub(crate) fn MediaClassification(
                     }
                 }
             }
-            p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
         }
     }
 }
