@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-11-02T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T21:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -201,6 +201,13 @@ Republican-calendar or 1792–1793 register, which may sit in either
 collection, is found by the order alone. Where one engine serves every
 register, as on the Loire-Atlantique portal, the archive has a single
 collection with every act kind and no period.
+
+**One transport per portal.** The collections reaching one portal origin —
+an archive's searches, or the archives sharing a portal, as Deux-Sèvres and
+Vienne do — share its `transport` (§4.2): an anti-bot check guards a portal,
+not one of its searches, so they change together. The catalogue refuses a
+collection whose transport differs from that of a collection listed before
+it on the same origin.
 
 **Plain `http`.** Every portal origin is `https`, which each adapter's
 settings require, but for the archives this list names, with why; the
@@ -3007,8 +3014,10 @@ Archive portals are public services whose terms OxidGene follows:
 - Catalogue tests check unique ids and citation codes, that each archive
   sits in its country's directory, that an `iiif` archive has its
   attribution and terms, that every collection's `platform` has an adapter,
-  that every adapter accepts its collections' `portal`, and that an adapter
-  that cannot search a series refuses a collection holding one.
+  that every adapter accepts its collections' `portal`, that an adapter
+  that cannot search a series refuses a collection holding one, and that the
+  collections reaching one portal origin, of one archive or of several,
+  share its transport.
 - Resolver tests run a scripted adapter over a counting transport: collection
   order, the fallbacks, the cache, and offline targets for `browser`
   portals.

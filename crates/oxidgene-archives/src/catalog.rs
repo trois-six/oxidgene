@@ -7,13 +7,13 @@
 //! adapter, which validates it here, so a catalogue mistake fails the tests
 //! instead of a reader's click.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
 use crate::citation::{Act, CitationGrammar, CitationParts, Series};
-use crate::platform::Platform;
+use crate::platform::{Access, Platform};
 
 /// The administrative level of an archive service.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -242,6 +242,7 @@ pub(crate) fn load(
     let mut archives = Vec::with_capacity(documents.len());
     let mut ids = HashSet::new();
     let mut codes = HashSet::new();
+    let mut transports = HashMap::new();
     for (directory, document) in documents {
         let archive: Archive = serde_json::from_str(document)
             .map_err(|error| CatalogError::new(error.to_string()).within(directory))?;
@@ -259,9 +260,44 @@ pub(crate) fn load(
                     .within(&archive.id),
             );
         }
+        validate_transports(&archive, platforms, &mut transports)
+            .map_err(|error| error.within(&archive.id))?;
         archives.push(archive);
     }
     Ok(archives)
+}
+
+/// Refuses a collection reaching a portal origin by another transport than
+/// a collection listed before it, of the same archive or another: an
+/// anti-bot check guards a portal, not one of its searches, so the
+/// collections and archives a portal serves change transport together
+/// (Archive Portals §3.1). `seen` holds each origin's transport so far.
+fn validate_transports(
+    archive: &Archive,
+    platforms: &[Box<dyn Platform>],
+    seen: &mut HashMap<String, Access>,
+) -> Result<(), CatalogError> {
+    for collection in &archive.collections {
+        let Some(endpoint) = platforms
+            .iter()
+            .find(|platform| platform.id() == collection.platform)
+            .and_then(|platform| platform.endpoint(collection))
+        else {
+            continue;
+        };
+        let access = *seen
+            .entry(endpoint.origin.clone())
+            .or_insert(endpoint.access);
+        if access != endpoint.access {
+            return Err(CatalogError::new(format!(
+                "the portal {} is reached by one transport for all its collections: \
+                 {:?} here, {access:?} before",
+                endpoint.origin, endpoint.access
+            ))
+            .within(&collection.id));
+        }
+    }
+    Ok(())
 }
 
 fn is_slug(text: &str) -> bool {
@@ -785,5 +821,45 @@ mod tests {
         document["collections"][1]["portal"]["transport"] = "browser".into();
         let error = load_one("fr", &document).unwrap_err().to_string();
         assert!(error.contains("must answer any client"), "{error}");
+    }
+
+    #[test]
+    fn a_portal_is_reached_by_one_transport() {
+        let error =
+            rejected(|d| d["collections"][1]["portal"]["transport"] = "browser".into()).to_string();
+        assert!(error.contains("civil-status"), "{error}");
+        assert!(error.contains("one transport"), "{error}");
+
+        let browser = |document: &mut serde_json::Value, index: usize| {
+            document["collections"][index]["portal"]["transport"] = "browser".into();
+        };
+        let mut first = document();
+        browser(&mut first, 0);
+        browser(&mut first, 1);
+        assert!(load_one("fr", &first).is_ok());
+
+        // An archive sharing another's portal, such as two departments
+        // served by one, switches with it.
+        let mut second = document();
+        second["id"] = "fr-ad99".into();
+        second["citation_codes"] = serde_json::json!(["AD99"]);
+        let (first, shared) = (first.to_string(), second.to_string());
+        let error = load(
+            &[("fr", first.as_str()), ("fr", shared.as_str())],
+            &builtin(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.starts_with("fr-ad99: parish-registers"), "{error}");
+        browser(&mut second, 0);
+        browser(&mut second, 1);
+        let second = second.to_string();
+        assert!(
+            load(
+                &[("fr", first.as_str()), ("fr", second.as_str())],
+                &builtin()
+            )
+            .is_ok()
+        );
     }
 }
