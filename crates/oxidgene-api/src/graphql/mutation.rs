@@ -1832,6 +1832,7 @@ impl TreeMutation {
         boxed(async move {
             // `job_tree`, as for `cancelImportJob`.
             let status = crate::service::background_job::cancel_export_job(
+                viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 reader_from_ctx(ctx),
                 &**media_from_ctx(ctx),

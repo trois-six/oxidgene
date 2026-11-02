@@ -150,7 +150,7 @@ permission open, the declaration settles it:
 | The bulk target's preview (`tags/target`, `tagTarget`), which only bulk tagging uses | `merge` |
 | Marking persons distinct, putting a tag on a record and taking it off | `edit` |
 | Dropping and rebuilding the projections (`profiles`, `profiles/rebuild`) | `settings_manage` |
-| An import or export job's status, cancellation and download | The job's `import` or `export` |
+| An import or export job's status, cancellation and download | The job's `import` or `export`; an export's, and the latest downloadable one, its author's alone (`404` to anyone else): its archive holds what its author sees ([Privacy §8](privacy.md#8-exports)) |
 | A tree's members, a member's update and removal | `read`, which the service narrows (§10) |
 
 ### 3.3 Scoped members

@@ -2952,7 +2952,7 @@ fn choices_of(job: &BackgroundJob) -> gedcom::ExportChoices {
 }
 
 /// Where export job `job_id` of tree `tree_id` stands.
-pub async fn export_job_status(
+async fn export_job_status(
     db: &DatabaseConnection,
     tree_id: Uuid,
     job_id: Uuid,
@@ -3065,15 +3065,18 @@ pub async fn cancel_import_job(
     import_job_status(reader, tree_id, job_id).await
 }
 
-/// Cancel export job `job_id` of tree `tree_id`: a queued job ends at once,
-/// a running one stops at its next medium. Where it stands then.
+/// Cancel export job `job_id` of tree `tree_id`, which `viewer` made: a
+/// queued job ends at once, a running one stops at its next medium. Where
+/// it stands then.
 pub async fn cancel_export_job(
+    viewer: &ViewerContext,
     writer: &DatabaseConnection,
     reader: &DatabaseConnection,
     media: &dyn MediaStore,
     tree_id: Uuid,
     job_id: Uuid,
 ) -> Result<ExportJobStatus, OxidGeneError> {
+    require_export_author(reader, viewer, tree_id, job_id).await?;
     cancel_job(
         writer,
         reader,
@@ -3147,14 +3150,17 @@ pub async fn wait_import_job_status(
     job_watch::wait_for(job_id, wait, || import_job_status(db, tree_id, job_id)).await
 }
 
-/// Where export job `job_id` of tree `tree_id` stands, once it differs from
-/// what `wait` last read or `wait`'s time has run out (see [`job_watch`]).
+/// Where export job `job_id` of tree `tree_id`, which `viewer` made,
+/// stands, once it differs from what `wait` last read or `wait`'s time has
+/// run out (see [`job_watch`]).
 pub async fn wait_export_job_status(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     job_id: Uuid,
     wait: &JobWait,
 ) -> Result<ExportJobStatus, OxidGeneError> {
+    require_export_author(db, viewer, tree_id, job_id).await?;
     job_watch::wait_for(job_id, wait, || export_job_status(db, tree_id, job_id)).await
 }
 
@@ -3213,19 +3219,29 @@ pub struct DownloadableExport {
     pub include_media: bool,
 }
 
-/// Tree `tree_id`'s most recent completed export whose archive can still be
-/// downloaded: not past [`EXPORT_ARTIFACT_TTL`], and still in `media`.
-/// `None` when there is none, which is no error: a page asks on load whether
-/// there is one to offer again.
+/// The most recent completed export of tree `tree_id` that `viewer` made
+/// whose archive can still be downloaded: not past [`EXPORT_ARTIFACT_TTL`],
+/// and still in `media`. `None` when there is none, which is no error: a
+/// page asks on load whether there is one to offer again.
 pub async fn downloadable_export(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     media: &dyn MediaStore,
     tree_id: Uuid,
 ) -> Result<Option<DownloadableExport>, OxidGeneError> {
     crate::service::scope::require_live_tree(db, tree_id).await?;
+    let actor = if viewer.is_local() {
+        None
+    } else {
+        match viewer.user() {
+            Some(identity) => Some(identity.user_id),
+            None => return Ok(None),
+        }
+    };
     let since = chrono::Utc::now()
         - chrono::Duration::from_std(EXPORT_ARTIFACT_TTL).unwrap_or(chrono::TimeDelta::MAX);
-    let Some(job) = BackgroundJobRepo::latest_artifact_in_tree(db, tree_id, since).await? else {
+    let Some(job) = BackgroundJobRepo::latest_artifact_in_tree(db, tree_id, since, actor).await?
+    else {
         return Ok(None);
     };
     let (Some(expires_at), Some(key)) = (downloadable_until(&job), job.artifact_key.as_deref())
@@ -3248,16 +3264,20 @@ pub async fn downloadable_export(
     }))
 }
 
-/// The export artifact of completed job `job_id` of tree `tree_id`: its
-/// storage key. It can be downloaded any number of times until
-/// [`EXPORT_ARTIFACT_TTL`] after the export completed; past it, it is not
-/// found, whether or not the maintenance pass has deleted it yet.
+/// The export artifact of completed job `job_id` of tree `tree_id`, which
+/// `viewer` made: its storage key. It can be downloaded any number of times
+/// until [`EXPORT_ARTIFACT_TTL`] after the export completed; past it, it is
+/// not found, whether or not the maintenance pass has deleted it yet.
 pub async fn export_artifact(
+    viewer: &ViewerContext,
     db: &DatabaseConnection,
     tree_id: Uuid,
     job_id: Uuid,
 ) -> Result<String, OxidGeneError> {
     let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    if !made_by(&job, viewer) {
+        return Err(export_not_found(job_id));
+    }
     if job.status != BackgroundJobStatus::Completed.as_str() {
         return Err(OxidGeneError::Validation(
             "export artifact is not ready".into(),
@@ -3271,6 +3291,43 @@ pub async fn export_artifact(
         return Err(not_found);
     }
     job.artifact_key.ok_or(not_found)
+}
+
+/// Whether `viewer` made `job`: the local owner made every job.
+fn made_by(job: &BackgroundJob, viewer: &ViewerContext) -> bool {
+    viewer.is_local()
+        || job
+            .actor_user_id
+            .is_some_and(|actor| viewer.user().is_some_and(|user| user.user_id == actor))
+}
+
+fn export_not_found(job_id: Uuid) -> OxidGeneError {
+    OxidGeneError::NotFound {
+        entity: "ExportJob",
+        id: job_id,
+    }
+}
+
+/// Check that `viewer` made export job `job_id` of tree `tree_id`: an
+/// export's archive holds what its author sees — the owner's, everything —
+/// so nobody else finds, polls, cancels or downloads it (docs/privacy.md
+/// §8). The local owner's request reads nothing, so that the status of a
+/// job it runs still answers from memory.
+async fn require_export_author(
+    db: &DatabaseConnection,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    if viewer.is_local() {
+        return Ok(());
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    if made_by(&job, viewer) {
+        Ok(())
+    } else {
+        Err(export_not_found(job_id))
+    }
 }
 
 /// Job `job_id` of tree `tree_id`, which must be of `kind` and belong to a

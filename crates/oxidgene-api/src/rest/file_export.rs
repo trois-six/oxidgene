@@ -37,13 +37,15 @@ pub async fn start(
 
 /// GET /api/v1/trees/:tree_id/export-jobs/downloadable
 ///
-/// The tree's most recent export that can still be downloaded, or `null`.
+/// The viewer's most recent export of the tree that can still be
+/// downloaded, or `null`.
 pub async fn downloadable(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Option<DownloadableExport>>, ApiError> {
     Ok(Json(
-        background_job::downloadable_export(&state.reader, &*state.media, tree_id).await?,
+        background_job::downloadable_export(&viewer, &state.reader, &*state.media, tree_id).await?,
     ))
 }
 
@@ -53,21 +55,30 @@ pub async fn downloadable(
 /// version `since`, or after `wait` seconds.
 pub async fn status(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<JobStatusQuery>,
 ) -> Result<Json<ExportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::wait_export_job_status(&state.reader, tree_id, job_id, &query.wait())
-            .await?,
+        background_job::wait_export_job_status(
+            &viewer,
+            &state.reader,
+            tree_id,
+            job_id,
+            &query.wait(),
+        )
+        .await?,
     ))
 }
 
 /// GET /api/v1/trees/:tree_id/export-jobs/:job_id/download
 pub async fn download(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    let artifact_key = background_job::export_artifact(&state.reader, tree_id, job_id).await?;
+    let artifact_key =
+        background_job::export_artifact(&viewer, &state.reader, tree_id, job_id).await?;
     // Kept for its hour whatever the downloads: a save that went wrong can
     // be downloaded again.
     let stream = state.media.get_stream(&artifact_key).await?;
@@ -90,10 +101,18 @@ pub async fn download(
 /// runs. Answers where it stands then.
 pub async fn cancel(
     State(state): State<AppState>,
+    viewer: Viewer,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ExportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::cancel_export_job(&state.db, &state.reader, &*state.media, tree_id, job_id)
-            .await?,
+        background_job::cancel_export_job(
+            &viewer,
+            &state.db,
+            &state.reader,
+            &*state.media,
+            tree_id,
+            job_id,
+        )
+        .await?,
     ))
 }

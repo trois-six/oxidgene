@@ -121,7 +121,7 @@ La carte **Émetteur** indique de qui proviennent les fichiers exportés : **Nom
 
 ### Télécharger à nouveau un GEDZIP
 
-Une archive GEDZIP est conservée une heure après sa création. Pendant cette heure, la section d’export indique sa taille et jusqu’à quand elle reste disponible, avec un bouton **Télécharger à nouveau** : servez-vous-en si l’enregistrement a échoué ou s’il vous faut une seconde copie, sans réemballer l’arbre. Passé ce délai, exportez de nouveau l’arbre.
+Une archive GEDZIP est conservée une heure après sa création. Pendant cette heure, la section d’export indique sa taille et jusqu’à quand elle reste disponible, avec un bouton **Télécharger à nouveau** : servez-vous-en si l’enregistrement a échoué ou s’il vous faut une seconde copie, sans réemballer l’arbre. Passé ce délai, exportez de nouveau l’arbre. Sur un arbre partagé, une archive n’est proposée qu’au membre qui l’a créée : elle contient ce qu’il voit.
 
 ### Ce que voient les autres logiciels
 

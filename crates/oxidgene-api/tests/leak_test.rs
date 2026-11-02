@@ -478,6 +478,104 @@ async fn counts_leave_the_hidden_persons_out() {
     }
 }
 
+/// An export job and its archive are their author's: the owner's archive
+/// holds everything the owner sees, so no other viewer finds, polls,
+/// cancels or downloads it, on REST or GraphQL; an Editor finds their own.
+#[tokio::test]
+async fn no_viewer_reaches_an_export_made_by_someone_else() {
+    let f = fixture().await;
+    let base = format!("/api/v1/trees/{}", f.tree.tree_id);
+    let job = f.tree.id("export_job_id").to_owned();
+    let local = app_on(f.db.clone());
+    let owners = ok(
+        &local,
+        Method::GET,
+        &format!("{base}/export-jobs/downloadable"),
+        None,
+    )
+    .await;
+    assert_eq!(owners["job_id"], job.as_str(), "{owners}");
+    for who in VIEWERS {
+        let (status, body) = f
+            .rest(
+                who,
+                Method::GET,
+                &format!("{base}/export-jobs/downloadable"),
+                None,
+            )
+            .await;
+        assert!(
+            !status.is_success() || body.trim() == "null",
+            "{who:?} finds the owner's export: {body}"
+        );
+        for (method, path) in [
+            (Method::GET, format!("{base}/export-jobs/{job}")),
+            (Method::GET, format!("{base}/export-jobs/{job}/download")),
+            (Method::POST, format!("{base}/export-jobs/{job}/cancel")),
+        ] {
+            let (status, body) = f.rest(who, method.clone(), &path, None).await;
+            assert!(
+                !status.is_success(),
+                "{who:?} {method} {path}: {status} {body}"
+            );
+        }
+        #[cfg(feature = "graphql")]
+        {
+            let found = f
+                .gql(
+                    who,
+                    &format!(
+                        "query {{ downloadableExport(treeId: \"{}\") {{ jobId }} }}",
+                        f.tree.tree_id
+                    ),
+                )
+                .await;
+            assert!(
+                found["data"]["downloadableExport"].is_null(),
+                "{who:?}: {found}"
+            );
+            let polled = f
+                .gql(
+                    who,
+                    &format!(
+                        "query {{ exportJobStatus(treeId: \"{}\", jobId: \"{job}\") {{ downloadUrl }} }}",
+                        f.tree.tree_id
+                    ),
+                )
+                .await;
+            assert!(polled["errors"].is_array(), "{who:?}: {polled}");
+        }
+    }
+
+    // The Editor's own export is theirs to find.
+    let (status, started) = f
+        .rest(
+            Who::Editor,
+            Method::POST,
+            &format!("{base}/export-jobs"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    let own: Value = serde_json::from_str(&started).unwrap();
+    assert!(
+        crate::common::worker_on(&f.db)
+            .run_once()
+            .await
+            .expect("runs the export")
+    );
+    let (_, found) = f
+        .rest(
+            Who::Editor,
+            Method::GET,
+            &format!("{base}/export-jobs/downloadable"),
+            None,
+        )
+        .await;
+    let found: Value = serde_json::from_str(&found).unwrap();
+    assert_eq!(found["job_id"], own["job_id"], "{found}");
+}
+
 /// The persons a growth chart adds up to.
 fn net_growth(text: &str) -> i64 {
     serde_json::from_str::<Value>(text).unwrap()["days"]

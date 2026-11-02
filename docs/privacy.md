@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T16:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -440,6 +440,10 @@ privacy` in GEDCOM 5.5.1 — information withheld for privacy — or `RESN
 CONFIDENTIAL` in GEDCOM 7, which discourages `PRIVACY` for its ambiguity.
 Excluded persons are never stubbed with initials. Media of hidden persons stay
 out of a GEDZIP. The export's audit entry records which option applied.
+
+An export job, its status and its archive are its author's: since the archive
+holds what its author sees — the owner's, everything — nobody else finds it
+among the downloadable exports, polls it, cancels it or downloads it (`404`).
 
 Confidential notes are left out of an export by an exporter without
 `read_confidential` (a Guest) and by *Apply visitors' privacy rules*; what

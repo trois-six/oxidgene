@@ -5496,8 +5496,8 @@ type QueryRoot {
 	"""
 	exportJobStatus(treeId: ID!, jobId: ID!, since: String, wait: Int): GqlExportJobStatus!
 	"""
-	The tree's most recent GEDZIP export whose archive can still be
-	downloaded, or `null`.
+	The viewer's most recent GEDZIP export of the tree whose archive can
+	still be downloaded, or `null`.
 	"""
 	downloadableExport(treeId: ID!): GqlDownloadableExport
 	"""

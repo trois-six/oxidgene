@@ -1953,6 +1953,7 @@ impl TreeQuery {
             // to read. Anyone else's request is authorized first.
             let tree_id = job_tree(ctx, &tree_id).await?;
             let status = crate::service::background_job::wait_export_job_status(
+                viewer_from_ctx(ctx),
                 reader_from_ctx(ctx),
                 tree_id,
                 uuid(&job_id)?,
@@ -1964,8 +1965,8 @@ impl TreeQuery {
         .await
     }
 
-    /// The tree's most recent GEDZIP export whose archive can still be
-    /// downloaded, or `null`.
+    /// The viewer's most recent GEDZIP export of the tree whose archive can
+    /// still be downloaded, or `null`.
     async fn downloadable_export(
         &self,
         ctx: &Context<'_>,
@@ -1974,6 +1975,7 @@ impl TreeQuery {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
             let export = crate::service::background_job::downloadable_export(
+                viewer_from_ctx(ctx),
                 reader_from_ctx(ctx),
                 &**media_from_ctx(ctx),
                 tree_id,

@@ -121,7 +121,7 @@ The **Submitter** card says who the exported files come from: **Name**, **Email*
 
 ### Download a GEDZIP again
 
-A GEDZIP archive is kept for one hour after it is created. During that hour, the export section shows its size and until when it is available, with a **Download again** button: use it if the save failed or if you need a second copy, without packing the tree again. After the hour, export the tree again.
+A GEDZIP archive is kept for one hour after it is created. During that hour, the export section shows its size and until when it is available, with a **Download again** button: use it if the save failed or if you need a second copy, without packing the tree again. After the hour, export the tree again. On a shared tree, an archive is offered only to the member who made it: it holds what they see.
 
 ### What other programs see
 

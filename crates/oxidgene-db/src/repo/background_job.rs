@@ -571,13 +571,19 @@ impl BackgroundJobRepo {
     }
 
     /// Tree `tree_id`'s most recently completed export that finished after
-    /// `since` and still records an artifact.
+    /// `since` and still records an artifact: of any author, or with
+    /// `actor`, of that user alone.
     pub async fn latest_artifact_in_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         since: DateTimeUtc,
+        actor: Option<Uuid>,
     ) -> Result<Option<BackgroundJob>, OxidGeneError> {
-        Entity::find()
+        let mut query = Entity::find();
+        if let Some(actor) = actor {
+            query = query.filter(Column::ActorUserId.eq(actor));
+        }
+        query
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::Kind.eq(BackgroundJobKind::Export.as_str()))
             .filter(Column::Status.eq(BackgroundJobStatus::Completed.as_str()))
