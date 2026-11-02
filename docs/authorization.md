@@ -317,6 +317,9 @@ duplicates gets them as its owner; one the local owner creates has none.
   refused alike ([Authentication §6.6](authentication.md#66-erasure-and-account-data)).
 - **Expiry.** A membership past its expiry grants nothing and is deleted by
   the worker's maintenance pass, with a `membership_expired` access event.
+  Sharing the tree again with its user before that pass deletes it the
+  same way and creates the new membership; only a live membership makes a
+  share `409 conflict`.
 - **"Who am I?"** becomes per member: each member marks the person they are
   in the tree, which drives their badge on the pedigree and the default
   submitter of their exports. `tree.self_person_id` remains the owner's.
@@ -373,7 +376,10 @@ any, and its own expiry (14 days by default, at most 90).
   creates the membership; an address that does not match accepts nothing,
   whoever holds the link. A pending invitation is listed, revocable and
   re-sendable by the owner.
-- An expired invitation is deleted by the worker's maintenance pass.
+- An address has one pending invitation to a tree at a time: inviting it
+  again is `409 conflict`, also when two invitations race.
+- An expired invitation is deleted by the worker's maintenance pass, or
+  when its address is invited again.
 
 ### 6.3 Share links
 

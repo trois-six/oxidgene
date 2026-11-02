@@ -457,12 +457,32 @@ async fn add_member(
     role: TreeRole,
     request: &ShareRequest,
 ) -> Result<MemberView, OxidGeneError> {
-    if MembershipRepo::get(db, tree_id, user_id).await?.is_some() {
-        return Err(OxidGeneError::Conflict(
-            "the user already holds a role on the tree".into(),
-        ));
-    }
+    // Checked in the transaction that writes, so that a concurrent share
+    // meets the check or the unique index, a `409` either way.
     let txn = begin_tx(db).await?;
+    if let Some(current) = MembershipRepo::get(&txn, tree_id, user_id).await? {
+        if current.is_live(Utc::now()) {
+            return Err(OxidGeneError::Conflict(
+                "the user already holds a role on the tree".into(),
+            ));
+        }
+        // An expired membership the maintenance pass has not deleted yet
+        // grants nothing: it ends here, as that pass would end it, and the
+        // new share replaces it.
+        MembershipRepo::delete(&txn, tree_id, user_id).await?;
+        oxidgene_db::repo::AccessEventRepo::insert(
+            &txn,
+            oxidgene_db::repo::NewAccessEvent {
+                kind: "membership_expired",
+                principal_kind: "user",
+                user_id: Some(user_id),
+                tree_id: Some(tree_id),
+                outcome: current.role.as_str().to_string(),
+                ..oxidgene_db::repo::NewAccessEvent::default()
+            },
+        )
+        .await?;
+    }
     let scope_id = access_scope::create_optional(&txn, tree_id, request.scope.as_ref()).await?;
     let membership = MembershipRepo::create_shared(
         &txn,
@@ -530,7 +550,10 @@ async fn invite(
 ) -> Result<InvitationView, OxidGeneError> {
     let now = Utc::now();
     let expires_at = invitation_expiry(now, request.invitation_expires_at)?;
-    if InvitationRepo::pending_for(db, tree_id, &email, now)
+    // Checked in the transaction that writes; a concurrent invitation of
+    // the same address meets the unique index instead, a `409` too.
+    let txn = begin_tx(db).await?;
+    if InvitationRepo::pending_for(&txn, tree_id, &email, now)
         .await?
         .is_some()
     {
@@ -538,7 +561,7 @@ async fn invite(
             "the address already has a pending invitation".into(),
         ));
     }
-    let txn = begin_tx(db).await?;
+    InvitationRepo::delete_expired_for(&txn, tree_id, &email, now).await?;
     let scope_id = access_scope::create_optional(&txn, tree_id, request.scope.as_ref()).await?;
     let invitation = InvitationRepo::create(
         &txn,

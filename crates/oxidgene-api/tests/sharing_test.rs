@@ -1335,6 +1335,113 @@ async fn an_export_as_a_visitor_sees_the_tree_keeps_to_the_visitor_scope() {
     }
 }
 
+#[tokio::test]
+async fn a_lapsed_membership_or_invitation_gives_way_to_a_new_share() {
+    use oxidgene_db::repo::{InvitationRepo, MembershipChanges, NewInvitation};
+
+    let mut f = Fixture::new(&[]).await;
+    let tree = Uuid::parse_str(&f.canaries.tree).unwrap();
+    let past = chrono::Utc::now() - chrono::Duration::hours(1);
+    // Two members whose access lapsed, not yet deleted by the maintenance
+    // pass.
+    for name in ["lapsedrest", "lapsedgql"] {
+        let (_, user) = f.user(name).await;
+        let id = user_id(&f.db, &f.provider, &user).await;
+        let membership = MembershipRepo::create(&f.db, tree, id, TreeRole::Guest, None)
+            .await
+            .unwrap();
+        MembershipRepo::update(
+            &f.db,
+            membership.id,
+            MembershipChanges {
+                expires_at: Some(Some(past)),
+                ..MembershipChanges::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let shared = f
+        .owner
+        .json(
+            Method::POST,
+            &f.uri("/members"),
+            json!({ "username": "lapsedrest", "role": "editor" }),
+        )
+        .await;
+    assert_eq!(shared.status, StatusCode::CREATED, "{}", shared.json);
+    assert_eq!(shared.json["member"]["role"], "editor");
+    let answer = f
+        .owner
+        .gql(
+            "mutation($tree: ID!) { shareTree(treeId: $tree, input: { username: \"lapsedgql\", role: \"editor\" }) { member { role } } }",
+            json!({ "tree": f.canaries.tree }),
+        )
+        .await;
+    assert_eq!(
+        answer.json["data"]["shareTree"]["member"]["role"], "editor",
+        "{}",
+        answer.json
+    );
+    // Live again, they are members already.
+    let again = f
+        .owner
+        .json(
+            Method::POST,
+            &f.uri("/members"),
+            json!({ "username": "lapsedrest", "role": "guest" }),
+        )
+        .await;
+    assert_eq!(again.status, StatusCode::CONFLICT, "{}", again.json);
+
+    // An invitation that expired unanswered gives way to a new one.
+    let members = f.uri("/members");
+    let invitation = json!({ "email": "lapsed.rest@example.invalid", "role": "guest" });
+    let first = f
+        .owner
+        .json(Method::POST, &members, invitation.clone())
+        .await;
+    assert_eq!(first.status, StatusCode::ACCEPTED, "{}", first.json);
+    let first_id = Uuid::parse_str(first.json["invitation"]["id"].as_str().unwrap()).unwrap();
+    InvitationRepo::resent(&f.db, first_id, past, past)
+        .await
+        .unwrap();
+    let second = f.owner.json(Method::POST, &members, invitation).await;
+    assert_eq!(second.status, StatusCode::ACCEPTED, "{}", second.json);
+    let query = "mutation($tree: ID!) { shareTree(treeId: $tree, input: { email: \"lapsed.gql@example.invalid\", role: \"guest\" }) { invitation { id } } }";
+    let first = f.owner.gql(query, json!({ "tree": f.canaries.tree })).await;
+    let first_id = first.json["data"]["shareTree"]["invitation"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", first.json))
+        .to_owned();
+    InvitationRepo::resent(&f.db, Uuid::parse_str(&first_id).unwrap(), past, past)
+        .await
+        .unwrap();
+    let second = f.owner.gql(query, json!({ "tree": f.canaries.tree })).await;
+    assert!(
+        second.json["data"]["shareTree"]["invitation"]["id"].is_string(),
+        "{}",
+        second.json
+    );
+
+    // Two unanswered invitations of one address, as two concurrent shares
+    // would write them: the second is a conflict, not a second mail.
+    let new = || NewInvitation {
+        tree_id: tree,
+        email: "racing@example.invalid".into(),
+        role: TreeRole::Guest,
+        scope_id: None,
+        membership_expires_at: None,
+        expires_at: chrono::Utc::now() + chrono::Duration::days(14),
+        created_by: None,
+    };
+    InvitationRepo::create(&f.db, new()).await.unwrap();
+    assert!(matches!(
+        InvitationRepo::create(&f.db, new()).await,
+        Err(oxidgene_core::OxidGeneError::Conflict(_))
+    ));
+}
+
 /// What keeping scopes current costs on a generated tree of 10 000
 /// persons, printed: building a scope (one read of the persons, one of the
 /// links, the walk, the rows), rebuilding it once a link moved, the

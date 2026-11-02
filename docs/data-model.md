@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-02T10:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T15:00:00Z }
 ---
 
 
@@ -1455,7 +1455,11 @@ Sessions are not stored here: they live in the session store
 `scope_id?` (cascade), `membership_expires_at?`, `expires_at`, `created_by?`,
 `created_at`, `last_sent_at?`, `accepted_at?`, `accepted_by?`,
 `declined_at?`, `revoked_at?`. Indexed by `email` for the matching at
-sign-in, and by `tree_id`. The worker's maintenance pass deletes the
+sign-in, and by `tree_id`; a unique partial index allows one unanswered
+invitation (none of `accepted_at`, `declined_at`, `revoked_at`) per
+address and tree, so concurrent invitations of one address mail it once,
+and inviting an address again first deletes its invitation that expired
+unanswered. The worker's maintenance pass deletes the
 invitations no longer pending: expired, answered or revoked. Erasing an
 account deletes those addressed to its verified address and clears it as
 their author or acceptor.

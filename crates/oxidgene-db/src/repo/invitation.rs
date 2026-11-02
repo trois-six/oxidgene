@@ -125,7 +125,35 @@ impl InvitationRepo {
         .insert(db)
         .await
         .map(into_domain)
-        .map_err(db_err)
+        .map_err(|error| match error.sql_err() {
+            // One unanswered invitation per address and tree.
+            Some(sea_orm::SqlErr::UniqueConstraintViolation(_)) => {
+                OxidGeneError::Conflict("the address already has a pending invitation".into())
+            }
+            _ => db_err(error),
+        })
+    }
+
+    /// Delete the invitations of `email` to `tree_id` that expired
+    /// unanswered by `now`, which the maintenance pass would delete: an
+    /// address invited again needs none in the way of its new invitation.
+    pub async fn delete_expired_for(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        email: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), OxidGeneError> {
+        Entity::delete_many()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::Email.eq(email))
+            .filter(Column::AcceptedAt.is_null())
+            .filter(Column::DeclinedAt.is_null())
+            .filter(Column::RevokedAt.is_null())
+            .filter(Column::ExpiresAt.lte(now))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        Ok(())
     }
 
     /// Invitation `id`, whatever its state.

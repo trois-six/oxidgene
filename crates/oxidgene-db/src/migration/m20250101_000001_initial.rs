@@ -3279,6 +3279,19 @@ async fn create_invitations(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             )
             .await?;
     }
+    // One unanswered invitation per address and tree, so that two owners'
+    // concurrent invitations of one address mail it once: a partial unique
+    // index, which SQLite and PostgreSQL both support and sea-query does not
+    // express. An expired one is deleted before its address is invited again.
+    manager
+        .get_connection()
+        .execute_raw(Statement::from_string(
+            manager.get_database_backend(),
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tree_invitation_unanswered \
+             ON tree_invitation (tree_id, email) \
+             WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL",
+        ))
+        .await?;
     Ok(())
 }
 
