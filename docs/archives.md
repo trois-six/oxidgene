@@ -2389,8 +2389,10 @@ response content), an anti-bot challenge answering in place of the page
 portal did not change), a timeout (`timeout`, also a gateway's `504`: the
 portal behind it did not answer in time), and a portal that could not be
 reached, answered with another server error, or answered with a maintenance
-page in place of its own — a page whose title announces maintenance, which
-some hosts serve with a success status at every address — (`unreachable`).
+page in place of its own — a page whose title announces maintenance or the
+site unavailable (`Maintenance en cours`, `Site temporairement
+indisponible`), which some hosts serve with a success status at every
+address — (`unreachable`).
 Each code is stable
 and the interface translates it as `archive_viewer.<code>`.
 
@@ -3198,9 +3200,11 @@ and the desktop window alike (`PageAnswer`); and an answer a success status
 let through is the adapter's or the probe's to tell, once it cannot read it
 (`markup::unreadable`). Each becomes `ResolveError::Challenged`, and the
 collection `challenged` rather than `drift` or `unreachable`. An unreadable
-answer whose title announces maintenance is an outage, not a changed shape:
-`unreachable`, its step received as a maintenance page (the Gironde portal's
-host answered every address so, with a success status, in October 2026). Step 4 names
+answer whose title announces maintenance or the site unavailable (§5.2) is an
+outage, not a changed shape: `unreachable`, its step received as a
+maintenance page (the Gironde portal's host answered every address so, with
+a success status, for a maintenance in October 2026 and closed as a
+precaution in November 2026). Step 4 names
 the vendor and the kind of the page it met (`cloudflare block`, `anubis
 challenge`) in its received shape. It also watches the viewer's own
 requests: a viewer that shows another view than the cited one after an

@@ -90,11 +90,15 @@ pub(crate) fn is_challenge(answer: &str) -> bool {
     anti_bot(answer).is_some()
 }
 
-/// Whether `answer` is a page announcing that the site is down for
-/// maintenance, which some hosts serve with a success status at every
-/// address in place of the portal's pages (`Maintenance en cours`): its
-/// title says so. A banner announcing maintenance on the portal's own pages
-/// lies in their body, never in their title.
+/// The words of a page title announcing that the site is down, folded.
+const DOWN_WORDS: [&str; 3] = ["maintenance", "indisponible", "unavailable"];
+
+/// Whether `answer` is a page announcing that the site is down, for
+/// maintenance or otherwise, which some hosts serve with a success status
+/// at every address in place of the portal's pages (`Maintenance en
+/// cours`, `Site temporairement indisponible`): its title says so. A
+/// banner announcing maintenance on the portal's own pages lies in their
+/// body, never in their title.
 pub(crate) fn is_maintenance(answer: &str) -> bool {
     let lowered = answer.to_lowercase();
     let Some(start) = lowered.find("<title") else {
@@ -105,7 +109,7 @@ pub(crate) fn is_maintenance(answer: &str) -> bool {
         return false;
     };
     let text = text.split("</title>").next().unwrap_or(text);
-    fold(text).split(' ').any(|word| word == "maintenance")
+    fold(text).split(' ').any(|word| DOWN_WORDS.contains(&word))
 }
 
 /// The error of an answer an adapter cannot read: `Challenged` when it is
@@ -356,6 +360,10 @@ mod tests {
         for page in [
             "<html><head><title>Maintenance en cours | Exampledept.fr</title></head><body><h1>Le site est en maintenance</h1></body></html>",
             "<TITLE lang=\"en\">Site under MAINTENANCE</TITLE>",
+            // A host closed as a precaution, every address answering so
+            // (the Gironde's, November 2026).
+            "<html><head><title>Site temporairement indisponible | Archives de l'Exampledept</title></head><body><p>Site internet fermé par mesure de précaution</p></body></html>",
+            "<title>Service Temporarily Unavailable</title>",
         ] {
             assert!(is_maintenance(page), "{page}");
             assert_eq!(unreadable(page, String::new()), ResolveError::Unreachable);
@@ -366,6 +374,7 @@ mod tests {
             "<html><head><title>Recherche | Archives</title></head><body><div class=\"banner\">Maintenance prévue lundi</div></body></html>",
             "<html>maintenance</html>",
             "<title>Maintenances-archives</title>",
+            "<html><head><title>Recherche | Archives</title></head><body><p>Document indisponible</p></body></html>",
         ] {
             assert!(!is_maintenance(page), "{page}");
             assert_eq!(
