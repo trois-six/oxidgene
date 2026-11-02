@@ -115,6 +115,17 @@ fn claimable(now: DateTime<Utc>) -> Condition {
         )
 }
 
+/// The row of `mail` while the claim it was read with still holds it:
+/// pending, and claimed no more times since. A worker whose lease ran out
+/// while it was sending, and whose mail another worker claimed again,
+/// then changes nothing: what the later claim records stands.
+fn held(mail: &OutboxMail) -> Condition {
+    Condition::all()
+        .add(Column::Id.eq(mail.id))
+        .add(Column::Status.eq(MailStatus::Pending.as_str()))
+        .add(Column::Attempts.eq(mail.attempts))
+}
+
 /// Reads and writes of the outbox.
 pub struct MailOutboxRepo;
 
@@ -231,38 +242,39 @@ impl MailOutboxRepo {
         })
     }
 
-    /// Mark mail `id` sent at `now`.
+    /// Mark `mail`, as claimed, sent at `now`.
     pub async fn mark_sent(
         db: &impl ConnectionTrait,
-        id: Uuid,
+        mail: &OutboxMail,
         now: DateTime<Utc>,
     ) -> Result<(), OxidGeneError> {
-        Self::finish(db, id, MailStatus::Sent, now, None).await
+        Self::finish(db, mail, MailStatus::Sent, now, None).await
     }
 
-    /// Give mail `id` up at `now`, with `category`.
+    /// Give `mail`, as claimed, up at `now`, with `category`.
     pub async fn mark_failed(
         db: &impl ConnectionTrait,
-        id: Uuid,
+        mail: &OutboxMail,
         now: DateTime<Utc>,
         category: &str,
     ) -> Result<(), OxidGeneError> {
-        Self::finish(db, id, MailStatus::Failed, now, Some(category)).await
+        Self::finish(db, mail, MailStatus::Failed, now, Some(category)).await
     }
 
-    /// Mark mail `id`, which no longer applies, dropped at `now`, with why.
+    /// Mark `mail`, as claimed, which no longer applies, dropped at `now`,
+    /// with why.
     pub async fn mark_dropped(
         db: &impl ConnectionTrait,
-        id: Uuid,
+        mail: &OutboxMail,
         now: DateTime<Utc>,
         reason: &str,
     ) -> Result<(), OxidGeneError> {
-        Self::finish(db, id, MailStatus::Dropped, now, Some(reason)).await
+        Self::finish(db, mail, MailStatus::Dropped, now, Some(reason)).await
     }
 
     async fn finish(
         db: &impl ConnectionTrait,
-        id: Uuid,
+        mail: &OutboxMail,
         status: MailStatus,
         now: DateTime<Utc>,
         category: Option<&str>,
@@ -274,17 +286,17 @@ impl MailOutboxRepo {
             .col_expr(Column::LeaseUntil, Expr::value(None::<DateTime<Utc>>))
             .col_expr(Column::SentAt, Expr::value(sent_at))
             .col_expr(Column::ErrorCategory, Expr::value(category))
-            .filter(Column::Id.eq(id))
+            .filter(held(mail))
             .exec(db)
             .await
             .map(drop)
             .map_err(db_err)
     }
 
-    /// Try mail `id` again at `at`, after a failure of `category`.
+    /// Try `mail`, as claimed, again at `at`, after a failure of `category`.
     pub async fn retry_at(
         db: &impl ConnectionTrait,
-        id: Uuid,
+        mail: &OutboxMail,
         at: DateTime<Utc>,
         category: &str,
     ) -> Result<(), OxidGeneError> {
@@ -292,8 +304,7 @@ impl MailOutboxRepo {
             .col_expr(Column::NextAttemptAt, Expr::value(at))
             .col_expr(Column::LeaseUntil, Expr::value(None::<DateTime<Utc>>))
             .col_expr(Column::ErrorCategory, Expr::value(category))
-            .filter(Column::Id.eq(id))
-            .filter(Column::Status.eq(MailStatus::Pending.as_str()))
+            .filter(held(mail))
             .exec(db)
             .await
             .map(drop)

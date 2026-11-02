@@ -6,7 +6,8 @@ use chrono::{DateTime, Duration, DurationRound, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{InstanceRole, TreeRole};
 use oxidgene_db::repo::{
-    AppUserRepo, InvitationEnd, InvitationRepo, NewAppUser, NewInvitation, TreeRepo,
+    AppUserRepo, InvitationEnd, InvitationRepo, MailOutboxRepo, MailStatus, NewAppUser,
+    NewInvitation, NewMail, TreeRepo,
 };
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -124,4 +125,55 @@ async fn an_expired_invitation_ends_no_more() {
         .unwrap();
     assert_eq!(resent.last_sent_at, Some(now));
     assert_eq!(resent.expires_at, now + Duration::days(20));
+}
+
+/// A worker whose lease ran out while it was sending, and whose mail
+/// another worker claimed and sent, records nothing over the later claim.
+#[tokio::test]
+async fn a_lapsed_claim_records_nothing() {
+    let db = setup_db().await;
+    let now = now();
+    let id = MailOutboxRepo::enqueue(
+        &db,
+        NewMail {
+            user_id: None,
+            to_address: "recipient_1@example.test".into(),
+            kind: "invitation",
+            language: "en".into(),
+            params: serde_json::json!({}),
+            due: now,
+        },
+    )
+    .await
+    .unwrap();
+    let lease = Duration::minutes(5);
+    let first = MailOutboxRepo::claim_next(&db, now, lease)
+        .await
+        .unwrap()
+        .unwrap();
+    let later = now + Duration::minutes(6);
+    let second = MailOutboxRepo::claim_next(&db, later, lease)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((first.id, second.id), (id, id));
+    assert_eq!((first.attempts, second.attempts), (1, 2));
+
+    MailOutboxRepo::mark_sent(&db, &second, later)
+        .await
+        .unwrap();
+    MailOutboxRepo::mark_failed(&db, &first, later, "timeout")
+        .await
+        .unwrap();
+    MailOutboxRepo::mark_dropped(&db, &first, later, "revoked")
+        .await
+        .unwrap();
+    MailOutboxRepo::retry_at(&db, &first, later + lease, "timeout")
+        .await
+        .unwrap();
+
+    let stored = MailOutboxRepo::get(&db, id).await.unwrap().unwrap();
+    assert_eq!(stored.status, MailStatus::Sent.as_str());
+    assert_eq!(stored.sent_at, Some(later));
+    assert_eq!(stored.error_category, None);
 }

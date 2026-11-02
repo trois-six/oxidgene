@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Communication between the users of a web deployment: in-app notifications and their preferences and email sent through the operator's SMTP relay from a worker-processed outbox, with translated templates, daily digests and one-click unsubscribe, implemented; and, planned, end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-01T23:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-02T10:00:00Z }
 ---
 
 # Messaging and Notifications
@@ -167,7 +167,9 @@ address.
   verified address, as its preferences say; a user whose provider did not
   verify the address gets notifications in the application only.
 - **Lease and refusals.** A claimed row is leased for five minutes; a worker
-  that stops while sending leaves it to another once the lease runs out. A
+  that stops while sending leaves it to another once the lease runs out, and
+  a worker whose lease ran out records nothing once another claimed the row
+  again: what the latest claim records stands. A
   permanent refusal of the relay (an SMTP `5xx` reply, a message that cannot
   be built) is failed at once, `rejected` or `message`; a transient one
   (`deferred`, `timeout`, `tls`, `connection`) follows the retries.

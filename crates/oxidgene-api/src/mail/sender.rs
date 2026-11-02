@@ -150,7 +150,7 @@ impl MailSender {
         match templates::render(&self.db, &self.context, mail).await? {
             Rendered::Send(outgoing) => self.relay_one(mail, &outgoing).await,
             Rendered::Drop(reason) => {
-                MailOutboxRepo::mark_dropped(&self.db, mail.id, Utc::now(), reason).await?;
+                MailOutboxRepo::mark_dropped(&self.db, mail, Utc::now(), reason).await?;
                 Ok(Outcome::Dropped)
             }
         }
@@ -165,12 +165,11 @@ impl MailSender {
     ) -> Result<Outcome, OxidGeneError> {
         match self.relay.send(outgoing).await {
             Ok(()) => {
-                MailOutboxRepo::mark_sent(&self.db, mail.id, Utc::now()).await?;
+                MailOutboxRepo::mark_sent(&self.db, mail, Utc::now()).await?;
                 Ok(Outcome::Sent)
             }
             Err(failure) if failure.permanent || mail.attempts >= MAX_ATTEMPTS => {
-                MailOutboxRepo::mark_failed(&self.db, mail.id, Utc::now(), failure.category)
-                    .await?;
+                MailOutboxRepo::mark_failed(&self.db, mail, Utc::now(), failure.category).await?;
                 tracing::warn!(
                     error.category = failure.category,
                     mail.kind = %mail.kind,
@@ -182,7 +181,7 @@ impl MailSender {
             Err(failure) => {
                 let delay = retry_delay(mail.attempts);
                 let at = Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
-                MailOutboxRepo::retry_at(&self.db, mail.id, at, failure.category).await?;
+                MailOutboxRepo::retry_at(&self.db, mail, at, failure.category).await?;
                 Ok(Outcome::Retried)
             }
         }
