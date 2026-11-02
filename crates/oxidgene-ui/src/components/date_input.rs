@@ -646,21 +646,35 @@ fn span_in(
 /// written either the GEDCOM way (`3000 BCE`, also `BC` / `B.C.`) or with a
 /// leading minus, and comes back negative.
 fn parse_components(calendar: Calendar, s: &str) -> (Option<i32>, Option<u8>, Option<u8>) {
-    let s = s.trim();
+    // Strip the era markers and leading minus signs up front so the rest can
+    // read the year as a plain number, then apply the sign to whatever it
+    // found. A loop, not recursion: the text is stored verbatim from imports
+    // and every API, so its length must not set the depth of the stack.
+    let mut s = s.trim();
+    let mut before_common_era = false;
+    loop {
+        let (rest, bce) = strip_bce(s);
+        if let Some(rest) = rest.strip_prefix('-') {
+            s = rest.trim();
+        } else if bce {
+            s = rest;
+        } else {
+            break;
+        }
+        before_common_era = true;
+    }
+    let (y, m, d) = parse_unsigned(calendar, s);
+    if before_common_era {
+        (y.and_then(i32::checked_abs).map(|y| -y), m, d)
+    } else {
+        (y, m, d)
+    }
+}
+
+/// [`parse_components`] once its era marker and sign are gone.
+fn parse_unsigned(calendar: Calendar, s: &str) -> (Option<i32>, Option<u8>, Option<u8>) {
     if s.is_empty() {
         return (None, None, None);
-    }
-
-    // Strip the era marker up front so the rest can read the year as a plain
-    // number, then apply the sign to whatever it found.
-    let (s, bce) = strip_bce(s);
-    if bce {
-        let (y, m, d) = parse_components(calendar, s);
-        return (y.and_then(i32::checked_abs).map(|y| -y), m, d);
-    }
-    if let Some(rest) = s.strip_prefix('-') {
-        let (y, m, d) = parse_components(calendar, rest);
-        return (y.and_then(i32::checked_abs).map(|y| -y), m, d);
     }
     // ISO-ish: digits and dashes only.
     if s.contains('-') && s.chars().all(|c| c.is_ascii_digit() || c == '-') {
@@ -1714,6 +1728,24 @@ mod tests {
         }
         assert_eq!(strip_bce("vers 1850\u{a0}?"), ("vers 1850\u{a0}?", false));
         assert_eq!(strip_bce("44 bc"), ("44", true));
+    }
+
+    #[test]
+    fn a_long_run_of_signs_or_eras_does_not_recurse() {
+        // Each sign or era marker used to cost a stack frame: a stored value
+        // of a million dashes overflowed the stack of every viewer.
+        assert_eq!(greg(&"-".repeat(1_000_000)), (None, None, None));
+        assert_eq!(
+            greg(&format!("1{}", " BC".repeat(100_000))),
+            (Some(-1), None, None)
+        );
+        assert_eq!(
+            greg(&format!("{}44 BCE", "- ".repeat(100_000))),
+            (Some(-44), None, None)
+        );
+        // The mixed spellings still read as one sign.
+        assert_eq!(greg("-44 BC"), (Some(-44), None, None));
+        assert_eq!(greg("- 15 MAR 44 BCE"), (Some(-44), Some(3), Some(15)));
     }
 
     #[test]
