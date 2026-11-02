@@ -10,6 +10,7 @@
 //! followed by a growing pause rather than a retry at once.
 
 use dioxus::prelude::*;
+use oxidgene_core::notification::NotificationKind;
 
 use crate::api::notification::Notification;
 use crate::api::{ApiClient, ApiError};
@@ -121,15 +122,19 @@ pub fn text(i18n: &I18n, notification: &Notification, reader: uuid::Uuid) -> Str
         .clone()
         .unwrap_or_else(|| i18n.t("notifications.someone"));
     let args = [("actor", actor.as_str()), ("tree", tree.as_str())];
-    match notification.kind.as_str() {
-        "tree_shared" => i18n.t_args("notifications.tree_shared", &args),
-        "membership_changed" => i18n.t_args("notifications.membership_changed", &args),
-        "invitation_accepted" => i18n.t_args("notifications.invitation_accepted", &args),
-        "member_left" => i18n.t_args("notifications.member_left", &args),
-        "ownership_transferred" if notification.subject_id == Some(reader) => {
+    match notification.kind {
+        NotificationKind::TreeShared => i18n.t_args("notifications.tree_shared", &args),
+        NotificationKind::MembershipChanged => {
+            i18n.t_args("notifications.membership_changed", &args)
+        }
+        NotificationKind::InvitationAccepted => {
+            i18n.t_args("notifications.invitation_accepted", &args)
+        }
+        NotificationKind::MemberLeft => i18n.t_args("notifications.member_left", &args),
+        NotificationKind::OwnershipTransferred if notification.subject_id == Some(reader) => {
             i18n.t_args("notifications.ownership_transferred_you", &args)
         }
-        "ownership_transferred" => {
+        NotificationKind::OwnershipTransferred => {
             let owner = notification
                 .subject_name
                 .clone()
@@ -139,8 +144,10 @@ pub fn text(i18n: &I18n, notification: &Notification, reader: uuid::Uuid) -> Str
                 &[("owner", owner.as_str()), ("tree", tree.as_str())],
             )
         }
-        "job_finished" => i18n.t_args(job_key(notification.outcome.as_deref()), &args),
-        _ => i18n.t("notifications.no_longer_shared"),
+        NotificationKind::JobFinished => {
+            i18n.t_args(job_key(notification.outcome.as_deref()), &args)
+        }
+        NotificationKind::MembershipEnded => i18n.t("notifications.no_longer_shared"),
     }
 }
 
@@ -162,7 +169,10 @@ pub fn target(notification: &Notification) -> Route {
         .filter(|_| !notification.tree_unavailable)
     {
         Some(tree_id)
-            if notification.kind == "invitation_accepted" || notification.kind == "member_left" =>
+            if matches!(
+                notification.kind,
+                NotificationKind::InvitationAccepted | NotificationKind::MemberLeft
+            ) =>
         {
             Route::Settings {
                 tree_id: tree_id.to_string(),
@@ -181,10 +191,10 @@ mod tests {
     use super::*;
     use crate::i18n::Language;
 
-    fn notification(kind: &str) -> Notification {
+    fn notification(kind: NotificationKind) -> Notification {
         Notification {
             id: uuid::Uuid::now_v7(),
-            kind: kind.into(),
+            kind,
             tree_id: Some(uuid::Uuid::now_v7()),
             tree_name: Some("Fictive tree".into()),
             tree_unavailable: false,
@@ -200,26 +210,18 @@ mod tests {
     #[test]
     fn every_kind_reads_as_a_sentence() {
         let i18n = I18n::new(Language::english());
-        for kind in [
-            "tree_shared",
-            "membership_changed",
-            "membership_ended",
-            "invitation_accepted",
-            "ownership_transferred",
-            "member_left",
-            "job_finished",
-        ] {
+        for kind in NotificationKind::ALL {
             let text = text(&i18n, &notification(kind), uuid::Uuid::nil());
-            assert!(!text.contains("notifications."), "{kind}: {text}");
+            assert!(!text.contains("notifications."), "{kind:?}: {text}");
         }
         let reader = uuid::Uuid::now_v7();
-        let mut owned = notification("ownership_transferred");
+        let mut owned = notification(NotificationKind::OwnershipTransferred);
         owned.subject_id = Some(reader);
         assert_eq!(
             text(&i18n, &owned, reader),
             "You are now the owner of Fictive tree"
         );
-        let mut gone = notification("tree_shared");
+        let mut gone = notification(NotificationKind::TreeShared);
         gone.tree_unavailable = true;
         gone.tree_name = None;
         assert_eq!(

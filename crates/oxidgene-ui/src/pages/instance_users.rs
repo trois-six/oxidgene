@@ -8,6 +8,7 @@
 //! group join it with the phases that store them.
 
 use dioxus::prelude::*;
+use oxidgene_core::access::{InstanceRole, UserStatus};
 use uuid::Uuid;
 
 use crate::account::use_account;
@@ -35,11 +36,11 @@ enum UserAction {
 impl UserAction {
     /// The actions offered for `user`, in menu order.
     fn offered(user: &ManagedUser) -> Vec<Self> {
-        if user.status == "erased" {
+        if user.status == UserStatus::Erased {
             return Vec::new();
         }
         vec![
-            if user.instance_role == "admin" {
+            if user.instance_role == InstanceRole::Admin {
                 Self::RemoveAdmin
             } else {
                 Self::MakeAdmin
@@ -49,7 +50,7 @@ impl UserAction {
             } else {
                 Self::AllowTrees
             },
-            if user.status == "deactivated" {
+            if user.status == UserStatus::Deactivated {
                 Self::Reactivate
             } else {
                 Self::Deactivate
@@ -71,11 +72,11 @@ impl UserAction {
     fn patch(self) -> UserPatch {
         match self {
             Self::MakeAdmin => UserPatch {
-                instance_role: Some("admin"),
+                instance_role: Some(InstanceRole::Admin),
                 ..UserPatch::default()
             },
             Self::RemoveAdmin => UserPatch {
-                instance_role: Some("user"),
+                instance_role: Some(InstanceRole::User),
                 ..UserPatch::default()
             },
             Self::AllowTrees => UserPatch {
@@ -87,11 +88,11 @@ impl UserAction {
                 ..UserPatch::default()
             },
             Self::Deactivate => UserPatch {
-                status: Some("deactivated"),
+                status: Some(UserStatus::Deactivated),
                 ..UserPatch::default()
             },
             Self::Reactivate => UserPatch {
-                status: Some("active"),
+                status: Some(UserStatus::Active),
                 ..UserPatch::default()
             },
         }
@@ -100,7 +101,7 @@ impl UserAction {
 
 /// The name a user is listed under: an erased one is a former member.
 fn listed_name(i18n: &I18n, user: &ManagedUser) -> String {
-    if user.status == "erased" {
+    if user.status == UserStatus::Erased {
         return i18n.t("instance.users.former_member");
     }
     user.display_name
@@ -260,7 +261,7 @@ fn UserRow(
 ) -> Element {
     let i18n = use_i18n();
     let name = listed_name(&i18n, &user);
-    let erased = user.status == "erased";
+    let erased = user.status == UserStatus::Erased;
     let details: Vec<String> = [
         user.username.as_ref().map(|u| format!("@{u}")),
         user.email.clone(),
@@ -289,13 +290,13 @@ fn UserRow(
                 div { class: "app-settings-option-info",
                     span { class: "app-settings-option-label instance-user-name",
                         "{name}"
-                        if user.instance_role == "admin" {
+                        if user.instance_role == InstanceRole::Admin {
                             span { class: "badge", {i18n.t("instance.users.admin")} }
                         }
                         if user.can_create_trees && !erased {
                             span { class: "badge", {i18n.t("instance.users.creates_trees")} }
                         }
-                        if user.status == "deactivated" {
+                        if user.status == UserStatus::Deactivated {
                             span { class: "badge", {i18n.t("instance.users.deactivated")} }
                         }
                     }

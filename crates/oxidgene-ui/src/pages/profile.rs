@@ -8,6 +8,7 @@
 //! is not found.
 
 use dioxus::prelude::*;
+use oxidgene_core::notification::NotificationKind;
 
 use crate::account::{AccountState, set_me, sign_out, use_account, use_accounts};
 use crate::api::account::{AvatarCrop, Me, ProfilePatch, SessionEntry};
@@ -502,17 +503,6 @@ fn AccountLanguageSection(me: Me) -> Element {
 
 // ── Notifications ───────────────────────────────────────────────────────────
 
-/// The kinds of notification, in the order the section lists them.
-const NOTIFICATION_KINDS: [&str; 7] = [
-    "tree_shared",
-    "membership_changed",
-    "membership_ended",
-    "invitation_accepted",
-    "ownership_transferred",
-    "member_left",
-    "job_finished",
-];
-
 /// The preferences of docs/messaging.md §2.3: in the application always;
 /// by email off, at once or in a daily summary, per kind, with one switch
 /// for all email. A server that sends no mail hides the email choices.
@@ -577,22 +567,22 @@ fn NotificationsSection() -> Element {
                                 p { class: "settings-check-desc", {i18n.t("notifications.settings_email_desc")} }
                             }
                         }
-                        for kind in NOTIFICATION_KINDS {
-                            div { key: "{kind}", class: "app-settings-option",
+                        for kind in NotificationKind::ALL {
+                            div { key: "{kind.as_str()}", class: "app-settings-option",
                                 div { class: "app-settings-option-info",
                                     span { class: "app-settings-option-label",
-                                        {i18n.t(&format!("notifications.kind.{kind}"))}
+                                        {i18n.t(&format!("notifications.kind.{}", kind.as_str()))}
                                     }
                                 }
                                 select {
                                     class: "settings-date-select",
-                                    aria_label: i18n.t(&format!("notifications.kind.{kind}")),
+                                    aria_label: i18n.t(&format!("notifications.kind.{}", kind.as_str())),
                                     disabled: !preferences.email_enabled,
                                     onchange: {
                                         let save = save.clone();
                                         move |e: Event<FormData>| save(PreferencesPatch {
                                             email_enabled: None,
-                                            kinds: vec![KindPreference { kind: kind.to_string(), email: e.value() }],
+                                            kinds: vec![KindPreference { kind, email: e.value() }],
                                         })
                                     },
                                     for email in ["off", "immediate", "daily"] {

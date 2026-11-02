@@ -19,39 +19,7 @@ use crate::entities::app_user::{self, ActiveModel, Column, Entity};
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
-pub use oxidgene_core::access::InstanceRole;
-
-/// Whether an account may be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserStatus {
-    Active,
-    /// Signed out everywhere and refused at sign-in; reactivation restores
-    /// the account as it was.
-    Deactivated,
-    /// A tombstone: nothing identifies the person any more.
-    Erased,
-}
-
-impl UserStatus {
-    /// The stored and serialized value.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Deactivated => "deactivated",
-            Self::Erased => "erased",
-        }
-    }
-
-    /// The stored `value`; anything unknown is `Deactivated`, refused at
-    /// sign-in, never an active account.
-    fn parse(value: &str) -> Self {
-        match value {
-            "active" => Self::Active,
-            "erased" => Self::Erased,
-            _ => Self::Deactivated,
-        }
-    }
-}
+pub use oxidgene_core::access::{InstanceRole, UserStatus};
 
 /// An account of the web build.
 #[derive(Debug, Clone, PartialEq, Eq)]

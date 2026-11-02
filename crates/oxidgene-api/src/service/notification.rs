@@ -38,59 +38,16 @@ pub const RETENTION_DAYS: i64 = 90;
 /// The hour of the day (UTC) the daily digests are sent at.
 pub const DIGEST_HOUR_UTC: u32 = 6;
 
-/// What a notification is about (docs/messaging.md §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NotificationKind {
-    /// A membership was created for the reader.
-    TreeShared,
-    /// The reader's role, scope or expiry changed.
-    MembershipChanged,
-    /// The reader was removed from a tree, or their membership expired.
-    MembershipEnded,
-    /// An invitation of the reader's tree became a membership.
-    InvitationAccepted,
-    /// A tree changed owner: to the new and the former owner.
-    OwnershipTransferred,
-    /// A member left the reader's tree.
-    MemberLeft,
-    /// An import or export the reader started completed or failed.
-    JobFinished,
-}
+/// The kinds live in the core, which the interface wording them shares.
+pub use oxidgene_core::notification::NotificationKind;
 
-impl NotificationKind {
-    pub const ALL: [Self; 7] = [
-        Self::TreeShared,
-        Self::MembershipChanged,
-        Self::MembershipEnded,
-        Self::InvitationAccepted,
-        Self::OwnershipTransferred,
-        Self::MemberLeft,
-        Self::JobFinished,
-    ];
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::TreeShared => "tree_shared",
-            Self::MembershipChanged => "membership_changed",
-            Self::MembershipEnded => "membership_ended",
-            Self::InvitationAccepted => "invitation_accepted",
-            Self::OwnershipTransferred => "ownership_transferred",
-            Self::MemberLeft => "member_left",
-            Self::JobFinished => "job_finished",
+/// The email preference of `kind` for a user who never changed it (§2.3).
+pub const fn default_email(kind: NotificationKind) -> EmailPreference {
+    match kind {
+        NotificationKind::TreeShared | NotificationKind::InvitationAccepted => {
+            EmailPreference::Immediate
         }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.as_str() == value)
-    }
-
-    /// The email preference of a user who never changed it (§2.3).
-    pub const fn default_email(self) -> EmailPreference {
-        match self {
-            Self::TreeShared | Self::InvitationAccepted => EmailPreference::Immediate,
-            _ => EmailPreference::Off,
-        }
+        _ => EmailPreference::Off,
     }
 }
 
@@ -336,7 +293,7 @@ fn effective(changed: &HashMap<String, String>, kind: NotificationKind) -> Email
     changed
         .get(kind.as_str())
         .and_then(|value| EmailPreference::parse(value))
-        .unwrap_or_else(|| kind.default_email())
+        .unwrap_or_else(|| default_email(kind))
 }
 
 /// One kind's preference.
@@ -384,7 +341,7 @@ async fn preferences_of(
                 email: changed
                     .get(kind.as_str())
                     .and_then(|value| EmailPreference::parse(value))
-                    .unwrap_or_else(|| kind.default_email()),
+                    .unwrap_or_else(|| default_email(kind)),
             })
             .collect(),
     })
@@ -652,15 +609,15 @@ mod tests {
             assert_eq!(NotificationKind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(
-            NotificationKind::TreeShared.default_email(),
+            default_email(NotificationKind::TreeShared),
             EmailPreference::Immediate
         );
         assert_eq!(
-            NotificationKind::InvitationAccepted.default_email(),
+            default_email(NotificationKind::InvitationAccepted),
             EmailPreference::Immediate
         );
         assert_eq!(
-            NotificationKind::JobFinished.default_email(),
+            default_email(NotificationKind::JobFinished),
             EmailPreference::Off
         );
     }

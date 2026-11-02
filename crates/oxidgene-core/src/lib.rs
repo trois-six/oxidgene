@@ -9,6 +9,7 @@ pub mod collections;
 pub mod enums;
 pub mod error;
 pub mod history;
+pub mod notification;
 pub mod privacy;
 pub mod projection;
 pub mod redaction;

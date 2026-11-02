@@ -353,8 +353,9 @@ pub async fn sign_out(
 mod tests {
     use super::*;
     use crate::api::account::SessionUser;
+    use oxidgene_core::access::InstanceRole;
 
-    fn signed_in(role: &str) -> AccountState {
+    fn signed_in(role: InstanceRole) -> AccountState {
         AccountState::SignedIn(Box::new(SignedIn {
             me: Me::from_session(&SessionUser {
                 id: Uuid::nil(),
@@ -362,7 +363,7 @@ mod tests {
                 email: None,
                 email_verified: false,
                 locale: None,
-                instance_role: role.into(),
+                instance_role: role,
                 can_create_trees: false,
             }),
             account_url: None,
@@ -385,7 +386,7 @@ mod tests {
                 "{route}"
             );
             assert_eq!(
-                gate(&signed_in("user"), &route, true),
+                gate(&signed_in(InstanceRole::User), &route, true),
                 Gate::Open,
                 "{route}"
             );
@@ -423,8 +424,8 @@ mod tests {
 
     #[test]
     fn only_an_administrator_is_one() {
-        assert!(signed_in("admin").is_admin());
-        assert!(!signed_in("user").is_admin());
+        assert!(signed_in(InstanceRole::Admin).is_admin());
+        assert!(!signed_in(InstanceRole::User).is_admin());
         assert!(!AccountState::Anonymous.is_admin());
     }
 

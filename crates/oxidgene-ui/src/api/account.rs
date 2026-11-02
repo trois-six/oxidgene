@@ -8,6 +8,7 @@
 //! a session or an account that another device may change at any time.
 
 use chrono::{DateTime, Utc};
+use oxidgene_core::access::{InstanceRole, UserStatus};
 use oxidgene_core::types::Connection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -48,7 +49,7 @@ pub struct SessionUser {
     pub email_verified: bool,
     #[serde(default)]
     pub locale: Option<String>,
-    pub instance_role: String,
+    pub instance_role: InstanceRole,
     #[serde(default)]
     pub can_create_trees: bool,
 }
@@ -77,7 +78,7 @@ pub struct Me {
     pub email_verified: bool,
     #[serde(default)]
     pub locale: Option<String>,
-    pub instance_role: String,
+    pub instance_role: InstanceRole,
     #[serde(default)]
     pub can_create_trees: bool,
 }
@@ -94,14 +95,14 @@ impl Me {
             email: user.email.clone(),
             email_verified: user.email_verified,
             locale: user.locale.clone(),
-            instance_role: user.instance_role.clone(),
+            instance_role: user.instance_role,
             can_create_trees: user.can_create_trees,
         }
     }
 
     /// Whether the user is an instance administrator.
     pub fn is_admin(&self) -> bool {
-        self.instance_role == "admin"
+        self.instance_role == InstanceRole::Admin
     }
 }
 
@@ -160,11 +161,10 @@ pub struct ManagedUser {
     pub subject: Option<String>,
     #[serde(default)]
     pub avatar: Option<AvatarInfo>,
-    pub instance_role: String,
+    pub instance_role: InstanceRole,
     #[serde(default)]
     pub can_create_trees: bool,
-    /// `active`, `deactivated` or `erased`.
-    pub status: String,
+    pub status: UserStatus,
     pub created_at: DateTime<Utc>,
     pub last_sign_in_at: DateTime<Utc>,
 }
@@ -173,11 +173,11 @@ pub struct ManagedUser {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct UserPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instance_role: Option<&'static str>,
+    pub instance_role: Option<InstanceRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub can_create_trees: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<&'static str>,
+    pub status: Option<UserStatus>,
 }
 
 #[derive(Serialize)]

@@ -4,6 +4,7 @@
 //! here is cached.
 
 use chrono::{DateTime, Utc};
+use oxidgene_core::notification::NotificationKind;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -13,10 +14,7 @@ use super::{ApiClient, ApiError};
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Notification {
     pub id: Uuid,
-    /// `tree_shared`, `membership_changed`, `membership_ended`,
-    /// `invitation_accepted`, `ownership_transferred`, `member_left`,
-    /// `job_finished`.
-    pub kind: String,
+    pub kind: NotificationKind,
     #[serde(default)]
     pub tree_id: Option<Uuid>,
     #[serde(default)]
@@ -67,7 +65,7 @@ pub struct Updates {
 /// One kind's email preference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KindPreference {
-    pub kind: String,
+    pub kind: NotificationKind,
     /// `off`, `immediate` or `daily`.
     pub email: String,
 }

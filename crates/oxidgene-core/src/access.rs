@@ -55,6 +55,39 @@ impl InstanceRole {
     }
 }
 
+/// Whether an account may be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserStatus {
+    Active,
+    /// Signed out everywhere and refused at sign-in; reactivation restores
+    /// the account as it was.
+    Deactivated,
+    /// A tombstone: nothing identifies the person any more.
+    Erased,
+}
+
+impl UserStatus {
+    /// The stored and serialized value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Deactivated => "deactivated",
+            Self::Erased => "erased",
+        }
+    }
+
+    /// The status a stored value names; anything unknown is `Deactivated`,
+    /// refused at sign-in, never an active account.
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "active" => Self::Active,
+            "erased" => Self::Erased,
+            _ => Self::Deactivated,
+        }
+    }
+}
+
 /// A viewer's role on one tree (§3.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
