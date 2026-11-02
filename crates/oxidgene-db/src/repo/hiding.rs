@@ -298,6 +298,16 @@ impl Unseen {
             .to_owned()
     }
 
+    /// The tree's soft-deleted persons.
+    fn deleted_persons(&self) -> SelectStatement {
+        Query::select()
+            .expr_as(col("dp", "id"), t("id"))
+            .from_as(t("person"), t("dp"))
+            .and_where(col("dp", "tree_id").eq(self.tree_id))
+            .and_where(col("dp", "deleted_at").is_not_null())
+            .to_owned()
+    }
+
     /// The tree's live persons outside the scope.
     fn outside_scope(&self, scope: Uuid) -> SelectStatement {
         Query::select()
@@ -337,9 +347,11 @@ impl Unseen {
     }
 
     /// Every hidden person, or with `strict` those of [`Self::strict_persons`]:
-    /// excluded, outside the scope, or hidden by the privacy rules.
+    /// excluded, outside the scope, or hidden by the privacy rules; and the
+    /// tree's deleted persons, whose records outlive them — a deletion
+    /// cascades to nothing — and whom no rule reads any more.
     fn person_parts(&self, strict: bool) -> SelectStatement {
-        let mut parts = Vec::new();
+        let mut parts = vec![self.deleted_persons()];
         if self.rules.exclusions {
             parts.push(self.excluded());
         }
@@ -349,14 +361,7 @@ impl Unseen {
         if self.rules.privacy.is_some() {
             parts.push(self.private_persons(strict));
         }
-        union(parts, || {
-            // Nobody: a set that is empty without reading a row.
-            Query::select()
-                .expr_as(col("np", "id"), t("id"))
-                .from_as(t("person"), t("np"))
-                .and_where(Expr::val(1).eq(0))
-                .to_owned()
-        })
+        union(parts, Query::select)
     }
 
     // ── Records ──────────────────────────────────────────────────────────
@@ -391,8 +396,9 @@ impl Unseen {
         union(parts, Query::select)
     }
 
-    /// The live events of a hidden person or of a withheld family; with
-    /// `tainted`, of a person whose photographs are withheld.
+    /// The events of a hidden person or of a withheld family; with
+    /// `tainted`, of a person whose photographs are withheld. A deleted
+    /// event counts: its notes, citations and media links outlive it.
     fn event_set(&self, mode: Mode, tainted: bool) -> SelectStatement {
         let persons = if tainted {
             self.strict_persons(mode)
@@ -403,7 +409,6 @@ impl Unseen {
             .expr_as(col("he", "id"), t("id"))
             .from_as(t("event"), t("he"))
             .and_where(col("he", "tree_id").eq(self.tree_id))
-            .and_where(col("he", "deleted_at").is_null())
             .cond_where(
                 Cond::any()
                     .add(col("he", "person_id").in_subquery(persons))

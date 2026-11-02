@@ -506,3 +506,52 @@ async fn nested_graphql_lists_leave_hidden_records_out() {
         }
     }
 }
+
+/// The records of a hidden person outlive their soft deletion: an
+/// excluded person the owner deleted keeps their events, notes and
+/// citations hidden (docs/privacy.md §3.2), in lists and direct reads.
+#[tokio::test]
+async fn the_records_of_a_deleted_hidden_person_stay_hidden() {
+    let f = fixture().await;
+    let t = &f.tree;
+    let (status, _) = crate::common::send(
+        &f.owner,
+        Method::DELETE,
+        &f.path(&format!("/persons/{}", t.id("person_id"))),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    for who in VIEWERS {
+        for path in [
+            format!("/events/{}", t.id("event_id")),
+            format!("/notes/{}", t.id("note_id")),
+        ] {
+            f.missing(who, &path).await;
+        }
+        for (path, id) in [
+            ("/events?first=100", "event_id"),
+            ("/citations?first=100", "citation_id"),
+            ("/notes?first=100", "note_id"),
+        ] {
+            let page = f.get(who, path).await;
+            assert!(
+                !ids(&page).contains(&t.id(id).to_string()),
+                "{who:?} {path}: {page}"
+            );
+        }
+        let data = f
+            .data(
+                who,
+                &format!(
+                    r#"{{ notes(treeId: "{}", first: 100) {{ edges {{ node {{ id }} }} }} }}"#,
+                    t.tree_id
+                ),
+            )
+            .await;
+        assert!(
+            !data.to_string().contains(t.id("note_id")),
+            "{who:?}: {data}"
+        );
+    }
+}

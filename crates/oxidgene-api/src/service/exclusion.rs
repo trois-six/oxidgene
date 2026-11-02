@@ -102,6 +102,14 @@ async fn rebuild(
         let (kin, live) = links(conn, tree_id).await?;
         for exclusion in &exclusions {
             union.extend(scope_of(exclusion).persons(&kin, &live));
+            // A deleted root covers nobody until it is restored, but stays
+            // excluded itself: its events, notes and citations outlive it
+            // (docs/privacy.md §6.5).
+            if !live.contains(&exclusion.person_id)
+                && (exclusion.kind == ExclusionKind::Person || exclusion.include_root)
+            {
+                union.insert(exclusion.person_id);
+            }
         }
     }
     ExclusionRepo::replace_union(conn, tree_id, &union, generation).await

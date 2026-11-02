@@ -128,6 +128,11 @@ case open, the records' redaction decides:
   empty vocabulary and knows no tag (`404`).
 - A medium's usage count counts the records it is linked to that the viewer
   sees.
+- A deletion cascades to nothing, so the records of a deleted person — their
+  events, notes, citations, media links and vignettes, the media showing
+  them — and those of a deleted event outlive them: they are hidden from
+  every viewer anything is hidden from, as the records of a hidden person
+  are.
 
 ---
 
@@ -343,7 +348,8 @@ like an access scope when the tree's ancestry generation moves
 an excluded root is excluded at the next read, and a person linked as a new
 ancestor of an excluded root is excluded too. A merge keeps a person excluded
 when either record was; a deleted root keeps its exclusion, which applies again
-if it is restored.
+if it is restored, and stays excluded itself meanwhile, so that its records,
+which outlive it, stay hidden (§3.2).
 
 ---
 
