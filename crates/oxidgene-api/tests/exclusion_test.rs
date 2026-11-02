@@ -222,3 +222,63 @@ async fn the_owners_export_leaves_out_the_excluded_persons_without_initials() {
     let gedcom = response["data"]["exportGedcom"]["gedcom"].as_str().unwrap();
     assert!(!gedcom.contains(EXCLUDED), "{gedcom}");
 }
+
+/// Two rebuilds of one tree's exclusions, or of one access scope, never
+/// interleave: the first to read the state holds it until its transaction
+/// ends, and the second reads it only then. On PostgreSQL, under READ
+/// COMMITTED, the second would otherwise delete what the first committed,
+/// and mark a union lacking a new exclusion current.
+#[tokio::test]
+async fn a_rebuild_holds_the_state_it_read_until_it_commits() {
+    use std::time::Duration;
+
+    use oxidgene_core::sharing::{ScopeDefinition, ScopeKind};
+    use oxidgene_db::repo::{AccessScopeRepo, ExclusionRepo};
+    use oxidgene_db::sea_orm::TransactionTrait;
+
+    let f = Fixture::new().await;
+    let tree: uuid::Uuid = f.canaries.tree.parse().unwrap();
+    let scope = AccessScopeRepo::create(
+        &f._db,
+        tree,
+        &ScopeDefinition {
+            kind: ScopeKind::DescendantsOf,
+            person_id: f.canaries.person("Corwin").parse().unwrap(),
+            depth: None,
+            include_self: true,
+            include_spouses: false,
+            collateral: false,
+        },
+    )
+    .await
+    .expect("creates a scope")
+    .id;
+    let first = f._db.begin().await.expect("begins");
+    ExclusionRepo::lock_generations(&first, tree)
+        .await
+        .expect("reads the state");
+    AccessScopeRepo::lock_generations(&first, scope)
+        .await
+        .expect("reads the scope");
+    let db = f._db.clone();
+    let second = tokio::spawn(async move {
+        let txn = db.begin().await.expect("begins");
+        ExclusionRepo::lock_generations(&txn, tree)
+            .await
+            .expect("reads the state");
+        AccessScopeRepo::lock_generations(&txn, scope)
+            .await
+            .expect("reads the scope");
+        txn.commit().await.expect("commits");
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !second.is_finished(),
+        "the second rebuild read a held state"
+    );
+    first.commit().await.expect("commits");
+    tokio::time::timeout(Duration::from_secs(10), second)
+        .await
+        .expect("the second rebuild goes on once the first commits")
+        .expect("runs");
+}

@@ -162,13 +162,37 @@ impl AccessScopeRepo {
         db: &impl ConnectionTrait,
         id: Uuid,
     ) -> Result<Option<(i64, Option<i64>)>, OxidGeneError> {
+        Self::read_generations(db, id, false).await
+    }
+
+    /// [`Self::generations`], locking scope `id`'s row until the
+    /// transaction `txn` ends on PostgreSQL, so that two rebuilds of one
+    /// scope never interleave: under READ COMMITTED a rebuild's `DELETE`
+    /// would otherwise remove what another committed meanwhile, or its
+    /// `INSERT` collide with it. SQLite serializes writers already.
+    pub async fn lock_generations(
+        txn: &impl ConnectionTrait,
+        id: Uuid,
+    ) -> Result<Option<(i64, Option<i64>)>, OxidGeneError> {
+        Self::read_generations(txn, id, true).await
+    }
+
+    async fn read_generations(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        lock: bool,
+    ) -> Result<Option<(i64, Option<i64>)>, OxidGeneError> {
         let backend = db.get_database_backend();
+        let lock = match backend {
+            DbBackend::Postgres if lock => " FOR UPDATE OF a",
+            _ => "",
+        };
         let row = db
             .query_one_raw(Statement::from_sql_and_values(
                 backend,
                 format!(
                     "SELECT s.generation, a.built_generation FROM access_scope a \
-                     JOIN sosa_state s ON s.tree_id = a.tree_id WHERE a.id = {}",
+                     JOIN sosa_state s ON s.tree_id = a.tree_id WHERE a.id = {}{lock}",
                     placeholders(backend, 1, 1)
                 ),
                 [Value::from(id)],

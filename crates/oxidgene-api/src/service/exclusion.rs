@@ -84,13 +84,15 @@ async fn links(
     crate::service::access_scope::kinship(conn, tree_id).await
 }
 
-/// Rebuild the union of `tree_id` in `conn`, when it is stale or `force`.
+/// Rebuild the union of `tree_id` in the transaction `conn`, when it is
+/// stale or `force`. The tree's state is locked first, so that a rebuild
+/// running meanwhile either commits before this one reads, or waits for it.
 async fn rebuild(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
     force: bool,
 ) -> Result<(), OxidGeneError> {
-    let (generation, built) = ExclusionRepo::generations(conn, tree_id).await?;
+    let (generation, built) = ExclusionRepo::lock_generations(conn, tree_id).await?;
     if !force && built == Some(generation) {
         return Ok(());
     }

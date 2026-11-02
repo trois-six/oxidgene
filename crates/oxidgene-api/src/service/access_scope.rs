@@ -146,11 +146,12 @@ pub async fn create_optional(
 }
 
 /// Rebuild the persons of `scope` as of the tree's current ancestry
-/// generation.
+/// generation, in the transaction `conn`.
 async fn rebuild(conn: &impl ConnectionTrait, scope: &AccessScope) -> Result<(), OxidGeneError> {
     // The generation first: a change committed while the links are read
-    // leaves the scope stale rather than marked current.
-    let Some((generation, _)) = AccessScopeRepo::generations(conn, scope.id).await? else {
+    // leaves the scope stale rather than marked current. Locked: a rebuild
+    // running meanwhile commits before this one reads, or waits for it.
+    let Some((generation, _)) = AccessScopeRepo::lock_generations(conn, scope.id).await? else {
         return Ok(());
     };
     let (kin, live) = kinship(conn, scope.tree_id).await?;
@@ -170,8 +171,9 @@ pub async fn ensure_current(db: &DatabaseConnection, scope_id: Uuid) -> Result<(
     }
     let txn = begin_tx(db).await?;
     if let Some(scope) = AccessScopeRepo::get(&txn, scope_id).await? {
-        // Another request may have rebuilt it meanwhile.
-        match AccessScopeRepo::generations(&txn, scope_id).await? {
+        // Another request may have rebuilt it meanwhile: the row locked,
+        // until this transaction ends, before it is read again.
+        match AccessScopeRepo::lock_generations(&txn, scope_id).await? {
             Some((generation, Some(built))) if built == generation => {}
             _ => rebuild(&txn, &scope).await?,
         }

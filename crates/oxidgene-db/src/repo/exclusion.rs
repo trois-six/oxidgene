@@ -209,14 +209,38 @@ impl ExclusionRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(i64, Option<i64>), OxidGeneError> {
+        Self::read_generations(db, tree_id, false).await
+    }
+
+    /// [`Self::generations`], locking the tree's ancestry state row until
+    /// the transaction `txn` ends on PostgreSQL, so that two rebuilds of one
+    /// tree's union never interleave: under READ COMMITTED a rebuild's
+    /// `DELETE` would otherwise remove what another committed meanwhile, or
+    /// its `INSERT` collide with it. SQLite serializes writers already.
+    pub async fn lock_generations(
+        txn: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<(i64, Option<i64>), OxidGeneError> {
+        Self::read_generations(txn, tree_id, true).await
+    }
+
+    async fn read_generations(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        lock: bool,
+    ) -> Result<(i64, Option<i64>), OxidGeneError> {
         let backend = db.get_database_backend();
+        let lock = match backend {
+            DbBackend::Postgres if lock => " FOR UPDATE OF s",
+            _ => "",
+        };
         let row = db
             .query_one_raw(Statement::from_sql_and_values(
                 backend,
                 format!(
                     "SELECT s.generation, e.built_generation FROM sosa_state s \
                      LEFT JOIN exclusion_state e ON e.tree_id = s.tree_id \
-                     WHERE s.tree_id = {}",
+                     WHERE s.tree_id = {}{lock}",
                     placeholders(backend, 1, 1)
                 ),
                 [Value::from(tree_id)],
