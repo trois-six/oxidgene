@@ -20,13 +20,15 @@ the existing modes keep rendering as before.
   clients, so that the development stack signs in as a deployment does. The
   development setup may differ only by its fictitious users, its secrets,
   its development API client and API key, and its back-channel logout URL
-  (the server's Compose name).
+  (the server's Compose name). Both upload assets/brand/OxidGene.png as the
+  same logo and favicons.
 
 It needs Helm and nothing else; a failure names the case and what differed.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import sys
@@ -273,15 +275,29 @@ def run() -> None:
         expect_eq(ingress["tls"], [{"secretName": "rauthy-tls", "hosts": ["auth.genealogy.example.invalid"]}], "Rauthy's TLS")
         expect(not find(docs, "Cluster"), "a CloudNativePG Cluster on Hiqlite")
 
-    @check("rauthy: the job completes the web client with OxidGene's audience")
+    @check("rauthy: the job completes the web client with OxidGene's audience and logo")
     def _rauthy_job() -> None:
         docs = render(*values("rauthy"))
         job = find(docs, "Job", f"{RAUTHY}-configure")[0]
         expect_eq(job["metadata"]["annotations"]["helm.sh/hook"], "post-install,post-upgrade", "the job's hook")
-        args = job["spec"]["template"]["spec"]["containers"][0]["args"]
-        expect("Authorization: API-Key oxidgene-chart$$$(RAUTHY_API_KEY)" in args, f"the API key header in {args}")
-        expect_eq(args[-1], f"http://{RAUTHY}.{NAMESPACE}.svc.cluster.local:8080/auth/v1/clients/oxidgene-web",
-                  "the client's admin URL")
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        env = env_of(container)
+        expect_eq(env.get("RAUTHY_AUTHORIZATION"), "Authorization: API-Key oxidgene-chart$$$(RAUTHY_API_KEY)",
+                  "the API key header")
+        expect_eq(env.get("RAUTHY_CLIENTS_URL"), f"http://{RAUTHY}.{NAMESPACE}.svc.cluster.local:8080/auth/v1/clients",
+                  "the clients' admin URL")
+        expect_eq(env.get("OXIDGENE_WEB_CLIENT_ID"), "oxidgene-web", "the web client's id")
+        script = container["args"][0]
+        for line in ('--data @/client/oxidgene-web.json',
+                     '"${RAUTHY_CLIENTS_URL}/${OXIDGENE_WEB_CLIENT_ID}"',
+                     'for image in rauthy/logo "${OXIDGENE_WEB_CLIENT_ID}/favicon" oxidgene-mcp/favicon; do',
+                     '--form "image=@/client/OxidGene.png;type=image/png"'):
+            expect(line in script, f"the job's script lacks {line}")
+        mounted = job["spec"]["template"]["spec"]["volumes"][0]["configMap"]["items"]
+        expect_eq(sorted(item["key"] for item in mounted), ["OxidGene.png", "oxidgene-web.json"], "the job's files")
+        logo = find(docs, "ConfigMap", f"{RAUTHY}-bootstrap")[0]["binaryData"]["OxidGene.png"]
+        expect(base64.b64decode(logo) == Path("assets/brand/OxidGene.png").read_bytes(),
+               "the shipped logo is not assets/brand/OxidGene.png")
         files = bootstrap(docs)
         web = files["oxidgene-web.json"]
         expect_eq(web["default_aud"], ["https://genealogy.example.invalid"], "the access tokens' extra audience")
@@ -349,6 +365,11 @@ def run() -> None:
     def _drift() -> None:
         docs = render(*values("rauthy"), "--set", "auth.publicUrl=http://localhost:8081", "--set", "ingress.enabled=false")
         compare_setups(bootstrap(docs), DEVELOPMENT)
+        # The development stack uploads the same logo to the same clients.
+        init = yaml.safe_load(Path("docker/docker-compose.yml").read_text())["services"]["rauthy-init"]
+        expect("../assets/brand/OxidGene.png:/OxidGene.png:ro" in init["volumes"], "rauthy-init lacks the logo")
+        expect("for image in rauthy/logo oxidgene-web/favicon oxidgene-mcp/favicon; do" in init["command"][0],
+               "rauthy-init uploads the logo to other clients than the chart's job")
 
 
 # The development setup's own differences (see the module documentation).

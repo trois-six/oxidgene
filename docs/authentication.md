@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-03T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T13:30:00Z }
 ---
 
 # Authentication and Sessions
@@ -786,12 +786,26 @@ client's secret from `auth.oidc.clientSecret` and the API key from
 | API key `oxidgene-chart` | Reads and updates clients, nothing else: the job's |
 | Users | None but Rauthy's administrator |
 
-Rauthy's bootstrap files cannot set a client's extra audience. After each
-install and upgrade, a Helm hook job (`<name>-configure`) applies
-`oxidgene-web`'s whole definition through Rauthy's admin API
+Rauthy's bootstrap files cannot set a client's extra audience nor its
+logos. After each install and upgrade, a Helm hook job (`<name>-configure`)
+applies `oxidgene-web`'s whole definition through Rauthy's admin API
 (`PUT /auth/v1/clients/oxidgene-web`, authenticated by the API key), retrying
-until Rauthy answers: the chart owns that client, and a change made to it in
-the admin UI lasts until the next upgrade.
+until Rauthy answers, then uploads the OxidGene logo
+(`assets/brand/OxidGene.png`, which `charts/oxidgene/files/rauthy/OxidGene.png`
+links to and `helm package` stores as the file itself), from the
+`binaryData` of the bootstrap ConfigMap:
+
+- as the logo of Rauthy's own `rauthy` client
+  (`PUT /auth/v1/clients/rauthy/logo`), which Rauthy shows on its account and
+  admin pages and on the sign-in page of every client without a logo of its
+  own;
+- as the favicon of the `oxidgene-web` and `oxidgene-mcp` sign-in pages
+  (`PUT /auth/v1/clients/{id}/favicon`), which has no such default.
+
+Rauthy takes a PNG or JPEG, which it downscales to WebP (84 pixels high for
+the sign-in page, 32 for a favicon), or an SVG, which it sanitizes. The
+chart owns that client and those images: a change made to them in the admin
+UI lasts until the next upgrade.
 
 The tokens Rauthy issues for `oxidgene-web` carry, measured on the
 development stack:
@@ -808,8 +822,8 @@ configured value.
 
 - Rauthy applies its bootstrap directory only to an empty database. Changing
   the chart's values afterwards changes nothing in Rauthy but
-  `oxidgene-web`, which the job applies again: groups, scopes and the other
-  clients change through the admin UI or the admin API.
+  `oxidgene-web` and the logo, which the job applies again: groups, scopes
+  and the other clients change through the admin UI or the admin API.
 - Rotating the web client's secret means generating a new one in Rauthy's
   admin UI (Rauthy 0.37 generates a secret; it does not take a chosen one),
   writing it into the `auth.oidc.clientSecret` Secret, then restarting the
@@ -851,7 +865,9 @@ provider, its mail relay and the session store beside the application:
 - A one-shot `rauthy-init` service applies `docker/rauthy/oxidgene-web.json`
   through the admin API once Rauthy answers, as the chart's job does; the
   server waits for it. Rauthy's image has no shell or HTTP client for a
-  health check.
+  health check. It then uploads the OxidGene logo, mounted from
+  `assets/brand/OxidGene.png`, as the job does (§8.3): the `rauthy`
+  client's logo and the `oxidgene-web` and `oxidgene-mcp` favicons.
 - `docker/rauthy/oxidgene-dev-auth.env`, the server's settings for it:
   `oidc` mode, the public URL, issuer, client and its secret, the `groups`
   roles claim, `OXIDGENE_AUTH_SIGNUP=open` (nobody can be invited yet),

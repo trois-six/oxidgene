@@ -122,9 +122,13 @@ services:
       mailpit:
         condition: service_healthy
 
-  # Rauthy's bootstrap files cannot set a client's extra audiences: once it
-  # answers, this applies the web client's whole definition through the
-  # admin API, OxidGene's resource identifier in its tokens' `aud` included.
+  # Rauthy's bootstrap files cannot set a client's extra audiences nor its
+  # logos: once it answers, this applies the web client's whole definition
+  # through the admin API, OxidGene's resource identifier in its tokens'
+  # `aud` included, then the OxidGene logo. Uploaded to Rauthy's own
+  # `rauthy` client, the logo is the one of its account and admin pages and
+  # of the sign-in page of every client without a logo of its own; the
+  # favicon of a sign-in page has no such default and is set per client.
   rauthy-init:
     image: curlimages/curl:8.23.0
     restart: "no"
@@ -133,26 +137,22 @@ services:
         condition: service_started
     volumes:
       - ./rauthy/oxidgene-web.json:/oxidgene-web.json:ro
+      - ../assets/brand/OxidGene.png:/OxidGene.png:ro
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - --fail-with-body
-      - --silent
-      - --show-error
-      - --output
-      - /dev/null
-      - --retry
-      - "60"
-      - --retry-all-errors
-      - --retry-delay
-      - "2"
-      - --request
-      - PUT
-      - --header
-      - "Authorization: API-Key oxidgene-dev$$oxidgeneDevelopmentApiKeyForTheComposeStackOnlyNeverUseItElsewhere"
-      - --header
-      - "Content-Type: application/json"
-      - --data
-      - "@/oxidgene-web.json"
-      - http://rauthy:8080/auth/v1/clients/oxidgene-web
+      - |
+        auth='Authorization: API-Key oxidgene-dev$$oxidgeneDevelopmentApiKeyForTheComposeStackOnlyNeverUseItElsewhere'
+        clients=http://rauthy:8080/auth/v1/clients
+        curl --fail-with-body --silent --show-error --output /dev/null \
+          --retry 60 --retry-all-errors --retry-delay 2 \
+          --request PUT --header "$$auth" \
+          --header 'Content-Type: application/json' \
+          --data @/oxidgene-web.json "$$clients/oxidgene-web"
+        for image in rauthy/logo oxidgene-web/favicon oxidgene-mcp/favicon; do
+          curl --fail-with-body --silent --show-error --output /dev/null \
+            --request PUT --header "$$auth" \
+            --form 'image=@/OxidGene.png;type=image/png' "$$clients/$$image"
+        done
 
   # ── Mail relay ──────────────────────────────────────────────────────
   # Keeps every mail for inspection at http://127.0.0.1:8025 and delivers

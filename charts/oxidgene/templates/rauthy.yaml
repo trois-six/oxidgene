@@ -61,8 +61,9 @@ data:
     {{- tpl (.Files.Get "files/rauthy/config.toml") . | nindent 4 }}
 ---
 # The first start's bootstrap, applied only while Rauthy's database is empty,
-# and oxidgene-web's definition, which the job below applies at every
-# install and upgrade. No secret: the init container fills them in.
+# and oxidgene-web's definition and the OxidGene logo, which the job below
+# applies at every install and upgrade. No secret: the init container fills
+# them in.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -81,6 +82,10 @@ data:
     {{- .Files.Get "files/rauthy/api_keys.json" | nindent 4 }}
   oxidgene-web.json: |
     {{- tpl (.Files.Get "files/rauthy/oxidgene-web.json") . | nindent 4 }}
+binaryData:
+  # A link to assets/brand/OxidGene.png, which `helm package` stores as
+  # the file itself.
+  OxidGene.png: {{ .Files.Get "files/rauthy/OxidGene.png" | b64enc }}
 ---
 apiVersion: v1
 kind: Service
@@ -366,11 +371,15 @@ spec:
   {{- end }}
 {{- end }}
 ---
-# Rauthy's bootstrap files cannot set a client's extra audiences: after each
-# install and upgrade, this applies oxidgene-web's whole definition through
-# the admin API — OxidGene's resource identifier in its tokens' `aud`
-# included — retrying until Rauthy answers. The chart owns that client: a
-# change made to it in Rauthy's admin UI lasts until the next upgrade.
+# Rauthy's bootstrap files cannot set a client's extra audiences nor its
+# logos: after each install and upgrade, this applies oxidgene-web's whole
+# definition through the admin API — OxidGene's resource identifier in its
+# tokens' `aud` included — retrying until Rauthy answers, then the OxidGene
+# logo. Uploaded to Rauthy's own `rauthy` client, the logo is the one of its
+# account and admin pages and of the sign-in page of every client without a
+# logo of its own; the favicon of a sign-in page has no such default and is
+# set per client. The chart owns that client and those images: a change made
+# to them in Rauthy's admin UI lasts until the next upgrade.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -410,26 +419,27 @@ spec:
                 secretKeyRef:
                   name: {{ $rauthy.secret | quote }}
                   key: api-key
+            - name: RAUTHY_AUTHORIZATION
+              value: "Authorization: API-Key oxidgene-chart$$$(RAUTHY_API_KEY)"
+            - name: RAUTHY_CLIENTS_URL
+              value: {{ printf "http://%s.%s.svc.%s:8080/auth/v1/clients" $name .Release.Namespace .Values.clusterDomain | quote }}
+            - name: OXIDGENE_WEB_CLIENT_ID
+              value: {{ .Values.auth.oidc.clientId | quote }}
+          command: ["/bin/sh", "-ec"]
           args:
-            - --fail-with-body
-            - --silent
-            - --show-error
-            - --output
-            - /dev/null
-            - --retry
-            - "120"
-            - --retry-all-errors
-            - --retry-delay
-            - "5"
-            - --request
-            - PUT
-            - --header
-            - "Authorization: API-Key oxidgene-chart$$$(RAUTHY_API_KEY)"
-            - --header
-            - "Content-Type: application/json"
-            - --data
-            - "@/client/oxidgene-web.json"
-            - {{ printf "http://%s.%s.svc.%s:8080/auth/v1/clients/%s" $name .Release.Namespace .Values.clusterDomain .Values.auth.oidc.clientId | quote }}
+            - |
+              curl --fail-with-body --silent --show-error --output /dev/null \
+                --retry 120 --retry-all-errors --retry-delay 5 \
+                --request PUT --header "${RAUTHY_AUTHORIZATION}" \
+                --header "Content-Type: application/json" \
+                --data @/client/oxidgene-web.json \
+                "${RAUTHY_CLIENTS_URL}/${OXIDGENE_WEB_CLIENT_ID}"
+              for image in rauthy/logo "${OXIDGENE_WEB_CLIENT_ID}/favicon" oxidgene-mcp/favicon; do
+                curl --fail-with-body --silent --show-error --output /dev/null \
+                  --request PUT --header "${RAUTHY_AUTHORIZATION}" \
+                  --form "image=@/client/OxidGene.png;type=image/png" \
+                  "${RAUTHY_CLIENTS_URL}/${image}"
+              done
           volumeMounts:
             - name: client
               mountPath: /client
@@ -441,4 +451,6 @@ spec:
             items:
               - key: oxidgene-web.json
                 path: oxidgene-web.json
+              - key: OxidGene.png
+                path: OxidGene.png
 {{- end }}
