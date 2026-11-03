@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T18:45:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T19:30:00Z }
 ---
 
 
@@ -195,7 +195,7 @@ When the search filter yields no results:
 - Title: "No tree found"
 - Subtitle: "Try a different search term."
 
-When the user has no trees at all (first login), a different empty state encourages creating the first tree, with an icon and a "Create your first tree" button.
+When the user has no trees at all (first login), a different empty state encourages creating the first tree, with a "Create your first tree" button under a line illustration: a tree whose crown, in the green accent, holds a family's nodes on an orange trunk, drawn with the theme's colours like the page's other pictures (no emoji).
 
 ---
 

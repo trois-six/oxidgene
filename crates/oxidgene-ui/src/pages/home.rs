@@ -548,7 +548,7 @@ fn TreesGrid(
         return rsx! {
             EmptyState {
                 class: "home-empty",
-                icon: rsx! { "🌳" },
+                icon: rsx! { EmptyTreeIllustration {} },
                 title: i18n.t("home.no_trees"),
                 action: rsx! {
                     if creates {
@@ -633,6 +633,34 @@ fn TreesGrid(
                     }
                 }
             }
+        }
+    }
+}
+
+/// The picture of the empty homepage: a tree whose branches carry a
+/// family's nodes, drawn in the line style and accents of the page's other
+/// pictures, with the theme's colours.
+#[component]
+fn EmptyTreeIllustration() -> Element {
+    rsx! {
+        svg {
+            class: "home-empty-tree",
+            width: "112",
+            height: "112",
+            "viewBox": "0 0 120 120",
+            fill: "none",
+            "strokeLinecap": "round",
+            "strokeLinejoin": "round",
+            circle { class: "home-empty-tree-halo", cx: "60", cy: "60", r: "56" }
+            path {
+                class: "home-empty-tree-crown",
+                d: "M60 16c12.5 0 22.6 8.8 24.2 20.4C93.6 39.5 100 48 100 58c0 12.7-10.3 23-23 23H43c-12.7 0-23-10.3-23-23 0-10 6.4-18.5 15.8-21.6C37.4 24.8 47.5 16 60 16z",
+            }
+            path { class: "home-empty-tree-trunk", d: "M60 102V44M60 72L45 58M60 66l15-12" }
+            path { class: "home-empty-tree-ground", d: "M40 102h40" }
+            circle { class: "home-empty-tree-root", cx: "60", cy: "38", r: "6" }
+            circle { class: "home-empty-tree-node", cx: "42", cy: "55", r: "5.5" }
+            circle { class: "home-empty-tree-node", cx: "78", cy: "51", r: "5.5" }
         }
     }
 }
@@ -1620,6 +1648,22 @@ const HOME_STYLES: &str = r#"
     .home-empty {
         padding: var(--space-40) var(--space-16);
         gap: var(--space-8);
+    }
+
+    .home-empty-tree { display: block; }
+    .home-empty-tree-halo { fill: color-mix(in srgb, var(--green-accent) 8%, transparent); }
+    .home-empty-tree-crown {
+        fill: color-mix(in srgb, var(--green-accent) 16%, var(--bg-card));
+        stroke: var(--green-accent);
+        stroke-width: 2.5;
+    }
+    .home-empty-tree-trunk { stroke: var(--orange); stroke-width: 3; }
+    .home-empty-tree-ground { stroke: var(--border); stroke-width: 2.5; }
+    .home-empty-tree-root { fill: var(--orange); }
+    .home-empty-tree-node {
+        fill: var(--bg-card);
+        stroke: var(--green-accent);
+        stroke-width: 2.5;
     }
 
     .home-empty h3 {
