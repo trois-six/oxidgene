@@ -7,7 +7,7 @@
   "areas": ["Bas-Rhin"],
   "citation_codes": ["AD67"],
   "website": "https://archives67.alsace.eu/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives d'Alsace, site de Strasbourg, {call_number}, vue {view}",
   "terms": "https://archives.alsace.eu/informations-pratiques/pendant-ma-visite/reproduire-et-reutiliser-des-documents/",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives67.alsace.eu",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 128,
         "layout": "Tableau",
@@ -48,6 +49,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives67.alsace.eu",
+        "transport": "browser",
         "search": "recpop",
         "node": 131,
         "layout": "tableau",
@@ -69,6 +71,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives67.alsace.eu",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 146,
         "layout": "Tableau",

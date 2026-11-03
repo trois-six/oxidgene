@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-pierresvives.herault.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 23,
         "fields": {
@@ -47,6 +48,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-pierresvives.herault.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 28,
         "fields": {
@@ -70,6 +72,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-pierresvives.herault.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 22,
         "fields": {

@@ -7,7 +7,7 @@
   "areas": ["Ardèche"],
   "citation_codes": ["AD07"],
   "website": "https://archives.ardeche.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales de l'Ardèche, {call_number}, vue {view}",
   "terms": "https://archives.ardeche.fr/n/reutilisation-des-informations-publiques/n:86",
   "collections": [
@@ -18,6 +18,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.ardeche.fr",
+        "transport": "browser",
         "search": "paroissiaux",
         "node": 164,
         "fields": {
@@ -38,6 +39,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.ardeche.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 96,
         "fields": {
@@ -66,6 +68,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.ardeche.fr",
+        "transport": "browser",
         "search": "recpop",
         "node": 204,
         "fields": {
@@ -84,6 +87,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.ardeche.fr",
+        "transport": "browser",
         "search": "enrmoderne",
         "node": 203,
         "fields": {

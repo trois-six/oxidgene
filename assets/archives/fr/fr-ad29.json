@@ -7,7 +7,7 @@
   "areas": ["Finistère"],
   "citation_codes": ["AD29"],
   "website": "https://archives.finistere.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales du Finistère, {call_number}, vue {view}",
   "terms": "https://archives.finistere.fr/reutilisation-des-archives",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche.archives.finistere.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 138,
         "fields": {
@@ -51,6 +52,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche.archives.finistere.fr",
+        "transport": "browser",
         "search": "recensements",
         "node": 139,
         "fields": {
@@ -70,6 +72,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche.archives.finistere.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 141,
         "fields": {

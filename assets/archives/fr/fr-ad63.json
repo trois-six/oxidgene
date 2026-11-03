@@ -15,6 +15,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archivesdepartementales.puy-de-dome.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 13,
         "fields": {
@@ -46,6 +47,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archivesdepartementales.puy-de-dome.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 318,
         "fields": {

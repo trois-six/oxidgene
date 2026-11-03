@@ -7,7 +7,7 @@
   "areas": ["Morbihan"],
   "citation_codes": ["AD56"],
   "website": "https://patrimoines-archives.morbihan.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales du Morbihan, {call_number}, vue {view}",
   "terms": "https://patrimoines-archives.morbihan.fr/informations-pratiques/reutilisation-des-donnees-publiques",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://rechercher.patrimoines-archives.morbihan.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 6,
         "fields": {
@@ -46,6 +47,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://rechercher.patrimoines-archives.morbihan.fr",
+        "transport": "browser",
         "search": "recrutement",
         "node": 11,
         "fields": {

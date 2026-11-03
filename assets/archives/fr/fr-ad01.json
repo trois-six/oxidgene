@@ -7,7 +7,7 @@
   "areas": ["Ain"],
   "citation_codes": ["AD01"],
   "website": "https://www.archives.ain.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales de l'Ain, {call_number}, vue {view}",
   "terms": "https://www.archives.ain.fr/data/2017_delibcp13nov.pdf",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives.ain.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 88,
         "fields": {
@@ -47,6 +48,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives.ain.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 90,
         "fields": {
@@ -66,6 +68,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives.ain.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 91,
         "fields": {
@@ -87,6 +90,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives.ain.fr",
+        "transport": "browser",
         "search": "3q",
         "node": 92,
         "fields": {

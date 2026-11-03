@@ -7,7 +7,7 @@
   "areas": ["Seine-Saint-Denis"],
   "citation_codes": ["AD93"],
   "website": "https://archives.seinesaintdenis.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales de la Seine-Saint-Denis / {call_number}, vue {view}",
   "terms": "https://archives.seinesaintdenis.fr/n/mentions-legales-credits/n:236",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.seinesaintdenis.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 217,
         "fields": {
@@ -45,6 +46,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.seinesaintdenis.fr",
+        "transport": "browser",
         "search": "listeselrecensements",
         "node": 212,
         "fields": {
@@ -69,6 +71,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.seinesaintdenis.fr",
+        "transport": "browser",
         "search": "sucession",
         "node": 219,
         "fields": {

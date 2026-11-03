@@ -7,7 +7,7 @@
   "areas": ["Seine-Maritime", "Seine-Inférieure"],
   "citation_codes": ["AD76"],
   "website": "https://www.archivesdepartementales76.net/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales de la Seine-Maritime, {call_number}, vue {view}",
   "terms": "https://www.archivesdepartementales76.net/n/reproduction-reutilisation-communicabilite/n:80",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archivesdepartementales76.net",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 113,
         "layout": "tabulaire",
@@ -50,6 +51,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archivesdepartementales76.net",
+        "transport": "browser",
         "search": "matricules",
         "node": 242,
         "layout": "tabulaire",
@@ -74,6 +76,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archivesdepartementales76.net",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 302,
         "layout": "tabulaire",

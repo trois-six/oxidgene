@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-deux-sevres-vienne.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 100,
         "fields": {
@@ -44,6 +45,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-deux-sevres-vienne.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 100,
         "fields": {
@@ -77,6 +79,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-deux-sevres-vienne.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 104,
         "page": "listerecensement",
@@ -100,6 +103,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives-deux-sevres-vienne.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 101,
         "page": "enregistest",

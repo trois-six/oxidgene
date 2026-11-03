@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.aisne.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 11,
         "fields": {
@@ -48,6 +49,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.aisne.fr",
+        "transport": "browser",
         "search": "rp",
         "node": 154,
         "fields": {
@@ -68,6 +70,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.aisne.fr",
+        "transport": "browser",
         "search": "matricule",
         "node": 152,
         "fields": {
@@ -92,6 +95,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.aisne.fr",
+        "transport": "browser",
         "search": "successionsabsences",
         "node": 322,
         "fields": {

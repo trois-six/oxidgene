@@ -216,7 +216,7 @@ catalogue refuses `insecure_http` for any other (`PLAIN_HTTP_ARCHIVES` in
 
 | Archive | Why plain `http` |
 |---|---|
-| `fr-anom`, Archives nationales d'outre-mer | Its `https` port offers TLS 1.0 alone, with a self-signed certificate of another host that expired in 2019 (2026-10-06; TLS 1.0 alone still on 2026-10-15), which no client accepts. The portal is reached only for public registers' listings, and a request names nothing but a territory, a commune and a year (§4.15). |
+| `fr-anom`, Archives nationales d'outre-mer | Its `https` port offers TLS 1.0 alone, with a self-signed certificate of another host that expired in 2019 (2026-10-06; TLS 1.0 alone still on 2026-10-15), which no client accepts; since late October 2026 the host resolves to the Ligeo hosting, whose `https` port refuses its name (§11.3). The portal is reached only for public registers' listings, and a request names nothing but a territory, a commune and a year (§4.15). |
 
 A collection marked `insecure_http` gives its endpoint the mark (§4.2), and
 the transports reach plain `http` for that endpoint alone.
@@ -231,9 +231,14 @@ collection. An archive whose viewer requires accepting a
 licence or passing an anti-bot challenge before showing an image stays
 `portal`: the Sarthe, Calvados and Marne archives are `portal`, as are the
 Hérault and Val-d'Oise archives, whose Ligeo viewer asks the reader to accept
-a reuse licence (§4.5); the Indre-et-Loire archives are `iiif` under their
-reuse terms, and the Loire-Atlantique archives are a candidate once their
-terms are confirmed.
+a reuse licence (§4.5); so does an archive whose searches answer a browser
+only, whatever its terms allow: the archives on the Ligeo hosting behind its
+Anubis check (§4.5) are `portal`, those whose terms allow reuse keeping their
+`attribution` and `terms` as the record of them, for the day their searches
+answer any client again. The Indre-et-Loire archives are `iiif` under their
+reuse terms, as are the Aveyron, Haute-Garonne and Hauts-de-Seine archives,
+whose Ligeo portals answer any client, and the Loire-Atlantique archives are
+a candidate once their terms are confirmed.
 
 The hierarchy of the user's request — country, then level, then archive — is
 the catalogue's navigation, not the crate's module tree: archives are data,
@@ -969,7 +974,7 @@ department on a portal two archives share). The `portal` settings are:
 | Setting | Content |
 |---|---|
 | `origin` | Portal origin. |
-| `transport` | `any` (default), or `browser` when only a browser reaches the portal: an F5 challenge, a web application firewall, or a server whose certificate chain lacks its intermediate (§4.2). |
+| `transport` | `any` (default), or `browser` when only a browser reaches the portal: the Anubis check of the Ligeo hosting (*Anubis*, below), an F5 challenge, a web application firewall, or a server whose certificate chain lacks its intermediate (§4.2). The browser's start page is the search page, where it passes the check before the searches run as that page's requests. |
 | `prefix` | `/archive` (default), or `/archives` on some portals. |
 | `search` | The search's name in the path, `etatcivil`, `paroissiaux`, `EtatCivilNumerise`; also sent as `type`. |
 | `node` | The menu node, `n:<node>` in the path. |
@@ -1001,7 +1006,9 @@ The viewer shows the current view in `.monocle-PageNav input[role="spinbutton"]`
 
 **Reuse licence over the viewer.** The Monocle viewer asks the reader to accept the reuse terms (a dialog titled « Réutilisation des informations publiques », « Accepter » and « Refuser » buttons) on the portals that enable its clickwrap in the page's own script: `Monocle.iiif({"config": {…, "monocle-clickwrap": {"active": true}, …}})`. The messages of the dialog stand in the same configuration on every portal; a portal that does not enable the step either omits the `monocle-clickwrap` key or sets `"active": false`, and the manifest's reuse text (`ligeoReUseProfil.content`) does not tell the two apart (the Val-d'Oise manifest's is empty). An archive whose viewer enables it is `portal` whatever its terms allow (§3.1). The browser check of an `iiif` archive reads the viewer page's configuration and fails with the licence named when the key is active, so a portal that enables the step later is reported by the weekly check (§9.1); it costs no request beyond the viewer's own.
 
-**Etiquette.** These portals' `robots.txt` set `Crawl-delay: 5` (one asks 3) and disallow `/archive/resultats/*?*`, `/archive/recherche/*?*` and `/archive/*/view:*`, as the Loire-Atlantique one does; a few disallow every query address (`/archive/*?`). Resolutions are user-initiated only, one per click (§8), and the live checks run at the weekly rate (§9.2), spaced by the `Crawl-delay`. Several portals run Anubis, a proof-of-work challenge shown to browser `User-Agent`s only: the identifying `User-Agent` of the `native` transport is not challenged, while a headless browser is refused (`Access Denied`, or a page whose assets lie under `/.within.website/`), on some portals at the viewer too, so a live check's opening ends `challenged` there. Others run F5 TSPD or a firewall that gives a plain client a challenge page or `Request Rejected` (hence `transport: "browser"`).
+**Etiquette.** These portals' `robots.txt` set `Crawl-delay: 5` (one asks 3) and disallow `/archive/resultats/*?*`, `/archive/recherche/*?*` and `/archive/*/view:*`, as the Loire-Atlantique one does; a few disallow every query address (`/archive/*?`). Resolutions are user-initiated only, one per click (§8), and the live checks run at the weekly rate (§9.2), spaced by the `Crawl-delay`. Portals outside the Ligeo hosting run F5 TSPD or a firewall that gives a plain client a challenge page or `Request Rejected` (hence `transport: "browser"`: Alpes-Maritimes, Bouches-du-Rhône).
+
+**Anubis.** The Ligeo hosting (Boscop's servers, behind names under `ligeo-archives.com` and `vtech.fr`) runs Anubis, a proof-of-work check, in front of its portals' pages. It used to challenge browser `User-Agent`s only and let the identifying `User-Agent` of the `native` transport through; since late October 2026 it challenges every client, that agent included, from the runners' datacentre addresses (the scheduled runs of 2026-10-26 and 2026-11-02) as from a residential network (2026-11-02). The search pages and their results are behind it; the viewer's manifest and images (`/ark:/…/manifest`, `/iiif/…`) still answer any client. A browser passes the check by itself, with no widget to answer, in a second or two, and its cookie carries the page's following requests: the desktop window, the reader's own browser, and the live checks' headless Chromium, which identifies itself (§9.1) and passed it on every archive below on 2026-11-02, at the searches and at the viewer (Binocle's included). The collections of the archives it guards are therefore `transport: "browser"`, and those archives `display: "portal"` (§3.1): Ain, Aisne, Hautes-Alpes, Ardèche, Charente, Finistère, Hérault, Loir-et-Cher, Loire, Lozère, Morbihan, Moselle, Puy-de-Dôme, Bas-Rhin, Haute-Saône, Haute-Savoie, Seine-Maritime, Deux-Sèvres and Vienne, Vosges, Yonne, Seine-Saint-Denis and Val-d'Oise. The desktop resolves them in the archive window as it resolves every archive (§6.1), the start page being the collection's search page. The web's backend reaches no browser-only portal (§5.3): a citation opens the collection's filtered search page in a tab (§6.2), where the reader's browser passes the check and lists the registers of the cited locality, act and year, from which the reader opens the cited one. The Ligeo portals hosted elsewhere or without the check — Aveyron (behind a firewall of its own), Haute-Garonne and Hauts-de-Seine, checked 2026-11-02 — answer the identifying agent and stay `any`; one that starts challenging it ends `challenged` in the weekly run (§9.2) and is switched the same way, its portal's archives together (§3.1). OxidGene never answers the check in code (§8): no client but a browser computes its proof of work, and none hides what it is to pass.
 
 **Reuse.** An archive is `display: "iiif"` where its reuse terms, often an Etalab open licence, ask only for the attribution to the archive with the call number (and the date of the last update), and its manifests and images answer across origins; its `terms` are the deliberation or the reuse page, or the manifest's own reuse text (`ligeoReUseProfil`). It stays `portal` where the portal enables the viewer's clickwrap, a reuse licence the reader accepts over the viewer before any image (below), where reuse needs a licence requested from the archive, a paid licence for some uses or a third party's authorisation (registers digitised by FamilySearch), where the terms could not be read or forbid reuse beyond private consultation, where a collection is reachable by a browser only, or where the manifest has no IIIF image service. Waiting periods keep recent acts out of the portals (births under 100 years, marriages 75, deaths 25).
 
@@ -3235,7 +3242,7 @@ headful, nor hides what it is, to pass:
 | A check that clears itself in a headless browser (a bot-mitigation redirect, a proof of work let through) | `ok`: waited out like the window does. |
 | A check left for a reader (a widget, or one that stays) | `challenged`, unverified. |
 | A block of the headless browser or of the runner's address (a Cloudflare block, such as the Landes portal's after the browser's first page; an Anubis deny rule), at any step, step 4 included | `challenged`, unverified; the steps before it keep their verdicts. |
-| A challenge answering the native client | `challenged` for that collection; the desktop resolves it in the window. |
+| A challenge answering the native client | `challenged` for that collection, until its portal's collections are switched to `transport: "browser"` (§3.1), whose checks then run in the headless browser, as the Ligeo hosting's do since it challenges the identifying agent (§4.5); the desktop resolves it in the window meanwhile. |
 | A certificate served without its issuer | Not seen: Chromium completes the chain, as the desktop window on Linux does (§6.1). |
 
 **Reports.** `just archives-live` writes under `target/archives-live/`
@@ -3447,6 +3454,12 @@ Portals change often, which is why every catalogued archive has a live check
   in several directions: Pas-de-Calais is still on Archinoë, Deux-Sèvres and
   Vienne share a Ligeo portal, Mayenne runs Pleade (§4.10), as the
   Pyrénées-Atlantiques do, and Tarn-et-Garonne Bach (§4.11).
+- The Ligeo hosting: since late October 2026 the Anubis check in front of
+  its portals challenges every client, OxidGene's identifying agent
+  included, where it used to challenge browsers only. The 23 archives it
+  guards are reached by a browser only and displayed by their portals
+  (§3.1, §4.5); the scheduled runs of 2026-10-26 and 2026-11-02 had ended
+  them `challenged` at their search pages.
 
 Cases the catalogue model must express:
 
@@ -3548,7 +3561,16 @@ Cases the catalogue model must express:
   Anubis check, and the archive's own pages still link the former address,
   so the civil status answered nowhere. CAOMEC2 has moved only once the
   host resolves there for good and its search answers elsewhere; until
-  then, the catalogue entry stands.
+  then, the catalogue entry stands. The browser transport the other
+  archives of that hosting took (§4.5) does not reach it either: a browser
+  meets the same refused name on `https` and the same redirect on `http`.
+  Were the search served on that hosting, behind its check, the entry would
+  need the address it answers at, observed rather than guessed: an `https`
+  origin there, `transport: "browser"` with the territory's form as the
+  start page — the CAOMEC2 adapter's own, which a browser loads first and
+  where it passes the check —, and neither `insecure_http` nor the
+  catalogue's plain-`http` exception, which would then name no archive
+  (§3.1). Checked again 2026-11-02: unchanged.
 
 ### 11.4 Cataloguing order
 

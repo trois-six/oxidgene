@@ -7,7 +7,7 @@
   "areas": ["Charente"],
   "citation_codes": ["AD16"],
   "website": "https://lasource.archives.lacharente.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives de la Charente, {call_number}, vue {view}",
   "terms": "https://lasource.archives.lacharente.fr/data/licence_de_reutilisation_etalab.pdf",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://lasource.archives.lacharente.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 115,
         "fields": {
@@ -38,6 +39,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://lasource.archives.lacharente.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 118,
         "fields": {
@@ -57,6 +59,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://lasource.archives.lacharente.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 123,
         "fields": {
@@ -80,6 +83,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://lasource.archives.lacharente.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 127,
         "fields": {

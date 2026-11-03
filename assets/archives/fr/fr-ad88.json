@@ -7,7 +7,7 @@
   "areas": ["Vosges"],
   "citation_codes": ["AD88"],
   "website": "https://recherche-archives.vosges.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales des Vosges, {call_number}, vue {view}",
   "terms": "https://recherche-archives.vosges.fr/n/conditions-d-utilisation-du-site/n:40",
   "collections": [
@@ -18,6 +18,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche-archives.vosges.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 2,
         "layout": "etatcivil_tableau",
@@ -50,6 +51,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche-archives.vosges.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 2,
         "layout": "etatcivil_tableau",
@@ -81,6 +83,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://recherche-archives.vosges.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 3,
         "layout": "etatcivil_tableau",

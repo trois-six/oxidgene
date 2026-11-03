@@ -15,6 +15,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives57.com",
+        "transport": "browser",
         "fonds": "FRAD057_605804",
         "search": "inventaire",
         "node": 3,

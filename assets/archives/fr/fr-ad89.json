@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.yonne.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 157,
         "fields": {

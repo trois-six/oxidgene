@@ -121,6 +121,30 @@ fn embedded(title: &str, search: &'static str) -> (Result<ArchiveTarget, Resolve
     (target, fetch)
 }
 
+/// Resolves `title` as [`resolve`] does, its archive taken as `display:
+/// "iiif"`: the IIIF reads of the adapter, over the Ain and Ardèche
+/// fixtures, whose archives are `portal` since their searches answer a
+/// browser only (Archive Portals §3.1).
+fn resolve_iiif(title: &str, fetch: &Fixtures) -> Result<ArchiveTarget, ResolveError> {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry.parse(title).expect("a normalized citation");
+    let (archive, collections) = registry.candidates(&citation).expect("a catalogued act");
+    let archive = Archive {
+        display: Display::Iiif,
+        ..archive.clone()
+    };
+    block_on(Ligeo.resolve(&archive, collections[0], &citation, fetch))
+}
+
+fn embedded_iiif(
+    title: &str,
+    search: &'static str,
+) -> (Result<ArchiveTarget, ResolveError>, Fixtures) {
+    let fetch = Fixtures::new(search);
+    let target = resolve_iiif(title, &fetch);
+    (target, fetch)
+}
+
 /// The register of a `View` target, as its address ends the viewer path.
 fn viewed(target: &ArchiveTarget) -> &str {
     let url = target.url();
@@ -137,7 +161,7 @@ fn matches(target: &Result<ArchiveTarget, ResolveError>) -> Option<usize> {
 
 #[test]
 fn one_register_opens_on_the_cited_view_with_its_images() {
-    let (target, fetch) = embedded(
+    let (target, fetch) = embedded_iiif(
         "AD01 - Exampleville - (aucun) - N - 1880 - 9 E 99 - vue 5/6",
         AIN_ONE,
     );
@@ -200,8 +224,7 @@ fn images_are_sized_by_their_service_on_the_level_1_service() {
     ] {
         let mut fetch = Fixtures::new(AIN_ONE);
         fetch.info = info;
-        let target = resolve(
-            ArchiveRegistry::embedded(),
+        let target = resolve_iiif(
             "AD01 - Exampleville - (aucun) - N - 1880 - vue 1/120",
             &fetch,
         );
@@ -219,7 +242,7 @@ fn images_are_sized_by_their_service_on_the_level_1_service() {
         assert_eq!((image.width, image.height), size);
     }
 
-    let (target, fetch) = embedded(
+    let (target, fetch) = embedded_iiif(
         "AD01 - Exampleville - (aucun) - N - 1880 - vue 1-6/120",
         AIN_ONE,
     );
@@ -239,8 +262,7 @@ fn images_are_sized_by_their_service_on_the_level_1_service() {
     // A service whose `info.json` lacks a size is a changed answer.
     let mut fetch = Fixtures::new(AIN_ONE);
     fetch.info = "<html>maintenance</html>";
-    let target = resolve(
-        ArchiveRegistry::embedded(),
+    let target = resolve_iiif(
         "AD01 - Exampleville - (aucun) - N - 1880 - vue 1/120",
         &fetch,
     );
@@ -364,7 +386,7 @@ fn a_changed_answer_is_reported_as_such() {
         r#"{"sequences": [{"canvases": [{"width": 0, "height": 10}]}]}"#,
     ] {
         fetch.manifest = manifest;
-        let target = resolve(ArchiveRegistry::embedded(), title, &fetch);
+        let target = resolve_iiif(title, &fetch);
         assert!(
             matches!(target, Err(ResolveError::UnexpectedResponse(_))),
             "{manifest}: {target:?}"
@@ -376,11 +398,7 @@ fn a_changed_answer_is_reported_as_such() {
             .replace("/iiif/EC/", "/elsewhere/EC/")
             .into_boxed_str(),
     );
-    let target = resolve(
-        ArchiveRegistry::embedded(),
-        "AD01 - Exampleville - (aucun) - N - 1880 - vue 1/6",
-        &fetch,
-    );
+    let target = resolve_iiif("AD01 - Exampleville - (aucun) - N - 1880 - vue 1/6", &fetch);
     assert!(matches!(target, Err(ResolveError::UnexpectedResponse(_))));
 }
 
@@ -408,7 +426,8 @@ fn civil_status_filters_by_document_type_and_act_and_reads_a_shared_call_number(
         ArchiveTarget::View {
             url: format!("{ARDECHE}/ark:/99999/vtaexample0033/daogrp/0/1"),
             views: Vec::new(),
-            view_count: Some(6),
+            // The row's count, with no manifest read for a `portal` archive.
+            view_count: Some(46),
             call_number: Some("NC 99001".to_owned()),
             attribution: Some("Archives départementales de l'Ardèche, NC 99001, vue ".to_owned()),
             renumbering: None,
@@ -481,7 +500,7 @@ fn parish_registers_open_in_the_group_the_row_link_names() {
 
 #[test]
 fn a_view_beyond_the_register_opens_its_first_image() {
-    let (target, _) = embedded(
+    let (target, _) = embedded_iiif(
         "AD07 - Exampleville - (aucun) - B - 1700 - vue 7/392",
         ARDECHE_PARISH,
     );
@@ -734,7 +753,9 @@ fn reads_the_endpoint_and_the_search_page_of_each_collection() {
         endpoint.start,
         format!("{AIN}/archive/recherche/etatcivil/n:88")
     );
-    assert_eq!(endpoint.access, Access::Any);
+    // Behind the Ligeo hosting's Anubis check: the search page is where a
+    // browser passes it before the searches run as the page's requests.
+    assert_eq!(endpoint.access, Access::Browser);
     assert!(endpoint.other_origins.is_empty());
 
     let ad07 = registry.archive("AD07").unwrap();
@@ -777,6 +798,9 @@ fn collection_with(change: impl FnOnce(&mut serde_json::Value)) -> Collection {
 
 #[test]
 fn a_portal_under_the_archives_prefix_and_behind_a_challenge_is_a_setting() {
+    let open = collection_with(|portal| portal["transport"] = "any".into());
+    assert_eq!(Ligeo.endpoint(&open).unwrap().access, Access::Any);
+
     let collection = collection_with(|portal| {
         portal["prefix"] = "/archives".into();
         portal["transport"] = "browser".into();
@@ -1584,7 +1608,8 @@ fn a_commune_listed_under_a_shorter_name_is_searched_again() {
         requests[1].contains("rech_commune=Exampleville&"),
         "{requests:?}"
     );
-    assert!(requests[2].ends_with("/manifest"), "{requests:?}");
+    // Two searches, nothing more: no manifest for a `portal` archive.
+    assert_eq!(requests.len(), 2, "{requests:?}");
 
     // The image count alone tells the commune's register from the other
     // commune's no better than the year: the results of the second search.

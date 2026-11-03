@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.valdoise.fr",
+        "transport": "browser",
         "search": "EtatCivilNumerise",
         "node": 419,
         "fields": {
@@ -47,6 +48,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.valdoise.fr",
+        "transport": "browser",
         "search": "EtatCivilNumerise",
         "node": 419,
         "fields": {
@@ -80,6 +82,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.valdoise.fr",
+        "transport": "browser",
         "search": "RecensementsPopulation",
         "node": 420,
         "fields": {

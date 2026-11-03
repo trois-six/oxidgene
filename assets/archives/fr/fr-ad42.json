@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.loire.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 92,
         "fields": {
@@ -44,6 +45,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.loire.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 129,
         "fields": {
@@ -63,6 +65,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.loire.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 130,
         "fields": {

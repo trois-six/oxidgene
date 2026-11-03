@@ -7,7 +7,7 @@
   "areas": ["Haute-Savoie"],
   "citation_codes": ["AD74"],
   "website": "https://archives.hautesavoie.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Arch. dép. Haute-Savoie, {call_number}, vue {view}",
   "terms": "https://archives.hautesavoie.fr/n/obtenir-une-copie/n:92",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautesavoie.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 139,
         "fields": {
@@ -47,6 +48,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautesavoie.fr",
+        "transport": "browser",
         "search": "recensements",
         "node": 161,
         "fields": {
@@ -67,6 +69,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautesavoie.fr",
+        "transport": "browser",
         "search": "matricule",
         "node": 152,
         "fields": {
@@ -86,6 +89,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautesavoie.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 154,
         "fields": {

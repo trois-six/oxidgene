@@ -7,7 +7,7 @@
   "areas": ["Loir-et-Cher"],
   "citation_codes": ["AD41"],
   "website": "https://www.archives41.fr/",
-  "display": "iiif",
+  "display": "portal",
   "attribution": "Archives départementales de Loir-et-Cher, {call_number}, vue {view}",
   "terms": "https://www.archives41.fr/n/reutilisation-et-reproduction-des-documents/n:130",
   "collections": [
@@ -17,6 +17,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives41.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 19,
         "fields": {
@@ -48,6 +49,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives41.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 143,
         "fields": {
@@ -68,6 +70,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives41.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 145,
         "fields": {
@@ -86,6 +89,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives41.fr",
+        "transport": "browser",
         "search": "tsa",
         "node": 152,
         "fields": {

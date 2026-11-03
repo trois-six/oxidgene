@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.haute-saone.fr",
+        "transport": "browser",
         "search": "etatcivil2",
         "node": 119,
         "fields": {
@@ -40,6 +41,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.haute-saone.fr",
+        "transport": "browser",
         "search": "etatcivil2",
         "node": 119,
         "fields": {
@@ -63,6 +65,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.haute-saone.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 120,
         "fields": {
@@ -82,6 +85,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.haute-saone.fr",
+        "transport": "browser",
         "search": "enregistrement",
         "node": 121,
         "fields": {

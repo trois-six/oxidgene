@@ -15,6 +15,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautes-alpes.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 198,
         "fields": {
@@ -46,6 +47,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautes-alpes.fr",
+        "transport": "browser",
         "search": "listesnominatives",
         "node": 201,
         "fields": {
@@ -64,6 +66,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.hautes-alpes.fr",
+        "transport": "browser",
         "search": "matricules",
         "node": 202,
         "fields": {
