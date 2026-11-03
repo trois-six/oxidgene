@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
 ---
 
 
@@ -1102,7 +1102,7 @@ they were; its custom themes must be moved from
 `~/.local/share/oxidgene/themes/` to `~/.config/oxidgene/themes/`, and its
 web profile starts empty under the state directory, so the UI preferences
 (language, theme) are chosen again. The Geneanet window is incognito and never
-kept its sign-in ([Import §9.5](ui-import.md#95-step-3-authenticated-collection)),
+kept its sign-in ([Import §9.6](ui-import.md#96-authenticated-collection)),
 so a Geneanet import asks for it as it always did; the old
 `~/.local/share/oxidgene/webview/` can be deleted.
 

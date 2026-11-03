@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-11-03T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -692,28 +692,31 @@ default renditions answer, five when the original uploads are asked for.
 
 ### Collect once, import many times
 
-Step 3 is the only part that touches Geneanet, and under the originals answer
-the expensive half of it is one `HEAD` per deposit — several hundred on a real
-account. So its output is
-**saveable**: step 3 offers *Save this connection*, and *Load a saved
-connection* takes it back. That means
+The login is the only part that touches Geneanet, and under the originals
+answer the expensive half of it is one `HEAD` per deposit — several hundred on
+a real account. So its output is **saveable**: the login step and the review
+offer to save the connection, and the wizard's second step, *Saved
+connection*, loads it back ([Import §9.4](ui-import.md)). That means
 
 - iterating on an import without asking Geneanet anything again,
 - collecting on the machine with the browser and importing on the machine with
   the archives,
 - and keeping the mapping, which is the one part §1 says no export can carry.
 
-**One file, however far you got.** Saved during step 3 it carries the
+**One file, however far you got.** Saved at the login it carries the
 collection and the deposit sizes, and a later import still opens the window at
-step 4 to gather media. Saved after step 4 it carries the gathered media as
-well, and importing it needs **no Geneanet connection at all** — which is what
+the review to gather media. Saved after the review it carries the gathered
+media as well, and importing it needs **no Geneanet connection at all** — which is what
 makes a genuinely air-gapped import possible: collect on the machine that can
 reach Geneanet, import on the one that holds the archives, or holds nothing.
 The wizard reads what it was given and asks only for what is missing, so there
-is one *Load* button and no format for the user to choose between.
+is one *Load* button and no format for the user to choose between. It asks for
+the file first, right after the `.gw`: once loaded, the plan with no archive,
+less what the file holds, says what it covers, and the archives and the login
+are asked for only when it leaves something to them.
 
 **The archives' originals travel in it too.** The login window never fetches
-the original of a single-page deposit that step 2's archives hold: the import
+the original of a single-page deposit that the data archives hold: the import
 reads it from the archive entry of its exact byte length. A file holding only
 what the window fetched would leave exactly those out, and the web build,
 which takes no archive, would import every medium but the photographs. So a
@@ -753,8 +756,8 @@ in one multipart request, `POST /trees/{tree_id}/geneanet/session-import`,
 whose handler extracts the media to private files, copies them into job
 storage with the `.gw`, and queues the job before answering, so the worker —
 another process, or another machine — reads only job storage. A file saved
-during step 3 imports the genealogy and its links with no media; one saved
-after step 4 brings them all. The file crosses the network twice, once to be
+at the login imports the genealogy and its links, with the archives'
+originals when they were added; one saved after the review brings them all. The file crosses the network twice, once to be
 read and once with the import: holding it on the server between the two
 would need a shared store, an owner and an expiry of its own, which a
 deployment of several backend replicas could not keep in memory.
@@ -817,7 +820,7 @@ BoringSSL toolchain, a `bindgen` build and a patched, vendored copy of
 That is not an optimisation and not a preference — it is the only place the
 bytes can come from. A real browser engine, on the user's own session, against
 their own data, is what the check is asking for rather than a way around it.
-See [Import §9.5](ui-import.md).
+See [Import §9.6](ui-import.md).
 
 This is why there is no headless path left at all, and why the CLI was
 removed rather than kept as a fallback: a fallback that cannot fetch a single
@@ -850,7 +853,7 @@ decoded is still skipped and reported; a database error, a cancellation — read
 at each medium, each staged input and each batch of persons — or a stop of the
 process leaves the tree as it was, and an interrupted job runs again from the
 start. The media keep streaming through the bounded window the
-[Import](ui-import.md#97-step-5-local-write) specification describes: the
+[Import](ui-import.md#98-local-write) specification describes: the
 transaction holds no bytes, and under SQLite its pages spill to the
 write-ahead log rather than to memory.
 
@@ -917,7 +920,7 @@ therefore share one person. They never become a portrait, because the `.gw`
 names no portrait for somebody it does not contain. The receipt lists these
 people (`isolated_people`), and offers each one bearing the name of somebody
 already in the tree to be kept or merged into that person
-([Import §9.7](ui-import.md)) — a decision the owner's statement leaves to
+([Import §9.8](ui-import.md)) — a decision the owner's statement leaves to
 the user rather than to the join.
 
 A deposit is imported when it names somebody the import can link it to: a

@@ -258,7 +258,7 @@ pub struct GeneanetSessionEncodeInput {
     pub account: Option<String>,
     #[graphql(default)]
     pub media: Vec<GeneanetMediaPathInput>,
-    /// Step 2's archives, whose originals the file carries too.
+    /// The data archives, whose originals the file carries too.
     #[graphql(default)]
     pub archive_paths: Vec<String>,
 }

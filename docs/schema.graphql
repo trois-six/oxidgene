@@ -596,7 +596,7 @@ input GeneanetSessionEncodeInput {
 	account: String
 	media: [GeneanetMediaPathInput!]! = []
 	"""
-	Step 2's archives, whose originals the file carries too.
+	The data archives, whose originals the file carries too.
 	"""
 	archivePaths: [String!]! = []
 }

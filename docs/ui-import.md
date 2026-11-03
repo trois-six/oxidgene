@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
 ---
 
 
@@ -61,7 +61,7 @@ the page behind is all it would take.
 
 **The way out of a running import is its own Cancel.** Once the server job
 exists — after the file tab's upload has returned its job, and as soon as
-the Geneanet step 5 has queued its import — the progress view offers
+the Geneanet import step has queued its import — the progress view offers
 **Cancel import** beside the progress bar. It opens the shared confirmation
 dialog, which says what is undone: everything the import has added so far —
 people, families, events, sources and media — is removed, and the tree is
@@ -141,14 +141,14 @@ of it was built**. What exists is: choose, import, see the counts.
 
 That is recorded rather than quietly dropped, because the preview step is
 genuinely useful for a GEDCOM from an unknown source. It is unbuilt, not
-rejected. The Geneanet tab has its own preview (step 4) because there the
+rejected. The Geneanet tab has its own preview (§9.7) because there the
 question — *do these two halves belong to each other?* — has a real answer that
 cannot be guessed at.
 
 ### Result
 
 One receipt for every import, whatever the source — a file here, Geneanet in
-§9.7: people, families, events, sources, places, **images** and
+§9.8: people, families, events, sources, places, **images** and
 **documents**. Media are counted over the records the import stored, the same
 way for GEDCOM, GEDZIP, GeneWeb and Geneanet: a record of a single page — a
 photograph, a single scan — is an image; any other is a document, and the
@@ -269,7 +269,7 @@ does when too many already wait — in which case the client pauses a second
 first. A job that does not move costs one request every 25 seconds; one that
 does is shown as soon as it moves. The status requests are never cached, and
 no client timeout cuts them short: the desktop and native client's is
-300 seconds, the browser's fetch has none. The Geneanet tab (§9.7) and the
+300 seconds, the browser's fetch has none. The Geneanet tab (§9.8) and the
 GEDZIP export ([Settings](ui-settings.md)) follow their jobs the same way.
 
 The temporary filename is the operation's server-generated UUIDv7, with no
@@ -394,45 +394,48 @@ French key parity.
 
 ### 9.1 Step structure
 
-Exactly one step is expanded at a time. How many there are depends on the
-media answer given in step 1 (§9.3.1):
+Exactly one step is expanded at a time. Which steps there are depends on the
+media answer given in the first (§9.3.1) and on the build (§9.2):
 
-| # | Geneanet renditions (default) | Original uploads |
-|---|---|---|
-| 1 | GeneWeb tree file and media answer | GeneWeb tree file and media answer |
-| 2 | — | Geneanet data archives |
-| 3 | Connect to Geneanet | Connect to Geneanet |
-| 4 | Review and gather | Review and gather |
-| 5 | Write the import | Write the import |
+| # | Desktop, Geneanet renditions (default) | Desktop, original uploads | Web |
+|---|---|---|---|
+| 1 | GeneWeb tree file and media answer | GeneWeb tree file and media answer | GeneWeb tree file and media answer |
+| 2 | Saved connection | Saved connection | Saved connection |
+| 3 | Connect to Geneanet | Geneanet data archives | Review |
+| 4 | Review and gather | Connect to Geneanet | Write the import |
+| 5 | Write the import | Review and gather | — |
+| 6 | — | Write the import | — |
 
-The archive step is not shown at all under the renditions answer, and the steps
-after it are numbered as the four-step journey they then form. No user-visible
-string refers to a step by its number.
+A step that is not shown is not numbered: the steps after it are numbered as
+the journey they then form. No user-visible string refers to a step by its
+number but the mismatch's way back to the first.
 
 A completed step collapses to a one-line receipt with a status icon, aggregate
 counts, and an **Edit** action. Reopening it collapses the current step.
-Unreachable steps remain visible but disabled.
+Unreachable steps remain visible but disabled. A step a loaded connection
+covers (§9.4) shows as completed with that receipt.
 
 ### 9.2 Platform capabilities
 
 | Step | Web | Desktop | Reason |
 |---|---|---|---|
 | GeneWeb file and media answer | Yes | Yes | Small file read through the shared file API. |
+| Load a saved connection | Yes | Yes | The web build reads the file, keeping nothing, and sends it again with the import; the desktop stages its media by path. |
 | Data archives | No | Yes | Multi-gigabyte ZIPs are indexed by path without loading their contents. |
 | Geneanet login | No | Yes | Collection runs in a second authenticated WebView. |
-| Load a saved connection | Yes | Yes | The web build reads the file, keeping nothing, and sends it again with the import; the desktop stages its media by path. |
 | Save the connection | No | Yes | The file is rebuilt from media staged on the desktop; on the web the user already holds it. |
 | Preview | Yes | Yes | It names no path unless archives were added, which only the desktop can. |
 | Gathering | No | Yes | Fetching media needs the login window. |
 | Import | With a loaded file's media | Yes | The web build sends the `.gw` and the loaded file in one multipart request. |
 
-Unavailable web controls are replaced by an explanation naming the desktop
-application. On the web, step 3 offers **Load a saved file…**: a connection
-saved in the desktop application, its media with it — the originals its
-data archives hold included ([Geneanet media import §8](geneanet-media-import.md)) —
+The web build shows neither the archives nor the login step. Its saved
+connection step is its one way to the media: a connection saved in the
+desktop application, its media with it — the originals its data archives
+hold included ([Geneanet media import §8](geneanet-media-import.md)) —
 imports the tree and those media here, and media the file lacks are skipped,
-step 5 saying how many. Without one, the explanation points to the **A file** tab, which
-imports the same `.gw` genealogy without the media.
+the step saying how many before the import does. Without one, the step
+points to the **A file** tab, which imports the same `.gw` genealogy without
+the media.
 
 The web build exchanges no path with the server. Loading a file posts it to
 `POST /geneanet/session/read`, which checks it and answers its collection and
@@ -442,7 +445,7 @@ file. Starting the import posts the `.gw` and that file to
 progress bar. A change of the media answer keeps the loaded file: its import
 takes from it what the answer needs.
 
-### 9.3 Step 1: GeneWeb tree
+### 9.3 GeneWeb tree
 
 The UI explains how to export GeneWeb (`.gw`) from Geneanet and why GEDCOM is
 insufficient for media recovery. The file is parsed immediately, before any
@@ -468,20 +471,50 @@ because it is the only answer available to a user who has never requested their
 Geneanet data export.
 
 **Original uploads** stores the uploaded files. It requires the data archives of
-§9.4 and the byte-length pass of §9.5, and downloads a deposit only where
-neither identifies it.
+§9.5 and the byte-length pass of §9.6, and downloads a deposit only where
+neither identifies it — or a saved connection holding them (§9.4).
 
 Changing the answer discards the decisions that depended on it: the computed
-preview, the media already gathered, and — when switching to originals from a
-collection taken without byte lengths — the collection itself, because keeping
-it would silently match no archive entry and download everything. Selecting
-renditions clears any archives already chosen.
+preview, the media already gathered — except a loaded connection's, which
+serve either answer — and, when switching to originals from a collection
+taken without byte lengths, the collection itself, because keeping it would
+silently match no archive entry and download everything; a loaded file goes
+with it. Selecting renditions clears any archives already chosen.
 
 Instructions stand on their own. Optional screenshots may illustrate external
 steps, but they use an anonymized account, tightly crop unrelated data, include
 localized alt text, and are never required to complete the flow.
 
-### 9.4 Step 2: data archives
+### 9.4 Saved connection
+
+A connection saved by an earlier run (§9.6, [Geneanet media import
+§8](geneanet-media-import.md)) holds what the login collects and, when the
+archives were added before saving, the originals they hold, so it can stand
+in for both. The step comes right after the GeneWeb file so that neither is
+asked for before the file is.
+
+- **Desktop**: the lead says what the file replaces, and **Continue without
+	a file** — the primary action — goes on to the archives or the login as
+	before; **Load a saved file…** sits beside it.
+- **Web**: **Load a saved file…** is the step's only action, and the lead
+	points to the **A file** tab for a tree imported without its media.
+
+Once a file is loaded, the step works out what it covers: the plan of
+§9.7 with no archive, under the current media answer, less the media the file
+holds. It says that the file holds every medium the import needs, or how many
+it lacks — which the desktop's next steps still look for, and the web build
+skips. When the renditions answer leaves media out that the originals answer
+would find in the file — a file saved with the archives — the step offers
+**Import the original files**, which switches the answer. **Continue** then
+opens the archives when the originals answer leaves originals the file lacks
+(desktop), else the review: the file settles the login step, whose receipt
+says the media list came from it. **Remove this file** lets it go, with the
+media it staged.
+
+The receipt names the file and how many media it carries, or that none was
+chosen. Loading another file replaces the first and releases what it staged.
+
+### 9.5 Data archives
 
 This step exists only under the original-uploads answer. It accepts multiple
 Geneanet data-export ZIP files.
@@ -492,9 +525,11 @@ indexed without reading media bytes.
 - Duplicate archives are ignored.
 - A corrupt archive affects only that archive.
 - An archive with no supported images is accepted with a warning.
-- Skipping the step means unmatched media will be downloaded in step 4.
+- Skipping the step means unmatched media will be downloaded at the review.
+- A loaded connection that holds every original the import needs settles the
+	step, its receipt saying so.
 
-### 9.5 Step 3: authenticated collection
+### 9.6 Authenticated collection
 
 The desktop app opens an incognito Geneanet WebView at the media manager. The
 user authenticates directly in that window, including any captcha or
@@ -524,10 +559,16 @@ when another session file replaces them, and when changing the media answer
 discards them, and the backend deletes any never released a day later.
 Optional enrichment payloads with unsupported shapes do not invalidate
 otherwise usable media links. If the essential collection shape is unreadable,
-step 3 stops with a localized collection error instead of advancing to a
+the step stops with a localized collection error instead of advancing to a
 generic preview failure.
 
-### 9.6 Step 4: preview and gathering
+Once settled — by signing in or by a loaded connection — the step and the
+review offer to save the connection for later: **Save what has been
+collected…**, or **Save everything, ready to import offline…** once the media
+have been gathered. With archives added, the file also carries the originals
+they hold, for a later run or the web build to load at §9.4.
+
+### 9.7 Preview and gathering
 
 This step writes nothing. It shows aggregate counts for people, media, people
 with media, and links, plus expandable mismatch summaries. It then asks the
@@ -551,10 +592,10 @@ Under the original-uploads answer, media resolution uses, in order:
 
 All direct Geneanet access ends before the final write.
 
-### 9.7 Step 5: local write
+### 9.8 Local write
 
 Nothing on this step reaches the network. Everything Geneanet had to supply
-was gathered in §9.6 and the login window is closed as the write is queued, so
+was gathered in §9.7 and the login window is closed as the write is queued, so
 the step states that the media are already on the machine rather than
 announcing a download still to come. Media that were expected and never
 gathered — a build with no login window, or a gathering that could not run —
@@ -632,7 +673,7 @@ after a failure.
 - A multi-page deposit imports as one document plus ordered page media.
 - Missing pages are reported by page number.
 
-The receipt replaces step 5 in the modal, scrolled back to its top. It is the
+The receipt replaces the import step in the modal, scrolled back to its top. It is the
 import receipt of the file tab (§3) — a check mark, **Import complete** and the
 counts — with the media links written (**attachments**) beside its counts.
 Below them come, in this order: the findings, one line each when not zero (the

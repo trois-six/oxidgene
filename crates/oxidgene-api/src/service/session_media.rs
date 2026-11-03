@@ -144,7 +144,7 @@ fn check_deposit_sizes(session: &Session) -> Result<(), OxidGeneError> {
 
 /// The archive of `session`, each of its media read from the path the
 /// wizard holds — staged by [`decode`] or fetched by the login window — and
-/// streamed into it, with the originals step 2's archives hold.
+/// streamed into it, with the originals the data archives hold.
 ///
 /// Those originals are what the login window never fetches: the import reads
 /// a single-page deposit's original from the archive entry of its exact byte

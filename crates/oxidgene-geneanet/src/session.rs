@@ -1,6 +1,6 @@
 //! Saving what the login window collected, so it need only be collected once.
 //!
-//! Step 3 is the only part of the import that talks to Geneanet, and it is not
+//! The login step is the only part of the import that talks to Geneanet, and it is not
 //! cheap in the way that matters: collecting the mapping is a handful of calls,
 //! but measuring the deposits is one `HEAD` each — several hundred against a
 //! real account. Re-running the wizard to try something out therefore means
@@ -21,8 +21,8 @@
 //!
 //! # One file, however far you got
 //!
-//! There is one format, not two. A file saved after step 3 carries the
-//! collection and the deposit sizes; one saved after step 4 carries the fetched
+//! There is one format, not two. A file saved after the login step carries the
+//! collection and the deposit sizes; one saved after the preview step carries the fetched
 //! media as well. The wizard looks at what it was given and asks for only what
 //! is missing — so the same *Load* button covers "skip the collection" and
 //! "skip Geneanet entirely", and neither needs the user to know which kind of
@@ -61,7 +61,7 @@ const SIZES_KEY: &str = "oxidgene_deposit_sizes";
 const ACCOUNT_KEY: &str = "oxidgene_account";
 const MEDIA_KEY: &str = "oxidgene_media";
 
-/// Everything step 3 produced.
+/// Everything the login step produced.
 #[derive(Debug, Clone, Default)]
 pub struct Session {
     /// The collection JSON, exactly as the window emitted it.
@@ -73,12 +73,12 @@ pub struct Session {
     /// Media keyed by URL: base64 for `encode`/`decode`, or the handles
     /// returned by the sink passed to `decode_with_media`.
     ///
-    /// Empty in a file saved after step 3, populated in one saved after step
-    /// 4 — and that difference is the whole point. With it, an import needs no
+    /// Empty in a file saved after the login step, populated in one saved
+    /// after the preview — and that difference is the whole point. With it, an import needs no
     /// Geneanet connection at all: the collection says what goes where, the
     /// sizes match the archives, and these are the pieces the archives could
     /// not account for. Without it the wizard still has to open the window at
-    /// step 4 to gather them.
+    /// the preview step to gather them.
     ///
     /// It is what makes the file large — a few hundred renditions — so it is
     /// written only when there is something to write.

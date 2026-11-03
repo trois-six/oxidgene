@@ -1,6 +1,6 @@
 //! REST handlers for the Geneanet import wizard.
 //!
-//! Four calls, one per step that needs the server. Step 3 — signing in and
+//! Four calls, one per step that needs the server. The login step — signing in and
 //! collecting the person↔photo mapping — has no endpoint at all: it happens
 //! inside the WebView the user authenticated in, because that is the only
 //! place a Geneanet session exists. What arrives here is its output.
@@ -129,7 +129,7 @@ pub async fn preview_handler(
 /// POST /api/v1/geneanet/session/encode
 ///
 /// Turn what the login window collected into the file the wizard offers to
-/// save. Step 3 is the only part of the import that talks to Geneanet, and the
+/// save. The login step is the only part of the import that talks to Geneanet, and the
 /// expensive half of it is one `HEAD` per deposit — several hundred on a real
 /// account — so its result is worth keeping rather than re-collecting on every
 /// run.
@@ -280,7 +280,7 @@ pub async fn import_handler(
 /// POST /api/v1/geneanet/session/read
 ///
 /// What a saved session holds, its media checked but kept nowhere: the web
-/// wizard's step 3, which sends the same file again with its import. The
+/// wizard's login step, which sends the same file again with its import. The
 /// body is the file itself.
 pub async fn read_session_handler(
     State(state): State<AppState>,

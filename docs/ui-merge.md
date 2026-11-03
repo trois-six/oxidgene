@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-01T11:26:17Z }
+generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
 ---
 
 
@@ -29,7 +29,7 @@ to keep, then confirm. One component, `MergeDialog`, serves every entry:
 Two lighter flows merge without the wizard, through the shared homonym
 picker and the operation of §6 with nothing left out: the homonym check that
 follows every save of the [Person Edit Modal](ui-person-edit-modal.md) §13,
-and the receipt of a Geneanet import ([Import](ui-import.md) §9.7). Both keep
+and the receipt of a Geneanet import ([Import](ui-import.md) §9.8). Both keep
 the pre-existing person.
 
 ---

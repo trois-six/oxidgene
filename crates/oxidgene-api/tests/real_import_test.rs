@@ -806,7 +806,7 @@ fn media_fidelity(archives: &[PathBuf]) -> &'static str {
     }
 }
 
-/// Step 2 of the wizard: index the archives in place.
+/// The archives step of the wizard: index the archives in place.
 async fn index_archives(app: &Router, archive_paths: &[String], failures: &mut Failures) {
     let index = phase(
         "geneanet.archives",
@@ -829,7 +829,7 @@ async fn index_archives(app: &Router, archive_paths: &[String], failures: &mut F
     );
 }
 
-/// Step 3, from a saved file: decode the session.
+/// The login step, from a saved file: decode the session.
 async fn decode_session(app: &Router, session_path: &Path) -> Value {
     let session = phase(
         "geneanet.session_decode",
@@ -856,7 +856,7 @@ async fn decode_session(app: &Router, session_path: &Path) -> Value {
     session
 }
 
-/// Step 4: preview and plan; reports what the login window would still
+/// The preview step: preview and plan; reports what the login window would still
 /// have to fetch.
 async fn preview_and_plan(
     app: &Router,
@@ -962,7 +962,7 @@ async fn geneanet_wizard_import_survives_a_gedzip_round_trip() {
     });
     let preview = preview_and_plan(app, &body, &session, &mut failures).await;
 
-    // Step 5: the wizard hands back every medium the session staged.
+    // The import step: the wizard hands back every medium the session staged.
     body["fetched"] = session["media"].clone();
     drop(session);
     let tree_id = new_tree(app, "Real import geneanet").await;

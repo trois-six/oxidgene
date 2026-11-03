@@ -10,35 +10,43 @@
 //! # Shape
 //!
 //! Two tabs. **File** accepts imports in the browser and on the desktop.
-//! **Geneanet** is four or five steps of which exactly one
-//! is expanded — the current one. A settled step collapses to a one-line
-//! receipt of what it decided; steps not yet reachable are visible but dimmed,
-//! so the whole journey is legible from the first second.
+//! **Geneanet** is four to six steps of which exactly one is expanded — the
+//! current one. A settled step collapses to a one-line receipt of what it
+//! decided; steps not yet reachable are visible but dimmed, so the whole
+//! journey is legible from the first second.
 //!
-//! # Four steps or five
+//! # Which steps
 //!
-//! Step 1 asks which bytes to keep for each photograph, and that answer
-//! decides how long the journey is. Keeping Geneanet's own renditions needs
-//! nothing but the login, so there is no archive step at all and the flow is
-//! four steps. Keeping the original uploads needs the user's data archives —
-//! another Geneanet request, an email, and gigabytes of ZIP — so step 2
-//! appears and the numbering shifts with it. Renditions is the default because
-//! it is the only path a user who has never downloaded their data can take.
+//! The `.gw` step asks which bytes to keep for each photograph, and that
+//! answer decides how long the journey is. Keeping Geneanet's own renditions
+//! needs nothing but the login, so there is no archives step. Keeping the
+//! original uploads needs the user's data archives — another Geneanet
+//! request, an email, and gigabytes of ZIP — so the archives step appears
+//! and the numbering shifts with it. Renditions is the default because it is
+//! the only path a user who has never downloaded their data can take.
+//!
+//! The saved-connection step comes right after: a file saved by an earlier
+//! run holds what the login collects and, when the archives were added
+//! before saving, their originals, so it can stand in for both. Once loaded
+//! it says how much of the import it covers, and the steps after it ask
+//! only for the rest. The desktop goes on without one in a click.
 //!
 //! # What only the desktop build can do
 //!
-//! Steps 2, 3 and the photo half of 5 are desktop-only, and the tab says so
-//! rather than offering controls that cannot work:
+//! The archives and the login are desktop-only, and the web build shows
+//! neither step:
 //!
-//! - **Step 2** needs to read multi-gigabyte ZIPs by path, a few kilobytes
+//! - **The archives step** needs to read multi-gigabyte ZIPs by path, a few kilobytes
 //!   each. A browser would have to load them whole into memory to see the same
 //!   central directory.
-//! - **Step 3** needs a second browser window on geneanet.org whose session
+//! - **The login step** needs a second browser window on geneanet.org whose session
 //!   this app can then issue requests through. A popup from a web page is
 //!   cross-origin: nothing comes back out of it.
 //!
-//! On web the tab still runs step 1 and imports the `.gw` — the genealogy
-//! arrives, the photos do not.
+//! On web the saved connection is the one way to the media: the tab imports
+//! the `.gw` with the media of a file saved in the desktop application, and
+//! without one points to the **File** tab, where the genealogy arrives
+//! without its photos.
 
 use std::collections::HashMap;
 
@@ -67,7 +75,7 @@ use crate::ui_observability::{
 /// archives by path.
 ///
 /// One constant rather than a `cfg!` at each of the six places that ask,
-/// because they must all agree: a tab that offered step 3 but hid step 2
+/// because they must all agree: a tab that offered the login step but hid the archives step
 /// would strand the user halfway.
 const NATIVE: bool = !cfg!(target_arch = "wasm32");
 
@@ -81,11 +89,15 @@ enum Tab {
 /// The Geneanet flow's steps, in order.
 ///
 /// [`Step::Archives`] is skipped entirely by a
-/// [`MediaFidelity::Renditions`] import, which has no archive to read — see
-/// [`step_number`].
+/// [`MediaFidelity::Renditions`] import, which has no archive to read, and
+/// the web build, which reads none; [`Step::Connect`] by the web build, which
+/// cannot sign in — see [`visible_steps`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     Gw,
+    /// A connection saved by an earlier run: it stands in for signing in,
+    /// and for the archives when it holds their originals.
+    Saved,
     Archives,
     Connect,
     Preview,
@@ -110,9 +122,31 @@ struct Collected {
     /// Media the account holds, pages included — reported by the window, not
     /// inferred from how many deposits could be measured.
     photo_count: usize,
+    /// Read from a saved connection rather than collected by signing in.
+    from_file: bool,
 }
 
-/// Where the login window has got to, for the two progress bars of step 3.
+/// The saved connection the user loaded, at the saved-connection step.
+#[derive(Clone, PartialEq)]
+struct SessionFile {
+    name: String,
+    /// How many media it carries.
+    media: usize,
+}
+
+/// How much of this import a loaded file covers, for the media answer it
+/// was worked out for.
+#[derive(Clone, Copy, PartialEq)]
+struct Coverage {
+    fidelity: MediaFidelity,
+    /// Media the import needs that the file does not hold.
+    missing: usize,
+    /// The same had the import kept the originals, when that is fewer: the
+    /// file then holds originals the renditions answer would leave unused.
+    with_originals: Option<usize>,
+}
+
+/// Where the login window has got to, for the two progress bars of the login step.
 #[derive(Clone, Copy, PartialEq)]
 enum Connecting {
     /// Window open, user has not signed in yet.
@@ -156,7 +190,7 @@ pub fn ImportModal(
 
     // The scroll offset lives on `.import-modal-body`, which outlives every
     // screen rendered inside it — so a step collapsing, or the result taking
-    // over from a scrolled step 5, can leave the offset far past the end of
+    // over from a scrolled import step, can leave the offset far past the end of
     // much shorter content. The webview does not re-clamp it on its own (the
     // same fault `use_init_textarea_resize_clamp` answers for a resized
     // textarea), and with no scroll range left there is no scrollbar to drag
@@ -696,9 +730,16 @@ fn GeneanetTab(
     let gw_error = use_signal(|| None::<String>);
     let mut fidelity = use_signal(MediaFidelity::default);
 
-    let mut archives = use_signal(Vec::<IndexedArchive>::new);
-    let mut archives_skipped = use_signal(|| false);
+    let archives = use_signal(Vec::<IndexedArchive>::new);
+    let archives_skipped = use_signal(|| false);
     let archive_error = use_signal(|| None::<String>);
+
+    // The saved connection loaded, or the choice to go without one,
+    // and how much of the import the file covers.
+    let session_file = use_signal(|| None::<SessionFile>);
+    let mut saved_skipped = use_signal(|| false);
+    let coverage = use_signal(|| None::<Coverage>);
+    let saved_error = use_signal(|| None::<String>);
 
     let collected = use_signal(|| None::<Collected>);
     let mut connecting = use_signal(|| None::<Connecting>);
@@ -711,7 +752,7 @@ fn GeneanetTab(
     let mut importing = busy;
     // Media the login window retrieved or a loaded file holds, keyed by URL:
     // a staged local path on the desktop, whose window session owns the
-    // files it fetched through step 5; an empty handle on the web, where a
+    // files it fetched through the import step; an empty handle on the web, where a
     // loaded file's media stay in it.
     let fetched = use_signal(HashMap::<String, String>::new);
     let mut gathering = use_signal(|| false);
@@ -761,13 +802,36 @@ fn GeneanetTab(
         });
     }
 
+    use_file_coverage(
+        gw,
+        Gathered {
+            session_file,
+            collected,
+            fetched,
+        },
+        fidelity,
+        coverage,
+        saved_error,
+    );
+    let covered = move || coverage().is_some_and(|c| c.missing == 0);
+    let saved_settled = move || session_file().is_some() || saved_skipped();
+
     let can_connect = move || {
-        let settled = archives_settled(fidelity(), !archives.read().is_empty(), archives_skipped());
-        gw().is_some() && (settled || !NATIVE)
+        login_reachable(
+            gw().is_some(),
+            saved_settled(),
+            archives_settled(
+                fidelity(),
+                !archives.read().is_empty(),
+                archives_skipped(),
+                covered(),
+            ),
+        )
     };
     let can_preview = move || collected().is_some();
+    let after_saved = move || step_after_saved(fidelity(), covered(), collected().is_some());
 
-    // Changing the answer to step 1 invalidates every decision that depended
+    // Changing the answer to the `.gw` step invalidates every decision that depended
     // on it, so they are dropped rather than left to look settled.
     let api_fidelity = api.clone();
     let choose_fidelity = move |next: MediaFidelity| {
@@ -782,17 +846,20 @@ fn GeneanetTab(
         preview.set(None);
         preview_error.set(None);
         override_mismatch.set(false);
-        forget_gathered_media(&api_fidelity, fetched);
-
-        if next.uses_archives() {
-            forget_unmeasured(collected);
-        } else {
-            archives.write().clear();
-            archives_skipped.set(false);
-        }
+        forget_for_answer(
+            &api_fidelity,
+            next,
+            Gathered {
+                session_file,
+                collected,
+                fetched,
+            },
+            archives,
+            archives_skipped,
+        );
     };
 
-    // ── Step 3 — drive the login window ──────────────────────────────
+    // ── The login — drive the login window ───────────────────────────
     let start_connect = {
         let bridge = bridge.clone();
         let trace = trace.clone();
@@ -828,13 +895,13 @@ fn GeneanetTab(
         }
     };
 
-    // ── Step 4 — work out what will happen, and gather what it needs ──
+    // ── The preview — work out what will happen, and gather for it ───
     //
-    // The gathering is here rather than in step 5 on purpose. It is the last
+    // The gathering is here rather than in the import step on purpose. It is the last
     // thing that touches Geneanet, so doing it here means the login window is
-    // finished with before the user commits to anything — and step 5 becomes
+    // finished with before the user commits to anything — and the import step becomes
     // purely local, which is what makes an air-gapped import possible at all.
-    // Nothing is written until step 5 either way.
+    // Nothing is written until the import step either way.
     let api_preview = api.clone();
     let bridge_preview = bridge.clone();
     let trace_preview = trace.clone();
@@ -898,7 +965,7 @@ fn GeneanetTab(
         });
     };
 
-    // ── Step 5 — write, with no network left to wait on ──────────────
+    // ── The import — write, with no network left to wait on ──────────
     let api_import = api.clone();
     let bridge_import = bridge.clone();
     let trace_import = trace.clone();
@@ -982,8 +1049,10 @@ fn GeneanetTab(
 
     // How many steps this journey has, and therefore what each one is called.
     let archives_step = fidelity().uses_archives();
-    let number = move |step: Step| step_number(step, archives_step);
-    // What a saved file carries the originals of: step 2's archives, when
+    let connects = bridge.is_some();
+    let steps = visible_steps(archives_step, connects);
+    let number = move |step: Step| step_number(&steps, step);
+    // What a saved file carries the originals of: the data archives, when
     // this run reads them.
     let saved_archive_paths: Vec<String> = if archives_step {
         archives.read().iter().map(|a| a.path.clone()).collect()
@@ -994,7 +1063,7 @@ fn GeneanetTab(
     rsx! {
         div { class: "gn-steps",
 
-            // ── Step 1 — the .gw file and the media choice ───────────
+            // ── The .gw file and the media choice ────────────────────
             StepShell {
                 index: number(Step::Gw),
                 title: i18n.t("geneanet.step1_title"),
@@ -1013,35 +1082,61 @@ fn GeneanetTab(
                     gw,
                     gw_error,
                     fidelity: fidelity(),
-                    on_fidelity: choose_fidelity,
-                    on_settled: move |_| {
-                        open.set(if NATIVE && archives_step { Step::Archives } else { Step::Connect });
-                    },
+                    on_fidelity: choose_fidelity.clone(),
+                    on_settled: move |_| open.set(Step::Saved),
                 }
             }
 
-            // ── Step 2 — the photo archives ──────────────────────────
-            // Only for an originals import. A renditions one never opens an
-            // archive, so offering the step would ask for gigabytes of ZIP to
-            // do nothing with.
-            if archives_step {
+            // ── A connection saved by an earlier run ─────────────────
+            StepShell {
+                index: number(Step::Saved),
+                title: i18n.t("geneanet.saved_title"),
+                open: open() == Step::Saved,
+                reachable: gw().is_some(),
+                summary: saved_summary(&i18n, session_file().as_ref(), saved_skipped()),
+                on_open: move |_| open.set(Step::Saved),
+                SavedStep {
+                    session_file,
+                    collected,
+                    fetched,
+                    coverage: coverage().filter(|c| c.fidelity == fidelity()),
+                    error: saved_error,
+                    on_fidelity: choose_fidelity,
+                    on_skip: move |_| {
+                        saved_skipped.set(true);
+                        open.set(after_saved());
+                    },
+                    on_continue: move |_| open.set(after_saved()),
+                }
+            }
+
+            // ── The photo archives ───────────────────────────────────
+            // Only for an originals import on the desktop. A renditions one
+            // never opens an archive, so offering the step would ask for
+            // gigabytes of ZIP to do nothing with; the web build reads none.
+            if NATIVE && archives_step {
             StepShell {
                 index: number(Step::Archives),
                 title: i18n.t("geneanet.step2_title"),
                 open: open() == Step::Archives,
-                reachable: gw().is_some(),
-                summary: archives_summary(&i18n, &archives.read(), archives_skipped()),
+                reachable: gw().is_some() && saved_settled(),
+                summary: archives_summary(&i18n, &archives.read(), archives_skipped(), covered()),
                 on_open: move |_| open.set(Step::Archives),
                 ArchiveStep {
                     archives,
                     archives_skipped,
                     archive_error,
-                    on_settled: move |_| open.set(Step::Connect),
+                    on_settled: move |_| {
+                        open.set(step_after_archives(collected().is_some()));
+                    },
                 }
             }
             }
 
-            // ── Step 3 — sign in and collect ─────────────────────────
+            // ── Sign in and collect ──────────────────────────────────
+            // A loaded file holds what the login collects, so it settles
+            // this step too; signing in again replaces it.
+            if connects {
             StepShell {
                 index: number(Step::Connect),
                 title: i18n.t("geneanet.step3_title"),
@@ -1050,18 +1145,17 @@ fn GeneanetTab(
                 summary: collected().map(|c| collected_summary(&i18n, &c)),
                 on_open: move |_| open.set(Step::Connect),
                 ConnectStep {
-                    available: bridge.is_some(),
                     connecting: connecting(),
                     collected,
                     fetched,
                     archive_paths: saved_archive_paths.clone(),
                     error: connect_error,
                     on_start: start_connect,
-                    on_loaded: move |_| open.set(Step::Preview),
                 }
             }
+            }
 
-            // ── Step 4 — what will be imported ───────────────────────
+            // ── What will be imported ────────────────────────────────
             StepShell {
                 index: number(Step::Preview),
                 title: i18n.t("geneanet.step4_title"),
@@ -1086,7 +1180,7 @@ fn GeneanetTab(
                 }
             }
 
-            // ── Step 5 — import ──────────────────────────────────────
+            // ── Import ───────────────────────────────────────────────
             StepShell {
                 index: number(Step::Import),
                 title: i18n.t("geneanet.step5_title"),
@@ -1112,6 +1206,111 @@ fn GeneanetTab(
     }
 }
 
+/// What the loaded file covers of the import, worked out again for each
+/// file, each `.gw` and each media answer into `coverage`. A plan is a
+/// request, so an answer changed meanwhile leaves the stale result
+/// unwritten.
+fn use_file_coverage(
+    gw: Signal<Option<GwFile>>,
+    held: Gathered,
+    fidelity: Signal<MediaFidelity>,
+    mut coverage: Signal<Option<Coverage>>,
+    mut error: Signal<Option<String>>,
+) {
+    let api = use_context::<ApiClient>();
+    let trace = use_context::<UiActionTrace>();
+    let i18n = use_i18n();
+    use_effect(move || {
+        let answer = fidelity();
+        coverage.set(None);
+        let (Some(_), Some(file), Some(collected)) =
+            ((held.session_file)(), gw(), held.collected.peek().clone())
+        else {
+            return;
+        };
+        let (api, trace) = (api.clone(), trace.clone());
+        spawn(async move {
+            let worked_out = trace
+                .step(
+                    UiActionStep::GeneanetPreview,
+                    file_coverage(&api, &file, &collected, &held.fetched.peek(), answer),
+                )
+                .await;
+            if *fidelity.peek() != answer {
+                return;
+            }
+            match worked_out {
+                Ok(found) => coverage.set(Some(found)),
+                Err(e) => error.set(Some(e.message(&i18n))),
+            }
+        });
+    });
+}
+
+/// What the wizard holds of the account's media: the loaded file, the
+/// collection, and the media gathered or staged.
+#[derive(Clone, Copy)]
+struct Gathered {
+    session_file: Signal<Option<SessionFile>>,
+    collected: Signal<Option<Collected>>,
+    fetched: Signal<HashMap<String, String>>,
+}
+
+/// Drop what the media answer `next` makes wrong: the media gathered for the
+/// other answer — not a loaded file's, which serve either, the import taking
+/// from it what the new one needs; under originals, a collection without
+/// the deposits' sizes, and the file it came from; under renditions, the
+/// archives.
+fn forget_for_answer(
+    api: &ApiClient,
+    next: MediaFidelity,
+    held: Gathered,
+    mut archives: Signal<Vec<IndexedArchive>>,
+    mut archives_skipped: Signal<bool>,
+) {
+    let from_file = held.session_file.peek().is_some();
+    if !from_file {
+        forget_gathered_media(api, held.fetched);
+    }
+    if !next.uses_archives() {
+        archives.write().clear();
+        archives_skipped.set(false);
+        return;
+    }
+    forget_unmeasured(held.collected);
+    if from_file && held.collected.peek().is_none() {
+        drop_session_file(api, held.session_file, held.fetched);
+    }
+}
+
+/// The step after the saved connection: the archives when an originals
+/// import on the desktop has originals left for them (`covered` says the
+/// file has none left), the login when nothing was collected, else the
+/// preview.
+fn step_after_saved(fidelity: MediaFidelity, covered: bool, collected: bool) -> Step {
+    if NATIVE && fidelity.uses_archives() && !covered {
+        Step::Archives
+    } else {
+        step_after_archives(collected)
+    }
+}
+
+/// Whether the login can be opened: once the `.gw` is chosen, the saved
+/// connection answered — a file or none — and the archives settled.
+const fn login_reachable(gw_chosen: bool, saved_settled: bool, archives_settled: bool) -> bool {
+    gw_chosen && saved_settled && archives_settled
+}
+
+/// The step after the archives: the preview when something was collected
+/// already — a loaded file — else the login.
+const fn step_after_archives(collected: bool) -> Step {
+    if collected {
+        Step::Preview
+    } else {
+        Step::Connect
+    }
+}
+
 /// Closes the login window, if there is one, for good.
 fn close_window(bridge: Option<&GeneanetBridge>, mut window_closed: Signal<bool>) {
     if let Some(bridge) = bridge {
@@ -1120,11 +1319,17 @@ fn close_window(bridge: Option<&GeneanetBridge>, mut window_closed: Signal<bool>
     window_closed.set(true);
 }
 
-/// Whether step 2 is settled, by adding archives or by explicitly skipping:
+/// Whether the archives step is settled, by adding archives or by explicitly skipping:
 /// both let the flow move on, and the difference is only whether photos get
-/// downloaded. A renditions import has no step 2 to settle.
-fn archives_settled(fidelity: MediaFidelity, has_archives: bool, skipped: bool) -> bool {
-    !fidelity.uses_archives() || has_archives || skipped
+/// downloaded. A renditions import has no archives step to settle, and a
+/// loaded file that holds every original needed (`covered`) settles it.
+fn archives_settled(
+    fidelity: MediaFidelity,
+    has_archives: bool,
+    skipped: bool,
+    covered: bool,
+) -> bool {
+    !fidelity.uses_archives() || has_archives || skipped || covered
 }
 
 /// What the login window collects: the sizing pass is one `HEAD` per deposit
@@ -1182,6 +1387,7 @@ async fn follow_login(
                     cookie,
                     account,
                     photo_count,
+                    from_file: false,
                 }));
                 connecting.set(None);
                 open.set(Step::Preview);
@@ -1253,9 +1459,62 @@ fn forget_loaded_file() {
     }
 }
 
+/// Lets go of the loaded file: what it collected, the media it staged on the
+/// desktop, and the browser's hold on it.
+fn drop_session_file(
+    api: &ApiClient,
+    mut session_file: Signal<Option<SessionFile>>,
+    mut fetched: Signal<HashMap<String, String>>,
+) {
+    release_staged_media(api, &fetched.peek());
+    fetched.write().clear();
+    session_file.set(None);
+    forget_loaded_file();
+}
+
+/// How much of the import of `file` under `fidelity` the media `held`, a
+/// loaded file's, cover: the plan with no archive, less what it holds. When
+/// renditions leave some out, the originals answer is worked out too, and
+/// offered if the file covers more of it — never for a file without the
+/// deposits' sizes, which that answer would drop.
+async fn file_coverage(
+    api: &ApiClient,
+    file: &GwFile,
+    collected: &Collected,
+    held: &HashMap<String, String>,
+    fidelity: MediaFidelity,
+) -> Result<Coverage, ApiError> {
+    let missing_under = |fidelity: MediaFidelity| {
+        let body = GeneanetPreviewBody {
+            gw_base64: encode_gw(&file.bytes),
+            file_name: file.name.clone(),
+            collection: collected.collection.clone(),
+            deposit_sizes: collected.deposit_sizes.clone(),
+            archive_paths: Vec::new(),
+            media_fidelity: fidelity,
+        };
+        async move {
+            let plan = api.plan_geneanet_import(&body).await?;
+            Ok::<_, ApiError>(urls_to_fetch(&plan.needed, held).len())
+        }
+    };
+    let missing = missing_under(fidelity).await?;
+    let with_originals =
+        if missing > 0 && !fidelity.uses_archives() && !collected.deposit_sizes.is_empty() {
+            Some(missing_under(MediaFidelity::Originals).await?).filter(|other| *other < missing)
+        } else {
+            None
+        };
+    Ok(Coverage {
+        fidelity,
+        missing,
+        with_originals,
+    })
+}
+
 /// How many of `urls` nothing can fetch: all of them without a login
 /// window — the web build, where they are what the loaded file lacks, and
-/// which step 5 says will be skipped.
+/// which the import step says will be skipped.
 fn unfetchable(bridge: Option<&GeneanetBridge>, urls: &[String]) -> usize {
     if bridge.is_some() { 0 } else { urls.len() }
 }
@@ -1314,7 +1573,7 @@ async fn gather_media(
     }
 }
 
-/// Where step 5 shows how its import ended.
+/// Where the import step shows how its import ended.
 struct ImportEndSignals {
     result: Signal<Option<GeneanetImportResult>>,
     error: Signal<Option<String>>,
@@ -1347,7 +1606,7 @@ fn settle_import(
 }
 
 /// Starts the web build's import of `file` with the loaded session file,
-/// which the browser held on to since step 3, both sent as one multipart
+/// which the browser held on to since the login step, both sent as one multipart
 /// form; its upload shows in `import_progress`. Native builds send paths
 /// instead ([`ApiClient::import_geneanet`]).
 #[cfg(target_arch = "wasm32")]
@@ -1450,8 +1709,17 @@ async fn upload_and_follow(
         .transpose()
 }
 
-/// Step 2's summary: skipped, or how many archives and files.
-fn archives_summary(i18n: &I18n, archives: &[IndexedArchive], skipped: bool) -> Option<String> {
+/// The archives step's summary: covered by the loaded file (`covered`),
+/// skipped, or how many archives and files.
+fn archives_summary(
+    i18n: &I18n,
+    archives: &[IndexedArchive],
+    skipped: bool,
+    covered: bool,
+) -> Option<String> {
+    if covered && archives.is_empty() {
+        return Some(i18n.t("geneanet.step2_covered"));
+    }
     if skipped {
         return Some(i18n.t("geneanet.step2_skipped"));
     }
@@ -1468,33 +1736,63 @@ fn archives_summary(i18n: &I18n, archives: &[IndexedArchive], skipped: bool) -> 
     ))
 }
 
-/// Step 3's summary: how many photographs, and whose.
+/// The login step's summary: how many photographs, and whose — or that a
+/// loaded file brought them.
 fn collected_summary(i18n: &I18n, collected: &Collected) -> String {
     let photos = group_digits(collected.photo_count);
-    match &collected.account {
-        Some(account) => i18n.t_args(
+    match (&collected.account, collected.from_file) {
+        (_, true) => i18n.t_args("geneanet.step3_from_file", &[("count", &photos)]),
+        (Some(account), false) => i18n.t_args(
             "geneanet.step3_summary_named",
             &[("account", account), ("count", &photos)],
         ),
-        None => i18n.t_args("geneanet.step3_summary", &[("count", &photos)]),
+        (None, false) => i18n.t_args("geneanet.step3_summary", &[("count", &photos)]),
     }
 }
 
-/// What a step is called on screen.
-///
-/// The journey is four steps or five depending on step 1's answer, and the
-/// numbers have to say so: a wizard that skipped from 1 to 3 would read as a
-/// step gone missing rather than a step that was never needed.
-const fn step_number(step: Step, archives_step: bool) -> usize {
-    // What step 2 costs the steps after it: one, or nothing at all.
-    let shift = archives_step as usize;
-    match step {
-        Step::Gw => 1,
-        Step::Archives => 2,
-        Step::Connect => 2 + shift,
-        Step::Preview => 3 + shift,
-        Step::Import => 4 + shift,
+/// The saved-connection step's summary: the file loaded, or none chosen.
+fn saved_summary(i18n: &I18n, file: Option<&SessionFile>, skipped: bool) -> Option<String> {
+    match (file, skipped) {
+        (Some(file), _) => Some(i18n.t_args(
+            &i18n.plural_key("geneanet.saved_summary", file.media),
+            &[("file", &file.name), ("count", &group_digits(file.media))],
+        )),
+        (None, true) => Some(i18n.t("geneanet.saved_skipped")),
+        (None, false) => None,
     }
+}
+
+/// The steps this journey shows, in order: the archives only for an
+/// originals import on the desktop (`archives_step`), the login only where
+/// a window can be opened (`connects`).
+fn visible_steps(archives_step: bool, connects: bool) -> Vec<Step> {
+    [
+        Step::Gw,
+        Step::Saved,
+        Step::Archives,
+        Step::Connect,
+        Step::Preview,
+        Step::Import,
+    ]
+    .into_iter()
+    .filter(|step| match step {
+        Step::Archives => NATIVE && archives_step,
+        Step::Connect => connects,
+        _ => true,
+    })
+    .collect()
+}
+
+/// What a step is called on screen: its place among the `steps` shown.
+///
+/// The journey has four to six steps, and the numbers have to say so: a
+/// wizard that skipped from 2 to 4 would read as a step gone missing rather
+/// than a step that was never needed.
+fn step_number(steps: &[Step], step: Step) -> usize {
+    steps
+        .iter()
+        .position(|shown| *shown == step)
+        .map_or(0, |at| at + 1)
 }
 
 /// What to call the phase an import reports it is in.
@@ -1578,14 +1876,14 @@ fn StepShell(
     }
 }
 
-// ── Step 1 ──────────────────────────────────────────────────────────
+// ── The .gw file ───────────────────────────────────────────────────
 
 #[component]
 fn GwStep(
     gw: Signal<Option<GwFile>>,
     gw_error: Signal<Option<String>>,
     /// Which bytes to keep per medium — the answer that decides whether there
-    /// is a step 2 at all.
+    /// is an archives step at all.
     fidelity: MediaFidelity,
     on_fidelity: EventHandler<MediaFidelity>,
     on_settled: EventHandler<()>,
@@ -1738,7 +2036,7 @@ fn MediaChoice(fidelity: MediaFidelity, on_choose: EventHandler<MediaFidelity>) 
     }
 }
 
-// ── Step 2 ──────────────────────────────────────────────────────────
+// ── The archives ───────────────────────────────────────────────────
 
 #[component]
 fn ArchiveStep(
@@ -1755,16 +2053,6 @@ fn ArchiveStep(
     let mut archives = archives;
     let mut archives_skipped = archives_skipped;
     let mut archive_error = archive_error;
-
-    if !NATIVE {
-        return rsx! {
-            p { class: "gn-lead", {i18n.t("geneanet.step2_lead")} }
-            div { class: "gn-desktop-only",
-                strong { {i18n.t("geneanet.desktop_only_title")} }
-                p { {i18n.t("geneanet.step2_web")} }
-            }
-        };
-    }
 
     let pick = move |_| {
         let api = api.clone();
@@ -1904,41 +2192,182 @@ fn selected_file_path(file: &rfd::FileHandle) -> String {
     }
 }
 
-// ── Step 3 ──────────────────────────────────────────────────────────
+// ── The saved connection ───────────────────────────────────────────
+
+/// A connection saved by an earlier run, or none.
+///
+/// Asked before the archives and the login because the file can stand in
+/// for both: it holds what the login collects, and the originals the
+/// archives held when they were added before saving. Once loaded, the step
+/// says how much of this import it covers, so the steps after it ask only
+/// for the rest. The desktop goes on without a file in one click, signing
+/// in to Geneanet as before; the web build, which can neither sign in nor
+/// read archives, has no other way to the media.
+#[component]
+fn SavedStep(
+    session_file: Signal<Option<SessionFile>>,
+    collected: Signal<Option<Collected>>,
+    fetched: Signal<HashMap<String, String>>,
+    /// What the file covers, once worked out for the current media answer.
+    coverage: Option<Coverage>,
+    error: Signal<Option<String>>,
+    on_fidelity: EventHandler<MediaFidelity>,
+    on_skip: EventHandler<()>,
+    on_continue: EventHandler<()>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let i18n = use_i18n();
+    let trace = use_context::<UiActionTrace>();
+    let mut busy = use_signal(|| false);
+    let mut collected = collected;
+    let mut fetched = fetched;
+    let mut session_file = session_file;
+    let mut error = error;
+
+    let api_load = api.clone();
+    let load = move |_: Event<MouseData>| {
+        let api = api_load.clone();
+        let trace = trace.clone();
+        spawn(async move {
+            error.set(None);
+            let loaded = load_session(&api, &trace, i18n, busy).await;
+            busy.set(false);
+            match loaded {
+                Ok(Some(session)) => {
+                    // What an earlier file staged is not needed any more.
+                    release_staged_media(&api, &fetched.peek());
+                    session_file.set(Some(SessionFile {
+                        name: session.name,
+                        media: session.media.len(),
+                    }));
+                    collected.set(Some(session.collected));
+                    fetched.set(session.media);
+                }
+                Ok(None) => {}
+                Err(message) => error.set(Some(message)),
+            }
+        });
+    };
+    let remove = move |_: Event<MouseData>| {
+        // What a later login collected stays.
+        if collected.peek().as_ref().is_some_and(|c| c.from_file) {
+            collected.set(None);
+        }
+        drop_session_file(&api, session_file, fetched);
+    };
+
+    let lead = if NATIVE {
+        "geneanet.saved_lead"
+    } else {
+        "geneanet.saved_lead_web"
+    };
+    let loaded = session_file();
+
+    rsx! {
+        p { class: "gn-lead", {i18n.t(lead)} }
+
+        if let Some(err) = error() {
+            div { class: "error-msg", "{err}" }
+        }
+
+        if loaded.is_some() {
+            {coverage_findings(&i18n, coverage, on_fidelity)}
+        }
+
+        // Without a file the desktop's way on is the login, one click away;
+        // the web build's is the file.
+        div { class: "modal-actions",
+            if loaded.is_some() {
+                button {
+                    class: "btn btn-outline",
+                    disabled: busy(),
+                    onclick: remove,
+                    {i18n.t("geneanet.saved_remove")}
+                }
+            }
+            button {
+                class: if loaded.is_some() || NATIVE { "btn btn-outline" } else { "btn btn-primary" },
+                disabled: busy(),
+                onclick: load,
+                if busy() { {i18n.t("geneanet.reading")} } else { {i18n.t("geneanet.session_load")} }
+            }
+            if loaded.is_none() && NATIVE {
+                button {
+                    class: "btn btn-primary",
+                    disabled: busy(),
+                    onclick: move |_| on_skip.call(()),
+                    {i18n.t("geneanet.saved_skip")}
+                }
+            }
+            if loaded.is_some() {
+                button {
+                    class: "btn btn-primary",
+                    disabled: busy() || coverage.is_none(),
+                    onclick: move |_| on_continue.call(()),
+                    {i18n.t("common.continue")}
+                }
+            }
+        }
+    }
+}
+
+/// What a loaded file covers of this import: everything, or how many media
+/// it lacks — which the desktop still looks for in the archives and on
+/// Geneanet, and the web build skips — and, when it holds originals the
+/// renditions answer would leave unused, the offer to keep those instead.
+fn coverage_findings(
+    i18n: &I18n,
+    coverage: Option<Coverage>,
+    on_fidelity: EventHandler<MediaFidelity>,
+) -> Element {
+    let Some(coverage) = coverage else {
+        return rsx! {
+            div { class: "loading", {i18n.t("geneanet.saved_checking")} }
+        };
+    };
+    let lacking = if NATIVE {
+        "geneanet.saved_missing"
+    } else {
+        "geneanet.saved_missing_web"
+    };
+    rsx! {
+        ul { class: "gn-findings",
+            if coverage.missing == 0 {
+                li { class: "is-good", {i18n.t("geneanet.saved_covered")} }
+            } else {
+                li { class: if NATIVE { "is-info" } else { "is-warn" },
+                    {i18n.t_plural(lacking, coverage.missing)}
+                }
+            }
+            if coverage.with_originals.is_some() {
+                li { class: "is-info",
+                    {i18n.t("geneanet.saved_has_originals")}
+                    " "
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        r#type: "button",
+                        onclick: move |_| on_fidelity.call(MediaFidelity::Originals),
+                        {i18n.t("geneanet.saved_use_originals")}
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── The login ──────────────────────────────────────────────────────
 
 #[component]
 fn ConnectStep(
-    available: bool,
     connecting: Option<Connecting>,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
-    /// Step 2's archives, whose originals a saved file carries.
+    /// The data archives, whose originals a saved file carries.
     archive_paths: Vec<String>,
     error: Signal<Option<String>>,
     on_start: EventHandler<()>,
-    on_loaded: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-
-    // `on_loaded` is called by the control that does the loading, not by an
-    // effect watching `collected`. An effect runs on mount too, so reopening
-    // an already-settled step 3 would read "a session exists" as "a session
-    // just arrived" and bounce the user forward to step 4.
-    let reuse = rsx! { SessionControls { collected, fetched, archive_paths, error, on_loaded } };
-
-    if !available {
-        return rsx! {
-            p { class: "gn-lead", {i18n.t("geneanet.step3_lead")} }
-            div { class: "gn-desktop-only",
-                strong { {i18n.t("geneanet.desktop_only_title")} }
-                p { {i18n.t("geneanet.step3_web")} }
-            }
-            if let Some(err) = error() {
-                div { class: "error-msg", "{err}" }
-            }
-            {reuse}
-        };
-    }
 
     rsx! {
         p { class: "gn-lead", {i18n.t("geneanet.step3_lead")} }
@@ -1968,22 +2397,25 @@ fn ConnectStep(
                         {i18n.t("geneanet.step3_open")}
                     }
                 }
-                {reuse}
+                SessionControls { collected, fetched, archive_paths, error }
             },
         }
     }
 }
 
-/// A saved session the user loaded: what it collected, and its media by
-/// URL — staged files on the desktop; in the web build, empty handles, the
-/// media staying in the chosen file, which the import sends again.
+/// A saved session the user loaded: its file's name, what it collected,
+/// and its media by URL — staged files on the desktop; in the web build,
+/// empty handles, the media staying in the chosen file, which the import
+/// sends again.
 struct LoadedSession {
+    name: String,
     collected: Collected,
     media: HashMap<String, String>,
 }
 
 impl LoadedSession {
     fn new(
+        name: String,
         collection: String,
         deposit_sizes: HashMap<i64, u64>,
         account: Option<String>,
@@ -1991,6 +2423,7 @@ impl LoadedSession {
         media: HashMap<String, String>,
     ) -> Self {
         Self {
+            name,
             collected: Collected {
                 collection,
                 deposit_sizes,
@@ -1999,6 +2432,7 @@ impl LoadedSession {
                 cookie: None,
                 account,
                 photo_count,
+                from_file: true,
             },
             media,
         }
@@ -2042,6 +2476,7 @@ async fn load_session(
         .await
         .map_err(|e| e.message(&i18n))?;
     Ok(Some(LoadedSession::new(
+        file.file_name(),
         session.collection,
         session.deposit_sizes,
         session.account,
@@ -2061,6 +2496,7 @@ enum SessionReadEvent {
     /// buffers its fields, and the buffer reads no number from the string
     /// keys of `deposit_sizes`.
     Read {
+        name: String,
         session: serde_json::Value,
     },
     Failed {
@@ -2111,7 +2547,7 @@ async fn load_session(
                 }}
                 // Kept for the import, which sends the same file again.
                 globalThis.oxidgeneGeneanetSession = file;
-                dioxus.send({{ kind: 'read', session: JSON.parse(xhr.responseText) }});
+                dioxus.send({{ kind: 'read', name: file.name, session: JSON.parse(xhr.responseText) }});
             }};
             xhr.send(file);
         }});
@@ -2124,9 +2560,9 @@ async fn load_session(
             match eval.recv::<SessionReadEvent>().await {
                 Ok(SessionReadEvent::Reading) => busy.set(true),
                 Ok(SessionReadEvent::Cancelled) => return Ok(None),
-                Ok(SessionReadEvent::Read { session }) => {
+                Ok(SessionReadEvent::Read { name, session }) => {
                     return serde_json::from_value::<crate::api::GeneanetSessionContents>(session)
-                        .map(Some)
+                        .map(|session| Some((name, session)))
                         .map_err(ApiError::from);
                 }
                 Ok(SessionReadEvent::Failed { status: 0, .. }) | Err(_) => {
@@ -2142,8 +2578,9 @@ async fn load_session(
         .step(UiActionStep::GeneanetSessionDecode, read)
         .await
         .map_err(|e| e.message(&i18n))?;
-    Ok(session.map(|session| {
+    Ok(session.map(|(name, session)| {
         LoadedSession::new(
+            name,
             session.collection,
             session.deposit_sizes,
             session.account,
@@ -2157,39 +2594,34 @@ async fn load_session(
     }))
 }
 
-/// Saving what has been collected, and loading it back.
+/// Saving what has been collected, for a later run or the web build, which
+/// loads it at the saved-connection step.
 ///
-/// Shown in step 3 and again in step 4, because the file is worth saving at
-/// two different moments and they are not the same file: after step 3 it holds
-/// the collection and the deposit sizes; after step 4 it holds the gathered
-/// media too and needs no Geneanet connection at all. Step 3 also collapses
-/// once it is settled, so a control that lived only there would vanish exactly
-/// when the complete file became available.
+/// Shown in the login step and again in the preview, because the file is
+/// worth saving at two different moments and they are not the same file:
+/// after the login it holds the collection and the deposit sizes; after the
+/// preview it holds the gathered media too and needs no Geneanet connection
+/// at all. With archives added it carries their originals either way. The
+/// login step also collapses once it is settled, so a control that lived
+/// only there would vanish exactly when the complete file became available.
+/// Only the desktop saves: the file is rebuilt from the media it staged.
 #[component]
 fn SessionControls(
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
-    /// Step 2's archives: the saved file carries the originals they hold,
+    /// The data archives: the saved file carries the originals they hold,
     /// which the web build, given no archive, imports from it.
     archive_paths: Vec<String>,
     error: Signal<Option<String>>,
-    /// Fired only when a file has just been read — never merely because one
-    /// was loaded earlier.
-    on_loaded: Option<EventHandler<()>>,
 ) -> Element {
     let api = use_context::<ApiClient>();
     let i18n = use_i18n();
     let trace = use_context::<UiActionTrace>();
-    let mut collected = collected;
-    let mut fetched = fetched;
     let mut error = error;
-    let mut busy = use_signal(|| false);
 
-    let api_save = api.clone();
-    let trace_save = trace.clone();
     let save = move |_: Event<MouseData>| {
-        let api = api_save.clone();
-        let trace = trace_save.clone();
+        let api = api.clone();
+        let trace = trace.clone();
         let Some(current) = collected() else { return };
         let archive_paths = archive_paths.clone();
         spawn(async move {
@@ -2235,70 +2667,33 @@ fn SessionControls(
         });
     };
 
-    let api_load = api.clone();
-    let trace_load = trace.clone();
-    let load = move |_: Event<MouseData>| {
-        let api = api_load.clone();
-        let trace = trace_load.clone();
-        spawn(async move {
-            error.set(None);
-            let loaded = load_session(&api, &trace, i18n, busy).await;
-            busy.set(false);
-            match loaded {
-                Ok(Some(session)) => {
-                    collected.set(Some(session.collected));
-                    // A file saved after step 4 brings the media with it, and
-                    // step 4 then asks the window for nothing. What an earlier
-                    // file staged is not needed any more.
-                    release_staged_media(&api, &fetched.peek());
-                    fetched.set(session.media);
-                    if let Some(on_loaded) = &on_loaded {
-                        on_loaded.call(());
-                    }
-                }
-                Ok(None) => {}
-                Err(message) => error.set(Some(message)),
-            }
-        });
-    };
-
-    let ready = collected().is_some();
+    if !NATIVE || collected().is_none() {
+        return rsx! {};
+    }
     let complete = !fetched.read().is_empty();
 
     rsx! {
-        // A quiet strip rather than a block of its own. These are secondary to
-        // whatever step they sit in — a way out, not the way on — so they read
-        // as a footnote and never compete with the step's own action.
+        // A quiet strip rather than a block of its own. It is secondary to
+        // whatever step it sits in — a way out, not the way on — so it reads
+        // as a footnote and never competes with the step's own action.
         //
-        // The buttons come after the label that explains them: an earlier
-        // version put them above it, which read backwards.
+        // The button comes after the label that explains it: an earlier
+        // version put it above, which read backwards.
         div { class: "gn-session",
             details { class: "gn-session-why",
-                summary { {i18n.t("geneanet.session_reuse")} }
-                p { {i18n.t("geneanet.session_reuse_why")} }
+                summary { {i18n.t("geneanet.session_keep")} }
+                p { {i18n.t("geneanet.session_keep_why")} }
             }
             div { class: "gn-session-actions",
                 button {
                     class: "gn-session-btn",
                     r#type: "button",
-                    disabled: busy(),
-                    onclick: load,
-                    span { class: "gn-session-icon", "\u{2913}" }
-                    if busy() { {i18n.t("geneanet.reading")} } else { {i18n.t("geneanet.session_load")} }
-                }
-                // Saving rebuilds the file from staged media, which only the
-                // desktop has; on the web the user already holds the file.
-                if ready && NATIVE {
-                    button {
-                        class: "gn-session-btn",
-                        r#type: "button",
-                        onclick: save,
-                        span { class: "gn-session-icon", "\u{2912}" }
-                        if complete {
-                            {i18n.t("geneanet.session_save_complete")}
-                        } else {
-                            {i18n.t("geneanet.session_save")}
-                        }
+                    onclick: save,
+                    span { class: "gn-session-icon", "\u{2912}" }
+                    if complete {
+                        {i18n.t("geneanet.session_save_complete")}
+                    } else {
+                        {i18n.t("geneanet.session_save")}
                     }
                 }
             }
@@ -2345,7 +2740,7 @@ fn progress_percent(done: usize, total: usize) -> usize {
     ((done.min(total) as u128 * 100) / total as u128) as usize
 }
 
-// ── Step 4 ──────────────────────────────────────────────────────────
+// ── The preview ────────────────────────────────────────────────────
 
 /// What the preview found: where the media will come from, the documents,
 /// the pages to match, and the references that found nobody or several.
@@ -2457,7 +2852,7 @@ fn PreviewStep(
     fidelity: MediaFidelity,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
-    /// Step 2's archives, whose originals a saved file carries.
+    /// The data archives, whose originals a saved file carries.
     archive_paths: Vec<String>,
     session_error: Signal<Option<String>>,
     gathering: bool,
@@ -2471,7 +2866,7 @@ fn PreviewStep(
     let mut override_mismatch = override_mismatch;
 
     // Computed on open rather than eagerly: it needs every earlier step to
-    // have settled, and re-running it is how "Edit" on step 2 takes effect.
+    // have settled, and re-running it is how "Edit" on the archives step takes effect.
     use_effect(move || on_compute.call(()));
 
     let Some(stats) = preview else {
@@ -2494,17 +2889,17 @@ fn PreviewStep(
 
         {preview_findings(&i18n, &stats, fidelity)}
 
-        // Offered here as well as in step 3, and this is the more valuable of
+        // Offered here as well as in the login step, and this is the more valuable of
         // the two: once the gathering is done the file needs no Geneanet
-        // connection at all. Step 3 also collapses once settled, so a control
+        // connection at all. The login step also collapses once settled, so a control
         // only there disappears exactly when it becomes worth using.
         if !gathering {
-            SessionControls { collected, fetched, archive_paths, error: session_error, on_loaded: None }
+            SessionControls { collected, fetched, archive_paths, error: session_error }
         }
 
         if gathering {
             // The last thing that touches Geneanet. Continuing is held until
-            // it finishes, so step 5 has everything it needs and the login
+            // it finishes, so the import step has everything it needs and the login
             // window can be shut before anything is written.
             if let Some((done, total)) = fetch_progress {
                 ProgressBar {
@@ -2548,11 +2943,11 @@ fn PreviewStep(
     }
 }
 
-// ── Step 5 ──────────────────────────────────────────────────────────
+// ── The import ─────────────────────────────────────────────────────
 
 /// The final step. Nothing here reaches the network.
 ///
-/// That is the whole point of gathering in step 4, and it is what this screen
+/// That is the whole point of gathering in the preview step, and it is what this screen
 /// has to say: the media are already on this machine, so the minutes ahead are
 /// decoding and thumbnailing, not waiting on Geneanet.
 #[component]
@@ -2592,7 +2987,7 @@ fn ImportStep(
                     ],
                 )}
             }
-            // Whatever had to come from Geneanet came in step 4, and the login
+            // Whatever had to come from Geneanet came in the preview step, and the login
             // window is closed the moment this step is started. Promising a
             // download here read as though the network were still ahead.
             if missing > 0 {
@@ -2605,7 +3000,7 @@ fn ImportStep(
             } else if gathered > 0 {
                 p { class: "gn-note", {i18n.t("geneanet.step5_local")} }
             } else if stats.to_download + stats.to_match > 0 {
-                // Reachable: a build with no login window, or a step 4 that
+                // Reachable: a build with no login window, or a preview step that
                 // could not gather. Those media are skipped, and saying so
                 // before the write beats finding it in the receipt.
                 div { class: "warning-msg",
@@ -2667,7 +3062,7 @@ fn ImportStep(
 fn GeneanetDone(tree_id: Uuid, result: GeneanetImportResult) -> Element {
     let i18n = use_i18n();
 
-    // Step 5 is the tallest screen of the five and the receipt is the
+    // The import step is the tallest screen of them all and the receipt is the
     // shortest, so this is the transition where the stale offset shows.
     use_effect(scroll_import_body_to_top);
 
@@ -2938,26 +3333,34 @@ mod tests {
     }
 
     #[test]
-    fn dropping_the_archive_step_renumbers_the_ones_after_it() {
-        // Not cosmetic: a wizard that went 1, 3, 4, 5 would read as a step
+    fn dropping_a_step_renumbers_the_ones_after_it() {
+        // Not cosmetic: a wizard that went 1, 2, 4, 5 would read as a step
         // gone missing rather than a step that was never needed.
-        let renditions: Vec<usize> = [Step::Gw, Step::Connect, Step::Preview, Step::Import]
-            .into_iter()
-            .map(|step| step_number(step, false))
-            .collect();
-        assert_eq!(renditions, [1, 2, 3, 4]);
+        let numbers = |steps: &[Step]| -> Vec<usize> {
+            steps.iter().map(|step| step_number(steps, *step)).collect()
+        };
+        let renditions = visible_steps(false, true);
+        assert_eq!(
+            renditions,
+            [
+                Step::Gw,
+                Step::Saved,
+                Step::Connect,
+                Step::Preview,
+                Step::Import
+            ]
+        );
+        assert_eq!(numbers(&renditions), [1, 2, 3, 4, 5]);
+        assert_eq!(step_number(&renditions, Step::Archives), 0);
 
-        let originals: Vec<usize> = [
-            Step::Gw,
-            Step::Archives,
-            Step::Connect,
-            Step::Preview,
-            Step::Import,
-        ]
-        .into_iter()
-        .map(|step| step_number(step, true))
-        .collect();
-        assert_eq!(originals, [1, 2, 3, 4, 5]);
+        let originals = visible_steps(true, true);
+        assert_eq!(numbers(&originals), [1, 2, 3, 4, 5, 6]);
+        assert_eq!(step_number(&originals, Step::Connect), 4);
+
+        // Without a login window: the saved file is the only way on.
+        let web = visible_steps(true, false);
+        assert!(!web.contains(&Step::Connect));
+        assert_eq!(step_number(&web, Step::Preview), web.len() - 1);
     }
 
     #[test]
@@ -2999,7 +3402,7 @@ mod tests {
 
     #[test]
     fn only_the_originals_answer_reaches_for_the_archives() {
-        // The one predicate that decides whether step 2 exists, whether the
+        // The one predicate that decides whether the archives step exists, whether the
         // sizing pass runs, and which URLs the plan asks for.
         assert!(!MediaFidelity::default().uses_archives());
         assert!(!MediaFidelity::Renditions.uses_archives());

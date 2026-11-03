@@ -7486,26 +7486,6 @@ pub const LAYOUT_STYLES: &str = r#"
         margin: var(--space-6) 0;
     }
 
-    .gn-desktop-only {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: var(--space-7) var(--space-8);
-        margin: var(--space-6) 0;
-    }
-    .gn-desktop-only strong {
-        color: var(--text-primary);
-        font-size: var(--text-85);
-        display: block;
-        margin-bottom: var(--space-3);
-    }
-    .gn-desktop-only p {
-        color: var(--text-muted);
-        font-size: var(--text-80);
-        line-height: 1.55;
-        margin: 0;
-    }
-
     /* ── Archive list ─────────────────────────────────────────────── */
 
     .gn-archive-list {
@@ -7596,7 +7576,7 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: var(--space-3);
     }
 
-    /* ── Findings list: step 4's preview, and the Geneanet result ──── */
+    /* ── Findings list: the preview, and the Geneanet result ──── */
 
     .gn-findings {
         list-style: none;

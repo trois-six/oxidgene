@@ -2117,11 +2117,11 @@ pub struct UpdateVignetteBody {
 
 // ── Geneanet import wizard ──────────────────────────────────────────
 //
-// Mirrors `oxidgene_api::rest::dto`. Step 3 has no type here: signing in and
+// Mirrors `oxidgene_api::rest::dto`. The login step has no type here: signing in and
 // collecting the person↔photo mapping happens in the desktop login window, and
 // what it produces is carried by the steps that follow.
 
-/// What a `.gw` file turned out to hold. Step 1.
+/// What a `.gw` file turned out to hold. The `.gw` step.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct GwInspection {
     pub person_count: usize,
@@ -2194,10 +2194,10 @@ pub struct GeneanetSessionBody {
     pub collection: String,
     pub deposit_sizes: std::collections::HashMap<i64, u64>,
     pub account: Option<String>,
-    /// Media already fetched. Saving after step 4 includes them, which is what
+    /// Media already fetched. Saving after the preview step includes them, which is what
     /// makes the file importable with no connection.
     pub media: std::collections::HashMap<String, String>,
-    /// Step 2's archives, whose originals the file carries too.
+    /// The data archives, whose originals the file carries too.
     pub archive_paths: Vec<String>,
 }
 
@@ -2244,7 +2244,7 @@ pub struct GeneanetPlan {
     pub needed: Vec<NeededMedia>,
 }
 
-/// The stat row and the explanatory lines of step 4.
+/// The stat row and the explanatory lines of the preview step.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct GeneanetPreview {
     pub person_count: usize,
@@ -5805,7 +5805,7 @@ impl ApiClient {
 
     // ── Geneanet import wizard ──────────────────────────────────────
 
-    /// Parse a `.gw` and report what it holds, writing nothing. Step 1.
+    /// Parse a `.gw` and report what it holds, writing nothing. The `.gw` step.
     ///
     /// Runs on every selection because it costs nothing and is the first
     /// moment the user learns whether they picked the right export — a `.ged`
@@ -5820,7 +5820,7 @@ impl ApiClient {
             .await
     }
 
-    /// Index the named data archives in place, extracting nothing. Step 2.
+    /// Index the named data archives in place, extracting nothing. The archives step.
     ///
     /// Desktop only: it sends **paths**, which is sound because there the
     /// server runs in-process on the same filesystem the user picked from.
@@ -5833,7 +5833,7 @@ impl ApiClient {
     }
 
     /// Join the collected mapping onto the `.gw` and report what an import
-    /// would do, without doing it. Step 4.
+    /// would do, without doing it. The preview step.
     pub async fn preview_geneanet_import(
         &self,
         body: &GeneanetPreviewBody,
@@ -5915,7 +5915,7 @@ impl ApiClient {
         self.post_read("/api/v1/geneanet/plan", body).await
     }
 
-    /// Stage every local input and queue the Geneanet import. Step 5.
+    /// Stage every local input and queue the Geneanet import. The import step.
     pub async fn import_geneanet(
         &self,
         tree_id: Uuid,

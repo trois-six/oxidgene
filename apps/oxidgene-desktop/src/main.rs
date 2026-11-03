@@ -438,7 +438,7 @@ fn main() {
     #[cfg(feature = "telemetry")]
     let telemetry_for_handler = Arc::clone(&telemetry);
 
-    // The Geneanet import wizard's step 3 needs a second browser window on
+    // The Geneanet import wizard's login step needs a second browser window on
     // geneanet.org, which only the event loop can create — so the bridge the
     // UI talks to and the handler that services it are installed together.
     let (geneanet_bridge, mut geneanet_handler) = geneanet::install(work_dir);

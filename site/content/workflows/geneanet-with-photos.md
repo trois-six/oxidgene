@@ -17,7 +17,7 @@ You need:
 - the OxidGene **desktop** application, to sign in to Geneanet. The web version imports a tree with its photos from a file saved in the desktop application (see [Finish later, or on another computer](#finish-later-or-on-another-computer)), and otherwise the genealogy of a `.gw` file alone, from its **A file** tab;
 - your Geneanet account, and its password;
 - a GeneWeb (`.gw`) export of your tree;
-- optionally, your Geneanet data archives (see step 2).
+- optionally, your Geneanet data archives (see step 3), or a connection saved by an earlier import (see step 2).
 
 ## Before you start
 
@@ -45,7 +45,15 @@ The same step asks which copy of each photo to keep:
 
 Both choices import the same genealogy, the same links between persons and media, and the same identification boxes on group photos. Only the picture files differ.
 
-## 2. Your media archive (originals only)
+## 2. A saved connection
+
+If you saved the connection during an earlier import (see [Finish later, or on another computer](#finish-later-or-on-another-computer)), click **Load a saved file…** and choose it. The file stands in for signing in to Geneanet and, when you saved it with your archives, for the archives too. OxidGene then says whether the file holds every medium the import needs, or how many it lacks: the next steps look for those in your archives or on Geneanet. If you chose Geneanet's own copies but the file holds your original files, **Import the original files** switches to them. Click **Continue**: the steps the file covers show as done. **Remove this file** lets it go.
+
+Without a saved file, click **Continue without a file**: OxidGene signs in to Geneanet as described below.
+
+In the web version this step is the way to your media: load the file saved in the desktop application. The archives and connection steps do not appear, and the media the file does not hold are skipped, the step saying how many.
+
+## 3. Your media archive (originals only)
 
 This step appears only if you chose **The files you uploaded**.
 
@@ -54,7 +62,7 @@ This step appears only if you chose **The files you uploaded**.
 
 You can remove an archive from the list, and adding the same one twice is ignored. If you do not have the archives yet, click **Skip this step**: the media will be downloaded instead. That is slower, but nothing is lost.
 
-## 3. Connect to Geneanet
+## 4. Connect to Geneanet
 
 1. Click **Open the Geneanet login window**.
 2. A real browser window opens on Geneanet. Sign in as you normally do, including any captcha or verification Geneanet asks for. OxidGene never sees your password.
@@ -64,7 +72,7 @@ Do not close the login window yourself: closing it cancels the collection and re
 
 The login window is private: it keeps no cookies or sign-in once it closes, so the next import asks you to sign in again.
 
-## 4. What will be imported
+## 5. What will be imported
 
 This step writes nothing yet. It shows what the import is about to do: the persons in your file, the media found, the persons with media, and notes such as:
 
@@ -77,7 +85,7 @@ If almost none of the media match the persons of your file, the export and the G
 
 OxidGene then fetches the media through the login window: all of them with Geneanet's own copies, only those your archives do not hold with your original files.
 
-## 5. Import
+## 6. Import
 
 Nothing more is needed from Geneanet at this point: your media are already on your computer. Click **Start the import**, and leave the window open until it finishes. Storing many media takes a few minutes. To stop it, click **Cancel import** under the progress bar and confirm: everything the import had added is removed, and the tree is left exactly as it was.
 
@@ -92,13 +100,11 @@ If someone created from a photo bears the same name as a person already in your 
 
 ## Finish later, or on another computer
 
-Reading your media list from Geneanet takes a while, and with your original files, matching your archives costs one more request per medium. You can save what was collected and avoid asking Geneanet again. Next to **Reuse a saved connection**, in the connection step and in the review step, you will find:
+Reading your media list from Geneanet takes a while, and with your original files, matching your archives costs one more request per medium. You can save what was collected and avoid asking Geneanet again. Under **Save the connection for later**, in the connection step and in the review step, you will find:
 
 - **Save what has been collected…** saves the media list after you signed in. A later import that loads it still opens the login window to fetch the media.
 - **Save everything, ready to import offline…** appears once the media have been gathered. A later import that loads this file needs no Geneanet connection at all. When you added your media archives, both saves also carry the original photos found in them, so the file is enough without the archives.
-- **Load a saved file…** takes a saved file back. OxidGene sees what it holds and asks only for what is missing.
-
-This lets you start again after an interruption, or collect on one computer and import on another. It is also how the web version imports your photos: there, **Load a saved file…** is the connection step's only button. Choose your `.gw` file, load the file saved with **Save everything, ready to import offline…** in the desktop application, then review and import as usual; the file is sent with your tree, and the photos it does not hold are skipped, the last step saying how many. The saved file contains your media list and possibly your photos: keep it private, like your tree.
+A later import loads the file at its second step (see [A saved connection](#2-a-saved-connection)), and asks only for what it lacks. This lets you start again after an interruption, or collect on one computer and import on another. It is also how the web version imports your photos: choose your `.gw` file, load the file saved in the desktop application, then review and import as usual; the file is sent with your tree, and the photos it does not hold are skipped. The saved file contains your media list and possibly your photos: keep it private, like your tree.
 
 ## Good to know
 

@@ -55,7 +55,7 @@ const SAMPLE_LIMIT: usize = 50;
 /// — is common and invisible until it is too late to undo cheaply.
 const MISMATCH_THRESHOLD: f64 = 0.10;
 
-/// What a `.gw` file turned out to hold. Step 1 of the wizard.
+/// What a `.gw` file turned out to hold. The `.gw` step of the wizard.
 #[derive(Debug, Clone)]
 pub struct GwInspection {
     pub person_count: usize,
@@ -101,7 +101,7 @@ pub async fn inspect_gw_off_thread(
     super::blocking::run(span, move || inspect_gw(bytes.as_ref(), &file_name)).await?
 }
 
-/// What one data archive turned out to hold. Step 2 of the wizard.
+/// What one data archive turned out to hold. The archives step of the wizard.
 #[derive(Debug, Clone)]
 pub struct ArchiveReport {
     pub path: String,
@@ -208,7 +208,7 @@ impl MediaFidelity {
     }
 }
 
-/// Everything step 4 shows, computed with no further network access.
+/// Everything the preview step shows, computed with no further network access.
 #[derive(Debug, Clone, Default)]
 pub struct Preview {
     pub person_count: usize,
@@ -394,7 +394,7 @@ pub async fn plan_off_thread(inputs: JoinInputs) -> Result<Vec<NeededMedia>, Oxi
 ///
 /// Nothing is written and nothing is fetched. `deposit_sizes` is the byte
 /// length of each single-page deposit, gathered in the login window during
-/// step 3 — it is what decides whether a photo is already in the archives, and
+/// the login step — it is what decides whether a photo is already in the archives, and
 /// [`MediaFidelity::Renditions`] therefore ignores it along with the archives.
 ///
 /// # Errors

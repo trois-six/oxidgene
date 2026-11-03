@@ -939,12 +939,12 @@ impl From<oxidgene_db::repo::PersonUsageEntry> for PersonUsageEntryDto {
 
 // ── Geneanet import wizard ──────────────────────────────────────────
 //
-// The wizard's steps each have a request/response pair here. Step 3 has none:
+// The wizard's steps each have a request/response pair here. The login step has none:
 // signing in and collecting the person↔photo mapping happens inside the login
 // WebView, so what reaches the server is its output, carried by the steps that
 // follow.
 
-/// What a `.gw` file turned out to hold. Step 1.
+/// What a `.gw` file turned out to hold. The `.gw` step.
 #[derive(Debug, Serialize)]
 pub struct InspectGenewebResponse {
     pub person_count: usize,
@@ -953,7 +953,7 @@ pub struct InspectGenewebResponse {
     pub skipped_blocks: usize,
 }
 
-/// Data archives to index, by path. Step 2.
+/// Data archives to index, by path. The archives step.
 ///
 /// Paths and not bytes: the archives run to gigabytes, and this step only
 /// exists on desktop, where the server is in-process and reads the same
@@ -982,7 +982,7 @@ pub struct IndexArchivesResponse {
     pub file_count: usize,
 }
 
-/// Everything needed to say what an import would do, without doing it. Step 4.
+/// Everything needed to say what an import would do, without doing it. The preview step.
 #[derive(Debug, Deserialize)]
 pub struct GeneanetPreviewRequest {
     /// The `.gw` file, base64-encoded because JSON cannot carry raw bytes and
@@ -1003,7 +1003,7 @@ pub struct GeneanetPreviewRequest {
     pub media_fidelity: crate::service::geneanet::MediaFidelity,
 }
 
-/// The stat row and the three explanatory lines of step 4.
+/// The stat row and the three explanatory lines of the preview step.
 #[derive(Debug, Serialize)]
 pub struct GeneanetPreviewResponse {
     pub person_count: usize,
@@ -1040,11 +1040,11 @@ pub struct EncodeSessionRequest {
     #[serde(default)]
     pub account: Option<String>,
     /// Media already fetched: the path of each local file, by URL. Present
-    /// only in a save made after step 4, and what lets the file be imported
+    /// only in a save made after the preview step, and what lets the file be imported
     /// with no connection at all. A path that cannot be read fails the save.
     #[serde(default)]
     pub media: std::collections::HashMap<String, String>,
-    /// Step 2's archives, whose originals the file carries too: the web
+    /// The data archives, whose originals the file carries too: the web
     /// build, which takes no archive, imports them from the file.
     #[serde(default)]
     pub archive_paths: Vec<String>,
@@ -1099,7 +1099,7 @@ pub struct GeneanetPlanResponse {
     pub needed: Vec<NeededMedia>,
 }
 
-/// The same inputs as the preview, plus what it takes to fetch bytes. Step 5.
+/// The same inputs as the preview, plus what it takes to fetch bytes. The import step.
 #[derive(Debug, Deserialize)]
 pub struct GeneanetImportRequest {
     pub gw_base64: String,
@@ -1117,7 +1117,7 @@ pub struct GeneanetImportRequest {
     /// user signed in to does it, writes each medium to a temp directory, and
     /// names it here. Paths rather than bytes because the gather only runs on
     /// the desktop, where this server is in-process on the same filesystem —
-    /// exactly like the archive paths of step 2. Carrying the bytes instead
+    /// exactly like the archive paths of the archives step. Carrying the bytes instead
     /// meant base64 inflating them by a third and a request body that grew
     /// with the size of somebody's photo collection.
     #[serde(default)]

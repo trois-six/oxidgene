@@ -124,13 +124,17 @@ test("the web build imports a Geneanet tree with the media of a saved session", 
     await modal.getByRole("button", { name: "Choose the .gw file" }).click();
     await (await chooser).setFiles({ name: "family.gw", mimeType: "application/octet-stream", buffer: gw });
 
-    // Step 3, which the web build cannot sign in from, loads the saved file.
-    await expect(modal.getByText("This step needs the desktop app")).toBeVisible();
+    // Step 2 loads the saved connection, the web build's one way to the
+    // media: no archives step, no login step.
+    await expect(modal.getByRole("button", { name: /Your media archive/ })).toHaveCount(0);
+    await expect(modal.getByRole("button", { name: /Connect to Geneanet/ })).toHaveCount(0);
     chooser = page.waitForEvent("filechooser");
     await modal.getByRole("button", { name: "Load a saved file…" }).click();
     await (await chooser).setFiles({ name: "geneanet-session.zip", mimeType: "application/zip", buffer: session });
+    await expect(modal.getByText("This file holds every medium this import needs.")).toBeVisible();
+    await modal.getByRole("button", { name: "Continue", exact: true }).click();
 
-    // Step 4 previews it, and step 5 sends the file again with the tree.
+    // The preview, then the import, which sends the file again with the tree.
     await modal.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(modal.getByText("your media are in the file you loaded")).toBeVisible();
     await modal.getByRole("button", { name: "Start the import" }).click();
@@ -138,6 +142,64 @@ test("the web build imports a Geneanet tree with the media of a saved session", 
 
     const persons = await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/persons?first=100`)).json();
     expect(persons.edges).toHaveLength(2);
+    const media = await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/media?first=100`)).json();
+    expect(media.edges).toHaveLength(1);
+});
+
+test("a saved session holding the originals offers to import them instead of Geneanet's copies", async ({ page, request }) => {
+    const name = `E2E Geneanet originals ${Date.now()}`;
+    const created = await request.post(`${apiUrl}/api/v1/trees`, { data: { name } });
+    expect(created.ok()).toBeTruthy();
+    const treeId = (await created.json()).id as string;
+
+    const gw = Buffer.from("encoding: utf-8\n\nfam FICTIF Ada.0 + EXEMPLE Basile.0\n", "utf8");
+    // Saved with the archives: the deposit's original, under the address
+    // the import downloads it from, and not Geneanet's copy.
+    const photo = png(16, 16, 3);
+    const original = "https://www.geneanet.org/media/download/?deposits[]=1";
+    const session = storedZip([
+        [
+            "session.json",
+            Buffer.from(
+                JSON.stringify({
+                    deposits: [{ id: 1, views: [{ id: 10, files: { normal: "https://example.invalid/normal.jpg" } }] }],
+                    references: [{ deposit: { id: 1, views: [{ id: 10 }] }, firstname: "Ada", lastname: "FICTIF", reference_extra_geneweb: { ref: "fictif|ada|" } }],
+                    view_references: {},
+                    oxidgene_media: { [original]: "media/00000.png" },
+                    oxidgene_deposit_sizes: { "1": photo.length },
+                }),
+                "utf8",
+            ),
+        ],
+        ["media/00000.png", photo],
+    ]);
+
+    await page.goto("/");
+    await page.locator(".home-search-input").fill(name);
+    const card = page.locator(".tree-card").filter({ has: page.locator(".tree-card-name", { hasText: name }) });
+    await card.getByRole("button", { name: `Actions for ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Import", exact: true }).click();
+    const modal = page.locator(".import-modal");
+    await modal.getByRole("tab", { name: "From Geneanet" }).click();
+
+    // Geneanet's copies, the default answer.
+    let chooser = page.waitForEvent("filechooser");
+    await modal.getByRole("button", { name: "Choose the .gw file" }).click();
+    await (await chooser).setFiles({ name: "family.gw", mimeType: "application/octet-stream", buffer: gw });
+
+    chooser = page.waitForEvent("filechooser");
+    await modal.getByRole("button", { name: "Load a saved file…" }).click();
+    await (await chooser).setFiles({ name: "geneanet-session.zip", mimeType: "application/zip", buffer: session });
+    await expect(modal.getByText("1 medium this import needs is not in this file and will be skipped.")).toBeVisible();
+    await modal.getByRole("button", { name: "Import the original files" }).click();
+    await expect(modal.getByText("This file holds every medium this import needs.")).toBeVisible();
+    await modal.getByRole("button", { name: "Continue", exact: true }).click();
+
+    await modal.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(modal.getByText("your media are in the file you loaded")).toBeVisible();
+    await modal.getByRole("button", { name: "Start the import" }).click();
+    await expect(modal.getByRole("heading", { name: "Import complete" })).toBeVisible({ timeout: 30_000 });
+
     const media = await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/media?first=100`)).json();
     expect(media.edges).toHaveLength(1);
 });

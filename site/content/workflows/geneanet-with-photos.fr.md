@@ -17,7 +17,7 @@ Il vous faut :
 - l’application **de bureau** OxidGene, pour se connecter à Geneanet. La version web importe un arbre avec ses photos à partir d’un fichier enregistré dans l’application de bureau (voir [Terminer plus tard, ou sur un autre ordinateur](#terminer-plus-tard-ou-sur-un-autre-ordinateur)), et sinon la seule généalogie d’un fichier `.gw`, depuis son onglet **Un fichier** ;
 - votre compte Geneanet et son mot de passe ;
 - un export GeneWeb (`.gw`) de votre arbre ;
-- éventuellement, vos archives de données Geneanet (voir l’étape 2).
+- éventuellement, vos archives de données Geneanet (voir l’étape 3), ou une connexion enregistrée lors d’un import précédent (voir l’étape 2).
 
 ## Avant de commencer
 
@@ -45,7 +45,15 @@ La même étape vous demande quelle copie garder pour chaque photo :
 
 Les deux choix importent la même généalogie, les mêmes liens entre personnes et médias, et les mêmes zones d’identification sur les photos de groupe. Seuls les fichiers d’image diffèrent.
 
-## 2. Vos archives de médias (fichiers d’origine seulement)
+## 2. Une connexion enregistrée
+
+Si vous avez enregistré la connexion lors d’un import précédent (voir [Terminer plus tard, ou sur un autre ordinateur](#terminer-plus-tard-ou-sur-un-autre-ordinateur)), cliquez sur **Charger un fichier enregistré…** et choisissez-le. Le fichier remplace la connexion à Geneanet et, si vous l’avez enregistré avec vos archives, les archives aussi. OxidGene indique alors si le fichier contient tous les médias dont l’import a besoin, ou combien il en manque : les étapes suivantes les cherchent dans vos archives ou sur Geneanet. Si vous avez choisi les copies de Geneanet mais que le fichier contient vos fichiers d’origine, **Importer les fichiers d’origine** passe à ceux-ci. Cliquez sur **Continuer** : les étapes que le fichier couvre apparaissent comme faites. **Retirer ce fichier** l’abandonne.
+
+Sans fichier enregistré, cliquez sur **Continuer sans fichier** : OxidGene se connecte à Geneanet comme décrit plus bas.
+
+Dans la version web, cette étape est le chemin vers vos médias : chargez le fichier enregistré dans l’application de bureau. Les étapes des archives et de la connexion n’apparaissent pas, et les médias que le fichier ne contient pas sont ignorés, l’étape indiquant combien.
+
+## 3. Vos archives de médias (fichiers d’origine seulement)
 
 Cette étape n’apparaît que si vous avez choisi **Les fichiers que vous avez déposés**.
 
@@ -54,7 +62,7 @@ Cette étape n’apparaît que si vous avez choisi **Les fichiers que vous avez 
 
 Vous pouvez retirer une archive de la liste, et une archive ajoutée deux fois n’est prise qu’une fois. Si vous n’avez pas encore les archives, cliquez sur **Passer cette étape** : les médias seront téléchargés à la place. C’est plus lent, mais rien n’est perdu.
 
-## 3. Connexion à Geneanet
+## 4. Connexion à Geneanet
 
 1. Cliquez sur **Ouvrir la fenêtre de connexion Geneanet**.
 2. Une vraie fenêtre de navigateur s’ouvre sur Geneanet. Connectez-vous comme d’habitude, y compris si Geneanet demande un captcha ou une vérification. OxidGene ne voit jamais votre mot de passe.
@@ -64,7 +72,7 @@ Ne fermez pas vous-même la fenêtre de connexion : la fermer annule la collecte
 
 La fenêtre de connexion est privée : elle ne garde ni cookies ni connexion après sa fermeture, et le prochain import vous demandera de vous reconnecter.
 
-## 4. Ce qui sera importé
+## 5. Ce qui sera importé
 
 Cette étape n’écrit encore rien. Elle montre ce que l’import s’apprête à faire : les personnes du fichier, les médias trouvés, les personnes avec média, et des remarques comme :
 
@@ -77,7 +85,7 @@ Si presque aucun média ne correspond aux personnes de votre fichier, l’export
 
 OxidGene récupère ensuite les médias par la fenêtre de connexion : tous avec les copies de Geneanet, seulement ceux que vos archives ne contiennent pas avec vos fichiers d’origine.
 
-## 5. Import
+## 6. Import
 
 À ce stade, plus rien n’est demandé à Geneanet : vos médias sont déjà sur votre ordinateur. Cliquez sur **Lancer l’import** et laissez la fenêtre ouverte jusqu’à la fin. Enregistrer beaucoup de médias prend quelques minutes. Pour l’arrêter, cliquez sur **Annuler l’import** sous la barre de progression et confirmez : tout ce que l’import avait ajouté est supprimé, et l’arbre redevient exactement tel qu’il était.
 
@@ -92,13 +100,11 @@ Si une personne créée à partir d’une photo porte le même nom qu’une pers
 
 ## Terminer plus tard, ou sur un autre ordinateur
 
-Lire votre liste de médias sur Geneanet prend un moment et, avec vos fichiers d’origine, rapprocher vos archives coûte en plus une requête par média. Vous pouvez enregistrer ce qui a été collecté et éviter de le redemander à Geneanet. À côté de **Réutiliser une connexion enregistrée**, dans l’étape de connexion et dans celle du récapitulatif, vous trouverez :
+Lire votre liste de médias sur Geneanet prend un moment et, avec vos fichiers d’origine, rapprocher vos archives coûte en plus une requête par média. Vous pouvez enregistrer ce qui a été collecté et éviter de le redemander à Geneanet. Sous **Enregistrer la connexion pour plus tard**, dans l’étape de connexion et dans celle du récapitulatif, vous trouverez :
 
 - **Enregistrer ce qui a été collecté…**, qui enregistre la liste des médias une fois connecté. Un import ultérieur qui charge ce fichier ouvre encore la fenêtre de connexion pour récupérer les médias.
 - **Tout enregistrer, prêt à importer hors ligne…**, qui apparaît une fois les médias récupérés. Un import ultérieur qui charge ce fichier n’a plus besoin d’aucune connexion à Geneanet. Si vous avez ajouté vos archives de médias, les deux enregistrements contiennent aussi les photos d’origine trouvées dedans : le fichier suffit, sans les archives.
-- **Charger un fichier enregistré…**, qui reprend un fichier enregistré. OxidGene regarde ce qu’il contient et ne demande que ce qui manque.
-
-Vous pouvez ainsi reprendre après une interruption, ou collecter sur un ordinateur et importer sur un autre. C’est aussi ainsi que la version web importe vos photos : **Charger un fichier enregistré…** y est le seul bouton de l’étape de connexion. Choisissez votre fichier `.gw`, chargez le fichier enregistré avec **Tout enregistrer, prêt à importer hors ligne…** dans l’application de bureau, puis vérifiez et importez comme d’habitude ; le fichier est envoyé avec votre arbre, et les photos qu’il ne contient pas sont ignorées, la dernière étape indiquant combien. Le fichier enregistré contient votre liste de médias, et parfois vos photos : gardez-le aussi confidentiel que votre arbre.
+Un import ultérieur charge ce fichier à sa deuxième étape (voir [Une connexion enregistrée](#2-une-connexion-enregistree)) et ne demande que ce qui manque. Vous pouvez ainsi reprendre après une interruption, ou collecter sur un ordinateur et importer sur un autre. C’est aussi ainsi que la version web importe vos photos : choisissez votre fichier `.gw`, chargez le fichier enregistré dans l’application de bureau, puis vérifiez et importez comme d’habitude ; le fichier est envoyé avec votre arbre, et les photos qu’il ne contient pas sont ignorées. Le fichier enregistré contient votre liste de médias, et parfois vos photos : gardez-le aussi confidentiel que votre arbre.
 
 ## Bon à savoir
 

@@ -1,6 +1,6 @@
 //! The Geneanet login window, and the collection that runs inside it.
 //!
-//! This is step 3 of the import wizard, and the one part of it that only the
+//! This is the login step of the import wizard, and the one part of it that only the
 //! desktop build can do. The UI declares what it needs through
 //! [`oxidgene_ui::geneanet::GeneanetCollector`]; this module is the
 //! implementation, kept here because it is `wry`/`tao` work and pulling those
@@ -590,10 +590,10 @@ fn script_failed(session: &mut Option<Session>, message: &str) -> Option<Session
 
 /// Reports the collection — and leaves the window open.
 ///
-/// This is the end of step 3 but not the end of the window's job. Every direct
+/// This is the end of the login step but not the end of the window's job. Every direct
 /// request to Geneanet is challenged, so the media the archives cannot account
 /// for are fetched through this same session during the import. Closing here
-/// would leave step 5 with nothing to fetch through and no way to get it back
+/// would leave the import step with nothing to fetch through and no way to get it back
 /// short of signing in again.
 ///
 /// It is closed by [`Request::Close`], which the wizard sends when the import

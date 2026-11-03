@@ -1,6 +1,6 @@
 //! The seam between the import wizard and a Geneanet login window.
 //!
-//! Step 3 of the wizard needs something this crate cannot do and must not
+//! The login step of the wizard needs something this crate cannot do and must not
 //! know how to do: open a second browser window on geneanet.org, let the user
 //! sign in, and issue the collection requests *from inside it*. That is a
 //! `wry`/`tao` job, and pulling `dioxus-desktop` in here would make the whole
@@ -66,7 +66,7 @@ pub enum GeneanetEvent {
     /// the server is in-process and shares the filesystem, so carrying several
     /// hundred pictures through the UI and back out in a request body would
     /// buffer them three times over and inflate them by a third on the way —
-    /// the same reasoning that makes step 2 hand over archive paths.
+    /// the same reasoning that makes the archives step hand over archive paths.
     ///
     /// `error` is set instead when that one could not be fetched; the run
     /// carries on and the import reports it as skipped.
@@ -140,7 +140,7 @@ pub struct WindowStrings {
 
 /// How much the login window has to collect.
 ///
-/// The byte lengths are the expensive half of step 3 — one `HEAD` per
+/// The byte lengths are the expensive half of the login step — one `HEAD` per
 /// single-page deposit, several hundred on a real account — and they exist for
 /// exactly one purpose: matching a photo against the user's data archives. An
 /// import that keeps Geneanet's renditions has no archive to match against, so

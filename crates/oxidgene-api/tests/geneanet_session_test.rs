@@ -757,7 +757,7 @@ async fn graphql_imports_a_session_without_local_files() {
     a_session_import_runs_without_local_files(true).await;
 }
 
-/// The session file the desktop saves with step 2's `archive` through REST
+/// The session file the desktop saves with the data `archive` through REST
 /// or GraphQL, for `collection` whose deposits all measure `size` bytes.
 async fn save_session_with_archive(
     collection: &str,
@@ -822,7 +822,7 @@ async fn save_session_with_archive(
     }
 }
 
-/// A session saved with step 2's archives carries the original of each
+/// A session saved with the data archives carries the original of each
 /// single-page deposit they hold, under that original's URL — a document's
 /// pages, which the import never reads from an archive by length, stay out
 /// — and a server given no archive and no local file imports the photograph

@@ -230,7 +230,7 @@ pub const PROBE: &str = r"
 /// The collection, reporting progress and its result over the WebView's IPC
 /// channel instead of downloading a file.
 ///
-/// This is the desktop wizard's step 3, and the two stages it reports are the
+/// This is the desktop wizard's login step, and the two stages it reports are the
 /// two bars the spec draws.
 pub fn ipc_collection() -> String {
     format!(
@@ -322,7 +322,7 @@ pub fn ipc_fetch(urls: &[String]) -> String {
 
 /// Asks Geneanet each single-page deposit's exact byte length.
 ///
-/// This is stage 2 of step 3, and the whole of the archive matching: a `HEAD`
+/// This is stage 2 of the login step, and the whole of the archive matching: a `HEAD`
 /// returns a `Content-Length` and no body, so several hundred of them transfer
 /// nothing while telling us exactly which local file is which. `deposit_ids`
 /// is JSON — only single-page deposits belong in it, because a multi-page
