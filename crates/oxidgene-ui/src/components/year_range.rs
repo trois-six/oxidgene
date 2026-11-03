@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::text_field::TextInput;
 use crate::i18n::use_i18n;
 
 /// Two year fields under `label`, the first year and the last: each typed
@@ -20,20 +21,20 @@ pub fn YearRange(
         div { class: "sr-filter-group",
             label { "{label}" }
             div { class: "sr-date-range",
-                input {
+                TextInput {
                     r#type: "number",
                     placeholder: "1800",
                     aria_label: i18n.t("common.from"),
                     value: "{from}",
-                    oninput: move |e: Event<FormData>| on_from.call(e.value()),
+                    on_input: move |text: String| on_from.call(text),
                 }
                 span { "aria-hidden": "true", "\u{2013}" }
-                input {
+                TextInput {
                     r#type: "number",
                     placeholder: "2000",
                     aria_label: i18n.t("common.to"),
                     value: "{to}",
-                    oninput: move |e: Event<FormData>| on_to.call(e.value()),
+                    on_input: move |text: String| on_to.call(text),
                 }
             }
         }

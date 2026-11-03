@@ -25,6 +25,7 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::suggest_input::ValueInput;
+use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::I18n;
 use crate::permissions::{Permission, use_can};
 use crate::utils::{
@@ -775,15 +776,15 @@ fn name_editor(scope: FormScope, api: ApiClient, edit: NameEdit) -> Element {
             div { class: "form-row",
                 div { class: "form-group",
                     label { {i18n.t("person_form.prefix")} }
-                    input { r#type: "text", value: "{prefix}", oninput: move |e: Event<FormData>| prefix.set(e.value()) }
+                    TextInput { r#type: "text", value: "{prefix}", on_input: move |text: String| prefix.set(text) }
                 }
                 div { class: "form-group",
                     label { {i18n.t("person_form.suffix")} }
-                    input { r#type: "text", value: "{suffix}", oninput: move |e: Event<FormData>| suffix.set(e.value()) }
+                    TextInput { r#type: "text", value: "{suffix}", on_input: move |text: String| suffix.set(text) }
                 }
                 div { class: "form-group",
                     label { {i18n.t("person_form.nickname")} }
-                    input { r#type: "text", value: "{nickname}", oninput: move |e: Event<FormData>| nickname.set(e.value()) }
+                    TextInput { r#type: "text", value: "{nickname}", on_input: move |text: String| nickname.set(text) }
                 }
             }
             div { class: "inline-row",
@@ -869,10 +870,10 @@ pub(super) fn PersonNotesBlock(
                                         div { class: "error-msg", "{err}" }
                                     }
                                     div { class: "form-group",
-                                        textarea {
+                                        TextArea {
                                             rows: 4,
                                             value: "{edit_text}",
-                                            oninput: move |e: Event<FormData>| edit_text.set(e.value()),
+                                            on_input: move |text: String| edit_text.set(text),
                                         }
                                     }
                                     if sharing {
@@ -1035,11 +1036,11 @@ fn NewPersonNote(scope: FormScope, show: Signal<bool>) -> Element {
                 div { class: "error-msg", "{err}" }
             }
             div { class: "form-group",
-                textarea {
+                TextArea {
                     rows: 4,
                     placeholder: "{i18n.t(\"person_form.note_placeholder\")}",
                     value: "{form_text}",
-                    oninput: move |e: Event<FormData>| form_text.set(e.value()),
+                    on_input: move |text: String| form_text.set(text),
                 }
             }
             if sharing {
@@ -1260,10 +1261,10 @@ pub(super) fn OtherEventsSection(
                                 field: SuggestionField::Occupations,
                             }
                         } else {
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{description}",
-                                oninput: move |e: Event<FormData>| description.set(e.value()),
+                                on_input: move |text: String| description.set(text),
                             }
                         }
                     }

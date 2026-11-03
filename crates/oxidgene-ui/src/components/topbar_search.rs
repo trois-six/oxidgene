@@ -21,7 +21,7 @@ use crate::components::search_person::{
 use crate::components::suggest_input::{
     picked_text, render_suggest_row, suggest_rows, suggestions_shown, use_value_suggestions,
 };
-use crate::field_text::use_field_text;
+use crate::components::text_field::TextInput;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
@@ -103,8 +103,6 @@ pub fn TopbarSearch(
     let local_first = use_signal(String::new);
     let mut search_last = last.unwrap_or(local_last);
     let mut search_first = first.unwrap_or(local_first);
-    let last_field = use_field_text(&search_last.read());
-    let first_field = use_field_text(&search_first.read());
 
     // Panel state. `anchor` is the field group's measured bottom-right corner:
     // `.td-topbar` clips its overflow, so the panel cannot be positioned
@@ -310,42 +308,38 @@ pub fn TopbarSearch(
                 anchor_el.set(Some(e.data()));
                 remeasure.call(());
             },
-            input {
+            TextInput {
                 r#type: "text",
                 class: "td-search-input",
                 placeholder: "{i18n.t(\"tree.search_last\")}",
-                id: last_field.id(),
-                initial_value: "{search_last}",
-                oninput: move |e: Event<FormData>| {
-                    last_field.typed(&e.value());
-                    search_last.set(e.value());
-                    typed_last.set(e.value());
+                value: search_last(),
+                on_input: move |text: String| {
+                    search_last.set(text.clone());
+                    typed_last.set(text);
                     typed_first.set(String::new());
                     open.set(true);
                     highlight.set(None);
                     remeasure.call(());
                 },
                 // Names complete the field being typed in, not the one left.
-                onfocus: move |_| typed_first.set(String::new()),
-                onkeydown: move |e| on_key.call(e),
+                on_focus: move |_| typed_first.set(String::new()),
+                on_keydown: move |e| on_key.call(e),
             }
-            input {
+            TextInput {
                 r#type: "text",
                 class: "td-search-input",
                 placeholder: "{i18n.t(\"tree.search_first\")}",
-                id: first_field.id(),
-                initial_value: "{search_first}",
-                oninput: move |e: Event<FormData>| {
-                    first_field.typed(&e.value());
-                    search_first.set(e.value());
-                    typed_first.set(e.value());
+                value: search_first(),
+                on_input: move |text: String| {
+                    search_first.set(text.clone());
+                    typed_first.set(text);
                     typed_last.set(String::new());
                     open.set(true);
                     highlight.set(None);
                     remeasure.call(());
                 },
-                onfocus: move |_| typed_last.set(String::new()),
-                onkeydown: move |e| on_key.call(e),
+                on_focus: move |_| typed_last.set(String::new()),
+                on_keydown: move |e| on_key.call(e),
             }
             button {
                 class: "td-search-btn",

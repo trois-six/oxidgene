@@ -26,6 +26,7 @@ use crate::components::print::{search_print_title, search_query};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::tags::{BulkTagPicker, TagBadges, dot_style};
+use crate::components::text_field::TextInput;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::components::view_toggle::ViewToggle;
@@ -1011,14 +1012,14 @@ fn TagFilterField(
     };
     rsx! {
         div { class: "sr-tag-filter",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "sr-tag-filter-input",
                 placeholder: i18n.t("search.tags_placeholder"),
                 aria_label: i18n.t("search.tags"),
                 autocomplete: "off",
                 value: "{query}",
-                oninput: move |e: Event<FormData>| query.set(e.value()),
+                on_input: move |text: String| query.set(text),
             }
             if !suggestions.is_empty() {
                 div { class: "sr-tag-filter-list",
@@ -1088,11 +1089,11 @@ fn event_criteria(i18n: &I18n, filters: SearchFilters) -> Element {
             }
             div { class: "sr-filter-group",
                 label { {i18n.t("search.place")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{place}",
-                    oninput: move |e: Event<FormData>| {
-                        place.set(e.value());
+                    on_input: move |text: String| {
+                        place.set(text);
                         filters.restart();
                     },
                 }

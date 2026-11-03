@@ -19,6 +19,7 @@ use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::history_diff::format_timestamp;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
+use crate::components::text_field::TextInput;
 use crate::components::user_avatar::UserAvatar;
 use crate::i18n::{I18n, use_i18n};
 
@@ -395,20 +396,20 @@ fn RebindDialog(user: ManagedUser, on_close: EventHandler<bool>) -> Element {
             form { onsubmit: save,
                 div { class: "form-group",
                     label { r#for: "rebind-issuer", {i18n.t("instance.users.issuer")} }
-                    input {
+                    TextInput {
                         id: "rebind-issuer",
                         r#type: "url",
                         value: "{issuer}",
-                        oninput: move |event: Event<FormData>| issuer.set(event.value()),
+                        on_input: move |text: String| issuer.set(text),
                     }
                 }
                 div { class: "form-group",
                     label { r#for: "rebind-subject", {i18n.t("instance.users.subject")} }
-                    input {
+                    TextInput {
                         id: "rebind-subject",
                         r#type: "text",
                         value: "{subject}",
-                        oninput: move |event: Event<FormData>| subject.set(event.value()),
+                        on_input: move |text: String| subject.set(text),
                     }
                 }
                 if let Some(message) = error() {

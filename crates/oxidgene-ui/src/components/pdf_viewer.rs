@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, GalleryPdfPage, MediaKind, MediaSource, ScriptFile};
 use crate::components::media_stage::{MIN_ZOOM, ZoomControls, zoom_in, zoom_out};
+use crate::components::text_field::TextInput;
 use crate::i18n::use_i18n;
 use crate::listeners::use_element_id;
 use crate::ui_observability::use_ui_trace;
@@ -419,15 +420,15 @@ fn PdfSearch(
     let can_step = enabled && matches.is_some_and(|(_, total)| total > 0);
     rsx! {
         div { class: "pdf-viewer-search", role: "search",
-            input {
+            TextInput {
                 r#type: "search",
                 class: "pdf-viewer-search-input",
                 placeholder: i18n.t("media.pdf_search"),
                 aria_label: i18n.t("media.pdf_search"),
                 disabled: !enabled,
                 value: "{query}",
-                oninput: move |event| on_query.call(event.value()),
-                onkeydown: move |event: Event<KeyboardData>| {
+                on_input: move |text: String| on_query.call(text),
+                on_keydown: move |event: Event<KeyboardData>| {
                     if event.key() == Key::Enter {
                         event.prevent_default();
                         on_step.call(event.modifiers().shift());

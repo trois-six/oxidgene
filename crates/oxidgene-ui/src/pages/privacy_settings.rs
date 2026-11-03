@@ -17,6 +17,7 @@ use super::settings::SettingsCheck;
 use super::sharing_settings::Listed;
 use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::text_field::TextInput;
 use crate::components::tree_cache::{TreeCache, use_tree_cache};
 use crate::i18n::{I18n, use_i18n};
 use crate::sharing::use_sharing_surfaces;
@@ -193,16 +194,15 @@ fn ContemporaryCard(tree_id: Uuid, settings: PrivacySettings) -> Element {
             }
             div { class: "form-group",
                 label { r#for: "contemporary-years", {i18n.t("settings.contemporary_years")} }
-                input {
+                TextInput {
                     id: "contemporary-years",
                     r#type: "number",
                     min: "{MIN_CONTEMPORARY_YEARS}",
                     max: "{MAX_CONTEMPORARY_YEARS}",
                     value: "{years_text}",
-                    oninput: {
+                    on_input: {
                         let mut change = change.clone();
-                        move |e: Event<FormData>| {
-                            let text = e.value();
+                        move |text: String| {
                             years_text.set(text.clone());
                             let Ok(years) = text.trim().parse::<i32>() else { return };
                             if (MIN_CONTEMPORARY_YEARS..=MAX_CONTEMPORARY_YEARS).contains(&years)

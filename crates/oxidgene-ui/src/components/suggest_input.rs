@@ -11,7 +11,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, NameScope, SuggestionField, ValueSuggestion};
-use crate::field_text::use_field_text;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::use_entry_options;
 use crate::ui_observability::use_ui_resource;
@@ -57,7 +57,6 @@ pub(crate) fn SuggestInput(
     // The rows as mounted, so the keyboard can scroll the one it reaches
     // into view.
     let mut mounted = use_signal(HashMap::<usize, Rc<MountedData>>::new);
-    let field = use_field_text(&value);
     let count = rows.len();
     let list_visible = list_shown(open(), count);
 
@@ -112,29 +111,27 @@ pub(crate) fn SuggestInput(
 
     rsx! {
         div { class: "suggest-input",
-            input {
+            TextInput {
                 r#type: "text",
-                id: field.id(),
-                initial_value: "{value}",
+                value,
                 placeholder: placeholder.unwrap_or_default(),
                 disabled,
                 autocomplete: "off",
-                "aria-autocomplete": "list",
-                "aria-expanded": "{list_visible}",
-                oninput: move |e: Event<FormData>| {
-                    field.typed(&e.value());
+                aria_autocomplete: "list",
+                aria_expanded: "{list_visible}",
+                on_input: move |text: String| {
                     open.set(true);
                     highlight.set(None);
-                    on_input.call(e.value());
+                    on_input.call(text);
                 },
-                onfocus: move |_| open.set(true),
+                on_focus: move |_| open.set(true),
                 // The list's buttons keep the focus on the field while they
                 // are pressed, so leaving the field really is leaving it.
-                onblur: move |_| {
+                on_blur: move |_| {
                     open.set(false);
                     highlight.set(None);
                 },
-                onkeydown: on_key,
+                on_keydown: on_key,
             }
             if list_visible {
                 div {

@@ -13,6 +13,7 @@ use crate::components::tags::{
     MenuTarget, RecordMenuButton, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation,
     stop_row_press, use_record_menu,
 };
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::reveal_row;
 use crate::permissions::{IfCan, Permission};
@@ -160,12 +161,12 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
 
     rsx! {
         div { class: "dict-filter-row",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "dict-filter-input",
                 placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
                 value: "{quick}",
-                oninput: move |e: Event<FormData>| quick.set(e.value()),
+                on_input: move |text: String| quick.set(text),
             }
             // A scoped Editor adds a repository, but edits none of the
             // listed ones (docs/authorization.md §3.3).

@@ -15,6 +15,7 @@ use crate::components::context_menu::{
     ContextMenuSurface, LONG_PRESS_MS, MenuButton, focus_trigger, trigger_point,
 };
 use crate::components::modal::Modal;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
 use crate::permissions::{Permission, use_tree_permissions};
@@ -343,7 +344,7 @@ pub fn TagPicker(props: TagPickerProps) -> Element {
             menu_class: "tag-picker",
             on_close: props.on_close,
             div { class: "tag-picker-title", {i18n.t("tag.picker.title")} }
-            input {
+            TextInput {
                 r#type: "text",
                 class: "tag-picker-input",
                 placeholder: "{filter_label}",
@@ -351,19 +352,19 @@ pub fn TagPicker(props: TagPickerProps) -> Element {
                 aria_controls: "{list_id}",
                 aria_activedescendant: active_id.clone(),
                 autocomplete: "off",
-                spellcheck: "false",
+                spellcheck: false,
                 value: "{query}",
-                onmounted: move |event: Event<MountedData>| {
+                on_mounted: move |event: Event<MountedData>| {
                     let _ = document::eval(REMEMBER_OPENER_JS);
                     spawn(async move {
                         let _ = event.set_focus(true).await;
                     });
                 },
-                oninput: move |event: Event<FormData>| {
-                    query.set(event.value());
+                on_input: move |text: String| {
+                    query.set(text);
                     active.set(0);
                 },
-                onkeydown: move |event: Event<KeyboardData>| on_key(event, false),
+                on_keydown: move |event: Event<KeyboardData>| on_key(event, false),
             }
             if let Some(message) = error() {
                 p { class: "tag-picker-error", role: "alert", "{message}" }
@@ -670,15 +671,15 @@ pub fn BulkTagPicker(props: BulkTagPickerProps) -> Element {
             busy: busy(),
             h3 { "{title}" }
             p { class: "tag-bulk-total", "{total_text}" }
-            input {
+            TextInput {
                 r#type: "text",
                 class: "tag-picker-input",
                 placeholder: "{filter_label}",
                 aria_label: "{filter_label}",
                 autocomplete: "off",
-                spellcheck: "false",
+                spellcheck: false,
                 value: "{query}",
-                oninput: move |event: Event<FormData>| query.set(event.value()),
+                on_input: move |text: String| query.set(text),
             }
             if let Some(message) = error() {
                 p { class: "tag-picker-error", role: "alert", "{message}" }
@@ -935,14 +936,14 @@ pub fn TagBranchDialog(
                 }
                 label { class: "tag-branch-field",
                     span { {i18n.t("tag.branch.depth")} }
-                    input {
+                    TextInput {
                         r#type: "number",
                         inputmode: "numeric",
                         min: "1",
                         max: "30",
                         placeholder: i18n.t("tag.branch.depth_all"),
                         value: "{depth}",
-                        oninput: move |event: Event<FormData>| depth.set(event.value()),
+                        on_input: move |text: String| depth.set(text),
                     }
                     span { class: "tag-branch-hint", {i18n.t("tag.branch.depth_hint")} }
                 }

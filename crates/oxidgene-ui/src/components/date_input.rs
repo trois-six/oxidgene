@@ -25,6 +25,7 @@ use oxidgene_core::calendar::{
 use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
+use crate::components::text_field::TextInput;
 use crate::i18n::I18n;
 use crate::prefs::{EntryOptions, use_entry_options};
 
@@ -1030,33 +1031,33 @@ fn numeric_keydown(e: &Event<KeyboardData>, allow_sign: bool) {
 fn age_inputs(mut parts: Signal<DateParts>, i18n: I18n, on_change: EventHandler<()>) -> Element {
     let p = parts();
     rsx! {
-        input {
+        TextInput {
             class: "pf-date-part pf-date-age",
             r#type: "text",
             inputmode: "numeric",
             maxlength: 3,
             placeholder: "{i18n.t(\"date.ph_age\")}",
             value: opt_num(p.age),
-            onkeydown: |e| numeric_keydown(&e, false),
-            oninput: move |e| {
+            on_keydown: |e| numeric_keydown(&e, false),
+            on_input: move |text: String| {
                 let mut np = parts();
-                np.age = parse_u32(&e.value());
+                np.age = parse_u32(&text);
                 parts.set(np);
                 on_change.call(());
             },
         }
         span { class: "pf-date-separator", {i18n.t("date.age_in")} }
-        input {
+        TextInput {
             class: "pf-date-part pf-date-yyyy",
             r#type: "text",
             inputmode: "numeric",
             maxlength: 5,
             placeholder: "{i18n.t(\"date.ph_year\")}",
             value: opt_num(p.age_ref_year),
-            onkeydown: |e| numeric_keydown(&e, true),
-            oninput: move |e| {
+            on_keydown: |e| numeric_keydown(&e, true),
+            on_input: move |text: String| {
                 let mut np = parts();
-                np.age_ref_year = parse_year(&e.value());
+                np.age_ref_year = parse_year(&text);
                 parts.set(np);
                 on_change.call(());
             },
@@ -1175,20 +1176,20 @@ fn day_input(
 ) -> Element {
     let (day, _, _) = end.of(&parts());
     rsx! {
-        input {
+        TextInput {
             class: "pf-date-part pf-date-dd",
             r#type: "text",
             inputmode: "numeric",
             maxlength: 2,
             placeholder: "{i18n.t(\"date.ph_day\")}",
             value: opt_num(day),
-            onkeydown: |e| numeric_keydown(&e, false),
-            oninput: move |e| {
+            on_keydown: |e| numeric_keydown(&e, false),
+            on_input: move |text: String| {
                 let mut np = parts();
                 // Out-of-range values are kept, not clamped away: `validate`
                 // says what is wrong with them, where silently blanking the
                 // field would just look like the app eating keystrokes.
-                end.set_day(&mut np, parse_u8(&e.value()));
+                end.set_day(&mut np, parse_u8(&text));
                 parts.set(np);
                 on_change.call(());
             },
@@ -1248,17 +1249,17 @@ fn month_input(
 ) -> Element {
     let (_, month, _) = end.of(&parts());
     rsx! {
-        input {
+        TextInput {
             class: "pf-date-part pf-date-mm",
             r#type: "text",
             inputmode: "numeric",
             maxlength: 2,
             placeholder: "{i18n.t(\"date.ph_month\")}",
             value: opt_num(month),
-            onkeydown: |e| numeric_keydown(&e, false),
-            oninput: move |e| {
+            on_keydown: |e| numeric_keydown(&e, false),
+            on_input: move |text: String| {
                 let mut np = parts();
-                end.set_month(&mut np, parse_u8(&e.value()));
+                end.set_month(&mut np, parse_u8(&text));
                 parts.set(np);
                 on_change.call(());
             },
@@ -1274,7 +1275,7 @@ fn year_input(
 ) -> Element {
     let (_, _, year) = end.of(&parts());
     rsx! {
-        input {
+        TextInput {
             class: "pf-date-part pf-date-yyyy",
             r#type: "text",
             inputmode: "numeric",
@@ -1282,10 +1283,10 @@ fn year_input(
             maxlength: 5,
             placeholder: "{i18n.t(\"date.ph_year\")}",
             value: opt_num(year),
-            onkeydown: |e| numeric_keydown(&e, true),
-            oninput: move |e| {
+            on_keydown: |e| numeric_keydown(&e, true),
+            on_input: move |text: String| {
                 let mut np = parts();
-                end.set_year(&mut np, parse_year(&e.value()));
+                end.set_year(&mut np, parse_year(&text));
                 parts.set(np);
                 on_change.call(());
             },

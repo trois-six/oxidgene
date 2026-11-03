@@ -21,6 +21,7 @@ use crate::components::merge_fields::{
 };
 use crate::components::modal::Modal;
 use crate::components::person_form::{DeleteSection, MoreDetails};
+use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::opt_str;
@@ -162,45 +163,45 @@ pub fn SourceEditor(
                 Some(loaded_state) => rsx! {
                     div { class: "form-group",
                         label { {i18n.t("dictionary.source.field_title")} }
-                        input {
+                        TextInput {
                             r#type: "text",
                             value: "{title}",
-                            oninput: move |e: Event<FormData>| title.set(e.value()),
+                            on_input: move |text: String| title.set(text),
                         }
                     }
                     div { class: "form-row",
                         div { class: "form-group",
                             label { {i18n.t("dictionary.source.author")} }
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{author}",
-                                oninput: move |e: Event<FormData>| author.set(e.value()),
+                                on_input: move |text: String| author.set(text),
                             }
                         }
                         div { class: "form-group",
                             label { {i18n.t("dictionary.source.abbreviation")} }
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{abbreviation}",
-                                oninput: move |e: Event<FormData>| abbreviation.set(e.value()),
+                                on_input: move |text: String| abbreviation.set(text),
                             }
                         }
                     }
                     div { class: "form-group",
                         label { {i18n.t("dictionary.source.publisher")} }
-                        textarea {
+                        TextArea {
                             rows: 2,
                             value: "{publisher}",
-                            oninput: move |e: Event<FormData>| publisher.set(e.value()),
+                            on_input: move |text: String| publisher.set(text),
                         }
                     }
                     MoreDetails { open: more,
                         div { class: "form-group",
                             label { {i18n.t("person_form.agency")} }
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{agency}",
-                                oninput: move |e: Event<FormData>| agency.set(e.value()),
+                                on_input: move |text: String| agency.set(text),
                             }
                         }
                         SourceRepositories {
@@ -351,10 +352,10 @@ fn SourceRepositories(
                     if choice() == NEW_REPOSITORY {
                         div { class: "form-group",
                             label { {i18n.t("dictionary.repository.name")} }
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{new_name}",
-                                oninput: move |e: Event<FormData>| new_name.set(e.value()),
+                                on_input: move |text: String| new_name.set(text),
                             }
                         }
                     }
@@ -362,10 +363,10 @@ fn SourceRepositories(
                 div { class: "form-row",
                     div { class: "form-group",
                         label { {i18n.t("dictionary.source.call_number")} }
-                        input {
+                        TextInput {
                             r#type: "text",
                             value: "{call_number}",
-                            oninput: move |e: Event<FormData>| call_number.set(e.value()),
+                            on_input: move |text: String| call_number.set(text),
                         }
                     }
                     div { class: "form-group",
@@ -803,55 +804,55 @@ pub fn RepositoryEditor(
             }
             div { class: "form-group",
                 label { {i18n.t("dictionary.repository.name")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{name}",
-                    oninput: move |e: Event<FormData>| {
-                        name.set(e.value());
+                    on_input: move |text: String| {
+                        name.set(text);
                         offer.reset();
                     },
                 }
             }
             div { class: "form-group",
                 label { {i18n.t("dictionary.repository.address")} }
-                textarea {
+                TextArea {
                     rows: 3,
                     value: "{address}",
-                    oninput: move |e: Event<FormData>| address.set(e.value()),
+                    on_input: move |text: String| address.set(text),
                 }
             }
             div { class: "form-row",
                 div { class: "form-group",
                     label { {i18n.t("dictionary.repository.phone")} }
-                    input {
+                    TextInput {
                         r#type: "tel",
                         value: "{phone}",
-                        oninput: move |e: Event<FormData>| phone.set(e.value()),
+                        on_input: move |text: String| phone.set(text),
                     }
                 }
                 div { class: "form-group",
                     label { {i18n.t("dictionary.repository.email")} }
-                    input {
+                    TextInput {
                         r#type: "email",
                         value: "{email}",
-                        oninput: move |e: Event<FormData>| email.set(e.value()),
+                        on_input: move |text: String| email.set(text),
                     }
                 }
             }
             div { class: "form-group",
                 label { {i18n.t("dictionary.repository.website")} }
-                input {
+                TextInput {
                     r#type: "url",
                     value: "{website}",
-                    oninput: move |e: Event<FormData>| website.set(e.value()),
+                    on_input: move |text: String| website.set(text),
                 }
             }
             div { class: "form-group",
                 label { {i18n.t("person_form.notes")} }
-                textarea {
+                TextArea {
                     rows: 3,
                     value: "{note}",
-                    oninput: move |e: Event<FormData>| note.set(e.value()),
+                    on_input: move |text: String| note.set(text),
                 }
             }
             if let Some(target) = &target {

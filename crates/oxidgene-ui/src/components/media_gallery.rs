@@ -49,6 +49,7 @@ use crate::components::pdf_viewer::{
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBadges, TagPicker};
+use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::{I18n, use_i18n};
 use crate::permissions::{IfCan, Permission, use_can, use_tree_permissions};
 use crate::router::Route;
@@ -2015,11 +2016,11 @@ fn MediaEditPanel(
             if editable_url {
                 div { class: "form-group",
                     label { {i18n.t("media.url")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         value: "{url}",
                         placeholder: "https://\u{2026}",
-                        oninput: move |e: Event<FormData>| url.set(e.value()),
+                        on_input: move |text: String| url.set(text),
                     }
                     p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
                 }
@@ -2027,18 +2028,18 @@ fn MediaEditPanel(
 
             div { class: "form-group",
                 label { {i18n.t("media.title")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{title}",
-                    oninput: move |e: Event<FormData>| title.set(e.value()),
+                    on_input: move |text: String| title.set(text),
                 }
             }
             div { class: "form-group",
                 label { {i18n.t("media.description")} }
-                textarea {
+                TextArea {
                     rows: 3,
                     value: "{description}",
-                    oninput: move |e: Event<FormData>| description.set(e.value()),
+                    on_input: move |text: String| description.set(text),
                 }
             }
             // Two fields for what looks like one question, because it is two.
@@ -2067,11 +2068,11 @@ fn MediaEditPanel(
 
             div { class: "form-group",
                 label { {i18n.t("media.note")} }
-                textarea {
+                TextArea {
                     rows: 3,
                     value: "{note_text}",
                     placeholder: i18n.t("media.note_placeholder"),
-                    oninput: move |e: Event<FormData>| note_text.set(e.value()),
+                    on_input: move |text: String| note_text.set(text),
                 }
             }
             if page_note_media_id.is_some() {
@@ -2082,11 +2083,11 @@ fn MediaEditPanel(
                             &[("page", &page_number.unwrap_or(1).to_string())],
                         )}
                     }
-                    textarea {
+                    TextArea {
                         rows: 6,
                         value: "{page_note_text}",
                         placeholder: i18n.t("media.page_transcript_placeholder"),
-                        oninput: move |e: Event<FormData>| page_note_text.set(e.value()),
+                        on_input: move |text: String| page_note_text.set(text),
                     }
                 }
             }

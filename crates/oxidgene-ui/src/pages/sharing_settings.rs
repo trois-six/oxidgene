@@ -28,6 +28,7 @@ use crate::components::copy_field::CopyField;
 use crate::components::date_input::format_day;
 use crate::components::person_picker::PersonPicker;
 use crate::components::search_person::PersonSearchSummary;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
@@ -469,7 +470,7 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
             h3 { class: "settings-card-title", {i18n.t("sharing.share.title")} }
             p { class: "settings-check-desc", {i18n.t("sharing.share.desc")} }
             label { class: "settings-check-label", r#for: "share-target", {i18n.t("sharing.share.target")} }
-            input {
+            TextInput {
                 id: "share-target",
                 class: "settings-date-select",
                 r#type: "text",
@@ -477,7 +478,7 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
                 placeholder: i18n.t("sharing.share.target_placeholder"),
                 value: "{target}",
                 disabled: candidate().is_some(),
-                oninput: move |e: Event<FormData>| target.set(e.value()),
+                on_input: move |text: String| target.set(text),
             }
             if !candidate_list.is_empty() {
                 label { class: "settings-check-label", r#for: "share-candidate", {i18n.t("sharing.share.candidate")} }
@@ -513,12 +514,12 @@ fn ShareForm(tree_id: Uuid, on_shared: EventHandler<()>) -> Element {
             label { class: "settings-check-label", {i18n.t("sharing.scope.title")} }
             ScopeEditor { tree_id, draft, id_prefix: "share-scope" }
             label { class: "settings-check-label", r#for: "share-expiry", {i18n.t("sharing.share.expiry")} }
-            input {
+            TextInput {
                 id: "share-expiry",
                 class: "settings-date-select",
                 r#type: "date",
                 value: "{expiry}",
-                oninput: move |e: Event<FormData>| expiry.set(e.value()),
+                on_input: move |text: String| expiry.set(text),
             }
             div { class: "modal-actions",
                 button { class: "btn btn-primary", r#type: "button", onclick: submit,
@@ -970,24 +971,24 @@ fn ShareLinksCard(tree_id: Uuid) -> Element {
             }
             h3 { class: "settings-card-title", {i18n.t("sharing.links.new")} }
             label { class: "settings-check-label", r#for: "link-label", {i18n.t("sharing.links.label")} }
-            input {
+            TextInput {
                 id: "link-label",
                 class: "settings-date-select",
                 r#type: "text",
                 maxlength: "100",
                 placeholder: i18n.t("sharing.links.label_placeholder"),
                 value: "{label}",
-                oninput: move |e: Event<FormData>| label.set(e.value()),
+                on_input: move |text: String| label.set(text),
             }
             label { class: "settings-check-label", {i18n.t("sharing.scope.title")} }
             ScopeEditor { tree_id, draft, id_prefix: "link-scope" }
             label { class: "settings-check-label", r#for: "link-expiry", {i18n.t("sharing.share.expiry")} }
-            input {
+            TextInput {
                 id: "link-expiry",
                 class: "settings-date-select",
                 r#type: "date",
                 value: "{expiry}",
-                oninput: move |e: Event<FormData>| expiry.set(e.value()),
+                on_input: move |text: String| expiry.set(text),
             }
             div { class: "modal-actions",
                 button { class: "btn btn-primary", r#type: "button", onclick: create,

@@ -45,6 +45,7 @@ pub mod source_forms;
 pub mod suggest_input;
 pub mod tabs;
 pub mod tags;
+pub mod text_field;
 pub mod topbar_search;
 pub mod trash_icon;
 pub mod tree_cache;

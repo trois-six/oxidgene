@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:40:00Z }
 ---
 
 # Development Environment and Workflows
@@ -621,6 +621,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` holds one release of pdf.js's legacy build, in the directory named after the release its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Versioned assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file the web bundle serves under a stable name is the page or the deployment's configuration: the rest are `dx`'s hashed files and the files of `assets/public/` under a release directory; nginx answers those immutable and the page `no-cache`; every picture the UI addresses carries its version ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
+| Typed text | 1 | `just test` (`oxidgene-guards`) | Repository guards | No `input` or `textarea` of the markup is bound to its text by `value` while listening to `oninput`: typed fields are `TextInput` and `TextArea` ([Common UI §6.6](ui-common.md)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |

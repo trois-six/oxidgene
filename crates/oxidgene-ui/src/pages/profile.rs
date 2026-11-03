@@ -18,6 +18,7 @@ use crate::components::avatar_cropper::AvatarCropper;
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::format_timestamp;
+use crate::components::text_field::TextInput;
 use crate::components::user_avatar::{AvatarSize, UserAvatar};
 use crate::i18n::{self, I18n, Language, use_i18n};
 use crate::pages::app_settings::use_settings_scroll_reset;
@@ -374,12 +375,12 @@ fn DisplayNameOption(me: Me) -> Element {
                     event.prevent_default();
                     save_typed();
                 },
-                input {
+                TextInput {
                     id: "profile-display-name",
                     r#type: "text",
                     maxlength: "80",
                     value: "{name}",
-                    oninput: move |event: Event<FormData>| name.set(event.value()),
+                    on_input: move |text: String| name.set(text),
                 }
                 button {
                     class: "btn btn-primary",

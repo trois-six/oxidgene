@@ -19,6 +19,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
 use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, PageSizeSelect, Pagination};
 use crate::components::tags::dot_style;
+use crate::components::text_field::TextInput;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
@@ -210,12 +211,12 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         }
 
         div { class: "dict-filter-row",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "dict-filter-input",
                 placeholder: "{i18n.t(\"dictionary.media.name_placeholder\")}",
                 value: "{current.name}",
-                oninput: move |e: Event<FormData>| draft.write().name = e.value(),
+                on_input: move |text: String| draft.write().name = text,
             }
             PageSizeSelect {
                 value: page_size(),
@@ -406,11 +407,11 @@ fn MediaFilterPanel(facets: crate::api::MediaFacets, draft: Signal<Draft>) -> El
                 }
                 div { class: "sr-filter-group",
                     label { {i18n.t("dictionary.media.linked_name")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         placeholder: "{i18n.t(\"dictionary.media.linked_name_placeholder\")}",
                         value: "{current.linked_name}",
-                        oninput: move |e: Event<FormData>| draft.write().linked_name = e.value(),
+                        on_input: move |text: String| draft.write().linked_name = text,
                     }
                 }
                 YearRange {
@@ -426,18 +427,18 @@ fn MediaFilterPanel(facets: crate::api::MediaFacets, draft: Signal<Draft>) -> El
                         // A calendar day on the server's clock, not a
                         // genealogical date: the browser's own picker is
                         // the right control, not the date-phrase input.
-                        input {
+                        TextInput {
                             r#type: "date",
                             aria_label: i18n.t("common.from"),
                             value: "{current.added_from}",
-                            oninput: move |e: Event<FormData>| draft.write().added_from = e.value(),
+                            on_input: move |text: String| draft.write().added_from = text,
                         }
                         span { "\u{2013}" }
-                        input {
+                        TextInput {
                             r#type: "date",
                             aria_label: i18n.t("common.to"),
                             value: "{current.added_to}",
-                            oninput: move |e: Event<FormData>| draft.write().added_to = e.value(),
+                            on_input: move |text: String| draft.write().added_to = text,
                         }
                     }
                 }

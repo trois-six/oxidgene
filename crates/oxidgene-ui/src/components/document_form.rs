@@ -37,6 +37,7 @@ use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{MediaClassification, MediaEventsChecklist, MediaOwner};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::use_i18n;
 
 /// A page somebody else serves, held by its address. Nothing is fetched,
@@ -350,25 +351,25 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
 
                         div { class: "form-group",
                             label { {i18n.t("media.title")} }
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{title}",
                                 disabled: busy,
-                                oninput: move |e: Event<FormData>| {
+                                on_input: move |text: String| {
                                     title_written.set(true);
-                                    title.set(e.value());
+                                    title.set(text);
                                 },
                             }
                         }
                         div { class: "form-group",
                             label { {i18n.t("media.description")} }
-                            textarea {
+                            TextArea {
                                 rows: 3,
                                 value: "{description}",
                                 disabled: busy,
-                                oninput: move |e: Event<FormData>| {
+                                on_input: move |text: String| {
                                     description_written.set(true);
-                                    description.set(e.value());
+                                    description.set(text);
                                 },
                             }
                         }
@@ -388,12 +389,12 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
 
                         div { class: "form-group",
                             label { {i18n.t("media.note")} }
-                            textarea {
+                            TextArea {
                                 rows: 3,
                                 value: "{note_text}",
                                 placeholder: i18n.t("media.note_placeholder"),
                                 disabled: busy,
-                                oninput: move |e: Event<FormData>| note_text.set(e.value()),
+                                on_input: move |text: String| note_text.set(text),
                             }
                         }
 
@@ -600,14 +601,14 @@ fn PendingPagesEditor(
                         event.prevent_default();
                         commit_url.call(());
                     },
-                    input {
+                    TextInput {
                         r#type: "text",
                         value: "{url_draft}",
                         placeholder: "https://\u{2026}",
                         autocomplete: "off",
-                        spellcheck: "false",
+                        spellcheck: false,
                         disabled: busy,
-                        oninput: move |e: Event<FormData>| url_draft.set(e.value()),
+                        on_input: move |text: String| url_draft.set(text),
                     }
                     button {
                         class: "pf-confirm-btn btn-sm",

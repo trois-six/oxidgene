@@ -17,6 +17,7 @@ use crate::components::history_diff::format_timestamp;
 use crate::components::person_picker::PersonPicker;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tags::{TagSelect, carried_tags};
+use crate::components::text_field::{TextArea, TextInput};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
@@ -873,12 +874,12 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
                 {i18n.t("settings.tree_name_desc")}
             }
             div { class: "settings-tree-name-form",
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{current}",
                     placeholder: i18n.t("tree.form.name_placeholder"),
                     disabled: loading(),
-                    oninput: move |e: Event<FormData>| local_name.set(Some(e.value())),
+                    on_input: move |text: String| local_name.set(Some(text)),
                 }
                 button {
                     class: "btn btn-primary settings-tree-name-save",
@@ -1219,14 +1220,14 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
                             rsx! {
                                 div { key: "{name}", class: "form-group",
                                     label { r#for: "{id}", {i18n.t(&format!("settings.threshold.{name}"))} }
-                                    input {
+                                    TextInput {
                                         id: "{id}",
                                         r#type: "number",
                                         min: "{min}",
                                         max: "{max}",
                                         value: "{text}",
-                                        oninput: move |e: Event<FormData>| {
-                                            texts.write().insert(name, e.value());
+                                        on_input: move |text: String| {
+                                            texts.write().insert(name, text);
                                             saved.set(false);
                                         },
                                     }
@@ -2002,28 +2003,28 @@ fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
             div { class: "form-row",
                 div { class: "form-group",
                     label { {i18n.t("settings.submitter_name")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         value: "{name}",
                         placeholder: i18n.t("settings.submitter_name_placeholder"),
-                        oninput: move |e: Event<FormData>| name.set(e.value()),
+                        on_input: move |text: String| name.set(text),
                     }
                 }
                 div { class: "form-group",
                     label { {i18n.t("settings.submitter_email")} }
-                    input {
+                    TextInput {
                         r#type: "email",
                         value: "{email}",
-                        oninput: move |e: Event<FormData>| email.set(e.value()),
+                        on_input: move |text: String| email.set(text),
                     }
                 }
             }
             div { class: "form-group",
                 label { {i18n.t("settings.submitter_address")} }
-                textarea {
+                TextArea {
                     rows: 3,
                     value: "{address}",
-                    oninput: move |e: Event<FormData>| address.set(e.value()),
+                    on_input: move |text: String| address.set(text),
                 }
             }
             div { class: "settings-export-row",

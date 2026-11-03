@@ -24,6 +24,7 @@ use crate::components::person_form::{
 };
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::permissions::{IfCan, Permission};
 use crate::ui_observability::use_ui_resource;
@@ -982,10 +983,10 @@ impl UnionEventsSection<'_> {
                 {render_place_input(&i18n, self.scope.tid, place_id, self.place_options, || {})}
                 div { class: "form-group",
                     label { {i18n.t("person_form.description")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         value: "{desc}",
-                        oninput: move |e: Event<FormData>| desc.set(e.value()),
+                        on_input: move |text: String| desc.set(text),
                     }
                 }
                 div { class: "form-row",
@@ -1106,10 +1107,10 @@ impl UnionEventsSection<'_> {
                     {render_place_input(&i18n, self.scope.tid, place, self.place_options, || {})}
                     div { class: "form-group",
                         label { {i18n.t("person_form.description")} }
-                        input {
+                        TextInput {
                             r#type: "text",
                             value: "{desc}",
-                            oninput: move |e: Event<FormData>| desc.set(e.value()),
+                            on_input: move |text: String| desc.set(text),
                         }
                     }
                 }

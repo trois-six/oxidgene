@@ -17,6 +17,7 @@ use crate::components::merge_fields::{
 };
 use crate::components::modal::Modal;
 use crate::components::suggest_input::ValueInput;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 
 /// The header of a bulk editor: its title and its close button.
@@ -320,20 +321,20 @@ pub fn PlaceEditor(
                 div { class: "form-row",
                     div { class: "form-group",
                         label { {i18n.t("dictionary.place.latitude")} }
-                        input {
+                        TextInput {
                             r#type: "text",
                             inputmode: "decimal",
                             value: "{latitude}",
-                            oninput: move |e: Event<FormData>| latitude.set(e.value()),
+                            on_input: move |text: String| latitude.set(text),
                         }
                     }
                     div { class: "form-group",
                         label { {i18n.t("dictionary.place.longitude")} }
-                        input {
+                        TextInput {
                             r#type: "text",
                             inputmode: "decimal",
                             value: "{longitude}",
-                            oninput: move |e: Event<FormData>| longitude.set(e.value()),
+                            on_input: move |text: String| longitude.set(text),
                         }
                     }
                 }

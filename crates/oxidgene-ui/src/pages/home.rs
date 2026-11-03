@@ -21,6 +21,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::import_modal::ImportModal;
 use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::text_field::{TextArea, TextInput};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::view_toggle::ViewToggle;
 use crate::i18n::{I18n, use_i18n};
@@ -394,12 +395,12 @@ fn HomeToolbar(
                     circle { cx: "11", cy: "11", r: "8" }
                     path { d: "M21 21l-4.35-4.35" }
                 }
-                input {
+                TextInput {
                     r#type: "text",
                     class: "home-search-input",
                     placeholder: i18n.t("home.search_placeholder"),
                     value: "{search_query}",
-                    oninput: move |e: Event<FormData>| search_query.set(e.value()),
+                    on_input: move |text: String| search_query.set(text),
                 }
             }
             select {
@@ -629,20 +630,20 @@ fn CreateTreeModal(on_close: EventHandler<()>, on_created: EventHandler<()>) -> 
                 }
                 div { class: "form-group",
                     label { {i18n.t("tree.form.name_label")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         placeholder: i18n.t("tree.form.name_placeholder"),
                         value: "{new_name}",
-                        oninput: move |e: Event<FormData>| new_name.set(e.value()),
+                        on_input: move |text: String| new_name.set(text),
                     }
                 }
                 div { class: "form-group",
                     label { {i18n.t("tree.form.description_label")} }
-                    textarea {
+                    TextArea {
                         rows: 3,
                         placeholder: i18n.t("tree.form.description_placeholder"),
                         value: "{new_desc}",
-                        oninput: move |e: Event<FormData>| new_desc.set(e.value()),
+                        on_input: move |text: String| new_desc.set(text),
                     }
                 }
                 div { class: "modal-actions",
@@ -717,11 +718,11 @@ fn RenameTreeModal(
                 }
                 div { class: "form-group",
                     label { {i18n.t("tree.form.name_label")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         placeholder: i18n.t("tree.form.name_placeholder"),
                         value: "{rename_name}",
-                        oninput: move |e: Event<FormData>| rename_name.set(e.value()),
+                        on_input: move |text: String| rename_name.set(text),
                     }
                 }
                 div { class: "modal-actions",

@@ -24,6 +24,7 @@ use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
+use crate::components::text_field::TextInput;
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::date_words::{self, Form, Style, YearStart, Ymd};
@@ -1543,16 +1544,16 @@ fn DateWords() -> Element {
             h3 { class: "stats-card-title tools-words-read-title", {i18n.t("tools.words.read_title")} }
             p { class: "tools-intro", {i18n.t("tools.words.read_intro")} }
             div { class: "tools-words-read",
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{text}",
                     placeholder: i18n.t("tools.words.read_placeholder"),
-                    "aria-label": i18n.t("tools.words.read_title"),
-                    oninput: move |e| {
-                        text.set(e.value());
+                    aria_label: i18n.t("tools.words.read_title"),
+                    on_input: move |typed: String| {
+                        text.set(typed);
                         read_error.set(None);
                     },
-                    onkeydown: move |e: Event<KeyboardData>| {
+                    on_keydown: move |e: Event<KeyboardData>| {
                         if e.key() == Key::Enter {
                             read();
                         }

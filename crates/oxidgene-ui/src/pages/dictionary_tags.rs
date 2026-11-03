@@ -18,6 +18,7 @@ use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
 use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, Pagination};
 use crate::components::tags::{dot_style, error_message, is_enter_or_space, next_color};
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::{
     ListFilters, available_letters, matches_filters, paginate, person_usage_link,
@@ -878,12 +879,12 @@ fn TagEditor(
             }
             div { class: "form-group",
                 label { {i18n.t("tag.label")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{label}",
-                    oninput: move |e: Event<FormData>| {
+                    on_input: move |text: String| {
                         merge_into.set(None);
-                        label.set(e.value());
+                        label.set(text);
                     },
                 }
             }

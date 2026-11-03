@@ -26,6 +26,7 @@ use crate::components::tags::{
     MenuTarget, RecordMenu, RecordMenuButton, RecordTagMenu, TagBadges, is_enter_or_space,
     stop_row_activation, stop_row_press, use_record_menu,
 };
+use crate::components::text_field::TextInput;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::nav_history::{use_restored_view, use_saved_view};
@@ -1378,13 +1379,13 @@ fn FamilyNameEditor(
 
                 div { class: "form-group",
                     label { {i18n.t("dictionary.particle.label")} }
-                    input {
+                    TextInput {
                         r#type: "text",
                         value: "{particle}",
                         disabled: target.is_some(),
                         placeholder: "{i18n.t(\"dictionary.particle.placeholder\")}",
-                        oninput: move |e: Event<FormData>| {
-                            typed_particle.set(Some(e.value()));
+                        on_input: move |text: String| {
+                            typed_particle.set(Some(text));
                             error.set(None);
                         },
                     }
@@ -1700,13 +1701,13 @@ pub(crate) fn render_toolbar_with(
             span { class: "sr-count dict-total-count", {i18n.t_plural("dictionary.count", total_filtered)} }
         }
         div { class: "dict-filter-row",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "dict-filter-input",
                 placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
                 value: "{quick_filter}",
-                oninput: move |e: Event<FormData>| {
-                    quick_filter.set(e.value());
+                on_input: move |text: String| {
+                    quick_filter.set(text);
                     current_page.set(1);
                 },
             }
@@ -2141,12 +2142,12 @@ fn render_sources_groups(
     rsx! {
         div { class: "dict-src-summary", {sources_total_label(&i18n, total.max(0) as usize, prefix)} }
         div { class: "dict-filter-row",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "dict-filter-input",
                 placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
                 value: "{quick_filter}",
-                oninput: move |e: Event<FormData>| quick_filter.set(e.value()),
+                on_input: move |text: String| quick_filter.set(text),
             }
         }
         div { class: "dict-src-groups-label", {i18n.t("dictionary.sources_choose_letter")} }
@@ -2217,12 +2218,12 @@ fn render_sources_list(ctx: TabContext, sources: &[SourceDictionaryEntry]) -> El
     rsx! {
         div { class: "dict-src-summary", {i18n.t_plural("dictionary.count", filtered.len())} }
         div { class: "dict-filter-row",
-            input {
+            TextInput {
                 r#type: "text",
                 class: "dict-filter-input",
                 placeholder: "{i18n.t(\"dictionary.filter_placeholder\")}",
                 value: "{quick_filter}",
-                oninput: move |e: Event<FormData>| quick_filter.set(e.value()),
+                on_input: move |text: String| quick_filter.set(text),
             }
         }
 

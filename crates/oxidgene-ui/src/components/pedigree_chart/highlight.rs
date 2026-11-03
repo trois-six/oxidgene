@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, ApiError, TagSummary};
 use crate::components::modal::Modal;
 use crate::components::tags::{Vocabulary, dot_style, filter_matches, tag_colour};
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
@@ -371,20 +372,20 @@ pub(super) fn HighlightTool(
                     {notice}
                 } else {
                     if search {
-                        input {
+                        TextInput {
                             r#type: "text",
                             class: "tag-picker-input",
                             placeholder: "{filter_label}",
                             aria_label: "{filter_label}",
                             autocomplete: "off",
-                            spellcheck: "false",
+                            spellcheck: false,
                             value: "{typed}",
-                            onmounted: move |event: Event<MountedData>| {
+                            on_mounted: move |event: Event<MountedData>| {
                                 spawn(async move {
                                     let _ = event.set_focus(true).await;
                                 });
                             },
-                            oninput: move |event: Event<FormData>| query.set(event.value()),
+                            on_input: move |text: String| query.set(text),
                         }
                     }
                     if listed.is_empty() {

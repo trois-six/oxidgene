@@ -17,6 +17,7 @@ mod migration_policy;
 mod select_style;
 mod specs;
 mod test_targets;
+mod typed_text;
 mod ui_tracing;
 mod vendored_pdfjs;
 mod versioned_assets;

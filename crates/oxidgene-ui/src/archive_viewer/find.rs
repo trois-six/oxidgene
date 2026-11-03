@@ -11,6 +11,7 @@ use oxidgene_archives::{Act, Archive, SuppliedParts};
 
 use super::{ArchiveFind, ArchiveLink};
 use crate::components::modal::Modal;
+use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 
 /// The document kinds an archive's collections hold, each once, in
@@ -128,10 +129,10 @@ pub(super) fn FindInArchives(
             }
             div { class: "form-group",
                 label { {i18n.t("archive_viewer.find_locality")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{locality}",
-                    oninput: move |e: Event<FormData>| locality.set(e.value()),
+                    on_input: move |text: String| locality.set(text),
                 }
             }
             div { class: "form-group",
@@ -153,21 +154,21 @@ pub(super) fn FindInArchives(
             div { class: "form-row",
                 div { class: "form-group",
                     label { {i18n.t("archive_viewer.find_year")} }
-                    input {
+                    TextInput {
                         r#type: "number",
                         min: "1000",
                         max: "2100",
                         value: "{year}",
-                        oninput: move |e: Event<FormData>| year.set(e.value()),
+                        on_input: move |text: String| year.set(text),
                     }
                 }
                 div { class: "form-group",
                     label { {i18n.t("archive_viewer.view")} }
-                    input {
+                    TextInput {
                         r#type: "number",
                         min: "1",
                         value: "{view}",
-                        oninput: move |e: Event<FormData>| view.set(e.value()),
+                        on_input: move |text: String| view.set(text),
                     }
                 }
             }

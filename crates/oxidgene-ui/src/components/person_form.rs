@@ -53,6 +53,7 @@ use oxidgene_core::types::SpouseAge;
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
+use crate::components::text_field::{TextArea, TextInput};
 use sections::{
     FormScope, InformationBlock, OtherEventsSection, PersonNotesBlock, ProfessionsBlock,
     vital_section,
@@ -1084,20 +1085,20 @@ pub(crate) fn render_cause_age_fields(
     rsx! {
         div { class: "form-group",
             label { {i18n.t("person_form.cause")} }
-            input {
+            TextInput {
                 r#type: "text",
                 value: "{cause}",
-                oninput: move |e: Event<FormData>| cause.set(e.value()),
+                on_input: move |text: String| cause.set(text),
             }
         }
         if let Some(mut age) = age {
             div { class: "form-group",
                 label { {i18n.t("person_form.age")} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: "{age}",
                     placeholder: i18n.t("person_form.age_placeholder"),
-                    oninput: move |e: Event<FormData>| age.set(e.value()),
+                    on_input: move |text: String| age.set(text),
                 }
             }
         }
@@ -1110,10 +1111,10 @@ pub(crate) fn render_agency_field(i18n: &crate::i18n::I18n, mut agency: Signal<S
     rsx! {
         div { class: "form-group",
             label { {i18n.t("person_form.agency")} }
-            input {
+            TextInput {
                 r#type: "text",
                 value: "{agency}",
-                oninput: move |e: Event<FormData>| agency.set(e.value()),
+                on_input: move |text: String| agency.set(text),
             }
         }
     }
@@ -1353,12 +1354,12 @@ pub(crate) fn render_spouse_age_fields(
         for (person_id, name) in spouses {
             div { key: "{person_id}", class: "form-group",
                 label { {i18n.t_args("person_form.age_of", &[("name", &name)])} }
-                input {
+                TextInput {
                     r#type: "text",
                     value: ages.read().get(&person_id).cloned().unwrap_or_default(),
                     placeholder: i18n.t("person_form.age_placeholder"),
-                    oninput: move |e: Event<FormData>| {
-                        ages.write().insert(person_id, e.value());
+                    on_input: move |text: String| {
+                        ages.write().insert(person_id, text);
                     },
                 }
             }
@@ -1840,11 +1841,11 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
         }
         if adding() {
             div { class: "pf-witness-add",
-                input {
+                TextInput {
                     r#type: "text",
                     placeholder: i18n.t("person_form.witness_relation_placeholder"),
                     value: "{relation_input}",
-                    oninput: move |e: Event<FormData>| relation_input.set(e.value()),
+                    on_input: move |text: String| relation_input.set(text),
                 }
                 crate::components::search_person::SearchPerson {
                     tree_id,
@@ -2170,10 +2171,10 @@ pub(crate) fn render_notes_source_fields(
     rsx! {
         div { class: "form-group",
             label { {i18n.t("person_form.notes")} }
-            textarea {
+            TextArea {
                 rows: 3,
                 value: "{notes}",
-                oninput: move |e: Event<FormData>| { notes.set(e.value()); on_edit_notes(); },
+                on_input: move |text: String| { notes.set(text); on_edit_notes(); },
             }
         }
         div { class: "form-group",
@@ -2371,10 +2372,10 @@ pub fn EventEditor(
                             field: SuggestionField::Occupations,
                         }
                     } else {
-                        input {
+                        TextInput {
                             r#type: "text",
                             value: "{description}",
-                            oninput: move |e: Event<FormData>| description.set(e.value()),
+                            on_input: move |text: String| description.set(text),
                         }
                     }
                 }
@@ -2661,12 +2662,12 @@ fn render_particle_row(
         div { class: "particle-row",
             if current.is_some() {
                 label { class: "particle-label", {i18n.t("person_form.particle")} }
-                input {
+                TextInput {
                     class: "particle-input",
                     r#type: "text",
                     placeholder: "{i18n.t(\"person_form.particle_placeholder\")}",
                     value: "{current.clone().unwrap_or_default()}",
-                    oninput: move |e: Event<FormData>| override_sig.set(Some(e.value())),
+                    on_input: move |text: String| override_sig.set(Some(text)),
                 }
                 button {
                     r#type: "button",
@@ -2833,10 +2834,10 @@ fn render_information_form(
                             ValueInput { value: value_sig, tree_id, field: SuggestionField::FamilyNames }
                         },
                         _ => rsx! {
-                            input {
+                            TextInput {
                                 r#type: "text",
                                 value: "{value_sig}",
-                                oninput: move |e: Event<FormData>| value_sig.set(e.value()),
+                                on_input: move |text: String| value_sig.set(text),
                             }
                         },
                     }
