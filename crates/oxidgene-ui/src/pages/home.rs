@@ -1239,7 +1239,7 @@ const HOME_STYLES: &str = r#"
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: var(--space-4) var(--space-6);
-        flex: 3;
+        flex: 3 1 12rem;
         min-width: 0;
         transition: border-color 0.2s;
     }
@@ -1277,8 +1277,10 @@ const HOME_STYLES: &str = r#"
         font-family: var(--font-sans);
         cursor: pointer;
         transition: border-color 0.2s;
-        flex: 1;
-        min-width: 0;
+        /* As wide as its longest option, never narrower: the toolbar
+           wraps first. The width replaces the form controls' 100%. */
+        width: auto;
+        flex: 1 1 auto;
     }
 
     .home-sort-select:focus {
@@ -1505,6 +1507,7 @@ const HOME_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: var(--space-6);
         border-top: 1px solid var(--border);
         padding-top: var(--space-8);
         margin-top: var(--space-6);
@@ -1512,13 +1515,16 @@ const HOME_STYLES: &str = r#"
 
     .tree-card-footer-left {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: var(--space-4);
+        min-width: 0;
     }
 
     .tree-last-update {
         font-size: var(--text-75);
         color: var(--text-muted);
+        white-space: nowrap;
     }
 
     .tree-badge-recent {
@@ -1547,6 +1553,8 @@ const HOME_STYLES: &str = r#"
         transition: opacity 0.2s;
         text-decoration: none;
         display: inline-block;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
 
     .btn-open:hover {
@@ -1695,10 +1703,7 @@ const HOME_STYLES: &str = r#"
     @media (max-width: 640px) {
         .home-main { padding: var(--space-16) var(--space-8) var(--space-32); }
         .home-search-box { flex: 1 0 100%; }
-        .home-sort-select {
-            flex: 1 1 0;
-            height: 38px;
-        }
+        .home-sort-select { height: 38px; }
         .home-btn-new-toolbar {
             width: 38px;
             height: 38px;

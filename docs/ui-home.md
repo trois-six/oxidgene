@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T18:45:00Z }
 ---
 
 
@@ -202,9 +202,14 @@ When the user has no trees at all (first login), a different empty state encoura
 ## 10. Responsive
 
 - Content max-width: 1200px, padding: `3rem 24px 5rem`
+- The toolbar wraps rather than clip: a selector is never narrower than its
+    longest option, and an item that no longer fits goes to the next row,
+    where the row's selectors share the width
 - Below 640px: padding reduces to `2rem 1rem 4rem`; the search field takes the
-    first toolbar row, while the full-width sort selector and compact icon-only
-    new-tree action share the second row
+    first toolbar row, and the new-tree action becomes a compact icon-only
+    button
+- A card's footer wraps the same way: its badges and date flow onto a second
+    line, and the Open link stays whole on the right
 - Below 640px: cards use one shrinkable column and never exceed the available width; a person row truncates its name and relatives rather than widening the card
 - Topbar navigation collapses (future, post-MVP)
 
