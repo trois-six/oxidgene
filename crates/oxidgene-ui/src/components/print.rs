@@ -44,7 +44,7 @@ pub fn is_printable(route: &Route) -> bool {
         | Route::Invitations {}
         | Route::Settings { .. }
         | Route::AppSettings {}
-        | Route::Profile {}
+        | Route::AppSettingsSection { .. }
         | Route::Unsubscribe { .. }
         | Route::Media { .. }
         | Route::NotFound { .. } => false,
@@ -920,7 +920,9 @@ mod tests {
             Route::Home {},
             Route::Settings { tree_id: tree() },
             Route::AppSettings {},
-            Route::Profile {},
+            Route::AppSettingsSection {
+                section: "profile".into(),
+            },
             Route::NotFound {
                 segments: vec!["nowhere".into()],
             },

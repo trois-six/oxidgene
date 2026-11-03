@@ -1,11 +1,15 @@
-//! Application-level settings page (theme, language, pedigree, name display,
-//! date display, entry options, API access).
+//! The settings page (`/settings`, docs/ui-app-settings.md): the device's
+//! preferences (theme, language, pedigree, name display, date display, entry
+//! options, API access) and, in the web build's `oidc` mode, the signed-in
+//! user's account and an administrator's instance.
 
 use dioxus::prelude::*;
 use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, DateQualifier};
 use oxidgene_core::types::QualifiedYear;
 
+use crate::account::{AccountState, set_me, use_account};
 use crate::api::ApiClient;
+use crate::api::account::ProfilePatch;
 use crate::assistant::{AssistantLauncher, use_assistant_launcher};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::copy_field::CopyField;
@@ -19,17 +23,23 @@ use crate::i18n::{
     self, CustomLanguageLoader, DateStyle, Language, LanguageCatalog, reload_custom_languages,
     use_i18n,
 };
+use crate::pages::account_settings::{
+    AccountSection, NotificationsSection, PROFILE_STYLES, ProfileSection, SessionsSection,
+};
 use crate::prefs::{
     EntryOptions, PedigreeDefaults, SortParticles, set_date_style, set_entry_options,
     set_pedigree_defaults, set_pedigree_theme, set_pedigree_view, set_sort_particles,
     use_entry_options,
 };
+use crate::router::Route;
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
-pub(crate) fn use_settings_scroll_reset<T: Clone + 'static>(section: Signal<T>) {
-    use_effect(move || {
-        let _section = section();
+/// Scrolls the settings content back to its top whenever `section`, the
+/// section on screen, changes.
+pub(crate) fn use_settings_scroll_reset<T: Clone + PartialEq + 'static>(section: T) {
+    use_effect(use_reactive!(|section| {
+        let _section = section;
         document::eval(
             r#"
             requestAnimationFrame(() => {
@@ -39,12 +49,17 @@ pub(crate) fn use_settings_scroll_reset<T: Clone + 'static>(section: Signal<T>) 
             });
             "#,
         );
-    });
+    }));
 }
 
-/// Sidebar sections.
-#[derive(Clone, Copy, PartialEq)]
+/// The sections of the left navigation, each named in the page's address by
+/// its [`Section::id`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
+    Profile,
+    Notifications,
+    Sessions,
+    Account,
     Appearance,
     Language,
     Pedigree,
@@ -56,24 +71,158 @@ enum Section {
     Users,
 }
 
+impl Section {
+    /// The signed-in user's account: the web build's `oidc` mode only,
+    /// below the preferences, which stay as the desktop has them.
+    const ACCOUNT: [Self; 4] = [
+        Self::Profile,
+        Self::Notifications,
+        Self::Sessions,
+        Self::Account,
+    ];
+    /// The device's preferences, open to everyone.
+    const PREFERENCES: [Self; 7] = [
+        Self::Appearance,
+        Self::Language,
+        Self::Pedigree,
+        Self::Names,
+        Self::DateDisplay,
+        Self::EntryOptions,
+        Self::Api,
+    ];
+    /// The instance: its administrators only.
+    const INSTANCE: [Self; 1] = [Self::Users];
+
+    /// What the page's `section` query names it.
+    fn id(self) -> &'static str {
+        match self {
+            Self::Profile => "profile",
+            Self::Notifications => "notifications",
+            Self::Sessions => "sessions",
+            Self::Account => "account",
+            Self::Appearance => "appearance",
+            Self::Language => "language",
+            Self::Pedigree => "pedigree",
+            Self::Names => "names",
+            Self::DateDisplay => "date-display",
+            Self::EntryOptions => "entry-options",
+            Self::Api => "api",
+            Self::Users => "users",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<Self> {
+        [
+            Self::ACCOUNT.as_slice(),
+            &Self::PREFERENCES,
+            &Self::INSTANCE,
+        ]
+        .concat()
+        .into_iter()
+        .find(|section| section.id() == id)
+    }
+
+    fn label_key(self) -> &'static str {
+        match self {
+            Self::Profile => "profile.section_profile",
+            Self::Notifications => "profile.section_notifications",
+            Self::Sessions => "profile.section_sessions",
+            Self::Account => "profile.section_account",
+            Self::Appearance => "app_settings.appearance",
+            Self::Language => "app_settings.language",
+            Self::Pedigree => "app_settings.pedigree",
+            Self::Names => "app_settings.names",
+            Self::DateDisplay => "app_settings.date_display",
+            Self::EntryOptions => "app_settings.entry_options",
+            Self::Api => "app_settings.api",
+            Self::Users => "instance.users.title",
+        }
+    }
+
+    /// Whether only a signed-in user has the section.
+    fn needs_account(self) -> bool {
+        Self::ACCOUNT.contains(&self) || Self::INSTANCE.contains(&self)
+    }
+}
+
+/// Whether the settings opened on `section` need a signed-in user: an
+/// account or instance section does, the device's preferences do not
+/// ([`crate::account::gate`]).
+pub(crate) fn needs_account(section: &str) -> bool {
+    Section::from_id(section).is_some_and(Section::needs_account)
+}
+
+/// The settings, open on their first section.
 #[component]
 pub fn AppSettings() -> Element {
     let _load_trace = use_ui_load_trace(UiPage::AppSettings);
+    rsx! { SettingsPage { section: None } }
+}
+
+/// The settings, open on the section `section` names.
+#[component]
+pub fn AppSettingsSection(section: String) -> Element {
+    let _load_trace = use_ui_load_trace(UiPage::AppSettings);
+    rsx! { SettingsPage { section } }
+}
+
+#[component]
+fn SettingsPage(section: Option<String>) -> Element {
     let i18n = use_i18n();
     let theme_state = use_context::<Signal<ThemeState>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
+    let nav = navigator();
 
-    let mut active_section = use_signal(|| Section::Appearance);
-    use_settings_scroll_reset(active_section);
-    let is_admin = crate::account::use_account().read().is_admin();
+    let account = use_account();
+    let (me, account_url) = match &*account.read() {
+        AccountState::SignedIn(signed_in) => {
+            (Some(signed_in.me.clone()), signed_in.account_url.clone())
+        }
+        _ => (None, None),
+    };
+    let is_admin = account.read().is_admin();
+    // A section the user does not have — an account's without one, the
+    // instance's for anyone but its administrators, a name the page does
+    // not know — opens the first of the preferences.
+    let has = |section: Section| match section {
+        Section::Users => is_admin,
+        section if section.needs_account() => me.is_some(),
+        _ => true,
+    };
+    let active = section
+        .as_deref()
+        .and_then(Section::from_id)
+        .filter(|section| has(*section))
+        .unwrap_or(Section::Appearance);
+    use_settings_scroll_reset(active);
+
+    // The section lives in the address, which a link to another section of
+    // the open page changes too. Replaced rather than pushed: going back
+    // leaves the settings rather than stepping through their sections.
+    let item = move |section: Section| {
+        rsx! {
+            button {
+                key: "{section.id()}",
+                class: if active == section { "settings-nav-item active" } else { "settings-nav-item" },
+                onclick: move |_| {
+                    nav.replace(Route::AppSettingsSection {
+                        section: section.id().to_string(),
+                    });
+                },
+                {i18n.t(section.label_key())}
+            }
+        }
+    };
 
     rsx! {
         style { {APP_SETTINGS_STYLES} }
+        if me.is_some() {
+            style { {PROFILE_STYLES} }
+        }
 
         div { class: "sub-page",
-            // ── Topbar breadcrumb ──────────────────────────────────
             div { class: "td-topbar",
                 TreeBreadcrumb {
                     span { class: "td-bc-current", {i18n.t("app_settings.title")} }
@@ -82,95 +231,62 @@ pub fn AppSettings() -> Element {
 
             div { class: "sub-page-content",
                 div { class: "settings-layout",
-                // ── Left sidebar ────────────────────────────
-                nav { class: "settings-nav",
-                    div { class: "settings-nav-group",
-                        span { class: "settings-nav-group-label",
-                            {i18n.t("app_settings.preferences")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::Appearance { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::Appearance),
-                            {i18n.t("app_settings.appearance")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::Language { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::Language),
-                            {i18n.t("app_settings.language")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::Pedigree { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::Pedigree),
-                            {i18n.t("app_settings.pedigree")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::Names { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::Names),
-                            {i18n.t("app_settings.names")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::DateDisplay { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::DateDisplay),
-                            {i18n.t("app_settings.date_display")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::EntryOptions { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::EntryOptions),
-                            {i18n.t("app_settings.entry_options")}
-                        }
-                        button {
-                            class: if *active_section.read() == Section::Api { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set(Section::Api),
-                            {i18n.t("app_settings.api")}
-                        }
-                    }
-                    if is_admin {
+                    nav { class: "settings-nav",
                         div { class: "settings-nav-group",
                             span { class: "settings-nav-group-label",
-                                {i18n.t("instance.title")}
+                                {i18n.t("app_settings.preferences")}
                             }
-                            button {
-                                class: if *active_section.read() == Section::Users { "settings-nav-item active" } else { "settings-nav-item" },
-                                onclick: move |_| active_section.set(Section::Users),
-                                {i18n.t("instance.users.title")}
+                            for section in Section::PREFERENCES {
+                                {item(section)}
+                            }
+                        }
+                        if me.is_some() {
+                            div { class: "settings-nav-group",
+                                span { class: "settings-nav-group-label",
+                                    {i18n.t("app_settings.group_account")}
+                                }
+                                for section in Section::ACCOUNT {
+                                    {item(section)}
+                                }
+                            }
+                        }
+                        if is_admin {
+                            div { class: "settings-nav-group",
+                                span { class: "settings-nav-group-label",
+                                    {i18n.t("instance.title")}
+                                }
+                                for section in Section::INSTANCE {
+                                    {item(section)}
+                                }
                             }
                         }
                     }
-                }
 
-                // ── Content area ────────────────────────────
-                div { class: "settings-content",
-                    match *active_section.read() {
-                        Section::Appearance => rsx! {
-                            AppearanceSection { theme_state }
-                        },
-                        Section::Language => rsx! {
-                            LanguageSection { lang_signal }
-                        },
-                        Section::Pedigree => rsx! {
-                            PedigreeDefaultsSection { pedigree_defaults }
-                        },
-                        Section::Names => rsx! {
-                            NamesSection { sort_particles }
-                        },
-                        Section::DateDisplay => rsx! {
-                            DateDisplaySection {}
-                        },
-                        Section::EntryOptions => rsx! {
-                            EntryOptionsSection {}
-                        },
-                        Section::Api => rsx! {
-                            ApiSection {}
-                        },
-                        Section::Users if is_admin => rsx! {
-                            crate::pages::instance_users::InstanceUsersSection {}
-                        },
-                        Section::Users => rsx! {},
+                    div { class: "settings-content",
+                        match (active, me) {
+                            (Section::Profile, Some(me)) => rsx! { ProfileSection { me } },
+                            (Section::Notifications, Some(_)) => rsx! { NotificationsSection {} },
+                            (Section::Sessions, Some(_)) => rsx! { SessionsSection {} },
+                            (Section::Account, Some(_)) => rsx! { AccountSection { account_url } },
+                            (Section::Appearance, _) => rsx! { AppearanceSection { theme_state } },
+                            (Section::Language, _) => rsx! { LanguageSection { lang_signal } },
+                            (Section::Pedigree, _) => rsx! {
+                                PedigreeDefaultsSection { pedigree_defaults }
+                            },
+                            (Section::Names, _) => rsx! { NamesSection { sort_particles } },
+                            (Section::DateDisplay, _) => rsx! { DateDisplaySection {} },
+                            (Section::EntryOptions, _) => rsx! { EntryOptionsSection {} },
+                            (Section::Api, _) => rsx! { ApiSection {} },
+                            (Section::Users, _) => rsx! {
+                                crate::pages::instance_users::InstanceUsersSection {}
+                            },
+                            // `has` keeps an account's sections for a signed-in user.
+                            (Section::Profile | Section::Notifications | Section::Sessions | Section::Account, None) => rsx! {},
+                        }
                     }
                 }
             }
-            } // close sub-page-content
-        } // close sub-page
+        }
     }
 }
 
@@ -305,10 +421,17 @@ pub fn AppearanceSection(theme_state: Signal<ThemeState>) -> Element {
 
 // ── Language section ────────────────────────────────────────────────────────
 
+/// The interface language. Chosen while signed in, it is the account's
+/// language too (docs/authentication.md §10): OxidGene writes to the user in
+/// it, and a device where none was chosen opens in it.
 #[component]
 pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
     let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let account = use_account();
+    let mut account_error = use_signal(|| None::<String>);
     let current = *lang_signal.read();
+    let account_locale = account.read().me().map(|me| me.locale.clone());
     let catalog: Signal<LanguageCatalog> = use_context();
     let loader = try_use_context::<CustomLanguageLoader>();
     use_effect(move || {
@@ -331,7 +454,32 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
                             key: "{lang.code()}",
                             class: if current == lang { "lang-option active" } else { "lang-option" },
                             aria_pressed: if current == lang { "true" } else { "false" },
-                            onclick: move |_| i18n::set_language(lang_signal, lang),
+                            onclick: {
+                                let (api, account_locale) = (api.clone(), account_locale.clone());
+                                move |_| {
+                                    i18n::set_language(lang_signal, lang);
+                                    // A language of the device's own files
+                                    // is no account's.
+                                    let Some(locale) = account_locale.clone() else { return };
+                                    if locale.as_deref() == Some(lang.code())
+                                        || !Language::builtins().contains(&lang)
+                                    {
+                                        return;
+                                    }
+                                    let api = api.clone();
+                                    spawn(async move {
+                                        account_error.set(None);
+                                        let patch = ProfilePatch {
+                                            display_name: None,
+                                            locale: Some(Some(lang.code().to_string())),
+                                        };
+                                        match api.update_me(&patch).await {
+                                            Ok(me) => set_me(account, me),
+                                            Err(_) => account_error.set(Some(i18n.t("profile.save_failed"))),
+                                        }
+                                    });
+                                }
+                            },
                             span { class: "lang-option-flag", {lang.flag()} }
                             span { class: "lang-option-label", {lang.native_name()} }
                             if current == lang {
@@ -339,6 +487,14 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
                             }
                         }
                     }
+                }
+                if account_locale.is_some() {
+                    p { class: "app-settings-option-hint",
+                        {i18n.t("app_settings.language_account_hint")}
+                    }
+                }
+                if let Some(error) = account_error() {
+                    div { class: "error-msg", role: "alert", "{error}" }
                 }
                 if let Some(location) = options.location {
                     div { class: "app-theme-source",
@@ -1179,6 +1335,31 @@ const APP_SETTINGS_STYLES: &str = r#"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_section_has_an_address_and_a_label() {
+        let english = Language::english().translations();
+        for section in [
+            Section::ACCOUNT.as_slice(),
+            &Section::PREFERENCES,
+            &Section::INSTANCE,
+        ]
+        .concat()
+        {
+            assert_eq!(Section::from_id(section.id()), Some(section));
+            assert!(english.contains_key(section.label_key()), "{section:?}");
+        }
+        assert_eq!(Section::from_id("nowhere"), None);
+    }
+
+    #[test]
+    fn only_the_account_and_the_instance_need_an_account() {
+        assert!(needs_account("profile"));
+        assert!(needs_account("notifications"));
+        assert!(needs_account("users"));
+        assert!(!needs_account("appearance"));
+        assert!(!needs_account("nowhere"));
+    }
 
     #[test]
     fn the_openapi_example_needs_no_token() {

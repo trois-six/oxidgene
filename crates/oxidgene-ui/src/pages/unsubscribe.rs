@@ -60,7 +60,12 @@ pub fn Unsubscribe(token: String) -> Element {
                 },
                 Step::Done => rsx! {
                     p { role: "status", {i18n.t("unsubscribe.done")} }
-                    Link { to: Route::Profile {}, {i18n.t("unsubscribe.settings")} }
+                    Link {
+                        to: Route::AppSettingsSection {
+                            section: "notifications".into(),
+                        },
+                        {i18n.t("unsubscribe.settings")}
+                    }
                 },
                 Step::Invalid => rsx! {
                     div { class: "error-msg", role: "alert", {i18n.t("unsubscribe.invalid")} }

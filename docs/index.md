@@ -46,7 +46,7 @@ okf_version: "0.2"
 * [Statistics](ui-statistics.md) - Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on.
 * [Tools](ui-tools.md) - Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings.
-* [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, the AI assistant connection, and the web build administrator's Instance section.
+* [App Settings](ui-app-settings.md) - The settings page: application-level preferences for appearance, language, pedigree, names, date display, entry options, API connection details and the AI assistant connection, and in the web build the signed-in user's account sections and the administrator's Instance section.
 
 # UI Modals and Flows
 

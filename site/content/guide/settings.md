@@ -11,7 +11,7 @@ Every setting is saved as soon as you change it; there is no save button to reme
 ## Open the settings
 
 - **Tree settings**: on the home page, open the tree card's three-dot menu and choose **Settings**, or click the gear icon in the left sidebar of any page of the tree.
-- **Application settings**: click the gear icon at the top right of the home page.
+- **Application settings**: click the gear icon at the top right of the home page. In the web version, once signed in, click your avatar at the top right and choose **Settings**: the page then also holds your account (see [Accounts and profile](@/guide/accounts.md#your-account)).
 
 {{ <screenshot name="tree-settings" alt="Settings page of a tree, with its left menu" lang={lang} /> }}
 
@@ -74,7 +74,7 @@ The application settings have seven sections: **Appearance**, **Language**, **Pe
 
 These preferences are kept on this device. On another computer, or in another browser, you choose them again.
 
-In the web version with accounts, an administrator of the instance also finds an **Instance** group with a **Users** section, described in [Accounts and profile](@/guide/accounts.md#manage-the-instance-s-users). Your account's own language is chosen in your [profile](@/guide/accounts.md#language).
+In the web version with accounts, a signed-in user also finds a **My account** group below them, described in [Accounts and profile](@/guide/accounts.md#your-account), and an administrator of the instance an **Instance** group with a **Users** section, described [there too](@/guide/accounts.md#manage-the-instance-s-users).
 
 {{ <screenshot name="app-settings-dark" alt="Theme picker of the application settings, in the dark theme" lang={lang} /> }}
 
@@ -111,6 +111,8 @@ The full list of colour names and presets is in the [common UI specification](@/
 ### Language
 
 Click a language to switch the interface at once: English, Français, Deutsch, Español, Italiano, Nederlands, Polski or Português. Your genealogy itself (names, notes, sources) is never translated.
+
+In the web version, signed in, the language you choose is also your account's: OxidGene's emails to you are written in it, and any device where no language has been chosen opens in it.
 
 #### Your own languages (desktop)
 

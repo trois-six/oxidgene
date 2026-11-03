@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "Application-level preferences page for appearance, language, pedigree, names, date display, entry options, API connection details, the AI assistant connection, and the web build administrator's Instance section."
+description: "The settings page: application-level preferences for appearance, language, pedigree, names, date display, entry options, API connection details and the AI assistant connection, and in the web build the signed-in user's account sections and the administrator's Instance section."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 
@@ -16,11 +16,19 @@ generated: { by: human:maintainer, at: 2026-11-01T18:00:00Z }
 
 ## 1. Overview
 
-The app settings page (`/settings`) is a dedicated full-page interface for configuring **application-level** preferences that are not tied to any specific tree. It is accessed via the gear icon in the [Homepage](ui-home.md) page header.
+The app settings page (`/settings`) is a dedicated full-page interface for configuring **application-level** preferences that are not tied to any specific tree. It is accessed via the gear icon in the [Homepage](ui-home.md) page header. `/settings/<section>` opens it on one section (§4).
 
 This page is distinct from [Tree Settings](ui-settings.md), which configure per-tree options. Every
 preference of this page except API is kept on the device (`localStorage`) and
 also appears under **Global preferences** in Tree Settings.
+
+In the web build's `oidc` mode, the page is also the signed-in user's account:
+a **My account** group of sections follows the preferences (§11), and an
+administrator's **Instance** group follows it (§12). There the avatar's
+account menu leads to the page, with **Settings**, and the home page shows no
+gear: the menu is the one way to it once signed in. The desktop and the web
+build's `none` mode have neither group, nor an account menu: the page is the
+same as without accounts.
 
 ---
 
@@ -55,6 +63,12 @@ scroll hook, regardless of whether content elements are remounted.
 |   | - Date Display   |                                              | |
 |   | - Entry Options  |                                              | |
 |   | - API            |                                              | |
+|   |                  |                                              | |
+|   | My account       |   (web build, signed in; §11)                | |
+|   | - Profile        |                                              | |
+|   | - Notifications  |                                              | |
+|   | - Sessions       |                                              | |
+|   | - Account        |                                              | |
 |   |                  |                                              | |
 |   +------------------+---------------------------------------------+ |
 |                                                                       |
@@ -100,9 +114,20 @@ Items:
 Active item: primary text, bold weight, and the neutral selection background
 (`var(--sel-bg)`), matching Tree Settings.
 
-In the web build's `oidc` mode, an instance administrator also finds a second
-group, "Instance", below it, with **Users** (§11). Nobody else sees it, and
-neither the desktop nor the web build's `none` mode has it.
+The section on screen is part of the address: `/settings/<section>`, where
+`<section>` is `appearance`, `language`, `pedigree`, `names`, `date-display`,
+`entry-options`, `api`, `profile`, `notifications`, `sessions`, `account` or
+`users`. Choosing an item replaces the address rather than adding one to the
+history, so going back leaves the page. `/settings` and a section the user
+does not have (an account's without one, the instance's for anyone but its
+administrators, an unknown name) open Appearance. An anonymous visitor
+opening an account or instance section is invited to sign in, as on any page
+needing an account ([Authentication §10](authentication.md#10-user-interface)).
+
+In the web build's `oidc` mode, a signed-in user also finds a second group,
+"My account", below Preferences (§11), and an instance administrator a third,
+"Instance", with **Users** (§12). Neither the desktop nor the web build's
+`none` mode has them.
 
 ---
 
@@ -217,6 +242,12 @@ Displayed in a card:
 - Active language: orange border, subtle orange tint background
 - Clicking a language immediately switches the UI language (no save step)
 - The preference is persisted in `localStorage('oxidgene-lang')`
+- In the web build, signed in, the choice is saved for the account too, as
+  its language ([Authentication §10](authentication.md#10-user-interface)):
+  OxidGene's emails to the user are written in it, and a device where no
+  language was chosen opens in it. A hint under the list says so, and a
+  refused save says so in an alert, the device keeping the choice. A personal
+  language file, which only the desktop reads, is no account's language.
 
 The list comes from locale JSON documents, not a fixed Rust language list.
 Names and flags are document metadata. Embedded files are ordered by filename;
@@ -507,8 +538,8 @@ operating system picks at each launch.
   runs them only where the frontend and the API share one origin, as behind a
   same-origin gateway; elsewhere the standalone server refuses them
   (`403 forbidden`). With EPIC G, the web build's card says that programs use
-  an API client, and links the profile page where the user creates, rotates
-  and revokes their own ([Authorization §7](authorization.md#7-api-clients)); the
+  an API client, and links the *API clients* section of the user's account
+  (§11), where the user creates, rotates and revokes their own ([Authorization §7](authorization.md#7-api-clients)); the
   desktop's card stays as it is.
 - Labels, hints, the warning, and the copy feedback go through i18n in every
   interface language. URLs, the token, header names, and the example commands
@@ -564,7 +595,25 @@ specified in [Assistant Access](mcp.md).
   through i18n, in every interface language. The command, the JSON and the
   flag are not translated.
 
-## 11. Section: Instance (web only)
+## 11. Group: My account (web only)
+
+The signed-in user's account, in the web build's `oidc` mode
+([Authentication §10](authentication.md#10-user-interface)). Its sections are
+`pages/account_settings.rs`:
+
+| Item | Section |
+|---|---|
+| Profile | The avatar with **Upload** and **Remove**, the display name, the email as the provider gives it |
+| Notifications | Which notifications also arrive by email ([Messaging §2.3](messaging.md#23-preferences)) |
+| Sessions | The account's sessions, each with **End**, and **Sign out everywhere** |
+| Account | The provider's account page, **Download my account data**, **Delete my account** |
+
+The account's language is the Language section's (§6). *API clients*,
+*Messaging security* and *Blocked users* join the group with their phases.
+Unsubscribing from an email ([Messaging §2.3](messaging.md#23-preferences))
+links to `/settings/notifications`.
+
+## 12. Section: Instance (web only)
 
 The instance's administrators manage its users here
 ([Authorization §2](authorization.md#2-principals-and-instance-roles),
@@ -590,7 +639,7 @@ The instance's administrators manage its users here
 The trees, the access log and the messaging reports join the group with the
 phases that store them.
 
-## 12. Responsive
+## 13. Responsive
 
 - Outer content max-width: 1200px, responsive padding; settings content max-width: 860px
 - At or below **768px**: the left navigation stacks above the content area as one
@@ -604,13 +653,11 @@ phases that store them.
 
 ---
 
-## 13. Future Sections
+## 14. Future Sections
 
-Additional sections may be added in future EPICs. The account is not one of
-them: it is the web build's profile page (`/profile`,
-[Authentication §10](authentication.md#10-user-interface)).
+Additional sections may be added in future EPICs.
 
 | Section | Description |
 |---|---|
 | AI | Providers and keys each user brings for the AI features on media — see [AI Features](ai.md) §4 |
-| Instance | Web only, administrators: the trees, the access log and the reports join *Users* (§11) — see [Authorization §11](authorization.md#11-user-interface) |
+| Instance | Web only, administrators: the trees, the access log and the reports join *Users* (§12) — see [Authorization §11](authorization.md#11-user-interface) |

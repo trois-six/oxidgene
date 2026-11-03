@@ -28,7 +28,7 @@ mod routes {
     use crate::pages::statistics::Statistics;
     use crate::pages::tools::Tools;
     use crate::pages::{
-        app_settings::AppSettings,
+        app_settings::{AppSettings, AppSettingsSection},
         couple_detail::CoupleDetail,
         dictionary::{
             Dictionary, DictionaryPlace, DictionaryPlaces, DictionaryRepositories,
@@ -40,7 +40,6 @@ mod routes {
         not_found::NotFound,
         person_detail::PersonDetail,
         person_history::PersonHistory,
-        profile::Profile,
         search_results::SearchResults,
         settings::Settings,
         tree_detail::TreeDetail,
@@ -169,14 +168,15 @@ mod routes {
         #[route("/trees/:tree_id/settings")]
         Settings { tree_id: String },
 
-        /// Application-wide settings (theme, language).
+        /// The settings: the device's preferences and, in the web build's
+        /// `oidc` mode, the signed-in user's account and an administrator's
+        /// instance (docs/ui-app-settings.md).
         #[route("/settings")]
         AppSettings {},
 
-        /// The signed-in user's profile: the web build's accounts only
-        /// (docs/authentication.md §10).
-        #[route("/profile")]
-        Profile {},
+        /// The settings, open on the section `section` names.
+        #[route("/settings/:section")]
+        AppSettingsSection { section: String },
 
         /// Where a mail's unsubscribe link leads (docs/messaging.md §2.3): the
         /// web build's accounts only, without signing in.
@@ -219,7 +219,7 @@ impl Route {
             Route::Home {}
             | Route::Invitations {}
             | Route::AppSettings {}
-            | Route::Profile {}
+            | Route::AppSettingsSection { .. }
             | Route::Unsubscribe { .. }
             | Route::NotFound { .. } => None,
         }
@@ -248,8 +248,7 @@ impl Route {
             Route::Statistics { .. } => "stats.breadcrumb",
             Route::Tools { .. } => "tools.breadcrumb",
             Route::Settings { .. } => "settings.breadcrumb",
-            Route::AppSettings {} => "app_settings.title",
-            Route::Profile {} => "profile.title",
+            Route::AppSettings {} | Route::AppSettingsSection { .. } => "app_settings.title",
             Route::Unsubscribe { .. } => "unsubscribe.title",
             Route::NotFound { .. } => "not_found.title",
         }
@@ -263,7 +262,7 @@ impl Route {
             Route::Home {}
                 | Route::Invitations {}
                 | Route::AppSettings {}
-                | Route::Profile {}
+                | Route::AppSettingsSection { .. }
                 | Route::Unsubscribe { .. }
         )
     }
@@ -387,7 +386,18 @@ mod tests {
         }
         assert_eq!(Route::Home {}.tree_id(), None);
         assert_eq!(Route::AppSettings {}.tree_id(), None);
-        assert_eq!(Route::Profile {}.tree_id(), None);
+    }
+
+    /// The settings open on a section their address names.
+    #[test]
+    fn the_settings_open_on_a_requested_section() {
+        let plain: Route = "/settings".parse().unwrap();
+        assert_eq!(plain, Route::AppSettings {});
+        let profile = Route::AppSettingsSection {
+            section: "profile".into(),
+        };
+        assert_eq!(profile.to_string(), "/settings/profile");
+        assert_eq!("/settings/profile".parse::<Route>().unwrap(), profile);
     }
 
     /// A failed sign-in comes back to the home page with its error in the
@@ -421,7 +431,7 @@ mod tests {
             "/trees/t/tools",
             "/trees/t/settings",
             "/settings",
-            "/profile",
+            "/settings/profile",
             "/nowhere",
         ] {
             let route: Route = raw.parse().unwrap();
@@ -498,10 +508,9 @@ mod tests {
     }
 
     #[test]
-    fn only_the_homepage_the_settings_and_the_profile_show_the_navbar() {
+    fn only_the_homepage_and_the_settings_show_the_navbar() {
         assert!(Route::Home {}.shows_navbar());
         assert!(Route::AppSettings {}.shows_navbar());
-        assert!(Route::Profile {}.shows_navbar());
         assert!(
             !Route::Dictionary {
                 tree_id: "t".into(),

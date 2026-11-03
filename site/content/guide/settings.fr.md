@@ -11,7 +11,7 @@ Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bo
 ## Ouvrir les paramètres
 
 - **Paramètres de l’arbre** : sur la page d’accueil, ouvrez le menu à trois points de la carte de l’arbre et choisissez **Paramètres**, ou cliquez sur l’icône en forme d’engrenage de la barre latérale gauche, sur n’importe quelle page de l’arbre.
-- **Paramètres de l’application** : cliquez sur l’icône en forme d’engrenage en haut à droite de la page d’accueil.
+- **Paramètres de l’application** : cliquez sur l’icône en forme d’engrenage en haut à droite de la page d’accueil. Dans la version web, une fois connecté, cliquez sur votre avatar en haut à droite et choisissez **Paramètres** : la page contient alors aussi votre compte (voir [Comptes et profil](@/guide/accounts.fr.md#votre-compte)).
 
 {{ <screenshot name="tree-settings" alt="Page des paramètres d’un arbre, avec son menu de gauche" lang={lang} /> }}
 
@@ -74,7 +74,7 @@ Les paramètres de l’application comptent sept sections : **Apparence**, **Lan
 
 Ces préférences sont conservées sur cet appareil. Sur un autre ordinateur, ou dans un autre navigateur, vous les choisissez de nouveau.
 
-Dans la version web avec comptes, un administrateur de l’instance trouve aussi un groupe **Instance** avec une section **Utilisateurs**, décrite dans [Comptes et profil](@/guide/accounts.fr.md#gerer-les-utilisateurs-de-l-instance). La langue de votre compte se choisit dans votre [profil](@/guide/accounts.fr.md#langue).
+Dans la version web avec comptes, un utilisateur connecté trouve aussi en dessous un groupe **Mon compte**, décrit dans [Comptes et profil](@/guide/accounts.fr.md#votre-compte), et un administrateur de l’instance un groupe **Instance** avec une section **Utilisateurs**, décrite [au même endroit](@/guide/accounts.fr.md#gerer-les-utilisateurs-de-l-instance).
 
 {{ <screenshot name="app-settings-dark" alt="Sélecteur de thème des paramètres de l’application, dans le thème sombre" lang={lang} /> }}
 
@@ -111,6 +111,8 @@ La liste complète des noms de couleurs et des préréglages figure dans la [sp�
 ### Langue
 
 Cliquez sur une langue pour changer aussitôt celle de l’interface : English, Français, Deutsch, Español, Italiano, Nederlands, Polski ou Português. Votre généalogie elle-même (noms, notes, sources) n’est jamais traduite.
+
+Dans la version web, une fois connecté, la langue choisie est aussi celle de votre compte : les courriels qu’OxidGene vous envoie sont écrits dans cette langue, et tout appareil où aucune langue n’a été choisie s’ouvre dans celle-ci.
 
 #### Vos propres langues (application de bureau)
 

@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-03T13:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 # Authentication and Sessions
@@ -1017,9 +1017,9 @@ and no other account route is ever called.
   again**, and the code leaves the address so a reload does not show it again.
 - **A visitor.** Until phase 2 there is nothing an anonymous visitor may read
   (§4.8): once the answer names nobody, the home page, every page of a tree
-  and the profile show, instead of their content and its refused requests,
-  *Sign in to continue* with **Sign in**, which returns to that page. The
-  application settings stay open: they are the device's.
+  and the account sections of the settings show, instead of their content
+  and its refused requests, *Sign in to continue* with **Sign in**, which
+  returns to that page. The other settings stay open: they are the device's.
 - **Signed in.** Every state-changing request carries the session's CSRF token
   (§4.4). The account's language becomes the interface's on a device where
   none was chosen, without being stored as the device's choice.
@@ -1033,13 +1033,15 @@ and no other account route is ever called.
   history ([Common UI](ui-common.md)), which names the persons visited.
   **Sign in again** after a session ended forgets that history too: whoever
   signs in next may be someone else.
-- **Profile page** (`/profile`, web only, signed in), in the `sub-page`
-  layout with a left navigation like App Settings:
+- **The account in the settings** (web only, signed in): App Settings
+  ([App Settings §11](ui-app-settings.md#11-group-my-account-web-only)) adds
+  a *My account* group below the device's preferences, which stay as the
+  desktop has them; each section has its address, `/settings/<section>`. The
+  account menu's **Settings** opens the page, and the home page shows no gear
+  once someone is signed in. The group's sections:
   - *Profile*: the avatar with **Upload** (file picker, then a square crop
     selector with zoom) and **Remove**, the display name with **Save** and
     *Use my provider's name*, the email read-only as the provider gives it;
-  - *Language*: the interface language, saved for the account and used as the
-    device's choice where none is stored;
   - *Notifications*: the preferences of [Messaging §2.3](messaging.md#23-preferences);
   - *Sessions*: the list of §6.7 with **End** per session and **Sign out
     everywhere**;
@@ -1050,23 +1052,27 @@ and no other account route is ever called.
     password and second factor, **Download my account data**, and **Delete
     my account**, which lists the trees to transfer or delete first.
 
-  Phase 1 ships *Profile*, *Language*, *Sessions* and *Account*, phase 4
+  The account's language is the Language preference's: chosen while signed
+  in, it is saved for the account as well as on the device, and used as the
+  device's choice where none is stored.
+
+  Phase 1 ships *Profile*, *Sessions* and *Account*, phase 4
   *Notifications* — a switch *Send me emails* and a choice per kind, *Not by
   email*, *By email, at once* or *In a daily email summary*, or, on a
   server without a relay, only that notifications appear in the
-  application; the other sections join the page with their phases. Until memberships exist (phase 2)
+  application; the other sections join the group with their phases. Until memberships exist (phase 2)
   no user owns a tree, so deletion has nothing to list; a refusal (`409`)
   says to transfer or delete the trees first. On the desktop and in `none`
-  mode, `/profile` is not found.
+  mode, the group is absent and its addresses open the first preference.
 - **Instance.** An administrator finds an *Instance* group in App Settings
-  ([App Settings §12](ui-app-settings.md#11-section-instance-web-only)) whose *Users*
+  ([App Settings §12](ui-app-settings.md#12-section-instance-web-only)) whose *Users*
   section lists every user by cursor — avatar, name, username and email, role,
   tree creation, status, last sign-in — with a menu per user: the
   administrator role and tree creation granted or withdrawn, deactivation and
   reactivation, **Change identity…** (issuer and subject, §6.4) and **Erase**
   behind a confirmation. An erased user is listed as *Former member*, with no
   menu; the administrator's own row has none either, their account being
-  their profile's. A change the roles claim decides (§6.3) is refused by the
+  their *My account*'s. A change the roles claim decides (§6.3) is refused by the
   server, and the section says so.
 
   Another user's name or avatar, wherever it appears, opens a small card

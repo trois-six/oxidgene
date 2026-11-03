@@ -240,8 +240,12 @@ test("the app settings switch the theme and the language, and keep both on the d
     await expect(title).toHaveText("Paramètres");
     await expect(page.getByRole("button", { name: "Apparence", exact: true })).toBeVisible();
 
+    // The open section is in the address: a reload keeps it.
+    await expect(page).toHaveURL(/\/settings\/language$/);
     await page.reload();
     await expect(title).toHaveText("Paramètres");
+    await expect(page.locator(".lang-option", { hasText: "Français" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Apparence", exact: true }).click();
     await expect(theme("Sombre")).toHaveAttribute("aria-pressed", "true");
     expect(await background()).not.toBe(lightBackground);
 });

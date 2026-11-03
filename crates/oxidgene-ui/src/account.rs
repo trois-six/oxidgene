@@ -116,7 +116,8 @@ pub enum Gate {
 }
 
 /// What `route` shows to the user `state` describes. The tree list and the
-/// profile need an account; the application settings are the device's.
+/// settings' account sections need an account; the other settings are the
+/// device's.
 /// A tree's pages open to an anonymous visitor: a `public` tree, or one a
 /// share link opened, has anonymous Visitors (docs/authorization.md §6.3,
 /// §6.4). Any other answers `401`, `refused` says so, and the page gives way
@@ -126,8 +127,10 @@ pub enum Gate {
 /// for the answer, so the `none` mode loads as fast as the desktop.
 pub fn gate(state: &AccountState, route: &Route, refused: bool) -> Gate {
     let needs_account = match route {
-        Route::AppSettings {} | Route::NotFound { .. } => false,
-        Route::Home {} | Route::Invitations {} | Route::Profile {} => true,
+        Route::AppSettingsSection { section } => crate::pages::app_settings::needs_account(section),
+        Route::AppSettings {} => false,
+        Route::NotFound { .. } => false,
+        Route::Home {} | Route::Invitations {} => true,
         other => other.tree_id().is_some() && refused,
     };
     if needs_account && *state == AccountState::Anonymous {
@@ -366,7 +369,9 @@ mod tests {
     fn without_accounts_every_page_opens_at_once() {
         for route in [
             Route::Home {},
-            Route::Profile {},
+            Route::AppSettingsSection {
+                section: "profile".into(),
+            },
             Route::AppSettings {},
             Route::Statistics {
                 tree_id: "t".into(),
@@ -391,7 +396,10 @@ mod tests {
             tree_id: "t".into(),
             person: None,
         };
-        for route in [Route::Home {}, Route::Profile {}, Route::Invitations {}] {
+        let profile = Route::AppSettingsSection {
+            section: "profile".into(),
+        };
+        for route in [Route::Home {}, profile, Route::Invitations {}] {
             assert_eq!(
                 gate(&AccountState::Anonymous, &route, false),
                 Gate::SignIn,
@@ -407,11 +415,13 @@ mod tests {
         // A tree opens to an anonymous visitor until the server refuses it.
         assert_eq!(gate(&AccountState::Anonymous, &tree, false), Gate::Open);
         assert_eq!(gate(&AccountState::Anonymous, &tree, true), Gate::SignIn);
-        // The application settings are the device's.
-        assert_eq!(
-            gate(&AccountState::Anonymous, &Route::AppSettings {}, true),
-            Gate::Open
-        );
+        // The other settings are the device's.
+        let appearance = Route::AppSettingsSection {
+            section: "appearance".into(),
+        };
+        for route in [Route::AppSettings {}, appearance] {
+            assert_eq!(gate(&AccountState::Anonymous, &route, true), Gate::Open);
+        }
     }
 
     #[test]

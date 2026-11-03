@@ -1,120 +1,30 @@
-//! The signed-in user's profile (`/profile`, docs/authentication.md §10):
-//! web build only, in `oidc` mode. Its sections:
-//! the display name and avatar, the account's language, the notification
-//! preferences, the sessions, and the account's data and deletion; API
-//! clients, messaging security and blocked users join it with their phases.
+//! The settings' account sections (docs/authentication.md §10,
+//! docs/ui-app-settings.md): the signed-in user's display name and avatar,
+//! notification preferences, sessions, and the account's data and deletion;
+//! API clients, messaging security and blocked users join them with their
+//! phases. The account's language is the Language section's
+//! ([`crate::pages::app_settings::LanguageSection`]).
 //!
-//! On the desktop and in `none` mode there is no account, and the address
-//! is not found.
+//! Web build only, in `oidc` mode: on the desktop and in `none` mode there is
+//! no account, and the settings show none of these sections.
 
 use dioxus::prelude::*;
 use oxidgene_core::notification::NotificationKind;
 
-use crate::account::{AccountState, set_me, sign_out, use_account, use_accounts};
+use crate::account::{set_me, sign_out, use_account, use_accounts};
 use crate::api::account::{AvatarCrop, Me, ProfilePatch, SessionEntry};
 use crate::api::notification::{KindPreference, NotificationPreferences, PreferencesPatch};
 use crate::api::{ApiClient, ApiError};
 use crate::components::avatar_cropper::AvatarCropper;
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::format_timestamp;
 use crate::components::text_field::TextInput;
 use crate::components::user_avatar::{AvatarSize, UserAvatar};
-use crate::i18n::{self, I18n, Language, use_i18n};
-use crate::pages::app_settings::use_settings_scroll_reset;
-use crate::pages::not_found::NotFound;
-use crate::ui_observability::{UiPage, use_ui_load_trace, use_ui_resource};
+use crate::i18n::{I18n, use_i18n};
+use crate::ui_observability::use_ui_resource;
 
 /// The largest avatar file the server takes (docs/authentication.md §6.7).
 const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
-
-/// The sections of the left navigation.
-#[derive(Clone, Copy, PartialEq)]
-enum Section {
-    Profile,
-    Language,
-    Notifications,
-    Sessions,
-    Account,
-}
-
-impl Section {
-    const ALL: [Self; 5] = [
-        Self::Profile,
-        Self::Language,
-        Self::Notifications,
-        Self::Sessions,
-        Self::Account,
-    ];
-
-    fn label_key(self) -> &'static str {
-        match self {
-            Self::Profile => "profile.section_profile",
-            Self::Language => "profile.section_language",
-            Self::Notifications => "profile.section_notifications",
-            Self::Sessions => "profile.section_sessions",
-            Self::Account => "profile.section_account",
-        }
-    }
-}
-
-#[component]
-pub fn Profile() -> Element {
-    let _load_trace = use_ui_load_trace(UiPage::Profile);
-    let account = use_account();
-    let i18n = use_i18n();
-    let mut active = use_signal(|| Section::Profile);
-    use_settings_scroll_reset(active);
-
-    let (me, account_url) = match &*account.read() {
-        AccountState::SignedIn(signed_in) => (signed_in.me.clone(), signed_in.account_url.clone()),
-        // The server has not said yet whether anyone is signed in.
-        AccountState::Loading => return rsx! {},
-        // No account here: the desktop, or the web build in `none` mode.
-        AccountState::Absent | AccountState::Anonymous => {
-            return rsx! {
-                NotFound { segments: vec!["profile".to_string()] }
-            };
-        }
-    };
-
-    rsx! {
-        style { {PROFILE_STYLES} }
-        div { class: "sub-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    span { class: "td-bc-current", {i18n.t("profile.title")} }
-                }
-            }
-            div { class: "sub-page-content",
-                div { class: "settings-layout",
-                    nav { class: "settings-nav",
-                        div { class: "settings-nav-group",
-                            span { class: "settings-nav-group-label", {i18n.t("profile.title")} }
-                            for section in Section::ALL {
-                                button {
-                                    key: "{section.label_key()}",
-                                    class: if active() == section { "settings-nav-item active" } else { "settings-nav-item" },
-                                    onclick: move |_| active.set(section),
-                                    {i18n.t(section.label_key())}
-                                }
-                            }
-                        }
-                    }
-                    div { class: "settings-content",
-                        match active() {
-                            Section::Profile => rsx! { ProfileSection { me } },
-                            Section::Language => rsx! { AccountLanguageSection { me } },
-                            Section::Notifications => rsx! { NotificationsSection {} },
-                            Section::Sessions => rsx! { SessionsSection {} },
-                            Section::Account => rsx! { AccountSection { account_url } },
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// The section's eyebrow, title and subtitle.
 #[component]
@@ -193,7 +103,7 @@ async fn pick_image(i18n: I18n) -> Result<Option<PickedImage>, String> {
 }
 
 #[component]
-fn ProfileSection(me: Me) -> Element {
+pub(crate) fn ProfileSection(me: Me) -> Element {
     let i18n = use_i18n();
     rsx! {
         div { class: "settings-section",
@@ -436,79 +346,13 @@ fn EmailOption(me: Me) -> Element {
     }
 }
 
-// ── Language ────────────────────────────────────────────────────────────────
-
-#[component]
-fn AccountLanguageSection(me: Me) -> Element {
-    let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let account = use_account();
-    let language = use_context::<Signal<Language>>();
-    let mut error = use_signal(|| None::<String>);
-    let mut saving = use_signal(|| false);
-    let chosen = me.locale.as_deref().and_then(Language::try_from_code);
-
-    rsx! {
-        div { class: "settings-section",
-            SectionHeader {
-                eyebrow: i18n.t("profile.section_language"),
-                title: i18n.t("profile.language_title"),
-                subtitle: i18n.t("profile.language_desc"),
-            }
-            div { class: "app-settings-card app-settings-option app-settings-option-stacked",
-                div { class: "lang-options",
-                    for lang in Language::builtins() {
-                        button {
-                            key: "{lang.code()}",
-                            class: if chosen == Some(lang) { "lang-option active" } else { "lang-option" },
-                            aria_pressed: if chosen == Some(lang) { "true" } else { "false" },
-                            disabled: saving(),
-                            onclick: {
-                                let api = api.clone();
-                                move |_| {
-                                    let api = api.clone();
-                                    spawn(async move {
-                                        saving.set(true);
-                                        error.set(None);
-                                        let patch = ProfilePatch {
-                                            display_name: None,
-                                            locale: Some(Some(lang.code().to_string())),
-                                        };
-                                        match api.update_me(&patch).await {
-                                            Ok(me) => {
-                                                set_me(account, me);
-                                                // Chosen here, it is this device's choice too.
-                                                i18n::set_language(language, lang);
-                                            }
-                                            Err(failed) => error.set(Some(failure(&i18n, &failed))),
-                                        }
-                                        saving.set(false);
-                                    });
-                                }
-                            },
-                            span { class: "lang-option-flag", {lang.flag()} }
-                            span { class: "lang-option-label", {lang.native_name()} }
-                            if chosen == Some(lang) {
-                                span { class: "lang-option-check", "\u{2713}" }
-                            }
-                        }
-                    }
-                }
-                if let Some(error) = error() {
-                    div { class: "error-msg", role: "alert", "{error}" }
-                }
-            }
-        }
-    }
-}
-
 // ── Notifications ───────────────────────────────────────────────────────────
 
 /// The preferences of docs/messaging.md §2.3: in the application always;
 /// by email off, at once or in a daily summary, per kind, with one switch
 /// for all email. A server that sends no mail hides the email choices.
 #[component]
-fn NotificationsSection() -> Element {
+pub(crate) fn NotificationsSection() -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut error = use_signal(|| None::<String>);
@@ -626,7 +470,7 @@ fn browser_key(browser: &str) -> &'static str {
 }
 
 #[component]
-fn SessionsSection() -> Element {
+pub(crate) fn SessionsSection() -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let accounts = use_accounts();
@@ -767,7 +611,7 @@ async fn download_account_data(api: &ApiClient) -> Result<(), ApiError> {
 }
 
 #[component]
-fn AccountSection(account_url: Option<String>) -> Element {
+pub(crate) fn AccountSection(account_url: Option<String>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let accounts = use_accounts();
@@ -878,7 +722,7 @@ fn AccountSection(account_url: Option<String>) -> Element {
     }
 }
 
-const PROFILE_STYLES: &str = r#"
+pub(crate) const PROFILE_STYLES: &str = r#"
     .profile-avatar-row {
         display: flex;
         align-items: center;
@@ -946,14 +790,11 @@ mod tests {
 
     #[test]
     fn every_browser_family_has_a_name() {
-        let english = Language::english().translations();
+        let english = crate::i18n::Language::english().translations();
         for browser in [
             "firefox", "chrome", "edge", "safari", "opera", "other", "lynx",
         ] {
             assert!(english.contains_key(browser_key(browser)), "{browser}");
-        }
-        for section in Section::ALL {
-            assert!(english.contains_key(section.label_key()));
         }
     }
 }

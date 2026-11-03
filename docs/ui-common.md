@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-03T12:40:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -84,7 +84,8 @@ the contextual topbar.
   OxidGene logo linking to `/`, lead it.
 - In the web build's `oidc` mode its right zone holds **Sign in** for a
   visitor, or the signed-in user's avatar ([§4.19](#419-useravatar)) opening
-  the account menu: their name and email, **Profile**, **Sign out**
+  the account menu: their name and email, **Settings** (the [App Settings](ui-app-settings.md)
+  page, its account sections included), **Sign out**
   ([Authentication §10](authentication.md#10-user-interface)). The desktop and
   the web build's `none` mode render no right zone at all.
 - Before the avatar, the signed-in user's notification bell
@@ -1197,9 +1198,9 @@ applied through the dot's inline style.
 
 One component, `UserAvatar` (`components/user_avatar.rs`), draws the avatar
 of a user of the instance wherever one appears: the navbar's account menu,
-the profile page, the administrator's list of users
+the settings' Profile section, the administrator's list of users
 ([Authentication §6.7](authentication.md#67-profile-and-avatar)). It is a
-circle, 32 px in a bar or a row, 96 px on the profile page, named for
+circle, 32 px in a bar or a row, 96 px in the Profile section, named for
 assistive technology by the user's name.
 
 - **Uploaded.** The image the user uploaded, at the stored size nearest

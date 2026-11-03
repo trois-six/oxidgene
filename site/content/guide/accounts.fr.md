@@ -16,13 +16,15 @@ Les comptes n’existent que dans la version web, et seulement si la personne qu
 
 OxidGene ne voit jamais votre mot de passe : le fournisseur d’identité le conserve, comme votre second facteur et la récupération d’un mot de passe oublié. Sa page s’ouvre dans la langue de l’interface quand il la propose.
 
-Tant que vous n’êtes pas connecté, les pages qui montrent les arbres et votre profil proposent **Se connecter** à la place de leur contenu. Les paramètres de l’application restent accessibles : ils appartiennent à votre appareil.
+Tant que vous n’êtes pas connecté, les pages qui montrent les arbres et les paramètres de votre compte proposent **Se connecter** à la place de leur contenu. Les autres paramètres de l’application restent accessibles : ils appartiennent à votre appareil.
 
 Si la connexion échoue, la page où vous revenez en donne la raison : vous ou le fournisseur l’avez refusée, l’instance n’admet que les personnes qu’elle a invitées, votre compte a été désactivé, ou le fournisseur était injoignable. **Réessayer** recommence.
 
 ## Le menu du compte
 
-Une fois connecté, votre avatar remplace **Se connecter** en haut à droite de la page d’accueil et des paramètres de l’application. Cliquez dessus pour ouvrir le menu du compte : votre nom et votre adresse e-mail, **Profil** et **Se déconnecter**.
+Une fois connecté, votre avatar remplace **Se connecter** en haut à droite de la page d’accueil et des paramètres de l’application. Cliquez dessus pour ouvrir le menu du compte : votre nom et votre adresse e-mail, **Paramètres** et **Se déconnecter**.
+
+**Paramètres** ouvre les [paramètres de l’application](@/guide/settings.fr.md), qui contiennent alors aussi votre compte. Il remplace l’icône en forme d’engrenage de la page d’accueil, qu’un utilisateur connecté ne voit plus.
 
 **Se déconnecter** termine votre session dans OxidGene, puis chez le fournisseur d’identité : la connexion suivante vous redemande qui vous êtes. Elle vide aussi les copies des images que le navigateur vous a montrées : votre navigateur garde chaque photographie qu’il a affichée, pour qu’une page où vous revenez apparaisse aussitôt, et se déconnecter sur un ordinateur partagé n’en laisse aucune. Une session qui se termine autrement les vide la prochaine fois que ce navigateur contacte OxidGene.
 
@@ -38,11 +40,11 @@ OxidGene vous dit ce qui vous arrive, à vous et à vos arbres : un arbre partag
 - **Les nouvelles notifications arrivent d’elles-mêmes** tant que la page est ouverte : rien à recharger. Un onglet en arrière-plan ne demande rien jusqu’à ce que vous y reveniez.
 - Une notification sur un arbre que vous ne voyez plus indique *Un arbre n’est plus partagé avec vous*, sans son nom. Les notifications sont conservées 90 jours.
 
-Quand l’instance envoie des courriels, certaines notifications vous parviennent aussi par courriel, comme vous le choisissez dans votre profil (ci-dessous). Chaque courriel se termine par **Ne plus recevoir ces courriels** : le lien ouvre une page qui demande confirmation avant de désactiver ce type de courriel, et le bouton *Se désabonner* de votre messagerie fait de même aussitôt. Les courriels de connexion de l’instance — vérification d’adresse, mot de passe oublié — viennent du fournisseur d’identité, pas d’OxidGene, et ces réglages ne les changent pas.
+Quand l’instance envoie des courriels, certaines notifications vous parviennent aussi par courriel, comme vous le choisissez dans les paramètres de votre compte (ci-dessous). Chaque courriel se termine par **Ne plus recevoir ces courriels** : le lien ouvre une page qui demande confirmation avant de désactiver ce type de courriel, et le bouton *Se désabonner* de votre messagerie fait de même aussitôt. Les courriels de connexion de l’instance — vérification d’adresse, mot de passe oublié — viennent du fournisseur d’identité, pas d’OxidGene, et ces réglages ne les changent pas.
 
-## Votre profil
+## Votre compte
 
-Ouvrez **Profil** depuis le menu du compte. Son menu de gauche compte cinq sections.
+Ouvrez **Paramètres** depuis le menu du compte. Sous les **Préférences** de votre appareil, le menu de gauche compte un groupe **Mon compte** de quatre sections.
 
 ### Profil
 
@@ -50,10 +52,6 @@ Ouvrez **Profil** depuis le menu du compte. Son menu de gauche compte cinq secti
 - Sans image, votre avatar montre vos initiales — la première lettre des deux premiers mots de votre nom — sur une couleur choisie d’après votre compte, toujours la même sur chaque appareil.
 - **Nom affiché** : le nom que voient les personnes avec qui vous partagez des arbres. Saisissez-le et cliquez sur **Enregistrer**. **Utiliser le nom du fournisseur** revient au nom que donne votre fournisseur d’identité.
 - **E-mail** : telle que la donne votre fournisseur d’identité, avec la mention vérifiée ou non. Modifiez-la chez le fournisseur.
-
-### Langue
-
-Choisissez la langue de l’interface pour votre compte. Elle s’applique aussitôt sur cet appareil, et sur tout appareil où aucune langue n’a été choisie dans les [paramètres de l’application](@/guide/settings.fr.md). Les courriels qu’OxidGene vous envoie sont écrits dans cette langue aussi.
 
 ### Notifications
 
@@ -91,4 +89,4 @@ Le menu **⋮** d’un utilisateur propose :
 - **Changer d’identité…**, qui relie le compte à une autre identité chez le fournisseur — son émetteur et son sujet — après le passage de l’instance à un autre fournisseur d’identité ;
 - **Effacer**, qui supprime définitivement le compte après confirmation ; l’historique présente alors l’utilisateur comme un ancien membre.
 
-Votre propre compte n’a pas de menu ici : modifiez-le depuis votre profil. Quand le fournisseur d’identité décide des rôles — les administrateurs de l’instance viennent alors d’un groupe chez le fournisseur —, changer un rôle ici est refusé, et le changement se fait chez le fournisseur.
+Votre propre compte n’a pas de menu ici : modifiez-le depuis **Mon compte**. Quand le fournisseur d’identité décide des rôles — les administrateurs de l’instance viennent alors d’un groupe chez le fournisseur —, changer un rôle ici est refusé, et le changement se fait chez le fournisseur.

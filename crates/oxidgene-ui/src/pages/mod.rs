@@ -1,5 +1,6 @@
 //! Page components (one per route).
 
+pub mod account_settings;
 pub mod app_settings;
 pub mod couple_detail;
 pub mod dictionary;
@@ -17,7 +18,6 @@ pub mod not_found;
 pub mod person_detail;
 pub mod person_history;
 pub mod privacy_settings;
-pub mod profile;
 pub mod search_results;
 pub mod settings;
 pub mod sharing_settings;

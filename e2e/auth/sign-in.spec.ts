@@ -4,8 +4,8 @@
 // role a groups claim gives, CSRF, sign-out at both ends, sessions ended by
 // the provider or everywhere, and the tokens the API refuses; then the web
 // interface over them (§10): the navbar's sign-in and account menu, the
-// failed sign-in and ended-session dialogs, the profile page and the
-// administrator's list of users.
+// failed sign-in and ended-session dialogs, the settings' account sections
+// and the administrator's list of users.
 //
 // Every user is fictitious, named after a role, with that role as password
 // (docker/rauthy/bootstrap/users.json). Every test skips itself while
@@ -304,11 +304,14 @@ test("a visitor signs in from the navbar, and signs out from the account menu", 
     // The generated avatar: the initials of "Owner Example".
     await expect(trigger.getByRole("img", { name: "Owner Example" })).toHaveText("OE");
     await expect(page.getByRole("heading", { name: "Sign in to continue" })).toHaveCount(0);
+    // Signed in, the account menu leads to the settings: the home page has
+    // no gear of its own.
+    await expect(page.locator(".home-settings-btn")).toHaveCount(0);
     await trigger.click();
     const menu = page.getByRole("menu");
     await expect(menu.getByText("Owner Example")).toBeVisible();
     await expect(menu.getByText("owner@example.invalid")).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "Profile" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Settings" })).toBeVisible();
 
     // Signing out ends the session here and at the provider, which sends the
     // browser home.
@@ -329,7 +332,7 @@ test("a failed sign-in says why on the page it returns to", async ({ page }) => 
 });
 
 test("a session that ends under a page offers to sign in again to it", async ({ page, request }) => {
-    await signIn(page, "guest", "/profile");
+    await signIn(page, "guest", "/settings/profile");
     await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
 
     await endProviderSessions(request, "guest");
@@ -341,12 +344,12 @@ test("a session that ends under a page offers to sign in again to it", async ({ 
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Sign in again" }).click();
     await signInAtProvider(page, "guest");
-    expect(new URL(page.url()).pathname).toBe("/profile");
-    await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe("/settings/sessions");
+    await expect(page.getByRole("heading", { name: "Your sessions" })).toBeVisible();
 });
 
-test("the profile page changes the name, the avatar and the language, and lists the sessions", async ({ page }) => {
-    await signIn(page, "editor", "/profile");
+test("the settings' account sections change the name, the avatar and the language, and list the sessions", async ({ page }) => {
+    await signIn(page, "editor", "/settings/profile");
     const content = page.locator(".settings-content");
     const navbar = page.locator(".app-nav");
 
@@ -378,13 +381,17 @@ test("the profile page changes the name, the avatar and the language, and lists 
     await expect(content.locator(".user-avatar img")).toHaveCount(0);
     await expect(navbarAvatar).toHaveText("EE");
 
-    // The account's language is the interface's at once.
+    // The language, chosen signed in, is the interface's at once and the
+    // account's too.
     const sections = page.locator(".settings-nav");
     await sections.getByRole("button", { name: "Language" }).click();
+    await expect(content.getByText("Saved with your account")).toBeVisible();
     await content.getByRole("button", { name: /Français/ }).click();
-    await expect(page.getByRole("heading", { name: "Votre langue" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Langue" })).toBeVisible();
+    await expect.poll(async () => (await (await page.request.get("/api/v1/me")).json()).locale).toBe("fr");
     await content.getByRole("button", { name: /English/ }).click();
-    await expect(page.getByRole("heading", { name: "Your language" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Language" })).toBeVisible();
+    await expect.poll(async () => (await (await page.request.get("/api/v1/me")).json()).locale).toBe("en");
 
     // This browser's session is listed, and marked.
     await sections.getByRole("button", { name: "Sessions" }).click();

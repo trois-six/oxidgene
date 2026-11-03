@@ -521,7 +521,7 @@ pub fn Settings(tree_id: String) -> Element {
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
     use_ui_load_trace(UiPage::Settings);
     let active_section = use_signal(|| "tree-roots".to_string());
-    use_settings_scroll_reset(active_section);
+    use_settings_scroll_reset(active_section());
     let mut export_loading = use_signal(|| false);
     let mut export_error = use_signal(|| None::<String>);
     let mut export_success = use_signal(|| None::<String>);

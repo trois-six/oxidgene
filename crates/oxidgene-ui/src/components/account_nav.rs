@@ -102,12 +102,15 @@ pub fn AccountNav() -> Element {
                             span { class: "account-menu-email", "{email}" }
                         }
                     }
+                    // The settings, the account's sections among them: the
+                    // way to them once signed in, in place of the home
+                    // page's gear (docs/ui-app-settings.md §1).
                     Link {
-                        to: Route::Profile {},
+                        to: Route::AppSettings {},
                         role: "menuitem",
                         class: "context-menu-item",
                         onclick: move |_| menu.close.call(()),
-                        {i18n.t("account.profile")}
+                        {i18n.t("app_settings.title")}
                     }
                     button {
                         role: "menuitem",

@@ -16,13 +16,15 @@ Accounts exist in the web version only, and only when whoever runs it has connec
 
 OxidGene never sees your password: the identity provider keeps it, along with your second factor and the recovery of a forgotten password. The provider's page opens in the interface language when it has it.
 
-Until you sign in, the pages that show trees and your profile offer **Sign in** instead of their content. The application settings stay available: they belong to your device.
+Until you sign in, the pages that show trees and your account's settings offer **Sign in** instead of their content. The other application settings stay available: they belong to your device.
 
 If the sign-in fails, the page you return to says why: you or the provider refused it, the instance only admits the people it invited, your account was deactivated, or the provider could not be reached. **Try again** starts over.
 
 ## The account menu
 
-Once signed in, your avatar replaces **Sign in** at the top right of the home page and of the application settings. Click it to open the account menu: your name and email, **Profile**, and **Sign out**.
+Once signed in, your avatar replaces **Sign in** at the top right of the home page and of the application settings. Click it to open the account menu: your name and email, **Settings**, and **Sign out**.
+
+**Settings** opens the [application settings](@/guide/settings.md), which then hold your account too. It replaces the gear icon of the home page, which a signed-in user no longer sees.
 
 **Sign out** ends your session in OxidGene, then at the identity provider, so the next sign-in asks who you are again. It also empties the browser's copies of the pictures you were shown: your browser keeps each photograph it has drawn, so that a page you come back to appears at once, and signing out on a shared computer leaves none of them behind. A session that ends any other way empties them the next time that browser reaches OxidGene.
 
@@ -38,11 +40,11 @@ OxidGene tells you what happens to you and your trees: a tree shared with you, y
 - **New notifications arrive by themselves** while the page is open: there is nothing to reload. A tab in the background asks nothing until you come back to it.
 - A notification about a tree you no longer see reads *A tree is no longer shared with you*, without its name. Notifications are kept 90 days.
 
-When the instance sends email, some notifications also reach you by email, as you choose in your profile (below). Each email ends with **Stop these emails**: the link opens a page that asks before it turns that kind of email off, and your mail application's own *Unsubscribe* button does the same at once. The instance's sign-in emails — address check, password reset — come from the identity provider, not from OxidGene, and these settings do not change them.
+When the instance sends email, some notifications also reach you by email, as you choose in your account's settings (below). Each email ends with **Stop these emails**: the link opens a page that asks before it turns that kind of email off, and your mail application's own *Unsubscribe* button does the same at once. The instance's sign-in emails — address check, password reset — come from the identity provider, not from OxidGene, and these settings do not change them.
 
-## Your profile
+## Your account
 
-Open **Profile** from the account menu. Its left menu has five sections.
+Open **Settings** from the account menu. Below the **Preferences** of your device, the left menu has a **My account** group of four sections.
 
 ### Profile
 
@@ -50,10 +52,6 @@ Open **Profile** from the account menu. Its left menu has five sections.
 - Without an image, your avatar shows your initials — the first letter of the first two words of your name — on a colour chosen from your account, always the same on every device.
 - **Display name**: the name the people you share trees with see. Type it and click **Save**. **Use my provider's name** goes back to the name your identity provider gives.
 - **Email**: as your identity provider gives it, with whether it is verified. Change it at the provider.
-
-### Language
-
-Choose the interface language for your account. It applies at once on this device, and on any device where no language has been chosen in the [application settings](@/guide/settings.md). OxidGene's emails to you are written in this language too.
 
 ### Notifications
 
@@ -91,4 +89,4 @@ The **⋮** menu of a user offers:
 - **Change identity…**, which binds the account to another identity at the provider — its issuer and subject — after the instance moves to another identity provider;
 - **Erase**, which deletes the account for good after a confirmation; the history then shows the user as a former member.
 
-Your own account has no menu here: change it from your profile. When the identity provider decides the roles — the instance's administrators then come from a group at the provider — changing a role here is refused, and the change is made at the provider.
+Your own account has no menu here: change it from **My account**. When the identity provider decides the roles — the instance's administrators then come from a group at the provider — changing a role here is refused, and the change is made at the provider.

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 
@@ -318,7 +318,7 @@ avatar's version (**Versioned assets** above), or
 | `POST` | `/trees/{tree_id}/ownership` | `{ user_id }`: hand the tree to one of its members, the owner becoming an editor, in one transaction; answers the new owner as a member. Owner only. GraphQL: `transferTreeOwnership(treeId, userId)` |
 | `GET` | `/trees/{tree_id}/access-log` | The tree's access events, as `/admin/access-log`. Owner only. GraphQL: `treeAccessEvents(treeId, first, after)` |
 
-Used by: the web frontend's profile page and its Instance section
+Used by: the web frontend's settings, their *My account* and *Instance* sections
 ([Authentication §10](authentication.md#10-user-interface)).
 
 ### Exclusions from sharing

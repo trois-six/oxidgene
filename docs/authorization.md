@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-02T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 # Authorization and Sharing
@@ -806,7 +806,7 @@ refuses (`401`) gives way to the invitation to sign in.
   with name, role, scopes, scope and expiry; the secret shown once; rotate,
   revoke, usage); **Access log**. Members other than the owner see a
   **Leave this tree** button in Tree & Roots.
-- **Profile page** ([Authentication §10](authentication.md#10-user-interface)):
+- **My account**, in App Settings ([Authentication §10](authentication.md#10-user-interface)):
   the user's own API clients among its sections. Names and avatars of other
   users appear only to those who may see them
   ([Authentication §6.7](authentication.md#67-profile-and-avatar)).

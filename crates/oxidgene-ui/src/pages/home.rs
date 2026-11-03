@@ -333,10 +333,13 @@ impl TreeSummary {
     }
 }
 
-/// The page title and the link to the application settings.
+/// The page title and the link to the settings. A signed-in user reaches
+/// them from the account menu instead, the one way to them beside the avatar
+/// (docs/ui-home.md).
 #[component]
 fn HomeHeader() -> Element {
     let i18n = use_i18n();
+    let signed_in = crate::account::use_account().read().me().is_some();
     rsx! {
         div { class: "home-page-header",
             div { class: "home-page-header-row",
@@ -344,21 +347,23 @@ fn HomeHeader() -> Element {
                     {i18n.t("home.title_prefix")}
                     span { class: "home-title-accent", {i18n.t("home.title_accent")} }
                 }
-                Link {
-                    to: Route::AppSettings {},
-                    class: "home-settings-btn",
-                    title: "{i18n.t(\"app_settings.title\")}",
-                    "aria-label": "{i18n.t(\"app_settings.title\")}",
-                    svg {
-                        width: "20",
-                        height: "20",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "1.8",
-                        // Gear icon
-                        path { d: "M12 15a3 3 0 100-6 3 3 0 000 6z" }
-                        path { d: "M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" }
+                if !signed_in {
+                    Link {
+                        to: Route::AppSettings {},
+                        class: "home-settings-btn",
+                        title: "{i18n.t(\"app_settings.title\")}",
+                        "aria-label": "{i18n.t(\"app_settings.title\")}",
+                        svg {
+                            width: "20",
+                            height: "20",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "1.8",
+                            // Gear icon
+                            path { d: "M12 15a3 3 0 100-6 3 3 0 000 6z" }
+                            path { d: "M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" }
+                        }
                     }
                 }
             }

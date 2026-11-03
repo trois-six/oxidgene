@@ -36,9 +36,10 @@ test("without authentication the interface shows no account", async ({ page, tre
     await expect(page.getByText("Instance", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Users", exact: true })).toHaveCount(0);
 
-    // There is no profile to open.
-    await page.goto("/profile");
-    await expect(page.getByRole("heading", { level: 1, name: "404 — Not Found" })).toBeVisible();
+    // There is no account to open: its section gives way to the first one.
+    await page.goto("/settings/profile");
+    await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+    await expect(page.getByText("My account", { exact: true })).toHaveCount(0);
 
     // A tree page opens as it always did.
     await page.goto(`/trees/${tree.treeId}`);

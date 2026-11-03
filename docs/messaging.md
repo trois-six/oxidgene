@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Communication between the users of a web deployment: in-app notifications and their preferences and email sent through the operator's SMTP relay from a worker-processed outbox, with translated templates, daily digests and one-click unsubscribe, implemented; and, planned, end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-02T10:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 ---
 
 # Messaging and Notifications
@@ -562,7 +562,8 @@ in the web build only.
   **Report** in a side panel; a banner when a member's identity changed.
 - **Person page.** *Discuss this person* starts a group with chosen members
   of the tree, about that person.
-- **Messaging security** and **Blocked users** on the profile page
+- **Messaging security** and **Blocked users** among the account sections of
+  App Settings
   ([Authentication §10](authentication.md#10-user-interface)): enrolment with
   the passphrase or recovery key and its warning; the devices list with
   **Add a device** (QR) and **Remove**; **Forget this device**; the user's own
